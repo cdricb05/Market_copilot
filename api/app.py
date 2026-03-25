@@ -5,6 +5,8 @@ Endpoints:
     POST /v1/signals   — ingest a signal batch and run the decision workflow
     POST /v1/fill      — run the fill cycle for a given market_date
     POST /v1/prices    — bulk-insert price snapshots (manual ingestion)
+    GET  /v1/positions — list all open positions
+    GET  /v1/orders    — list orders, optionally filtered by status/market_date
     GET  /v1/portfolio — return current portfolio state
 
 Authentication: every endpoint requires the X-API-Key header to match
@@ -20,7 +22,7 @@ from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, HTTPException, Security, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
@@ -33,7 +35,7 @@ from paper_trader.constants import (
     SessionType,
     WorkflowType,
 )
-from paper_trader.db.models import JobRun, Portfolio, PriceSnapshot
+from paper_trader.db.models import JobRun, Order, Portfolio, Position, PriceSnapshot
 from paper_trader.db.session import get_dedicated_session, get_session
 from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.reconciler import run_fill_cycle
@@ -121,6 +123,31 @@ class PricesRequest(BaseModel):
 
 class PricesResponse(BaseModel):
     inserted: int
+
+
+class PositionOut(BaseModel):
+    id: str
+    ticker: str
+    qty: str
+    avg_cost: str
+    cost_basis: str
+    opened_at: datetime
+    last_updated: datetime
+
+
+class OrderOut(BaseModel):
+    id: str
+    ticker: str
+    side: str
+    status: str
+    market_date: date
+    requested_qty: str
+    filled_qty: str | None
+    requested_at: datetime
+    filled_at: datetime | None
+    fill_price: str | None
+    commission: str | None
+    notes: str | None
 
 
 class PortfolioOut(BaseModel):
@@ -350,6 +377,75 @@ def ingest_prices(body: PricesRequest) -> PricesResponse:
     with get_session() as session:
         session.add_all(rows)
     return PricesResponse(inserted=len(rows))
+
+
+@app.get(
+    "/v1/positions",
+    response_model=list[PositionOut],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def list_positions() -> list[PositionOut]:
+    """List all currently open positions."""
+    with get_session() as session:
+        positions = session.execute(
+            select(Position).order_by(Position.opened_at)
+        ).scalars().all()
+        return [
+            PositionOut(
+                id=str(pos.id),
+                ticker=pos.ticker,
+                qty=str(pos.qty),
+                avg_cost=str(pos.avg_cost),
+                cost_basis=str(pos.cost_basis),
+                opened_at=pos.opened_at,
+                last_updated=pos.last_updated,
+            )
+            for pos in positions
+        ]
+
+
+@app.get(
+    "/v1/orders",
+    response_model=list[OrderOut],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def list_orders(
+    order_status: str | None = Query(default=None, alias="status"),
+    market_date: date | None = Query(default=None),
+) -> list[OrderOut]:
+    """
+    List orders, most recent first.
+
+    Optional filters:
+        status      — e.g. PENDING, FILLED, EXPIRED, FAILED
+        market_date — US Eastern trading date
+    """
+    with get_session() as session:
+        stmt = select(Order).order_by(Order.requested_at.desc())
+        if order_status is not None:
+            stmt = stmt.where(Order.status == order_status)
+        if market_date is not None:
+            stmt = stmt.where(Order.market_date == market_date)
+        orders = session.execute(stmt).scalars().all()
+        return [
+            OrderOut(
+                id=str(o.id),
+                ticker=o.ticker,
+                side=o.side,
+                status=o.status,
+                market_date=o.market_date,
+                requested_qty=str(o.requested_qty),
+                filled_qty=str(o.filled_qty) if o.filled_qty is not None else None,
+                requested_at=o.requested_at,
+                filled_at=o.filled_at,
+                fill_price=str(o.fill_price) if o.fill_price is not None else None,
+                commission=str(o.commission) if o.commission is not None else None,
+                notes=o.notes,
+            )
+            for o in orders
+        ]
 
 
 @app.get(
