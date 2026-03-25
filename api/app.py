@@ -4,6 +4,7 @@ api/app.py — FastAPI application for paper_trader.
 Endpoints:
     POST /v1/signals   — ingest a signal batch and run the decision workflow
     POST /v1/fill      — run the fill cycle for a given market_date
+    POST /v1/prices    — bulk-insert price snapshots (manual ingestion)
     GET  /v1/portfolio — return current portfolio state
 
 Authentication: every endpoint requires the X-API-Key header to match
@@ -28,9 +29,11 @@ from paper_trader.config import get_settings
 from paper_trader.constants import (
     PORTFOLIO_ADVISORY_LOCK_KEY,
     JobRunStatus,
+    PriceType,
+    SessionType,
     WorkflowType,
 )
-from paper_trader.db.models import JobRun, Portfolio
+from paper_trader.db.models import JobRun, Portfolio, PriceSnapshot
 from paper_trader.db.session import get_dedicated_session, get_session
 from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.reconciler import run_fill_cycle
@@ -93,6 +96,31 @@ class FillResponse(BaseModel):
     expired: int
     failed: int
     skipped: int
+
+
+class PriceSnapshotIn(BaseModel):
+    ticker: str
+    price: Decimal
+    session_type: str = SessionType.MANUAL
+    price_type: str = PriceType.LAST
+    exchange: str | None = None
+    data_source: str | None = None
+    snapshot_ts: datetime | None = Field(
+        default=None,
+        description="Defaults to server UTC clock if omitted.",
+    )
+    market_date: date | None = Field(
+        default=None,
+        description="Defaults to US-Eastern date of snapshot_ts if omitted.",
+    )
+
+
+class PricesRequest(BaseModel):
+    snapshots: list[PriceSnapshotIn]
+
+
+class PricesResponse(BaseModel):
+    inserted: int
 
 
 class PortfolioOut(BaseModel):
@@ -287,6 +315,41 @@ def trigger_fill(body: FillRequest) -> FillResponse:
             detail=str(exc),
         )
     return FillResponse(**result)
+
+
+@app.post(
+    "/v1/prices",
+    response_model=PricesResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def ingest_prices(body: PricesRequest) -> PricesResponse:
+    """
+    Bulk-insert price snapshots.
+
+    job_run_id is null for all rows (manual ingestion outside a workflow run).
+    snapshot_ts defaults to the server UTC clock. market_date defaults to the
+    US-Eastern date of snapshot_ts.
+    """
+    now, _ = _now_and_date()
+    rows = []
+    for snap in body.snapshots:
+        ts = snap.snapshot_ts or now
+        md = snap.market_date or ts.astimezone(_EASTERN).date()
+        rows.append(PriceSnapshot(
+            ticker=snap.ticker,
+            price=snap.price,
+            session_type=snap.session_type,
+            price_type=snap.price_type,
+            exchange=snap.exchange,
+            data_source=snap.data_source,
+            snapshot_ts=ts,
+            market_date=md,
+            job_run_id=None,
+        ))
+    with get_session() as session:
+        session.add_all(rows)
+    return PricesResponse(inserted=len(rows))
 
 
 @app.get(
