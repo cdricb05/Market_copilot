@@ -155,6 +155,8 @@ def _do_fill(
             trade_ts=now,
             market_date=market_date,
         ))
+        # Force Trade insert before appending CashLedger rows that reference it
+        session.flush()
 
         append_cash_entry(
             session,
@@ -217,6 +219,8 @@ def _do_fill(
             trade_ts=now,
             market_date=market_date,
         ))
+        # Force Trade insert before appending CashLedger rows that reference it
+        session.flush()
 
         append_cash_entry(
             session,
@@ -333,9 +337,14 @@ def run_fill_cycle(
             counts["filled"] += 1
 
         except ValueError as exc:
+            order_id = order.id  # Capture ID before rollback
             session.rollback()
-            order.status = OrderStatus.FAILED
-            order.notes  = str(exc)
+            # Re-fetch the order from the database to avoid stale object
+            fresh_order = session.execute(
+                select(Order).where(Order.id == order_id)
+            ).scalar_one()
+            fresh_order.status = OrderStatus.FAILED
+            fresh_order.notes  = str(exc)
             session.commit()
             counts["failed"] += 1
 
