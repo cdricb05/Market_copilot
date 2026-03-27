@@ -98,7 +98,7 @@ def _do_fill(
 
     Raises ValueError if a fill-time precondition fails (insufficient cash
     for BUY; missing or undersized position for SELL). The caller catches
-    ValueError, rolls back, and marks the order FAILED.
+    ValueError, rolls back the savepoint, and marks the order FAILED.
 
     trade_id is pre-generated so cash ledger rows can reference it without
     requiring a flush. Order fields are written last so any ValueError above
@@ -269,9 +269,9 @@ def run_fill_cycle(
     """
     Process all PENDING orders for market_date and update portfolio state.
 
-    Each state transition (expire / fill / fail) is committed as its own
-    transaction. An unexpected non-ValueError exception from _do_fill rolls
-    back the current fill and re-raises; the order remains PENDING.
+    Each fill attempt is isolated in a nested transaction (savepoint). If a
+    fill fails with ValueError, only the savepoint is rolled back, preserving
+    the outer transaction state and allowing the order to be marked FAILED.
 
     Portfolio cache refresh runs after the fill loop. Raises ValueError if
     any open position is missing a latest price snapshot.
@@ -320,7 +320,8 @@ def run_fill_cycle(
         else:
             fill_price = (snapshot_price * (Decimal("1") - slippage)).quantize(_PRICE)
 
-        # --- Attempt fill ---
+        # --- Attempt fill with savepoint isolation ---
+        sp = session.begin_nested()
         try:
             _do_fill(
                 session,
@@ -333,22 +334,20 @@ def run_fill_cycle(
                 market_date=market_date,
                 job_run_id=job_run_id,
             )
+            sp.commit()
             session.commit()
             counts["filled"] += 1
 
         except ValueError as exc:
-            order_id = order.id  # Capture ID before rollback
-            session.rollback()
-            # Re-fetch the order from the database to avoid stale object
-            fresh_order = session.execute(
-                select(Order).where(Order.id == order_id)
-            ).scalar_one()
-            fresh_order.status = OrderStatus.FAILED
-            fresh_order.notes  = str(exc)
+            sp.rollback()
+            # order remains attached to session; outer transaction still active
+            order.status = OrderStatus.FAILED
+            order.notes  = str(exc)
             session.commit()
             counts["failed"] += 1
 
         except Exception:
+            sp.rollback()
             session.rollback()
             raise
 
