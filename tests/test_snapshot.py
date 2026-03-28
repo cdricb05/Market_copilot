@@ -34,6 +34,7 @@ from paper_trader.constants import (
 )
 from paper_trader.db.models import (
     Base,
+    BenchmarkPrice,
     JobRun,
     Portfolio,
     PortfolioSnapshot,
@@ -46,13 +47,14 @@ from paper_trader.workflows.snapshot import run_snapshot_workflow
 _NOW = datetime(2025, 1, 15, 20, 0, 0, tzinfo=timezone.utc)
 
 # Unique market dates per test to satisfy uq_portfolio_snapshots_market_date.
-_DATE_EMPTY    = date(2025, 1, 10)   # no-positions test
-_DATE_POSITION = date(2025, 1, 11)   # open-positions test
-_DATE_MISSING  = date(2025, 1, 12)   # missing-price error test
-_DATE_REPLAY   = date(2025, 1, 13)   # idempotent replay test
-_DATE_RUNNING  = date(2025, 1, 14)   # RUNNING conflict test
-_DATE_FAILED   = date(2025, 1, 15)   # FAILED conflict test
-_DATE_BENCH    = date(2025, 1, 16)   # benchmark-null test
+_DATE_EMPTY      = date(2025, 1, 10)   # no-positions test
+_DATE_POSITION   = date(2025, 1, 11)   # open-positions test
+_DATE_MISSING    = date(2025, 1, 12)   # missing-price error test
+_DATE_REPLAY     = date(2025, 1, 13)   # idempotent replay test
+_DATE_RUNNING    = date(2025, 1, 14)   # RUNNING conflict test
+_DATE_FAILED     = date(2025, 1, 15)   # FAILED conflict test
+_DATE_BENCH      = date(2025, 1, 16)   # benchmark-null test
+_DATE_BENCH_FULL = date(2025, 1, 17)   # benchmark fully populated test
 
 
 # ---------------------------------------------------------------------------
@@ -386,3 +388,60 @@ class TestSnapshotCreation:
             assert snap.benchmark_inception_price is None
             assert snap.benchmark_value           is None
             assert snap.portfolio_vs_benchmark    is None
+
+    def test_benchmark_fields_populated_when_data_present(self, seeded_db) -> None:
+        """
+        SPY inception price = $400 (table lookup on portfolio.inception_date),
+        SPY current price   = $500 (most recent by snapshot_ts).
+
+        Math:
+            benchmark_inception_price = $400.000000
+            benchmark_price           = $500.000000
+            benchmark_value           = 10000.00 / 400.000000 * 500.000000 = $12,500.00
+            total_value               = $10,000.00 (cash only, no positions)
+            portfolio_vs_benchmark    = 10000.00 - 12500.00 = -$2,500.00
+        """
+        _INCEPTION_TS = datetime(2025, 1, 1, 21, 0, 0, tzinfo=timezone.utc)
+
+        with Session(seeded_db, autoflush=False, expire_on_commit=False) as session:
+            portfolio = session.execute(select(Portfolio)).scalar_one()
+            portfolio.config = {"benchmark_ticker": "SPY"}
+
+            # Inception price: market_date matches portfolio.inception_date (2025-01-01).
+            session.add(BenchmarkPrice(
+                ticker="SPY",
+                price=Decimal("400.000000"),
+                session_type="REGULAR",
+                snapshot_ts=_INCEPTION_TS,
+                market_date=date(2025, 1, 1),
+                job_run_id=None,
+            ))
+
+            # Current price: snapshot_ts=_NOW is later than _INCEPTION_TS,
+            # so _latest_benchmark_price() returns this row.
+            session.add(BenchmarkPrice(
+                ticker="SPY",
+                price=Decimal("500.000000"),
+                session_type="REGULAR",
+                snapshot_ts=_NOW,
+                market_date=_DATE_BENCH_FULL,
+                job_run_id=None,
+            ))
+            session.commit()
+
+        result = _run(_DATE_BENCH_FULL)
+
+        assert result["benchmark_ticker"]       == "SPY"
+        assert result["portfolio_vs_benchmark"] == "-2500.00"
+
+        with Session(seeded_db, autoflush=False, expire_on_commit=False) as session:
+            snap = session.execute(
+                select(PortfolioSnapshot).where(
+                    PortfolioSnapshot.market_date == _DATE_BENCH_FULL
+                )
+            ).scalar_one()
+            assert snap.benchmark_ticker          == "SPY"
+            assert snap.benchmark_price           == Decimal("500.000000")
+            assert snap.benchmark_inception_price == Decimal("400.000000")
+            assert snap.benchmark_value           == Decimal("12500.00")
+            assert snap.portfolio_vs_benchmark    == Decimal("-2500.00")
