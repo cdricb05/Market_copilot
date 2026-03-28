@@ -2,13 +2,15 @@
 api/app.py — FastAPI application for paper_trader.
 
 Endpoints:
-    POST /v1/signals          — ingest a signal batch and run the decision workflow
-    POST /v1/fill             — run the fill cycle for a given market_date
-    POST /v1/prices           — bulk-insert price snapshots (manual ingestion)
-    POST /v1/benchmark-prices — bulk-insert benchmark price observations (manual ingestion)
-    GET  /v1/positions        — list all open positions
-    GET  /v1/orders           — list orders, optionally filtered by status/market_date
-    GET  /v1/portfolio        — return current portfolio state
+    POST /v1/signals               — ingest a signal batch and run the decision workflow
+    POST /v1/fill                  — run the fill cycle for a given market_date
+    POST /v1/prices                — bulk-insert price snapshots (manual ingestion)
+    POST /v1/benchmark-prices      — bulk-insert benchmark price observations (manual ingestion)
+    GET  /v1/positions             — list all open positions
+    GET  /v1/orders                — list orders, optionally filtered by status/market_date
+    GET  /v1/snapshots             — list all portfolio snapshots, most recent first
+    GET  /v1/snapshots/{market_date} — return the portfolio snapshot for a specific date
+    GET  /v1/portfolio             — return current portfolio state
 
 Authentication: every endpoint requires the X-API-Key header to match
 PAPER_TRADER_SERVICE_API_KEY.
@@ -41,6 +43,7 @@ from paper_trader.db.models import (
     JobRun,
     Order,
     Portfolio,
+    PortfolioSnapshot,
     Position,
     PriceSnapshot,
 )
@@ -180,6 +183,25 @@ class OrderOut(BaseModel):
     notes: str | None
 
 
+class SnapshotOut(BaseModel):
+    id: str
+    market_date: date
+    snapshot_ts: datetime
+    cash: str
+    positions_value: str
+    total_value: str
+    unrealized_pnl: str
+    realized_pnl_cumulative: str
+    open_position_count: int
+    daily_new_exposure: str | None
+    benchmark_ticker: str | None
+    benchmark_price: str | None
+    benchmark_inception_price: str | None
+    benchmark_value: str | None
+    portfolio_vs_benchmark: str | None
+    positions_detail: list[dict] | None
+
+
 class PortfolioOut(BaseModel):
     id: int
     inception_date: date
@@ -203,6 +225,43 @@ def _now_and_date() -> tuple[datetime, date]:
     """Return (UTC now, US-Eastern market_date) from a single clock read."""
     now = datetime.now(tz=timezone.utc)
     return now, now.astimezone(_EASTERN).date()
+
+
+def _to_snapshot_out(snap: PortfolioSnapshot) -> SnapshotOut:
+    """Convert a PortfolioSnapshot ORM row to a SnapshotOut response model."""
+    return SnapshotOut(
+        id=str(snap.id),
+        market_date=snap.market_date,
+        snapshot_ts=snap.snapshot_ts,
+        cash=str(snap.cash),
+        positions_value=str(snap.positions_value),
+        total_value=str(snap.total_value),
+        unrealized_pnl=str(snap.unrealized_pnl),
+        realized_pnl_cumulative=str(snap.realized_pnl_cumulative),
+        open_position_count=snap.open_position_count,
+        daily_new_exposure=(
+            str(snap.daily_new_exposure)
+            if snap.daily_new_exposure is not None else None
+        ),
+        benchmark_ticker=snap.benchmark_ticker,
+        benchmark_price=(
+            str(snap.benchmark_price)
+            if snap.benchmark_price is not None else None
+        ),
+        benchmark_inception_price=(
+            str(snap.benchmark_inception_price)
+            if snap.benchmark_inception_price is not None else None
+        ),
+        benchmark_value=(
+            str(snap.benchmark_value)
+            if snap.benchmark_value is not None else None
+        ),
+        portfolio_vs_benchmark=(
+            str(snap.portfolio_vs_benchmark)
+            if snap.portfolio_vs_benchmark is not None else None
+        ),
+        positions_detail=snap.positions_detail,
+    )
 
 
 def _run_fill_workflow(
@@ -508,6 +567,47 @@ def list_orders(
             )
             for o in orders
         ]
+
+
+@app.get(
+    "/v1/snapshots",
+    response_model=list[SnapshotOut],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def list_snapshots() -> list[SnapshotOut]:
+    """List all portfolio snapshots, most recent first."""
+    with get_session() as session:
+        snaps = session.execute(
+            select(PortfolioSnapshot).order_by(PortfolioSnapshot.market_date.desc())
+        ).scalars().all()
+        return [_to_snapshot_out(s) for s in snaps]
+
+
+@app.get(
+    "/v1/snapshots/{market_date}",
+    response_model=SnapshotOut,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_snapshot(market_date: date) -> SnapshotOut:
+    """
+    Return the portfolio snapshot for a specific market date.
+
+    Returns 404 if no snapshot has been recorded for that date.
+    """
+    with get_session() as session:
+        snap = session.execute(
+            select(PortfolioSnapshot).where(
+                PortfolioSnapshot.market_date == market_date
+            )
+        ).scalar_one_or_none()
+        if snap is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No snapshot found for market_date={market_date}.",
+            )
+        return _to_snapshot_out(snap)
 
 
 @app.get(
