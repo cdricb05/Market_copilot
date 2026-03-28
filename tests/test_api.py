@@ -154,6 +154,9 @@ class TestAuthentication:
     def test_auth_required_on_prices(self, client: TestClient) -> None:
         assert client.post("/v1/prices", json={"snapshots": []}).status_code == 401
 
+    def test_auth_required_on_benchmark_prices(self, client: TestClient) -> None:
+        assert client.post("/v1/benchmark-prices", json={"prices": []}).status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # Unseeded state — must run before seeded_client commits data
@@ -236,3 +239,43 @@ class TestSeededEndpoints:
         resp = seeded_client.post("/v1/prices", json=payload, headers=_AUTH)
         assert resp.status_code == 200
         assert resp.json() == {"inserted": 0}
+
+    def test_ingest_benchmark_prices_empty_list_returns_zero(
+        self, seeded_client: TestClient
+    ) -> None:
+        payload = {"prices": []}
+        resp = seeded_client.post("/v1/benchmark-prices", json=payload, headers=_AUTH)
+        assert resp.status_code == 200
+        assert resp.json() == {"inserted": 0}
+
+    def test_ingest_benchmark_prices_returns_inserted_count(
+        self, seeded_client: TestClient
+    ) -> None:
+        payload = {
+            "prices": [
+                {"ticker": "SPY", "price": "475.00"},
+                {"ticker": "QQQ", "price": "410.50"},
+            ]
+        }
+        resp = seeded_client.post("/v1/benchmark-prices", json=payload, headers=_AUTH)
+        assert resp.status_code == 200
+        assert resp.json() == {"inserted": 2}
+
+    def test_ingest_benchmark_prices_explicit_fields(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Optional session_type, snapshot_ts, and market_date are accepted without error."""
+        payload = {
+            "prices": [
+                {
+                    "ticker": "SPY",
+                    "price": "476.25",
+                    "session_type": "REGULAR",
+                    "snapshot_ts": "2025-01-15T21:00:00Z",
+                    "market_date": "2025-01-15",
+                }
+            ]
+        }
+        resp = seeded_client.post("/v1/benchmark-prices", json=payload, headers=_AUTH)
+        assert resp.status_code == 200
+        assert resp.json()["inserted"] == 1
