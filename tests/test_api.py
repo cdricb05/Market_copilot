@@ -11,6 +11,8 @@ rollback-isolated db_session fixture cannot be used here. Instead:
     test DB.
   - seeded_client (module-scoped) commits a Portfolio row directly so GET
     endpoints can read it.
+  - snapshots_client (module-scoped) extends seeded_client by committing
+    PortfolioSnapshot rows for list/fetch tests.
 
 Test ordering matters:
     TestAuthentication → TestUnseededPortfolio → TestSeededEndpoints
@@ -23,7 +25,7 @@ Requires PAPER_TRADER_TEST_DATABASE_URL (entire module skipped when absent).
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -33,8 +35,8 @@ from sqlalchemy.orm import Session
 
 from paper_trader.api.app import app
 from paper_trader.config import get_settings
-from paper_trader.constants import CashEntryType
-from paper_trader.db.models import Base, Portfolio
+from paper_trader.constants import CashEntryType, JobRunStatus, WorkflowType
+from paper_trader.db.models import Base, JobRun, Portfolio, PortfolioSnapshot
 from paper_trader.db.session import reset_engine_state
 from paper_trader.engine.portfolio import append_cash_entry
 
@@ -127,6 +129,104 @@ def seeded_client(client, api_engine):
     yield client
 
 
+@pytest.fixture(scope="module")
+def snapshots_client(seeded_client, api_engine):
+    """
+    Client with committed PortfolioSnapshot rows for list/fetch tests.
+
+    Creates two snapshots with distinct market_dates (2025-01-10, 2025-01-11)
+    so ordering and individual fetch can be tested. Extends seeded_client with
+    snapshot data via direct database insert.
+    """
+    with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+        # Create first JobRun and PortfolioSnapshot for 2025-01-10
+        job_run_1 = JobRun(
+            idempotency_key="test-snapshot-2025-01-10",
+            workflow_type=WorkflowType.POST_MARKET,
+            market_date=date(2025, 1, 10),
+            status=JobRunStatus.COMPLETED,
+            started_at=datetime(2025, 1, 10, 16, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2025, 1, 10, 16, 0, 1, tzinfo=timezone.utc),
+            result_summary={
+                "total_value":             "10000.00",
+                "cash":                    "10000.00",
+                "positions_value":         "0.00",
+                "unrealized_pnl":          "0.00",
+                "realized_pnl_cumulative": "0.00",
+                "open_position_count":     0,
+                "benchmark_ticker":        None,
+                "portfolio_vs_benchmark":  None,
+            },
+        )
+        session.add(job_run_1)
+        session.flush()
+
+        snap_1 = PortfolioSnapshot(
+            job_run_id=job_run_1.id,
+            snapshot_ts=datetime(2025, 1, 10, 16, 0, 1, tzinfo=timezone.utc),
+            market_date=date(2025, 1, 10),
+            cash=Decimal("10000.00"),
+            positions_value=Decimal("0.00"),
+            total_value=Decimal("10000.00"),
+            unrealized_pnl=Decimal("0.00"),
+            realized_pnl_cumulative=Decimal("0.00"),
+            open_position_count=0,
+            daily_new_exposure=None,
+            benchmark_ticker=None,
+            benchmark_price=None,
+            benchmark_inception_price=None,
+            benchmark_value=None,
+            portfolio_vs_benchmark=None,
+            positions_detail=None,
+        )
+        session.add(snap_1)
+
+        # Create second JobRun and PortfolioSnapshot for 2025-01-11
+        job_run_2 = JobRun(
+            idempotency_key="test-snapshot-2025-01-11",
+            workflow_type=WorkflowType.POST_MARKET,
+            market_date=date(2025, 1, 11),
+            status=JobRunStatus.COMPLETED,
+            started_at=datetime(2025, 1, 11, 16, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2025, 1, 11, 16, 0, 1, tzinfo=timezone.utc),
+            result_summary={
+                "total_value":             "10500.00",
+                "cash":                    "10500.00",
+                "positions_value":         "0.00",
+                "unrealized_pnl":          "0.00",
+                "realized_pnl_cumulative": "0.00",
+                "open_position_count":     0,
+                "benchmark_ticker":        None,
+                "portfolio_vs_benchmark":  None,
+            },
+        )
+        session.add(job_run_2)
+        session.flush()
+
+        snap_2 = PortfolioSnapshot(
+            job_run_id=job_run_2.id,
+            snapshot_ts=datetime(2025, 1, 11, 16, 0, 1, tzinfo=timezone.utc),
+            market_date=date(2025, 1, 11),
+            cash=Decimal("10500.00"),
+            positions_value=Decimal("0.00"),
+            total_value=Decimal("10500.00"),
+            unrealized_pnl=Decimal("0.00"),
+            realized_pnl_cumulative=Decimal("0.00"),
+            open_position_count=0,
+            daily_new_exposure=None,
+            benchmark_ticker=None,
+            benchmark_price=None,
+            benchmark_inception_price=None,
+            benchmark_value=None,
+            portfolio_vs_benchmark=None,
+            positions_detail=None,
+        )
+        session.add(snap_2)
+        session.commit()
+
+    yield seeded_client
+
+
 # ---------------------------------------------------------------------------
 # Authentication — no DB state required
 # ---------------------------------------------------------------------------
@@ -156,6 +256,12 @@ class TestAuthentication:
 
     def test_auth_required_on_benchmark_prices(self, client: TestClient) -> None:
         assert client.post("/v1/benchmark-prices", json={"prices": []}).status_code == 401
+
+    def test_auth_required_on_snapshots_list(self, client: TestClient) -> None:
+        assert client.get("/v1/snapshots").status_code == 401
+
+    def test_auth_required_on_snapshots_get(self, client: TestClient) -> None:
+        assert client.get("/v1/snapshots/2025-01-10").status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -279,3 +385,79 @@ class TestSeededEndpoints:
         resp = seeded_client.post("/v1/benchmark-prices", json=payload, headers=_AUTH)
         assert resp.status_code == 200
         assert resp.json()["inserted"] == 1
+
+    def test_list_snapshots_empty_list(self, seeded_client: TestClient) -> None:
+        """No snapshots exist — return empty list."""
+        resp = seeded_client.get("/v1/snapshots", headers=_AUTH)
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_list_snapshots_returns_data_desc_by_market_date(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """List snapshots ordered by market_date DESC (most recent first)."""
+        resp = snapshots_client.get("/v1/snapshots", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 2
+        # Verify DESC ordering: 2025-01-11 should come before 2025-01-10
+        assert body[0]["market_date"] == "2025-01-11"
+        assert body[1]["market_date"] == "2025-01-10"
+
+    def test_list_snapshots_fields_serialized_as_strings(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """All Decimal fields serialize to strings in the response."""
+        resp = snapshots_client.get("/v1/snapshots", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        snap = body[0]  # First (most recent) snapshot
+        # Verify Decimal fields are strings
+        assert isinstance(snap["cash"], str)
+        assert isinstance(snap["positions_value"], str)
+        assert isinstance(snap["total_value"], str)
+        assert isinstance(snap["unrealized_pnl"], str)
+        assert isinstance(snap["realized_pnl_cumulative"], str)
+        assert snap["cash"] == "10500.00"
+        assert snap["total_value"] == "10500.00"
+
+    def test_get_snapshot_by_date_200(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """Fetch a snapshot by market_date — returns 200 with full snapshot data."""
+        resp = snapshots_client.get("/v1/snapshots/2025-01-10", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["market_date"] == "2025-01-10"
+        assert body["cash"] == "10000.00"
+        assert body["total_value"] == "10000.00"
+        assert body["open_position_count"] == 0
+        assert "id" in body
+        assert "snapshot_ts" in body
+
+    def test_get_snapshot_by_date_fields_include_benchmark(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """Fetch snapshot — verify benchmark fields are present (even if NULL)."""
+        resp = snapshots_client.get("/v1/snapshots/2025-01-11", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        # All benchmark fields present, even when NULL
+        assert "benchmark_ticker" in body
+        assert "benchmark_price" in body
+        assert "benchmark_inception_price" in body
+        assert "benchmark_value" in body
+        assert "portfolio_vs_benchmark" in body
+        # In test data, all are NULL
+        assert body["benchmark_ticker"] is None
+        assert body["benchmark_price"] is None
+
+    def test_get_snapshot_by_date_404_when_not_found(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """Fetch snapshot for non-existent market_date — returns 404."""
+        resp = snapshots_client.get("/v1/snapshots/2025-01-09", headers=_AUTH)
+        assert resp.status_code == 404
+        body = resp.json()
+        assert "detail" in body
+        assert "2025-01-09" in body["detail"]
