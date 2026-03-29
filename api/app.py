@@ -4,6 +4,7 @@ api/app.py — FastAPI application for paper_trader.
 Endpoints:
     POST /v1/signals               — ingest a signal batch and run the decision workflow
     POST /v1/fill                  — run the fill cycle for a given market_date
+    POST /v1/snapshot              — run the post-market portfolio snapshot workflow
     POST /v1/prices                — bulk-insert price snapshots (manual ingestion)
     POST /v1/benchmark-prices      — bulk-insert benchmark price observations (manual ingestion)
     GET  /v1/positions             — list all open positions
@@ -51,6 +52,7 @@ from paper_trader.db.session import get_dedicated_session, get_session
 from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.reconciler import run_fill_cycle
 from paper_trader.workflows.decision import run_decision_workflow
+from paper_trader.workflows.snapshot import run_snapshot_workflow
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -109,6 +111,25 @@ class FillResponse(BaseModel):
     expired: int
     failed: int
     skipped: int
+
+
+class SnapshotRequest(BaseModel):
+    idempotency_key: str
+    market_date: date | None = Field(
+        default=None,
+        description="US Eastern market date. Defaults to today's Eastern date.",
+    )
+
+
+class SnapshotWorkflowResponse(BaseModel):
+    total_value: str
+    cash: str
+    positions_value: str
+    unrealized_pnl: str
+    realized_pnl_cumulative: str
+    open_position_count: int
+    benchmark_ticker: str | None
+    portfolio_vs_benchmark: str | None
 
 
 class PriceSnapshotIn(BaseModel):
@@ -431,6 +452,43 @@ def trigger_fill(body: FillRequest) -> FillResponse:
             detail=str(exc),
         )
     return FillResponse(**result)
+
+
+@app.post(
+    "/v1/snapshot",
+    response_model=SnapshotWorkflowResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def trigger_snapshot(body: SnapshotRequest) -> SnapshotWorkflowResponse:
+    """
+    Run the post-market portfolio snapshot workflow.
+
+    market_date defaults to today's US-Eastern date if not supplied.
+    Returns the result summary on success. Raises 409 on idempotency
+    conflicts (RUNNING or FAILED job run for the key). Raises 422 when
+    an open position has no available price snapshot — ingest prices
+    first, then retry with a new idempotency_key.
+    """
+    now, today = _now_and_date()
+    market_date = body.market_date or today
+    try:
+        result = run_snapshot_workflow(
+            idempotency_key=body.idempotency_key,
+            market_date=market_date,
+            now=now,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        )
+    return SnapshotWorkflowResponse(**result)
 
 
 @app.post(
