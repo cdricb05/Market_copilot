@@ -16,7 +16,7 @@ rollback-isolated db_session fixture cannot be used here. Instead:
 
 Test ordering matters:
     TestAuthentication → TestUnseededPortfolio → TestSeededEndpoints
-                       → TestSnapshotEndpoint
+                       → TestSignalsWeekdayGuard → TestSnapshotEndpoint
 
 seeded_client is first used by TestSeededEndpoints, so the portfolio is not
 committed until after TestUnseededPortfolio has already run.
@@ -48,6 +48,10 @@ from paper_trader.engine.portfolio import append_cash_entry, open_position
 _TEST_API_KEY = "test-secret-key"
 _NOW          = datetime(2025, 1, 15, 14, 30, 0, tzinfo=timezone.utc)
 _AUTH         = {"X-API-Key": _TEST_API_KEY}
+
+# Saturday 2025-01-18 — used to simulate a weekend clock reading.
+_NOW_WEEKEND  = datetime(2025, 1, 18, 14, 30, 0, tzinfo=timezone.utc)
+_DATE_WEEKEND = date(2025, 1, 18)
 
 # Unique market dates for POST /v1/snapshot tests (February to avoid
 # collision with snapshots_client dates 2025-01-10/11 and test_snapshot.py
@@ -483,6 +487,70 @@ class TestSeededEndpoints:
         body = resp.json()
         assert "detail" in body
         assert "2025-01-09" in body["detail"]
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/signals — weekday guard
+# ---------------------------------------------------------------------------
+
+class TestSignalsWeekdayGuard:
+    """POST /v1/signals: 422 on weekend, not-422 on weekday."""
+
+    def test_signals_returns_422_on_weekend(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Saturday input triggers the weekday guard and returns 422."""
+        monkeypatch.setattr(
+            "paper_trader.api.app._now_and_date",
+            lambda: (_NOW_WEEKEND, _DATE_WEEKEND),
+        )
+        resp = seeded_client.post(
+            "/v1/signals",
+            json={
+                "idempotency_key": f"test-sig-weekend-{uuid.uuid4()}",
+                "workflow_type": "PRE_MARKET",
+                "signals": [
+                    {
+                        "ticker": "AAPL",
+                        "direction": "BUY",
+                        "confidence": "0.80",
+                        "signal_ts": "2025-01-18T14:30:00Z",
+                        "source_run": "test-weekend",
+                    }
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert "weekend" in detail.lower() or "weekday" in detail.lower()
+
+    def test_signals_accepted_on_weekday(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Wednesday input bypasses the weekday guard — response is not 422."""
+        monkeypatch.setattr(
+            "paper_trader.api.app._now_and_date",
+            lambda: (_NOW, _NOW.date()),
+        )
+        resp = seeded_client.post(
+            "/v1/signals",
+            json={
+                "idempotency_key": f"test-sig-weekday-{uuid.uuid4()}",
+                "workflow_type": "PRE_MARKET",
+                "signals": [
+                    {
+                        "ticker": "AAPL",
+                        "direction": "BUY",
+                        "confidence": "0.80",
+                        "signal_ts": "2025-01-15T09:00:00Z",
+                        "source_run": "test-weekday",
+                    }
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code != 422
 
 
 # ---------------------------------------------------------------------------
