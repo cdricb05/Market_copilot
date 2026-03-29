@@ -16,15 +16,20 @@ rollback-isolated db_session fixture cannot be used here. Instead:
 
 Test ordering matters:
     TestAuthentication → TestUnseededPortfolio → TestSeededEndpoints
+                       → TestSnapshotEndpoint
 
 seeded_client is first used by TestSeededEndpoints, so the portfolio is not
 committed until after TestUnseededPortfolio has already run.
+TestSnapshotEndpoint runs after TestSeededEndpoints so that the empty-list
+snapshot assertions in TestSeededEndpoints execute before any workflow-created
+snapshot rows exist.
 
 Requires PAPER_TRADER_TEST_DATABASE_URL (entire module skipped when absent).
 """
 from __future__ import annotations
 
 import os
+import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -38,11 +43,25 @@ from paper_trader.config import get_settings
 from paper_trader.constants import CashEntryType, JobRunStatus, WorkflowType
 from paper_trader.db.models import Base, JobRun, Portfolio, PortfolioSnapshot
 from paper_trader.db.session import reset_engine_state
-from paper_trader.engine.portfolio import append_cash_entry
+from paper_trader.engine.portfolio import append_cash_entry, open_position
 
 _TEST_API_KEY = "test-secret-key"
 _NOW          = datetime(2025, 1, 15, 14, 30, 0, tzinfo=timezone.utc)
 _AUTH         = {"X-API-Key": _TEST_API_KEY}
+
+# Unique market dates for POST /v1/snapshot tests (February to avoid
+# collision with snapshots_client dates 2025-01-10/11 and test_snapshot.py
+# dates 2025-01-10 through 2025-01-17).
+_DATE_SNAP_NO_POS  = date(2025, 2, 1)
+_DATE_SNAP_REPLAY  = date(2025, 2, 2)
+_DATE_SNAP_RUNNING = date(2025, 2, 3)
+_DATE_SNAP_FAILED  = date(2025, 2, 4)
+_DATE_SNAP_MISSING = date(2025, 2, 5)
+
+
+def _ikey() -> str:
+    """Return a unique idempotency key for each snapshot workflow call."""
+    return f"test-snap-api-{uuid.uuid4()}"
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +276,9 @@ class TestAuthentication:
     def test_auth_required_on_benchmark_prices(self, client: TestClient) -> None:
         assert client.post("/v1/benchmark-prices", json={"prices": []}).status_code == 401
 
+    def test_auth_required_on_snapshot(self, client: TestClient) -> None:
+        assert client.post("/v1/snapshot", json={"idempotency_key": "x"}).status_code == 401
+
     def test_auth_required_on_snapshots_list(self, client: TestClient) -> None:
         assert client.get("/v1/snapshots").status_code == 401
 
@@ -461,3 +483,124 @@ class TestSeededEndpoints:
         body = resp.json()
         assert "detail" in body
         assert "2025-01-09" in body["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Snapshot workflow trigger — POST /v1/snapshot
+# ---------------------------------------------------------------------------
+
+class TestSnapshotEndpoint:
+    def test_trigger_snapshot_no_positions_200(
+        self, seeded_client: TestClient
+    ) -> None:
+        """
+        Portfolio with $10,000 cash and no open positions.
+
+        Expected response: all zero/null fields, total_value matches cash.
+        """
+        payload = {
+            "idempotency_key": _ikey(),
+            "market_date": _DATE_SNAP_NO_POS.isoformat(),
+        }
+        resp = seeded_client.post("/v1/snapshot", json=payload, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["cash"]                    == "10000.00"
+        assert body["positions_value"]         == "0.00"
+        assert body["total_value"]             == "10000.00"
+        assert body["unrealized_pnl"]          == "0.00"
+        assert body["realized_pnl_cumulative"] == "0.00"
+        assert body["open_position_count"]     == 0
+        assert body["benchmark_ticker"]        is None
+        assert body["portfolio_vs_benchmark"]  is None
+
+    def test_trigger_snapshot_idempotent_replay_200(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Calling POST /v1/snapshot twice with the same key returns the same dict."""
+        key = _ikey()
+        payload = {
+            "idempotency_key": key,
+            "market_date": _DATE_SNAP_REPLAY.isoformat(),
+        }
+        first  = seeded_client.post("/v1/snapshot", json=payload, headers=_AUTH)
+        second = seeded_client.post("/v1/snapshot", json=payload, headers=_AUTH)
+        assert first.status_code  == 200
+        assert second.status_code == 200
+        assert second.json() == first.json()
+
+    def test_trigger_snapshot_running_conflict_returns_409(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A pre-existing RUNNING JobRun for the key causes a 409 response."""
+        key = _ikey()
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.add(JobRun(
+                idempotency_key=key,
+                workflow_type=WorkflowType.POST_MARKET,
+                market_date=_DATE_SNAP_RUNNING,
+                status=JobRunStatus.RUNNING,
+                started_at=_NOW,
+            ))
+            session.commit()
+
+        resp = seeded_client.post(
+            "/v1/snapshot",
+            json={"idempotency_key": key, "market_date": _DATE_SNAP_RUNNING.isoformat()},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 409
+        assert "RUNNING" in resp.json()["detail"]
+
+    def test_trigger_snapshot_failed_conflict_returns_409(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A pre-existing FAILED JobRun for the key causes a 409 response."""
+        key = _ikey()
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.add(JobRun(
+                idempotency_key=key,
+                workflow_type=WorkflowType.POST_MARKET,
+                market_date=_DATE_SNAP_FAILED,
+                status=JobRunStatus.FAILED,
+                started_at=_NOW,
+                completed_at=_NOW,
+                error_detail="synthetic failure",
+            ))
+            session.commit()
+
+        resp = seeded_client.post(
+            "/v1/snapshot",
+            json={"idempotency_key": key, "market_date": _DATE_SNAP_FAILED.isoformat()},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 409
+        assert "FAILED" in resp.json()["detail"]
+
+    def test_trigger_snapshot_missing_price_returns_422(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """
+        Open position with no PriceSnapshot returns 422.
+
+        This test is last in the class: the TSLA position it creates persists
+        for the remainder of the module (no per-test cleanup in test_api.py).
+        The api_engine teardown truncates all tables after the module finishes.
+        """
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            open_position(
+                session,
+                ticker="TSLA",
+                qty=Decimal("3"),
+                fill_price=Decimal("250.000000"),
+                now=_NOW,
+            )
+            session.commit()
+
+        resp = seeded_client.post(
+            "/v1/snapshot",
+            json={"idempotency_key": _ikey(), "market_date": _DATE_SNAP_MISSING.isoformat()},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+        assert "TSLA" in resp.json()["detail"]
