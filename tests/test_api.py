@@ -13,16 +13,22 @@ rollback-isolated db_session fixture cannot be used here. Instead:
     endpoints can read it.
   - snapshots_client (module-scoped) extends seeded_client by committing
     PortfolioSnapshot rows for list/fetch tests.
+  - perf_benchmark_client (module-scoped) extends snapshots_client by
+    committing a third PortfolioSnapshot row that has benchmark_value
+    populated, enabling performance benchmark field assertions.
 
 Test ordering matters:
-    TestAuthentication → TestUnseededPortfolio → TestSeededEndpoints
-                       → TestSignalsWeekdayGuard → TestSnapshotEndpoint
+    TestAuthentication → TestUnseededPortfolio → TestPerformanceNoSnapshots
+                       → TestSeededEndpoints → TestSignalsWeekdayGuard
+                       → TestPerformanceEndpoint → TestSnapshotEndpoint
 
-seeded_client is first used by TestSeededEndpoints, so the portfolio is not
-committed until after TestUnseededPortfolio has already run.
-TestSnapshotEndpoint runs after TestSeededEndpoints so that the empty-list
-snapshot assertions in TestSeededEndpoints execute before any workflow-created
-snapshot rows exist.
+seeded_client is first used by TestPerformanceNoSnapshots, so the portfolio
+is not committed until after TestUnseededPortfolio has already run.
+TestPerformanceNoSnapshots runs before TestSeededEndpoints so that the
+404-no-snapshots assertion executes before any snapshot rows are committed.
+TestPerformanceEndpoint runs before TestSnapshotEndpoint so that POST
+/v1/snapshot calls (which create February-dated rows) do not shift
+latest_snapshot_date and break performance assertions.
 
 Requires PAPER_TRADER_TEST_DATABASE_URL (entire module skipped when absent).
 """
@@ -250,6 +256,66 @@ def snapshots_client(seeded_client, api_engine):
     yield seeded_client
 
 
+@pytest.fixture(scope="module")
+def perf_benchmark_client(snapshots_client, api_engine):
+    """
+    Client with an additional PortfolioSnapshot row (2025-01-13) that has
+    benchmark_value populated.
+
+    Extends snapshots_client so that GET /v1/performance returns
+    non-null benchmark_return_pct and excess_return_pct.
+
+    Math (initial_capital = 10000.00):
+        total_value=10800.00     → return_pct           = 8.0000
+        benchmark_value=10600.00 → benchmark_return_pct = 6.0000
+        excess_return_pct = 8.0000 - 6.0000             = 2.0000
+    """
+    with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+        job_run_bm = JobRun(
+            idempotency_key="test-snapshot-2025-01-13",
+            workflow_type=WorkflowType.POST_MARKET,
+            market_date=date(2025, 1, 13),
+            status=JobRunStatus.COMPLETED,
+            started_at=datetime(2025, 1, 13, 16, 0, 0, tzinfo=timezone.utc),
+            completed_at=datetime(2025, 1, 13, 16, 0, 1, tzinfo=timezone.utc),
+            result_summary={
+                "total_value":             "10800.00",
+                "cash":                    "10800.00",
+                "positions_value":         "0.00",
+                "unrealized_pnl":          "0.00",
+                "realized_pnl_cumulative": "0.00",
+                "open_position_count":     0,
+                "benchmark_ticker":        "SPY",
+                "portfolio_vs_benchmark":  "200.00",
+            },
+        )
+        session.add(job_run_bm)
+        session.flush()
+
+        snap_bm = PortfolioSnapshot(
+            job_run_id=job_run_bm.id,
+            snapshot_ts=datetime(2025, 1, 13, 16, 0, 1, tzinfo=timezone.utc),
+            market_date=date(2025, 1, 13),
+            cash=Decimal("10800.00"),
+            positions_value=Decimal("0.00"),
+            total_value=Decimal("10800.00"),
+            unrealized_pnl=Decimal("0.00"),
+            realized_pnl_cumulative=Decimal("0.00"),
+            open_position_count=0,
+            daily_new_exposure=None,
+            benchmark_ticker="SPY",
+            benchmark_price=Decimal("480.00"),
+            benchmark_inception_price=Decimal("475.00"),
+            benchmark_value=Decimal("10600.00"),
+            portfolio_vs_benchmark=Decimal("200.00"),
+            positions_detail=None,
+        )
+        session.add(snap_bm)
+        session.commit()
+
+    yield snapshots_client
+
+
 # ---------------------------------------------------------------------------
 # Authentication — no DB state required
 # ---------------------------------------------------------------------------
@@ -289,6 +355,9 @@ class TestAuthentication:
     def test_auth_required_on_snapshots_get(self, client: TestClient) -> None:
         assert client.get("/v1/snapshots/2025-01-10").status_code == 401
 
+    def test_auth_required_on_performance(self, client: TestClient) -> None:
+        assert client.get("/v1/performance").status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # Unseeded state — must run before seeded_client commits data
@@ -298,6 +367,24 @@ class TestUnseededPortfolio:
     def test_portfolio_503_when_not_seeded(self, client: TestClient) -> None:
         resp = client.get("/v1/portfolio", headers=_AUTH)
         assert resp.status_code == 503
+
+    def test_performance_503_when_not_seeded(self, client: TestClient) -> None:
+        resp = client.get("/v1/performance", headers=_AUTH)
+        assert resp.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Performance — no snapshots yet (must run before snapshots_client fires)
+# ---------------------------------------------------------------------------
+
+class TestPerformanceNoSnapshots:
+    def test_performance_404_no_snapshots(self, seeded_client: TestClient) -> None:
+        """Portfolio seeded but no snapshots recorded — returns 404."""
+        resp = seeded_client.get("/v1/performance", headers=_AUTH)
+        assert resp.status_code == 404
+        body = resp.json()
+        assert "detail" in body
+        assert "snapshot" in body["detail"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +638,73 @@ class TestSignalsWeekdayGuard:
             headers=_AUTH,
         )
         assert resp.status_code != 422
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/performance — performance summary endpoint
+# (must run before TestSnapshotEndpoint creates February-dated rows)
+# ---------------------------------------------------------------------------
+
+class TestPerformanceEndpoint:
+    def test_performance_200_no_benchmark(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        Snapshots present, no benchmark data — all core fields populated,
+        benchmark fields null.
+
+        Derived from snapshots_client data (Jan-10: 10000, Jan-11: 10500):
+            absolute_return = 500.00
+            return_pct      = 5.0000
+        """
+        resp = snapshots_client.get("/v1/performance", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["first_snapshot_date"]  == "2025-01-10"
+        assert body["latest_snapshot_date"] == "2025-01-11"
+        assert body["initial_capital"]      == "10000.00"
+        assert body["latest_total_value"]   == "10500.00"
+        assert body["absolute_return"]      == "500.00"
+        assert body["return_pct"]           == "5.0000"
+        assert body["benchmark_ticker"]     is None
+        assert body["benchmark_return_pct"] is None
+        assert body["excess_return_pct"]    is None
+
+    def test_performance_null_benchmark_when_value_absent(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        When latest snapshot has benchmark_value=NULL, the endpoint still
+        returns 200 and benchmark_return_pct / excess_return_pct are null.
+        """
+        resp = snapshots_client.get("/v1/performance", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["benchmark_return_pct"] is None
+        assert body["excess_return_pct"]    is None
+
+    def test_performance_populated_benchmark_when_value_present(
+        self, perf_benchmark_client: TestClient
+    ) -> None:
+        """
+        When latest snapshot has benchmark_value populated, benchmark_return_pct
+        and excess_return_pct are calculated and returned.
+
+        perf_benchmark_client adds Jan-13 snapshot (total=10800, benchmark=10600):
+            return_pct           = (10800-10000)/10000*100 = 8.0000
+            benchmark_return_pct = (10600-10000)/10000*100 = 6.0000
+            excess_return_pct    = 8.0000 - 6.0000         = 2.0000
+        """
+        resp = perf_benchmark_client.get("/v1/performance", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["latest_snapshot_date"] == "2025-01-13"
+        assert body["latest_total_value"]   == "10800.00"
+        assert body["absolute_return"]      == "800.00"
+        assert body["return_pct"]           == "8.0000"
+        assert body["benchmark_ticker"]     == "SPY"
+        assert body["benchmark_return_pct"] == "6.0000"
+        assert body["excess_return_pct"]    == "2.0000"
 
 
 # ---------------------------------------------------------------------------
