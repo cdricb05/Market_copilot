@@ -12,6 +12,7 @@ Endpoints:
     GET  /v1/snapshots             — list all portfolio snapshots, most recent first
     GET  /v1/snapshots/{market_date} — return the portfolio snapshot for a specific date
     GET  /v1/portfolio             — return current portfolio state
+    GET  /v1/performance           — inception-to-date performance summary
 
 Authentication: every endpoint requires the X-API-Key header to match
 PAPER_TRADER_SERVICE_API_KEY.
@@ -29,7 +30,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from paper_trader.config import get_settings
 from paper_trader.constants import (
@@ -234,6 +235,18 @@ class PortfolioOut(BaseModel):
     strategy_enabled: bool
     trading_enabled: bool
     allow_new_positions: bool
+
+
+class PerformanceOut(BaseModel):
+    first_snapshot_date: date
+    latest_snapshot_date: date
+    initial_capital: str
+    latest_total_value: str
+    absolute_return: str
+    return_pct: str | None
+    benchmark_ticker: str | None
+    benchmark_return_pct: str | None
+    excess_return_pct: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -703,4 +716,89 @@ def get_portfolio_state() -> PortfolioOut:
             strategy_enabled=portfolio.strategy_enabled,
             trading_enabled=portfolio.trading_enabled,
             allow_new_positions=portfolio.allow_new_positions,
+        )
+
+
+@app.get(
+    "/v1/performance",
+    response_model=PerformanceOut,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_performance() -> PerformanceOut:
+    """
+    Return inception-to-date portfolio performance summary.
+
+    Derived entirely from portfolio_snapshots and the portfolio row.
+    Returns 404 when no snapshots have been recorded yet.
+    Returns 503 when the portfolio row is missing.
+    """
+    with get_session() as session:
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        if portfolio is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Portfolio not seeded. Run scripts/seed.py first.",
+            )
+
+        # Oldest and newest snapshot in one pass using aggregation.
+        row = session.execute(
+            select(
+                func.min(PortfolioSnapshot.market_date),
+                func.max(PortfolioSnapshot.market_date),
+            )
+        ).one()
+        first_date, latest_date = row
+
+        if first_date is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No portfolio snapshots recorded yet.",
+            )
+
+        # Fetch the latest snapshot row for value fields.
+        latest = session.execute(
+            select(PortfolioSnapshot)
+            .where(PortfolioSnapshot.market_date == latest_date)
+        ).scalar_one()
+
+        initial_capital = Decimal(str(portfolio.initial_capital))
+        latest_total    = Decimal(str(latest.total_value))
+        absolute_return = (latest_total - initial_capital).quantize(Decimal("0.01"))
+
+        return_pct: Decimal | None = None
+        if initial_capital != Decimal("0"):
+            return_pct = (
+                (latest_total - initial_capital) / initial_capital * Decimal("100")
+            ).quantize(Decimal("0.0001"))
+
+        benchmark_return_pct: Decimal | None = None
+        excess_return_pct:    Decimal | None = None
+        if (
+            latest.benchmark_value is not None
+            and initial_capital != Decimal("0")
+        ):
+            bv = Decimal(str(latest.benchmark_value))
+            benchmark_return_pct = (
+                (bv - initial_capital) / initial_capital * Decimal("100")
+            ).quantize(Decimal("0.0001"))
+            if return_pct is not None:
+                excess_return_pct = (
+                    return_pct - benchmark_return_pct
+                ).quantize(Decimal("0.0001"))
+
+        return PerformanceOut(
+            first_snapshot_date=first_date,
+            latest_snapshot_date=latest_date,
+            initial_capital=str(initial_capital),
+            latest_total_value=str(latest_total),
+            absolute_return=str(absolute_return),
+            return_pct=str(return_pct) if return_pct is not None else None,
+            benchmark_ticker=latest.benchmark_ticker,
+            benchmark_return_pct=(
+                str(benchmark_return_pct) if benchmark_return_pct is not None else None
+            ),
+            excess_return_pct=(
+                str(excess_return_pct) if excess_return_pct is not None else None
+            ),
         )
