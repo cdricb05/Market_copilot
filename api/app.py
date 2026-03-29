@@ -49,6 +49,7 @@ from paper_trader.db.models import (
     PriceSnapshot,
 )
 from paper_trader.db.session import get_dedicated_session, get_session
+from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.reconciler import run_fill_cycle
 from paper_trader.workflows.decision import run_decision_workflow
@@ -403,8 +404,17 @@ def ingest_signals(body: DecisionRequest) -> DecisionResponse:
     Ingest a signal batch and run the decision workflow.
 
     market_date is derived server-side from the current US-Eastern clock.
+    Rejected with 422 when called on a weekend (no valid trading day).
     """
     now, market_date = _now_and_date()
+    if not is_weekday(now):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Signal ingestion is only permitted on weekdays. "
+                f"Current US/Eastern date {market_date} is a weekend."
+            ),
+        )
     try:
         result = run_decision_workflow(
             idempotency_key=body.idempotency_key,
