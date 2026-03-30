@@ -20,15 +20,19 @@ rollback-isolated db_session fixture cannot be used here. Instead:
 Test ordering matters:
     TestAuthentication → TestUnseededPortfolio → TestPerformanceNoSnapshots
                        → TestSeededEndpoints → TestSignalsWeekdayGuard
-                       → TestPerformanceEndpoint → TestSnapshotEndpoint
+                       → TestPerformanceEndpoint → TestPerformanceHistoryEndpoint
+                       → TestPerformanceBenchmark → TestSnapshotEndpoint
 
 seeded_client is first used by TestPerformanceNoSnapshots, so the portfolio
 is not committed until after TestUnseededPortfolio has already run.
 TestPerformanceNoSnapshots runs before TestSeededEndpoints so that the
 404-no-snapshots assertion executes before any snapshot rows are committed.
-TestPerformanceEndpoint runs before TestSnapshotEndpoint so that POST
-/v1/snapshot calls (which create February-dated rows) do not shift
-latest_snapshot_date and break performance assertions.
+TestPerformanceEndpoint and TestPerformanceHistoryEndpoint use only
+snapshots_client (no benchmark data) so they must run before
+TestPerformanceBenchmark, which triggers perf_benchmark_client and commits
+the Jan-13 benchmark row. TestSnapshotEndpoint runs last because POST
+/v1/snapshot creates February-dated rows that would shift latest_snapshot_date
+and break performance assertions.
 
 Requires PAPER_TRADER_TEST_DATABASE_URL (entire module skipped when absent).
 """
@@ -358,6 +362,9 @@ class TestAuthentication:
     def test_auth_required_on_performance(self, client: TestClient) -> None:
         assert client.get("/v1/performance").status_code == 401
 
+    def test_auth_required_on_performance_history(self, client: TestClient) -> None:
+        assert client.get("/v1/performance/history").status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # Unseeded state — must run before seeded_client commits data
@@ -372,6 +379,10 @@ class TestUnseededPortfolio:
         resp = client.get("/v1/performance", headers=_AUTH)
         assert resp.status_code == 503
 
+    def test_performance_history_503_when_not_seeded(self, client: TestClient) -> None:
+        resp = client.get("/v1/performance/history", headers=_AUTH)
+        assert resp.status_code == 503
+
 
 # ---------------------------------------------------------------------------
 # Performance — no snapshots yet (must run before snapshots_client fires)
@@ -381,6 +392,14 @@ class TestPerformanceNoSnapshots:
     def test_performance_404_no_snapshots(self, seeded_client: TestClient) -> None:
         """Portfolio seeded but no snapshots recorded — returns 404."""
         resp = seeded_client.get("/v1/performance", headers=_AUTH)
+        assert resp.status_code == 404
+        body = resp.json()
+        assert "detail" in body
+        assert "snapshot" in body["detail"].lower()
+
+    def test_performance_history_404_no_snapshots(self, seeded_client: TestClient) -> None:
+        """Portfolio seeded but no snapshots recorded — history returns 404."""
+        resp = seeded_client.get("/v1/performance/history", headers=_AUTH)
         assert resp.status_code == 404
         body = resp.json()
         assert "detail" in body
@@ -641,8 +660,9 @@ class TestSignalsWeekdayGuard:
 
 
 # ---------------------------------------------------------------------------
-# GET /v1/performance — performance summary endpoint
-# (must run before TestSnapshotEndpoint creates February-dated rows)
+# GET /v1/performance — no-benchmark summary tests
+# Uses only snapshots_client (2 rows, no benchmark data).
+# Must run before TestPerformanceBenchmark triggers perf_benchmark_client.
 # ---------------------------------------------------------------------------
 
 class TestPerformanceEndpoint:
@@ -683,6 +703,74 @@ class TestPerformanceEndpoint:
         assert body["benchmark_return_pct"] is None
         assert body["excess_return_pct"]    is None
 
+
+# ---------------------------------------------------------------------------
+# GET /v1/performance/history — no-benchmark history tests
+# Uses only snapshots_client (2 rows, no benchmark data).
+# Must run before TestPerformanceBenchmark triggers perf_benchmark_client.
+# ---------------------------------------------------------------------------
+
+class TestPerformanceHistoryEndpoint:
+    def test_performance_history_200_returns_list(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """Snapshots present — returns 200 with a non-empty list."""
+        resp = snapshots_client.get("/v1/performance/history", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert isinstance(body, list)
+        assert len(body) == 2
+
+    def test_performance_history_ascending_order_by_market_date(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """Items are ordered oldest-first (ASC by market_date)."""
+        resp = snapshots_client.get("/v1/performance/history", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body[0]["market_date"] == "2025-01-10"
+        assert body[1]["market_date"] == "2025-01-11"
+
+    def test_performance_history_fields_serialized_as_strings(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """All Decimal fields serialize to strings; values match committed data."""
+        resp = snapshots_client.get("/v1/performance/history", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        item = body[1]  # Jan-11 entry (second in ASC order)
+        assert isinstance(item["total_value"], str)
+        assert isinstance(item["cash"], str)
+        assert isinstance(item["positions_value"], str)
+        assert isinstance(item["unrealized_pnl"], str)
+        assert isinstance(item["realized_pnl_cumulative"], str)
+        assert item["total_value"] == "10500.00"
+        assert item["cash"]        == "10500.00"
+
+    def test_performance_history_null_benchmark_when_absent(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        When snapshots have no benchmark data, benchmark_ticker and
+        benchmark_value are null in every history item.
+        """
+        resp = snapshots_client.get("/v1/performance/history", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        for item in body:
+            assert item["benchmark_ticker"] is None
+            assert item["benchmark_value"]  is None
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/performance + GET /v1/performance/history — benchmark-populated cases
+# Uses perf_benchmark_client (commits Jan-13 row with benchmark data).
+# Must run after TestPerformanceEndpoint and TestPerformanceHistoryEndpoint
+# so those classes observe the clean 2-row / null-benchmark state.
+# Must run before TestSnapshotEndpoint to avoid February rows shifting dates.
+# ---------------------------------------------------------------------------
+
+class TestPerformanceBenchmark:
     def test_performance_populated_benchmark_when_value_present(
         self, perf_benchmark_client: TestClient
     ) -> None:
@@ -705,6 +793,31 @@ class TestPerformanceEndpoint:
         assert body["benchmark_ticker"]     == "SPY"
         assert body["benchmark_return_pct"] == "6.0000"
         assert body["excess_return_pct"]    == "2.0000"
+
+    def test_performance_history_populated_benchmark_when_present(
+        self, perf_benchmark_client: TestClient
+    ) -> None:
+        """
+        When the Jan-13 snapshot has benchmark data, the last history item
+        carries non-null benchmark_ticker, benchmark_value, and
+        portfolio_vs_benchmark.
+
+        perf_benchmark_client adds Jan-13 (total=10800, benchmark=10600,
+        portfolio_vs_benchmark=200, ticker=SPY).
+        """
+        resp = perf_benchmark_client.get("/v1/performance/history", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 3
+        last = body[2]  # Jan-13 is newest, last in ASC order
+        assert last["market_date"]            == "2025-01-13"
+        assert last["total_value"]            == "10800.00"
+        assert last["benchmark_ticker"]       == "SPY"
+        assert last["benchmark_value"]        == "10600.00"
+        assert last["portfolio_vs_benchmark"] == "200.00"
+        # Earlier items without benchmark data are unaffected
+        assert body[0]["benchmark_ticker"] is None
+        assert body[1]["benchmark_ticker"] is None
 
 
 # ---------------------------------------------------------------------------
