@@ -844,16 +844,24 @@ def get_performance() -> PerformanceOut:
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(_verify_api_key)],
 )
-def get_performance_history() -> list[PerformanceHistoryItem]:
+def get_performance_history(
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+) -> list[PerformanceHistoryItem]:
     """
     Return time-series performance history for charting and trend analysis.
 
-    Returns all portfolio snapshots ordered chronologically (ascending by
+    Returns portfolio snapshots ordered chronologically (ascending by
     market_date). Each item includes portfolio values, PnL, and benchmark
     comparison data. Benchmark fields degrade gracefully to null when
     benchmark data is unavailable.
 
-    Returns 404 when no snapshots have been recorded yet.
+    Optional filters:
+        start_date — include only rows with market_date >= start_date
+        end_date   — include only rows with market_date <= end_date
+
+    Returns 404 when no snapshots match (no data recorded, or the date
+    window contains no rows).
     Returns 503 when the portfolio row is missing.
     """
     with get_session() as session:
@@ -864,9 +872,13 @@ def get_performance_history() -> list[PerformanceHistoryItem]:
                 detail="Portfolio not seeded. Run scripts/seed.py first.",
             )
 
-        snaps = session.execute(
-            select(PortfolioSnapshot).order_by(PortfolioSnapshot.market_date.asc())
-        ).scalars().all()
+        stmt = select(PortfolioSnapshot).order_by(PortfolioSnapshot.market_date.asc())
+        if start_date is not None:
+            stmt = stmt.where(PortfolioSnapshot.market_date >= start_date)
+        if end_date is not None:
+            stmt = stmt.where(PortfolioSnapshot.market_date <= end_date)
+
+        snaps = session.execute(stmt).scalars().all()
 
         if not snaps:
             raise HTTPException(
