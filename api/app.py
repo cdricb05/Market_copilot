@@ -13,6 +13,7 @@ Endpoints:
     GET  /v1/snapshots/{market_date} — return the portfolio snapshot for a specific date
     GET  /v1/portfolio             — return current portfolio state
     GET  /v1/performance           — inception-to-date performance summary
+    GET  /v1/performance/history   — time-series performance history for charting
 
 Authentication: every endpoint requires the X-API-Key header to match
 PAPER_TRADER_SERVICE_API_KEY.
@@ -249,6 +250,18 @@ class PerformanceOut(BaseModel):
     excess_return_pct: str | None
 
 
+class PerformanceHistoryItem(BaseModel):
+    market_date: date
+    total_value: str
+    cash: str
+    positions_value: str
+    unrealized_pnl: str
+    realized_pnl_cumulative: str
+    benchmark_ticker: str | None
+    benchmark_value: str | None
+    portfolio_vs_benchmark: str | None
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -296,6 +309,27 @@ def _to_snapshot_out(snap: PortfolioSnapshot) -> SnapshotOut:
             if snap.portfolio_vs_benchmark is not None else None
         ),
         positions_detail=snap.positions_detail,
+    )
+
+
+def _to_performance_history_item(snap: PortfolioSnapshot) -> PerformanceHistoryItem:
+    """Convert a PortfolioSnapshot ORM row to a PerformanceHistoryItem response model."""
+    return PerformanceHistoryItem(
+        market_date=snap.market_date,
+        total_value=str(snap.total_value),
+        cash=str(snap.cash),
+        positions_value=str(snap.positions_value),
+        unrealized_pnl=str(snap.unrealized_pnl),
+        realized_pnl_cumulative=str(snap.realized_pnl_cumulative),
+        benchmark_ticker=snap.benchmark_ticker,
+        benchmark_value=(
+            str(snap.benchmark_value)
+            if snap.benchmark_value is not None else None
+        ),
+        portfolio_vs_benchmark=(
+            str(snap.portfolio_vs_benchmark)
+            if snap.portfolio_vs_benchmark is not None else None
+        ),
     )
 
 
@@ -802,3 +836,42 @@ def get_performance() -> PerformanceOut:
                 str(excess_return_pct) if excess_return_pct is not None else None
             ),
         )
+
+
+@app.get(
+    "/v1/performance/history",
+    response_model=list[PerformanceHistoryItem],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_performance_history() -> list[PerformanceHistoryItem]:
+    """
+    Return time-series performance history for charting and trend analysis.
+
+    Returns all portfolio snapshots ordered chronologically (ascending by
+    market_date). Each item includes portfolio values, PnL, and benchmark
+    comparison data. Benchmark fields degrade gracefully to null when
+    benchmark data is unavailable.
+
+    Returns 404 when no snapshots have been recorded yet.
+    Returns 503 when the portfolio row is missing.
+    """
+    with get_session() as session:
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        if portfolio is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Portfolio not seeded. Run scripts/seed.py first.",
+            )
+
+        snaps = session.execute(
+            select(PortfolioSnapshot).order_by(PortfolioSnapshot.market_date.asc())
+        ).scalars().all()
+
+        if not snaps:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No portfolio snapshots recorded yet.",
+            )
+
+        return [_to_performance_history_item(s) for s in snaps]
