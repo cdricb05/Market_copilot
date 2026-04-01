@@ -14,6 +14,7 @@ Endpoints:
     GET  /v1/portfolio             — return current portfolio state
     GET  /v1/performance           — inception-to-date performance summary
     GET  /v1/performance/history   — time-series performance history for charting
+    GET  /v1/performance/history.csv — same history exported as a CSV file
 
 Authentication: every endpoint requires the X-API-Key header to match
 PAPER_TRADER_SERVICE_API_KEY.
@@ -23,12 +24,14 @@ UTC timestamp converted to US/Eastern, never trusted from the caller.
 """
 from __future__ import annotations
 
+import csv
+import io
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Security, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
@@ -268,6 +271,18 @@ class PerformanceHistoryItem(BaseModel):
 
 _FILL_RESULT_KEYS = frozenset({"filled", "expired", "failed", "skipped"})
 
+_HISTORY_CSV_COLUMNS = (
+    "market_date",
+    "total_value",
+    "cash",
+    "positions_value",
+    "unrealized_pnl",
+    "realized_pnl_cumulative",
+    "benchmark_ticker",
+    "benchmark_value",
+    "portfolio_vs_benchmark",
+)
+
 
 def _now_and_date() -> tuple[datetime, date]:
     """Return (UTC now, US-Eastern market_date) from a single clock read."""
@@ -331,6 +346,31 @@ def _to_performance_history_item(snap: PortfolioSnapshot) -> PerformanceHistoryI
             if snap.portfolio_vs_benchmark is not None else None
         ),
     )
+
+
+def _query_history_snaps(
+    session,
+    start_date: date | None,
+    end_date: date | None,
+) -> list[PortfolioSnapshot]:
+    """
+    Build, filter, and execute the performance history query.
+
+    Raises HTTPException 404 when no rows match.
+    Caller is responsible for the 503 portfolio check before calling this.
+    """
+    stmt = select(PortfolioSnapshot).order_by(PortfolioSnapshot.market_date.asc())
+    if start_date is not None:
+        stmt = stmt.where(PortfolioSnapshot.market_date >= start_date)
+    if end_date is not None:
+        stmt = stmt.where(PortfolioSnapshot.market_date <= end_date)
+    snaps = session.execute(stmt).scalars().all()
+    if not snaps:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No portfolio snapshots recorded yet.",
+        )
+    return list(snaps)
 
 
 def _run_fill_workflow(
@@ -871,19 +911,62 @@ def get_performance_history(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Portfolio not seeded. Run scripts/seed.py first.",
             )
-
-        stmt = select(PortfolioSnapshot).order_by(PortfolioSnapshot.market_date.asc())
-        if start_date is not None:
-            stmt = stmt.where(PortfolioSnapshot.market_date >= start_date)
-        if end_date is not None:
-            stmt = stmt.where(PortfolioSnapshot.market_date <= end_date)
-
-        snaps = session.execute(stmt).scalars().all()
-
-        if not snaps:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No portfolio snapshots recorded yet.",
-            )
-
+        snaps = _query_history_snaps(session, start_date, end_date)
         return [_to_performance_history_item(s) for s in snaps]
+
+
+@app.get(
+    "/v1/performance/history.csv",
+    response_class=Response,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_performance_history_csv(
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+) -> Response:
+    """
+    Return performance history as a downloadable CSV file.
+
+    Same data, filtering semantics, and error codes as
+    GET /v1/performance/history — see that endpoint for full details.
+
+    Columns (in order):
+        market_date, total_value, cash, positions_value, unrealized_pnl,
+        realized_pnl_cumulative, benchmark_ticker, benchmark_value,
+        portfolio_vs_benchmark
+
+    Optional fields (benchmark_ticker, benchmark_value, portfolio_vs_benchmark)
+    are written as empty strings when null.
+    """
+    with get_session() as session:
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        if portfolio is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Portfolio not seeded. Run scripts/seed.py first.",
+            )
+        snaps = _query_history_snaps(session, start_date, end_date)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_HISTORY_CSV_COLUMNS)
+    for snap in snaps:
+        item = _to_performance_history_item(snap)
+        writer.writerow([
+            str(item.market_date),
+            item.total_value,
+            item.cash,
+            item.positions_value,
+            item.unrealized_pnl,
+            item.realized_pnl_cumulative,
+            item.benchmark_ticker if item.benchmark_ticker is not None else "",
+            item.benchmark_value if item.benchmark_value is not None else "",
+            item.portfolio_vs_benchmark if item.portfolio_vs_benchmark is not None else "",
+        ])
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=performance_history.csv"},
+    )
