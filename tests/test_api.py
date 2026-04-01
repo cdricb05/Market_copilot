@@ -21,18 +21,20 @@ Test ordering matters:
     TestAuthentication → TestUnseededPortfolio → TestPerformanceNoSnapshots
                        → TestSeededEndpoints → TestSignalsWeekdayGuard
                        → TestPerformanceEndpoint → TestPerformanceHistoryEndpoint
-                       → TestPerformanceBenchmark → TestSnapshotEndpoint
+                       → TestPerformanceHistoryFilters → TestPerformanceBenchmark
+                       → TestSnapshotEndpoint
 
 seeded_client is first used by TestPerformanceNoSnapshots, so the portfolio
 is not committed until after TestUnseededPortfolio has already run.
 TestPerformanceNoSnapshots runs before TestSeededEndpoints so that the
 404-no-snapshots assertion executes before any snapshot rows are committed.
-TestPerformanceEndpoint and TestPerformanceHistoryEndpoint use only
-snapshots_client (no benchmark data) so they must run before
-TestPerformanceBenchmark, which triggers perf_benchmark_client and commits
-the Jan-13 benchmark row. TestSnapshotEndpoint runs last because POST
-/v1/snapshot creates February-dated rows that would shift latest_snapshot_date
-and break performance assertions.
+TestPerformanceEndpoint, TestPerformanceHistoryEndpoint, and
+TestPerformanceHistoryFilters use only snapshots_client (no benchmark data)
+so they must run before TestPerformanceBenchmark, which triggers
+perf_benchmark_client and commits the Jan-13 benchmark row.
+TestSnapshotEndpoint runs last because POST /v1/snapshot creates
+February-dated rows that would shift latest_snapshot_date and break
+performance assertions.
 
 Requires PAPER_TRADER_TEST_DATABASE_URL (entire module skipped when absent).
 """
@@ -763,10 +765,94 @@ class TestPerformanceHistoryEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# GET /v1/performance/history — date filter tests
+# Uses only snapshots_client (2 rows: Jan-10, Jan-11, no benchmark data).
+# Must run before TestPerformanceBenchmark triggers perf_benchmark_client.
+# ---------------------------------------------------------------------------
+
+class TestPerformanceHistoryFilters:
+    def test_start_date_excludes_earlier_rows(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        start_date=2025-01-11 → only the Jan-11 row is returned.
+        Jan-10 is excluded because market_date < start_date.
+        """
+        resp = snapshots_client.get(
+            "/v1/performance/history?start_date=2025-01-11", headers=_AUTH
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["market_date"] == "2025-01-11"
+
+    def test_end_date_excludes_later_rows(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        end_date=2025-01-10 → only the Jan-10 row is returned.
+        Jan-11 is excluded because market_date > end_date.
+        """
+        resp = snapshots_client.get(
+            "/v1/performance/history?end_date=2025-01-10", headers=_AUTH
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["market_date"] == "2025-01-10"
+
+    def test_both_filters_inclusive_bounds(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        Both bounds on the same date → exactly that one row.
+        Confirms start_date and end_date are both inclusive (>= and <=).
+        """
+        resp = snapshots_client.get(
+            "/v1/performance/history?start_date=2025-01-10&end_date=2025-01-10",
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["market_date"] == "2025-01-10"
+        assert body[0]["total_value"] == "10000.00"
+
+    def test_inverted_range_returns_404(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        start_date > end_date → no rows can match → 404.
+
+        The endpoint does not validate range order; the SQL WHERE simply
+        returns an empty set, which the endpoint treats as 404.
+        """
+        resp = snapshots_client.get(
+            "/v1/performance/history?start_date=2025-01-11&end_date=2025-01-10",
+            headers=_AUTH,
+        )
+        assert resp.status_code == 404
+        assert "detail" in resp.json()
+
+    def test_start_date_beyond_all_rows_returns_404(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        start_date after all existing rows → empty result → 404.
+        """
+        resp = snapshots_client.get(
+            "/v1/performance/history?start_date=2025-01-12", headers=_AUTH
+        )
+        assert resp.status_code == 404
+        assert "detail" in resp.json()
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/performance + GET /v1/performance/history — benchmark-populated cases
 # Uses perf_benchmark_client (commits Jan-13 row with benchmark data).
-# Must run after TestPerformanceEndpoint and TestPerformanceHistoryEndpoint
-# so those classes observe the clean 2-row / null-benchmark state.
+# Must run after TestPerformanceEndpoint, TestPerformanceHistoryEndpoint, and
+# TestPerformanceHistoryFilters so those classes observe the clean 2-row /
+# null-benchmark state.
 # Must run before TestSnapshotEndpoint to avoid February rows shifting dates.
 # ---------------------------------------------------------------------------
 
