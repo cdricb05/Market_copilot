@@ -21,8 +21,8 @@ Test ordering matters:
     TestAuthentication → TestUnseededPortfolio → TestPerformanceNoSnapshots
                        → TestSeededEndpoints → TestSignalsWeekdayGuard
                        → TestPerformanceEndpoint → TestPerformanceHistoryEndpoint
-                       → TestPerformanceHistoryFilters → TestPerformanceBenchmark
-                       → TestSnapshotEndpoint
+                       → TestPerformanceHistoryFilters → TestPerformanceHistoryCSV
+                       → TestPerformanceBenchmark → TestSnapshotEndpoint
 
 seeded_client is first used by TestPerformanceNoSnapshots, so the portfolio
 is not committed until after TestUnseededPortfolio has already run.
@@ -32,6 +32,8 @@ TestPerformanceEndpoint, TestPerformanceHistoryEndpoint, and
 TestPerformanceHistoryFilters use only snapshots_client (no benchmark data)
 so they must run before TestPerformanceBenchmark, which triggers
 perf_benchmark_client and commits the Jan-13 benchmark row.
+TestPerformanceHistoryCSV also uses only snapshots_client so it runs before
+TestPerformanceBenchmark for the same reason.
 TestSnapshotEndpoint runs last because POST /v1/snapshot creates
 February-dated rows that would shift latest_snapshot_date and break
 performance assertions.
@@ -40,6 +42,8 @@ Requires PAPER_TRADER_TEST_DATABASE_URL (entire module skipped when absent).
 """
 from __future__ import annotations
 
+import csv
+import io
 import os
 import uuid
 from datetime import date, datetime, timezone
@@ -78,6 +82,11 @@ _DATE_SNAP_MISSING = date(2025, 2, 5)
 def _ikey() -> str:
     """Return a unique idempotency key for each snapshot workflow call."""
     return f"test-snap-api-{uuid.uuid4()}"
+
+
+def _parse_csv_rows(text: str) -> list[list[str]]:
+    """Parse CSV response text into a list of rows (each a list of strings)."""
+    return list(csv.reader(io.StringIO(text)))
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +376,9 @@ class TestAuthentication:
     def test_auth_required_on_performance_history(self, client: TestClient) -> None:
         assert client.get("/v1/performance/history").status_code == 401
 
+    def test_auth_required_on_performance_history_csv(self, client: TestClient) -> None:
+        assert client.get("/v1/performance/history.csv").status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # Unseeded state — must run before seeded_client commits data
@@ -383,6 +395,10 @@ class TestUnseededPortfolio:
 
     def test_performance_history_503_when_not_seeded(self, client: TestClient) -> None:
         resp = client.get("/v1/performance/history", headers=_AUTH)
+        assert resp.status_code == 503
+
+    def test_performance_history_csv_503_when_not_seeded(self, client: TestClient) -> None:
+        resp = client.get("/v1/performance/history.csv", headers=_AUTH)
         assert resp.status_code == 503
 
 
@@ -402,6 +418,16 @@ class TestPerformanceNoSnapshots:
     def test_performance_history_404_no_snapshots(self, seeded_client: TestClient) -> None:
         """Portfolio seeded but no snapshots recorded — history returns 404."""
         resp = seeded_client.get("/v1/performance/history", headers=_AUTH)
+        assert resp.status_code == 404
+        body = resp.json()
+        assert "detail" in body
+        assert "snapshot" in body["detail"].lower()
+
+    def test_performance_history_csv_404_no_snapshots(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Portfolio seeded but no snapshots recorded — CSV endpoint returns 404."""
+        resp = seeded_client.get("/v1/performance/history.csv", headers=_AUTH)
         assert resp.status_code == 404
         body = resp.json()
         assert "detail" in body
@@ -848,11 +874,135 @@ class TestPerformanceHistoryFilters:
 
 
 # ---------------------------------------------------------------------------
+# GET /v1/performance/history.csv — CSV export tests
+# Uses only snapshots_client (2 rows: Jan-10, Jan-11, no benchmark data).
+# Must run before TestPerformanceBenchmark triggers perf_benchmark_client.
+# ---------------------------------------------------------------------------
+
+class TestPerformanceHistoryCSV:
+    """
+    Full coverage for GET /v1/performance/history.csv.
+
+    Auth, 503, and 404-no-snapshots cases are in TestAuthentication,
+    TestUnseededPortfolio, and TestPerformanceNoSnapshots respectively.
+    This class covers the success path and filter behaviour using the
+    clean 2-row/null-benchmark state provided by snapshots_client.
+    """
+
+    def test_csv_200_ok(self, snapshots_client: TestClient) -> None:
+        """Snapshots present — endpoint returns 200."""
+        resp = snapshots_client.get("/v1/performance/history.csv", headers=_AUTH)
+        assert resp.status_code == 200
+
+    def test_csv_content_type_is_text_csv(self, snapshots_client: TestClient) -> None:
+        """Response Content-Type includes text/csv."""
+        resp = snapshots_client.get("/v1/performance/history.csv", headers=_AUTH)
+        assert "text/csv" in resp.headers["content-type"]
+
+    def test_csv_content_disposition_attachment(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """Content-Disposition triggers a browser download with the correct filename."""
+        resp = snapshots_client.get("/v1/performance/history.csv", headers=_AUTH)
+        cd = resp.headers.get("content-disposition", "")
+        assert "attachment" in cd
+        assert "performance_history.csv" in cd
+
+    def test_csv_header_columns_correct_and_ordered(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """First row is the header; column names and order match _HISTORY_CSV_COLUMNS."""
+        resp = snapshots_client.get("/v1/performance/history.csv", headers=_AUTH)
+        rows = _parse_csv_rows(resp.text)
+        assert rows[0] == [
+            "market_date",
+            "total_value",
+            "cash",
+            "positions_value",
+            "unrealized_pnl",
+            "realized_pnl_cumulative",
+            "benchmark_ticker",
+            "benchmark_value",
+            "portfolio_vs_benchmark",
+        ]
+
+    def test_csv_ascending_order_by_market_date(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """Data rows are ordered oldest-first (ASC by market_date)."""
+        resp = snapshots_client.get("/v1/performance/history.csv", headers=_AUTH)
+        rows = _parse_csv_rows(resp.text)
+        # rows[0] = header, rows[1] = Jan-10, rows[2] = Jan-11
+        assert rows[1][0] == "2025-01-10"
+        assert rows[2][0] == "2025-01-11"
+
+    def test_csv_row_values_match_snapshot_data(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """Jan-11 row values match the committed snapshot data."""
+        resp = snapshots_client.get("/v1/performance/history.csv", headers=_AUTH)
+        rows = _parse_csv_rows(resp.text)
+        jan11 = rows[2]  # header + Jan-10 + Jan-11
+        assert jan11[0] == "2025-01-11"  # market_date
+        assert jan11[1] == "10500.00"    # total_value
+        assert jan11[2] == "10500.00"    # cash
+        assert jan11[3] == "0.00"        # positions_value
+        assert jan11[4] == "0.00"        # unrealized_pnl
+        assert jan11[5] == "0.00"        # realized_pnl_cumulative
+
+    def test_csv_null_benchmark_fields_are_empty_strings(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """When benchmark data is absent, benchmark columns are empty strings."""
+        resp = snapshots_client.get("/v1/performance/history.csv", headers=_AUTH)
+        rows = _parse_csv_rows(resp.text)
+        for row in rows[1:]:  # skip header
+            assert row[6] == ""  # benchmark_ticker
+            assert row[7] == ""  # benchmark_value
+            assert row[8] == ""  # portfolio_vs_benchmark
+
+    def test_csv_start_date_filter(self, snapshots_client: TestClient) -> None:
+        """start_date=2025-01-11 → header + 1 data row (Jan-11 only)."""
+        resp = snapshots_client.get(
+            "/v1/performance/history.csv?start_date=2025-01-11", headers=_AUTH
+        )
+        assert resp.status_code == 200
+        rows = _parse_csv_rows(resp.text)
+        assert len(rows) == 2  # header + 1 data row
+        assert rows[1][0] == "2025-01-11"
+
+    def test_csv_end_date_filter(self, snapshots_client: TestClient) -> None:
+        """end_date=2025-01-10 → header + 1 data row (Jan-10 only)."""
+        resp = snapshots_client.get(
+            "/v1/performance/history.csv?end_date=2025-01-10", headers=_AUTH
+        )
+        assert resp.status_code == 200
+        rows = _parse_csv_rows(resp.text)
+        assert len(rows) == 2  # header + 1 data row
+        assert rows[1][0] == "2025-01-10"
+
+    def test_csv_filter_no_match_returns_404(
+        self, snapshots_client: TestClient
+    ) -> None:
+        """
+        Inverted date range → no rows match → 404.
+
+        The response body is still JSON (FastAPI HTTPException), not CSV.
+        """
+        resp = snapshots_client.get(
+            "/v1/performance/history.csv?start_date=2025-01-11&end_date=2025-01-10",
+            headers=_AUTH,
+        )
+        assert resp.status_code == 404
+        assert "detail" in resp.json()
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/performance + GET /v1/performance/history — benchmark-populated cases
 # Uses perf_benchmark_client (commits Jan-13 row with benchmark data).
-# Must run after TestPerformanceEndpoint, TestPerformanceHistoryEndpoint, and
-# TestPerformanceHistoryFilters so those classes observe the clean 2-row /
-# null-benchmark state.
+# Must run after TestPerformanceEndpoint, TestPerformanceHistoryEndpoint,
+# TestPerformanceHistoryFilters, and TestPerformanceHistoryCSV so those
+# classes observe the clean 2-row/null-benchmark state.
 # Must run before TestSnapshotEndpoint to avoid February rows shifting dates.
 # ---------------------------------------------------------------------------
 
@@ -904,6 +1054,31 @@ class TestPerformanceBenchmark:
         # Earlier items without benchmark data are unaffected
         assert body[0]["benchmark_ticker"] is None
         assert body[1]["benchmark_ticker"] is None
+
+    def test_performance_history_csv_benchmark_row_populated(
+        self, perf_benchmark_client: TestClient
+    ) -> None:
+        """
+        Jan-13 row in the CSV has non-empty benchmark columns; Jan-10 and
+        Jan-11 rows still have empty benchmark columns.
+
+        perf_benchmark_client adds Jan-13 (total=10800, benchmark_ticker=SPY,
+        benchmark_value=10600, portfolio_vs_benchmark=200).
+        """
+        resp = perf_benchmark_client.get("/v1/performance/history.csv", headers=_AUTH)
+        assert resp.status_code == 200
+        rows = _parse_csv_rows(resp.text)
+        # header + Jan-10 + Jan-11 + Jan-13
+        assert len(rows) == 4
+        jan13 = rows[3]
+        assert jan13[0] == "2025-01-13"
+        assert jan13[1] == "10800.00"
+        assert jan13[6] == "SPY"      # benchmark_ticker
+        assert jan13[7] == "10600.00" # benchmark_value
+        assert jan13[8] == "200.00"   # portfolio_vs_benchmark
+        # Earlier rows have empty benchmark columns
+        assert rows[1][6] == ""  # Jan-10 benchmark_ticker
+        assert rows[2][6] == ""  # Jan-11 benchmark_ticker
 
 
 # ---------------------------------------------------------------------------
