@@ -3,6 +3,7 @@ api/app.py — FastAPI application for paper_trader.
 
 Endpoints:
     GET  /v1/health                — lightweight health check (no auth required)
+    GET  /v1/ready                 — readiness probe with database connectivity check (no auth required)
     POST /v1/signals               — ingest a signal batch and run the decision workflow
     POST /v1/fill                  — run the fill cycle for a given market_date
     POST /v1/snapshot              — run the post-market portfolio snapshot workflow
@@ -17,8 +18,8 @@ Endpoints:
     GET  /v1/performance/history   — time-series performance history for charting
     GET  /v1/performance/history.csv — same history exported as a CSV file
 
-Authentication: every endpoint except /v1/health requires the X-API-Key header
-to match PAPER_TRADER_SERVICE_API_KEY.
+Authentication: every endpoint except /v1/health and /v1/ready requires the
+X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
 
 Clock convention: market_date is always derived server-side from the current
 UTC timestamp converted to US/Eastern, never trusted from the caller.
@@ -87,6 +88,13 @@ class HealthOut(BaseModel):
     status: str
     service: str
     version: str
+
+
+class ReadyOut(BaseModel):
+    status: str
+    service: str
+    version: str
+    database: str
 
 
 class SignalIn(BaseModel):
@@ -503,6 +511,37 @@ def health() -> HealthOut:
         status="ok",
         service="paper_trader",
         version="1.0.0",
+    )
+
+
+@app.get(
+    "/v1/ready",
+    response_model=ReadyOut,
+    status_code=status.HTTP_200_OK,
+)
+def ready() -> ReadyOut:
+    """
+    Readiness probe endpoint.
+
+    No authentication required. Performs a lightweight database connectivity
+    check (SELECT 1) to verify the service is ready to serve traffic.
+
+    Returns 200 when the database is reachable, 503 when it is not.
+    Used by Kubernetes readiness probes and load balancers.
+    """
+    try:
+        with get_session() as session:
+            session.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unreachable.",
+        )
+    return ReadyOut(
+        status="ok",
+        service="paper_trader",
+        version="1.0.0",
+        database="ok",
     )
 
 
