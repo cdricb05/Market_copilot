@@ -18,11 +18,12 @@ rollback-isolated db_session fixture cannot be used here. Instead:
     populated, enabling performance benchmark field assertions.
 
 Test ordering matters:
-    TestAuthentication → TestUnseededPortfolio → TestPerformanceNoSnapshots
-                       → TestSeededEndpoints → TestSignalsWeekdayGuard
-                       → TestPerformanceEndpoint → TestPerformanceHistoryEndpoint
-                       → TestPerformanceHistoryFilters → TestPerformanceHistoryCSV
-                       → TestPerformanceBenchmark → TestSnapshotEndpoint
+    TestHealth → TestAuthentication → TestUnseededPortfolio
+                → TestPerformanceNoSnapshots → TestSeededEndpoints
+                → TestSignalsWeekdayGuard → TestPerformanceEndpoint
+                → TestPerformanceHistoryEndpoint → TestPerformanceHistoryFilters
+                → TestPerformanceHistoryCSV → TestPerformanceBenchmark
+                → TestSnapshotEndpoint
 
 seeded_client is first used by TestPerformanceNoSnapshots, so the portfolio
 is not committed until after TestUnseededPortfolio has already run.
@@ -329,6 +330,33 @@ def perf_benchmark_client(snapshots_client, api_engine):
         session.commit()
 
     yield snapshots_client
+
+
+# ---------------------------------------------------------------------------
+# Health check endpoint — no authentication required
+# ---------------------------------------------------------------------------
+
+class TestHealth:
+    def test_health_returns_200(self, client: TestClient) -> None:
+        resp = client.get("/v1/health")
+        assert resp.status_code == 200
+
+    def test_health_works_without_auth_header(self, client: TestClient) -> None:
+        """Health endpoint does not require X-API-Key."""
+        resp = client.get("/v1/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "status" in body
+        assert "service" in body
+        assert "version" in body
+
+    def test_health_response_values(self, client: TestClient) -> None:
+        resp = client.get("/v1/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["service"] == "paper_trader"
+        assert body["version"] == "1.0.0"
 
 
 # ---------------------------------------------------------------------------
