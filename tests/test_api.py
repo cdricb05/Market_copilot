@@ -18,7 +18,7 @@ rollback-isolated db_session fixture cannot be used here. Instead:
     populated, enabling performance benchmark field assertions.
 
 Test ordering matters:
-    TestHealth → TestAuthentication → TestUnseededPortfolio
+    TestHealth → TestReady → TestAuthentication → TestUnseededPortfolio
                 → TestPerformanceNoSnapshots → TestSeededEndpoints
                 → TestSignalsWeekdayGuard → TestPerformanceEndpoint
                 → TestPerformanceHistoryEndpoint → TestPerformanceHistoryFilters
@@ -357,6 +357,47 @@ class TestHealth:
         assert body["status"] == "ok"
         assert body["service"] == "paper_trader"
         assert body["version"] == "1.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Readiness probe endpoint — no authentication required
+# ---------------------------------------------------------------------------
+
+class TestReady:
+    def test_ready_returns_200(self, client: TestClient) -> None:
+        resp = client.get("/v1/ready")
+        assert resp.status_code == 200
+
+    def test_ready_works_without_auth_header(self, client: TestClient) -> None:
+        """Readiness endpoint does not require X-API-Key."""
+        resp = client.get("/v1/ready")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "status" in body
+        assert "service" in body
+        assert "version" in body
+        assert "database" in body
+
+    def test_ready_response_values(self, client: TestClient) -> None:
+        resp = client.get("/v1/ready")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["service"] == "paper_trader"
+        assert body["version"] == "1.0.0"
+        assert body["database"] == "ok"
+
+    def test_ready_503_when_db_unreachable(
+        self, client: TestClient, monkeypatch
+    ) -> None:
+        """When get_session() raises, the endpoint returns 503."""
+        def _broken_session():
+            raise OSError("connection refused")
+
+        monkeypatch.setattr("paper_trader.api.app.get_session", _broken_session)
+        resp = client.get("/v1/ready")
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "Database unreachable."
 
 
 # ---------------------------------------------------------------------------
