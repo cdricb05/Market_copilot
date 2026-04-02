@@ -4,7 +4,7 @@ A Python paper-trading system that processes trading signals, evaluates pre-trad
 constraints, and simulates order execution against price snapshots with a
 PostgreSQL-backed audit ledger.
 
-## Phase 1 Capabilities
+## Capabilities
 
 - **Signal ingestion**: Accept BUY/SELL/HOLD signals via HTTP; run risk checks; create
   PENDING orders for approved signals
@@ -15,8 +15,8 @@ PostgreSQL-backed audit ledger.
   slippage (basis points) and flat commission; expire stale orders by TTL
 - **Portfolio accounting**: Immutable append-only cash ledger; weighted-average cost (WAC)
   position tracking; portfolio cache refresh after each fill cycle
-- **HTTP API**: Six authenticated endpoints covering signals, fills, prices, positions,
-  orders, and portfolio state
+- **HTTP API**: Authenticated endpoints covering signals, fills, prices, snapshots,
+  positions, orders, portfolio state, and performance history
 - **Idempotency**: All write workflows are keyed by `idempotency_key`; a COMPLETED run
   returns its cached result; RUNNING or FAILED status raises an error immediately
 
@@ -46,6 +46,7 @@ paper_trader/          <- repo root and package directory
 │           └── 0001_initial_schema.py
 ├── engine/
 │   ├── __init__.py
+│   ├── market_hours.py
 │   ├── portfolio.py
 │   ├── reconciler.py
 │   └── risk.py
@@ -59,11 +60,14 @@ paper_trader/          <- repo root and package directory
 │   ├── conftest.py
 │   ├── test_api.py
 │   ├── test_decision.py
+│   ├── test_market_hours.py
 │   ├── test_portfolio.py
 │   ├── test_reconciler.py
-│   └── test_risk.py
+│   ├── test_risk.py
+│   └── test_snapshot.py
 └── workflows/
-    └── decision.py
+    ├── decision.py
+    └── snapshot.py
 ```
 
 ## Prerequisites
@@ -111,10 +115,16 @@ The repo root is the `paper_trader` package directory. With this layout,
 This does not happen automatically — not from activating a virtualenv and not from
 `pip install -e .` in this specific repo layout.
 
-Set it explicitly before running Python commands:
+**Bash / macOS / Linux:**
 
 ```bash
 export PYTHONPATH=/path/to/parent:$PYTHONPATH
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:PYTHONPATH = "C:\path\to\parent;$env:PYTHONPATH"
 ```
 
 The test suite (`tests/conftest.py`) sets the path automatically at runtime, so
@@ -122,11 +132,13 @@ The test suite (`tests/conftest.py`) sets the path automatically at runtime, so
 
 ## Setup
 
+### Bash (macOS / Linux)
+
 1. Create and activate a virtual environment.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate
 ```
 
 2. Install dependencies in editable mode.
@@ -153,6 +165,39 @@ python -m alembic upgrade head
 python scripts/seed.py
 ```
 
+### Windows PowerShell
+
+1. Create and activate a virtual environment.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+2. Install dependencies in editable mode.
+
+```powershell
+pip install -e ".[test]"
+```
+
+3. Copy the environment template and fill in your credentials.
+
+```powershell
+Copy-Item .env.example .env
+```
+
+4. Apply database migrations.
+
+```powershell
+python -m alembic upgrade head
+```
+
+5. Seed the portfolio with starting capital.
+
+```powershell
+python scripts/seed.py
+```
+
 ## Testing
 
 ```bash
@@ -170,10 +215,70 @@ python -m uvicorn paper_trader.api.app:app --host 127.0.0.1 --port 8001
 
 Interactive docs available at `http://127.0.0.1:8001/docs`.
 
-All requests require the header `X-API-Key` set to the value of
-`PAPER_TRADER_SERVICE_API_KEY`.
+## Authentication
+
+All endpoints except `/v1/health` and `/v1/ready` require the header:
+
+```
+X-API-Key: <value of PAPER_TRADER_SERVICE_API_KEY>
+```
+
+Missing or invalid key returns `401 Unauthorized`.
+
+## Quick Verification
+
+Use these commands immediately after starting the server to confirm the stack is healthy.
+
+**Bash:**
+
+```bash
+# No auth required — lightweight process check
+curl -s http://127.0.0.1:8001/v1/health
+
+# No auth required — confirms database is reachable
+curl -s http://127.0.0.1:8001/v1/ready
+
+# Auth required — confirms API key works and portfolio is seeded
+curl -s http://127.0.0.1:8001/v1/portfolio \
+  -H "X-API-Key: change-me-before-use"
+```
+
+**Windows PowerShell (`curl.exe` — not `curl`):**
+
+```powershell
+# No auth required — lightweight process check
+curl.exe -s http://127.0.0.1:8001/v1/health
+
+# No auth required — confirms database is reachable
+curl.exe -s http://127.0.0.1:8001/v1/ready
+
+# Auth required — confirms API key works and portfolio is seeded
+curl.exe -s http://127.0.0.1:8001/v1/portfolio `
+  -H "X-API-Key: change-me-before-use"
+```
+
+Expected `/v1/health` response:
+
+```json
+{"status": "ok", "service": "paper_trader", "version": "1.0.0"}
+```
+
+Expected `/v1/ready` response (database reachable):
+
+```json
+{"status": "ok", "service": "paper_trader", "version": "1.0.0", "database": "ok"}
+```
 
 ## API Endpoints
+
+### Health and Readiness
+
+`/v1/health` and `/v1/ready` serve different purposes and require no `X-API-Key`:
+
+| Endpoint | Auth | DB check | Purpose |
+|---|---|---|---|
+| `GET /v1/health` | No | No | Process is alive; safe for load-balancer liveness probes |
+| `GET /v1/ready` | No | Yes | Database is reachable; use for readiness probes; returns `503` if DB is down |
 
 ### POST /v1/prices — ingest price snapshots
 
@@ -182,6 +287,15 @@ curl -s -X POST http://127.0.0.1:8001/v1/prices \
   -H "X-API-Key: change-me-before-use" \
   -H "Content-Type: application/json" \
   -d '{"snapshots": [{"ticker": "AAPL", "price": "182.50"}]}'
+```
+
+### POST /v1/benchmark-prices — ingest benchmark price snapshots
+
+```bash
+curl -s -X POST http://127.0.0.1:8001/v1/benchmark-prices \
+  -H "X-API-Key: change-me-before-use" \
+  -H "Content-Type: application/json" \
+  -d '{"prices": [{"ticker": "SPY", "price": "510.00"}]}'
 ```
 
 ### POST /v1/signals — ingest a signal batch and run the decision workflow
@@ -202,6 +316,8 @@ curl -s -X POST http://127.0.0.1:8001/v1/signals \
   }'
 ```
 
+Weekend calls return 422.
+
 ### POST /v1/fill — execute PENDING orders for a market date
 
 ```bash
@@ -210,6 +326,17 @@ curl -s -X POST http://127.0.0.1:8001/v1/fill \
   -H "Content-Type: application/json" \
   -d '{"idempotency_key": "fill_2025-01-15"}'
 ```
+
+### POST /v1/snapshot — run the post-market portfolio snapshot workflow
+
+```bash
+curl -s -X POST http://127.0.0.1:8001/v1/snapshot \
+  -H "X-API-Key: change-me-before-use" \
+  -H "Content-Type: application/json" \
+  -d '{"idempotency_key": "snapshot_2025-01-15"}'
+```
+
+Returns 422 if price data for the current market date is missing.
 
 ### GET /v1/positions — list open positions
 
@@ -225,6 +352,26 @@ curl -s "http://127.0.0.1:8001/v1/orders?status=PENDING&market_date=2025-01-15" 
   -H "X-API-Key: change-me-before-use"
 ```
 
+`status` and `market_date` are both optional.
+
+### GET /v1/snapshots — list all portfolio snapshots
+
+```bash
+curl -s http://127.0.0.1:8001/v1/snapshots \
+  -H "X-API-Key: change-me-before-use"
+```
+
+Returns snapshots newest first.
+
+### GET /v1/snapshots/{market_date} — single snapshot by date
+
+```bash
+curl -s http://127.0.0.1:8001/v1/snapshots/2025-01-15 \
+  -H "X-API-Key: change-me-before-use"
+```
+
+Returns 404 if no snapshot exists for that date.
+
 ### GET /v1/portfolio — current portfolio state
 
 ```bash
@@ -232,11 +379,60 @@ curl -s http://127.0.0.1:8001/v1/portfolio \
   -H "X-API-Key: change-me-before-use"
 ```
 
+Returns 503 if the portfolio has not been seeded.
+
+### GET /v1/performance — inception-to-date performance summary
+
+```bash
+curl -s http://127.0.0.1:8001/v1/performance \
+  -H "X-API-Key: change-me-before-use"
+```
+
+Returns 404 if no snapshots exist yet.
+
+### GET /v1/performance/history — chronological performance snapshots
+
+```bash
+# All history
+curl -s http://127.0.0.1:8001/v1/performance/history \
+  -H "X-API-Key: change-me-before-use"
+
+# Date-filtered window
+curl -s "http://127.0.0.1:8001/v1/performance/history?start_date=2025-01-01&end_date=2025-01-31" \
+  -H "X-API-Key: change-me-before-use"
+```
+
+`start_date` and `end_date` are both optional.
+
+### GET /v1/performance/history.csv — performance history as a CSV download
+
+```bash
+curl -s "http://127.0.0.1:8001/v1/performance/history.csv" \
+  -H "X-API-Key: change-me-before-use" \
+  -o performance.csv
+```
+
+With a date window:
+
+```bash
+curl -s "http://127.0.0.1:8001/v1/performance/history.csv?start_date=2025-01-01&end_date=2025-01-31" \
+  -H "X-API-Key: change-me-before-use" \
+  -o performance_jan.csv
+```
+
+**Windows PowerShell:**
+
+```powershell
+curl.exe -s "http://127.0.0.1:8001/v1/performance/history.csv" `
+  -H "X-API-Key: change-me-before-use" `
+  -o performance.csv
+```
+
+Null numeric values are exported as empty strings. Returns 404 if no history exists.
+
 ## Phase 2 Ideas
 
 - Market hours validation (block orders outside the regular session)
 - Limit orders and stop-loss order types
-- Historical portfolio snapshots for performance reporting
 - Dividend and corporate action handling
 - Real market data feed connectors
-- Benchmark comparison and P&L attribution reporting
