@@ -65,7 +65,10 @@ from paper_trader.workflows.snapshot import run_snapshot_workflow
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
 
-app = FastAPI(title="paper_trader", version="1.0.0")
+_SERVICE_NAME = "paper_trader"
+_SERVICE_VERSION = "1.0.0"
+
+app = FastAPI(title=_SERVICE_NAME, version=_SERVICE_VERSION)
 
 
 # ---------------------------------------------------------------------------
@@ -509,8 +512,8 @@ def health() -> HealthOut:
     """
     return HealthOut(
         status="ok",
-        service="paper_trader",
-        version="1.0.0",
+        service=_SERVICE_NAME,
+        version=_SERVICE_VERSION,
     )
 
 
@@ -539,8 +542,8 @@ def ready() -> ReadyOut:
         )
     return ReadyOut(
         status="ok",
-        service="paper_trader",
-        version="1.0.0",
+        service=_SERVICE_NAME,
+        version=_SERVICE_VERSION,
         database="ok",
     )
 
