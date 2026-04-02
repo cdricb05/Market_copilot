@@ -2,6 +2,7 @@
 api/app.py — FastAPI application for paper_trader.
 
 Endpoints:
+    GET  /v1/health                — lightweight health check (no auth required)
     POST /v1/signals               — ingest a signal batch and run the decision workflow
     POST /v1/fill                  — run the fill cycle for a given market_date
     POST /v1/snapshot              — run the post-market portfolio snapshot workflow
@@ -16,8 +17,8 @@ Endpoints:
     GET  /v1/performance/history   — time-series performance history for charting
     GET  /v1/performance/history.csv — same history exported as a CSV file
 
-Authentication: every endpoint requires the X-API-Key header to match
-PAPER_TRADER_SERVICE_API_KEY.
+Authentication: every endpoint except /v1/health requires the X-API-Key header
+to match PAPER_TRADER_SERVICE_API_KEY.
 
 Clock convention: market_date is always derived server-side from the current
 UTC timestamp converted to US/Eastern, never trusted from the caller.
@@ -81,6 +82,12 @@ def _verify_api_key(api_key: str = Security(_API_KEY_HEADER)) -> None:
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
+
+class HealthOut(BaseModel):
+    status: str
+    service: str
+    version: str
+
 
 class SignalIn(BaseModel):
     ticker: str
@@ -479,6 +486,25 @@ def _run_fill_workflow(
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@app.get(
+    "/v1/health",
+    response_model=HealthOut,
+    status_code=status.HTTP_200_OK,
+)
+def health() -> HealthOut:
+    """
+    Lightweight health check endpoint.
+
+    No authentication required. Returns immediately with status and version.
+    Used by load balancers and deployment systems to verify the service is alive.
+    """
+    return HealthOut(
+        status="ok",
+        service="paper_trader",
+        version="1.0.0",
+    )
+
 
 @app.post(
     "/v1/signals",
