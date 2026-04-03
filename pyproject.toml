@@ -26,14 +26,30 @@ test = [
     "httpx>=0.27",
 ]
 
+[tool.setuptools]
+packages = [
+    "paper_trader",
+    "paper_trader.api",
+    "paper_trader.db",
+    "paper_trader.db.migrations",
+    "paper_trader.db.migrations.versions",
+    "paper_trader.engine",
+    "paper_trader.schemas",
+    "paper_trader.workflows",
+    "paper_trader.scripts",
+]
+
+[tool.setuptools.package-dir]
+paper_trader = "."
+
 # ---------------------------------------------------------------------------
 # Package discovery note
 #
 # The repo root (paper_trader/) IS the package directory: it contains both
-# pyproject.toml and __init__.py. Standard setuptools `find:` discovery
-# would need `where = [".."]` — i.e. pointing outside the repo root — which
-# is not reliable in all environments. The packaging section is therefore
-# omitted here.
+# pyproject.toml and __init__.py. Auto-discovery is disabled; packages are
+# listed explicitly above. The package-dir mapping tells setuptools that the
+# paper_trader package root is "." (the repo root), from which subpackage
+# paths are derived: paper_trader.api → ./api/, paper_trader.db → ./db/, etc.
 #
 # For development, add the parent of paper_trader/ to PYTHONPATH:
 #
