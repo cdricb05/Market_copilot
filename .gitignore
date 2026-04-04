@@ -19,3 +19,5 @@ build/
 .DS_Store
 Thumbs.db
 alembic.ini
+
+!alembic.ini
