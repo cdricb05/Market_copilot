@@ -1,5 +1,7 @@
 # paper_trader
 
+[![CI](https://github.com/cdricb05/Market_copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/cdricb05/Market_copilot/actions/workflows/ci.yml)
+
 A Python paper-trading system that processes trading signals, evaluates pre-trade risk
 constraints, and simulates order execution against price snapshots with a
 PostgreSQL-backed audit ledger.
