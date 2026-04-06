@@ -29,9 +29,9 @@ jobs:
       PAPER_TRADER_SERVICE_API_KEY: ci-test-key
 
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-python@v5.3.0
+      - uses: actions/setup-python@v6.2.0
         with:
           python-version: "3.12"
 
