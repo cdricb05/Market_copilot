@@ -28,13 +28,16 @@ from __future__ import annotations
 
 import csv
 import io
+import pathlib
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, Security, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 
@@ -1038,3 +1041,16 @@ def get_performance_history_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=performance_history.csv"},
     )
+
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+
+_UI_DIR = pathlib.Path(__file__).parent / "ui"
+app.mount("/ui", StaticFiles(directory=str(_UI_DIR), html=True), name="ui")
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse("/ui/")

@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>paper_trader</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      background: #f0f2f5;
+      color: #1a1a2e;
+    }
+
+    /* ---- Header ---- */
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: 0 2px 6px rgba(0,0,0,.3);
+    }
+    header h1 { font-size: 16px; font-weight: 700; letter-spacing: .05em; flex: 1; }
+    header input {
+      padding: 6px 10px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #2a2a3e;
+      color: #fff;
+      font-size: 13px;
+      width: 240px;
+    }
+    header input::placeholder { color: #888; }
+    header button {
+      padding: 6px 16px;
+      background: #e94560;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    header button:hover { background: #c73450; }
+
+    /* ---- Layout ---- */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 20px 24px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 800px) { .row-2 { grid-template-columns: 1fr; } }
+
+    /* ---- Card ---- */
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 18px 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #888;
+      margin-bottom: 14px;
+    }
+
+    /* ---- Status badges ---- */
+    .status-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge.ok      { background: #d1fae5; color: #065f46; }
+    .badge.err     { background: #fee2e2; color: #991b1b; }
+    .badge.neutral { background: #e5e7eb; color: #374151; }
+
+    /* ---- Stats grid ---- */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 16px;
+    }
+    .stat dt {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #9ca3af;
+      margin-bottom: 3px;
+    }
+    .stat dd { font-size: 20px; font-weight: 700; }
+
+    /* ---- Tables ---- */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #9ca3af;
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 2px solid #f3f4f6;
+      white-space: nowrap;
+    }
+    td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #f3f4f6;
+      font-size: 13px;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+    .empty { color: #9ca3af; text-align: center; padding: 28px; font-style: italic; }
+
+    /* ---- Filters row ---- */
+    .filters {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .filters select,
+    .filters input[type=date] {
+      padding: 5px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 12px;
+      background: #fff;
+    }
+    .btn-sm {
+      padding: 5px 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      background: #1a1a2e;
+      color: #fff;
+    }
+    .btn-sm:hover { background: #2a2a4e; }
+    .link-btn {
+      font-size: 12px;
+      color: #1a1a2e;
+      text-decoration: none;
+      font-weight: 600;
+      border-bottom: 1px dashed #1a1a2e;
+    }
+
+    /* ---- Action forms ---- */
+    details { border-bottom: 1px solid #f3f4f6; }
+    details:last-child { border-bottom: none; }
+    summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 4px;
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #374151;
+    }
+    summary::before { content: '▶'; font-size: 10px; color: #9ca3af; transition: transform .15s; }
+    details[open] summary::before { transform: rotate(90deg); }
+    .form-body { padding: 8px 4px 14px; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .fg label {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .fg input,
+    .fg select {
+      width: 100%;
+      padding: 7px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 13px;
+      background: #fff;
+    }
+    .btn-action {
+      padding: 7px 18px;
+      background: #e94560;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .btn-action:hover { background: #c73450; }
+
+    /* ---- Flags ---- */
+    .yes { color: #059669; font-weight: 700; }
+    .no  { color: #dc2626; font-weight: 700; }
+
+    /* ---- Toast ---- */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      display: none;
+      z-index: 200;
+      max-width: 360px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.15);
+    }
+    #toast.ok  { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+    #toast.err { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>paper_trader</h1>
+  <input type="password" id="apiKey" placeholder="X-API-Key" autocomplete="off">
+  <button onclick="connect()">Connect</button>
+</header>
+
+<main>
+
+  <!-- Status -->
+  <div class="card">
+    <div class="status-row">
+      <span class="badge neutral" id="hBadge">&#9679; health</span>
+      <span class="badge neutral" id="rBadge">&#9679; ready</span>
+    </div>
+  </div>
+
+  <!-- Portfolio + Performance -->
+  <div class="row-2">
+    <div class="card">
+      <div class="card-title">Portfolio</div>
+      <dl class="stats">
+        <div class="stat"><dt>Cash</dt><dd id="pf-cash">&#8212;</dd></div>
+        <div class="stat"><dt>Total Value</dt><dd id="pf-total">&#8212;</dd></div>
+        <div class="stat"><dt>Initial Capital</dt><dd id="pf-initial">&#8212;</dd></div>
+      </dl>
+      <dl class="stats" style="margin-top:14px;">
+        <div class="stat"><dt>Strategy</dt><dd id="pf-strategy">&#8212;</dd></div>
+        <div class="stat"><dt>Trading</dt><dd id="pf-trading">&#8212;</dd></div>
+        <div class="stat"><dt>New Positions</dt><dd id="pf-newpos">&#8212;</dd></div>
+      </dl>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Performance (inception-to-date)</div>
+      <dl class="stats">
+        <div class="stat"><dt>Return %</dt><dd id="perf-pct">&#8212;</dd></div>
+        <div class="stat"><dt>Abs. Return</dt><dd id="perf-abs">&#8212;</dd></div>
+        <div class="stat"><dt>vs Benchmark</dt><dd id="perf-excess">&#8212;</dd></div>
+        <div class="stat"><dt>Benchmark</dt><dd id="perf-bm">&#8212;</dd></div>
+        <div class="stat"><dt>Since</dt><dd id="perf-since">&#8212;</dd></div>
+        <div class="stat"><dt>As Of</dt><dd id="perf-asof">&#8212;</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <!-- Positions -->
+  <div class="card">
+    <div class="card-title">Open Positions</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Ticker</th><th>Qty</th><th>Avg Cost</th>
+            <th>Cost Basis</th><th>Opened</th><th>Updated</th>
+          </tr>
+        </thead>
+        <tbody id="posTbody">
+          <tr><td colspan="6" class="empty">Connect to load</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Orders -->
+  <div class="card">
+    <div class="card-title">Orders</div>
+    <div class="filters">
+      <select id="ordStatus" onchange="loadOrders()">
+        <option value="">All statuses</option>
+        <option value="PENDING">PENDING</option>
+        <option value="FILLED">FILLED</option>
+        <option value="EXPIRED">EXPIRED</option>
+        <option value="FAILED">FAILED</option>
+      </select>
+      <input type="date" id="ordDate" onchange="loadOrders()">
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Ticker</th><th>Side</th><th>Status</th><th>Date</th>
+            <th>Qty</th><th>Fill Px</th><th>Commission</th><th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="ordTbody">
+          <tr><td colspan="8" class="empty">Connect to load</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Performance History -->
+  <div class="card">
+    <div class="card-title">Performance History</div>
+    <div class="filters">
+      <input type="date" id="histStart">
+      <span style="color:#9ca3af;font-size:12px;">to</span>
+      <input type="date" id="histEnd">
+      <button class="btn-sm" onclick="loadHistory()">Filter</button>
+      <a class="link-btn" href="#" onclick="downloadCsv(event)">&#8595; CSV</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th><th>Total Value</th><th>Cash</th><th>Positions</th>
+            <th>Unrealized P&amp;L</th><th>Realized P&amp;L</th>
+            <th>Benchmark</th><th>Portfolio vs BM</th>
+          </tr>
+        </thead>
+        <tbody id="histTbody">
+          <tr><td colspan="8" class="empty">Connect to load</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="card">
+    <div class="card-title">Actions</div>
+
+    <details>
+      <summary>Ingest Prices</summary>
+      <div class="form-body">
+        <div class="form-grid">
+          <div class="fg"><label>Ticker</label><input id="p-ticker" placeholder="AAPL"></div>
+          <div class="fg"><label>Price</label><input id="p-price" placeholder="182.50"></div>
+        </div>
+        <button class="btn-action" onclick="ingestPrices()">Submit Price</button>
+      </div>
+    </details>
+
+    <details>
+      <summary>Ingest Benchmark Prices</summary>
+      <div class="form-body">
+        <div class="form-grid">
+          <div class="fg"><label>Ticker</label><input id="bp-ticker" placeholder="SPY"></div>
+          <div class="fg"><label>Price</label><input id="bp-price" placeholder="510.00"></div>
+        </div>
+        <button class="btn-action" onclick="ingestBenchmarkPrices()">Submit Benchmark Price</button>
+      </div>
+    </details>
+
+    <details>
+      <summary>Submit Signal</summary>
+      <div class="form-body">
+        <div class="form-grid">
+          <div class="fg"><label>Idempotency Key</label><input id="sig-ikey" placeholder="auto"></div>
+          <div class="fg"><label>Ticker</label><input id="sig-ticker" placeholder="AAPL"></div>
+          <div class="fg">
+            <label>Direction</label>
+            <select id="sig-dir">
+              <option>BUY</option><option>SELL</option><option>HOLD</option>
+            </select>
+          </div>
+          <div class="fg"><label>Confidence (0&#8211;1)</label><input id="sig-conf" placeholder="0.80"></div>
+          <div class="fg"><label>Signal Timestamp</label><input id="sig-ts" type="datetime-local"></div>
+          <div class="fg"><label>Source Run</label><input id="sig-src" placeholder="strategy-run-001"></div>
+        </div>
+        <button class="btn-action" onclick="submitSignal()">Submit Signal</button>
+        <small style="display:block;margin-top:6px;color:#9ca3af;">Weekday only. Server derives market_date from its US/Eastern clock.</small>
+      </div>
+    </details>
+
+    <details>
+      <summary>Trigger Fill</summary>
+      <div class="form-body">
+        <div class="form-grid">
+          <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto"></div>
+          <div class="fg"><label>Market Date (optional)</label><input id="fill-date" type="date"></div>
+        </div>
+        <button class="btn-action" onclick="triggerFill()">Run Fill Cycle</button>
+      </div>
+    </details>
+
+    <details>
+      <summary>Trigger Snapshot</summary>
+      <div class="form-body">
+        <div class="form-grid">
+          <div class="fg"><label>Idempotency Key</label><input id="snap-ikey" placeholder="auto"></div>
+          <div class="fg"><label>Market Date (optional)</label><input id="snap-date" type="date"></div>
+        </div>
+        <button class="btn-action" onclick="triggerSnapshot()">Run Snapshot</button>
+        <small style="display:block;margin-top:6px;color:#9ca3af;">Requires prices for all open positions to be ingested first.</small>
+      </div>
+    </details>
+
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+// ---------- helpers ----------
+
+function key() {
+  return document.getElementById('apiKey').value.trim();
+}
+
+function autoKey() {
+  return `ui-${Date.now()}`;
+}
+
+async function call(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  return fetch(path, opts);
+}
+
+let _toastTimer;
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type;
+  el.style.display = 'block';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+function usd(v) {
+  if (v == null) return '—';
+  const n = parseFloat(v);
+  const abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (n < 0 ? '-$' : '$') + abs;
+}
+
+function pct(v) {
+  if (v == null) return '—';
+  const n = parseFloat(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+function flag(v) {
+  return v ? '<span class="yes">Yes</span>' : '<span class="no">No</span>';
+}
+
+function badge(el, cls, text) {
+  el.className = 'badge ' + cls;
+  el.textContent = text;
+}
+
+function setEl(id, html, isHtml = false) {
+  const el = document.getElementById(id);
+  if (isHtml) el.innerHTML = html;
+  else el.textContent = html;
+}
+
+// ---------- load functions ----------
+
+async function loadHealth() {
+  const hEl = document.getElementById('hBadge');
+  const rEl = document.getElementById('rBadge');
+  try {
+    const r = await fetch('/v1/health');
+    const b = await r.json();
+    badge(hEl, b.status === 'ok' ? 'ok' : 'err', `● health v${b.version}`);
+  } catch {
+    badge(hEl, 'err', '● health unreachable');
+  }
+  try {
+    const r = await fetch('/v1/ready');
+    const b = await r.json();
+    badge(rEl, b.database === 'ok' ? 'ok' : 'err', `● ready db=${b.database}`);
+  } catch {
+    badge(rEl, 'err', '● ready unreachable');
+  }
+}
+
+function populatePortfolio(b) {
+  setEl('pf-cash',    usd(b.cached_cash));
+  setEl('pf-total',   usd(b.cached_total_value));
+  setEl('pf-initial', usd(b.initial_capital));
+  setEl('pf-strategy', flag(b.strategy_enabled),    true);
+  setEl('pf-trading',  flag(b.trading_enabled),     true);
+  setEl('pf-newpos',   flag(b.allow_new_positions), true);
+}
+
+async function loadPortfolio() {
+  const r = await call('GET', '/v1/portfolio');
+  if (!r.ok) return;
+  populatePortfolio(await r.json());
+}
+
+async function loadPerformance() {
+  const r = await call('GET', '/v1/performance');
+  if (!r.ok) return;
+  const b = await r.json();
+  setEl('perf-pct',    pct(b.return_pct));
+  setEl('perf-abs',    usd(b.absolute_return));
+  setEl('perf-excess', b.excess_return_pct != null ? pct(b.excess_return_pct) : '—');
+  setEl('perf-bm',     b.benchmark_ticker ?? '—');
+  setEl('perf-since',  b.first_snapshot_date ?? '—');
+  setEl('perf-asof',   b.latest_snapshot_date ?? '—');
+}
+
+async function loadPositions() {
+  const r = await call('GET', '/v1/positions');
+  if (!r.ok) return;
+  const rows = await r.json();
+  const tb = document.getElementById('posTbody');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="empty">No open positions</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(p => `
+    <tr>
+      <td><strong>${p.ticker}</strong></td>
+      <td>${p.qty}</td>
+      <td>${usd(p.avg_cost)}</td>
+      <td>${usd(p.cost_basis)}</td>
+      <td>${new Date(p.opened_at).toLocaleDateString()}</td>
+      <td>${new Date(p.last_updated).toLocaleDateString()}</td>
+    </tr>`).join('');
+}
+
+async function loadOrders() {
+  const status = document.getElementById('ordStatus').value;
+  const date   = document.getElementById('ordDate').value;
+  let url = '/v1/orders?';
+  if (status) url += `status=${encodeURIComponent(status)}&`;
+  if (date)   url += `market_date=${encodeURIComponent(date)}`;
+  const r = await call('GET', url);
+  if (!r.ok) return;
+  const rows = await r.json();
+  const tb = document.getElementById('ordTbody');
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="8" class="empty">No orders</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(o => `
+    <tr>
+      <td><strong>${o.ticker}</strong></td>
+      <td>${o.side}</td>
+      <td>${o.status}</td>
+      <td>${o.market_date}</td>
+      <td>${o.filled_qty ?? o.requested_qty}</td>
+      <td>${o.fill_price != null ? usd(o.fill_price) : '—'}</td>
+      <td>${o.commission != null ? usd(o.commission) : '—'}</td>
+      <td style="color:#9ca3af;font-size:12px;">${o.notes ?? ''}</td>
+    </tr>`).join('');
+}
+
+function histParams() {
+  const start = document.getElementById('histStart').value;
+  const end   = document.getElementById('histEnd').value;
+  let qs = '';
+  if (start) qs += `start_date=${encodeURIComponent(start)}&`;
+  if (end)   qs += `end_date=${encodeURIComponent(end)}`;
+  return qs;
+}
+
+async function loadHistory() {
+  const r = await call('GET', '/v1/performance/history?' + histParams());
+  const tb = document.getElementById('histTbody');
+  if (!r.ok) {
+    tb.innerHTML = `<tr><td colspan="8" class="empty">${r.status === 404 ? 'No snapshots yet' : 'Error ' + r.status}</td></tr>`;
+    return;
+  }
+  const rows = await r.json();
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="8" class="empty">No history</td></tr>';
+    return;
+  }
+  // API returns ASC; display newest-first
+  tb.innerHTML = rows.slice().reverse().map(h => `
+    <tr>
+      <td>${h.market_date}</td>
+      <td>${usd(h.total_value)}</td>
+      <td>${usd(h.cash)}</td>
+      <td>${usd(h.positions_value)}</td>
+      <td>${usd(h.unrealized_pnl)}</td>
+      <td>${usd(h.realized_pnl_cumulative)}</td>
+      <td>${h.benchmark_ticker ?? '—'}</td>
+      <td>${h.portfolio_vs_benchmark ?? '—'}</td>
+    </tr>`).join('');
+}
+
+async function downloadCsv(e) {
+  e.preventDefault();
+  const r = await call('GET', '/v1/performance/history.csv?' + histParams());
+  if (!r.ok) { toast('No CSV data available', 'err'); return; }
+  const text = await r.text();
+  const blob = new Blob([text], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'performance_history.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ---------- action handlers ----------
+
+async function ingestPrices() {
+  const ticker = document.getElementById('p-ticker').value.trim();
+  const price  = document.getElementById('p-price').value.trim();
+  if (!ticker || !price) { toast('Ticker and price are required', 'err'); return; }
+  const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price }] });
+  const b = await r.json();
+  if (r.ok) toast(`Inserted ${b.inserted} price snapshot(s)`);
+  else toast(b.detail ?? 'Error ingesting prices', 'err');
+}
+
+async function ingestBenchmarkPrices() {
+  const ticker = document.getElementById('bp-ticker').value.trim();
+  const price  = document.getElementById('bp-price').value.trim();
+  if (!ticker || !price) { toast('Ticker and price are required', 'err'); return; }
+  const r = await call('POST', '/v1/benchmark-prices', { prices: [{ ticker, price }] });
+  const b = await r.json();
+  if (r.ok) toast(`Inserted ${b.inserted} benchmark price(s)`);
+  else toast(b.detail ?? 'Error ingesting benchmark prices', 'err');
+}
+
+async function submitSignal() {
+  const ikeyVal    = document.getElementById('sig-ikey').value.trim() || autoKey();
+  const ticker     = document.getElementById('sig-ticker').value.trim();
+  const direction  = document.getElementById('sig-dir').value;
+  const confidence = document.getElementById('sig-conf').value.trim();
+  const tsRaw      = document.getElementById('sig-ts').value;
+  const source     = document.getElementById('sig-src').value.trim();
+  if (!ticker || !confidence || !tsRaw || !source) {
+    toast('Ticker, confidence, timestamp, and source run are required', 'err');
+    return;
+  }
+  const signal_ts = new Date(tsRaw).toISOString();
+  const r = await call('POST', '/v1/signals', {
+    idempotency_key: ikeyVal,
+    workflow_type: 'PRE_MARKET',
+    signals: [{ ticker, direction, confidence, signal_ts, source_run: source }],
+  });
+  const b = await r.json();
+  if (r.ok) {
+    toast(`${b.signals_ingested} signal(s) ingested → ${b.orders_created} order(s) created`);
+    loadOrders();
+  } else {
+    toast(b.detail ?? 'Signal submission failed', 'err');
+  }
+}
+
+async function triggerFill() {
+  const ikeyVal = document.getElementById('fill-ikey').value.trim() || autoKey();
+  const date    = document.getElementById('fill-date').value || null;
+  const body = { idempotency_key: ikeyVal };
+  if (date) body.market_date = date;
+  const r = await call('POST', '/v1/fill', body);
+  const b = await r.json();
+  if (r.ok) {
+    toast(`Fill: ${b.filled} filled · ${b.expired} expired · ${b.failed} failed · ${b.skipped} skipped`);
+    loadOrders();
+    loadPositions();
+    loadPortfolio();
+  } else {
+    toast(b.detail ?? 'Fill cycle failed', 'err');
+  }
+}
+
+async function triggerSnapshot() {
+  const ikeyVal = document.getElementById('snap-ikey').value.trim() || autoKey();
+  const date    = document.getElementById('snap-date').value || null;
+  const body = { idempotency_key: ikeyVal };
+  if (date) body.market_date = date;
+  const r = await call('POST', '/v1/snapshot', body);
+  const b = await r.json();
+  if (r.ok) {
+    toast(`Snapshot: ${b.total_value} total · ${b.open_position_count} position(s) · ${b.unrealized_pnl} unrealized P&L`);
+    loadPerformance();
+    loadHistory();
+  } else {
+    toast(b.detail ?? 'Snapshot failed', 'err');
+  }
+}
+
+// ---------- connect ----------
+
+async function connect() {
+  await loadHealth();
+  const r = await call('GET', '/v1/portfolio');
+  if (r.status === 401) {
+    toast('Invalid API key — check the value and reconnect', 'err');
+    return;
+  }
+  if (r.ok) populatePortfolio(await r.json());
+  await Promise.all([
+    loadPerformance(),
+    loadPositions(),
+    loadOrders(),
+    loadHistory(),
+  ]);
+}
+
+// Health check runs immediately — no auth needed
+loadHealth();
+</script>
+
+</body>
+</html>
