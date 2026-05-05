@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/cdricb05/Market_copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/cdricb05/Market_copilot/actions/workflows/ci.yml)
 
+For developer setup and contribution workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 A Python paper-trading system that processes trading signals, evaluates pre-trade risk
 constraints, and simulates order execution against price snapshots with a
 PostgreSQL-backed audit ledger.
