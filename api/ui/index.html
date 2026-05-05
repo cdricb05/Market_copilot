@@ -49,6 +49,20 @@
       font-weight: 600;
     }
     header button:hover { background: #c73450; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    header button.btn-refresh {
+      background: transparent;
+      color: #aaa;
+      border: 1px solid #555;
+      padding: 5px 9px;
+      font-size: 16px;
+      font-weight: normal;
+    }
+    header button.btn-refresh:hover:not(:disabled) {
+      background: rgba(255,255,255,.1);
+      border-color: #888;
+      color: #fff;
+    }
 
     /* ---- Layout ---- */
     main {
@@ -244,8 +258,10 @@
 
 <header>
   <h1>paper_trader</h1>
-  <input type="password" id="apiKey" placeholder="X-API-Key" autocomplete="off">
-  <button onclick="connect()">Connect</button>
+  <input type="password" id="apiKey" placeholder="X-API-Key" autocomplete="off"
+         onkeydown="if(event.key==='Enter')connect()">
+  <button id="connectBtn" onclick="connect()">Connect</button>
+  <button class="btn-refresh" id="refreshBtn" onclick="refresh()" title="Refresh all data">↻</button>
 </header>
 
 <main>
@@ -370,7 +386,7 @@
           <div class="fg"><label>Ticker</label><input id="p-ticker" placeholder="AAPL"></div>
           <div class="fg"><label>Price</label><input id="p-price" placeholder="182.50"></div>
         </div>
-        <button class="btn-action" onclick="ingestPrices()">Submit Price</button>
+        <button class="btn-action" onclick="ingestPrices(this)">Submit Price</button>
       </div>
     </details>
 
@@ -381,7 +397,7 @@
           <div class="fg"><label>Ticker</label><input id="bp-ticker" placeholder="SPY"></div>
           <div class="fg"><label>Price</label><input id="bp-price" placeholder="510.00"></div>
         </div>
-        <button class="btn-action" onclick="ingestBenchmarkPrices()">Submit Benchmark Price</button>
+        <button class="btn-action" onclick="ingestBenchmarkPrices(this)">Submit Benchmark Price</button>
       </div>
     </details>
 
@@ -401,7 +417,7 @@
           <div class="fg"><label>Signal Timestamp</label><input id="sig-ts" type="datetime-local"></div>
           <div class="fg"><label>Source Run</label><input id="sig-src" placeholder="strategy-run-001"></div>
         </div>
-        <button class="btn-action" onclick="submitSignal()">Submit Signal</button>
+        <button class="btn-action" onclick="submitSignal(this)">Submit Signal</button>
         <small style="display:block;margin-top:6px;color:#9ca3af;">Weekday only. Server derives market_date from its US/Eastern clock.</small>
       </div>
     </details>
@@ -413,7 +429,7 @@
           <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto"></div>
           <div class="fg"><label>Market Date (optional)</label><input id="fill-date" type="date"></div>
         </div>
-        <button class="btn-action" onclick="triggerFill()">Run Fill Cycle</button>
+        <button class="btn-action" onclick="triggerFill(this)">Run Fill Cycle</button>
       </div>
     </details>
 
@@ -424,7 +440,7 @@
           <div class="fg"><label>Idempotency Key</label><input id="snap-ikey" placeholder="auto"></div>
           <div class="fg"><label>Market Date (optional)</label><input id="snap-date" type="date"></div>
         </div>
-        <button class="btn-action" onclick="triggerSnapshot()">Run Snapshot</button>
+        <button class="btn-action" onclick="triggerSnapshot(this)">Run Snapshot</button>
         <small style="display:block;margin-top:6px;color:#9ca3af;">Requires prices for all open positions to be ingested first.</small>
       </div>
     </details>
@@ -510,7 +526,8 @@ async function loadHealth() {
   try {
     const r = await fetch('/v1/ready');
     const b = await r.json();
-    badge(rEl, b.database === 'ok' ? 'ok' : 'err', `● ready db=${b.database}`);
+    const dbStatus = b.database ?? (r.ok ? 'unknown' : 'error');
+    badge(rEl, dbStatus === 'ok' ? 'ok' : 'err', `● ready db=${dbStatus}`);
   } catch {
     badge(rEl, 'err', '● ready unreachable');
   }
@@ -545,9 +562,12 @@ async function loadPerformance() {
 
 async function loadPositions() {
   const r = await call('GET', '/v1/positions');
-  if (!r.ok) return;
-  const rows = await r.json();
   const tb = document.getElementById('posTbody');
+  if (!r.ok) {
+    tb.innerHTML = `<tr><td colspan="6" class="empty">Error ${r.status}</td></tr>`;
+    return;
+  }
+  const rows = await r.json();
   if (!rows.length) {
     tb.innerHTML = '<tr><td colspan="6" class="empty">No open positions</td></tr>';
     return;
@@ -570,9 +590,12 @@ async function loadOrders() {
   if (status) url += `status=${encodeURIComponent(status)}&`;
   if (date)   url += `market_date=${encodeURIComponent(date)}`;
   const r = await call('GET', url);
-  if (!r.ok) return;
-  const rows = await r.json();
   const tb = document.getElementById('ordTbody');
+  if (!r.ok) {
+    tb.innerHTML = `<tr><td colspan="8" class="empty">Error ${r.status}</td></tr>`;
+    return;
+  }
+  const rows = await r.json();
   if (!rows.length) {
     tb.innerHTML = '<tr><td colspan="8" class="empty">No orders</td></tr>';
     return;
@@ -611,7 +634,6 @@ async function loadHistory() {
     tb.innerHTML = '<tr><td colspan="8" class="empty">No history</td></tr>';
     return;
   }
-  // API returns ASC; display newest-first
   tb.innerHTML = rows.slice().reverse().map(h => `
     <tr>
       <td>${h.market_date}</td>
@@ -640,27 +662,37 @@ async function downloadCsv(e) {
 
 // ---------- action handlers ----------
 
-async function ingestPrices() {
+async function ingestPrices(btn) {
   const ticker = document.getElementById('p-ticker').value.trim();
   const price  = document.getElementById('p-price').value.trim();
   if (!ticker || !price) { toast('Ticker and price are required', 'err'); return; }
-  const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price }] });
-  const b = await r.json();
-  if (r.ok) toast(`Inserted ${b.inserted} price snapshot(s)`);
-  else toast(b.detail ?? 'Error ingesting prices', 'err');
+  btn.disabled = true;
+  try {
+    const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price }] });
+    const b = await r.json();
+    if (r.ok) toast(`Inserted ${b.inserted} price snapshot(s)`);
+    else toast(b.detail ?? 'Error ingesting prices', 'err');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
-async function ingestBenchmarkPrices() {
+async function ingestBenchmarkPrices(btn) {
   const ticker = document.getElementById('bp-ticker').value.trim();
   const price  = document.getElementById('bp-price').value.trim();
   if (!ticker || !price) { toast('Ticker and price are required', 'err'); return; }
-  const r = await call('POST', '/v1/benchmark-prices', { prices: [{ ticker, price }] });
-  const b = await r.json();
-  if (r.ok) toast(`Inserted ${b.inserted} benchmark price(s)`);
-  else toast(b.detail ?? 'Error ingesting benchmark prices', 'err');
+  btn.disabled = true;
+  try {
+    const r = await call('POST', '/v1/benchmark-prices', { prices: [{ ticker, price }] });
+    const b = await r.json();
+    if (r.ok) toast(`Inserted ${b.inserted} benchmark price(s)`);
+    else toast(b.detail ?? 'Error ingesting benchmark prices', 'err');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
-async function submitSignal() {
+async function submitSignal(btn) {
   const ikeyVal    = document.getElementById('sig-ikey').value.trim() || autoKey();
   const ticker     = document.getElementById('sig-ticker').value.trim();
   const direction  = document.getElementById('sig-dir').value;
@@ -672,69 +704,112 @@ async function submitSignal() {
     return;
   }
   const signal_ts = new Date(tsRaw).toISOString();
-  const r = await call('POST', '/v1/signals', {
-    idempotency_key: ikeyVal,
-    workflow_type: 'PRE_MARKET',
-    signals: [{ ticker, direction, confidence, signal_ts, source_run: source }],
-  });
-  const b = await r.json();
-  if (r.ok) {
-    toast(`${b.signals_ingested} signal(s) ingested → ${b.orders_created} order(s) created`);
-    loadOrders();
-  } else {
-    toast(b.detail ?? 'Signal submission failed', 'err');
+  btn.disabled = true;
+  try {
+    const r = await call('POST', '/v1/signals', {
+      idempotency_key: ikeyVal,
+      workflow_type: 'PRE_MARKET',
+      signals: [{ ticker, direction, confidence, signal_ts, source_run: source }],
+    });
+    const b = await r.json();
+    if (r.ok) {
+      toast(`${b.signals_ingested} signal(s) ingested → ${b.orders_created} order(s) created`);
+      loadOrders();
+    } else {
+      toast(b.detail ?? 'Signal submission failed', 'err');
+    }
+  } finally {
+    btn.disabled = false;
   }
 }
 
-async function triggerFill() {
+async function triggerFill(btn) {
   const ikeyVal = document.getElementById('fill-ikey').value.trim() || autoKey();
   const date    = document.getElementById('fill-date').value || null;
   const body = { idempotency_key: ikeyVal };
   if (date) body.market_date = date;
-  const r = await call('POST', '/v1/fill', body);
-  const b = await r.json();
-  if (r.ok) {
-    toast(`Fill: ${b.filled} filled · ${b.expired} expired · ${b.failed} failed · ${b.skipped} skipped`);
-    loadOrders();
-    loadPositions();
-    loadPortfolio();
-  } else {
-    toast(b.detail ?? 'Fill cycle failed', 'err');
+  btn.disabled = true;
+  try {
+    const r = await call('POST', '/v1/fill', body);
+    const b = await r.json();
+    if (r.ok) {
+      toast(`Fill: ${b.filled} filled · ${b.expired} expired · ${b.failed} failed · ${b.skipped} skipped`);
+      loadOrders();
+      loadPositions();
+      loadPortfolio();
+    } else {
+      toast(b.detail ?? 'Fill cycle failed', 'err');
+    }
+  } finally {
+    btn.disabled = false;
   }
 }
 
-async function triggerSnapshot() {
+async function triggerSnapshot(btn) {
   const ikeyVal = document.getElementById('snap-ikey').value.trim() || autoKey();
   const date    = document.getElementById('snap-date').value || null;
   const body = { idempotency_key: ikeyVal };
   if (date) body.market_date = date;
-  const r = await call('POST', '/v1/snapshot', body);
-  const b = await r.json();
-  if (r.ok) {
-    toast(`Snapshot: ${b.total_value} total · ${b.open_position_count} position(s) · ${b.unrealized_pnl} unrealized P&L`);
-    loadPerformance();
-    loadHistory();
-  } else {
-    toast(b.detail ?? 'Snapshot failed', 'err');
+  btn.disabled = true;
+  try {
+    const r = await call('POST', '/v1/snapshot', body);
+    const b = await r.json();
+    if (r.ok) {
+      toast(`Snapshot: ${b.total_value} total · ${b.open_position_count} position(s) · ${b.unrealized_pnl} unrealized P&L`);
+      loadPerformance();
+      loadHistory();
+    } else {
+      toast(b.detail ?? 'Snapshot failed', 'err');
+    }
+  } finally {
+    btn.disabled = false;
   }
 }
 
-// ---------- connect ----------
+// ---------- connect / refresh ----------
 
 async function connect() {
-  await loadHealth();
-  const r = await call('GET', '/v1/portfolio');
-  if (r.status === 401) {
-    toast('Invalid API key — check the value and reconnect', 'err');
-    return;
+  const btn = document.getElementById('connectBtn');
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+  try {
+    await loadHealth();
+    const r = await call('GET', '/v1/portfolio');
+    if (r.status === 401) {
+      toast('Invalid API key — check the value and reconnect', 'err');
+      return;
+    }
+    if (r.ok) populatePortfolio(await r.json());
+    await Promise.all([
+      loadPerformance(),
+      loadPositions(),
+      loadOrders(),
+      loadHistory(),
+    ]);
+    toast('Connected');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Connect';
   }
-  if (r.ok) populatePortfolio(await r.json());
-  await Promise.all([
-    loadPerformance(),
-    loadPositions(),
-    loadOrders(),
-    loadHistory(),
-  ]);
+}
+
+async function refresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  try {
+    await loadHealth();
+    if (!key()) { toast('Enter an API key first', 'err'); return; }
+    await Promise.all([
+      loadPortfolio(),
+      loadPerformance(),
+      loadPositions(),
+      loadOrders(),
+      loadHistory(),
+    ]);
+    toast('Refreshed');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // Health check runs immediately — no auth needed
