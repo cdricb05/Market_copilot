@@ -236,6 +236,17 @@
     .yes { color: #059669; font-weight: 700; }
     .no  { color: #dc2626; font-weight: 700; }
 
+    /* ---- Signed value coloring ---- */
+    .pos { color: #059669; }
+    .neg { color: #dc2626; }
+
+    /* ---- Order status pills ---- */
+    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+    .status-pending  { background: #fef3c7; color: #92400e; }
+    .status-filled   { background: #d1fae5; color: #065f46; }
+    .status-expired  { background: #e5e7eb; color: #6b7280; }
+    .status-failed   { background: #fee2e2; color: #991b1b; }
+
     /* ---- Toast ---- */
     #toast {
       position: fixed;
@@ -511,6 +522,28 @@ function setEl(id, html, isHtml = false) {
   else el.textContent = html;
 }
 
+function fmtDate(s) {
+  if (!s) return '—';
+  // Date-only strings (YYYY-MM-DD) parse as UTC midnight; append time to force local
+  const d = new Date(s.length === 10 ? s + 'T00:00:00' : s);
+  if (isNaN(d)) return s;
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function signHtml(v, fmt) {
+  if (v == null) return '—';
+  const n = parseFloat(v);
+  const text = fmt(v);
+  if (n > 0) return `<span class="pos">${text}</span>`;
+  if (n < 0) return `<span class="neg">${text}</span>`;
+  return text;
+}
+
+function statusBadge(s) {
+  const cls = { PENDING: 'status-pending', FILLED: 'status-filled', EXPIRED: 'status-expired', FAILED: 'status-failed' }[s] ?? '';
+  return `<span class="status-badge ${cls}">${s}</span>`;
+}
+
 // ---------- load functions ----------
 
 async function loadHealth() {
@@ -544,20 +577,26 @@ function populatePortfolio(b) {
 
 async function loadPortfolio() {
   const r = await call('GET', '/v1/portfolio');
-  if (!r.ok) return;
+  if (!r.ok) {
+    setEl('pf-cash', r.status === 503 ? 'Not seeded' : `Error ${r.status}`);
+    return;
+  }
   populatePortfolio(await r.json());
 }
 
 async function loadPerformance() {
   const r = await call('GET', '/v1/performance');
-  if (!r.ok) return;
+  if (!r.ok) {
+    setEl('perf-pct', r.status === 404 ? 'No snapshots yet' : `Error ${r.status}`);
+    return;
+  }
   const b = await r.json();
-  setEl('perf-pct',    pct(b.return_pct));
-  setEl('perf-abs',    usd(b.absolute_return));
-  setEl('perf-excess', b.excess_return_pct != null ? pct(b.excess_return_pct) : '—');
+  setEl('perf-pct',    signHtml(b.return_pct, pct),                                            true);
+  setEl('perf-abs',    signHtml(b.absolute_return, usd),                                        true);
+  setEl('perf-excess', b.excess_return_pct != null ? signHtml(b.excess_return_pct, pct) : '—', true);
   setEl('perf-bm',     b.benchmark_ticker ?? '—');
-  setEl('perf-since',  b.first_snapshot_date ?? '—');
-  setEl('perf-asof',   b.latest_snapshot_date ?? '—');
+  setEl('perf-since',  fmtDate(b.first_snapshot_date));
+  setEl('perf-asof',   fmtDate(b.latest_snapshot_date));
 }
 
 async function loadPositions() {
@@ -578,8 +617,8 @@ async function loadPositions() {
       <td>${p.qty}</td>
       <td>${usd(p.avg_cost)}</td>
       <td>${usd(p.cost_basis)}</td>
-      <td>${new Date(p.opened_at).toLocaleDateString()}</td>
-      <td>${new Date(p.last_updated).toLocaleDateString()}</td>
+      <td>${fmtDate(p.opened_at)}</td>
+      <td>${fmtDate(p.last_updated)}</td>
     </tr>`).join('');
 }
 
@@ -604,7 +643,7 @@ async function loadOrders() {
     <tr>
       <td><strong>${o.ticker}</strong></td>
       <td>${o.side}</td>
-      <td>${o.status}</td>
+      <td>${statusBadge(o.status)}</td>
       <td>${o.market_date}</td>
       <td>${o.filled_qty ?? o.requested_qty}</td>
       <td>${o.fill_price != null ? usd(o.fill_price) : '—'}</td>
@@ -636,14 +675,14 @@ async function loadHistory() {
   }
   tb.innerHTML = rows.slice().reverse().map(h => `
     <tr>
-      <td>${h.market_date}</td>
+      <td>${fmtDate(h.market_date)}</td>
       <td>${usd(h.total_value)}</td>
       <td>${usd(h.cash)}</td>
       <td>${usd(h.positions_value)}</td>
-      <td>${usd(h.unrealized_pnl)}</td>
-      <td>${usd(h.realized_pnl_cumulative)}</td>
+      <td>${signHtml(h.unrealized_pnl, usd)}</td>
+      <td>${signHtml(h.realized_pnl_cumulative, usd)}</td>
       <td>${h.benchmark_ticker ?? '—'}</td>
-      <td>${h.portfolio_vs_benchmark ?? '—'}</td>
+      <td>${h.portfolio_vs_benchmark != null ? signHtml(h.portfolio_vs_benchmark, usd) : '—'}</td>
     </tr>`).join('');
 }
 
@@ -755,7 +794,7 @@ async function triggerSnapshot(btn) {
     const r = await call('POST', '/v1/snapshot', body);
     const b = await r.json();
     if (r.ok) {
-      toast(`Snapshot: ${b.total_value} total · ${b.open_position_count} position(s) · ${b.unrealized_pnl} unrealized P&L`);
+      toast(`Snapshot recorded · Total: ${usd(b.total_value)} · ${b.open_position_count} position(s) · Unrealized P&L: ${usd(b.unrealized_pnl)}`);
       loadPerformance();
       loadHistory();
     } else {
