@@ -644,7 +644,7 @@ async function loadOrders() {
       <td><strong>${o.ticker}</strong></td>
       <td>${o.side}</td>
       <td>${statusBadge(o.status)}</td>
-      <td>${o.market_date}</td>
+      <td>${fmtDate(o.market_date)}</td>
       <td>${o.filled_qty ?? o.requested_qty}</td>
       <td>${o.fill_price != null ? usd(o.fill_price) : '—'}</td>
       <td>${o.commission != null ? usd(o.commission) : '—'}</td>
@@ -709,8 +709,13 @@ async function ingestPrices(btn) {
   try {
     const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price }] });
     const b = await r.json();
-    if (r.ok) toast(`Inserted ${b.inserted} price snapshot(s)`);
-    else toast(b.detail ?? 'Error ingesting prices', 'err');
+    if (r.ok) {
+      document.getElementById('p-ticker').value = '';
+      document.getElementById('p-price').value = '';
+      toast(`Inserted ${b.inserted} price snapshot(s)`);
+    } else {
+      toast(b.detail ?? 'Error ingesting prices', 'err');
+    }
   } finally {
     btn.disabled = false;
   }
@@ -724,8 +729,13 @@ async function ingestBenchmarkPrices(btn) {
   try {
     const r = await call('POST', '/v1/benchmark-prices', { prices: [{ ticker, price }] });
     const b = await r.json();
-    if (r.ok) toast(`Inserted ${b.inserted} benchmark price(s)`);
-    else toast(b.detail ?? 'Error ingesting benchmark prices', 'err');
+    if (r.ok) {
+      document.getElementById('bp-ticker').value = '';
+      document.getElementById('bp-price').value = '';
+      toast(`Inserted ${b.inserted} benchmark price(s)`);
+    } else {
+      toast(b.detail ?? 'Error ingesting benchmark prices', 'err');
+    }
   } finally {
     btn.disabled = false;
   }
@@ -752,7 +762,8 @@ async function submitSignal(btn) {
     });
     const b = await r.json();
     if (r.ok) {
-      toast(`${b.signals_ingested} signal(s) ingested → ${b.orders_created} order(s) created`);
+      document.getElementById('sig-ikey').value = '';
+      toast(`${b.signals_ingested} signal(s) ingested · ${b.orders_created} order(s) created`);
       loadOrders();
     } else {
       toast(b.detail ?? 'Signal submission failed', 'err');
@@ -772,6 +783,7 @@ async function triggerFill(btn) {
     const r = await call('POST', '/v1/fill', body);
     const b = await r.json();
     if (r.ok) {
+      document.getElementById('fill-ikey').value = '';
       toast(`Fill: ${b.filled} filled · ${b.expired} expired · ${b.failed} failed · ${b.skipped} skipped`);
       loadOrders();
       loadPositions();
@@ -794,6 +806,7 @@ async function triggerSnapshot(btn) {
     const r = await call('POST', '/v1/snapshot', body);
     const b = await r.json();
     if (r.ok) {
+      document.getElementById('snap-ikey').value = '';
       toast(`Snapshot recorded · Total: ${usd(b.total_value)} · ${b.open_position_count} position(s) · Unrealized P&L: ${usd(b.unrealized_pnl)}`);
       loadPerformance();
       loadHistory();
