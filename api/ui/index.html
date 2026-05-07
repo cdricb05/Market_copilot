@@ -405,7 +405,7 @@
       <summary>Ingest Benchmark Prices</summary>
       <div class="form-body">
         <div class="form-grid">
-          <div class="fg"><label>Ticker</label><input id="bp-ticker" placeholder="SPY"></div>
+          <div class="fg"><label>Ticker</label><input id="bp-ticker" value="SPY" placeholder="SPY"></div>
           <div class="fg"><label>Price</label><input id="bp-price" placeholder="510.00"></div>
         </div>
         <button class="btn-action" onclick="ingestBenchmarkPrices(this)">Submit Benchmark Price</button>
@@ -730,7 +730,7 @@ async function ingestBenchmarkPrices(btn) {
     const r = await call('POST', '/v1/benchmark-prices', { prices: [{ ticker, price }] });
     const b = await r.json();
     if (r.ok) {
-      document.getElementById('bp-ticker').value = '';
+      document.getElementById('bp-ticker').value = 'SPY';
       document.getElementById('bp-price').value = '';
       toast(`Inserted ${b.inserted} benchmark price(s)`);
     } else {
@@ -763,6 +763,7 @@ async function submitSignal(btn) {
     const b = await r.json();
     if (r.ok) {
       document.getElementById('sig-ikey').value = '';
+      document.getElementById('sig-ts').value = nowLocal();
       toast(`${b.signals_ingested} signal(s) ingested · ${b.orders_created} order(s) created`);
       loadOrders();
     } else {
@@ -784,6 +785,7 @@ async function triggerFill(btn) {
     const b = await r.json();
     if (r.ok) {
       document.getElementById('fill-ikey').value = '';
+      document.getElementById('fill-date').value = todayLocal();
       toast(`Fill: ${b.filled} filled · ${b.expired} expired · ${b.failed} failed · ${b.skipped} skipped`);
       loadOrders();
       loadPositions();
@@ -807,6 +809,7 @@ async function triggerSnapshot(btn) {
     const b = await r.json();
     if (r.ok) {
       document.getElementById('snap-ikey').value = '';
+      document.getElementById('snap-date').value = todayLocal();
       toast(`Snapshot recorded · Total: ${usd(b.total_value)} · ${b.open_position_count} position(s) · Unrealized P&L: ${usd(b.unrealized_pnl)}`);
       loadPerformance();
       loadHistory();
@@ -863,6 +866,34 @@ async function refresh() {
     btn.disabled = false;
   }
 }
+
+// ---------- smart defaults ----------
+
+function todayLocal() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+
+function nowLocal() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+document.getElementById('sig-ts').closest('details').addEventListener('toggle', function() {
+  if (this.open) document.getElementById('sig-ts').value = nowLocal();
+});
+
+document.getElementById('fill-date').closest('details').addEventListener('toggle', function() {
+  const el = document.getElementById('fill-date');
+  if (this.open && !el.value) el.value = todayLocal();
+});
+
+document.getElementById('snap-date').closest('details').addEventListener('toggle', function() {
+  const el = document.getElementById('snap-date');
+  if (this.open && !el.value) el.value = todayLocal();
+});
 
 // Health check runs immediately — no auth needed
 loadHealth();
