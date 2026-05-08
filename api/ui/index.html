@@ -344,6 +344,7 @@
         <option value="FAILED">FAILED</option>
       </select>
       <input type="date" id="ordDate" onchange="loadOrders()">
+      <button class="btn-sm" onclick="setOrdToday()">Today</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -368,6 +369,8 @@
       <span style="color:#9ca3af;font-size:12px;">to</span>
       <input type="date" id="histEnd">
       <button class="btn-sm" onclick="loadHistory()">Filter</button>
+      <button class="btn-sm" onclick="setHist30D()">30D</button>
+      <button class="btn-sm" onclick="clearHistFilters()" style="background:#6b7280">Clear</button>
       <a class="link-btn" href="#" onclick="downloadCsv(event)">&#8595; CSV</a>
     </div>
     <div class="table-wrap">
@@ -835,6 +838,8 @@ async function connect() {
       return;
     }
     if (r.ok) populatePortfolio(await r.json());
+    if (!document.getElementById('histStart').value)
+      document.getElementById('histStart').value = nDaysAgoLocal(30);
     await Promise.all([
       loadPerformance(),
       loadPositions(),
@@ -868,6 +873,30 @@ async function refresh() {
 }
 
 // ---------- smart defaults ----------
+
+function nDaysAgoLocal(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  const p = m => String(m).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+
+function setOrdToday() {
+  document.getElementById('ordDate').value = todayLocal();
+  loadOrders();
+}
+
+function setHist30D() {
+  document.getElementById('histStart').value = nDaysAgoLocal(30);
+  document.getElementById('histEnd').value = '';
+  loadHistory();
+}
+
+function clearHistFilters() {
+  document.getElementById('histStart').value = '';
+  document.getElementById('histEnd').value = '';
+  loadHistory();
+}
 
 function todayLocal() {
   const d = new Date();
