@@ -178,6 +178,14 @@
       font-weight: 600;
       border-bottom: 1px dashed #1a1a2e;
     }
+    .row-count {
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: 0;
+      color: #9ca3af;
+      font-size: 11px;
+      margin-left: 4px;
+    }
 
     /* ---- Action forms ---- */
     details { border-bottom: 1px solid #f3f4f6; }
@@ -334,7 +342,7 @@
 
   <!-- Orders -->
   <div class="card">
-    <div class="card-title">Orders</div>
+    <div class="card-title">Orders <span id="ordCount" class="row-count"></span></div>
     <div class="filters">
       <select id="ordStatus" onchange="loadOrders()">
         <option value="">All statuses</option>
@@ -363,7 +371,7 @@
 
   <!-- Performance History -->
   <div class="card">
-    <div class="card-title">Performance History</div>
+    <div class="card-title">Performance History <span id="histCount" class="row-count"></span></div>
     <div class="filters">
       <input type="date" id="histStart">
       <span style="color:#9ca3af;font-size:12px;">to</span>
@@ -547,6 +555,11 @@ function statusBadge(s) {
   return `<span class="status-badge ${cls}">${s}</span>`;
 }
 
+function httpErr(s) {
+  return { 401:'Not authorized', 403:'Forbidden',
+           500:'Server error', 503:'Service unavailable' }[s] ?? `Error ${s}`;
+}
+
 // ---------- load functions ----------
 
 async function loadHealth() {
@@ -606,7 +619,7 @@ async function loadPositions() {
   const r = await call('GET', '/v1/positions');
   const tb = document.getElementById('posTbody');
   if (!r.ok) {
-    tb.innerHTML = `<tr><td colspan="6" class="empty">Error ${r.status}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="6" class="empty">${httpErr(r.status)}</td></tr>`;
     return;
   }
   const rows = await r.json();
@@ -633,13 +646,17 @@ async function loadOrders() {
   if (date)   url += `market_date=${encodeURIComponent(date)}`;
   const r = await call('GET', url);
   const tb = document.getElementById('ordTbody');
+  const countEl = document.getElementById('ordCount');
   if (!r.ok) {
-    tb.innerHTML = `<tr><td colspan="8" class="empty">Error ${r.status}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="8" class="empty">${httpErr(r.status)}</td></tr>`;
+    countEl.textContent = '';
     return;
   }
   const rows = await r.json();
+  countEl.textContent = `(${rows.length})`;
   if (!rows.length) {
-    tb.innerHTML = '<tr><td colspan="8" class="empty">No orders</td></tr>';
+    const hasFilter = status || date;
+    tb.innerHTML = `<tr><td colspan="8" class="empty">${hasFilter ? 'No orders matching filters' : 'No orders'}</td></tr>`;
     return;
   }
   tb.innerHTML = rows.map(o => `
@@ -667,13 +684,18 @@ function histParams() {
 async function loadHistory() {
   const r = await call('GET', '/v1/performance/history?' + histParams());
   const tb = document.getElementById('histTbody');
+  const countEl = document.getElementById('histCount');
   if (!r.ok) {
-    tb.innerHTML = `<tr><td colspan="8" class="empty">${r.status === 404 ? 'No snapshots yet' : 'Error ' + r.status}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="8" class="empty">${r.status === 404 ? 'No snapshots yet' : httpErr(r.status)}</td></tr>`;
+    countEl.textContent = '';
     return;
   }
   const rows = await r.json();
+  countEl.textContent = `(${rows.length})`;
   if (!rows.length) {
-    tb.innerHTML = '<tr><td colspan="8" class="empty">No history</td></tr>';
+    const start = document.getElementById('histStart').value;
+    const end   = document.getElementById('histEnd').value;
+    tb.innerHTML = `<tr><td colspan="8" class="empty">${(start || end) ? 'No history in selected range' : 'No history'}</td></tr>`;
     return;
   }
   tb.innerHTML = rows.slice().reverse().map(h => `
