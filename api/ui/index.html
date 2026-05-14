@@ -187,6 +187,27 @@
       margin-left: 4px;
     }
 
+    .hints-block {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      font-size: 12px;
+      color: #78350f;
+      line-height: 1.5;
+    }
+    .hints-block b {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 5px;
+      color: #92400e;
+    }
+    .hints-block ol { margin: 0; padding-left: 18px; }
+    .hints-block li { margin-bottom: 2px; }
+
     /* ---- Action forms ---- */
     details { border-bottom: 1px solid #f3f4f6; }
     details:last-child { border-bottom: none; }
@@ -401,6 +422,8 @@
   <div class="card">
     <div class="card-title">Actions</div>
 
+    <div id="hints" class="hints-block" style="display:none"></div>
+
     <details>
       <summary>Ingest Prices</summary>
       <div class="form-body">
@@ -505,6 +528,14 @@ function toast(msg, type = 'ok') {
   _toastTimer = setTimeout(() => { el.style.display = 'none'; }, 5000);
 }
 
+const _appState = {
+  connected: false,
+  portfolioSeeded: null,
+  pendingOrders: null,
+  hasPositions: false,
+  hasHistory: false,
+};
+
 function usd(v) {
   if (v == null) return '—';
   const n = parseFloat(v);
@@ -594,9 +625,11 @@ function populatePortfolio(b) {
 async function loadPortfolio() {
   const r = await call('GET', '/v1/portfolio');
   if (!r.ok) {
+    _appState.portfolioSeeded = false;
     setEl('pf-cash', r.status === 503 ? 'Not seeded' : `Error ${r.status}`);
     return;
   }
+  _appState.portfolioSeeded = true;
   populatePortfolio(await r.json());
 }
 
@@ -623,6 +656,7 @@ async function loadPositions() {
     return;
   }
   const rows = await r.json();
+  _appState.hasPositions = rows.length > 0;
   if (!rows.length) {
     tb.innerHTML = '<tr><td colspan="6" class="empty">No open positions</td></tr>';
     return;
@@ -654,6 +688,11 @@ async function loadOrders() {
   }
   const rows = await r.json();
   countEl.textContent = `(${rows.length})`;
+  if (!status && !date) {
+    _appState.pendingOrders = rows.filter(o => o.status === 'PENDING').length;
+  } else {
+    _appState.pendingOrders = null;
+  }
   if (!rows.length) {
     const hasFilter = status || date;
     tb.innerHTML = `<tr><td colspan="8" class="empty">${hasFilter ? 'No orders matching filters' : 'No orders'}</td></tr>`;
@@ -686,12 +725,14 @@ async function loadHistory() {
   const tb = document.getElementById('histTbody');
   const countEl = document.getElementById('histCount');
   if (!r.ok) {
+    _appState.hasHistory = false;
     tb.innerHTML = `<tr><td colspan="8" class="empty">${r.status === 404 ? 'No snapshots yet' : httpErr(r.status)}</td></tr>`;
     countEl.textContent = '';
     return;
   }
   const rows = await r.json();
   countEl.textContent = `(${rows.length})`;
+  _appState.hasHistory = rows.length > 0;
   if (!rows.length) {
     const start = document.getElementById('histStart').value;
     const end   = document.getElementById('histEnd').value;
@@ -722,6 +763,23 @@ async function downloadCsv(e) {
   a.download = 'performance_history.csv';
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+function updateHints() {
+  if (!_appState.connected) return;
+  const el = document.getElementById('hints');
+  let html = '';
+  if (_appState.portfolioSeeded === false) {
+    html = '<b>Setup required</b>Portfolio not seeded — run <code>scripts/seed.py</code> first.';
+  } else if (!_appState.hasPositions && _appState.pendingOrders === 0) {
+    html = '<b>Suggested next steps</b><ol><li>If needed, ingest prices and benchmark prices</li><li>Submit signal(s)</li><li>Run Fill Cycle</li></ol>';
+  } else if (_appState.pendingOrders !== null && _appState.pendingOrders > 0) {
+    html = `<b>Action needed</b>${_appState.pendingOrders} pending order(s) waiting — run Fill Cycle to execute.`;
+  } else if (_appState.hasPositions && !_appState.hasHistory) {
+    html = '<b>Suggested next step</b>Ingest prices for open positions, then run Snapshot to record portfolio value.';
+  }
+  el.innerHTML = html;
+  el.style.display = html ? 'block' : 'none';
 }
 
 // ---------- action handlers ----------
@@ -868,6 +926,8 @@ async function connect() {
       loadOrders(),
       loadHistory(),
     ]);
+    _appState.connected = true;
+    updateHints();
     toast('Connected');
   } finally {
     btn.disabled = false;
@@ -888,6 +948,7 @@ async function refresh() {
       loadOrders(),
       loadHistory(),
     ]);
+    updateHints();
     toast('Refreshed');
   } finally {
     btn.disabled = false;
