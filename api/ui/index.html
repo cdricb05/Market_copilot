@@ -686,10 +686,12 @@ async function loadPortfolio() {
   if (!r.ok) {
     _appState.portfolioSeeded = false;
     setEl('pf-cash', r.status === 503 ? 'Not seeded' : `Error ${r.status}`);
+    updateWorkbench();
     return;
   }
   _appState.portfolioSeeded = true;
   populatePortfolio(await r.json());
+  updateWorkbench();
 }
 
 async function loadPerformance() {
@@ -1108,7 +1110,12 @@ async function connect() {
       toast('Invalid API key — check the value and reconnect', 'err');
       return;
     }
-    if (r.ok) populatePortfolio(await r.json());
+    if (r.ok) {
+      _appState.portfolioSeeded = true;
+      populatePortfolio(await r.json());
+    } else {
+      _appState.portfolioSeeded = false;
+    }
     if (!document.getElementById('histStart').value)
       document.getElementById('histStart').value = nDaysAgoLocal(30);
     await Promise.all([
