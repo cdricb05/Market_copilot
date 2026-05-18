@@ -187,6 +187,13 @@
       margin-left: 4px;
     }
 
+    .action-badge {
+      font-size: 11px;
+      font-weight: 400;
+      color: #6b7280;
+      margin-left: 6px;
+    }
+
     .hints-block {
       background: #fffbeb;
       border: 1px solid #fcd34d;
@@ -447,7 +454,7 @@
     </details>
 
     <details>
-      <summary>Submit Signal</summary>
+      <summary>Submit Signal <span id="act-signal-badge" class="action-badge"></span></summary>
       <div class="form-body">
         <div class="form-grid">
           <div class="fg"><label>Idempotency Key</label><input id="sig-ikey" placeholder="auto"></div>
@@ -468,7 +475,7 @@
     </details>
 
     <details>
-      <summary>Trigger Fill</summary>
+      <summary>Trigger Fill <span id="act-fill-badge" class="action-badge"></span></summary>
       <div class="form-body">
         <div class="form-grid">
           <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto"></div>
@@ -479,7 +486,7 @@
     </details>
 
     <details>
-      <summary>Trigger Snapshot</summary>
+      <summary>Trigger Snapshot <span id="act-snap-badge" class="action-badge"></span></summary>
       <div class="form-body">
         <div class="form-grid">
           <div class="fg"><label>Idempotency Key</label><input id="snap-ikey" placeholder="auto"></div>
@@ -782,6 +789,31 @@ function updateHints() {
   el.style.display = html ? 'block' : 'none';
 }
 
+function updateActionBadges() {
+  const fillBadge = document.getElementById('act-fill-badge');
+  const snapBadge = document.getElementById('act-snap-badge');
+  const sigBadge  = document.getElementById('act-signal-badge');
+
+  if (!_appState.connected) {
+    fillBadge.textContent = '';
+    snapBadge.textContent = '';
+    sigBadge.textContent  = '';
+    return;
+  }
+
+  fillBadge.textContent = (_appState.pendingOrders !== null && _appState.pendingOrders > 0)
+    ? `pending: ${_appState.pendingOrders}`
+    : '';
+
+  snapBadge.textContent = (_appState.hasPositions && !_appState.hasHistory)
+    ? 'next'
+    : '';
+
+  sigBadge.textContent = (!_appState.hasPositions && _appState.pendingOrders === 0)
+    ? 'suggested'
+    : '';
+}
+
 // ---------- action handlers ----------
 
 async function ingestPrices(btn) {
@@ -928,6 +960,7 @@ async function connect() {
     ]);
     _appState.connected = true;
     updateHints();
+    updateActionBadges();
     toast('Connected');
   } finally {
     btn.disabled = false;
@@ -949,6 +982,7 @@ async function refresh() {
       loadHistory(),
     ]);
     updateHints();
+    updateActionBadges();
     toast('Refreshed');
   } finally {
     btn.disabled = false;
