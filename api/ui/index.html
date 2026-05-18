@@ -816,13 +816,32 @@ function updateActionBadges() {
 
 // ---------- action handlers ----------
 
+function normTicker(s) {
+  return (s || '').trim().toUpperCase();
+}
+
+function isValidPrice(s) {
+  const n = parseFloat(s);
+  return !isNaN(n) && n > 0;
+}
+
+function isValidConfidence(s) {
+  const n = parseFloat(s);
+  return !isNaN(n) && n >= 0 && n <= 1;
+}
+
 async function ingestPrices(btn) {
-  const ticker = document.getElementById('p-ticker').value.trim();
-  const price  = document.getElementById('p-price').value.trim();
-  if (!ticker || !price) { toast('Ticker and price are required', 'err'); return; }
+  let ticker = normTicker(document.getElementById('p-ticker').value);
+  const priceRaw = document.getElementById('p-price').value.trim();
+
+  if (!ticker) { toast('Ticker is required', 'err'); return; }
+  if (!isValidPrice(priceRaw)) { toast('Price must be a positive number', 'err'); return; }
+
+  document.getElementById('p-ticker').value = ticker;
+
   btn.disabled = true;
   try {
-    const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price }] });
+    const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price: priceRaw }] });
     const b = await r.json();
     if (r.ok) {
       document.getElementById('p-ticker').value = '';
@@ -837,12 +856,17 @@ async function ingestPrices(btn) {
 }
 
 async function ingestBenchmarkPrices(btn) {
-  const ticker = document.getElementById('bp-ticker').value.trim();
-  const price  = document.getElementById('bp-price').value.trim();
-  if (!ticker || !price) { toast('Ticker and price are required', 'err'); return; }
+  let ticker = normTicker(document.getElementById('bp-ticker').value);
+  const priceRaw = document.getElementById('bp-price').value.trim();
+
+  if (!ticker) { toast('Ticker is required', 'err'); return; }
+  if (!isValidPrice(priceRaw)) { toast('Price must be a positive number', 'err'); return; }
+
+  document.getElementById('bp-ticker').value = ticker;
+
   btn.disabled = true;
   try {
-    const r = await call('POST', '/v1/benchmark-prices', { prices: [{ ticker, price }] });
+    const r = await call('POST', '/v1/benchmark-prices', { prices: [{ ticker, price: priceRaw }] });
     const b = await r.json();
     if (r.ok) {
       document.getElementById('bp-ticker').value = 'SPY';
@@ -857,17 +881,22 @@ async function ingestBenchmarkPrices(btn) {
 }
 
 async function submitSignal(btn) {
-  const ikeyVal    = document.getElementById('sig-ikey').value.trim() || autoKey();
-  const ticker     = document.getElementById('sig-ticker').value.trim();
-  const direction  = document.getElementById('sig-dir').value;
+  let ticker = normTicker(document.getElementById('sig-ticker').value);
   const confidence = document.getElementById('sig-conf').value.trim();
-  const tsRaw      = document.getElementById('sig-ts').value;
-  const source     = document.getElementById('sig-src').value.trim();
-  if (!ticker || !confidence || !tsRaw || !source) {
-    toast('Ticker, confidence, timestamp, and source run are required', 'err');
-    return;
-  }
+  const tsRaw = document.getElementById('sig-ts').value;
+  const source = document.getElementById('sig-src').value.trim();
+  const ikeyVal = document.getElementById('sig-ikey').value.trim() || autoKey();
+
+  if (!ticker) { toast('Ticker is required', 'err'); return; }
+  if (!confidence || !isValidConfidence(confidence)) { toast('Confidence must be between 0 and 1', 'err'); return; }
+  if (!tsRaw) { toast('Timestamp is required', 'err'); return; }
+  if (!source) { toast('Source run is required', 'err'); return; }
+
+  document.getElementById('sig-ticker').value = ticker;
+
+  const direction = document.getElementById('sig-dir').value;
   const signal_ts = new Date(tsRaw).toISOString();
+
   btn.disabled = true;
   try {
     const r = await call('POST', '/v1/signals', {
