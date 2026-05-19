@@ -538,6 +538,15 @@
       <button class="dtr-step-btn" id="dtr-btn-signal" onclick="dtrSubmitSignal(this)">Submit Signal</button>
       <div class="dtr-step-result" id="dtr-result-signal"></div>
     </div>
+
+    <div class="dtr-step">
+      <div class="dtr-step-header">
+        <span class="dtr-step-label">Step 3: Run Fill</span>
+        <span class="dtr-step-status not-started" id="dtr-status-fill">Not Started</span>
+      </div>
+      <button class="dtr-step-btn" id="dtr-btn-fill" onclick="dtrRunFill(this)">Run Fill</button>
+      <div class="dtr-step-result" id="dtr-result-fill"></div>
+    </div>
   </div>
 
   <!-- Actions -->
@@ -1243,6 +1252,42 @@ async function dtrSubmitSignal(btn) {
     document.getElementById('dtr-status-signal').className = 'dtr-step-status error';
     document.getElementById('dtr-result-signal').textContent = `✗ ${e.message}`;
     document.getElementById('dtr-result-signal').className = 'dtr-step-result error';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function dtrRunFill(btn) {
+  document.getElementById('dtr-status-fill').textContent = 'Running';
+  document.getElementById('dtr-status-fill').className = 'dtr-step-status running';
+  document.getElementById('dtr-result-fill').textContent = '';
+  btn.disabled = true;
+
+  try {
+    const ikeyVal = autoKey();
+    const r = await call('POST', '/v1/fill', {
+      idempotency_key: ikeyVal,
+    });
+    const b = await r.json();
+    if (r.ok) {
+      document.getElementById('dtr-status-fill').textContent = 'Done';
+      document.getElementById('dtr-status-fill').className = 'dtr-step-status done';
+      document.getElementById('dtr-result-fill').textContent = `✓ ${b.filled} filled · ${b.expired} expired · ${b.failed} failed · ${b.skipped} skipped`;
+      document.getElementById('dtr-result-fill').className = 'dtr-step-result success';
+      loadOrders();
+      loadPositions();
+      loadPortfolio();
+      updateWorkbench();
+      updateActionBadges();
+      updateHints();
+    } else {
+      throw new Error(b.detail ?? 'Fill cycle failed');
+    }
+  } catch (e) {
+    document.getElementById('dtr-status-fill').textContent = 'Error';
+    document.getElementById('dtr-status-fill').className = 'dtr-step-status error';
+    document.getElementById('dtr-result-fill').textContent = `✗ ${e.message}`;
+    document.getElementById('dtr-result-fill').className = 'dtr-step-result error';
   } finally {
     btn.disabled = false;
   }
