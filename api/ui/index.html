@@ -556,6 +556,15 @@
       <button class="dtr-step-btn" id="dtr-btn-snapshot" onclick="dtrRunSnapshot(this)">Run Snapshot</button>
       <div class="dtr-step-result" id="dtr-result-snapshot"></div>
     </div>
+
+    <div class="dtr-step">
+      <div class="dtr-step-header">
+        <span class="dtr-step-label">Step 5: Refresh Review</span>
+        <span class="dtr-step-status not-started" id="dtr-status-review">Not Started</span>
+      </div>
+      <button class="dtr-step-btn" id="dtr-btn-review" onclick="dtrRefreshReview(this)">Refresh Review</button>
+      <div class="dtr-step-result" id="dtr-result-review"></div>
+    </div>
   </div>
 
   <!-- Actions -->
@@ -1334,6 +1343,36 @@ async function dtrRunSnapshot(btn) {
     document.getElementById('dtr-status-snapshot').className = 'dtr-step-status error';
     document.getElementById('dtr-result-snapshot').textContent = `✗ ${e.message}`;
     document.getElementById('dtr-result-snapshot').className = 'dtr-step-result error';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function dtrRefreshReview(btn) {
+  document.getElementById('dtr-status-review').textContent = 'Running';
+  document.getElementById('dtr-status-review').className = 'dtr-step-status running';
+  document.getElementById('dtr-result-review').textContent = '';
+  btn.disabled = true;
+
+  try {
+    loadPortfolio();
+    loadPerformance();
+    loadPositions();
+    loadOrders();
+    loadHistory();
+    updateWorkbench();
+    updateActionBadges();
+    updateHints();
+
+    document.getElementById('dtr-status-review').textContent = 'Done';
+    document.getElementById('dtr-status-review').className = 'dtr-step-status done';
+    document.getElementById('dtr-result-review').textContent = '✓ Review refreshed';
+    document.getElementById('dtr-result-review').className = 'dtr-step-result success';
+  } catch (e) {
+    document.getElementById('dtr-status-review').textContent = 'Error';
+    document.getElementById('dtr-status-review').className = 'dtr-step-status error';
+    document.getElementById('dtr-result-review').textContent = `✗ ${e.message}`;
+    document.getElementById('dtr-result-review').className = 'dtr-step-result error';
   } finally {
     btn.disabled = false;
   }
