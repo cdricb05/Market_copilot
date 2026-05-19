@@ -144,6 +144,27 @@ def _daily_new_exposure(session: Session, market_date: date) -> Decimal:
     return Decimal(str(result)).quantize(_DOLLARS) if result is not None else Decimal("0.00")
 
 
+def _snapshot_to_summary(snapshot: PortfolioSnapshot) -> dict:
+    """
+    Convert an existing PortfolioSnapshot row to a result_summary dict.
+    Used when returning an idempotent (already-exists) response.
+    """
+    return {
+        "total_value":             str(snapshot.total_value),
+        "cash":                    str(snapshot.cash),
+        "positions_value":         str(snapshot.positions_value),
+        "unrealized_pnl":          str(snapshot.unrealized_pnl),
+        "realized_pnl_cumulative": str(snapshot.realized_pnl_cumulative),
+        "open_position_count":     snapshot.open_position_count,
+        "benchmark_ticker":        snapshot.benchmark_ticker,
+        "portfolio_vs_benchmark":  (
+            str(snapshot.portfolio_vs_benchmark)
+            if snapshot.portfolio_vs_benchmark is not None
+            else None
+        ),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -160,6 +181,10 @@ def run_snapshot_workflow(
     Returns the result_summary dict on success. Raises RuntimeError on
     idempotency conflicts or lock contention. All other exceptions mark the
     JobRun FAILED before re-raising.
+
+    Idempotent on market_date: if a portfolio_snapshot already exists for
+    the requested market_date, returns its summary immediately, regardless of
+    idempotency_key. This allows operators to retry without failed job_runs.
     """
     with get_dedicated_session() as session:
 
@@ -168,7 +193,18 @@ def run_snapshot_workflow(
 
         try:
             # ------------------------------------------------------------------
-            # Idempotency check
+            # Market date idempotency: check if a snapshot already exists.
+            # Return immediately if found, regardless of idempotency_key.
+            # This makes the endpoint safe for operator retries.
+            # ------------------------------------------------------------------
+            existing_snapshot = session.execute(
+                select(PortfolioSnapshot).where(PortfolioSnapshot.market_date == market_date)
+            ).scalar_one_or_none()
+            if existing_snapshot is not None:
+                return _snapshot_to_summary(existing_snapshot)
+
+            # ------------------------------------------------------------------
+            # Idempotency check on idempotency_key (only when no snapshot exists)
             # ------------------------------------------------------------------
             existing = session.execute(
                 select(JobRun).where(JobRun.idempotency_key == idempotency_key)
@@ -192,21 +228,6 @@ def run_snapshot_workflow(
                         "fix the underlying issue, then retry with a new "
                         "idempotency_key or manually delete the failed row."
                     )
-
-            # ------------------------------------------------------------------
-            # Check if a snapshot already exists for this market_date.
-            # If a different idempotency_key is used for the same market_date
-            # (e.g., retrying a completed snapshot with a fresh autoKey),
-            # we detect and reject the duplicate attempt.
-            # ------------------------------------------------------------------
-            existing_snapshot = session.execute(
-                select(PortfolioSnapshot).where(PortfolioSnapshot.market_date == market_date)
-            ).scalar_one_or_none()
-            if existing_snapshot is not None:
-                raise RuntimeError(
-                    f"Snapshot already exists for market_date {market_date}. "
-                    "To refresh, use Refresh Review instead of running Snapshot again."
-                )
 
             # ------------------------------------------------------------------
             # Create the JobRun and commit before acquiring the lock so that
