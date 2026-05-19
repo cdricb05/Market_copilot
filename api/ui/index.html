@@ -321,6 +321,15 @@
     .dtr-reset-btn:hover { background: #6b7280; }
     .dtr-guidance { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #166534; }
 
+    .dtr-summary { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 10px 12px; margin-bottom: 12px; }
+    .dtr-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+    .dtr-summary-item { font-size: 12px; }
+    .dtr-summary-item dt { font-weight: 600; color: #6b7280; margin-bottom: 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .dtr-summary-item dd { font-size: 13px; color: #1a1a2e; }
+    .dtr-summary-result { font-weight: 600; }
+    .dtr-summary-result.success { color: #065f46; }
+    .dtr-summary-result.error { color: #991b1b; }
+
     /* ---- Flags ---- */
     .yes { color: #059669; font-weight: 700; }
     .no  { color: #dc2626; font-weight: 700; }
@@ -512,6 +521,35 @@
     </div>
 
     <div class="dtr-guidance" id="dtr-guidance" style="display:none;"></div>
+
+    <div class="dtr-summary" id="dtr-summary" style="display:none;">
+      <div class="dtr-summary-grid">
+        <div class="dtr-summary-item">
+          <dt>Ticker</dt>
+          <dd id="dtr-summary-ticker">—</dd>
+        </div>
+        <div class="dtr-summary-item">
+          <dt>Last Step</dt>
+          <dd id="dtr-summary-step">—</dd>
+        </div>
+        <div class="dtr-summary-item">
+          <dt>Latest Result</dt>
+          <dd id="dtr-summary-result" class="dtr-summary-result">—</dd>
+        </div>
+        <div class="dtr-summary-item">
+          <dt>Pending Orders</dt>
+          <dd id="dtr-summary-pending">—</dd>
+        </div>
+        <div class="dtr-summary-item">
+          <dt>Open Positions</dt>
+          <dd id="dtr-summary-positions">—</dd>
+        </div>
+        <div class="dtr-summary-item">
+          <dt>Snapshots</dt>
+          <dd id="dtr-summary-snapshots">—</dd>
+        </div>
+      </div>
+    </div>
 
     <div class="dtr-inputs-grid">
       <div class="fg">
@@ -1241,6 +1279,7 @@ async function dtrIngestPrice(btn) {
     btn.disabled = false;
     updateDtrStatusMsg();
     updateDtrGuidance();
+    updateDtrSummary();
   }
 }
 
@@ -1289,6 +1328,7 @@ async function dtrSubmitSignal(btn) {
     btn.disabled = false;
     updateDtrStatusMsg();
     updateDtrGuidance();
+    updateDtrSummary();
   }
 }
 
@@ -1327,6 +1367,7 @@ async function dtrRunFill(btn) {
     btn.disabled = false;
     updateDtrStatusMsg();
     updateDtrGuidance();
+    updateDtrSummary();
   }
 }
 
@@ -1366,6 +1407,7 @@ async function dtrRunSnapshot(btn) {
     btn.disabled = false;
     updateDtrStatusMsg();
     updateDtrGuidance();
+    updateDtrSummary();
   }
 }
 
@@ -1398,6 +1440,7 @@ async function dtrRefreshReview(btn) {
     btn.disabled = false;
     updateDtrStatusMsg();
     updateDtrGuidance();
+    updateDtrSummary();
   }
 }
 
@@ -1458,6 +1501,7 @@ function resetDtrRun() {
 
   updateDtrGuidance();
   updateDtrStatusMsg();
+  updateDtrSummary();
 }
 
 function updateDtrStatusMsg() {
@@ -1516,6 +1560,68 @@ function updateDtrButtonReadiness() {
   signalBtn.disabled = !hasTicker || !hasValidConf;
 }
 
+function getDtrLastCompletedStep() {
+  const steps = ['ingest', 'signal', 'fill', 'snapshot', 'review'];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    if (getDtrStepStatus(steps[i]) === 'done') {
+      const labels = {
+        'ingest': 'Ingest Price',
+        'signal': 'Submit Signal',
+        'fill': 'Run Fill',
+        'snapshot': 'Run Snapshot',
+        'review': 'Refresh Review'
+      };
+      return labels[steps[i]];
+    }
+  }
+  return 'None';
+}
+
+function getDtrLatestResult() {
+  const steps = ['ingest', 'signal', 'fill', 'snapshot', 'review'];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const resultEl = document.getElementById(`dtr-result-${steps[i]}`);
+    if (resultEl && resultEl.textContent.trim()) {
+      return {
+        text: resultEl.textContent.trim(),
+        status: resultEl.className.includes('success') ? 'success' : (resultEl.className.includes('error') ? 'error' : '')
+      };
+    }
+  }
+  return { text: '—', status: '' };
+}
+
+function updateDtrSummary() {
+  const ticker = normTicker(document.getElementById('dtr-ticker').value) || '—';
+  const lastStep = getDtrLastCompletedStep();
+  const latestResult = getDtrLatestResult();
+
+  const summaryEl = document.getElementById('dtr-summary');
+  const hasCompleted = lastStep !== 'None';
+
+  if (hasCompleted) {
+    document.getElementById('dtr-summary-ticker').textContent = ticker;
+    document.getElementById('dtr-summary-step').textContent = lastStep;
+
+    const resultEl = document.getElementById('dtr-summary-result');
+    resultEl.textContent = latestResult.text;
+    resultEl.className = 'dtr-summary-result ' + latestResult.status;
+
+    const pendingCount = (_appState.orders || []).filter(o => o.status === 'PENDING').length;
+    document.getElementById('dtr-summary-pending').textContent = pendingCount.toString();
+
+    const posCount = (_appState.positions || []).length;
+    document.getElementById('dtr-summary-positions').textContent = posCount.toString();
+
+    const snapCount = (_appState.history || []).length;
+    document.getElementById('dtr-summary-snapshots').textContent = snapCount.toString();
+
+    summaryEl.style.display = 'block';
+  } else {
+    summaryEl.style.display = 'none';
+  }
+}
+
 // ---------- connect / refresh ----------
 
 async function connect() {
@@ -1549,6 +1655,7 @@ async function connect() {
     updateWorkbench();
     updateDtrGuidance();
     updateDtrButtonReadiness();
+    updateDtrSummary();
     toast('Connected');
   } finally {
     btn.disabled = false;
@@ -1574,6 +1681,7 @@ async function refresh() {
     updateWorkbench();
     updateDtrGuidance();
     updateDtrButtonReadiness();
+    updateDtrSummary();
     toast('Refreshed');
   } finally {
     btn.disabled = false;
