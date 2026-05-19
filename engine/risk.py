@@ -251,7 +251,7 @@ def evaluate_signal(
         if daily_remaining <= Decimal("0"):
             return _reject(RejectionReason.DAILY_EXPOSURE_LIMIT)
 
-        # 11. Concentration sizing
+        # 11. Position-aware concentration sizing
         existing_value = (
             (position.qty * snapshot_price).quantize(_DOLLARS)
             if position is not None
@@ -260,14 +260,27 @@ def evaluate_signal(
         concentration_cap  = (cfg["max_concentration_pct"] * total_value).quantize(_DOLLARS)
         concentration_room = (concentration_cap - existing_value).quantize(_DOLLARS)
 
-        # Confidence-weighted target; capped by concentration room
+        # Confidence-tiered allocation policy: target % of total portfolio value
+        if confidence >= Decimal("0.85"):
+            target_pct = Decimal("0.15")
+        elif confidence >= Decimal("0.75"):
+            target_pct = Decimal("0.10")
+        else:  # confidence >= 0.65 (threshold already validated at line 208)
+            target_pct = Decimal("0.05")
+
+        # Position-aware: only buy incremental amount to reach target exposure.
+        # If already at or above target, reject (position maintenance, not growth).
+        target_notional = (target_pct * total_value).quantize(_DOLLARS)
+        incremental_notional_needed = (target_notional - existing_value).quantize(_DOLLARS)
+
+        if incremental_notional_needed <= Decimal("0") or concentration_room <= Decimal("0"):
+            return _reject(RejectionReason.CONCENTRATION_LIMIT)
+
+        # Incremental buy is capped by concentration room (max single-ticker exposure)
         requested_notional = min(
-            (confidence * cfg["max_concentration_pct"] * total_value).quantize(_DOLLARS),
+            incremental_notional_needed,
             concentration_room,
         )
-
-        if concentration_room <= Decimal("0") or requested_notional <= Decimal("0"):
-            return _reject(RejectionReason.CONCENTRATION_LIMIT)
 
         # 12. Clamp approved notional to available resources
         approved_notional = requested_notional
@@ -333,15 +346,31 @@ def evaluate_signal(
         if snapshot_price is None or snapshot_price <= Decimal("0"):
             return _reject(RejectionReason.NO_PRICE_SNAPSHOT)
 
-        sell_notional = (position.qty * snapshot_price).quantize(_DOLLARS)
+        # Confidence-tiered exit policy
+        if confidence >= Decimal("0.85"):
+            sell_qty = position.qty
+        elif confidence >= Decimal("0.75"):
+            sell_qty = (position.qty * Decimal("0.5")).to_integral_value(
+                rounding=ROUND_DOWN
+            )
+        else:  # confidence >= 0.65 (threshold already validated at line 208)
+            sell_qty = (position.qty * Decimal("0.25")).to_integral_value(
+                rounding=ROUND_DOWN
+            )
+
+        # Don't create SELL order if calculated qty is 0
+        if sell_qty <= Decimal("0"):
+            return _reject(RejectionReason.CONCENTRATION_LIMIT)
+
+        sell_notional = (sell_qty * snapshot_price).quantize(_DOLLARS)
 
         return RiskDecision(
             decision=DecisionType.SELL,
             reason_code=None,
             requested_notional=sell_notional,
             approved_notional=sell_notional,
-            requested_qty=position.qty,
-            approved_qty=position.qty,
+            requested_qty=sell_qty,
+            approved_qty=sell_qty,
             risk_snapshot=risk_snapshot,
         )
 

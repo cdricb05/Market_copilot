@@ -286,8 +286,12 @@ class TestDecisionOutcomes:
     ) -> None:
         """
         BUY AAPL with confidence=0.80, price=$100.
-        Risk math: requested_notional = min(0.80 * 0.20 * 10000, 2000) = $1,600
-                   approved_qty       = floor(1600 / 100) = 16 shares
+        Risk math: confidence=0.80 → 10% target = $1,000
+                   existing_value = $0
+                   incremental = $1,000
+                   concentration_cap = 0.20 * 10,000 = $2,000
+                   requested_notional = min($1,000, $2,000) = $1,000
+                   approved_qty = floor(1000 / 100) = 10 shares
         → TradeDecision BUY + PENDING Order, both scoped to this run's job_run_id.
         """
         key = _ikey()
@@ -312,14 +316,14 @@ class TestDecisionOutcomes:
                 select(TradeDecision).where(TradeDecision.job_run_id == job_run.id)
             ).scalar_one()
             assert td.decision     == DecisionType.BUY
-            assert td.approved_qty == Decimal("16")
+            assert td.approved_qty == Decimal("10")
 
             order = session.execute(
                 select(Order).where(Order.job_run_id == job_run.id)
             ).scalar_one()
             assert order.side          == "BUY"
             assert order.status        == OrderStatus.PENDING
-            assert order.requested_qty == Decimal("16")
+            assert order.requested_qty == Decimal("10")
 
     def test_sell_signal_no_position_rejected(
         self, seeded_db

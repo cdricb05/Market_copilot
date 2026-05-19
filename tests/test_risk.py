@@ -234,14 +234,14 @@ class TestBuyRejections:
     def test_min_order_too_small(
         self, db_session: Session, risk_portfolio: Portfolio
     ) -> None:
-        """Raise min_order_notional above what the concentration cap allows.
-        approved_qty=8, final_notional=8*$100=$800 < $1,000 threshold."""
+        """Raise min_order_notional above what the confidence tier allows.
+        confidence=0.70 → 5% target = $500 < $1,000 threshold."""
         risk_portfolio.config = {
             **risk_portfolio.config,
             "min_order_notional": "1000.00",
         }
         db_session.flush()
-        rd = _buy(db_session, risk_portfolio, price=Decimal("100.00"))
+        rd = _buy(db_session, risk_portfolio, confidence=Decimal("0.70"), price=Decimal("100.00"))
         assert rd.decision == DecisionType.REJECTED
         assert rd.reason_code == RejectionReason.MIN_ORDER_TOO_SMALL
 
@@ -251,34 +251,150 @@ class TestBuyRejections:
 # ---------------------------------------------------------------------------
 
 class TestBuyApproval:
-    def test_correct_qty_and_notional(
+    def test_buy_confidence_0_70_allocates_5pct(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        confidence=0.70, price=$100, no existing position.
+
+        Target tier: 0.65 <= 0.70 < 0.75 → 5% target
+        target_notional = 0.05 * 10_000 = $500
+        incremental_notional_needed = $500 - $0 = $500
+        requested_notional = min($500, concentration_room=$1,000) = $500
+        approved_qty = floor(500 / 100) = 5
+        """
+        rd = _buy(db_session, risk_portfolio, confidence=Decimal("0.70"), price=Decimal("100.00"))
+        assert rd.decision == DecisionType.BUY
+        assert rd.reason_code is None
+        assert rd.requested_notional == Decimal("500.00")
+        assert rd.approved_notional  == Decimal("500.00")
+        assert rd.approved_qty       == Decimal("5")
+
+    def test_buy_confidence_0_80_allocates_10pct(
         self, db_session: Session, risk_portfolio: Portfolio
     ) -> None:
         """
         confidence=0.80, price=$100, no existing position.
 
-        requested_notional = min(0.80 * 0.10 * 10_000, 1_000) = $800
-        approved_qty       = floor(800 / 100)                 = 8
-        approved_notional  = 8 * 100                          = $800
+        Target tier: 0.75 <= 0.80 < 0.85 → 10% target
+        target_notional = 0.10 * 10_000 = $1,000
+        incremental_notional_needed = $1,000 - $0 = $1,000
+        requested_notional = min($1,000, concentration_room=$1,000) = $1,000
+        approved_qty = floor(1000 / 100) = 10
         """
         rd = _buy(db_session, risk_portfolio, confidence=Decimal("0.80"), price=Decimal("100.00"))
         assert rd.decision == DecisionType.BUY
         assert rd.reason_code is None
-        assert rd.requested_notional == Decimal("800.00")
-        assert rd.approved_notional  == Decimal("800.00")
-        assert rd.approved_qty       == Decimal("8")
+        assert rd.requested_notional == Decimal("1000.00")
+        assert rd.approved_notional  == Decimal("1000.00")
+        assert rd.approved_qty       == Decimal("10")
+
+    def test_buy_confidence_0_90_allocates_15pct(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        confidence=0.90, price=$100, no existing position.
+
+        Target tier: 0.90 >= 0.85 → 15% target
+        target_notional = 0.15 * 10_000 = $1,500
+        incremental_notional_needed = $1,500 - $0 = $1,500
+        concentration_cap = 0.10 * 10_000 = $1,000
+        concentration_room = $1,000
+        requested_notional = min($1,500, concentration_room=$1,000) = $1,000
+        approved_qty = floor(1000 / 100) = 10
+        """
+        rd = _buy(db_session, risk_portfolio, confidence=Decimal("0.90"), price=Decimal("100.00"))
+        assert rd.decision == DecisionType.BUY
+        assert rd.reason_code is None
+        assert rd.requested_notional == Decimal("1000.00")
+        assert rd.approved_notional  == Decimal("1000.00")
+        assert rd.approved_qty       == Decimal("10")
+
+    def test_buy_confidence_0_90_allocates_15pct_when_uncapped(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        confidence=0.90, price=$100, no existing position, uncapped concentration.
+
+        Target tier: 0.90 >= 0.85 → 15% target
+        target_notional = 0.15 * 10_000 = $1,500
+        incremental_notional_needed = $1,500 - $0 = $1,500
+        concentration_cap = 0.20 * 10_000 = $2,000
+        concentration_room = $2,000
+        requested_notional = min($1,500, concentration_room=$2,000) = $1,500
+        approved_qty = floor(1500 / 100) = 15
+        """
+        risk_portfolio.config["max_concentration_pct"] = "0.20"
+        db_session.flush()
+        rd = _buy(db_session, risk_portfolio, confidence=Decimal("0.90"), price=Decimal("100.00"))
+        assert rd.decision == DecisionType.BUY
+        assert rd.reason_code is None
+        assert rd.requested_notional == Decimal("1500.00")
+        assert rd.approved_notional  == Decimal("1500.00")
+        assert rd.approved_qty       == Decimal("15")
+
+    def test_buy_at_target_exposure_rejected(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        Position already at target exposure → REJECT.
+
+        confidence=0.80 → 10% target = $1,000
+        existing position: 10 shares @ fill_price=$50, current price=$100
+        current market value = 10 * $100 = $1,000 (equals target)
+        incremental_notional_needed = $1,000 - $1,000 = $0
+        → CONCENTRATION_LIMIT (at or above target)
+        """
+        risk_portfolio.config["allow_averaging_down"] = True
+        db_session.flush()
+        open_position(
+            db_session, ticker="AAPL", qty=Decimal("10"),
+            fill_price=Decimal("50.00"), now=_NOW,
+        )
+        db_session.flush()
+        rd = _buy(db_session, risk_portfolio, confidence=Decimal("0.80"), price=Decimal("100.00"))
+        assert rd.decision == DecisionType.REJECTED
+        assert rd.reason_code == RejectionReason.CONCENTRATION_LIMIT
+
+    def test_buy_below_target_incremental_only(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        Position below target → buy only incremental amount.
+
+        confidence=0.80 → 10% target = $1,000
+        existing position: 5 shares @ fill_price=$50, current price=$100
+        current market value = 5 * $100 = $500 (below target)
+        incremental_notional_needed = $1,000 - $500 = $500
+        requested_notional = min($500, concentration_room=$1,000) = $500
+        approved_qty = floor(500 / 100) = 5
+        """
+        risk_portfolio.config["allow_averaging_down"] = True
+        db_session.flush()
+        open_position(
+            db_session, ticker="AAPL", qty=Decimal("5"),
+            fill_price=Decimal("50.00"), now=_NOW,
+        )
+        db_session.flush()
+        rd = _buy(db_session, risk_portfolio, confidence=Decimal("0.80"), price=Decimal("100.00"))
+        assert rd.decision == DecisionType.BUY
+        assert rd.reason_code is None
+        assert rd.requested_notional == Decimal("500.00")
+        assert rd.approved_notional  == Decimal("500.00")
+        assert rd.approved_qty       == Decimal("5")
 
     def test_qty_floors_to_whole_shares(
         self, db_session: Session, risk_portfolio: Portfolio
     ) -> None:
         """
-        price=$130 → approved_qty = floor(800 / 130) = 6
-        final_notional = 6 * 130 = $780
+        confidence=0.80 → 10% target = $1,000, price=$130.
+        approved_qty = floor(1000 / 130) = 7
+        final_notional = 7 * 130 = $910
         """
-        rd = _buy(db_session, risk_portfolio, price=Decimal("130.00"))
+        rd = _buy(db_session, risk_portfolio, confidence=Decimal("0.80"), price=Decimal("130.00"))
         assert rd.decision == DecisionType.BUY
-        assert rd.approved_qty      == Decimal("6")
-        assert rd.approved_notional == Decimal("780.00")
+        assert rd.approved_qty      == Decimal("7")
+        assert rd.approved_notional == Decimal("910.00")
 
     def test_buy_snapshot_contains_extended_keys(
         self, db_session: Session, risk_portfolio: Portfolio
@@ -326,12 +442,96 @@ class TestSellPath:
         assert rd.decision == DecisionType.REJECTED
         assert rd.reason_code == RejectionReason.NO_PRICE_SNAPSHOT
 
+    def test_sell_confidence_0_70_sells_25pct(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        confidence=0.70, position 100 shares, price=$120.
+
+        Exit tier: 0.65 <= 0.70 < 0.75 → sell 25%
+        sell_qty = floor(100 * 0.25) = 25
+        sell_notional = 25 * 120 = $3,000
+        """
+        open_position(
+            db_session, ticker="AAPL", qty=Decimal("100"),
+            fill_price=Decimal("100.00"), now=_NOW,
+        )
+        db_session.flush()
+        rd = _sell(db_session, risk_portfolio, confidence=Decimal("0.70"), price=Decimal("120.00"))
+        assert rd.decision == DecisionType.SELL
+        assert rd.reason_code is None
+        assert rd.approved_qty       == Decimal("25")
+        assert rd.approved_notional  == Decimal("3000.00")
+
+    def test_sell_confidence_0_80_sells_50pct(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        confidence=0.80, position 100 shares, price=$120.
+
+        Exit tier: 0.75 <= 0.80 < 0.85 → sell 50%
+        sell_qty = floor(100 * 0.50) = 50
+        sell_notional = 50 * 120 = $6,000
+        """
+        open_position(
+            db_session, ticker="AAPL", qty=Decimal("100"),
+            fill_price=Decimal("100.00"), now=_NOW,
+        )
+        db_session.flush()
+        rd = _sell(db_session, risk_portfolio, confidence=Decimal("0.80"), price=Decimal("120.00"))
+        assert rd.decision == DecisionType.SELL
+        assert rd.reason_code is None
+        assert rd.approved_qty       == Decimal("50")
+        assert rd.approved_notional  == Decimal("6000.00")
+
+    def test_sell_confidence_0_90_sells_100pct(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        confidence=0.90, position 100 shares, price=$120.
+
+        Exit tier: 0.90 >= 0.85 → sell 100%
+        sell_qty = 100
+        sell_notional = 100 * 120 = $12,000
+        """
+        open_position(
+            db_session, ticker="AAPL", qty=Decimal("100"),
+            fill_price=Decimal("100.00"), now=_NOW,
+        )
+        db_session.flush()
+        rd = _sell(db_session, risk_portfolio, confidence=Decimal("0.90"), price=Decimal("120.00"))
+        assert rd.decision == DecisionType.SELL
+        assert rd.reason_code is None
+        assert rd.approved_qty       == Decimal("100")
+        assert rd.approved_notional  == Decimal("12000.00")
+
+    def test_sell_confidence_0_70_tiny_position_floors_to_zero(
+        self, db_session: Session, risk_portfolio: Portfolio
+    ) -> None:
+        """
+        confidence=0.70, position 1 share, price=$120.
+
+        Exit tier: 0.70 → sell 25%
+        sell_qty = floor(1 * 0.25) = floor(0.25) = 0
+        → CONCENTRATION_LIMIT (qty floors to 0)
+        """
+        open_position(
+            db_session, ticker="AAPL", qty=Decimal("1"),
+            fill_price=Decimal("100.00"), now=_NOW,
+        )
+        db_session.flush()
+        rd = _sell(db_session, risk_portfolio, confidence=Decimal("0.70"), price=Decimal("120.00"))
+        assert rd.decision == DecisionType.REJECTED
+        assert rd.reason_code == RejectionReason.CONCENTRATION_LIMIT
+
     def test_approved_sell_full_position(
         self, db_session: Session, risk_portfolio: Portfolio
     ) -> None:
         """
-        10 shares held, current price $120.
-        approved_qty      = 10 (full position)
+        confidence=0.90, 10 shares held, price=$120.
+
+        Exit tier: 0.90 >= 0.85 → sell 100%
+        approved_qty = 10
         approved_notional = 10 * 120 = $1,200
         """
         open_position(
@@ -339,10 +539,10 @@ class TestSellPath:
             fill_price=Decimal("100.00"), now=_NOW,
         )
         db_session.flush()
-        rd = _sell(db_session, risk_portfolio, ticker="AAPL", price=Decimal("120.00"))
+        rd = _sell(db_session, risk_portfolio, confidence=Decimal("0.90"), price=Decimal("120.00"))
         assert rd.decision == DecisionType.SELL
         assert rd.reason_code is None
-        assert rd.approved_qty       == Decimal("10.00000000")
+        assert rd.approved_qty       == Decimal("10")
         assert rd.approved_notional  == Decimal("1200.00")
-        assert rd.requested_qty      == Decimal("10.00000000")
+        assert rd.requested_qty      == Decimal("10")
         assert rd.requested_notional == Decimal("1200.00")
