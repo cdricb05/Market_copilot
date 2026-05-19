@@ -296,6 +296,25 @@
     }
     .btn-action:hover { background: #c73450; }
 
+    /* ---- Daily Trading Run ---- */
+    .dtr-card { border-bottom: 1px solid #f3f4f6; padding-bottom: 14px; margin-bottom: 14px; }
+    .dtr-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #1a1a2e; margin-bottom: 12px; }
+    .dtr-inputs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .dtr-step { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; }
+    .dtr-step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .dtr-step-label { font-size: 12px; font-weight: 600; color: #374151; }
+    .dtr-step-status { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .dtr-step-status.not-started { background: #e5e7eb; color: #6b7280; }
+    .dtr-step-status.ready { background: #bfdbfe; color: #1e40af; }
+    .dtr-step-status.running { background: #fef3c7; color: #92400e; }
+    .dtr-step-status.done { background: #d1fae5; color: #065f46; }
+    .dtr-step-status.error { background: #fee2e2; color: #991b1b; }
+    .dtr-step-btn { padding: 6px 14px; background: #1a1a2e; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    .dtr-step-btn:hover:not(:disabled) { background: #2a2a4e; }
+    .dtr-step-result { font-size: 12px; color: #6b7280; min-height: 18px; margin-top: 6px; }
+    .dtr-step-result.success { color: #065f46; }
+    .dtr-step-result.error { color: #991b1b; }
+
     /* ---- Flags ---- */
     .yes { color: #059669; font-weight: 700; }
     .no  { color: #dc2626; font-weight: 700; }
@@ -474,6 +493,31 @@
           <tr><td colspan="8" class="empty">Connect to load</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- Daily Trading Run (Guided Workflow) -->
+  <div class="card dtr-card">
+    <div class="dtr-title">Daily Trading Run</div>
+
+    <div class="dtr-inputs-grid">
+      <div class="fg">
+        <label>Ticker</label>
+        <input id="dtr-ticker" placeholder="AAPL">
+      </div>
+      <div class="fg">
+        <label>Price</label>
+        <input id="dtr-price" placeholder="182.50">
+      </div>
+    </div>
+
+    <div class="dtr-step">
+      <div class="dtr-step-header">
+        <span class="dtr-step-label">Step 1: Ingest Price</span>
+        <span class="dtr-step-status not-started" id="dtr-status-ingest">Not Started</span>
+      </div>
+      <button class="dtr-step-btn" id="dtr-btn-ingest" onclick="dtrIngestPrice(this)">Ingest Price</button>
+      <div class="dtr-step-result" id="dtr-result-ingest"></div>
     </div>
   </div>
 
@@ -1092,6 +1136,48 @@ async function triggerSnapshot(btn) {
     } else {
       toast(b.detail ?? 'Snapshot failed', 'err');
     }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- daily trading run ----------
+
+const _dtrState = {
+  ticker: '',
+  price: '',
+};
+
+async function dtrIngestPrice(btn) {
+  let ticker = normTicker(document.getElementById('dtr-ticker').value);
+  const priceRaw = document.getElementById('dtr-price').value.trim();
+
+  if (!ticker) { toast('Ticker required', 'err'); return; }
+  if (!isValidPrice(priceRaw)) { toast('Price must be positive', 'err'); return; }
+
+  document.getElementById('dtr-ticker').value = ticker;
+  document.getElementById('dtr-status-ingest').textContent = 'Running';
+  document.getElementById('dtr-status-ingest').className = 'dtr-step-status running';
+  document.getElementById('dtr-result-ingest').textContent = '';
+  btn.disabled = true;
+
+  try {
+    const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price: priceRaw }] });
+    const b = await r.json();
+    if (r.ok) {
+      document.getElementById('dtr-status-ingest').textContent = 'Done';
+      document.getElementById('dtr-status-ingest').className = 'dtr-step-status done';
+      document.getElementById('dtr-result-ingest').textContent = `✓ Inserted ${b.inserted} price snapshot`;
+      document.getElementById('dtr-result-ingest').className = 'dtr-step-result success';
+      document.getElementById('dtr-price').value = '';
+    } else {
+      throw new Error(b.detail ?? 'Error ingesting price');
+    }
+  } catch (e) {
+    document.getElementById('dtr-status-ingest').textContent = 'Error';
+    document.getElementById('dtr-status-ingest').className = 'dtr-step-status error';
+    document.getElementById('dtr-result-ingest').textContent = `✗ ${e.message}`;
+    document.getElementById('dtr-result-ingest').className = 'dtr-step-result error';
   } finally {
     btn.disabled = false;
   }
