@@ -1199,7 +1199,7 @@ async function triggerFill(btn) {
   btn.disabled = true;
   try {
     const r = await call('POST', '/v1/fill', body);
-    const b = await r.json();
+    const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('fill-ikey').value = '';
       document.getElementById('fill-date').value = todayLocal();
@@ -1208,7 +1208,7 @@ async function triggerFill(btn) {
       loadPositions();
       loadPortfolio();
     } else {
-      toast(b.detail ?? 'Fill cycle failed', 'err');
+      toast(b.detail ?? `HTTP ${r.status} ${r.statusText}`, 'err');
     }
   } finally {
     btn.disabled = false;
@@ -1223,7 +1223,7 @@ async function triggerSnapshot(btn) {
   btn.disabled = true;
   try {
     const r = await call('POST', '/v1/snapshot', body);
-    const b = await r.json();
+    const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('snap-ikey').value = '';
       document.getElementById('snap-date').value = todayLocal();
@@ -1231,11 +1231,28 @@ async function triggerSnapshot(btn) {
       loadPerformance();
       loadHistory();
     } else {
-      toast(b.detail ?? 'Snapshot failed', 'err');
+      toast(b.detail ?? `HTTP ${r.status} ${r.statusText}`, 'err');
     }
   } finally {
     btn.disabled = false;
   }
+}
+
+// ---------- api response parsing ----------
+
+async function parseApiResponse(r) {
+  const text = await r.text();
+  let body = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = { detail: text };
+    }
+  } else {
+    body = {};
+  }
+  return body;
 }
 
 // ---------- daily trading run ----------
@@ -1260,7 +1277,7 @@ async function dtrIngestPrice(btn) {
 
   try {
     const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price: priceRaw }] });
-    const b = await r.json();
+    const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('dtr-status-ingest').textContent = 'Done';
       document.getElementById('dtr-status-ingest').className = 'dtr-step-status done';
@@ -1268,7 +1285,7 @@ async function dtrIngestPrice(btn) {
       document.getElementById('dtr-result-ingest').className = 'dtr-step-result success';
       document.getElementById('dtr-price').value = '';
     } else {
-      throw new Error(b.detail ?? 'Error ingesting price');
+      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-ingest').textContent = 'Error';
@@ -1306,7 +1323,7 @@ async function dtrSubmitSignal(btn) {
       workflow_type: 'PRE_MARKET',
       signals: [{ ticker, direction, confidence, signal_ts, source_run: 'dtr' }],
     });
-    const b = await r.json();
+    const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('dtr-status-signal').textContent = 'Done';
       document.getElementById('dtr-status-signal').className = 'dtr-step-status done';
@@ -1317,7 +1334,7 @@ async function dtrSubmitSignal(btn) {
       updateActionBadges();
       updateHints();
     } else {
-      throw new Error(b.detail ?? 'Signal submission failed');
+      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-signal').textContent = 'Error';
@@ -1343,7 +1360,7 @@ async function dtrRunFill(btn) {
     const r = await call('POST', '/v1/fill', {
       idempotency_key: ikeyVal,
     });
-    const b = await r.json();
+    const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('dtr-status-fill').textContent = 'Done';
       document.getElementById('dtr-status-fill').className = 'dtr-step-status done';
@@ -1356,7 +1373,7 @@ async function dtrRunFill(btn) {
       updateActionBadges();
       updateHints();
     } else {
-      throw new Error(b.detail ?? 'Fill cycle failed');
+      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-fill').textContent = 'Error';
@@ -1382,7 +1399,7 @@ async function dtrRunSnapshot(btn) {
     const r = await call('POST', '/v1/snapshot', {
       idempotency_key: ikeyVal,
     });
-    const b = await r.json();
+    const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('dtr-status-snapshot').textContent = 'Done';
       document.getElementById('dtr-status-snapshot').className = 'dtr-step-status done';
@@ -1396,7 +1413,7 @@ async function dtrRunSnapshot(btn) {
       updateActionBadges();
       updateHints();
     } else {
-      throw new Error(b.detail ?? 'Snapshot failed');
+      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-snapshot').textContent = 'Error';
@@ -1418,11 +1435,13 @@ async function dtrRefreshReview(btn) {
   btn.disabled = true;
 
   try {
-    loadPortfolio();
-    loadPerformance();
-    loadPositions();
-    loadOrders();
-    loadHistory();
+    await Promise.all([
+      loadPortfolio(),
+      loadPerformance(),
+      loadPositions(),
+      loadOrders(),
+      loadHistory(),
+    ]);
     updateWorkbench();
     updateActionBadges();
     updateHints();
@@ -1607,14 +1626,14 @@ function updateDtrSummary() {
     resultEl.textContent = latestResult.text;
     resultEl.className = 'dtr-summary-result ' + latestResult.status;
 
-    const pendingCount = (_appState.orders || []).filter(o => o.status === 'PENDING').length;
-    document.getElementById('dtr-summary-pending').textContent = pendingCount.toString();
+    const pendingOrders = _appState.pendingOrders !== null ? _appState.pendingOrders.toString() : '?';
+    document.getElementById('dtr-summary-pending').textContent = pendingOrders;
 
-    const posCount = (_appState.positions || []).length;
-    document.getElementById('dtr-summary-positions').textContent = posCount.toString();
+    const posStatus = _appState.hasPositions ? '✓ Yes' : (_appState.hasPositions === false ? 'None' : '?');
+    document.getElementById('dtr-summary-positions').textContent = posStatus;
 
-    const snapCount = (_appState.history || []).length;
-    document.getElementById('dtr-summary-snapshots').textContent = snapCount.toString();
+    const snapStatus = _appState.hasHistory ? '✓ Recorded' : (_appState.hasHistory === false ? 'Not started' : '?');
+    document.getElementById('dtr-summary-snapshots').textContent = snapStatus;
 
     summaryEl.style.display = 'block';
   } else {
