@@ -20,7 +20,10 @@ Idempotency contract:
     FAILED    → raise RuntimeError; caller must supply a new idempotency_key
                 or manually clean up the failed run before retrying.
 
-Raises ValueError if any open position has no available price snapshot.
+Raises MissingPricesError before job_run creation if any open position lacks
+a price snapshot. This is normal business validation; the caller should ingest
+prices first, then retry. No job_run is created for this condition.
+
 Benchmark fields are all left NULL when benchmark price data is absent — this
 is not an error condition.
 """
@@ -57,6 +60,15 @@ from paper_trader.engine.portfolio import (
 
 _PRICE   = Decimal("0.000001")
 _DOLLARS = Decimal("0.01")
+
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+class MissingPricesError(Exception):
+    """Raised when one or more open positions lack price snapshots for snapshot date."""
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +242,27 @@ def run_snapshot_workflow(
                     )
 
             # ------------------------------------------------------------------
+            # Validate that all open positions have price snapshots.
+            # This is a normal business validation, not a workflow failure,
+            # so it happens before job_run creation to avoid creating FAILED runs
+            # for missing prices (the caller should ingest prices first, then retry).
+            # ------------------------------------------------------------------
+            positions = get_open_positions(session)
+            price_map: dict[str, Decimal] = {}
+            missing: list[str] = []
+            for pos in positions:
+                price = _latest_price(session, pos.ticker)
+                if price is None:
+                    missing.append(pos.ticker)
+                else:
+                    price_map[pos.ticker] = price
+
+            if missing:
+                raise MissingPricesError(
+                    f"Snapshot requires prices for all open positions. Missing: {', '.join(missing)}"
+                )
+
+            # ------------------------------------------------------------------
             # Create the JobRun and commit before acquiring the lock so that
             # a concurrent caller sees RUNNING and backs off immediately.
             # ------------------------------------------------------------------
@@ -258,27 +291,9 @@ def run_snapshot_workflow(
 
             try:
                 portfolio = get_portfolio(session)
-                positions = get_open_positions(session)
 
-                # --------------------------------------------------------------
-                # Build price map for all open positions.
-                # Fail fast if any position is missing a price — a partial
-                # snapshot would produce incorrect total_value and unrealized_pnl.
-                # --------------------------------------------------------------
-                price_map: dict[str, Decimal] = {}
-                missing: list[str] = []
-                for pos in positions:
-                    price = _latest_price(session, pos.ticker)
-                    if price is None:
-                        missing.append(pos.ticker)
-                    else:
-                        price_map[pos.ticker] = price
-
-                if missing:
-                    raise ValueError(
-                        f"Cannot create snapshot: no price snapshot found for "
-                        f"open tickers: {missing}"
-                    )
+                # All prices were already validated before job_run creation.
+                # price_map and positions are already computed above.
 
                 # --------------------------------------------------------------
                 # Core portfolio values — all from authoritative sources.

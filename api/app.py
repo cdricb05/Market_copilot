@@ -63,7 +63,7 @@ from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.reconciler import run_fill_cycle
 from paper_trader.workflows.decision import run_decision_workflow
-from paper_trader.workflows.snapshot import run_snapshot_workflow
+from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -634,9 +634,9 @@ def trigger_snapshot(body: SnapshotRequest) -> SnapshotWorkflowResponse:
 
     market_date defaults to today's US-Eastern date if not supplied.
     Returns the result summary on success. Raises 409 on idempotency
-    conflicts (RUNNING or FAILED job run for the key). Raises 422 when
+    conflicts (RUNNING or FAILED job run for the key). Raises 400 when
     an open position has no available price snapshot — ingest prices
-    first, then retry with a new idempotency_key.
+    first, then retry.
     """
     now, today = _now_and_date()
     market_date = body.market_date or today
@@ -646,14 +646,14 @@ def trigger_snapshot(body: SnapshotRequest) -> SnapshotWorkflowResponse:
             market_date=market_date,
             now=now,
         )
+    except MissingPricesError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         )
     return SnapshotWorkflowResponse(**result)
