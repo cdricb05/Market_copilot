@@ -194,6 +194,21 @@ def run_snapshot_workflow(
                     )
 
             # ------------------------------------------------------------------
+            # Check if a snapshot already exists for this market_date.
+            # If a different idempotency_key is used for the same market_date
+            # (e.g., retrying a completed snapshot with a fresh autoKey),
+            # we detect and reject the duplicate attempt.
+            # ------------------------------------------------------------------
+            existing_snapshot = session.execute(
+                select(PortfolioSnapshot).where(PortfolioSnapshot.market_date == market_date)
+            ).scalar_one_or_none()
+            if existing_snapshot is not None:
+                raise RuntimeError(
+                    f"Snapshot already exists for market_date {market_date}. "
+                    "To refresh, use Refresh Review instead of running Snapshot again."
+                )
+
+            # ------------------------------------------------------------------
             # Create the JobRun and commit before acquiring the lock so that
             # a concurrent caller sees RUNNING and backs off immediately.
             # ------------------------------------------------------------------

@@ -1231,7 +1231,12 @@ async function triggerSnapshot(btn) {
       loadPerformance();
       loadHistory();
     } else {
-      toast(b.detail ?? `HTTP ${r.status} ${r.statusText}`, 'err');
+      const msg = b.detail || `HTTP ${r.status} ${r.statusText}`;
+      if (r.status === 409 && msg.includes('already exists')) {
+        toast('Snapshot already recorded for this date. Use Refresh Review to update.', 'err');
+      } else {
+        toast(msg, 'err');
+      }
     }
   } finally {
     btn.disabled = false;
@@ -1395,7 +1400,10 @@ async function dtrRunSnapshot(btn) {
   btn.disabled = true;
 
   try {
-    const ikeyVal = autoKey();
+    // Use deterministic idempotency key based on today's market date.
+    // This allows retries on the same day to return the cached result.
+    const today = todayLocal();
+    const ikeyVal = `snapshot-${today}`;
     const r = await call('POST', '/v1/snapshot', {
       idempotency_key: ikeyVal,
     });
@@ -1413,7 +1421,13 @@ async function dtrRunSnapshot(btn) {
       updateActionBadges();
       updateHints();
     } else {
-      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+      // Check for specific error conditions and provide helpful messages.
+      const msg = b.detail || `HTTP ${r.status} ${r.statusText}`;
+      if (r.status === 409 && msg.includes('already exists')) {
+        throw new Error('Snapshot already recorded for this date. Use Refresh Review to update.');
+      } else {
+        throw new Error(msg);
+      }
     }
   } catch (e) {
     document.getElementById('dtr-status-snapshot').textContent = 'Error';
