@@ -315,6 +315,12 @@
     .dtr-step-result.success { color: #065f46; }
     .dtr-step-result.error { color: #991b1b; }
 
+    .dtr-status-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 8px 12px; background: #f9fafb; border-radius: 4px; border: 1px solid #e5e7eb; }
+    .dtr-status-msg { font-size: 13px; font-weight: 600; color: #374151; }
+    .dtr-reset-btn { padding: 5px 12px; background: #9ca3af; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    .dtr-reset-btn:hover { background: #6b7280; }
+    .dtr-guidance { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; color: #166534; }
+
     /* ---- Flags ---- */
     .yes { color: #059669; font-weight: 700; }
     .no  { color: #dc2626; font-weight: 700; }
@@ -499,6 +505,13 @@
   <!-- Daily Trading Run (Guided Workflow) -->
   <div class="card dtr-card">
     <div class="dtr-title">Daily Trading Run</div>
+
+    <div class="dtr-status-row">
+      <div class="dtr-status-msg" id="dtr-status-msg">Ready to start</div>
+      <button class="dtr-reset-btn" id="dtr-btn-reset" onclick="resetDtrRun()">Reset Run</button>
+    </div>
+
+    <div class="dtr-guidance" id="dtr-guidance" style="display:none;"></div>
 
     <div class="dtr-inputs-grid">
       <div class="fg">
@@ -1226,6 +1239,8 @@ async function dtrIngestPrice(btn) {
     document.getElementById('dtr-result-ingest').className = 'dtr-step-result error';
   } finally {
     btn.disabled = false;
+    updateDtrStatusMsg();
+    updateDtrGuidance();
   }
 }
 
@@ -1272,6 +1287,8 @@ async function dtrSubmitSignal(btn) {
     document.getElementById('dtr-result-signal').className = 'dtr-step-result error';
   } finally {
     btn.disabled = false;
+    updateDtrStatusMsg();
+    updateDtrGuidance();
   }
 }
 
@@ -1308,6 +1325,8 @@ async function dtrRunFill(btn) {
     document.getElementById('dtr-result-fill').className = 'dtr-step-result error';
   } finally {
     btn.disabled = false;
+    updateDtrStatusMsg();
+    updateDtrGuidance();
   }
 }
 
@@ -1345,6 +1364,8 @@ async function dtrRunSnapshot(btn) {
     document.getElementById('dtr-result-snapshot').className = 'dtr-step-result error';
   } finally {
     btn.disabled = false;
+    updateDtrStatusMsg();
+    updateDtrGuidance();
   }
 }
 
@@ -1375,7 +1396,124 @@ async function dtrRefreshReview(btn) {
     document.getElementById('dtr-result-review').className = 'dtr-step-result error';
   } finally {
     btn.disabled = false;
+    updateDtrStatusMsg();
+    updateDtrGuidance();
   }
+}
+
+// ---------- daily trading run helpers ----------
+
+function getDtrStepStatus(stepKey) {
+  const statusEl = document.getElementById(`dtr-status-${stepKey}`);
+  if (!statusEl) return 'not-started';
+  if (statusEl.classList.contains('done')) return 'done';
+  if (statusEl.classList.contains('error')) return 'error';
+  if (statusEl.classList.contains('running')) return 'running';
+  return 'not-started';
+}
+
+function getDtrCurrentStatus() {
+  const s1 = getDtrStepStatus('ingest');
+  const s2 = getDtrStepStatus('signal');
+  const s3 = getDtrStepStatus('fill');
+  const s4 = getDtrStepStatus('snapshot');
+  const s5 = getDtrStepStatus('review');
+
+  if (s5 === 'done') return 'Review refreshed';
+  if (s4 === 'done') return 'Snapshot recorded';
+  if (s3 === 'done') return 'Fill completed';
+  if (s2 === 'done') return 'Signal submitted';
+  if (s1 === 'done') return 'Price ingested';
+  if (s1 === 'error' || s2 === 'error' || s3 === 'error' || s4 === 'error' || s5 === 'error') return 'Action needed';
+  return 'Ready to start';
+}
+
+function resetDtrRun() {
+  document.getElementById('dtr-status-ingest').textContent = 'Not Started';
+  document.getElementById('dtr-status-ingest').className = 'dtr-step-status not-started';
+  document.getElementById('dtr-result-ingest').textContent = '';
+  document.getElementById('dtr-result-ingest').className = '';
+
+  document.getElementById('dtr-status-signal').textContent = 'Not Started';
+  document.getElementById('dtr-status-signal').className = 'dtr-step-status not-started';
+  document.getElementById('dtr-result-signal').textContent = '';
+  document.getElementById('dtr-result-signal').className = '';
+
+  document.getElementById('dtr-status-fill').textContent = 'Not Started';
+  document.getElementById('dtr-status-fill').className = 'dtr-step-status not-started';
+  document.getElementById('dtr-result-fill').textContent = '';
+  document.getElementById('dtr-result-fill').className = '';
+
+  document.getElementById('dtr-status-snapshot').textContent = 'Not Started';
+  document.getElementById('dtr-status-snapshot').className = 'dtr-step-status not-started';
+  document.getElementById('dtr-result-snapshot').textContent = '';
+  document.getElementById('dtr-result-snapshot').className = '';
+
+  document.getElementById('dtr-status-review').textContent = 'Not Started';
+  document.getElementById('dtr-status-review').className = 'dtr-step-status not-started';
+  document.getElementById('dtr-result-review').textContent = '';
+  document.getElementById('dtr-result-review').className = '';
+
+  document.getElementById('dtr-price').value = '';
+
+  updateDtrGuidance();
+  updateDtrStatusMsg();
+}
+
+function updateDtrStatusMsg() {
+  document.getElementById('dtr-status-msg').textContent = getDtrCurrentStatus();
+}
+
+function updateDtrGuidance() {
+  const ticker = normTicker(document.getElementById('dtr-ticker').value);
+  const price = document.getElementById('dtr-price').value.trim();
+  const confidence = document.getElementById('dtr-confidence').value.trim();
+  const guidanceEl = document.getElementById('dtr-guidance');
+
+  const s1 = getDtrStepStatus('ingest');
+  const s2 = getDtrStepStatus('signal');
+  const s3 = getDtrStepStatus('fill');
+  const s4 = getDtrStepStatus('snapshot');
+  const s5 = getDtrStepStatus('review');
+
+  let hint = '';
+
+  if (!ticker) {
+    hint = 'Enter a ticker to begin.';
+  } else if (!price || !isValidPrice(price)) {
+    hint = 'Enter a positive price, then ingest the price.';
+  } else if (s1 === 'done' && s2 === 'not-started') {
+    hint = 'Submit a signal next.';
+  } else if (s2 === 'done' && s3 === 'not-started') {
+    hint = 'Run fill next.';
+  } else if (s3 === 'done' && s4 === 'not-started') {
+    hint = 'Run snapshot next.';
+  } else if (s4 === 'done' && s5 === 'not-started') {
+    hint = 'Refresh review next.';
+  } else if (s5 === 'done') {
+    hint = 'Daily Trading Run complete.';
+  } else if (s1 === 'not-started' && s2 === 'not-started') {
+    hint = confidence && isValidConfidence(confidence) ? 'Ingest price first.' : 'Enter confidence (0–1).';
+  }
+
+  guidanceEl.textContent = hint;
+  guidanceEl.style.display = hint ? 'block' : 'none';
+}
+
+function updateDtrButtonReadiness() {
+  const ticker = normTicker(document.getElementById('dtr-ticker').value);
+  const price = document.getElementById('dtr-price').value.trim();
+  const confidence = document.getElementById('dtr-confidence').value.trim();
+
+  const ingestBtn = document.getElementById('dtr-btn-ingest');
+  const signalBtn = document.getElementById('dtr-btn-signal');
+
+  const hasTicker = ticker.length > 0;
+  const hasValidPrice = isValidPrice(price);
+  const hasValidConf = isValidConfidence(confidence);
+
+  ingestBtn.disabled = !hasTicker || !hasValidPrice;
+  signalBtn.disabled = !hasTicker || !hasValidConf;
 }
 
 // ---------- connect / refresh ----------
@@ -1409,6 +1547,8 @@ async function connect() {
     updateHints();
     updateActionBadges();
     updateWorkbench();
+    updateDtrGuidance();
+    updateDtrButtonReadiness();
     toast('Connected');
   } finally {
     btn.disabled = false;
@@ -1432,6 +1572,8 @@ async function refresh() {
     updateHints();
     updateActionBadges();
     updateWorkbench();
+    updateDtrGuidance();
+    updateDtrButtonReadiness();
     toast('Refreshed');
   } finally {
     btn.disabled = false;
@@ -1488,6 +1630,22 @@ document.getElementById('fill-date').closest('details').addEventListener('toggle
 document.getElementById('snap-date').closest('details').addEventListener('toggle', function() {
   const el = document.getElementById('snap-date');
   if (this.open && !el.value) el.value = todayLocal();
+});
+
+// DTR input listeners
+document.getElementById('dtr-ticker').addEventListener('input', function() {
+  updateDtrGuidance();
+  updateDtrButtonReadiness();
+});
+
+document.getElementById('dtr-price').addEventListener('input', function() {
+  updateDtrGuidance();
+  updateDtrButtonReadiness();
+});
+
+document.getElementById('dtr-confidence').addEventListener('input', function() {
+  updateDtrGuidance();
+  updateDtrButtonReadiness();
 });
 
 // Health check runs immediately — no auth needed
