@@ -44,6 +44,7 @@ from sqlalchemy import func, select, text
 from paper_trader.config import get_settings
 from paper_trader.constants import (
     PORTFOLIO_ADVISORY_LOCK_KEY,
+    DecisionType,
     JobRunStatus,
     PriceType,
     SessionType,
@@ -57,6 +58,7 @@ from paper_trader.db.models import (
     PortfolioSnapshot,
     Position,
     PriceSnapshot,
+    TradeDecision,
 )
 from paper_trader.db.session import get_dedicated_session, get_session
 from paper_trader.engine.market_hours import is_weekday
@@ -317,6 +319,8 @@ class StrategyRunResponse(BaseModel):
     orders_created: int
     errors: int
     generated_signals: list[dict] | None = None
+    decisions_breakdown: dict[str, int] = Field(default_factory=lambda: {"approved": 0, "rejected": 0, "hold": 0})
+    rejection_reasons: dict[str, int] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -1221,6 +1225,29 @@ def run_strategy(body: StrategyRunRequest) -> StrategyRunResponse:
             detail=str(exc),
         )
 
+    # Query TradeDecision rows to build decisions_breakdown and rejection_reasons
+    decisions_breakdown = {"approved": 0, "rejected": 0, "hold": 0}
+    rejection_reasons: dict[str, int] = {}
+    with get_dedicated_session() as session:
+        job_run = session.execute(
+            select(JobRun).where(JobRun.idempotency_key == body.idempotency_key)
+        ).scalar_one_or_none()
+
+        if job_run is not None:
+            decisions = session.execute(
+                select(TradeDecision).where(TradeDecision.job_run_id == job_run.id)
+            ).scalars().all()
+
+            for decision in decisions:
+                if decision.decision == DecisionType.BUY or decision.decision == DecisionType.SELL:
+                    decisions_breakdown["approved"] += 1
+                elif decision.decision == DecisionType.REJECTED:
+                    decisions_breakdown["rejected"] += 1
+                    if decision.reason_code:
+                        rejection_reasons[decision.reason_code] = rejection_reasons.get(decision.reason_code, 0) + 1
+                elif decision.decision == DecisionType.HOLD:
+                    decisions_breakdown["hold"] += 1
+
     return StrategyRunResponse(
         signals_generated=signals_generated,
         signals_submitted=result.get("signals_ingested", 0),
@@ -1229,6 +1256,8 @@ def run_strategy(body: StrategyRunRequest) -> StrategyRunResponse:
         orders_created=result.get("orders_created", 0),
         errors=result.get("errors", 0),
         generated_signals=signals,
+        decisions_breakdown=decisions_breakdown,
+        rejection_reasons=rejection_reasons,
     )
 
 

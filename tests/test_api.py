@@ -58,7 +58,7 @@ from sqlalchemy.orm import Session
 from paper_trader.api.app import app
 from paper_trader.config import get_settings
 from paper_trader.constants import CashEntryType, JobRunStatus, WorkflowType
-from paper_trader.db.models import Base, JobRun, Portfolio, PortfolioSnapshot
+from paper_trader.db.models import Base, JobRun, Portfolio, PortfolioSnapshot, PriceSnapshot
 from paper_trader.db.session import reset_engine_state
 from paper_trader.engine.portfolio import append_cash_entry, open_position
 
@@ -78,6 +78,10 @@ _DATE_SNAP_REPLAY  = date(2025, 2, 2)
 _DATE_SNAP_RUNNING = date(2025, 2, 3)
 _DATE_SNAP_FAILED  = date(2025, 2, 4)
 _DATE_SNAP_MISSING = date(2025, 2, 5)
+
+# Weekday dates for strategy run tests (Tuesday 2025-01-21, Wednesday 2025-01-22)
+_DATE_STRAT_APPROVED  = date(2025, 1, 21)  # Tuesday
+_DATE_STRAT_DUPLICATE = date(2025, 1, 22)  # Wednesday
 
 
 def _ikey() -> str:
@@ -1148,6 +1152,99 @@ class TestPerformanceBenchmark:
         # Earlier rows have empty benchmark columns
         assert rows[1][6] == ""  # Jan-10 benchmark_ticker
         assert rows[2][6] == ""  # Jan-11 benchmark_ticker
+
+
+# ---------------------------------------------------------------------------
+# Strategy run endpoint — POST /v1/strategy/run
+# ---------------------------------------------------------------------------
+
+class TestStrategyRunEndpoint:
+    """POST /v1/strategy/run: decisions_breakdown and rejection_reasons validation."""
+
+    def test_strategy_run_response_includes_breakdown_fields(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """
+        POST /v1/strategy/run returns decisions_breakdown and rejection_reasons.
+
+        Seeds uptrend prices (AAPL pattern: [100, 101, 102, 103, 104]) that
+        generate a BUY signal. Validates that the response includes:
+        - decisions_breakdown dict with approved >= 1, rejected == 0, hold == 0
+        - rejection_reasons dict (empty when no rejections)
+        - All existing fields: signals_generated, signals_submitted, etc.
+        """
+        # Seed prices for STRAT_APPROVED ticker (uptrend, known to generate BUY)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            for i, price in enumerate([100, 101, 102, 103, 104], start=1):
+                session.add(PriceSnapshot(
+                    ticker="STRAT_APPROVED",
+                    price=Decimal(str(price)),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=_NOW.replace(hour=i),
+                    market_date=_DATE_STRAT_APPROVED,
+                    job_run_id=None,
+                ))
+            session.commit()
+
+        payload = {
+            "idempotency_key": f"test-strategy-run-breakdown-{uuid.uuid4()}",
+            "market_date": _DATE_STRAT_APPROVED.isoformat(),
+            "short_window": 3,
+            "long_window": 5,
+            "tickers": ["STRAT_APPROVED"],
+        }
+        resp = seeded_client.post("/v1/strategy/run", json=payload, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+
+        # Verify all existing fields are present
+        assert "signals_generated" in body
+        assert "signals_submitted" in body
+        assert "skipped_tickers" in body
+        assert "decisions_made" in body
+        assert "orders_created" in body
+        assert "errors" in body
+
+        # Verify new breakdown fields are present and correctly populated
+        assert "decisions_breakdown" in body
+        assert isinstance(body["decisions_breakdown"], dict)
+        assert body["decisions_breakdown"]["approved"] >= 1
+        assert body["decisions_breakdown"]["rejected"] == 0
+        assert body["decisions_breakdown"]["hold"] == 0
+
+        assert "rejection_reasons" in body
+        assert isinstance(body["rejection_reasons"], dict)
+        assert body["rejection_reasons"] == {}
+
+    def test_strategy_run_breakdown_default_values(
+        self, seeded_client: TestClient
+    ) -> None:
+        """
+        POST /v1/strategy/run returns zero breakdown when no signals generated.
+
+        Uses a ticker with no seeded prices, so no signals generate. Validates:
+        - decisions_breakdown defaults to {approved: 0, rejected: 0, hold: 0}
+        - rejection_reasons defaults to empty dict {}
+        - errors remains 0
+        """
+        payload = {
+            "idempotency_key": f"test-strategy-run-defaults-{uuid.uuid4()}",
+            "market_date": _DATE_STRAT_DUPLICATE.isoformat(),
+            "short_window": 3,
+            "long_window": 5,
+            "tickers": ["NONEXISTENT_TICKER"],  # No prices seeded
+        }
+        resp = seeded_client.post("/v1/strategy/run", json=payload, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+
+        # With no signals generated, breakdown shows all zeros
+        assert body["decisions_breakdown"]["approved"] == 0
+        assert body["decisions_breakdown"]["rejected"] == 0
+        assert body["decisions_breakdown"]["hold"] == 0
+        assert body["rejection_reasons"] == {}
+        assert body["errors"] == 0
 
 
 # ---------------------------------------------------------------------------

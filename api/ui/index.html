@@ -1394,6 +1394,25 @@ async function dtrRunStrategy(btn) {
         resultHtml += ` · Errors: ${b.errors}`;
       }
 
+      // Add breakdown info if available
+      if (b.decisions_breakdown && (b.decisions_breakdown.approved > 0 || b.decisions_breakdown.rejected > 0 || b.decisions_breakdown.hold > 0)) {
+        let breakdown = [];
+        if (b.decisions_breakdown.approved > 0) breakdown.push(`Approved: ${b.decisions_breakdown.approved}`);
+        if (b.decisions_breakdown.rejected > 0) breakdown.push(`Rejected: ${b.decisions_breakdown.rejected}`);
+        if (b.decisions_breakdown.hold > 0) breakdown.push(`Hold: ${b.decisions_breakdown.hold}`);
+        if (breakdown.length > 0) {
+          resultHtml += `<br><small style="color:#666;margin-top:4px;">Breakdown: ${breakdown.join(' · ')}</small>`;
+        }
+      }
+
+      // Add rejection reasons if any
+      if (b.rejection_reasons && Object.keys(b.rejection_reasons).length > 0) {
+        const reasonsList = Object.entries(b.rejection_reasons)
+          .map(([reason, count]) => `${escapeHtml(reason)}: ${count}`)
+          .join(' | ');
+        resultHtml += `<br><small style="color:#888;margin-top:4px;">Rejections: ${reasonsList}</small>`;
+      }
+
       // Add skipped info if any
       if (Object.keys(b.skipped_tickers).length > 0) {
         const skippedList = Object.entries(b.skipped_tickers)
