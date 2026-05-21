@@ -1076,6 +1076,40 @@ def get_performance_history_csv(
     )
 
 
+def _override_signals_source_run(
+    signals: list[dict],
+    idempotency_key: str,
+) -> list[dict]:
+    """
+    Prepare strategy signals for submission by overriding source_run to idempotency_key.
+
+    For each signal, preserves the original source_run (usually "strategy_v1") in
+    raw_payload.strategy_name for traceability, then sets source_run to the
+    idempotency_key. This ensures each strategy run has a unique source_run,
+    preventing unique constraint collisions on (source_run, ticker, direction).
+
+    Args:
+        signals: List of signal dicts from generate_signals().
+        idempotency_key: Unique request identifier for this strategy run.
+
+    Returns:
+        List of modified signals ready for run_decision_workflow().
+    """
+    submitted_signals = []
+    for signal in signals:
+        submitted_signal = signal.copy()
+        if "raw_payload" not in submitted_signal:
+            submitted_signal["raw_payload"] = {}
+        # Preserve original source label for traceability
+        submitted_signal["raw_payload"]["strategy_name"] = submitted_signal.get(
+            "source_run", "strategy_v1"
+        )
+        # Override source_run to make each strategy run unique
+        submitted_signal["source_run"] = idempotency_key
+        submitted_signals.append(submitted_signal)
+    return submitted_signals
+
+
 @app.post(
     "/v1/strategy/run",
     response_model=StrategyRunResponse,
@@ -1171,12 +1205,14 @@ def run_strategy(body: StrategyRunRequest) -> StrategyRunResponse:
             generated_signals=signals,
         )
 
+    submitted_signals = _override_signals_source_run(signals, body.idempotency_key)
+
     try:
         result = run_decision_workflow(
             idempotency_key=body.idempotency_key,
             workflow_type=WorkflowType.PRE_MARKET,
             market_date=market_date,
-            signals=signals,
+            signals=submitted_signals,
             now=now,
         )
     except RuntimeError as exc:

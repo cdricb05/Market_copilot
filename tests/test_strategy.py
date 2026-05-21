@@ -804,3 +804,63 @@ class TestStrategyWorkflowIntegration:
 
         # Results should be identical (cached)
         assert result1 == result2
+
+    def test_override_signals_source_run(self) -> None:
+        """
+        _override_signals_source_run transforms source_run to idempotency_key.
+
+        Verifies that the helper function correctly:
+        - Overrides source_run to the provided idempotency_key
+        - Preserves original source_run in raw_payload.strategy_name
+        - Handles multiple invocations on the same signal list
+        """
+        from paper_trader.api.app import _override_signals_source_run
+
+        # Create a mock signal as would be returned by generate_signals()
+        raw_signal = {
+            "ticker": "TEST",
+            "direction": SignalDirection.BUY,
+            "confidence": Decimal("0.80"),
+            "signal_ts": _NOW,
+            "source_run": "strategy_v1",
+            "raw_payload": {
+                "latest_price": "100.00",
+                "short_sma": "99.00",
+                "long_sma": "98.00",
+                "trend_reason": "Uptrend",
+            },
+        }
+
+        # First override: should transform source_run to ikey1
+        ikey1 = "strategy-run-001"
+        overridden_1 = _override_signals_source_run([raw_signal], ikey1)
+
+        assert len(overridden_1) == 1
+        assert overridden_1[0]["source_run"] == ikey1
+        assert overridden_1[0]["raw_payload"]["strategy_name"] == "strategy_v1"
+        assert overridden_1[0]["ticker"] == "TEST"
+        assert overridden_1[0]["direction"] == SignalDirection.BUY
+        # Original signal should not be mutated
+        assert raw_signal["source_run"] == "strategy_v1"
+
+        # Second override on SAME original signal: should use ikey2
+        ikey2 = "strategy-run-002"
+        overridden_2 = _override_signals_source_run([raw_signal], ikey2)
+
+        assert len(overridden_2) == 1
+        assert overridden_2[0]["source_run"] == ikey2
+        assert overridden_2[0]["raw_payload"]["strategy_name"] == "strategy_v1"
+        # overridden_1 should be unaffected
+        assert overridden_1[0]["source_run"] == ikey1
+
+        # Test signal without raw_payload
+        signal_no_payload = {
+            "ticker": "MSFT",
+            "direction": SignalDirection.SELL,
+            "confidence": Decimal("0.70"),
+            "signal_ts": _NOW,
+            "source_run": "strategy_v1",
+        }
+        overridden_3 = _override_signals_source_run([signal_no_payload], ikey1)
+        assert overridden_3[0]["raw_payload"]["strategy_name"] == "strategy_v1"
+        assert overridden_3[0]["source_run"] == ikey1
