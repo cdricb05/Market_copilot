@@ -570,6 +570,18 @@
         <label>Confidence (0–1)</label>
         <input id="dtr-confidence" placeholder="0.80">
       </div>
+      <div class="fg">
+        <label>Short Window</label>
+        <input id="dtr-short-window" type="number" value="3" min="1">
+      </div>
+      <div class="fg">
+        <label>Long Window</label>
+        <input id="dtr-long-window" type="number" value="5" min="1">
+      </div>
+      <div class="fg">
+        <label>Tickers (optional)</label>
+        <input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA">
+      </div>
     </div>
 
     <div class="dtr-step">
@@ -583,7 +595,16 @@
 
     <div class="dtr-step">
       <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 2: Submit Signal</span>
+        <span class="dtr-step-label">Step 2: Run Strategy</span>
+        <span class="dtr-step-status not-started" id="dtr-status-strategy">Not Started</span>
+      </div>
+      <button class="dtr-step-btn" id="dtr-btn-strategy" onclick="dtrRunStrategy(this)">Run Strategy</button>
+      <div class="dtr-step-result" id="dtr-result-strategy"></div>
+    </div>
+
+    <div class="dtr-step">
+      <div class="dtr-step-header">
+        <span class="dtr-step-label">Step 3: Manual Signal / Override</span>
         <span class="dtr-step-status not-started" id="dtr-status-signal">Not Started</span>
       </div>
       <button class="dtr-step-btn" id="dtr-btn-signal" onclick="dtrSubmitSignal(this)">Submit Signal</button>
@@ -592,7 +613,7 @@
 
     <div class="dtr-step">
       <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 3: Run Fill</span>
+        <span class="dtr-step-label">Step 4: Run Fill</span>
         <span class="dtr-step-status not-started" id="dtr-status-fill">Not Started</span>
       </div>
       <button class="dtr-step-btn" id="dtr-btn-fill" onclick="dtrRunFill(this)">Run Fill</button>
@@ -601,7 +622,7 @@
 
     <div class="dtr-step">
       <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 4: Run Snapshot</span>
+        <span class="dtr-step-label">Step 5: Run Snapshot</span>
         <span class="dtr-step-status not-started" id="dtr-status-snapshot">Not Started</span>
       </div>
       <button class="dtr-step-btn" id="dtr-btn-snapshot" onclick="dtrRunSnapshot(this)">Run Snapshot</button>
@@ -610,7 +631,7 @@
 
     <div class="dtr-step">
       <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 5: Refresh Review</span>
+        <span class="dtr-step-label">Step 6: Refresh Review</span>
         <span class="dtr-step-status not-started" id="dtr-status-review">Not Started</span>
       </div>
       <button class="dtr-step-btn" id="dtr-btn-review" onclick="dtrRefreshReview(this)">Refresh Review</button>
@@ -789,6 +810,15 @@ function statusBadge(s) {
 function httpErr(s) {
   return { 401:'Not authorized', 403:'Forbidden',
            500:'Server error', 503:'Service unavailable' }[s] ?? `Error ${s}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 // ---------- load functions ----------
@@ -1305,6 +1335,113 @@ async function dtrIngestPrice(btn) {
   }
 }
 
+async function dtrRunStrategy(btn) {
+  const shortWindowRaw = document.getElementById('dtr-short-window').value.trim();
+  const longWindowRaw = document.getElementById('dtr-long-window').value.trim();
+  const tickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
+
+  // Validate windows
+  if (!shortWindowRaw || !longWindowRaw) {
+    toast('Windows must be specified', 'err');
+    return;
+  }
+
+  const shortWindow = parseInt(shortWindowRaw, 10);
+  const longWindow = parseInt(longWindowRaw, 10);
+
+  if (isNaN(shortWindow) || isNaN(longWindow) || shortWindow <= 0 || longWindow <= 0) {
+    toast('Windows must be positive integers', 'err');
+    return;
+  }
+
+  if (shortWindow >= longWindow) {
+    toast('Short window must be less than long window', 'err');
+    return;
+  }
+
+  // Parse tickers if provided
+  let tickers = null;
+  if (tickersRaw) {
+    tickers = tickersRaw
+      .split(',')
+      .map(t => t.trim().toUpperCase())
+      .filter(t => t.length > 0);
+    if (tickers.length === 0) tickers = null;
+  }
+
+  document.getElementById('dtr-status-strategy').textContent = 'Running';
+  document.getElementById('dtr-status-strategy').className = 'dtr-step-status running';
+  document.getElementById('dtr-result-strategy').textContent = '';
+  btn.disabled = true;
+
+  try {
+    const body = {
+      idempotency_key: `strategy-${Date.now()}`,
+      short_window: shortWindow,
+      long_window: longWindow,
+    };
+    if (tickers) body.tickers = tickers;
+
+    const r = await call('POST', '/v1/strategy/run', body);
+    const b = await parseApiResponse(r);
+    if (r.ok) {
+      document.getElementById('dtr-status-strategy').textContent = 'Done';
+      document.getElementById('dtr-status-strategy').className = 'dtr-step-status done';
+
+      // Build result summary
+      let resultHtml = `✓ Generated: ${b.signals_generated} · Submitted: ${b.signals_submitted} · Decisions: ${b.decisions_made} · Orders: ${b.orders_created}`;
+      if (b.errors > 0) {
+        resultHtml += ` · Errors: ${b.errors}`;
+      }
+
+      // Add skipped info if any
+      if (Object.keys(b.skipped_tickers).length > 0) {
+        const skippedList = Object.entries(b.skipped_tickers)
+          .map(([ticker, reason]) => `${escapeHtml(ticker)}: ${escapeHtml(reason)}`)
+          .join(' | ');
+        resultHtml += `<br><small style="color:#666;margin-top:4px;">Skipped: ${skippedList}</small>`;
+      }
+
+      // Add signal preview if available
+      if (b.generated_signals && b.generated_signals.length > 0) {
+        resultHtml += '<div style="margin-top:8px;border-top:1px solid #e5e7eb;padding-top:8px;"><small><strong>Generated Signals:</strong><br>';
+        b.generated_signals.slice(0, 5).forEach(sig => {
+          const conf = parseFloat(sig.confidence).toFixed(2);
+          const reason = sig.raw_payload?.trend_reason || '';
+          resultHtml += `${escapeHtml(sig.ticker)} ${escapeHtml(sig.direction)} (${conf}) — ${escapeHtml(reason)}<br>`;
+        });
+        if (b.generated_signals.length > 5) {
+          resultHtml += `... and ${b.generated_signals.length - 5} more<br>`;
+        }
+        resultHtml += '</small></div>';
+      }
+
+      document.getElementById('dtr-result-strategy').innerHTML = resultHtml;
+      document.getElementById('dtr-result-strategy').className = 'dtr-step-result success';
+
+      // Refresh UI
+      loadOrders();
+      loadPositions();
+      loadPortfolio();
+      updateWorkbench();
+      updateActionBadges();
+      updateHints();
+    } else {
+      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+    }
+  } catch (e) {
+    document.getElementById('dtr-status-strategy').textContent = 'Error';
+    document.getElementById('dtr-status-strategy').className = 'dtr-step-status error';
+    document.getElementById('dtr-result-strategy').textContent = `✗ ${e.message}`;
+    document.getElementById('dtr-result-strategy').className = 'dtr-step-result error';
+  } finally {
+    btn.disabled = false;
+    updateDtrStatusMsg();
+    updateDtrGuidance();
+    updateDtrSummary();
+  }
+}
+
 async function dtrSubmitSignal(btn) {
   let ticker = normTicker(document.getElementById('dtr-ticker').value);
   const confidence = document.getElementById('dtr-confidence').value.trim();
@@ -1490,17 +1627,18 @@ function getDtrStepStatus(stepKey) {
 
 function getDtrCurrentStatus() {
   const s1 = getDtrStepStatus('ingest');
-  const s2 = getDtrStepStatus('signal');
-  const s3 = getDtrStepStatus('fill');
-  const s4 = getDtrStepStatus('snapshot');
-  const s5 = getDtrStepStatus('review');
+  const s2 = getDtrStepStatus('strategy');
+  const s3 = getDtrStepStatus('signal');
+  const s4 = getDtrStepStatus('fill');
+  const s5 = getDtrStepStatus('snapshot');
+  const s6 = getDtrStepStatus('review');
 
-  if (s5 === 'done') return 'Review refreshed';
-  if (s4 === 'done') return 'Snapshot recorded';
-  if (s3 === 'done') return 'Fill completed';
-  if (s2 === 'done') return 'Signal submitted';
+  if (s6 === 'done') return 'Review refreshed';
+  if (s5 === 'done') return 'Snapshot recorded';
+  if (s4 === 'done') return 'Fill completed';
+  if (s3 === 'done' || s2 === 'done') return 'Signals processed';
   if (s1 === 'done') return 'Price ingested';
-  if (s1 === 'error' || s2 === 'error' || s3 === 'error' || s4 === 'error' || s5 === 'error') return 'Action needed';
+  if (s1 === 'error' || s2 === 'error' || s3 === 'error' || s4 === 'error' || s5 === 'error' || s6 === 'error') return 'Action needed';
   return 'Ready to start';
 }
 
@@ -1509,6 +1647,11 @@ function resetDtrRun() {
   document.getElementById('dtr-status-ingest').className = 'dtr-step-status not-started';
   document.getElementById('dtr-result-ingest').textContent = '';
   document.getElementById('dtr-result-ingest').className = '';
+
+  document.getElementById('dtr-status-strategy').textContent = 'Not Started';
+  document.getElementById('dtr-status-strategy').className = 'dtr-step-status not-started';
+  document.getElementById('dtr-result-strategy').textContent = '';
+  document.getElementById('dtr-result-strategy').className = '';
 
   document.getElementById('dtr-status-signal').textContent = 'Not Started';
   document.getElementById('dtr-status-signal').className = 'dtr-step-status not-started';
@@ -1531,10 +1674,14 @@ function resetDtrRun() {
   document.getElementById('dtr-result-review').className = '';
 
   document.getElementById('dtr-price').value = '';
+  document.getElementById('dtr-short-window').value = '3';
+  document.getElementById('dtr-long-window').value = '5';
+  document.getElementById('dtr-strategy-tickers').value = '';
 
   updateDtrGuidance();
   updateDtrStatusMsg();
   updateDtrSummary();
+  updateDtrButtonReadiness();
 }
 
 function updateDtrStatusMsg() {
@@ -1548,10 +1695,11 @@ function updateDtrGuidance() {
   const guidanceEl = document.getElementById('dtr-guidance');
 
   const s1 = getDtrStepStatus('ingest');
-  const s2 = getDtrStepStatus('signal');
-  const s3 = getDtrStepStatus('fill');
-  const s4 = getDtrStepStatus('snapshot');
-  const s5 = getDtrStepStatus('review');
+  const s2 = getDtrStepStatus('strategy');
+  const s3 = getDtrStepStatus('signal');
+  const s4 = getDtrStepStatus('fill');
+  const s5 = getDtrStepStatus('snapshot');
+  const s6 = getDtrStepStatus('review');
 
   let hint = '';
 
@@ -1559,18 +1707,16 @@ function updateDtrGuidance() {
     hint = 'Enter a ticker to begin.';
   } else if (!price || !isValidPrice(price)) {
     hint = 'Enter a positive price, then ingest the price.';
-  } else if (s1 === 'done' && s2 === 'not-started') {
-    hint = 'Submit a signal next.';
-  } else if (s2 === 'done' && s3 === 'not-started') {
+  } else if (s2 === 'not-started' && s3 === 'not-started') {
+    hint = 'Run strategy using existing price history, ingest a fresh price first, or submit a manual override.';
+  } else if ((s2 === 'done' || s3 === 'done') && s4 === 'not-started') {
     hint = 'Run fill next.';
-  } else if (s3 === 'done' && s4 === 'not-started') {
-    hint = 'Run snapshot next.';
   } else if (s4 === 'done' && s5 === 'not-started') {
+    hint = 'Run snapshot next.';
+  } else if (s5 === 'done' && s6 === 'not-started') {
     hint = 'Refresh review next.';
-  } else if (s5 === 'done') {
+  } else if (s6 === 'done') {
     hint = 'Daily Trading Run complete.';
-  } else if (s1 === 'not-started' && s2 === 'not-started') {
-    hint = confidence && isValidConfidence(confidence) ? 'Ingest price first.' : 'Enter confidence (0–1).';
   }
 
   guidanceEl.textContent = hint;
@@ -1581,24 +1727,36 @@ function updateDtrButtonReadiness() {
   const ticker = normTicker(document.getElementById('dtr-ticker').value);
   const price = document.getElementById('dtr-price').value.trim();
   const confidence = document.getElementById('dtr-confidence').value.trim();
+  const shortWindowRaw = document.getElementById('dtr-short-window').value.trim();
+  const longWindowRaw = document.getElementById('dtr-long-window').value.trim();
 
   const ingestBtn = document.getElementById('dtr-btn-ingest');
+  const strategyBtn = document.getElementById('dtr-btn-strategy');
   const signalBtn = document.getElementById('dtr-btn-signal');
 
   const hasTicker = ticker.length > 0;
   const hasValidPrice = isValidPrice(price);
   const hasValidConf = isValidConfidence(confidence);
 
+  // Validate strategy windows: both required, positive integers, short < long
+  const shortWindow = parseInt(shortWindowRaw, 10);
+  const longWindow = parseInt(longWindowRaw, 10);
+  const hasValidWindows = !isNaN(shortWindow) && !isNaN(longWindow) &&
+                          shortWindow > 0 && longWindow > 0 &&
+                          shortWindow < longWindow;
+
   ingestBtn.disabled = !hasTicker || !hasValidPrice;
+  strategyBtn.disabled = !hasValidWindows;
   signalBtn.disabled = !hasTicker || !hasValidConf;
 }
 
 function getDtrLastCompletedStep() {
-  const steps = ['ingest', 'signal', 'fill', 'snapshot', 'review'];
+  const steps = ['ingest', 'strategy', 'signal', 'fill', 'snapshot', 'review'];
   for (let i = steps.length - 1; i >= 0; i--) {
     if (getDtrStepStatus(steps[i]) === 'done') {
       const labels = {
         'ingest': 'Ingest Price',
+        'strategy': 'Run Strategy',
         'signal': 'Submit Signal',
         'fill': 'Run Fill',
         'snapshot': 'Run Snapshot',
@@ -1611,7 +1769,7 @@ function getDtrLastCompletedStep() {
 }
 
 function getDtrLatestResult() {
-  const steps = ['ingest', 'signal', 'fill', 'snapshot', 'review'];
+  const steps = ['ingest', 'strategy', 'signal', 'fill', 'snapshot', 'review'];
   for (let i = steps.length - 1; i >= 0; i--) {
     const resultEl = document.getElementById(`dtr-result-${steps[i]}`);
     if (resultEl && resultEl.textContent.trim()) {
@@ -1786,6 +1944,14 @@ document.getElementById('dtr-price').addEventListener('input', function() {
 
 document.getElementById('dtr-confidence').addEventListener('input', function() {
   updateDtrGuidance();
+  updateDtrButtonReadiness();
+});
+
+document.getElementById('dtr-short-window').addEventListener('input', function() {
+  updateDtrButtonReadiness();
+});
+
+document.getElementById('dtr-long-window').addEventListener('input', function() {
   updateDtrButtonReadiness();
 });
 
