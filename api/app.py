@@ -62,6 +62,7 @@ from paper_trader.db.session import get_dedicated_session, get_session
 from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.reconciler import run_fill_cycle
+from paper_trader.engine.strategy import generate_signals
 from paper_trader.workflows.decision import run_decision_workflow
 from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow
 
@@ -284,6 +285,38 @@ class PerformanceHistoryItem(BaseModel):
     benchmark_ticker: str | None
     benchmark_value: str | None
     portfolio_vs_benchmark: str | None
+
+
+class StrategyRunRequest(BaseModel):
+    idempotency_key: str
+    market_date: date | None = Field(
+        default=None,
+        description="US Eastern market date. Defaults to today's Eastern date.",
+    )
+    short_window: int = Field(
+        default=3,
+        ge=1,
+        description="Number of periods for short-term SMA. Must be < long_window.",
+    )
+    long_window: int = Field(
+        default=5,
+        ge=1,
+        description="Number of periods for long-term SMA. Must be > short_window.",
+    )
+    tickers: list[str] | None = Field(
+        default=None,
+        description="Optional list of tickers to process. If None, process all available.",
+    )
+
+
+class StrategyRunResponse(BaseModel):
+    signals_generated: int
+    signals_submitted: int
+    skipped_tickers: dict[str, str]
+    decisions_made: int
+    orders_created: int
+    errors: int
+    generated_signals: list[dict] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1040,6 +1073,126 @@ def get_performance_history_csv(
         content=buf.getvalue(),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=performance_history.csv"},
+    )
+
+
+@app.post(
+    "/v1/strategy/run",
+    response_model=StrategyRunResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def run_strategy(body: StrategyRunRequest) -> StrategyRunResponse:
+    """
+    Generate strategy signals from price snapshots and submit to decision workflow.
+
+    Generates trading signals using configurable moving average rules, then submits
+    non-skipped signals through the existing decision workflow. Returns a summary of
+    generated signals, submissions, skipped tickers with reasons, and resulting
+    decisions/orders.
+
+    Window validation:
+        - short_window and long_window must be > 0
+        - short_window must be < long_window
+        - Returns 400 if validation fails
+
+    Behavior:
+        - Returns 200 even if all tickers are skipped (insufficient history)
+        - Tickers with fewer than long_window prices are skipped with a reason
+        - No price snapshots → zero signals, empty skipped dict
+        - Generated signals flow through the existing decision workflow unchanged
+        - Orders created only from decision engine, not directly by strategy
+
+    market_date defaults to current US-Eastern date if not supplied.
+    """
+    now, market_date = _now_and_date()
+    if body.market_date is not None:
+        market_date = body.market_date
+
+    # Validate window parameters
+    if body.short_window >= body.long_window:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"short_window ({body.short_window}) must be < "
+                f"long_window ({body.long_window})"
+            ),
+        )
+    if body.short_window <= 0 or body.long_window <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="short_window and long_window must be > 0",
+        )
+
+    # Generate signals from price snapshots
+    try:
+        with get_dedicated_session() as session:
+            signals, skipped_reasons = generate_signals(
+                session,
+                market_date=market_date,
+                now=now,
+                short_window=body.short_window,
+                long_window=body.long_window,
+                tickers=body.tickers,
+            )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate strategy signals: {str(exc)}",
+        )
+
+    signals_generated = len(signals)
+
+    # If no signals generated, return early
+    if not signals:
+        return StrategyRunResponse(
+            signals_generated=signals_generated,
+            signals_submitted=0,
+            skipped_tickers=skipped_reasons,
+            decisions_made=0,
+            orders_created=0,
+            errors=0,
+            generated_signals=None,
+        )
+
+    # Submit generated signals through the decision workflow
+    if not is_weekday(now):
+        # Return on weekend with skipped message
+        return StrategyRunResponse(
+            signals_generated=signals_generated,
+            signals_submitted=0,
+            skipped_tickers={
+                **skipped_reasons,
+                "_all": f"Weekend trading disabled ({market_date})",
+            },
+            decisions_made=0,
+            orders_created=0,
+            errors=0,
+            generated_signals=signals,
+        )
+
+    try:
+        result = run_decision_workflow(
+            idempotency_key=body.idempotency_key,
+            workflow_type=WorkflowType.PRE_MARKET,
+            market_date=market_date,
+            signals=signals,
+            now=now,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+
+    return StrategyRunResponse(
+        signals_generated=signals_generated,
+        signals_submitted=result.get("signals_ingested", 0),
+        skipped_tickers=skipped_reasons,
+        decisions_made=result.get("decisions_made", 0),
+        orders_created=result.get("orders_created", 0),
+        errors=result.get("errors", 0),
+        generated_signals=signals,
     )
 
 
