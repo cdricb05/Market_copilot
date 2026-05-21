@@ -42,7 +42,7 @@ from paper_trader.db.models import (
 )
 from paper_trader.db.session import reset_engine_state
 from paper_trader.engine.portfolio import append_cash_entry, open_position
-from paper_trader.workflows.snapshot import run_snapshot_workflow
+from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow
 
 _NOW = datetime(2025, 1, 15, 20, 0, 0, tzinfo=timezone.utc)
 
@@ -326,9 +326,10 @@ class TestSnapshotCreation:
 
     def test_missing_price_raises_value_error(self, seeded_db) -> None:
         """
-        Open position with no PriceSnapshot raises ValueError.
+        Open position with no PriceSnapshot raises MissingPricesError.
 
-        The JobRun row must be left FAILED with the missing ticker in error_detail.
+        No JobRun is created before the exception is raised. This is normal
+        business validation; the caller should ingest prices first, then retry.
         No PortfolioSnapshot row is created.
         """
         key = _ikey()
@@ -342,16 +343,12 @@ class TestSnapshotCreation:
             )
             session.commit()
 
-        with pytest.raises(ValueError, match="TSLA"):
+        with pytest.raises(MissingPricesError) as exc_info:
             _run(_DATE_MISSING, idempotency_key=key)
+        assert "Snapshot requires prices for all open positions" in str(exc_info.value)
+        assert "TSLA" in str(exc_info.value)
 
         with Session(seeded_db, autoflush=False, expire_on_commit=False) as session:
-            job_run = session.execute(
-                select(JobRun).where(JobRun.idempotency_key == key)
-            ).scalar_one()
-            assert job_run.status == JobRunStatus.FAILED
-            assert "TSLA" in job_run.error_detail
-
             snap = session.execute(
                 select(PortfolioSnapshot).where(
                     PortfolioSnapshot.market_date == _DATE_MISSING

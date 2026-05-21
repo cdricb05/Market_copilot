@@ -1242,11 +1242,11 @@ class TestSnapshotEndpoint:
         assert resp.status_code == 409
         assert "FAILED" in resp.json()["detail"]
 
-    def test_trigger_snapshot_missing_price_returns_422(
+    def test_trigger_snapshot_missing_price_returns_400(
         self, seeded_client: TestClient, api_engine
     ) -> None:
         """
-        Open position with no PriceSnapshot returns 422.
+        Open position with no PriceSnapshot returns 400 with missing ticker.
 
         This test is last in the class: the TSLA position it creates persists
         for the remainder of the module (no per-test cleanup in test_api.py).
@@ -1267,5 +1267,7 @@ class TestSnapshotEndpoint:
             json={"idempotency_key": _ikey(), "market_date": _DATE_SNAP_MISSING.isoformat()},
             headers=_AUTH,
         )
-        assert resp.status_code == 422
-        assert "TSLA" in resp.json()["detail"]
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "Snapshot requires prices for all open positions" in detail
+        assert "TSLA" in detail
