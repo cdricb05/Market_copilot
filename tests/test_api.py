@@ -1933,3 +1933,249 @@ class TestPredictionStrategyEndpoint:
         assert "rejected" in body["decisions_breakdown"]
         assert "hold" in body["decisions_breakdown"]
         assert "rejection_reasons" in body
+
+
+# ---------------------------------------------------------------------------
+# Fetch and run prediction strategy endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestFetchAndRunPredictionEndpoint:
+    """POST /v1/strategy/prediction/fetch-and-run: Fetch predictions and run strategy."""
+
+    def test_fetch_and_run_with_valid_predictions(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Fetch and run normalizes API response and submits through strategy."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "ensemble_day5": "157.50",
+                        "d5_change_pct": "5.00",
+                        "confidence": "85.0",
+                        "recommendation": "Buy",
+                        "rationale": ["Strong", "uptrend"],
+                        "per_model_summary": {
+                            "prophet": {"direction": "Up"},
+                            "arima": {"direction": "Up"},
+                        },
+                    }
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/fetch-and-run",
+            json={
+                "idempotency_key": "fetch-run-api-test-001",
+                "tickers": ["AAPL"],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["fetched_count"] == 1
+        assert data["failed_count"] == 0
+        assert data["signals_generated"] == 1
+        assert data["signals_submitted"] == 1
+
+    def test_fetch_and_run_partial_failures_returns_200(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Partial failures return 200 with fetch_failures included."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "ensemble_day5": "157.50",
+                        "d5_change_pct": "5.00",
+                        "confidence": "75.0",
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                ],
+                [
+                    {"ticker": "BADTICKER", "reason": "Ticker not found"},
+                ],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/fetch-and-run",
+            json={
+                "idempotency_key": "fetch-run-api-test-002",
+                "tickers": ["AAPL", "BADTICKER"],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["fetched_count"] == 1
+        assert data["failed_count"] == 1
+        assert len(data["fetch_failures"]) == 1
+        assert data["fetch_failures"][0]["ticker"] == "BADTICKER"
+
+    def test_fetch_and_run_all_failures_returns_503(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """All fetch failures returns 503."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [],
+                [
+                    {"ticker": "BAD1", "reason": "Network error"},
+                    {"ticker": "BAD2", "reason": "Service unavailable"},
+                ],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/fetch-and-run",
+            json={
+                "idempotency_key": "fetch-run-api-test-003",
+                "tickers": ["BAD1", "BAD2"],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 503
+
+    def test_fetch_and_run_normalization_failure(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Response with invalid fields normalizes to zero predictions."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "ensemble_day5": "157.50",
+                        "d5_change_pct": "5.00",
+                        "confidence": "not_a_number",  # Invalid
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/fetch-and-run",
+            json={
+                "idempotency_key": "fetch-run-api-test-004",
+                "tickers": ["AAPL"],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_generated"] == 0
+        assert data["signals_submitted"] == 0
+
+    def test_fetch_and_run_missing_api_key_returns_401(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Missing X-API-Key header returns 401."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return [], []
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/fetch-and-run",
+            json={
+                "idempotency_key": "fetch-run-api-test-005",
+                "tickers": ["AAPL"],
+            },
+            # No headers, no API key
+        )
+        assert resp.status_code == 401
+
+    def test_fetch_and_run_invalid_request_returns_422(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Invalid request (missing required fields) returns 422."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return [], []
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/fetch-and-run",
+            json={
+                "idempotency_key": "fetch-run-api-test-006",
+                # Missing "tickers" field
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_fetch_and_run_response_has_breakdown_fields(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Response includes decisions_breakdown and rejection_reasons."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "ensemble_day5": "157.50",
+                        "d5_change_pct": "5.00",
+                        "confidence": "85.0",
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/fetch-and-run",
+            json={
+                "idempotency_key": "fetch-run-api-test-007",
+                "tickers": ["AAPL"],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "decisions_breakdown" in data
+        assert "approved" in data["decisions_breakdown"]
+        assert "rejected" in data["decisions_breakdown"]
+        assert "hold" in data["decisions_breakdown"]
+        assert "rejection_reasons" in data

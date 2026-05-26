@@ -83,6 +83,16 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: str = Field(default="INFO", description="Python logging level name")
 
+    # --- Stock Prediction API ---
+    stock_prediction_api_url: str = Field(
+        default="",
+        description="Base URL for external stock prediction service (e.g. http://127.0.0.1:9000)",
+    )
+    stock_prediction_api_timeout_seconds: int = Field(
+        default=30,
+        description="HTTP request timeout for stock prediction API calls",
+    )
+
     # --- Test database ---
     test_database_url: str | None = Field(
         default=None,

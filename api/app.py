@@ -64,6 +64,10 @@ from paper_trader.db.session import get_dedicated_session, get_session
 from paper_trader.engine.market_data import fetch_latest_prices
 from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import get_portfolio
+from paper_trader.engine.prediction_client import (
+    fetch_predictions_for_tickers,
+    normalize_prediction_response,
+)
 from paper_trader.engine.prediction_strategy import generate_prediction_signals
 from paper_trader.engine.reconciler import run_fill_cycle
 from paper_trader.engine.strategy import generate_signals
@@ -354,6 +358,30 @@ class StrategyRunResponse(BaseModel):
 class PredictionRunRequest(BaseModel):
     idempotency_key: str
     predictions: list[dict[str, Any]]
+
+
+class FetchAndRunPredictionRequest(BaseModel):
+    idempotency_key: str
+    tickers: list[str]
+
+
+class FetchFailure(BaseModel):
+    ticker: str
+    reason: str
+
+
+class FetchAndRunPredictionResponse(BaseModel):
+    fetched_count: int
+    failed_count: int
+    fetch_failures: list[FetchFailure]
+    signals_generated: int
+    signals_submitted: int
+    skipped_tickers: dict[str, str]
+    decisions_made: int
+    orders_created: int
+    errors: int
+    decisions_breakdown: dict[str, int] = Field(default_factory=lambda: {"approved": 0, "rejected": 0, "hold": 0})
+    rejection_reasons: dict[str, int] = Field(default_factory=dict)
 
 
 class TickerReadinessOut(BaseModel):
@@ -1530,6 +1558,186 @@ def run_prediction_strategy(body: PredictionRunRequest) -> StrategyRunResponse:
         decisions_breakdown=decisions_breakdown,
         rejection_reasons=rejection_reasons,
     )
+
+
+@app.post(
+    "/v1/strategy/prediction/fetch-and-run",
+    response_model=FetchAndRunPredictionResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def fetch_and_run_prediction_strategy(
+    body: FetchAndRunPredictionRequest,
+) -> FetchAndRunPredictionResponse:
+    """
+    Fetch predictions from external API and run prediction strategy.
+
+    Fetches predictions for the requested tickers from the configured stock
+    prediction service, normalizes them to the internal prediction contract,
+    and submits them through the existing decision/risk pipeline.
+
+    Behavior:
+        - Fetches predictions concurrently for all tickers.
+        - Per-ticker fetch failures do not block others.
+        - Normalizes raw API responses to Paper Trader prediction contract.
+        - Invalid predictions after normalization are skipped with reasons.
+        - Passes normalized predictions through decision/risk engine.
+        - Returns 200 if at least one fetch succeeds (partial failures included).
+        - Returns 503 if all fetches fail due to service unavailability.
+        - Returns 422 if the request is invalid.
+    """
+    now, market_date = _now_and_date()
+    settings = get_settings()
+
+    # Fetch predictions from external API
+    try:
+        fetched_responses, fetch_failures = await fetch_predictions_for_tickers(
+            tickers=body.tickers,
+            api_url=settings.stock_prediction_api_url,
+            timeout_seconds=settings.stock_prediction_api_timeout_seconds,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch predictions: {str(exc)}",
+        )
+
+    fetched_count = len(fetched_responses)
+    failed_count = len(fetch_failures)
+
+    # If all tickers failed to fetch, return 503
+    if fetched_count == 0 and failed_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Prediction service unavailable for all requested tickers",
+        )
+
+    # Normalize fetched responses to prediction contract
+    normalized_predictions = []
+    normalization_failures: dict[str, str] = {}
+
+    for raw_response in fetched_responses:
+        normalized = normalize_prediction_response(raw_response)
+        if normalized:
+            normalized_predictions.append(normalized)
+        else:
+            ticker = raw_response.get("ticker", "unknown")
+            normalization_failures[ticker] = "Failed to normalize API response"
+
+    # If we have normalized predictions, submit them through the decision workflow
+    if normalized_predictions:
+        try:
+            signals, skipped_reasons = generate_prediction_signals(
+                predictions=normalized_predictions,
+                source_run=body.idempotency_key,
+                now=now,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to convert predictions to signals: {str(exc)}",
+            )
+
+        signals_generated = len(signals)
+
+        # If no valid signals, return early
+        if not signals:
+            return FetchAndRunPredictionResponse(
+                fetched_count=fetched_count,
+                failed_count=failed_count,
+                fetch_failures=[FetchFailure(**f) for f in fetch_failures],
+                signals_generated=signals_generated,
+                signals_submitted=0,
+                skipped_tickers={**skipped_reasons, **normalization_failures},
+                decisions_made=0,
+                orders_created=0,
+                errors=len(fetch_failures),
+            )
+
+        # Check weekday before submission
+        if not is_weekday(now):
+            return FetchAndRunPredictionResponse(
+                fetched_count=fetched_count,
+                failed_count=failed_count,
+                fetch_failures=[FetchFailure(**f) for f in fetch_failures],
+                signals_generated=signals_generated,
+                signals_submitted=0,
+                skipped_tickers={
+                    **skipped_reasons,
+                    **normalization_failures,
+                    "_all": f"Weekend trading disabled ({market_date})",
+                },
+                decisions_made=0,
+                orders_created=0,
+                errors=len(fetch_failures),
+            )
+
+        # Submit signals through the decision workflow
+        try:
+            result = run_decision_workflow(
+                idempotency_key=body.idempotency_key,
+                workflow_type=WorkflowType.PRE_MARKET,
+                market_date=market_date,
+                signals=signals,
+                now=now,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            )
+
+        # Query TradeDecision rows to build decisions_breakdown and rejection_reasons
+        decisions_breakdown = {"approved": 0, "rejected": 0, "hold": 0}
+        rejection_reasons: dict[str, int] = {}
+        with get_dedicated_session() as session:
+            job_run = session.execute(
+                select(JobRun).where(JobRun.idempotency_key == body.idempotency_key)
+            ).scalar_one_or_none()
+
+            if job_run is not None:
+                decisions = session.execute(
+                    select(TradeDecision).where(TradeDecision.job_run_id == job_run.id)
+                ).scalars().all()
+
+                for decision in decisions:
+                    if decision.decision == DecisionType.BUY or decision.decision == DecisionType.SELL:
+                        decisions_breakdown["approved"] += 1
+                    elif decision.decision == DecisionType.REJECTED:
+                        decisions_breakdown["rejected"] += 1
+                        if decision.reason_code:
+                            rejection_reasons[decision.reason_code] = rejection_reasons.get(
+                                decision.reason_code, 0
+                            ) + 1
+                    elif decision.decision == DecisionType.HOLD:
+                        decisions_breakdown["hold"] += 1
+
+        return FetchAndRunPredictionResponse(
+            fetched_count=fetched_count,
+            failed_count=failed_count,
+            fetch_failures=[FetchFailure(**f) for f in fetch_failures],
+            signals_generated=signals_generated,
+            signals_submitted=result.get("signals_ingested", 0),
+            skipped_tickers={**skipped_reasons, **normalization_failures},
+            decisions_made=result.get("decisions_made", 0),
+            orders_created=result.get("orders_created", 0),
+            errors=result.get("errors", 0) + len(fetch_failures),
+            decisions_breakdown=decisions_breakdown,
+            rejection_reasons=rejection_reasons,
+        )
+    else:
+        # No normalized predictions, return early
+        return FetchAndRunPredictionResponse(
+            fetched_count=fetched_count,
+            failed_count=failed_count,
+            fetch_failures=[FetchFailure(**f) for f in fetch_failures],
+            signals_generated=0,
+            signals_submitted=0,
+            skipped_tickers={**normalization_failures},
+            decisions_made=0,
+            orders_created=0,
+            errors=failed_count,
+        )
 
 
 @app.get(
