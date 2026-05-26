@@ -385,3 +385,144 @@ class TestNormalizePredictionResponse:
         assert normalized["recommendation"] == "HOLD"
         assert normalized["reason"] == ""
         assert normalized["market_context"] == "neutral"
+
+    def test_normalize_hold_with_missing_confidence_defaults_to_050(self):
+        """HOLD recommendation with missing confidence defaults to 0.50."""
+        raw = {
+            "ticker": "MSFT",
+            "current_price": "416.03",
+            "ensemble_day5": "415.62",
+            "d5_change_pct": "-0.1",
+            "confidence": None,
+            "recommendation": "HOLD",
+            "per_model_summary": [],
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "HOLD"
+        assert normalized["confidence"] == "0.50"
+        assert normalized["market_context"] == "neutral"
+
+    def test_normalize_hold_with_null_confidence_string(self):
+        """HOLD with empty string confidence defaults to 0.50."""
+        raw = {
+            "ticker": "TSLA",
+            "current_price": "433.59",
+            "ensemble_day5": "441.37",
+            "d5_change_pct": "1.79",
+            "confidence": "",
+            "recommendation": "Hold",
+            "per_model_summary": [
+                {"model": "ModelA", "direction": "Flat"},
+            ],
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "HOLD"
+        assert normalized["confidence"] == "0.50"
+
+    def test_normalize_buy_with_missing_confidence_fails(self):
+        """BUY recommendation with missing confidence fails normalization."""
+        raw = {
+            "ticker": "GOOG",
+            "current_price": "140.00",
+            "ensemble_day5": "145.00",
+            "d5_change_pct": "3.57",
+            "confidence": None,
+            "recommendation": "BUY",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+        assert normalized is None
+
+    def test_normalize_sell_with_missing_confidence_fails(self):
+        """SELL recommendation with missing confidence fails normalization."""
+        raw = {
+            "ticker": "NVDA",
+            "current_price": "950.00",
+            "ensemble_day5": "920.00",
+            "d5_change_pct": "-3.16",
+            "confidence": None,
+            "recommendation": "SELL",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+        assert normalized is None
+
+    def test_normalize_real_msft_hold_shape(self):
+        """Real MSFT Hold response with missing confidence normalizes correctly."""
+        raw = {
+            "ticker": "MSFT",
+            "current_price": "416.03",
+            "ensemble_day5": "415.62",
+            "d5_change_pct": "-0.1",
+            "confidence": None,
+            "recommendation": "Hold",
+            "per_model_summary": [
+                {"model": "Drift", "direction": "Flat"},
+                {"model": "LinearTrend", "direction": "Down"},
+                {"model": "XGBoost", "direction": "Up"},
+                {"model": "Naive", "direction": "Flat"},
+                {"model": "SMA", "direction": "Down"},
+            ],
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["ticker"] == "MSFT"
+        assert normalized["recommendation"] == "HOLD"
+        assert normalized["confidence"] == "0.50"
+        assert normalized["current_price"] == "416.03"
+        assert normalized["forecast_price_5d"] == "415.62"
+        assert normalized["expected_return_pct"] == "-0.1"
+        assert normalized["market_context"] == "neutral"
+        assert normalized["model_consensus"] == {
+            "Drift": "HOLD",
+            "LinearTrend": "SELL",
+            "XGBoost": "BUY",
+            "Naive": "HOLD",
+            "SMA": "SELL",
+        }
+
+    def test_normalize_real_tsla_hold_shape(self):
+        """Real TSLA Hold response with missing confidence normalizes correctly."""
+        raw = {
+            "ticker": "TSLA",
+            "current_price": "433.59",
+            "ensemble_day5": "441.37",
+            "d5_change_pct": "1.79",
+            "confidence": None,
+            "recommendation": "Hold",
+            "per_model_summary": [
+                {"model": "Drift", "direction": "Up"},
+                {"model": "LinearTrend", "direction": "Up"},
+                {"model": "XGBoost", "direction": "Flat"},
+                {"model": "Naive", "direction": "Up"},
+                {"model": "SMA", "direction": "Up"},
+            ],
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["ticker"] == "TSLA"
+        assert normalized["recommendation"] == "HOLD"
+        assert normalized["confidence"] == "0.50"
+        assert normalized["current_price"] == "433.59"
+        assert normalized["forecast_price_5d"] == "441.37"
+        assert normalized["expected_return_pct"] == "1.79"
+        assert normalized["market_context"] == "neutral"
+        assert normalized["model_consensus"] == {
+            "Drift": "BUY",
+            "LinearTrend": "BUY",
+            "XGBoost": "HOLD",
+            "Naive": "BUY",
+            "SMA": "BUY",
+        }

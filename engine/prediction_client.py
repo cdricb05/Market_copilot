@@ -101,6 +101,25 @@ def normalize_prediction_response(raw: dict[str, Any] | None) -> dict[str, Any] 
     """
     Transform external API response to Paper Trader prediction contract.
 
+    Wrapper around normalize_prediction_response_with_error() for backwards compatibility.
+    Returns the normalized dict or None; error reason is discarded.
+
+    Args:
+        raw: Raw API response dict or None.
+
+    Returns:
+        Normalized dict ready for generate_prediction_signals(), or None if invalid.
+    """
+    normalized, _ = normalize_prediction_response_with_error(raw)
+    return normalized
+
+
+def normalize_prediction_response_with_error(
+    raw: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """
+    Transform external API response to Paper Trader prediction contract with error reason.
+
     GCP API response fields map to Paper Trader contract as follows:
         - ticker → ticker
         - current_price → current_price
@@ -112,11 +131,17 @@ def normalize_prediction_response(raw: dict[str, Any] | None) -> dict[str, Any] 
         - rationale (list) → reason (joined string)
         - recommendation → market_context (BUY→bullish, SELL→bearish, HOLD→neutral)
 
+    Special behavior for HOLD:
+        - HOLD with missing/null confidence defaults to "0.50".
+        - BUY and SELL require valid confidence; missing confidence is an error.
+
     Args:
         raw: Raw API response dict or None.
 
     Returns:
-        Normalized dict ready for generate_prediction_signals(), or None if invalid.
+        (normalized_dict, error_reason)
+        - On success: (dict, None)
+        - On error: (None, error_reason_string)
 
     Behavior:
         - Skips invalid responses (None, missing required fields).
@@ -125,12 +150,12 @@ def normalize_prediction_response(raw: dict[str, Any] | None) -> dict[str, Any] 
         - Derives market_context and model_consensus from response.
     """
     if not raw or not isinstance(raw, dict):
-        return None
+        return None, "Invalid response: not a dict"
 
     # Extract ticker
     ticker = raw.get("ticker")
     if not ticker or not isinstance(ticker, str):
-        return None
+        return None, "Missing or invalid ticker"
 
     # Extract and validate required fields
     try:
@@ -146,29 +171,45 @@ def normalize_prediction_response(raw: dict[str, Any] | None) -> dict[str, Any] 
         if expected_return_pct:
             Decimal(expected_return_pct)
     except Exception:
-        return None
+        return None, "Invalid numeric fields"
 
-    # Extract and normalize confidence (0-100 → 0-1)
-    confidence_raw = raw.get("confidence")
-    if confidence_raw is None:
-        return None
-
-    try:
-        confidence_pct = Decimal(str(confidence_raw))
-        confidence = confidence_pct / Decimal("100")
-        if not (Decimal("0") <= confidence <= Decimal("1")):
-            return None
-    except Exception:
-        return None
-
-    # Extract and validate recommendation
+    # Extract and validate recommendation first
     recommendation = raw.get("recommendation")
     if not recommendation or not isinstance(recommendation, str):
-        return None
+        return None, "Missing or invalid recommendation"
 
     recommendation = recommendation.upper().strip()
     if recommendation not in ("BUY", "SELL", "HOLD"):
-        return None
+        return None, f"Invalid recommendation: {recommendation}"
+
+    # Extract and normalize confidence (0-100 → 0-1)
+    confidence_raw = raw.get("confidence")
+
+    # Special handling for HOLD: allow missing confidence, default to 0.50
+    if recommendation == "HOLD":
+        if confidence_raw is None or confidence_raw == "":
+            # Default confidence for HOLD
+            confidence = Decimal("0.50")
+        else:
+            try:
+                confidence_pct = Decimal(str(confidence_raw))
+                confidence = confidence_pct / Decimal("100")
+                if not (Decimal("0") <= confidence <= Decimal("1")):
+                    return None, "Invalid confidence (out of range)"
+            except Exception:
+                return None, "Invalid confidence"
+    else:
+        # BUY and SELL require confidence
+        if confidence_raw is None:
+            return None, f"Missing confidence for {recommendation}"
+
+        try:
+            confidence_pct = Decimal(str(confidence_raw))
+            confidence = confidence_pct / Decimal("100")
+            if not (Decimal("0") <= confidence <= Decimal("1")):
+                return None, "Invalid confidence (out of range)"
+        except Exception:
+            return None, "Invalid confidence"
 
     # Derive market_context from recommendation
     market_context_map = {
@@ -201,7 +242,7 @@ def normalize_prediction_response(raw: dict[str, Any] | None) -> dict[str, Any] 
         "market_context": market_context,
     }
 
-    return normalized
+    return normalized, None
 
 
 def _derive_model_consensus(per_model_summary: dict[str, Any] | list[dict[str, Any]]) -> dict[str, str]:

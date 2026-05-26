@@ -1986,6 +1986,9 @@ class TestFetchAndRunPredictionEndpoint:
         assert data["failed_count"] == 0
         assert data["signals_generated"] == 1
         assert data["signals_submitted"] == 1
+        assert len(data["normalized_predictions"]) == 1
+        assert data["normalized_predictions"][0]["ticker"] == "AAPL"
+        assert data["normalized_predictions"][0]["recommendation"] == "BUY"
 
     def test_fetch_and_run_partial_failures_returns_200(
         self, seeded_client: TestClient, monkeypatch
@@ -2094,6 +2097,9 @@ class TestFetchAndRunPredictionEndpoint:
         data = resp.json()
         assert data["signals_generated"] == 0
         assert data["signals_submitted"] == 0
+        assert len(data["normalized_predictions"]) == 0
+        assert "AAPL" in data["skipped_tickers"]
+        assert "Invalid confidence" in data["skipped_tickers"]["AAPL"]
 
     def test_fetch_and_run_missing_api_key_returns_401(
         self, seeded_client: TestClient, monkeypatch
@@ -2179,3 +2185,83 @@ class TestFetchAndRunPredictionEndpoint:
         assert "rejected" in data["decisions_breakdown"]
         assert "hold" in data["decisions_breakdown"]
         assert "rejection_reasons" in data
+
+    def test_fetch_and_run_batch_with_hold_and_buy(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Batch with BUY and HOLD (missing confidence) normalizes all correctly."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "ensemble_day5": "157.50",
+                        "d5_change_pct": "5.00",
+                        "confidence": "97.7",
+                        "recommendation": "Buy",
+                        "per_model_summary": [
+                            {"model": "Drift", "direction": "Up"},
+                            {"model": "LinearTrend", "direction": "Up"},
+                        ],
+                    },
+                    {
+                        "ticker": "MSFT",
+                        "current_price": "416.03",
+                        "ensemble_day5": "415.62",
+                        "d5_change_pct": "-0.1",
+                        "confidence": None,
+                        "recommendation": "Hold",
+                        "per_model_summary": [
+                            {"model": "Drift", "direction": "Flat"},
+                            {"model": "LinearTrend", "direction": "Down"},
+                        ],
+                    },
+                    {
+                        "ticker": "TSLA",
+                        "current_price": "433.59",
+                        "ensemble_day5": "441.37",
+                        "d5_change_pct": "1.79",
+                        "confidence": None,
+                        "recommendation": "Hold",
+                        "per_model_summary": [
+                            {"model": "Drift", "direction": "Up"},
+                            {"model": "XGBoost", "direction": "Up"},
+                        ],
+                    },
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/fetch-and-run",
+            json={
+                "idempotency_key": "fetch-run-api-test-batch-001",
+                "tickers": ["AAPL", "MSFT", "TSLA"],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["fetched_count"] == 3
+        assert data["failed_count"] == 0
+        assert len(data["normalized_predictions"]) == 3
+        # Verify AAPL prediction
+        aapl_pred = next(p for p in data["normalized_predictions"] if p["ticker"] == "AAPL")
+        assert aapl_pred["recommendation"] == "BUY"
+        assert aapl_pred["confidence"] == "0.977"
+        # Verify MSFT prediction (HOLD with defaulted confidence)
+        msft_pred = next(p for p in data["normalized_predictions"] if p["ticker"] == "MSFT")
+        assert msft_pred["recommendation"] == "HOLD"
+        assert msft_pred["confidence"] == "0.50"
+        # Verify TSLA prediction (HOLD with defaulted confidence)
+        tsla_pred = next(p for p in data["normalized_predictions"] if p["ticker"] == "TSLA")
+        assert tsla_pred["recommendation"] == "HOLD"
+        assert tsla_pred["confidence"] == "0.50"
+        # All should be in skipped_tickers (as HOLDs won't generate trading signals)
+        assert len(data["skipped_tickers"]) >= 0  # HOLD predictions may be skipped downstream

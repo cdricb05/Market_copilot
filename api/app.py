@@ -67,6 +67,7 @@ from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.prediction_client import (
     fetch_predictions_for_tickers,
     normalize_prediction_response,
+    normalize_prediction_response_with_error,
 )
 from paper_trader.engine.prediction_strategy import generate_prediction_signals
 from paper_trader.engine.reconciler import run_fill_cycle
@@ -370,10 +371,23 @@ class FetchFailure(BaseModel):
     reason: str
 
 
+class NormalizedPrediction(BaseModel):
+    ticker: str
+    recommendation: str
+    confidence: str
+    current_price: str
+    forecast_price_5d: str
+    expected_return_pct: str
+    market_context: str
+    model_consensus: dict[str, str]
+    reason: str
+
+
 class FetchAndRunPredictionResponse(BaseModel):
     fetched_count: int
     failed_count: int
     fetch_failures: list[FetchFailure]
+    normalized_predictions: list[NormalizedPrediction]
     signals_generated: int
     signals_submitted: int
     skipped_tickers: dict[str, str]
@@ -1617,12 +1631,12 @@ async def fetch_and_run_prediction_strategy(
     normalization_failures: dict[str, str] = {}
 
     for raw_response in fetched_responses:
-        normalized = normalize_prediction_response(raw_response)
+        normalized, error_reason = normalize_prediction_response_with_error(raw_response)
         if normalized:
-            normalized_predictions.append(normalized)
+            normalized_predictions.append(NormalizedPrediction(**normalized))
         else:
             ticker = raw_response.get("ticker", "unknown")
-            normalization_failures[ticker] = "Failed to normalize API response"
+            normalization_failures[ticker] = error_reason or "Failed to normalize API response"
 
     # If we have normalized predictions, submit them through the decision workflow
     if normalized_predictions:
@@ -1646,6 +1660,7 @@ async def fetch_and_run_prediction_strategy(
                 fetched_count=fetched_count,
                 failed_count=failed_count,
                 fetch_failures=[FetchFailure(**f) for f in fetch_failures],
+                normalized_predictions=normalized_predictions,
                 signals_generated=signals_generated,
                 signals_submitted=0,
                 skipped_tickers={**skipped_reasons, **normalization_failures},
@@ -1660,6 +1675,7 @@ async def fetch_and_run_prediction_strategy(
                 fetched_count=fetched_count,
                 failed_count=failed_count,
                 fetch_failures=[FetchFailure(**f) for f in fetch_failures],
+                normalized_predictions=normalized_predictions,
                 signals_generated=signals_generated,
                 signals_submitted=0,
                 skipped_tickers={
@@ -1716,6 +1732,7 @@ async def fetch_and_run_prediction_strategy(
             fetched_count=fetched_count,
             failed_count=failed_count,
             fetch_failures=[FetchFailure(**f) for f in fetch_failures],
+            normalized_predictions=normalized_predictions,
             signals_generated=signals_generated,
             signals_submitted=result.get("signals_ingested", 0),
             skipped_tickers={**skipped_reasons, **normalization_failures},
@@ -1731,6 +1748,7 @@ async def fetch_and_run_prediction_strategy(
             fetched_count=fetched_count,
             failed_count=failed_count,
             fetch_failures=[FetchFailure(**f) for f in fetch_failures],
+            normalized_predictions=normalized_predictions,
             signals_generated=0,
             signals_submitted=0,
             skipped_tickers={**normalization_failures},
