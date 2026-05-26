@@ -584,6 +584,14 @@
       </div>
     </div>
 
+    <button class="dtr-step-btn" onclick="checkStrategyReadiness()">Check Readiness</button>
+
+    <div class="dtr-card" id="strategy-readiness" style="display: none;">
+      <div class="dtr-title">Strategy Readiness</div>
+      <div style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;" id="readiness-context"></div>
+      <div id="readiness-result"></div>
+    </div>
+
     <div class="dtr-step">
       <div class="dtr-step-header">
         <span class="dtr-step-label">Step 1: Ingest Price</span>
@@ -735,7 +743,9 @@ async function call(method, path, body) {
     method,
     headers: { 'X-API-Key': key(), 'Content-Type': 'application/json' },
   };
-  if (body !== undefined) opts.body = JSON.stringify(body);
+  if (body !== undefined && !['GET', 'HEAD'].includes(method)) {
+    opts.body = JSON.stringify(body);
+  }
   return fetch(path, opts);
 }
 
@@ -1458,6 +1468,67 @@ async function dtrRunStrategy(btn) {
     updateDtrStatusMsg();
     updateDtrGuidance();
     updateDtrSummary();
+  }
+}
+
+async function checkStrategyReadiness() {
+  const longWindowRaw = document.getElementById('dtr-long-window').value.trim();
+  const tickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
+
+  if (!longWindowRaw) {
+    toast('Long window must be specified', 'err');
+    return;
+  }
+
+  const longWindow = parseInt(longWindowRaw, 10);
+  if (isNaN(longWindow) || longWindow <= 0) {
+    toast('Long window must be a positive integer', 'err');
+    return;
+  }
+
+  // Build query params
+  const params = new URLSearchParams();
+  params.append('long_window', longWindow);
+  if (tickersRaw) {
+    params.append('tickers', tickersRaw);
+  }
+
+  const readinessCard = document.getElementById('strategy-readiness');
+  const contextEl = document.getElementById('readiness-context');
+  const resultEl = document.getElementById('readiness-result');
+
+  try {
+    const r = await call('GET', `/v1/strategy/readiness?${params.toString()}`, null);
+    const b = await parseApiResponse(r);
+    if (r.ok) {
+      contextEl.textContent = `Strategy readiness as of ${b.market_date}, long window ${b.long_window}`;
+
+      // Build result table
+      let html = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid #e5e7eb;"><th style="text-align:left;padding:0.5rem;font-weight:bold;">Ticker</th><th style="text-align:right;padding:0.5rem;">Count</th><th style="text-align:left;padding:0.5rem;">Latest</th><th style="text-align:left;padding:0.5rem;">Status</th></tr></thead><tbody>';
+
+      b.tickers_status.forEach(t => {
+        const status = t.has_sufficient_history ? '✓ Ready' : `✗ Insufficient (needs ${t.missing_count} more)`;
+        const statusClass = t.has_sufficient_history ? 'color:#22c55e' : 'color:#ef4444';
+        const latest = t.latest_market_date || '—';
+        html += `<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:0.5rem;">${escapeHtml(t.ticker)}</td><td style="text-align:right;padding:0.5rem;">${t.price_count}</td><td style="padding:0.5rem;">${escapeHtml(latest)}</td><td style="padding:0.5rem;${statusClass}">${status}</td></tr>`;
+      });
+
+      html += '</tbody></table>';
+
+      // Add overall status
+      const overallClass = b.overall_status === 'Ready' ? 'color:#22c55e;font-weight:bold' : 'color:#ef4444;font-weight:bold';
+      html += `<div style="margin-top:1rem;${overallClass}">Overall: ${b.overall_status}</div>`;
+
+      resultEl.innerHTML = html;
+      resultEl.className = '';
+      readinessCard.style.display = 'block';
+    } else {
+      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+    }
+  } catch (e) {
+    resultEl.textContent = `✗ ${e.message}`;
+    resultEl.className = 'dtr-step-result error';
+    readinessCard.style.display = 'block';
   }
 }
 

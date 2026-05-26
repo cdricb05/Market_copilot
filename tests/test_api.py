@@ -47,7 +47,7 @@ import csv
 import io
 import os
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -1245,6 +1245,172 @@ class TestStrategyRunEndpoint:
         assert body["decisions_breakdown"]["hold"] == 0
         assert body["rejection_reasons"] == {}
         assert body["errors"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Strategy readiness check — GET /v1/strategy/readiness
+# ---------------------------------------------------------------------------
+
+class TestStrategyReadinessEndpoint:
+    """GET /v1/strategy/readiness: pre-run validation of price history sufficiency."""
+
+    def test_readiness_single_ticker_ready(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Requested ticker with >= long_window prices returns Ready."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            for i, price in enumerate([100, 101, 102, 103, 104], start=1):
+                session.add(PriceSnapshot(
+                    ticker="READY",
+                    price=Decimal(str(price)),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=_NOW.replace(hour=i),
+                    market_date=_DATE_STRAT_APPROVED,
+                    job_run_id=None,
+                ))
+            session.commit()
+
+        resp = seeded_client.get(
+            f"/v1/strategy/readiness?long_window=5&tickers=READY&market_date={_DATE_STRAT_APPROVED.isoformat()}",
+            headers=_AUTH
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["market_date"] == _DATE_STRAT_APPROVED.isoformat()
+        assert body["long_window"] == 5
+        assert body["overall_status"] == "Ready"
+        assert len(body["tickers_status"]) == 1
+        assert body["tickers_status"][0]["ticker"] == "READY"
+        assert body["tickers_status"][0]["price_count"] == 5
+        assert body["tickers_status"][0]["has_sufficient_history"] is True
+        assert body["tickers_status"][0]["missing_count"] == 0
+
+    def test_readiness_single_ticker_insufficient(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Requested ticker with < long_window prices returns Insufficient History."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            for i, price in enumerate([100, 101, 102], start=1):
+                session.add(PriceSnapshot(
+                    ticker="SHORT",
+                    price=Decimal(str(price)),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=_NOW.replace(hour=i),
+                    market_date=_DATE_STRAT_APPROVED,
+                    job_run_id=None,
+                ))
+            session.commit()
+
+        resp = seeded_client.get(
+            f"/v1/strategy/readiness?long_window=5&tickers=SHORT&market_date={_DATE_STRAT_APPROVED.isoformat()}",
+            headers=_AUTH
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["overall_status"] == "Insufficient History"
+        assert len(body["tickers_status"]) == 1
+        assert body["tickers_status"][0]["ticker"] == "SHORT"
+        assert body["tickers_status"][0]["price_count"] == 3
+        assert body["tickers_status"][0]["has_sufficient_history"] is False
+        assert body["tickers_status"][0]["missing_count"] == 2
+
+    def test_readiness_ticker_no_history(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Requested ticker with zero snapshots is included with count 0."""
+        resp = seeded_client.get(
+            f"/v1/strategy/readiness?long_window=5&tickers=NONEXISTENT&market_date={_DATE_STRAT_APPROVED.isoformat()}",
+            headers=_AUTH
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["overall_status"] == "Insufficient History"
+        assert len(body["tickers_status"]) == 1
+        assert body["tickers_status"][0]["ticker"] == "NONEXISTENT"
+        assert body["tickers_status"][0]["price_count"] == 0
+        assert body["tickers_status"][0]["latest_market_date"] is None
+        assert body["tickers_status"][0]["has_sufficient_history"] is False
+        assert body["tickers_status"][0]["missing_count"] == 5
+
+    def test_readiness_future_dates_excluded(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Future-dated snapshots are excluded when market_date is earlier."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            future_date = _DATE_STRAT_APPROVED + timedelta(days=10)
+            for i, price in enumerate([100, 101, 102, 103, 104, 105, 106], start=1):
+                session.add(PriceSnapshot(
+                    ticker="FUTURE",
+                    price=Decimal(str(price)),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=_NOW.replace(hour=i),
+                    market_date=future_date if i > 5 else _DATE_STRAT_APPROVED,
+                    job_run_id=None,
+                ))
+            session.commit()
+
+        resp = seeded_client.get(
+            f"/v1/strategy/readiness?long_window=5&market_date={_DATE_STRAT_APPROVED.isoformat()}&tickers=FUTURE",
+            headers=_AUTH
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["overall_status"] == "Ready"
+        assert body["tickers_status"][0]["price_count"] == 5
+        assert body["tickers_status"][0]["has_sufficient_history"] is True
+
+    def test_readiness_omit_tickers_returns_all_distinct(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Omitting tickers returns readiness for all distinct tickers."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            for ticker in ["AAPL", "MSFT"]:
+                for i in range(5):
+                    session.add(PriceSnapshot(
+                        ticker=ticker,
+                        price=Decimal("100"),
+                        session_type="REGULAR",
+                        price_type="CLOSE",
+                        snapshot_ts=_NOW.replace(hour=i),
+                        market_date=_DATE_STRAT_APPROVED,
+                        job_run_id=None,
+                    ))
+            session.commit()
+
+        resp = seeded_client.get(
+            f"/v1/strategy/readiness?long_window=5&market_date={_DATE_STRAT_APPROVED.isoformat()}",
+            headers=_AUTH
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+
+        tickers = sorted([t["ticker"] for t in body["tickers_status"]])
+        assert "AAPL" in tickers
+        assert "MSFT" in tickers
+
+    def test_readiness_invalid_long_window_returns_422(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Invalid long_window returns 422."""
+        resp = seeded_client.get(
+            f"/v1/strategy/readiness?long_window=0&market_date={_DATE_STRAT_APPROVED.isoformat()}",
+            headers=_AUTH
+        )
+        assert resp.status_code == 422
+
+    def test_readiness_missing_api_key_returns_401(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Missing API key returns 401."""
+        resp = seeded_client.get("/v1/strategy/readiness?long_window=5")
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------

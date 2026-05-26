@@ -39,7 +39,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text
+from sqlalchemy import distinct, func, select, text
 
 from paper_trader.config import get_settings
 from paper_trader.constants import (
@@ -321,6 +321,21 @@ class StrategyRunResponse(BaseModel):
     generated_signals: list[dict] | None = None
     decisions_breakdown: dict[str, int] = Field(default_factory=lambda: {"approved": 0, "rejected": 0, "hold": 0})
     rejection_reasons: dict[str, int] = Field(default_factory=dict)
+
+
+class TickerReadinessOut(BaseModel):
+    ticker: str
+    price_count: int
+    latest_market_date: date | None
+    has_sufficient_history: bool
+    missing_count: int
+
+
+class StrategyReadinessOut(BaseModel):
+    market_date: date
+    long_window: int
+    overall_status: str
+    tickers_status: list[TickerReadinessOut]
 
 
 # ---------------------------------------------------------------------------
@@ -1258,6 +1273,93 @@ def run_strategy(body: StrategyRunRequest) -> StrategyRunResponse:
         generated_signals=signals,
         decisions_breakdown=decisions_breakdown,
         rejection_reasons=rejection_reasons,
+    )
+
+
+@app.get(
+    "/v1/strategy/readiness",
+    response_model=StrategyReadinessOut,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def check_strategy_readiness(
+    long_window: int = Query(..., ge=1),
+    market_date: date | None = Query(None),
+    tickers: str | None = Query(None),
+) -> StrategyReadinessOut:
+    """
+    Check whether selected tickers have sufficient price history for strategy.
+
+    Evaluates price snapshot counts for each ticker up to market_date (not including
+    future prices), using the same date logic as /v1/strategy/run.
+
+    Query params:
+        long_window: Number of periods required for strategy (required, >= 1).
+        market_date: US-Eastern trading date (optional, defaults to today's Eastern date).
+        tickers: Optional comma-separated list or single ticker. If omitted, checks
+                 all distinct tickers in price_snapshots up to market_date.
+
+    Response:
+        market_date: The effective market_date used for the readiness check.
+        long_window: The window size checked.
+        overall_status: "Ready" if all requested tickers have >= long_window prices,
+                       "Insufficient History" otherwise.
+        tickers_status: List of per-ticker readiness with counts and missing_count.
+    """
+    now, effective_date = _now_and_date()
+    if market_date is not None:
+        effective_date = market_date
+
+    # Parse tickers from comma-separated string
+    ticker_list = None
+    if tickers:
+        ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+
+    with get_dedicated_session() as session:
+        # If tickers not specified, fetch all distinct tickers
+        if not ticker_list:
+            query_tickers = session.execute(
+                select(distinct(PriceSnapshot.ticker))
+                .where(PriceSnapshot.market_date <= effective_date)
+            ).scalars().all()
+            ticker_list = sorted(query_tickers) if query_tickers else []
+
+        tickers_status = []
+        all_ready = True
+
+        for ticker in ticker_list:
+            # Count prices up to effective_date (not future)
+            prices_result = session.execute(
+                select(PriceSnapshot.price, PriceSnapshot.market_date)
+                .where(PriceSnapshot.ticker == ticker)
+                .where(PriceSnapshot.market_date <= effective_date)
+                .order_by(PriceSnapshot.snapshot_ts.desc())
+                .limit(long_window)
+            ).all()
+
+            price_count = len(prices_result)
+            has_sufficient = price_count >= long_window
+            latest_date = prices_result[0][1] if prices_result else None
+            missing = max(0, long_window - price_count)
+
+            tickers_status.append(
+                TickerReadinessOut(
+                    ticker=ticker,
+                    price_count=price_count,
+                    latest_market_date=latest_date,
+                    has_sufficient_history=has_sufficient,
+                    missing_count=missing,
+                )
+            )
+
+            if not has_sufficient:
+                all_ready = False
+
+    return StrategyReadinessOut(
+        market_date=effective_date,
+        long_window=long_window,
+        overall_status="Ready" if all_ready else "Insufficient History",
+        tickers_status=tickers_status,
     )
 
 
