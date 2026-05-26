@@ -26,6 +26,7 @@ from paper_trader.constants import CashEntryType, DecisionType, SignalDirection,
 from paper_trader.db.models import Base, JobRun, Order, Portfolio, PriceSnapshot, TradeDecision
 from paper_trader.db.session import reset_engine_state
 from paper_trader.engine.portfolio import append_cash_entry
+from paper_trader.engine.prediction_strategy import generate_prediction_signals
 from paper_trader.engine.strategy import (
     _classify_signal,
     _compute_sma,
@@ -864,3 +865,309 @@ class TestStrategyWorkflowIntegration:
         overridden_3 = _override_signals_source_run([signal_no_payload], ikey1)
         assert overridden_3[0]["raw_payload"]["strategy_name"] == "strategy_v1"
         assert overridden_3[0]["source_run"] == ikey1
+
+
+# ---------------------------------------------------------------------------
+# Prediction strategy converter tests
+# ---------------------------------------------------------------------------
+
+
+class TestGeneratePredictionSignals:
+    """Unit tests for generate_prediction_signals() converter."""
+
+    def test_buy_prediction_generates_buy_signal(self) -> None:
+        """BUY recommendation generates BUY signal."""
+        predictions = [
+            {
+                "ticker": "AAPL",
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "0.85",
+                "recommendation": "BUY",
+                "reason": "Strong uptrend",
+                "model_consensus": {"consensus": "BUY"},
+                "market_context": "bullish",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-1", _NOW)
+
+        assert len(signals) == 1
+        assert signals[0]["ticker"] == "AAPL"
+        assert signals[0]["direction"] == SignalDirection.BUY
+        assert signals[0]["confidence"] == Decimal("0.85")
+        assert signals[0]["signal_ts"] == _NOW
+        assert signals[0]["source_run"] == "pred-run-1"
+        assert len(skipped) == 0
+
+    def test_sell_prediction_generates_sell_signal(self) -> None:
+        """SELL recommendation generates SELL signal."""
+        predictions = [
+            {
+                "ticker": "MSFT",
+                "current_price": "400.00",
+                "forecast_price_5d": "380.00",
+                "expected_return_pct": "-5.00",
+                "confidence": "0.75",
+                "recommendation": "SELL",
+                "reason": "Overbought",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-2", _NOW)
+
+        assert len(signals) == 1
+        assert signals[0]["ticker"] == "MSFT"
+        assert signals[0]["direction"] == SignalDirection.SELL
+        assert signals[0]["confidence"] == Decimal("0.75")
+        assert len(skipped) == 0
+
+    def test_hold_prediction_generates_hold_signal(self) -> None:
+        """HOLD recommendation generates HOLD signal."""
+        predictions = [
+            {
+                "ticker": "GOOGL",
+                "current_price": "140.00",
+                "forecast_price_5d": "140.00",
+                "expected_return_pct": "0.00",
+                "confidence": "0.60",
+                "recommendation": "HOLD",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-3", _NOW)
+
+        assert len(signals) == 1
+        assert signals[0]["direction"] == SignalDirection.HOLD
+        assert len(skipped) == 0
+
+    def test_invalid_recommendation_skipped(self) -> None:
+        """Invalid recommendation → skipped with reason."""
+        predictions = [
+            {
+                "ticker": "TSLA",
+                "current_price": "250.00",
+                "forecast_price_5d": "260.00",
+                "expected_return_pct": "4.00",
+                "confidence": "0.80",
+                "recommendation": "MAYBE",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-4", _NOW)
+
+        assert len(signals) == 0
+        assert "TSLA" in skipped
+        assert "Invalid recommendation" in skipped["TSLA"]
+
+    def test_invalid_confidence_skipped(self) -> None:
+        """Invalid confidence (non-numeric, out of range) → skipped."""
+        predictions = [
+            {
+                "ticker": "AAPL",
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "invalid",
+                "recommendation": "BUY",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-5", _NOW)
+
+        assert len(signals) == 0
+        assert "AAPL" in skipped
+        assert "Invalid confidence" in skipped["AAPL"]
+
+    def test_confidence_out_of_range_skipped(self) -> None:
+        """Confidence > 1 or < 0 → skipped."""
+        predictions = [
+            {
+                "ticker": "MSFT",
+                "current_price": "400.00",
+                "forecast_price_5d": "420.00",
+                "expected_return_pct": "5.00",
+                "confidence": "1.5",
+                "recommendation": "BUY",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-6", _NOW)
+
+        assert len(signals) == 0
+        assert "MSFT" in skipped
+        assert "out of range" in skipped["MSFT"]
+
+    def test_missing_ticker_skipped(self) -> None:
+        """Missing or blank ticker → skipped."""
+        predictions = [
+            {
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "0.85",
+                "recommendation": "BUY",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-7", _NOW)
+
+        assert len(signals) == 0
+        assert "_missing_ticker" in skipped
+
+    def test_invalid_numeric_field_skipped(self) -> None:
+        """Invalid numeric field (current_price, etc.) → skipped."""
+        predictions = [
+            {
+                "ticker": "AAPL",
+                "current_price": "not-a-number",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "0.85",
+                "recommendation": "BUY",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-8", _NOW)
+
+        assert len(signals) == 0
+        assert "AAPL" in skipped
+        assert "Invalid current_price" in skipped["AAPL"]
+
+    def test_ticker_normalized_to_uppercase(self) -> None:
+        """Tickers are normalized to uppercase."""
+        predictions = [
+            {
+                "ticker": "aapl",
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "0.85",
+                "recommendation": "BUY",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-9", _NOW)
+
+        assert len(signals) == 1
+        assert signals[0]["ticker"] == "AAPL"
+
+    def test_source_run_equals_idempotency_key(self) -> None:
+        """source_run in signal equals the request idempotency_key."""
+        ikey = "pred-run-unique-2026-05-26-001"
+        predictions = [
+            {
+                "ticker": "AAPL",
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "0.85",
+                "recommendation": "BUY",
+            }
+        ]
+        signals, _ = generate_prediction_signals(predictions, ikey, _NOW)
+
+        assert signals[0]["source_run"] == ikey
+
+    def test_raw_payload_contains_prediction_v2_metadata(self) -> None:
+        """raw_payload includes strategy_name=prediction_v2 and original prediction details."""
+        predictions = [
+            {
+                "ticker": "AAPL",
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "0.85",
+                "recommendation": "BUY",
+                "reason": "Test reason",
+                "model_consensus": {"consensus": "BUY"},
+                "market_context": "bullish",
+            }
+        ]
+        signals, _ = generate_prediction_signals(predictions, "pred-run-10", _NOW)
+
+        assert len(signals) == 1
+        payload = signals[0]["raw_payload"]
+        assert payload["strategy_name"] == "prediction_v2"
+        assert payload["prediction"]["ticker"] == "AAPL"
+        assert payload["prediction"]["recommendation"] == "BUY"
+        assert payload["prediction"]["reason"] == "Test reason"
+        assert payload["model_consensus"] == {"consensus": "BUY"}
+        assert payload["market_context"] == "bullish"
+
+    def test_multiple_predictions_mixed_valid_invalid(self) -> None:
+        """Batch with both valid and invalid predictions processes correctly."""
+        predictions = [
+            {
+                "ticker": "AAPL",
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "0.85",
+                "recommendation": "BUY",
+            },
+            {
+                "ticker": "INVALID",
+                "confidence": "invalid",
+                "recommendation": "BUY",
+            },
+            {
+                "ticker": "MSFT",
+                "current_price": "400.00",
+                "forecast_price_5d": "380.00",
+                "expected_return_pct": "-5.00",
+                "confidence": "0.75",
+                "recommendation": "SELL",
+            },
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-11", _NOW)
+
+        assert len(signals) == 2
+        assert signals[0]["ticker"] == "AAPL"
+        assert signals[1]["ticker"] == "MSFT"
+        assert "INVALID" in skipped
+        assert len(skipped) == 1
+
+    def test_empty_predictions_list_returns_empty_signals(self) -> None:
+        """Empty predictions list → empty signals and skipped dicts."""
+        signals, skipped = generate_prediction_signals([], "pred-run-12", _NOW)
+
+        assert len(signals) == 0
+        assert len(skipped) == 0
+
+    def test_missing_confidence_skipped(self) -> None:
+        """Missing confidence field → skipped."""
+        predictions = [
+            {
+                "ticker": "AAPL",
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "recommendation": "BUY",
+            }
+        ]
+        signals, skipped = generate_prediction_signals(predictions, "pred-run-13", _NOW)
+
+        assert len(signals) == 0
+        assert "AAPL" in skipped
+        assert "Missing confidence" in skipped["AAPL"]
+
+    def test_confidence_decimal_conversion(self) -> None:
+        """Confidence from string and float converts correctly."""
+        predictions_str = [
+            {
+                "ticker": "AAPL",
+                "current_price": "150.00",
+                "forecast_price_5d": "157.50",
+                "expected_return_pct": "5.00",
+                "confidence": "0.85",
+                "recommendation": "BUY",
+            }
+        ]
+        predictions_float = [
+            {
+                "ticker": "MSFT",
+                "current_price": "400.00",
+                "forecast_price_5d": "420.00",
+                "expected_return_pct": "5.00",
+                "confidence": 0.75,
+                "recommendation": "BUY",
+            }
+        ]
+        signals_str, _ = generate_prediction_signals(predictions_str, "pred-run-14", _NOW)
+        signals_float, _ = generate_prediction_signals(predictions_float, "pred-run-15", _NOW)
+
+        assert signals_str[0]["confidence"] == Decimal("0.85")
+        assert signals_float[0]["confidence"] == Decimal("0.75")

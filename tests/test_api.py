@@ -1768,3 +1768,168 @@ class TestFetchPricesEndpoint:
         from datetime import date
         parsed_date = date.fromisoformat(market_date_str)
         assert isinstance(parsed_date, date)
+
+
+# ---------------------------------------------------------------------------
+# Prediction strategy endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestPredictionStrategyEndpoint:
+    """POST /v1/strategy/prediction/run: Convert predictions to signals and run decision workflow."""
+
+    def test_prediction_run_with_valid_buy_prediction(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """POST /v1/strategy/prediction/run with valid BUY prediction returns 200."""
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/run",
+            json={
+                "idempotency_key": "pred-api-test-001",
+                "predictions": [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "forecast_price_5d": "157.50",
+                        "expected_return_pct": "5.00",
+                        "confidence": "0.85",
+                        "recommendation": "BUY",
+                        "reason": "Strong uptrend",
+                        "model_consensus": {"consensus": "BUY"},
+                        "market_context": "bullish",
+                    }
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["signals_generated"] == 1
+        assert body["signals_submitted"] == 1
+        assert body["errors"] == 0
+
+    def test_prediction_run_missing_api_key_returns_401(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Missing X-API-Key header returns 401."""
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/run",
+            json={
+                "idempotency_key": "pred-api-test-002",
+                "predictions": [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "forecast_price_5d": "157.50",
+                        "expected_return_pct": "5.00",
+                        "confidence": "0.85",
+                        "recommendation": "BUY",
+                    }
+                ],
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_prediction_run_empty_predictions_returns_zero_counts(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Empty predictions list returns 200 with zero counts."""
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/run",
+            json={
+                "idempotency_key": "pred-api-test-003",
+                "predictions": [],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["signals_generated"] == 0
+        assert body["signals_submitted"] == 0
+        assert body["decisions_made"] == 0
+        assert body["orders_created"] == 0
+        assert body["errors"] == 0
+
+    def test_prediction_run_invalid_predictions_returned_in_skipped(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Invalid predictions are reported in skipped_tickers, not as errors."""
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/run",
+            json={
+                "idempotency_key": "pred-api-test-004",
+                "predictions": [
+                    {
+                        "ticker": "INVALID",
+                        "confidence": "invalid",
+                        "recommendation": "BUY",
+                    }
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["signals_generated"] == 0
+        assert body["errors"] == 0
+        assert "INVALID" in body["skipped_tickers"]
+
+    def test_prediction_run_mixed_valid_invalid_predictions(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Batch with valid and invalid predictions processes both."""
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/run",
+            json={
+                "idempotency_key": "pred-api-test-005",
+                "predictions": [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "forecast_price_5d": "157.50",
+                        "expected_return_pct": "5.00",
+                        "confidence": "0.85",
+                        "recommendation": "BUY",
+                    },
+                    {
+                        "ticker": "INVALID",
+                        "confidence": "invalid",
+                        "recommendation": "BUY",
+                    },
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["signals_generated"] == 1  # Only valid signal
+        assert "INVALID" in body["skipped_tickers"]
+
+    def test_prediction_run_response_has_breakdown_fields(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Response includes decisions_breakdown and rejection_reasons."""
+        resp = seeded_client.post(
+            "/v1/strategy/prediction/run",
+            json={
+                "idempotency_key": "pred-api-test-006",
+                "predictions": [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "forecast_price_5d": "157.50",
+                        "expected_return_pct": "5.00",
+                        "confidence": "0.85",
+                        "recommendation": "BUY",
+                    }
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "decisions_breakdown" in body
+        assert "approved" in body["decisions_breakdown"]
+        assert "rejected" in body["decisions_breakdown"]
+        assert "hold" in body["decisions_breakdown"]
+        assert "rejection_reasons" in body
