@@ -584,6 +584,13 @@
       </div>
     </div>
 
+    <button class="dtr-step-btn" onclick="fetchLatestPrices(this)">Fetch Latest Prices</button>
+
+    <div class="dtr-card" id="fetch-prices-card" style="display: none;">
+      <div class="dtr-title">Fetch Result</div>
+      <div id="fetch-prices-result"></div>
+    </div>
+
     <button class="dtr-step-btn" onclick="checkStrategyReadiness()">Check Readiness</button>
 
     <div class="dtr-card" id="strategy-readiness" style="display: none;">
@@ -1529,6 +1536,75 @@ async function checkStrategyReadiness() {
     resultEl.textContent = `✗ ${e.message}`;
     resultEl.className = 'dtr-step-result error';
     readinessCard.style.display = 'block';
+  }
+}
+
+async function fetchLatestPrices(btn) {
+  const tickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
+  const mainTicker = normTicker(document.getElementById('dtr-ticker').value);
+
+  // Determine tickers to fetch
+  let tickers = [];
+  if (tickersRaw) {
+    tickers = tickersRaw
+      .split(',')
+      .map(t => t.trim().toUpperCase())
+      .filter(t => t.length > 0);
+  } else if (mainTicker) {
+    tickers = [mainTicker];
+  }
+
+  if (!tickers || tickers.length === 0) {
+    toast('Enter tickers or main ticker', 'err');
+    return;
+  }
+
+  const fetchCard = document.getElementById('fetch-prices-card');
+  const resultEl = document.getElementById('fetch-prices-result');
+  resultEl.textContent = '';
+  btn.disabled = true;
+
+  try {
+    const r = await call('POST', '/v1/prices/fetch', {
+      tickers: tickers,
+      price_type: 'LAST',
+      session_type: 'REGULAR',
+    });
+    const b = await parseApiResponse(r);
+    if (r.ok) {
+      let html = `<div style="margin-bottom: 1rem; font-weight: 600; color: #22c55e;">✓ Inserted: ${b.inserted}</div>`;
+
+      if (b.prices && b.prices.length > 0) {
+        html += '<div style="margin-bottom: 1rem;"><div style="font-weight: 600; margin-bottom: 0.5rem;">Prices Fetched:</div>';
+        html += '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid #e5e7eb;"><th style="text-align:left;padding:0.5rem;font-weight:bold;">Ticker</th><th style="text-align:right;padding:0.5rem;">Price</th><th style="text-align:left;padding:0.5rem;">Market Date</th></tr></thead><tbody>';
+        b.prices.forEach(p => {
+          html += `<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:0.5rem;">${escapeHtml(p.ticker)}</td><td style="text-align:right;padding:0.5rem;">${escapeHtml(p.price)}</td><td style="padding:0.5rem;">${escapeHtml(p.market_date)}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+      }
+
+      if (b.failures && b.failures.length > 0) {
+        html += '<div><div style="font-weight: 600; margin: 1rem 0 0.5rem 0; color: #ef4444;">Failures:</div>';
+        html += '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid #e5e7eb;"><th style="text-align:left;padding:0.5rem;font-weight:bold;">Ticker</th><th style="text-align:left;padding:0.5rem;">Reason</th></tr></thead><tbody>';
+        b.failures.forEach(f => {
+          html += `<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:0.5rem;">${escapeHtml(f.ticker)}</td><td style="padding:0.5rem;">${escapeHtml(f.reason)}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+      }
+
+      resultEl.innerHTML = html;
+      resultEl.className = '';
+      fetchCard.style.display = 'block';
+      toast(`Fetched ${b.inserted} price(s)`, 'ok');
+    } else {
+      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+    }
+  } catch (e) {
+    resultEl.textContent = `✗ ${e.message}`;
+    resultEl.className = 'dtr-step-result error';
+    fetchCard.style.display = 'block';
+  } finally {
+    btn.disabled = false;
   }
 }
 
