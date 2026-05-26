@@ -61,6 +61,7 @@ from paper_trader.db.models import (
     TradeDecision,
 )
 from paper_trader.db.session import get_dedicated_session, get_session
+from paper_trader.engine.market_data import fetch_latest_prices
 from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.reconciler import run_fill_cycle
@@ -207,6 +208,32 @@ class BenchmarkPricesRequest(BaseModel):
 
 class BenchmarkPricesResponse(BaseModel):
     inserted: int
+
+
+class FetchPricesRequest(BaseModel):
+    tickers: list[str]
+    price_type: str = PriceType.LAST
+    session_type: str = SessionType.REGULAR
+
+
+class FetchPriceDetail(BaseModel):
+    ticker: str
+    price: str
+    market_date: date
+    price_type: str
+    session_type: str
+    data_source: str
+
+
+class FetchPriceFailure(BaseModel):
+    ticker: str
+    reason: str
+
+
+class FetchPricesResponse(BaseModel):
+    inserted: int
+    prices: list[FetchPriceDetail]
+    failures: list[FetchPriceFailure]
 
 
 class PositionOut(BaseModel):
@@ -776,6 +803,102 @@ def ingest_benchmark_prices(body: BenchmarkPricesRequest) -> BenchmarkPricesResp
     with get_session() as session:
         session.add_all(rows)
     return BenchmarkPricesResponse(inserted=len(rows))
+
+
+@app.post(
+    "/v1/prices/fetch",
+    response_model=FetchPricesResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def fetch_prices(body: FetchPricesRequest) -> FetchPricesResponse:
+    """
+    Fetch latest prices from market data source and insert into price_snapshots.
+
+    Tickers are normalized to uppercase. Empty tickers list returns inserted=0.
+    Individual ticker failures do not fail the whole request; they are reported
+    in the failures array.
+
+    Inserted prices have:
+        data_source = "yahoo_finance"
+        price_type = request.price_type (default LAST)
+        session_type = request.session_type (default REGULAR)
+        snapshot_ts = server UTC now
+        market_date = US-Eastern date of snapshot_ts
+        job_run_id = null (outside workflow context)
+
+    Request validation:
+        - tickers: list of symbols (required, can be empty)
+        - price_type: defaults to LAST
+        - session_type: defaults to REGULAR
+
+    Invalid prices (zero, negative) or network failures are reported as failures.
+    """
+    now, _ = _now_and_date()
+    market_date = now.astimezone(_EASTERN).date()
+
+    if not body.tickers:
+        return FetchPricesResponse(inserted=0, prices=[], failures=[])
+
+    successful, failures = fetch_latest_prices(body.tickers)
+
+    rows = []
+    prices_detail = []
+    failures_dict = {f["ticker"]: f for f in failures}
+
+    for price_dict in successful:
+        # Validate required keys
+        if "ticker" not in price_dict or "price" not in price_dict:
+            failures_dict.setdefault(price_dict.get("ticker", "unknown"), {
+                "ticker": price_dict.get("ticker", "unknown"),
+                "reason": "Missing ticker or price in result"
+            })
+            continue
+
+        ticker = price_dict["ticker"]
+
+        # Validate and convert price
+        try:
+            price = Decimal(price_dict["price"])
+            if price <= 0:
+                failures_dict[ticker] = {"ticker": ticker, "reason": "Price is zero or negative"}
+                continue
+        except (ValueError, TypeError):
+            failures_dict[ticker] = {"ticker": ticker, "reason": "Invalid price format"}
+            continue
+
+        snapshot = PriceSnapshot(
+            ticker=ticker,
+            price=price,
+            session_type=body.session_type,
+            price_type=body.price_type,
+            exchange=None,
+            data_source="yahoo_finance",
+            snapshot_ts=now,
+            market_date=market_date,
+            job_run_id=None,
+        )
+        rows.append(snapshot)
+
+        prices_detail.append(FetchPriceDetail(
+            ticker=ticker,
+            price=str(price),
+            market_date=market_date,
+            price_type=body.price_type,
+            session_type=body.session_type,
+            data_source="yahoo_finance",
+        ))
+
+    with get_session() as session:
+        session.add_all(rows)
+
+    failures_detail = [FetchPriceFailure(**f) for f in failures_dict.values()]
+
+    return FetchPricesResponse(
+        inserted=len(rows),
+        prices=prices_detail,
+        failures=failures_detail,
+    )
 
 
 @app.get(

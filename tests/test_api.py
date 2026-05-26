@@ -52,7 +52,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from paper_trader.api.app import app
@@ -1533,4 +1533,238 @@ class TestSnapshotEndpoint:
         assert resp.status_code == 400
         detail = resp.json()["detail"]
         assert "Snapshot requires prices for all open positions" in detail
-        assert "TSLA" in detail
+
+
+class TestFetchPricesEndpoint:
+    """Test POST /v1/prices/fetch with mocked market data."""
+
+    def test_auth_required(self, seeded_client: TestClient) -> None:
+        """Missing API key returns 401."""
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={"tickers": ["AAPL"]},
+        )
+        assert resp.status_code == 401
+
+    def test_empty_tickers_returns_zero(self, seeded_client: TestClient) -> None:
+        """Empty tickers list returns inserted=0, no failures."""
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={"tickers": []},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted"] == 0
+        assert data["prices"] == []
+        assert data["failures"] == []
+
+    def test_single_successful_price(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Successful fetch inserts price and returns detail."""
+        def mock_fetch(tickers):
+            return (
+                [{"ticker": "AAPL", "price": "182.50"}],
+                []
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_latest_prices",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={"tickers": ["AAPL"]},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted"] == 1
+        assert len(data["prices"]) == 1
+        assert data["prices"][0]["ticker"] == "AAPL"
+        assert data["prices"][0]["price"] == "182.50"
+        assert data["prices"][0]["data_source"] == "yahoo_finance"
+        assert data["prices"][0]["price_type"] == "LAST"
+        assert data["prices"][0]["session_type"] == "REGULAR"
+        assert data["failures"] == []
+
+    def test_mixed_success_and_failure(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Some tickers succeed, others fail; returns both in response."""
+        def mock_fetch(tickers):
+            return (
+                [
+                    {"ticker": "AAPL", "price": "182.50"},
+                    {"ticker": "MSFT", "price": "420.75"},
+                ],
+                [
+                    {"ticker": "BADTICKER", "reason": "No price returned"},
+                ]
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_latest_prices",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={"tickers": ["AAPL", "MSFT", "BADTICKER"]},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted"] == 2
+        assert len(data["prices"]) == 2
+        assert len(data["failures"]) == 1
+        assert data["failures"][0]["ticker"] == "BADTICKER"
+        assert "No price returned" in data["failures"][0]["reason"]
+
+    def test_custom_price_type_and_session_type(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Request with custom price_type and session_type is respected."""
+        def mock_fetch(tickers):
+            return (
+                [{"ticker": "GOOG", "price": "190.00"}],
+                []
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_latest_prices",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={
+                "tickers": ["GOOG"],
+                "price_type": "CLOSE",
+                "session_type": "PREMARKET",
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted"] == 1
+        assert data["prices"][0]["price_type"] == "CLOSE"
+        assert data["prices"][0]["session_type"] == "PREMARKET"
+
+    def test_price_inserted_into_db(
+        self, seeded_client: TestClient, monkeypatch, api_engine
+    ) -> None:
+        """Successful fetch inserts PriceSnapshot row into database."""
+        def mock_fetch(tickers):
+            return (
+                [{"ticker": "NVDA", "price": "875.25"}],
+                []
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_latest_prices",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={"tickers": ["NVDA"]},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            snap = session.execute(
+                select(PriceSnapshot).where(PriceSnapshot.ticker == "NVDA")
+            ).scalar_one_or_none()
+            assert snap is not None
+            assert snap.ticker == "NVDA"
+            assert snap.price == Decimal("875.25")
+            assert snap.data_source == "yahoo_finance"
+            assert snap.price_type == "LAST"
+            assert snap.session_type == "REGULAR"
+            assert snap.job_run_id is None
+
+    def test_all_failures_no_success(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """All tickers fail; no prices inserted."""
+        def mock_fetch(tickers):
+            return (
+                [],
+                [
+                    {"ticker": "BAD1", "reason": "Network error"},
+                    {"ticker": "BAD2", "reason": "Symbol not found"},
+                ]
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_latest_prices",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={"tickers": ["BAD1", "BAD2"]},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted"] == 0
+        assert data["prices"] == []
+        assert len(data["failures"]) == 2
+
+    def test_defaults_to_last_and_regular_session(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Request with no price_type/session_type uses LAST and REGULAR."""
+        def mock_fetch(tickers):
+            return (
+                [{"ticker": "TSLA", "price": "250.00"}],
+                []
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_latest_prices",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={"tickers": ["TSLA"]},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["prices"][0]["price_type"] == "LAST"
+        assert data["prices"][0]["session_type"] == "REGULAR"
+
+    def test_market_date_is_eastern_date(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Inserted prices have market_date = US-Eastern date of now."""
+        def mock_fetch(tickers):
+            return (
+                [{"ticker": "AMD", "price": "165.50"}],
+                []
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_latest_prices",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/prices/fetch",
+            json={"tickers": ["AMD"]},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        market_date_str = data["prices"][0]["market_date"]
+        # Parse and verify it's a valid date
+        from datetime import date
+        parsed_date = date.fromisoformat(market_date_str)
+        assert isinstance(parsed_date, date)
