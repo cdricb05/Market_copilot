@@ -1578,7 +1578,7 @@ async function fetchLatestPrices(btn) {
         html += '<div style="margin-bottom: 1rem;"><div style="font-weight: 600; margin-bottom: 0.5rem;">Prices Fetched:</div>';
         html += '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid #e5e7eb;"><th style="text-align:left;padding:0.5rem;font-weight:bold;">Ticker</th><th style="text-align:right;padding:0.5rem;">Price</th><th style="text-align:left;padding:0.5rem;">Market Date</th></tr></thead><tbody>';
         b.prices.forEach(p => {
-          html += `<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:0.5rem;">${escapeHtml(p.ticker)}</td><td style="text-align:right;padding:0.5rem;">${escapeHtml(p.price)}</td><td style="padding:0.5rem;">${escapeHtml(p.market_date)}</td></tr>`;
+          html += `<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:0.5rem;">${escapeHtml(p.ticker)}</td><td style="text-align:right;padding:0.5rem;">${usd(p.price)}</td><td style="padding:0.5rem;">${escapeHtml(p.market_date)}</td></tr>`;
         });
         html += '</tbody></table></div>';
       }
