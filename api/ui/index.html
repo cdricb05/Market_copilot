@@ -584,6 +584,7 @@
       </div>
     </div>
 
+    <div style="margin-top: 1.5rem; margin-bottom: 1rem; font-weight: 600; font-size: 0.95rem; color: #666;">Pre-Flight Checks</div>
     <button class="dtr-step-btn" onclick="fetchLatestPrices(this)">Fetch Latest Prices</button>
 
     <div class="dtr-card" id="fetch-prices-card" style="display: none;">
@@ -1422,12 +1423,23 @@ async function dtrRunStrategy(btn) {
         }
       }
 
-      // Add rejection reasons if any
-      if (b.rejection_reasons && Object.keys(b.rejection_reasons).length > 0) {
-        const reasonsList = Object.entries(b.rejection_reasons)
-          .map(([reason, count]) => `${escapeHtml(reason)}: ${count}`)
-          .join(' | ');
-        resultHtml += `<br><small style="color:#888;margin-top:4px;">Rejections: ${reasonsList}</small>`;
+      // Add prominent rejection warning if any signals were rejected
+      if (b.decisions_breakdown && b.decisions_breakdown.rejected > 0) {
+        let rejectionDetails = '';
+        if (b.rejection_reasons && Object.keys(b.rejection_reasons).length > 0) {
+          rejectionDetails = '<div style="margin-top:0.5rem; font-size:0.9rem;">';
+          Object.entries(b.rejection_reasons).forEach(([reason, count]) => {
+            rejectionDetails += `<div>${escapeHtml(reason)}: ${count}</div>`;
+          });
+          rejectionDetails += '</div>';
+        }
+        const rejCount = b.decisions_breakdown.rejected;
+        const rejText = rejCount === 1 ? 'signal' : 'signals';
+        resultHtml += `<div style="margin-top:1rem;padding:0.75rem;background-color:#fef3c7;border-left:4px solid #f59e0b;color:#78350f;border-radius:4px;">
+          <div style="font-weight:600;margin-bottom:0.5rem;">⚠ Risk controls rejected ${rejCount} ${rejText}</div>
+          <div style="font-size:0.9rem;color:#92400e;">No order was created for the rejected signals. Approved signals (if any) will proceed to the fill stage.</div>
+          ${rejectionDetails}
+        </div>`;
       }
 
       // Add skipped info if any
@@ -1596,6 +1608,11 @@ async function fetchLatestPrices(btn) {
       resultEl.className = '';
       fetchCard.style.display = 'block';
       toast(`Fetched ${b.inserted} price(s)`, 'ok');
+
+      // Auto-refresh readiness check after a short delay
+      setTimeout(() => {
+        checkStrategyReadiness();
+      }, 400);
     } else {
       throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
     }
