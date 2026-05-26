@@ -628,6 +628,13 @@
       <div id="readiness-result"></div>
     </div>
 
+    <button class="dtr-step-btn" onclick="dtrRunPredictionStrategy(this)">Run Prediction Strategy</button>
+
+    <div class="dtr-card" id="prediction-strategy-card" style="display: none;">
+      <div class="dtr-title">Prediction Strategy Result</div>
+      <div id="prediction-strategy-result"></div>
+    </div>
+
     <div class="dtr-step">
       <div class="dtr-step-header">
         <span class="dtr-step-label">Step 1: Ingest Price</span>
@@ -1515,6 +1522,141 @@ async function dtrRunStrategy(btn) {
     updateDtrStatusMsg();
     updateDtrGuidance();
     updateDtrSummary();
+  }
+}
+
+async function dtrRunPredictionStrategy(btn) {
+  const tickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
+
+  // Validate tickers
+  if (!tickersRaw) {
+    toast('Enter at least one ticker before running prediction strategy.', 'err');
+    return;
+  }
+
+  // Parse tickers
+  const tickers = tickersRaw
+    .split(',')
+    .map(t => t.trim().toUpperCase())
+    .filter(t => t.length > 0);
+
+  if (tickers.length === 0) {
+    toast('Enter at least one ticker before running prediction strategy.', 'err');
+    return;
+  }
+
+  const resultCard = document.getElementById('prediction-strategy-card');
+  const resultEl = document.getElementById('prediction-strategy-result');
+  resultEl.textContent = '';
+  btn.disabled = true;
+
+  try {
+    const body = {
+      idempotency_key: `prediction-fetch-run-ui-${Date.now()}`,
+      tickers: tickers,
+    };
+
+    const r = await call('POST', '/v1/strategy/prediction/fetch-and-run', body);
+    const b = await parseApiResponse(r);
+
+    if (r.ok) {
+      resultCard.style.display = 'block';
+
+      // Build result summary
+      let resultHtml = `✓ Fetched: ${b.fetched_count} · Failed: ${b.failed_count} · Generated: ${b.signals_generated} · Submitted: ${b.signals_submitted} · Decisions: ${b.decisions_made} · Orders: ${b.orders_created}`;
+
+      // Add fetch failures if any
+      if (b.fetch_failures && b.fetch_failures.length > 0) {
+        const failureList = b.fetch_failures
+          .map(f => `${escapeHtml(f.ticker)}: ${escapeHtml(f.reason)}`)
+          .join(' | ');
+        resultHtml += `<br><small style="color:#ff6b6b;margin-top:4px;">Fetch Failures: ${failureList}</small>`;
+      }
+
+      // Add normalized predictions table
+      if (b.normalized_predictions && b.normalized_predictions.length > 0) {
+        resultHtml += '<div style="margin-top:12px;border-top:1px solid #1a3a5a;padding-top:12px;"><small><strong>Normalized Predictions:</strong><br>';
+        resultHtml += '<div style="overflow-x:auto;font-size:0.85rem;margin-top:8px;">';
+        resultHtml += '<table style="width:100%;border-collapse:collapse;color:#e0e0ff;">';
+        resultHtml += '<tr style="border-bottom:1px solid #1a3a5a;"><th style="text-align:left;padding:6px;color:#00cc99;">Ticker</th><th style="text-align:left;padding:6px;color:#00cc99;">Rec</th><th style="text-align:left;padding:6px;color:#00cc99;">Conf</th><th style="text-align:left;padding:6px;color:#00cc99;">Price</th><th style="text-align:left;padding:6px;color:#00cc99;">5D Forecast</th><th style="text-align:left;padding:6px;color:#00cc99;">Return %</th><th style="text-align:left;padding:6px;color:#00cc99;">Context</th></tr>';
+
+        b.normalized_predictions.forEach(pred => {
+          const recColor = pred.recommendation === 'BUY' ? '#00ff88' : pred.recommendation === 'SELL' ? '#ff6b6b' : '#ffa500';
+          const recBg = pred.recommendation === 'BUY' ? 'rgba(0,255,136,0.1)' : pred.recommendation === 'SELL' ? 'rgba(255,107,107,0.1)' : 'rgba(255,165,0,0.1)';
+          const conf = parseFloat(pred.confidence).toFixed(2);
+          const ret = pred.expected_return_pct ? parseFloat(pred.expected_return_pct).toFixed(2) : '—';
+
+          resultHtml += `<tr style="border-bottom:1px solid #1a3a5a;background:${recBg};">`;
+          resultHtml += `<td style="padding:6px;font-weight:600;">${escapeHtml(pred.ticker)}</td>`;
+          resultHtml += `<td style="padding:6px;color:${recColor};font-weight:600;">${escapeHtml(pred.recommendation)}</td>`;
+          resultHtml += `<td style="padding:6px;">${conf}</td>`;
+          resultHtml += `<td style="padding:6px;">${escapeHtml(pred.current_price || '—')}</td>`;
+          resultHtml += `<td style="padding:6px;">${escapeHtml(pred.forecast_price_5d || '—')}</td>`;
+          resultHtml += `<td style="padding:6px;">${ret}%</td>`;
+          resultHtml += `<td style="padding:6px;color:#999;">${escapeHtml(pred.market_context)}</td>`;
+          resultHtml += `</tr>`;
+        });
+
+        resultHtml += '</table></div></small></div>';
+      }
+
+      // Add breakdown info if available
+      if (b.decisions_breakdown && (b.decisions_breakdown.approved > 0 || b.decisions_breakdown.rejected > 0 || b.decisions_breakdown.hold > 0)) {
+        let breakdown = [];
+        if (b.decisions_breakdown.approved > 0) breakdown.push(`Approved: ${b.decisions_breakdown.approved}`);
+        if (b.decisions_breakdown.rejected > 0) breakdown.push(`Rejected: ${b.decisions_breakdown.rejected}`);
+        if (b.decisions_breakdown.hold > 0) breakdown.push(`Hold: ${b.decisions_breakdown.hold}`);
+        if (breakdown.length > 0) {
+          resultHtml += `<br><small style="color:#666;margin-top:4px;">Decisions: ${breakdown.join(' · ')}</small>`;
+        }
+      }
+
+      // Add prominent rejection warning if any signals were rejected
+      if (b.decisions_breakdown && b.decisions_breakdown.rejected > 0) {
+        let rejectionDetails = '';
+        if (b.rejection_reasons && Object.keys(b.rejection_reasons).length > 0) {
+          rejectionDetails = '<div style="margin-top:0.5rem; font-size:0.9rem;">';
+          Object.entries(b.rejection_reasons).forEach(([reason, count]) => {
+            rejectionDetails += `<div>${escapeHtml(reason)}: ${count}</div>`;
+          });
+          rejectionDetails += '</div>';
+        }
+        const rejCount = b.decisions_breakdown.rejected;
+        const rejText = rejCount === 1 ? 'signal' : 'signals';
+        resultHtml += `<div style="margin-top:1rem;padding:0.75rem;background-color:#fef3c7;border-left:4px solid #f59e0b;color:#78350f;border-radius:4px;">
+          <div style="font-weight:600;margin-bottom:0.5rem;">⚠ Risk controls rejected ${rejCount} ${rejText}</div>
+          <div style="font-size:0.9rem;color:#92400e;">No order was created for the rejected signals. Approved signals (if any) will proceed to the fill stage.</div>
+          ${rejectionDetails}
+        </div>`;
+      }
+
+      // Add skipped info if any
+      if (b.skipped_tickers && Object.keys(b.skipped_tickers).length > 0) {
+        const skippedList = Object.entries(b.skipped_tickers)
+          .map(([ticker, reason]) => `${escapeHtml(ticker)}: ${escapeHtml(reason)}`)
+          .join(' | ');
+        resultHtml += `<br><small style="color:#ff6b6b;margin-top:4px;">Skipped: ${skippedList}</small>`;
+      }
+
+      resultEl.innerHTML = resultHtml;
+      resultEl.className = 'dtr-step-result success';
+
+      // Refresh UI
+      loadOrders();
+      loadPositions();
+      loadPortfolio();
+      updateWorkbench();
+      updateActionBadges();
+      updateHints();
+    } else {
+      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+    }
+  } catch (e) {
+    resultCard.style.display = 'block';
+    resultEl.textContent = `✗ ${e.message}`;
+    resultEl.className = 'dtr-step-result error';
+  } finally {
+    btn.disabled = false;
   }
 }
 
