@@ -460,6 +460,57 @@ class BackfillResponse(BaseModel):
     failures: list[BackfillFailure]
 
 
+class BenchmarkBackfillRequest(BaseModel):
+    benchmark_tickers: list[str] = Field(
+        description="List of benchmark tickers to backfill (e.g., ['SPY']).",
+    )
+    start_date: date = Field(
+        description="Start date (inclusive) for historical prices.",
+    )
+    end_date: date = Field(
+        description="End date (inclusive) for historical prices.",
+    )
+    price_type: str = Field(
+        default=PriceType.CLOSE,
+        description="Price type ('CLOSE' only for v1).",
+    )
+    session_type: str = Field(
+        default=SessionType.REGULAR,
+        description="Session type ('REGULAR' for daily close).",
+    )
+    max_benchmarks: int = Field(
+        description="Maximum number of benchmarks to process (required, capped at 10).",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If true, fetch data but don't insert rows.",
+    )
+
+
+class BenchmarkResultDetail(BaseModel):
+    benchmark_ticker: str
+    rows_found: int
+    inserted: int
+    updated: int
+    skipped_existing: int
+    status: str
+    error: str | None = None
+
+
+class BenchmarkBackfillResponse(BaseModel):
+    requested_count: int
+    processed_count: int
+    inserted_count: int
+    updated_count: int
+    skipped_existing_count: int
+    failed_count: int
+    dry_run: bool
+    start_date: str
+    end_date: str
+    results: list[BenchmarkResultDetail]
+    failures: list[BackfillFailure]
+
+
 class MarketScanRequest(BaseModel):
     universe: str = Field(
         default="SP500",
@@ -2144,6 +2195,208 @@ def backfill_prices(body: BackfillRequest) -> BackfillResponse:
 
     return BackfillResponse(
         universe=body.universe,
+        requested_count=requested_count,
+        processed_count=len(tickers_to_backfill),
+        inserted_count=inserted_count,
+        updated_count=updated_count,
+        skipped_existing_count=skipped_existing_count,
+        failed_count=failed_count,
+        dry_run=body.dry_run,
+        start_date=str(body.start_date),
+        end_date=str(body.end_date),
+        results=results,
+        failures=failures_list,
+    )
+
+
+@app.post(
+    "/v1/market/backfill-benchmark-prices",
+    response_model=BenchmarkBackfillResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def backfill_benchmark_prices(body: BenchmarkBackfillRequest) -> BenchmarkBackfillResponse:
+    """
+    Backfill historical daily CLOSE prices for benchmark tickers (e.g., SPY).
+
+    Validates request, fetches prices from yfinance, and idempotently inserts
+    BenchmarkPrice rows. Does not overwrite existing rows (skips them instead).
+
+    Request:
+        benchmark_tickers: List of benchmark tickers (required, non-empty).
+        start_date: Start date (inclusive).
+        end_date: End date (inclusive).
+        price_type: "CLOSE" only for v1 (default).
+        session_type: "REGULAR" (default).
+        max_benchmarks: Required. Max 10 for v1.
+        dry_run: If true, fetches but doesn't insert rows.
+
+    Validation:
+        - benchmark_tickers is required and non-empty.
+        - max_benchmarks is required and must be <= 10.
+        - start_date <= end_date.
+        - date range <= 180 days.
+        - price_type must be "CLOSE" (only value supported in v1).
+
+    Response:
+        Returns 200 OK always (even with failures/empty results).
+        Includes per-ticker results and failures array.
+        Note: updated_count is always 0 in v1 (we skip existing, don't overwrite).
+    """
+    # Normalize and deduplicate benchmark tickers (order-preserving, deterministic)
+    normalized_tickers = []
+    seen = set()
+    for raw in body.benchmark_tickers:
+        ticker = raw.strip().upper()
+        if not ticker:
+            continue
+        if ticker not in seen:
+            normalized_tickers.append(ticker)
+            seen.add(ticker)
+
+    # Validation: benchmark_tickers must not be empty after normalization
+    if not normalized_tickers:
+        raise HTTPException(
+            status_code=422,
+            detail="benchmark_tickers is required and must not be empty",
+        )
+
+    # Validation: max_benchmarks
+    if body.max_benchmarks > 10:
+        raise HTTPException(
+            status_code=422,
+            detail=f"max_benchmarks must be <= 10, got {body.max_benchmarks}",
+        )
+
+    # Validation: price_type (only CLOSE supported in v1)
+    if body.price_type != PriceType.CLOSE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"price_type must be '{PriceType.CLOSE}' in v1, got '{body.price_type}'",
+        )
+
+    # Validation: date range
+    if body.start_date > body.end_date:
+        raise HTTPException(
+            status_code=422,
+            detail="start_date must be <= end_date",
+        )
+
+    from datetime import timedelta
+    date_range_days = (body.end_date - body.start_date).days
+    if date_range_days > 180:
+        raise HTTPException(
+            status_code=422,
+            detail=f"date range must be <= 180 days, got {date_range_days}",
+        )
+
+    # Cap to max_benchmarks
+    requested_count = len(normalized_tickers)
+    tickers_to_backfill = normalized_tickers[:body.max_benchmarks]
+
+    # Fetch historical prices from yfinance
+    successful_prices, fetch_failures = fetch_historical_prices(
+        tickers=tickers_to_backfill,
+        start_date=body.start_date,
+        end_date=body.end_date,
+    )
+
+    # Process results
+    results = []
+    inserted_count = 0
+    updated_count = 0
+    skipped_existing_count = 0
+    failed_count = len(fetch_failures)
+
+    # Counters for tickers in failures
+    failures_list = [
+        BackfillFailure(ticker=t, error=r)
+        for t, r in fetch_failures.items()
+    ]
+
+    with get_dedicated_session() as session:
+        for ticker in tickers_to_backfill:
+            if ticker in fetch_failures:
+                # Already recorded in failures_list
+                continue
+
+            ticker_data = successful_prices.get(ticker, [])
+            if not ticker_data:
+                # This shouldn't happen if fetch succeeded, but safety check
+                failed_count += 1
+                failures_list.append(
+                    BackfillFailure(ticker=ticker, error="No price data")
+                )
+                results.append(
+                    BenchmarkResultDetail(
+                        benchmark_ticker=ticker,
+                        rows_found=0,
+                        inserted=0,
+                        updated=0,
+                        skipped_existing=0,
+                        status="FAILED",
+                        error="No price data",
+                    )
+                )
+                continue
+
+            rows_found = len(ticker_data)
+            ticker_inserted = 0
+            ticker_skipped = 0
+
+            for row in ticker_data:
+                market_date = row["market_date"]
+                price = row["price"]
+
+                # Check if row already exists
+                # BenchmarkPrice idempotency key: ticker + market_date + session_type
+                existing = session.execute(
+                    select(BenchmarkPrice).where(
+                        BenchmarkPrice.ticker == ticker,
+                        BenchmarkPrice.market_date == market_date,
+                        BenchmarkPrice.session_type == body.session_type,
+                    )
+                ).scalar_one_or_none()
+
+                if existing:
+                    ticker_skipped += 1
+                    skipped_existing_count += 1
+                else:
+                    if not body.dry_run:
+                        # Create snapshot_ts as datetime for that market_date at market close (16:00 UTC)
+                        from datetime import datetime
+                        snapshot_ts = datetime.combine(market_date, datetime.min.time())
+                        snapshot_ts = snapshot_ts.replace(hour=16, minute=0, second=0, tzinfo=timezone.utc)
+
+                        bp = BenchmarkPrice(
+                            ticker=ticker,
+                            price=price,
+                            market_date=market_date,
+                            session_type=body.session_type,
+                            snapshot_ts=snapshot_ts,
+                            job_run_id=None,
+                        )
+                        session.add(bp)
+
+                    ticker_inserted += 1
+                    inserted_count += 1
+
+            if not body.dry_run:
+                session.commit()
+
+            results.append(
+                BenchmarkResultDetail(
+                    benchmark_ticker=ticker,
+                    rows_found=rows_found,
+                    inserted=ticker_inserted,
+                    updated=0,
+                    skipped_existing=ticker_skipped,
+                    status="OK",
+                    error=None,
+                )
+            )
+
+    return BenchmarkBackfillResponse(
         requested_count=requested_count,
         processed_count=len(tickers_to_backfill),
         inserted_count=inserted_count,
