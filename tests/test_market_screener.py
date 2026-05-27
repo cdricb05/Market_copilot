@@ -18,7 +18,8 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from paper_trader.db.models import Base, BenchmarkPrice, PriceSnapshot
 from paper_trader.engine.market_screener import scan_market
@@ -94,15 +95,25 @@ class TestGetSP500Universe:
 @pytest.fixture
 def scanner_session():
     """Create an in-memory SQLite test database with only PriceSnapshot and BenchmarkPrice tables."""
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    session = None
     try:
         # Create only the tables needed for screener tests (avoid JSONB in Portfolio)
         PriceSnapshot.__table__.create(engine, checkfirst=True)
         BenchmarkPrice.__table__.create(engine, checkfirst=True)
-        session = Session(bind=engine)
+        session = SessionLocal()
         yield session
     finally:
-        session.close()
+        if session is not None:
+            session.close()
+        # Drop tables before disposing engine to release references
+        PriceSnapshot.__table__.drop(engine, checkfirst=True)
+        BenchmarkPrice.__table__.drop(engine, checkfirst=True)
         engine.dispose()
 
 

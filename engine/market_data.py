@@ -3,16 +3,18 @@ engine/market_data.py — Market data fetching from external sources.
 
 Functions:
     fetch_latest_prices() — Fetch latest prices from Yahoo Finance.
+    fetch_historical_prices() — Fetch daily CLOSE prices for date range from Yahoo Finance.
 
 Design principles:
     - No database writes. Returns data only.
     - Easy to mock for tests.
     - Graceful failure per-ticker (one bad ticker doesn't break the batch).
     - Normalizes tickers to uppercase.
-    - Extracts latest close price from yfinance.download() history.
+    - Extracts close prices from yfinance.download() history.
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -146,6 +148,155 @@ def _extract_latest_price(ticker: str, data: Any) -> float | None:
                                 return val
                         except (ValueError, TypeError):
                             pass
+
+        return None
+    except Exception:
+        return None
+
+
+def fetch_historical_prices(
+    tickers: list[str],
+    start_date: date,
+    end_date: date,
+) -> tuple[dict[str, list[dict]], dict[str, str]]:
+    """
+    Fetch daily CLOSE prices for a date range from Yahoo Finance.
+
+    Args:
+        tickers: List of stock tickers (case-insensitive). Empty list returns ({}, {}).
+        start_date: Start date (inclusive).
+        end_date: End date (inclusive). Note: yfinance uses exclusive end, so we add 1 day.
+
+    Returns:
+        (successful_prices, failures)
+        successful_prices: dict of {ticker: [{"market_date": date, "price": Decimal}, ...]}
+        failures: dict of {ticker: reason_string}
+
+    Behavior:
+        - Normalizes tickers to uppercase.
+        - Extracts daily close prices from yfinance.download() history.
+        - Returns Decimal-formatted price strings.
+        - Skips tickers with no data, missing Close, or only NaN prices (recorded as failures).
+        - Network errors or exceptions are recorded as failures, not raised.
+    """
+    if not tickers:
+        return {}, {}
+
+    if yfinance is None:
+        reasons = {t.upper(): "yfinance not installed" for t in tickers}
+        return {}, reasons
+
+    successful = {}
+    failed = {}
+
+    # Normalize tickers to uppercase and deduplicate
+    normalized_tickers = list(set(t.upper() for t in tickers))
+
+    try:
+        # Note: yfinance end date is exclusive, so add 1 day
+        from datetime import timedelta
+        yf_end_date = end_date + timedelta(days=1)
+
+        # Fetch data for all tickers at once
+        data = yfinance.download(
+            " ".join(normalized_tickers),
+            start=start_date,
+            end=yf_end_date,
+            progress=False,
+            threads=False,
+        )
+    except Exception as exc:
+        # Network error or other yfinance exception
+        for ticker in normalized_tickers:
+            failed[ticker] = f"Failed to fetch: {str(exc)[:100]}"
+        return {}, failed
+
+    # Process each ticker
+    for ticker in normalized_tickers:
+        prices = _extract_historical_prices(ticker, data)
+
+        if not prices:  # Empty list or None
+            failed[ticker] = "No valid prices returned"
+        else:
+            successful[ticker] = prices
+
+    return successful, failed
+
+
+def _extract_historical_prices(ticker: str, data: Any) -> list[dict] | None:
+    """
+    Extract daily close prices from yfinance download data for a single ticker.
+
+    Returns list of {"market_date": date, "price": Decimal} dicts, ordered chronologically.
+    Returns None if ticker has no data or all prices are invalid.
+
+    Handles two yfinance.download() output shapes:
+        - Single ticker: DataFrame with columns [Open, High, Low, Close, ...]
+        - Multiple tickers: DataFrame with MultiIndex columns like (Ticker, OHLCV)
+    """
+    if data is None or len(data) == 0:
+        return None
+
+    try:
+        # Try to get Close data (works for both single and multi-ticker)
+        close_data = None
+        if hasattr(data, "__getitem__"):
+            try:
+                close_data = data["Close"]
+            except (KeyError, TypeError):
+                pass
+
+        if close_data is None:
+            return None
+
+        result = []
+
+        # Case 1: Single ticker - close_data is a Series with dates as index
+        if hasattr(close_data, "iloc") and not hasattr(close_data, "columns"):
+            if hasattr(close_data, "items"):
+                # Use items() method if available (works on Series/MockSeries)
+                for market_date, close_val in close_data.items():
+                    if close_val is None or (hasattr(close_val, "__nan__")):
+                        continue
+                    try:
+                        price_float = float(close_val)
+                        if price_float > 0:
+                            # Convert market_date to date object if needed
+                            if hasattr(market_date, "date"):
+                                md = market_date.date()
+                            else:
+                                md = market_date
+                            result.append({
+                                "market_date": md,
+                                "price": Decimal(str(price_float)),
+                            })
+                    except (ValueError, TypeError, AttributeError):
+                        continue
+            return result if result else None
+
+        # Case 2: Multiple tickers - close_data is a DataFrame with ticker columns
+        if hasattr(close_data, "columns"):
+            if ticker in close_data.columns:
+                ticker_close = close_data[ticker]
+                if hasattr(ticker_close, "items"):
+                    for market_date, close_val in ticker_close.items():
+                        if close_val is None or (hasattr(close_val, "__nan__")):
+                            continue
+                        try:
+                            price_float = float(close_val)
+                            if price_float > 0:
+                                # Convert market_date to date object if needed
+                                if hasattr(market_date, "date"):
+                                    md = market_date.date()
+                                else:
+                                    md = market_date
+                                result.append({
+                                    "market_date": md,
+                                    "price": Decimal(str(price_float)),
+                                })
+                        except (ValueError, TypeError, AttributeError):
+                            continue
+                    return result if result else None
 
         return None
     except Exception:

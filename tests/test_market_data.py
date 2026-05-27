@@ -1,26 +1,32 @@
 """
 tests/test_market_data.py — Unit tests for engine/market_data.py.
 
-Tests fetch_latest_prices() and _extract_latest_price() with mocked yfinance
-output. No real network calls or pandas imports in test file.
+Tests fetch_latest_prices(), fetch_historical_prices(), and _extract_latest_price()
+with mocked yfinance output. No real network calls or pandas imports in test file.
 
 Mock strategy: Create simple objects that mimic yfinance DataFrame structure
-to test _extract_latest_price() logic without depending on pandas.
+to test extraction logic without depending on pandas.
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
 
-from paper_trader.engine.market_data import fetch_latest_prices, _extract_latest_price
+from paper_trader.engine.market_data import (
+    fetch_latest_prices,
+    fetch_historical_prices,
+    _extract_latest_price,
+)
 
 
 class MockSeries:
     """Simulates a pandas Series."""
 
-    def __init__(self, values: list):
+    def __init__(self, values: list, dates: list[date] | None = None):
         self.values = values
+        self.dates = dates or [date(2026, 5, 26 - i) for i in range(len(values))]
         self.iloc = MockIndexer(values)
 
     def __len__(self):
@@ -31,13 +37,18 @@ class MockSeries:
             return None
         return self.values[key]
 
+    def items(self):
+        """Iterate as (date, value) pairs."""
+        return zip(self.dates, self.values)
+
 
 class MockDataFrame:
     """Simulates a pandas DataFrame with dict-like access."""
 
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, dates: list[date] | None = None):
         self.data = data
         self.columns = list(data.keys())
+        self.dates = dates or [date(2026, 5, 26 - i) for i in range(len(list(data.values())[0]) if data else 0)]
 
     def __len__(self):
         values = list(self.data.values())
@@ -46,7 +57,7 @@ class MockDataFrame:
     def __getitem__(self, key):
         if isinstance(key, str):
             if key in self.data:
-                return MockSeries(self.data[key])
+                return MockSeries(self.data[key], dates=self.dates)
         elif isinstance(key, tuple):
             # MultiIndex access like data[("AAPL", "Close")]
             return None
@@ -60,10 +71,11 @@ class MockDataFrame:
 class MockMultiIndexDataFrame:
     """Simulates a DataFrame with MultiIndex columns like (Ticker, OHLCV)."""
 
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, dates: list[date] | None = None):
         # data: {("AAPL", "Close"): [values], ("MSFT", "Close"): [values], ...}
         self.data = data
         self.columns = list(data.keys())
+        self.dates = dates or [date(2026, 5, 26 - i) for i in range(len(list(data.values())[0]) if data else 0)]
 
     def __len__(self):
         values = list(self.data.values())
@@ -78,7 +90,7 @@ class MockMultiIndexDataFrame:
                     ticker, ohlcv = key_tuple
                     if ohlcv == "Close":
                         close_data[ticker] = values
-            return MockDataFrame(close_data)
+            return MockDataFrame(close_data, dates=self.dates)
         return None
 
 
@@ -390,3 +402,253 @@ class TestFetchLatestPrices:
         assert successful == []
         assert len(failures) == 1
         assert "AAPL" in failures[0]["ticker"]
+
+
+class TestFetchHistoricalPrices:
+    """Unit tests for fetch_historical_prices() with mocked yfinance."""
+
+    def test_empty_ticker_list(self) -> None:
+        """Empty input returns ({}, {})."""
+        successful, failures = fetch_historical_prices(
+            tickers=[],
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 5, 1),
+        )
+        assert successful == {}
+        assert failures == {}
+
+    def test_yfinance_not_installed(self, monkeypatch) -> None:
+        """When yfinance is None, all tickers are reported as failures."""
+        import paper_trader.engine.market_data as market_data_module
+        monkeypatch.setattr(market_data_module, "yfinance", None)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["AAPL", "MSFT"],
+            start_date=date(2026, 4, 1),
+            end_date=date(2026, 5, 1),
+        )
+
+        assert successful == {}
+        assert len(failures) == 2
+        assert failures["AAPL"] == "yfinance not installed"
+        assert failures["MSFT"] == "yfinance not installed"
+
+    def test_single_ticker_multiple_dates(self, monkeypatch) -> None:
+        """Single ticker with multiple dates returns all prices."""
+        import paper_trader.engine.market_data as market_data_module
+
+        dates_list = [date(2026, 5, 26), date(2026, 5, 23), date(2026, 5, 22)]
+        prices_list = [150.0, 149.5, 148.0]
+
+        mock_data = MockDataFrame({
+            "Close": prices_list,
+        }, dates=dates_list)
+
+        def mock_download(*args, **kwargs):
+            return mock_data
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["AAPL"],
+            start_date=date(2026, 5, 22),
+            end_date=date(2026, 5, 26),
+        )
+
+        assert len(successful) == 1
+        assert "AAPL" in successful
+        assert len(successful["AAPL"]) == 3
+        assert failures == {}
+
+        # Verify structure of returned data
+        for item in successful["AAPL"]:
+            assert "market_date" in item
+            assert "price" in item
+            assert isinstance(item["market_date"], date)
+            assert isinstance(item["price"], Decimal)
+
+    def test_multiple_tickers_all_success(self, monkeypatch) -> None:
+        """Multiple tickers with valid prices for date range."""
+        import paper_trader.engine.market_data as market_data_module
+
+        dates_list = [date(2026, 5, 26), date(2026, 5, 23)]
+
+        mock_data = MockMultiIndexDataFrame({
+            ("AAPL", "Close"): [150.0, 149.5],
+            ("MSFT", "Close"): [410.0, 408.5],
+        }, dates=dates_list)
+
+        def mock_download(*args, **kwargs):
+            return mock_data
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["AAPL", "MSFT"],
+            start_date=date(2026, 5, 23),
+            end_date=date(2026, 5, 26),
+        )
+
+        assert len(successful) == 2
+        assert "AAPL" in successful
+        assert "MSFT" in successful
+        assert len(successful["AAPL"]) == 2
+        assert len(successful["MSFT"]) == 2
+        assert failures == {}
+
+    def test_partial_ticker_failure(self, monkeypatch) -> None:
+        """Some tickers succeed, others fail; both reported."""
+        import paper_trader.engine.market_data as market_data_module
+
+        dates_list = [date(2026, 5, 26), date(2026, 5, 23)]
+
+        # AAPL has valid prices, MSFT has all NaN
+        mock_data = MockMultiIndexDataFrame({
+            ("AAPL", "Close"): [150.0, 149.5],
+            ("MSFT", "Close"): [float("nan"), float("nan")],
+        }, dates=dates_list)
+
+        def mock_download(*args, **kwargs):
+            return mock_data
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["AAPL", "MSFT"],
+            start_date=date(2026, 5, 23),
+            end_date=date(2026, 5, 26),
+        )
+
+        assert len(successful) == 1
+        assert "AAPL" in successful
+        assert len(failures) == 1
+        assert "MSFT" in failures
+
+    def test_yfinance_exception_returns_failures(self, monkeypatch) -> None:
+        """yfinance.download exception marks all tickers as failures."""
+        import paper_trader.engine.market_data as market_data_module
+
+        def mock_download(*args, **kwargs):
+            raise Exception("Network error")
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["AAPL", "MSFT"],
+            start_date=date(2026, 5, 1),
+            end_date=date(2026, 5, 26),
+        )
+
+        assert successful == {}
+        assert len(failures) == 2
+        assert all("Network error" in reason for reason in failures.values())
+
+    def test_empty_date_range_returns_failure(self, monkeypatch) -> None:
+        """No data for date range marks ticker as failure."""
+        import paper_trader.engine.market_data as market_data_module
+
+        mock_data = MockDataFrame({
+            "Close": [],
+        })
+
+        def mock_download(*args, **kwargs):
+            return mock_data
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["AAPL"],
+            start_date=date(2026, 5, 1),
+            end_date=date(2026, 5, 26),
+        )
+
+        assert successful == {}
+        assert len(failures) == 1
+        assert "AAPL" in failures
+
+    def test_case_insensitive_normalization(self, monkeypatch) -> None:
+        """Tickers are normalized to uppercase."""
+        import paper_trader.engine.market_data as market_data_module
+
+        dates_list = [date(2026, 5, 26)]
+        mock_data = MockDataFrame({
+            "Close": [150.0],
+        }, dates=dates_list)
+
+        def mock_download(*args, **kwargs):
+            return mock_data
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["aapl", "AaPl"],
+            start_date=date(2026, 5, 26),
+            end_date=date(2026, 5, 26),
+        )
+
+        # Both get normalized to AAPL, which gets deduplicated
+        assert len(successful) == 1
+        assert "AAPL" in successful
+
+    def test_prices_returned_as_decimal(self, monkeypatch) -> None:
+        """Prices are returned as Decimal objects."""
+        import paper_trader.engine.market_data as market_data_module
+
+        dates_list = [date(2026, 5, 26)]
+        mock_data = MockDataFrame({
+            "Close": [123.456789],
+        }, dates=dates_list)
+
+        def mock_download(*args, **kwargs):
+            return mock_data
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["AAPL"],
+            start_date=date(2026, 5, 26),
+            end_date=date(2026, 5, 26),
+        )
+
+        assert len(successful["AAPL"]) == 1
+        assert isinstance(successful["AAPL"][0]["price"], Decimal)
+
+    def test_zero_price_filtered(self, monkeypatch) -> None:
+        """Zero prices are filtered out."""
+        import paper_trader.engine.market_data as market_data_module
+
+        dates_list = [date(2026, 5, 26), date(2026, 5, 23)]
+        mock_data = MockDataFrame({
+            "Close": [150.0, 0.0],
+        }, dates=dates_list)
+
+        def mock_download(*args, **kwargs):
+            return mock_data
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["AAPL"],
+            start_date=date(2026, 5, 23),
+            end_date=date(2026, 5, 26),
+        )
+
+        # Only the non-zero price is included
+        assert len(successful["AAPL"]) == 1
+        assert successful["AAPL"][0]["price"] == Decimal("150.0")

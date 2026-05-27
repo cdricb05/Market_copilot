@@ -115,10 +115,12 @@ def api_engine():
     engine = create_engine(url, pool_pre_ping=True)
     Base.metadata.create_all(engine)
     yield engine
-    with engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            conn.execute(table.delete())
-    engine.dispose()
+    try:
+        with engine.begin() as conn:
+            for table in reversed(Base.metadata.sorted_tables):
+                conn.execute(table.delete())
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture(scope="module")
@@ -133,15 +135,28 @@ def client(api_engine):
 
     Teardown clears both singletons so later modules are not affected.
     """
+    import asyncio
+    import gc
+
     db_url = api_engine.url.render_as_string(hide_password=False)
     os.environ["PAPER_TRADER_DATABASE_URL"]     = db_url
     os.environ["PAPER_TRADER_SERVICE_API_KEY"]  = _TEST_API_KEY
     get_settings.cache_clear()
     reset_engine_state()
-    with TestClient(app) as c:
+    c = TestClient(app)
+    try:
         yield c
-    get_settings.cache_clear()
-    reset_engine_state()
+    finally:
+        c.close()
+        # Try to run async cleanup if the TestClient supports it
+        try:
+            loop = asyncio.get_event_loop()
+            if loop and not loop.is_closed():
+                loop.run_until_complete(c.wait_shutdown())
+        except Exception:
+            pass
+        get_settings.cache_clear()
+        reset_engine_state()
 
 
 @pytest.fixture(scope="module")
@@ -2430,3 +2445,405 @@ class TestMarketScanEndpoint:
             assert "ticker" in skipped
             assert "reason" in skipped
             assert "price_count" in skipped
+
+
+class TestMarketBackfillPricesEndpoint:
+    """POST /v1/market/backfill-prices endpoint tests."""
+
+    @pytest.fixture(autouse=True)
+    def _prevent_real_yfinance(self, monkeypatch):
+        """Autouse fixture: fail immediately if real yfinance.download is called."""
+        def fail_if_yfinance_called(*args, **kwargs):
+            raise AssertionError(
+                "Test attempted to call real yfinance.download. "
+                "All TestMarketBackfillPricesEndpoint tests must mock fetch_historical_prices."
+            )
+
+        # Patch yfinance.download at the engine module level where it's imported
+        try:
+            import paper_trader.engine.market_data as market_data_module
+            if hasattr(market_data_module, 'yfinance') and market_data_module.yfinance is not None:
+                monkeypatch.setattr(
+                    market_data_module.yfinance,
+                    "download",
+                    fail_if_yfinance_called
+                )
+        except (ImportError, AttributeError):
+            pass
+
+    def test_requires_api_key(self, seeded_client: TestClient) -> None:
+        """Endpoint requires X-API-Key header."""
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2026-04-01",
+                "end_date": "2026-05-26",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": True,
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_max_tickers_cap_enforced(self, seeded_client: TestClient) -> None:
+        """max_tickers > 50 is rejected with 422."""
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2026-04-01",
+                "end_date": "2026-05-26",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 51,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_invalid_date_range_start_after_end(self, seeded_client: TestClient) -> None:
+        """start_date > end_date is rejected with 422."""
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2026-05-26",
+                "end_date": "2026-04-01",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_invalid_date_range_exceeds_180_days(self, seeded_client: TestClient) -> None:
+        """Date range > 180 days is rejected with 422."""
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2025-01-01",
+                "end_date": "2026-07-30",  # 181 days
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_explicit_tickers_dry_run(self, seeded_client: TestClient, monkeypatch, api_engine) -> None:
+        """dry_run=true fetches data but inserts zero rows."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        # Mock fetch_historical_prices to return known data
+        # Use dates in April 2026 to avoid collisions
+        mock_successful = {
+            "AAPL": [
+                {"market_date": date_type(2026, 4, 1), "price": Decimal("150.00")},
+                {"market_date": date_type(2026, 4, 2), "price": Decimal("151.00")},
+            ]
+        }
+        mock_failures = {}
+
+        def mock_fetch(*args, **kwargs):
+            return mock_successful, mock_failures
+
+        monkeypatch.setattr(app_module, "fetch_historical_prices", mock_fetch)
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2026-04-01",
+                "end_date": "2026-05-26",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is True
+        assert "results" in data
+        assert "failures" in data
+        # Verify response structure is populated
+        assert data["processed_count"] >= 1
+        # Verify no PriceSnapshot rows were actually inserted to database (dry_run=true)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            snapshot_count = session.query(PriceSnapshot).filter(
+                PriceSnapshot.ticker == "AAPL",
+                PriceSnapshot.market_date >= date_type(2026, 4, 1),
+                PriceSnapshot.market_date <= date_type(2026, 4, 2),
+            ).count()
+            assert snapshot_count == 0, "dry_run should not insert any rows"
+
+    def test_explicit_tickers_non_dry_run_inserts_rows(self, seeded_client: TestClient, monkeypatch) -> None:
+        """non-dry_run with mocked yfinance inserts PriceSnapshot rows."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        # Mock fetch_historical_prices to return known data
+        # Use dates in January 2026 to avoid collisions with other tests
+        mock_successful = {
+            "AAPL": [
+                {"market_date": date_type(2026, 1, 23), "price": Decimal("150.00")},
+                {"market_date": date_type(2026, 1, 24), "price": Decimal("149.50")},
+            ]
+        }
+        mock_failures = {}
+
+        def mock_fetch(*args, **kwargs):
+            return mock_successful, mock_failures
+
+        monkeypatch.setattr(app_module, "fetch_historical_prices", mock_fetch)
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2026-01-23",
+                "end_date": "2026-01-24",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is False
+        assert data["inserted_count"] == 2
+        assert len(data["results"]) >= 1
+        assert data["results"][0]["status"] == "OK"
+
+    def test_idempotent_same_run_twice(self, seeded_client: TestClient, monkeypatch) -> None:
+        """Running backfill twice with same params: 2nd run inserts 0 rows."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        # Mock fetch_historical_prices
+        # Use dates in February 2026 to avoid collisions with other tests
+        mock_successful = {
+            "AAPL": [
+                {"market_date": date_type(2026, 2, 15), "price": Decimal("150.00")},
+            ]
+        }
+        mock_failures = {}
+
+        def mock_fetch(*args, **kwargs):
+            return mock_successful, mock_failures
+
+        monkeypatch.setattr(app_module, "fetch_historical_prices", mock_fetch)
+
+        # First run
+        resp1 = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2026-02-15",
+                "end_date": "2026-02-15",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp1.status_code == 200
+        data1 = resp1.json()
+        assert data1["inserted_count"] > 0
+
+        # Second run with same params
+        resp2 = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2026-02-15",
+                "end_date": "2026-02-15",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        # Second run should insert 0 new rows (all skipped as existing)
+        assert data2["inserted_count"] == 0
+        assert data2["skipped_existing_count"] > 0
+
+    def test_sp500_universe_respects_max_tickers(self, seeded_client: TestClient, monkeypatch) -> None:
+        """SP500 universe request capped to max_tickers."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        # Mock to return per-ticker (so we can verify count)
+        call_count = [0]
+
+        def mock_fetch(tickers, *args, **kwargs):
+            call_count[0] = len(tickers)
+            # Return empty data for all
+            return {}, {}
+
+        monkeypatch.setattr(app_module, "fetch_historical_prices", mock_fetch)
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": None,  # Use universe
+                "start_date": "2026-05-01",
+                "end_date": "2026-05-26",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 5,  # Cap to 5
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Verify that only 5 tickers were processed
+        assert data["processed_count"] <= 5
+
+    def test_partial_ticker_failure(self, seeded_client: TestClient, monkeypatch) -> None:
+        """One ticker fails, others succeed; both in response."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        # Use March dates to avoid collisions
+        mock_successful = {
+            "AAPL": [
+                {"market_date": date_type(2026, 3, 15), "price": Decimal("150.00")},
+            ]
+        }
+        mock_failures = {
+            "MSFT": "No data returned"
+        }
+
+        def mock_fetch(*args, **kwargs):
+            return mock_successful, mock_failures
+
+        monkeypatch.setattr(app_module, "fetch_historical_prices", mock_fetch)
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "start_date": "2026-03-15",
+                "end_date": "2026-03-15",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # AAPL succeeds
+        assert any(r["ticker"] == "AAPL" and r["status"] == "OK" for r in data["results"])
+        # MSFT fails
+        assert any(f["ticker"] == "MSFT" for f in data["failures"])
+        assert len(data["failures"]) > 0
+
+    def test_all_tickers_fail(self, seeded_client: TestClient, monkeypatch) -> None:
+        """All tickers fail; response is 200 with failures populated."""
+        import paper_trader.api.app as app_module
+
+        mock_successful = {}
+        mock_failures = {
+            "AAPL": "No data",
+            "MSFT": "No data",
+        }
+
+        def mock_fetch(*args, **kwargs):
+            return mock_successful, mock_failures
+
+        monkeypatch.setattr(app_module, "fetch_historical_prices", mock_fetch)
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "start_date": "2026-04-15",
+                "end_date": "2026-04-15",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should return 200, not crash
+        assert "failures" in data
+        assert len(data["failures"]) == 2
+        assert data["failed_count"] == 2
+
+    def test_response_structure(self, seeded_client: TestClient, monkeypatch) -> None:
+        """Response has all required fields."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        # Use May dates
+        mock_successful = {
+            "AAPL": [
+                {"market_date": date_type(2026, 5, 20), "price": Decimal("150.00")},
+            ]
+        }
+        mock_failures = {}
+
+        def mock_fetch(*args, **kwargs):
+            return mock_successful, mock_failures
+
+        monkeypatch.setattr(app_module, "fetch_historical_prices", mock_fetch)
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "start_date": "2026-05-20",
+                "end_date": "2026-05-20",
+                "price_type": "CLOSE",
+                "session_type": "REGULAR",
+                "max_tickers": 10,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Verify all required response fields
+        required_fields = [
+            "universe", "requested_count", "processed_count", "inserted_count",
+            "updated_count", "skipped_existing_count", "failed_count", "dry_run",
+            "start_date", "end_date", "results", "failures"
+        ]
+        for field in required_fields:
+            assert field in data, f"Missing field: {field}"

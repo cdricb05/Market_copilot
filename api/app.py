@@ -61,7 +61,7 @@ from paper_trader.db.models import (
     TradeDecision,
 )
 from paper_trader.db.session import get_dedicated_session, get_session
-from paper_trader.engine.market_data import fetch_latest_prices
+from paper_trader.engine.market_data import fetch_latest_prices, fetch_historical_prices
 from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import get_portfolio
 from paper_trader.engine.prediction_client import (
@@ -396,6 +396,68 @@ class FetchAndRunPredictionResponse(BaseModel):
     errors: int
     decisions_breakdown: dict[str, int] = Field(default_factory=lambda: {"approved": 0, "rejected": 0, "hold": 0})
     rejection_reasons: dict[str, int] = Field(default_factory=dict)
+
+
+class BackfillRequest(BaseModel):
+    universe: str = Field(
+        default="SP500",
+        description="Universe name ('SP500'). Ignored if tickers provided.",
+    )
+    tickers: list[str] | None = Field(
+        default=None,
+        description="Explicit list of tickers to backfill. Takes precedence over universe.",
+    )
+    start_date: date = Field(
+        description="Start date (inclusive) for historical prices.",
+    )
+    end_date: date = Field(
+        description="End date (inclusive) for historical prices.",
+    )
+    price_type: str = Field(
+        default=PriceType.CLOSE,
+        description="Price type ('CLOSE'). Currently only CLOSE is supported.",
+    )
+    session_type: str = Field(
+        default=SessionType.REGULAR,
+        description="Session type ('REGULAR' for daily close).",
+    )
+    max_tickers: int = Field(
+        description="Maximum number of tickers to process (required, capped at 50).",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If true, fetch data but don't insert rows.",
+    )
+
+
+class BackfillResultDetail(BaseModel):
+    ticker: str
+    rows_found: int
+    inserted: int
+    updated: int
+    skipped_existing: int
+    status: str
+    error: str | None = None
+
+
+class BackfillFailure(BaseModel):
+    ticker: str
+    error: str
+
+
+class BackfillResponse(BaseModel):
+    universe: str
+    requested_count: int
+    processed_count: int
+    inserted_count: int
+    updated_count: int
+    skipped_existing_count: int
+    failed_count: int
+    dry_run: bool
+    start_date: str
+    end_date: str
+    results: list[BackfillResultDetail]
+    failures: list[BackfillFailure]
 
 
 class MarketScanRequest(BaseModel):
@@ -1905,6 +1967,194 @@ def check_strategy_readiness(
         long_window=long_window,
         overall_status="Ready" if all_ready else "Insufficient History",
         tickers_status=tickers_status,
+    )
+
+
+@app.post(
+    "/v1/market/backfill-prices",
+    response_model=BackfillResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def backfill_prices(body: BackfillRequest) -> BackfillResponse:
+    """
+    Backfill historical daily CLOSE prices for a date range.
+
+    Validates request, fetches prices from yfinance, and idempotently inserts
+    PriceSnapshot rows. Does not overwrite existing rows (skips them instead).
+
+    Request:
+        universe: "SP500" (ignored if tickers provided).
+        tickers: Explicit ticker list (takes precedence over universe).
+        start_date: Start date (inclusive).
+        end_date: End date (inclusive).
+        price_type: "CLOSE" (hardcoded for v1).
+        session_type: "REGULAR" (hardcoded for v1).
+        max_tickers: Required. Max 50 for v1.
+        dry_run: If true, fetches but doesn't insert rows.
+
+    Validation:
+        - max_tickers is required and must be <= 50.
+        - start_date <= end_date.
+        - date range <= 180 days.
+        - If tickers null and universe != SP500, use SP500.
+
+    Response:
+        Returns 200 OK always (even with failures/empty results).
+        Includes per-ticker results and failures array.
+    """
+    # Validation: max_tickers
+    if body.max_tickers > 50:
+        raise HTTPException(
+            status_code=422,
+            detail=f"max_tickers must be <= 50, got {body.max_tickers}",
+        )
+
+    # Validation: date range
+    if body.start_date > body.end_date:
+        raise HTTPException(
+            status_code=422,
+            detail=f"start_date must be <= end_date",
+        )
+
+    from datetime import timedelta
+    date_range_days = (body.end_date - body.start_date).days
+    if date_range_days > 180:
+        raise HTTPException(
+            status_code=422,
+            detail=f"date range must be <= 180 days, got {date_range_days}",
+        )
+
+    # Resolve tickers: explicit tickers take precedence
+    from paper_trader.engine.universe import get_sp500_universe
+    if body.tickers:
+        tickers_to_backfill = body.tickers
+    else:
+        if body.universe == "SP500":
+            tickers_to_backfill = get_sp500_universe()
+        else:
+            tickers_to_backfill = get_sp500_universe()
+
+    # Cap to max_tickers
+    requested_count = len(tickers_to_backfill)
+    tickers_to_backfill = tickers_to_backfill[:body.max_tickers]
+
+    # Fetch historical prices from yfinance
+    successful_prices, fetch_failures = fetch_historical_prices(
+        tickers=tickers_to_backfill,
+        start_date=body.start_date,
+        end_date=body.end_date,
+    )
+
+    # Process results
+    results = []
+    inserted_count = 0
+    updated_count = 0
+    skipped_existing_count = 0
+    failed_count = len(fetch_failures)
+
+    # Counters for tickers in failures
+    failures_list = [
+        BackfillFailure(ticker=t, error=r)
+        for t, r in fetch_failures.items()
+    ]
+
+    with get_dedicated_session() as session:
+        for ticker in tickers_to_backfill:
+            if ticker in fetch_failures:
+                # Already recorded in failures_list
+                continue
+
+            ticker_data = successful_prices.get(ticker, [])
+            if not ticker_data:
+                # This shouldn't happen if fetch succeeded, but safety check
+                failed_count += 1
+                failures_list.append(
+                    BackfillFailure(ticker=ticker, error="No price data")
+                )
+                results.append(
+                    BackfillResultDetail(
+                        ticker=ticker,
+                        rows_found=0,
+                        inserted=0,
+                        updated=0,
+                        skipped_existing=0,
+                        status="FAILED",
+                        error="No price data",
+                    )
+                )
+                continue
+
+            rows_found = len(ticker_data)
+            ticker_inserted = 0
+            ticker_skipped = 0
+
+            for row in ticker_data:
+                market_date = row["market_date"]
+                price = row["price"]
+
+                # Check if row already exists
+                existing = session.execute(
+                    select(PriceSnapshot).where(
+                        PriceSnapshot.ticker == ticker,
+                        PriceSnapshot.market_date == market_date,
+                        PriceSnapshot.price_type == body.price_type,
+                        PriceSnapshot.session_type == body.session_type,
+                    )
+                ).scalar_one_or_none()
+
+                if existing:
+                    ticker_skipped += 1
+                    skipped_existing_count += 1
+                else:
+                    if not body.dry_run:
+                        # Create snapshot_ts as datetime for that market_date at market close (16:00 UTC is typical)
+                        from datetime import datetime
+                        snapshot_ts = datetime.combine(market_date, datetime.min.time())
+                        snapshot_ts = snapshot_ts.replace(hour=16, minute=0, second=0, tzinfo=timezone.utc)
+
+                        ps = PriceSnapshot(
+                            ticker=ticker,
+                            price=price,
+                            market_date=market_date,
+                            price_type=body.price_type,
+                            session_type=body.session_type,
+                            snapshot_ts=snapshot_ts,
+                            job_run_id=None,
+                        )
+                        session.add(ps)
+
+                    ticker_inserted += 1
+                    inserted_count += 1
+
+            if not body.dry_run:
+                session.commit()
+
+            results.append(
+                BackfillResultDetail(
+                    ticker=ticker,
+                    rows_found=rows_found,
+                    inserted=ticker_inserted,
+                    updated=0,
+                    skipped_existing=ticker_skipped,
+                    status="OK",
+                    error=None,
+                )
+            )
+
+    return BackfillResponse(
+        universe=body.universe,
+        requested_count=requested_count,
+        processed_count=len(tickers_to_backfill),
+        inserted_count=inserted_count,
+        updated_count=updated_count,
+        skipped_existing_count=skipped_existing_count,
+        failed_count=failed_count,
+        dry_run=body.dry_run,
+        start_date=str(body.start_date),
+        end_date=str(body.end_date),
+        results=results,
+        failures=failures_list,
     )
 
 
