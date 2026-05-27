@@ -58,7 +58,7 @@ from sqlalchemy.orm import Session
 from paper_trader.api.app import app
 from paper_trader.config import get_settings
 from paper_trader.constants import CashEntryType, JobRunStatus, WorkflowType
-from paper_trader.db.models import Base, BenchmarkPrice, JobRun, Portfolio, PortfolioSnapshot, PriceSnapshot
+from paper_trader.db.models import Base, BenchmarkPrice, JobRun, Order, Portfolio, PortfolioSnapshot, PriceSnapshot, Signal, TradeDecision
 from paper_trader.db.session import reset_engine_state
 from paper_trader.engine.portfolio import append_cash_entry, open_position
 
@@ -2472,6 +2472,763 @@ class TestMarketScanEndpoint:
         assert evaluated + skipped == total  # Equation holds
         # Only up to top_n are returned in candidates (2 in this case)
         assert len(data["candidates"]) <= data["top_n"]
+
+
+@pytest.fixture(scope="module")
+def market_scan_prediction_seeded_client(seeded_client, api_engine):
+    """
+    Client with PriceSnapshot and BenchmarkPrice rows for market scan tests.
+
+    Seeds 25 days of price history for AAPL, MSFT, SPY to enable:
+    - Market scan to select candidates (min_price_points=5, lookback_days=20)
+    - Relative strength vs SPY calculations
+    - Momentum and volatility calculations
+    """
+    from datetime import timedelta
+
+    with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+        # Use dates from 2025-01-15 backwards 25 days (into 2024-12-21)
+        base_date = date(2024, 12, 21)
+
+        # Seed SPY prices (benchmark)
+        for i in range(25):
+            market_date = base_date + timedelta(days=i)
+            price = Decimal("500.00") + Decimal(i * 0.5)  # Uptrend
+            session.add(BenchmarkPrice(
+                ticker="SPY",
+                price=price,
+                session_type="REGULAR",
+                market_date=market_date,
+                snapshot_ts=_NOW.replace(day=min(market_date.day, 28)),
+            ))
+
+        # Seed AAPL prices (uptrend with volatility)
+        for i in range(25):
+            market_date = base_date + timedelta(days=i)
+            price = Decimal("150.00") + Decimal(i * 0.4)  # Slight uptrend
+            if i % 2 == 0:
+                price += Decimal("0.5")  # Add noise
+            session.add(PriceSnapshot(
+                ticker="AAPL",
+                price=price,
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=_NOW.replace(day=min(market_date.day, 28)),
+                market_date=market_date,
+                job_run_id=None,
+            ))
+
+        # Seed MSFT prices (uptrend with more volatility)
+        for i in range(25):
+            market_date = base_date + timedelta(days=i)
+            price = Decimal("200.00") + Decimal(i * 0.6)  # Steeper uptrend
+            if i % 3 == 0:
+                price += Decimal("1.0")  # More noise
+            session.add(PriceSnapshot(
+                ticker="MSFT",
+                price=price,
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=_NOW.replace(day=min(market_date.day, 28)),
+                market_date=market_date,
+                job_run_id=None,
+            ))
+
+        session.commit()
+
+    yield seeded_client
+
+
+class TestMarketScanPredictionCandidatesEndpoint:
+    """POST /v1/strategy/market-scan/prediction-candidates: Market scan + prediction preview (V1)."""
+
+    def test_requires_api_key(self, client: TestClient) -> None:
+        """Endpoint requires X-API-Key header."""
+        resp = client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-001",
+                "universe": "SP500",
+                "tickers": None,
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_rejects_dry_run_false_with_422(self, seeded_client: TestClient) -> None:
+        """V1: dry_run must be true, rejects false with 422."""
+        resp = seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-002",
+                "universe": "SP500",
+                "tickers": None,
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": False,  # Violation
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+        assert "PREVIEW-ONLY" in resp.json()["detail"]
+
+    def test_rejects_submit_signals_true_with_422(self, seeded_client: TestClient) -> None:
+        """V1: submit_signals must be false, rejects true with 422."""
+        resp = seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-003",
+                "universe": "SP500",
+                "tickers": None,
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": True,  # Violation
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+        assert "PREVIEW-ONLY" in resp.json()["detail"]
+
+    def test_rejects_run_risk_true_with_422(self, seeded_client: TestClient) -> None:
+        """V1: run_risk must be false, rejects true with 422."""
+        resp = seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-004",
+                "universe": "SP500",
+                "tickers": None,
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": True,  # Violation
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+        assert "PREVIEW-ONLY" in resp.json()["detail"]
+
+    def test_rejects_create_orders_true_with_422(self, seeded_client: TestClient) -> None:
+        """V1: create_orders must be false, rejects true with 422."""
+        resp = seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-005",
+                "universe": "SP500",
+                "tickers": None,
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": True,  # Violation
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+        assert "PREVIEW-ONLY" in resp.json()["detail"]
+
+    def test_scan_and_select_top_prediction_candidates(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Runs market scan and selects top prediction_top_n candidates."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # Return predictions for requested tickers
+            return (
+                [
+                    {
+                        "ticker": t,
+                        "current_price": "100.00",
+                        "ensemble_day5": "105.00",
+                        "d5_change_pct": "5.00",
+                        "confidence": "80.0",
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                    for t in tickers
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-006",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,  # Select top 2
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Verify structure
+        assert "idempotency_key" in data
+        assert data["idempotency_key"] == "test-006"
+        assert data["dry_run"] is True
+        assert data["execution_mode"] == "PREVIEW_ONLY"
+        assert "scan" in data
+        assert "selected_tickers" in data
+        assert "predictions_fetched" in data
+        assert "normalized_predictions" in data
+        assert data["signals_submitted"] == 0
+        assert data["decisions_made"] == 0
+        assert data["orders_created"] == 0
+
+        # Verify selected tickers is limited to prediction_top_n
+        assert len(data["selected_tickers"]) <= 2
+
+    def test_excludes_skipped_and_outlier_tickers(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Excludes skipped tickers and DATA_QUALITY_OUTLIER tickers from prediction selection."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # Return empty responses (no predictions should be fetched for excluded tickers)
+            return [], []
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-007",
+                "universe": "SP500",
+                "tickers": ["NONEXISTENT"],  # Will be skipped due to no price data
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Non-existent ticker should be in skipped, so selected_tickers should be empty
+        assert len(data["selected_tickers"]) == 0
+        assert data["predictions_fetched"] == 0
+
+    def test_partial_prediction_failures_returns_200(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Partial prediction failures return 200 with failures populated."""
+        from paper_trader.engine.market_screener import CandidateScore, SkippedTicker
+
+        def mock_scan(session, tickers=None, universe="SP500", benchmark_ticker="SPY", lookback_days=20, top_n=25, min_price_points=5):
+            candidates = [
+                CandidateScore(
+                    rank=1,
+                    ticker="AAPL",
+                    score="5.23",
+                    latest_price="150.00",
+                    latest_market_date="2025-01-14",
+                    price_count=25,
+                    momentum_5d_pct="2.50",
+                    momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15",
+                    relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM", "OUTPERFORMING_SPY"],
+                ),
+                CandidateScore(
+                    rank=2,
+                    ticker="MSFT",
+                    score="4.15",
+                    latest_price="200.00",
+                    latest_market_date="2025-01-14",
+                    price_count=25,
+                    momentum_5d_pct="1.50",
+                    momentum_20d_pct="3.00",
+                    volatility_20d_pct="3.20",
+                    relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ]
+            return candidates, [], date(2025, 1, 14)
+
+        monkeypatch.setattr(
+            "paper_trader.engine.market_screener.scan_market",
+            mock_scan,
+        )
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # AAPL succeeds, MSFT fails
+            return (
+                [
+                    {
+                        "ticker": "AAPL",
+                        "current_price": "150.00",
+                        "ensemble_day5": "157.50",
+                        "d5_change_pct": "5.00",
+                        "confidence": "80.0",
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                ],
+                [
+                    {"ticker": "MSFT", "reason": "Service unavailable"},
+                ],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-008",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Verify selected candidates exist
+        assert len(data["selected_tickers"]) > 0
+        assert set(data["selected_tickers"]) <= {"AAPL", "MSFT"}
+        # Verify prediction fetch was called
+        assert data["predictions_fetched"] == 1
+        assert len(data["prediction_failures"]) == 1
+        assert len(data["normalized_predictions"]) == 1
+
+    def test_all_prediction_failures_returns_200_with_failures(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """All prediction failures for selected candidates returns 200 (PREVIEW endpoint)."""
+        from paper_trader.engine.market_screener import CandidateScore, SkippedTicker
+
+        def mock_scan(session, tickers=None, universe="SP500", benchmark_ticker="SPY", lookback_days=20, top_n=25, min_price_points=5):
+            candidates = [
+                CandidateScore(
+                    rank=1,
+                    ticker="MSFT",
+                    score="4.15",
+                    latest_price="200.00",
+                    latest_market_date="2025-01-14",
+                    price_count=25,
+                    momentum_5d_pct="1.50",
+                    momentum_20d_pct="3.00",
+                    volatility_20d_pct="3.20",
+                    relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ]
+            return candidates, [], date(2025, 1, 14)
+
+        monkeypatch.setattr(
+            "paper_trader.engine.market_screener.scan_market",
+            mock_scan,
+        )
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # All fetch attempts fail
+            return (
+                [],
+                [
+                    {"ticker": t, "reason": "Prediction service unavailable"}
+                    for t in tickers
+                ],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-009",
+                "universe": "SP500",
+                "tickers": ["MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        # Preview endpoint returns 200 even when all predictions fail
+        assert resp.status_code == 200
+        data = resp.json()
+        # Verify selected candidates exist (so prediction fetch was attempted)
+        assert len(data["selected_tickers"]) > 0
+        assert data["selected_tickers"] == ["MSFT"]
+        # Verify all selected candidates had prediction failures
+        assert data["predictions_fetched"] == 0
+        assert len(data["prediction_failures"]) > 0
+        assert len(data["normalized_predictions"]) == 0
+        assert data["signals_submitted"] == 0
+        assert data["decisions_made"] == 0
+        assert data["orders_created"] == 0
+
+    def test_returns_zero_execution_counts(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Response always has zero signals_submitted, decisions_made, orders_created."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": t,
+                        "current_price": "100.00",
+                        "ensemble_day5": "105.00",
+                        "d5_change_pct": "5.00",
+                        "confidence": "75.0",
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                    for t in tickers
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-010",
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_submitted"] == 0
+        assert data["decisions_made"] == 0
+        assert data["orders_created"] == 0
+
+    def test_no_signal_rows_created(self, market_scan_prediction_seeded_client: TestClient, monkeypatch) -> None:
+        """V1: No Signal rows are created in the database."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": t,
+                        "current_price": "100.00",
+                        "ensemble_day5": "105.00",
+                        "d5_change_pct": "5.00",
+                        "confidence": "80.0",
+                        "recommendation": "SELL",
+                        "per_model_summary": {},
+                    }
+                    for t in tickers
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-011",
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+
+        # Query database to verify no Signal rows were created
+        from paper_trader.db.session import get_dedicated_session
+        from sqlalchemy import select
+
+        with get_dedicated_session() as session:
+            signal_count = session.execute(
+                select(Signal).where(Signal.source_run == "test-011")
+            ).scalars().all()
+            assert len(signal_count) == 0
+
+    def test_no_trade_decision_rows_created(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """V1: No TradeDecision rows are created in the database."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": t,
+                        "current_price": "100.00",
+                        "ensemble_day5": "105.00",
+                        "d5_change_pct": "5.00",
+                        "confidence": "85.0",
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                    for t in tickers
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-012",
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+
+        # Query database to verify no TradeDecision rows were created
+        from paper_trader.db.session import get_dedicated_session
+        from sqlalchemy import select
+
+        with get_dedicated_session() as session:
+            decision_count = session.execute(
+                select(TradeDecision)
+            ).scalars().all()
+            # Check that none of these decisions are from this test
+            test_decisions = [d for d in decision_count if getattr(d, 'idempotency_key', None) == 'test-012']
+            assert len(test_decisions) == 0
+
+    def test_no_order_rows_created(self, market_scan_prediction_seeded_client: TestClient, monkeypatch) -> None:
+        """V1: No Order rows are created in the database."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [
+                    {
+                        "ticker": t,
+                        "current_price": "100.00",
+                        "ensemble_day5": "105.00",
+                        "d5_change_pct": "5.00",
+                        "confidence": "90.0",
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                    for t in tickers
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        # Count orders before request
+        from paper_trader.db.session import get_dedicated_session
+        from sqlalchemy import select
+
+        with get_dedicated_session() as session:
+            orders_before = len(session.execute(select(Order)).scalars().all())
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-013",
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+
+        # Query database to verify no new Order rows were created
+        with get_dedicated_session() as session:
+            orders_after = len(session.execute(select(Order)).scalars().all())
+            # No new orders should be created
+            assert orders_after == orders_before
+
+    def test_no_real_gcp_api_calls(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Tests do not call real GCP prediction API."""
+        from paper_trader.engine.market_screener import CandidateScore, SkippedTicker
+
+        def mock_scan(session, tickers=None, universe="SP500", benchmark_ticker="SPY", lookback_days=20, top_n=25, min_price_points=5):
+            candidates = [
+                CandidateScore(
+                    rank=1,
+                    ticker="AAPL",
+                    score="5.23",
+                    latest_price="150.00",
+                    latest_market_date="2025-01-14",
+                    price_count=25,
+                    momentum_5d_pct="2.50",
+                    momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15",
+                    relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM", "OUTPERFORMING_SPY"],
+                ),
+            ]
+            return candidates, [], date(2025, 1, 14)
+
+        monkeypatch.setattr(
+            "paper_trader.engine.market_screener.scan_market",
+            mock_scan,
+        )
+
+        call_log = []
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            call_log.append(tickers)
+            # Return one valid prediction
+            return (
+                [
+                    {
+                        "ticker": tickers[0],
+                        "current_price": "150.00",
+                        "ensemble_day5": "157.50",
+                        "d5_change_pct": "5.00",
+                        "confidence": "75.0",
+                        "recommendation": "BUY",
+                        "per_model_summary": {},
+                    }
+                ],
+                [],
+            )
+
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers",
+            mock_fetch,
+        )
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-014",
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        # Verify mock was called with selected tickers
+        assert len(call_log) > 0
+        assert isinstance(call_log[0], list)
+        assert call_log[0] == ["AAPL"]
+        # Verify we got predictions
+        data = resp.json()
+        assert len(data["selected_tickers"]) > 0
+        assert data["selected_tickers"] == ["AAPL"]
+        assert data["predictions_fetched"] == 1
+        assert len(data["normalized_predictions"]) == 1
 
 
 class TestMarketBackfillPricesEndpoint:

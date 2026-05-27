@@ -17,6 +17,9 @@ Endpoints:
     GET  /v1/performance           — inception-to-date performance summary
     GET  /v1/performance/history   — time-series performance history for charting
     GET  /v1/performance/history.csv — same history exported as a CSV file
+    POST /v1/market/scan           — scan market candidates (read-only)
+    POST /v1/strategy/prediction/fetch-and-run — fetch predictions and run workflow (creates decisions/orders)
+    POST /v1/strategy/market-scan/prediction-candidates — market scan + prediction preview (V1 PREVIEW ONLY)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -396,6 +399,91 @@ class FetchAndRunPredictionResponse(BaseModel):
     errors: int
     decisions_breakdown: dict[str, int] = Field(default_factory=lambda: {"approved": 0, "rejected": 0, "hold": 0})
     rejection_reasons: dict[str, int] = Field(default_factory=dict)
+
+
+class MarketScanPredictionCandidatesRequest(BaseModel):
+    """Request to scan market and fetch predictions for top candidates (PREVIEW ONLY in V1)."""
+    idempotency_key: str
+    universe: str = Field(
+        default="SP500",
+        description="Universe name ('SP500'). Ignored if tickers provided.",
+    )
+    tickers: list[str] | None = Field(
+        default=None,
+        description="Explicit list of tickers to scan. Takes precedence over universe.",
+    )
+    benchmark_ticker: str = Field(
+        default="SPY",
+        description="Benchmark ticker for relative strength calculation.",
+    )
+    lookback_days: int = Field(
+        default=20,
+        ge=1,
+        description="Number of days of history to consider for scanning.",
+    )
+    top_n: int = Field(
+        default=25,
+        ge=1,
+        le=100,
+        description="Return top N candidates from scan (capped at 100).",
+    )
+    min_price_points: int = Field(
+        default=5,
+        ge=1,
+        description="Minimum number of price points required per ticker.",
+    )
+    prediction_top_n: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="Select top N candidates for prediction fetching.",
+    )
+    dry_run: bool = Field(
+        default=True,
+        description="V1: must be true. PREVIEW mode only; no database writes.",
+    )
+    submit_signals: bool = Field(
+        default=False,
+        description="V1: must be false. No Signal rows created.",
+    )
+    run_risk: bool = Field(
+        default=False,
+        description="V1: must be false. No risk evaluation or decisions.",
+    )
+    create_orders: bool = Field(
+        default=False,
+        description="V1: must be false. No orders created.",
+    )
+
+
+class ScanSummaryOut(BaseModel):
+    """Market scan summary."""
+    universe: str
+    scan_date: str | None
+    total_universe_count: int
+    evaluated_count: int
+    skipped_count: int
+    candidate_count: int
+
+
+class PredictionFailureDetail(BaseModel):
+    ticker: str
+    reason: str
+
+
+class MarketScanPredictionCandidatesResponse(BaseModel):
+    """Response from market scan + prediction candidate preview endpoint."""
+    idempotency_key: str
+    dry_run: bool
+    execution_mode: str
+    scan: ScanSummaryOut
+    selected_tickers: list[str]
+    predictions_fetched: int
+    prediction_failures: list[PredictionFailureDetail]
+    normalized_predictions: list[NormalizedPrediction]
+    signals_submitted: int
+    decisions_made: int
+    orders_created: int
 
 
 class BackfillRequest(BaseModel):
@@ -2470,6 +2558,135 @@ def scan_market(body: MarketScanRequest) -> MarketScanResponse:
         top_n=min(body.top_n, 100),
         candidates=[CandidateOut(**c.to_dict()) for c in candidates],
         skipped_tickers=[SkippedTickerOut(**s.to_dict()) for s in skipped],
+    )
+
+
+@app.post(
+    "/v1/strategy/market-scan/prediction-candidates",
+    response_model=MarketScanPredictionCandidatesResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def market_scan_prediction_candidates(
+    body: MarketScanPredictionCandidatesRequest,
+) -> MarketScanPredictionCandidatesResponse:
+    """
+    Preview endpoint: Scan market and fetch predictions for top candidates (V1 PREVIEW ONLY).
+
+    This endpoint is PREVIEW-ONLY in V1. It runs market scan, selects top candidates,
+    fetches predictions, and normalizes them WITHOUT creating any database artifacts
+    (no Signal, TradeDecision, Order rows). No trading workflows are executed.
+
+    V1 Rules (enforced):
+        - dry_run must be true
+        - submit_signals must be false
+        - run_risk must be false
+        - create_orders must be false
+        - Returns 422 if any rule is violated
+
+    Behavior:
+        - Runs market scan to generate candidates
+        - Excludes skipped tickers and DATA_QUALITY_OUTLIER tickers
+        - Selects top prediction_top_n clean candidates
+        - Fetches predictions from configured GCP API
+        - Normalizes predictions to Paper Trader contract
+        - Per-ticker fetch/normalization failures do not block others
+        - Returns 200 with preview results even if all predictions fail (valid preview outcome)
+    """
+    # V1 Safety rules: enforce PREVIEW-ONLY mode
+    if not body.dry_run or body.submit_signals or body.run_risk or body.create_orders:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "V1 endpoint is PREVIEW-ONLY: dry_run must be true, "
+                "submit_signals must be false, run_risk must be false, create_orders must be false"
+            ),
+        )
+
+    now, market_date = _now_and_date()
+    settings = get_settings()
+
+    # Run market scan
+    from paper_trader.engine.market_screener import scan_market as scan_market_fn
+    from paper_trader.engine.universe import get_sp500_universe
+
+    with get_dedicated_session() as session:
+        candidates, skipped, scan_date = scan_market_fn(
+            session=session,
+            tickers=body.tickers,
+            universe=body.universe,
+            benchmark_ticker=body.benchmark_ticker,
+            lookback_days=body.lookback_days,
+            top_n=body.top_n,
+            min_price_points=body.min_price_points,
+        )
+
+    # Determine universe size
+    universe_tickers = get_sp500_universe() if body.universe == "SP500" else []
+    if body.tickers:
+        universe_tickers = body.tickers
+
+    # Filter candidates to exclude DATA_QUALITY_OUTLIER
+    clean_candidates = [
+        c for c in candidates
+        if "DATA_QUALITY_OUTLIER" not in c.reason_codes
+    ]
+
+    # Select top prediction_top_n tickers from clean candidates
+    selected_for_prediction = clean_candidates[:body.prediction_top_n]
+    selected_tickers = [c.ticker for c in selected_for_prediction]
+
+    # Fetch predictions for selected tickers
+    fetched_responses = []
+    fetch_failures = []
+
+    if selected_tickers:
+        try:
+            fetched_responses, fetch_failures = await fetch_predictions_for_tickers(
+                tickers=selected_tickers,
+                api_url=settings.stock_prediction_api_url,
+                timeout_seconds=settings.stock_prediction_api_timeout_seconds,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to fetch predictions: {str(exc)}",
+            )
+
+    # Normalize fetched responses
+    normalized_predictions = []
+    normalization_failures: dict[str, str] = {}
+
+    for raw_response in fetched_responses:
+        normalized, error_reason = normalize_prediction_response_with_error(raw_response)
+        if normalized:
+            normalized_predictions.append(NormalizedPrediction(**normalized))
+        else:
+            ticker = raw_response.get("ticker", "unknown")
+            normalization_failures[ticker] = error_reason or "Failed to normalize API response"
+
+    # Prepare response (no database writes, no workflow execution)
+    return MarketScanPredictionCandidatesResponse(
+        idempotency_key=body.idempotency_key,
+        dry_run=True,
+        execution_mode="PREVIEW_ONLY",
+        scan=ScanSummaryOut(
+            universe=body.universe,
+            scan_date=str(scan_date) if scan_date else None,
+            total_universe_count=len(universe_tickers),
+            evaluated_count=len(universe_tickers) - len(skipped),
+            skipped_count=len(skipped),
+            candidate_count=len(clean_candidates),
+        ),
+        selected_tickers=selected_tickers,
+        predictions_fetched=len(fetched_responses),
+        prediction_failures=[
+            PredictionFailureDetail(**f) for f in fetch_failures
+        ],
+        normalized_predictions=normalized_predictions,
+        signals_submitted=0,
+        decisions_made=0,
+        orders_created=0,
     )
 
 
