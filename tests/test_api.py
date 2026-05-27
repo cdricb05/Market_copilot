@@ -3230,6 +3230,475 @@ class TestMarketScanPredictionCandidatesEndpoint:
         assert data["predictions_fetched"] == 1
         assert len(data["normalized_predictions"]) == 1
 
+    def test_accounting_invariant_all_normalize_successfully(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Invariant: len(normalized) + len(failures) == len(selected_tickers) when all succeed."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM", "OUTPERFORMING_SPY"],
+                ),
+                CandidateScore(
+                    rank=2, ticker="MSFT", score="4.15", latest_price="200.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="1.50", momentum_20d_pct="3.00",
+                    volatility_20d_pct="3.20", relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return ([
+                {
+                    "ticker": t,
+                    "current_price": "100.00",
+                    "ensemble_day5": "105.00",
+                    "d5_change_pct": "5.00",
+                    "confidence": "80.0",
+                    "recommendation": "BUY",
+                    "per_model_summary": {},
+                }
+                for t in tickers
+            ], [])
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-invariant-001",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Invariant: normalized + failures == selected
+        assert len(data["normalized_predictions"]) + len(data["prediction_failures"]) == len(data["selected_tickers"])
+        assert len(data["normalized_predictions"]) == 2
+        assert len(data["prediction_failures"]) == 0
+
+    def test_accounting_invariant_one_fetch_failure(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Invariant holds: one fetch failure leaves ticker in failures list."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+                CandidateScore(
+                    rank=2, ticker="MSFT", score="4.15", latest_price="200.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="1.50", momentum_20d_pct="3.00",
+                    volatility_20d_pct="3.20", relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # AAPL succeeds, MSFT fails at fetch level
+            return ([
+                {
+                    "ticker": "AAPL",
+                    "current_price": "150.00",
+                    "ensemble_day5": "157.50",
+                    "d5_change_pct": "5.00",
+                    "confidence": "80.0",
+                    "recommendation": "BUY",
+                    "per_model_summary": {},
+                }
+            ], [
+                {"ticker": "MSFT", "reason": "API timeout"}
+            ])
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-invariant-002",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Invariant: normalized + failures == selected
+        assert len(data["normalized_predictions"]) + len(data["prediction_failures"]) == len(data["selected_tickers"])
+        assert len(data["selected_tickers"]) == 2
+        assert len(data["normalized_predictions"]) == 1
+        assert len(data["prediction_failures"]) == 1
+        # Verify MSFT is in failures with fetch error
+        failure_tickers = {f["ticker"] for f in data["prediction_failures"]}
+        assert "MSFT" in failure_tickers
+
+    def test_accounting_invariant_normalization_failure(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Invariant holds: normalization failure records ticker in failures with reason."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+                CandidateScore(
+                    rank=2, ticker="MSFT", score="4.15", latest_price="200.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="1.50", momentum_20d_pct="3.00",
+                    volatility_20d_pct="3.20", relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # AAPL succeeds, MSFT has invalid response (missing confidence for BUY)
+            return ([
+                {
+                    "ticker": "AAPL",
+                    "current_price": "150.00",
+                    "ensemble_day5": "157.50",
+                    "d5_change_pct": "5.00",
+                    "confidence": "80.0",
+                    "recommendation": "BUY",
+                    "per_model_summary": {},
+                },
+                {
+                    "ticker": "MSFT",
+                    "current_price": "200.00",
+                    "ensemble_day5": "210.00",
+                    "d5_change_pct": "5.00",
+                    "confidence": None,  # Invalid: missing confidence for BUY
+                    "recommendation": "BUY",
+                    "per_model_summary": {},
+                }
+            ], [])
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-invariant-003",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Invariant: normalized + failures == selected
+        assert len(data["normalized_predictions"]) + len(data["prediction_failures"]) == len(data["selected_tickers"])
+        assert len(data["selected_tickers"]) == 2
+        assert len(data["normalized_predictions"]) == 1
+        assert len(data["prediction_failures"]) == 1
+        # Verify MSFT is in failures with normalization error
+        failure_tickers = {f["ticker"] for f in data["prediction_failures"]}
+        assert "MSFT" in failure_tickers
+        msft_failure = next((f for f in data["prediction_failures"] if f["ticker"] == "MSFT"), None)
+        assert msft_failure is not None
+        assert "Normalization failed" in msft_failure["reason"]
+
+    def test_accounting_invariant_all_normalization_failures(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Invariant holds: all normalization failures → all selected tickers in failures."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+                CandidateScore(
+                    rank=2, ticker="MSFT", score="4.15", latest_price="200.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="1.50", momentum_20d_pct="3.00",
+                    volatility_20d_pct="3.20", relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # Both fail normalization (invalid recommendations)
+            return ([
+                {
+                    "ticker": "AAPL",
+                    "current_price": "150.00",
+                    "ensemble_day5": "157.50",
+                    "d5_change_pct": "5.00",
+                    "confidence": "80.0",
+                    "recommendation": "INVALID_REC",  # Invalid
+                    "per_model_summary": {},
+                },
+                {
+                    "ticker": "MSFT",
+                    "current_price": "200.00",
+                    "ensemble_day5": "210.00",
+                    "d5_change_pct": "5.00",
+                    "confidence": "70.0",
+                    "recommendation": "MAYBE",  # Invalid
+                    "per_model_summary": {},
+                }
+            ], [])
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-invariant-004",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Invariant: normalized + failures == selected
+        assert len(data["normalized_predictions"]) + len(data["prediction_failures"]) == len(data["selected_tickers"])
+        assert len(data["selected_tickers"]) == 2
+        assert data["predictions_fetched"] == 2  # Raw responses came back
+        assert len(data["normalized_predictions"]) == 0
+        assert len(data["prediction_failures"]) == 2
+        # Verify both AAPL and MSFT are in failures
+        failure_tickers = {f["ticker"] for f in data["prediction_failures"]}
+        assert "AAPL" in failure_tickers
+        assert "MSFT" in failure_tickers
+
+    def test_accounting_invariant_missing_response_for_selected_ticker(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Invariant holds: selected ticker with no response → recorded in failures."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="QCOM", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+                CandidateScore(
+                    rank=2, ticker="AMD", score="4.15", latest_price="200.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="1.50", momentum_20d_pct="3.00",
+                    volatility_20d_pct="3.20", relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # Only AMD in response, QCOM is missing (not in failures, not in responses)
+            return ([
+                {
+                    "ticker": "AMD",
+                    "current_price": "100.00",
+                    "ensemble_day5": "105.00",
+                    "d5_change_pct": "5.00",
+                    "confidence": "80.0",
+                    "recommendation": "BUY",
+                    "per_model_summary": {},
+                }
+            ], [])
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-invariant-005",
+                "universe": "SP500",
+                "tickers": ["QCOM", "AMD"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Invariant: normalized + failures == selected
+        assert len(data["normalized_predictions"]) + len(data["prediction_failures"]) == len(data["selected_tickers"])
+        assert len(data["selected_tickers"]) == 2
+        assert len(data["normalized_predictions"]) == 1
+        assert len(data["prediction_failures"]) == 1
+        # Verify QCOM is in failures with "missing response" reason
+        failure_tickers = {f["ticker"] for f in data["prediction_failures"]}
+        assert "QCOM" in failure_tickers
+        qcom_failure = next((f for f in data["prediction_failures"] if f["ticker"] == "QCOM"), None)
+        assert qcom_failure is not None
+        assert "No prediction response received" in qcom_failure["reason"]
+
+    def test_accounting_invariant_live_like_case(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Invariant holds: live-like case with 5 tickers, mixed failures."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=i+1, ticker=t, score=f"{5-i}.00", latest_price="100.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="1.50", momentum_20d_pct="3.00",
+                    volatility_20d_pct="2.00", relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                )
+                for i, t in enumerate(["QCOM", "AMD", "CSCO", "TXN", "AMAT"])
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            # AMD normalizes, AMAT normalizes, rest fail normalization
+            responses = []
+            if "AMD" in tickers:
+                responses.append({
+                    "ticker": "AMD",
+                    "current_price": "100.00",
+                    "ensemble_day5": "105.00",
+                    "d5_change_pct": "5.00",
+                    "confidence": "80.0",
+                    "recommendation": "BUY",
+                    "per_model_summary": {},
+                })
+            if "AMAT" in tickers:
+                responses.append({
+                    "ticker": "AMAT",
+                    "current_price": "100.00",
+                    "ensemble_day5": "105.00",
+                    "d5_change_pct": "5.00",
+                    "confidence": "75.0",
+                    "recommendation": "BUY",
+                    "per_model_summary": {},
+                })
+            # QCOM, CSCO, TXN return invalid recommendations
+            for t in ["QCOM", "CSCO", "TXN"]:
+                if t in tickers:
+                    responses.append({
+                        "ticker": t,
+                        "current_price": "100.00",
+                        "ensemble_day5": "105.00",
+                        "d5_change_pct": "5.00",
+                        "confidence": "70.0",
+                        "recommendation": "INVALID",
+                        "per_model_summary": {},
+                    })
+            return responses, []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-invariant-006",
+                "universe": "SP500",
+                "tickers": ["QCOM", "AMD", "CSCO", "TXN", "AMAT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Invariant: normalized + failures == selected
+        assert len(data["normalized_predictions"]) + len(data["prediction_failures"]) == len(data["selected_tickers"])
+        # Expected: 5 selected, 2 normalized (AMD, AMAT), 3 failures (QCOM, CSCO, TXN)
+        assert len(data["selected_tickers"]) == 5
+        assert data["predictions_fetched"] == 5
+        assert len(data["normalized_predictions"]) == 2
+        assert len(data["prediction_failures"]) == 3
+        # Verify the right tickers are in failures
+        failure_tickers = {f["ticker"] for f in data["prediction_failures"]}
+        assert failure_tickers == {"QCOM", "CSCO", "TXN"}
+
 
 class TestMarketBackfillPricesEndpoint:
     """POST /v1/market/backfill-prices endpoint tests."""

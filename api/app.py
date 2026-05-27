@@ -2655,15 +2655,38 @@ async def market_scan_prediction_candidates(
 
     # Normalize fetched responses
     normalized_predictions = []
-    normalization_failures: dict[str, str] = {}
+    all_prediction_failures: list[dict[str, str]] = []
 
+    # Add fetch failures (API didn't return a response for these tickers)
+    for failure in fetch_failures:
+        all_prediction_failures.append(failure)
+
+    # Build set of tickers that failed fetch
+    failed_fetch_tickers = {f["ticker"] for f in fetch_failures}
+
+    # Process fetched responses: normalize and track failures
+    normalized_by_ticker = {}
     for raw_response in fetched_responses:
+        ticker = raw_response.get("ticker", "unknown")
         normalized, error_reason = normalize_prediction_response_with_error(raw_response)
         if normalized:
             normalized_predictions.append(NormalizedPrediction(**normalized))
+            normalized_by_ticker[ticker] = normalized
         else:
-            ticker = raw_response.get("ticker", "unknown")
-            normalization_failures[ticker] = error_reason or "Failed to normalize API response"
+            # Normalization failed for this ticker
+            all_prediction_failures.append({
+                "ticker": ticker,
+                "reason": f"Normalization failed: {error_reason or 'Invalid API response format'}"
+            })
+
+    # Check for selected_tickers missing from both fetched_responses and fetch_failures
+    fetched_tickers = {r.get("ticker", "unknown") for r in fetched_responses}
+    for selected_ticker in selected_tickers:
+        if selected_ticker not in fetched_tickers and selected_ticker not in failed_fetch_tickers:
+            all_prediction_failures.append({
+                "ticker": selected_ticker,
+                "reason": "No prediction response received from API"
+            })
 
     # Prepare response (no database writes, no workflow execution)
     return MarketScanPredictionCandidatesResponse(
@@ -2681,7 +2704,7 @@ async def market_scan_prediction_candidates(
         selected_tickers=selected_tickers,
         predictions_fetched=len(fetched_responses),
         prediction_failures=[
-            PredictionFailureDetail(**f) for f in fetch_failures
+            PredictionFailureDetail(**f) for f in all_prediction_failures
         ],
         normalized_predictions=normalized_predictions,
         signals_submitted=0,
