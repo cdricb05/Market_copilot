@@ -695,12 +695,40 @@
         <label>Strategy Tickers</label>
         <input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA" class="mono">
       </div>
+      <div class="input-group">
+        <label>Scan Universe</label>
+        <select id="market-scan-universe" class="mono">
+          <option>SP500</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Top N</label>
+        <input id="market-scan-top-n" type="number" value="10" min="1" max="100" class="mono">
+      </div>
+      <div class="input-group">
+        <label>Lookback Days</label>
+        <input id="market-scan-lookback" type="number" value="20" min="1" class="mono">
+      </div>
+      <div class="input-group">
+        <label>Min Price Points</label>
+        <input id="market-scan-min-points" type="number" value="5" min="1" class="mono">
+      </div>
+      <div class="input-group">
+        <label>Benchmark</label>
+        <input id="market-scan-benchmark" value="SPY" placeholder="SPY" class="mono">
+      </div>
     </div>
 
     <div class="button-group">
       <span class="button-group-label">Market Data</span>
       <button class="btn" onclick="fetchLatestPrices(this)">Fetch Latest Prices</button>
       <button class="btn" onclick="checkStrategyReadiness()">Check Readiness</button>
+    </div>
+
+    <div class="button-group">
+      <span class="button-group-label">Market Scan</span>
+      <button class="btn" onclick="runMarketScan(this)">Run Market Scan</button>
+      <button class="btn" onclick="useTopMarketCandidates(this)">Use Top Candidates</button>
     </div>
 
     <div class="button-group">
@@ -743,6 +771,13 @@
     <div class="command-section">
       <div class="section-title">Prediction Strategy Result</div>
       <div id="prediction-strategy-result"></div>
+    </div>
+  </div>
+
+  <div id="market-scan-card" style="display: none;">
+    <div class="command-section">
+      <div class="section-title">Market Scan Result</div>
+      <div id="market-scan-result"></div>
     </div>
   </div>
 
@@ -1037,6 +1072,8 @@ const _appState = {
   hasPositions: false,
   hasHistory: false,
 };
+
+let _latestMarketScan = null;
 
 function usd(v) {
   if (v == null) return '—';
@@ -1614,6 +1651,174 @@ async function dtrRunStrategy(btn) {
     btn.disabled = false;
     updateWorkflowRail();
   }
+}
+
+async function runMarketScan(btn) {
+  const universe = document.getElementById('market-scan-universe').value || 'SP500';
+  const topN = parseInt(document.getElementById('market-scan-top-n').value, 10) || 10;
+  const lookbackDays = parseInt(document.getElementById('market-scan-lookback').value, 10) || 20;
+  const minPoints = parseInt(document.getElementById('market-scan-min-points').value, 10) || 5;
+  const benchmark = document.getElementById('market-scan-benchmark').value.trim().toUpperCase() || 'SPY';
+
+  const resultCard = document.getElementById('market-scan-card');
+  const resultEl = document.getElementById('market-scan-result');
+  resultEl.textContent = '';
+  btn.disabled = true;
+
+  try {
+    const body = {
+      universe: universe,
+      top_n: topN,
+      lookback_days: lookbackDays,
+      min_price_points: minPoints,
+      benchmark_ticker: benchmark,
+    };
+
+    const r = await call('POST', '/v1/market/scan', body);
+    const b = await parseApiResponse(r);
+
+    if (r.ok) {
+      resultCard.style.display = 'block';
+      _latestMarketScan = b;
+      renderMarketScanResult(b, resultEl);
+      toast(`Market scan complete: ${b.evaluated_count} evaluated`, 'ok');
+    } else if (r.status === 401) {
+      throw new Error('Not authorized (401)');
+    } else if (r.status === 422) {
+      throw new Error(b.detail ?? `Validation error (422)`);
+    } else {
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
+    }
+  } catch (e) {
+    resultCard.style.display = 'block';
+    resultEl.textContent = `✗ ${e.message}`;
+    resultEl.className = 'step-result error';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderMarketScanResult(data, resultEl) {
+  let html = '';
+
+  // Summary KPIs
+  html += '<div style="margin-bottom:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;">';
+  html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Universe<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${escapeHtml(data.universe)}</span></div>`;
+  html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Evaluated<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${data.evaluated_count}</span></div>`;
+  html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Skipped<br><span style="font-size:13px;color:${data.skipped_count > 0 ? 'var(--warning)' : 'var(--text-primary)'};font-weight:700;">${data.skipped_count}</span></div>`;
+  html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Scan Date<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${data.scan_date || '—'}</span></div>`;
+  html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Benchmark<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${escapeHtml(data.benchmark_ticker)}</span></div>`;
+  html += '</div>';
+
+  // Candidates table
+  if (data.candidates && data.candidates.length > 0) {
+    html += '<div style="margin-bottom:16px;">';
+    html += '<div style="font-weight:600;margin-bottom:8px;color:var(--text-accent);">Top Candidates</div>';
+    html += '<div style="overflow-x:auto;border:1px solid var(--border);border-radius:2px;">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    html += '<thead><tr style="background:rgba(0,0,0,.3);border-bottom:1px solid var(--border);">';
+    html += '<th style="padding:6px 8px;text-align:left;color:var(--label);font-weight:700;">Rank</th>';
+    html += '<th style="padding:6px 8px;text-align:left;color:var(--label);font-weight:700;">Ticker</th>';
+    html += '<th style="padding:6px 8px;text-align:right;color:var(--label);font-weight:700;">Score</th>';
+    html += '<th style="padding:6px 8px;text-align:right;color:var(--label);font-weight:700;">Price</th>';
+    html += '<th style="padding:6px 8px;text-align:left;color:var(--label);font-weight:700;">Date</th>';
+    html += '<th style="padding:6px 8px;text-align:center;color:var(--label);font-weight:700;">Pts</th>';
+    html += '<th style="padding:6px 8px;text-align:right;color:var(--label);font-weight:700;">5D %</th>';
+    html += '<th style="padding:6px 8px;text-align:right;color:var(--label);font-weight:700;">20D %</th>';
+    html += '<th style="padding:6px 8px;text-align:right;color:var(--label);font-weight:700;">Vol %</th>';
+    html += '<th style="padding:6px 8px;text-align:right;color:var(--label);font-weight:700;">RS</th>';
+    html += '<th style="padding:6px 8px;text-align:left;color:var(--label);font-weight:700;">Reasons</th>';
+    html += '</tr></thead><tbody>';
+
+    data.candidates.forEach(c => {
+      html += '<tr style="border-bottom:1px solid var(--border);hover:background:rgba(255,255,255,.02);">';
+      html += `<td style="padding:6px 8px;text-align:left;font-weight:600;">${c.rank}</td>`;
+      html += `<td style="padding:6px 8px;text-align:left;font-weight:600;color:var(--text-primary);">${escapeHtml(c.ticker)}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;">${parseFloat(c.score).toFixed(2)}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;">${parseFloat(c.latest_price).toFixed(2)}</td>`;
+      html += `<td style="padding:6px 8px;text-align:left;font-size:10px;color:var(--label);">${escapeHtml(c.latest_market_date)}</td>`;
+      html += `<td style="padding:6px 8px;text-align:center;">${c.price_count}</td>`;
+
+      const momentum5d = c.momentum_5d_pct ? parseFloat(c.momentum_5d_pct) : null;
+      const momentum20d = c.momentum_20d_pct ? parseFloat(c.momentum_20d_pct) : null;
+      const vol = c.volatility_20d_pct ? parseFloat(c.volatility_20d_pct) : null;
+      const rs = c.relative_strength_vs_spy_20d ? parseFloat(c.relative_strength_vs_spy_20d) : null;
+
+      const mom5Color = momentum5d === null ? 'var(--label)' : momentum5d > 0 ? 'var(--ok)' : 'var(--danger)';
+      const mom20Color = momentum20d === null ? 'var(--label)' : momentum20d > 0 ? 'var(--ok)' : 'var(--danger)';
+      const volColor = vol === null ? 'var(--label)' : 'var(--text-primary)';
+      const rsColor = rs === null ? 'var(--label)' : rs > 0 ? 'var(--ok)' : 'var(--danger)';
+
+      html += `<td style="padding:6px 8px;text-align:right;color:${mom5Color};font-weight:600;">${momentum5d !== null ? (momentum5d >= 0 ? '+' : '') + momentum5d.toFixed(2) : '—'}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;color:${mom20Color};font-weight:600;">${momentum20d !== null ? (momentum20d >= 0 ? '+' : '') + momentum20d.toFixed(2) : '—'}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;color:${volColor};">${vol !== null ? vol.toFixed(2) : '—'}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;color:${rsColor};font-weight:600;">${rs !== null ? (rs >= 0 ? '+' : '') + rs.toFixed(2) : '—'}</td>`;
+
+      if (c.reason_codes && c.reason_codes.length > 0) {
+        const chips = c.reason_codes.map(code => {
+          let chipBg = 'rgba(59,130,246,.1)';
+          let chipColor = 'var(--info)';
+          if (code.includes('POSITIVE')) {
+            chipBg = 'rgba(34,197,94,.1)';
+            chipColor = 'var(--ok)';
+          } else if (code.includes('HIGH_VOLATILITY')) {
+            chipBg = 'rgba(245,158,11,.1)';
+            chipColor = 'var(--warning)';
+          } else if (code.includes('BENCHMARK_MISSING') || code.includes('OUTPERFORMING')) {
+            chipBg = 'rgba(59,130,246,.1)';
+            chipColor = 'var(--info)';
+          }
+          return `<span style="display:inline-block;padding:2px 6px;border-radius:2px;background:${chipBg};color:${chipColor};font-size:9px;font-weight:600;margin-right:3px;border:1px solid ${chipColor};">${escapeHtml(code)}</span>`;
+        }).join('');
+        html += `<td style="padding:6px 8px;font-size:9px;">${chips}</td>`;
+      } else {
+        html += '<td style="padding:6px 8px;color:var(--label);">—</td>';
+      }
+
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div></div>';
+  }
+
+  // Skipped tickers (collapsible)
+  if (data.skipped_tickers && data.skipped_tickers.length > 0) {
+    html += '<details style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">';
+    html += `<summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text-accent);display:flex;align-items:center;gap:6px;padding:4px 0;user-select:none;">`;
+    html += `<span style="font-size:10px;color:var(--label);">▶</span> Skipped Tickers (${data.skipped_tickers.length})`;
+    html += '</summary>';
+    html += '<div style="margin-top:8px;overflow-x:auto;border:1px solid var(--border);border-radius:2px;">';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    html += '<thead><tr style="background:rgba(0,0,0,.3);border-bottom:1px solid var(--border);">';
+    html += '<th style="padding:6px 8px;text-align:left;color:var(--label);font-weight:700;">Ticker</th>';
+    html += '<th style="padding:6px 8px;text-align:left;color:var(--label);font-weight:700;">Reason</th>';
+    html += '<th style="padding:6px 8px;text-align:center;color:var(--label);font-weight:700;">Count</th>';
+    html += '</tr></thead><tbody>';
+
+    data.skipped_tickers.forEach(s => {
+      html += '<tr style="border-bottom:1px solid var(--border);">';
+      html += `<td style="padding:6px 8px;font-weight:600;">${escapeHtml(s.ticker)}</td>`;
+      html += `<td style="padding:6px 8px;color:var(--label);font-size:10px;">${escapeHtml(s.reason)}</td>`;
+      html += `<td style="padding:6px 8px;text-align:center;">${s.price_count}</td>`;
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div></details>';
+  }
+
+  resultEl.innerHTML = html;
+  resultEl.className = 'step-result success';
+}
+
+function useTopMarketCandidates(btn) {
+  if (!_latestMarketScan || !_latestMarketScan.candidates || _latestMarketScan.candidates.length === 0) {
+    toast('Run Market Scan first', 'err');
+    return;
+  }
+
+  const topTickers = _latestMarketScan.candidates.map(c => c.ticker).join(',');
+  document.getElementById('dtr-strategy-tickers').value = topTickers;
+  toast(`Populated with ${_latestMarketScan.candidates.length} top candidate(s)`, 'ok');
 }
 
 async function dtrRunPredictionStrategy(btn) {
