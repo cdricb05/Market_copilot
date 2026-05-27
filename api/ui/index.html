@@ -734,20 +734,30 @@
     <div class="button-group">
       <span class="button-group-label">Prediction Preview</span>
       <button class="btn" onclick="runPredictionPreview(this)">Run Prediction Preview</button>
-      <span class="service-label">Preview only — no signals, no trading artifacts</span>
+      <span class="service-label">Uses safe defaults for decision-grade preview — no signals, no trading artifacts</span>
     </div>
 
-    <div class="input-group" style="display: none;" id="pred-preview-inputs">
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px;">
+    <div style="margin-bottom: 12px; padding: 10px 12px; background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 2px;">
+      <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); font-weight: 600; margin-bottom: 8px;">Preview Configuration</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
+        <div class="input-group">
+          <label>Lookback Days</label>
+          <input id="pred-preview-lookback" type="number" value="45" min="1" class="mono">
+        </div>
+        <div class="input-group">
+          <label>Top Scan Candidates</label>
+          <input id="pred-preview-scan-top-n" type="number" value="20" min="1" max="100" class="mono">
+        </div>
+        <div class="input-group">
+          <label>Min Price Points</label>
+          <input id="pred-preview-min-points" type="number" value="20" min="1" class="mono">
+        </div>
         <div class="input-group">
           <label>Prediction Top N</label>
           <input id="pred-preview-top-n" type="number" value="5" min="1" max="50" class="mono">
         </div>
-        <div class="input-group">
-          <label>Optional Tickers</label>
-          <input id="pred-preview-tickers" placeholder="AAPL,MSFT,NVDA" class="mono">
-        </div>
       </div>
+      <div style="font-size: 10px; color: var(--label); margin-top: 8px; font-style: italic;">Uses 45 calendar days to support 20-trading-day momentum and SPY relative strength calculations.</div>
     </div>
 
     <div class="button-group">
@@ -2024,19 +2034,12 @@ async function checkStrategyReadiness() {
 }
 
 async function runPredictionPreview(btn) {
-  const universe = document.getElementById('market-scan-universe').value || 'SP500';
-  const topN = parseInt(document.getElementById('market-scan-top-n').value, 10) || 20;
-  const lookbackDays = parseInt(document.getElementById('market-scan-lookback').value, 10) || 45;
-  const minPoints = parseInt(document.getElementById('market-scan-min-points').value, 10) || 20;
-  const benchmark = document.getElementById('market-scan-benchmark').value.trim().toUpperCase() || 'SPY';
+  const universe = 'SP500';
+  const benchmark = 'SPY';
+  const lookbackDays = parseInt(document.getElementById('pred-preview-lookback').value, 10) || 45;
+  const topN = parseInt(document.getElementById('pred-preview-scan-top-n').value, 10) || 20;
+  const minPoints = parseInt(document.getElementById('pred-preview-min-points').value, 10) || 20;
   const predictionTopN = parseInt(document.getElementById('pred-preview-top-n').value, 10) || 5;
-
-  const tickersRaw = document.getElementById('pred-preview-tickers').value.trim();
-  let tickers = null;
-  if (tickersRaw) {
-    tickers = tickersRaw.split(',').map(t => t.trim().toUpperCase()).filter(t => t.length > 0);
-    if (tickers.length === 0) tickers = null;
-  }
 
   const resultCard = document.getElementById('prediction-preview-card');
   const resultEl = document.getElementById('prediction-preview-result');
@@ -2047,7 +2050,7 @@ async function runPredictionPreview(btn) {
     const body = {
       idempotency_key: `ui-scan-predict-preview-${Date.now()}`,
       universe: universe,
-      tickers: tickers,
+      tickers: null,
       benchmark_ticker: benchmark,
       lookback_days: lookbackDays,
       top_n: topN,
@@ -2090,6 +2093,23 @@ function renderPredictionPreviewResult(data, resultEl) {
   html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info); margin-bottom: 4px;">🔒 Preview Only</div>';
   html += '<div style="font-size: 12px; color: var(--text-primary);">No signals submitted. No trading decisions made. No orders created.</div>';
   html += '</div>';
+
+  // Preview Configuration summary
+  const lookbackDays = parseInt(document.getElementById('pred-preview-lookback').value, 10) || 45;
+  const topN = parseInt(document.getElementById('pred-preview-scan-top-n').value, 10) || 20;
+  const minPoints = parseInt(document.getElementById('pred-preview-min-points').value, 10) || 20;
+  const predictionTopN = parseInt(document.getElementById('pred-preview-top-n').value, 10) || 5;
+  html += '<div style="background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; margin-bottom: 16px;">';
+  html += '<div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); font-weight: 600; margin-bottom: 6px;">Preview Configuration</div>';
+  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; font-size: 11px;">';
+  html += `<div><span style="color: var(--label);">Universe:</span> <span style="color: var(--text-primary); font-weight: 600;">SP500</span></div>`;
+  html += `<div><span style="color: var(--label);">Benchmark:</span> <span style="color: var(--text-primary); font-weight: 600;">SPY</span></div>`;
+  html += `<div><span style="color: var(--label);">Lookback Days:</span> <span style="color: var(--text-primary); font-weight: 600;">${lookbackDays}</span></div>`;
+  html += `<div><span style="color: var(--label);">Top Scan Candidates:</span> <span style="color: var(--text-primary); font-weight: 600;">${topN}</span></div>`;
+  html += `<div><span style="color: var(--label);">Min Price Points:</span> <span style="color: var(--text-primary); font-weight: 600;">${minPoints}</span></div>`;
+  html += `<div><span style="color: var(--label);">Prediction Top N:</span> <span style="color: var(--text-primary); font-weight: 600;">${predictionTopN}</span></div>`;
+  html += `<div><span style="color: var(--label);">Safety Mode:</span> <span style="color: var(--ok); font-weight: 600;">Preview Only</span></div>`;
+  html += '</div></div>';
 
   // Scan summary cards
   const scan = data.scan || {};
@@ -2135,7 +2155,7 @@ function renderPredictionPreviewResult(data, resultEl) {
 
       const conf = preview.prediction_confidence ? parseFloat(preview.prediction_confidence).toFixed(2) : '—';
       const ret = preview.expected_return_pct ? parseFloat(preview.expected_return_pct).toFixed(2) : '—';
-      const rs = preview.relative_strength_vs_spy_20d ? parseFloat(preview.relative_strength_vs_spy_20d).toFixed(2) : '—';
+      const rs = preview.relative_strength_vs_spy_20d ? parseFloat(preview.relative_strength_vs_spy_20d).toFixed(2) : 'Insufficient data';
 
       const reasonsText = preview.preview_reasons ? preview.preview_reasons.join('; ') : '—';
 
