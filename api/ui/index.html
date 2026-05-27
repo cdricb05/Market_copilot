@@ -2101,21 +2101,66 @@ function renderPredictionPreviewResult(data, resultEl) {
   html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Selected<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${(data.selected_tickers || []).length}</span></div>`;
   html += '</div>';
 
-  // Selected tickers
-  if (data.selected_tickers && data.selected_tickers.length > 0) {
+  // Primary: Candidate Previews table
+  if (data.candidate_previews && data.candidate_previews.length > 0) {
     html += '<div style="margin-bottom: 16px;">';
-    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent);">Selected Tickers for Prediction</div>';
-    html += '<div style="display: flex; flex-wrap: wrap; gap: 6px;">';
-    data.selected_tickers.forEach(ticker => {
-      html += `<span style="display: inline-block; padding: 4px 10px; border-radius: 2px; background: rgba(59,130,246,.1); color: var(--info); border: 1px solid var(--info); font-size: 11px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(ticker)}</span>`;
+    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent);">Prediction Preview</div>';
+    html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Decision</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Score</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Rank</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Scan Score</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Rec</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Conf</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Return %</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">RS SPY</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Status</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reasons</th>';
+    html += '</tr></thead><tbody>';
+
+    data.candidate_previews.forEach(preview => {
+      const decisionColor = preview.preview_decision === 'CONSIDER' ? 'var(--ok)' :
+                           preview.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
+      const decisionBg = preview.preview_decision === 'CONSIDER' ? 'rgba(34,197,94,.08)' :
+                        preview.preview_decision === 'WATCH' ? 'rgba(245,158,11,.08)' : 'rgba(239,68,68,.08)';
+      const statusColor = preview.status === 'OK' ? 'var(--ok)' : 'var(--danger)';
+      const statusBg = preview.status === 'OK' ? 'rgba(34,197,94,.05)' : 'rgba(239,68,68,.05)';
+
+      const recColor = preview.prediction_recommendation === 'BUY' ? 'var(--ok)' :
+                      preview.prediction_recommendation === 'SELL' ? 'var(--danger)' :
+                      preview.prediction_recommendation ? 'var(--warning)' : 'var(--label)';
+
+      const conf = preview.prediction_confidence ? parseFloat(preview.prediction_confidence).toFixed(2) : '—';
+      const ret = preview.expected_return_pct ? parseFloat(preview.expected_return_pct).toFixed(2) : '—';
+      const rs = preview.relative_strength_vs_spy_20d ? parseFloat(preview.relative_strength_vs_spy_20d).toFixed(2) : '—';
+
+      const reasonsText = preview.preview_reasons ? preview.preview_reasons.join('; ') : '—';
+
+      html += `<tr style="border-bottom: 1px solid var(--border); background: ${decisionBg};">`;
+      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(preview.ticker)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(preview.preview_decision)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right; font-weight: 600;">${parseFloat(preview.preview_score).toFixed(1)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_rank || '—'}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_score ? parseFloat(preview.scan_score).toFixed(2) : '—'}</td>`;
+      html += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: ${preview.prediction_recommendation ? '600' : '400'};">${escapeHtml(preview.prediction_recommendation || '—')}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${rs}</td>`;
+      html += `<td style="padding: 6px 8px; color: ${statusColor}; font-size: 10px; font-weight: 600;">${escapeHtml(preview.status)}</td>`;
+      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label); max-width: 300px; word-wrap: break-word;">${escapeHtml(reasonsText)}</td>`;
+      html += '</tr>';
     });
-    html += '</div></div>';
+
+    html += '</tbody></table></div></div>';
   }
 
-  // Normalized predictions table
+  // Secondary: Normalized predictions table
   if (data.normalized_predictions && data.normalized_predictions.length > 0) {
-    html += '<div style="margin-bottom: 16px;">';
-    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent);">Normalized Predictions</div>';
+    html += '<div style="margin-bottom: 16px; opacity: 0.8;">';
+    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent); font-size: 12px;">Normalized Predictions (Detail)</div>';
     html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
     html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
     html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
@@ -2150,10 +2195,10 @@ function renderPredictionPreviewResult(data, resultEl) {
     html += '</tbody></table></div></div>';
   }
 
-  // Prediction failures table
+  // Secondary: Prediction failures table
   if (data.prediction_failures && data.prediction_failures.length > 0) {
-    html += '<div style="margin-bottom: 16px;">';
-    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent);">Prediction Failures</div>';
+    html += '<div style="margin-bottom: 16px; opacity: 0.8;">';
+    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent); font-size: 12px;">Prediction Failures (Detail)</div>';
     html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
     html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
     html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';

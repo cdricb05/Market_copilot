@@ -386,6 +386,29 @@ class NormalizedPrediction(BaseModel):
     reason: str
 
 
+class CandidatePreview(BaseModel):
+    """Enriched candidate preview combining scan and prediction context."""
+    ticker: str
+    scan_rank: int | None
+    scan_score: str | None
+    latest_price: str | None
+    momentum_5d_pct: str | None
+    momentum_20d_pct: str | None
+    relative_strength_vs_spy_20d: str | None
+    scan_reason_codes: list[str]
+
+    prediction_recommendation: str | None
+    prediction_confidence: str | None
+    forecast_price_5d: str | None
+    expected_return_pct: str | None
+    market_context: str | None
+
+    preview_decision: str
+    preview_score: str
+    preview_reasons: list[str]
+    status: str
+
+
 class FetchAndRunPredictionResponse(BaseModel):
     fetched_count: int
     failed_count: int
@@ -481,6 +504,7 @@ class MarketScanPredictionCandidatesResponse(BaseModel):
     predictions_fetched: int
     prediction_failures: list[PredictionFailureDetail]
     normalized_predictions: list[NormalizedPrediction]
+    candidate_previews: list[CandidatePreview]
     signals_submitted: int
     decisions_made: int
     orders_created: int
@@ -2561,6 +2585,154 @@ def scan_market(body: MarketScanRequest) -> MarketScanResponse:
     )
 
 
+def _calculate_preview_score(
+    normalized_prediction: dict | None,
+    candidate_score: str | None,
+    relative_strength_vs_spy_20d: str | None,
+    momentum_20d_pct: str | None,
+    status: str,
+) -> str:
+    """
+    Calculate preview score (0-100 bounded, deterministic).
+
+    Scoring formula:
+    - BUY = +35
+    - HOLD = +10
+    - SELL = -25
+    - confidence contribution = confidence * 30 (0-1 range, so 0-30)
+    - positive expected_return_pct = min(expected_return_pct * 4, 20)
+    - relative_strength_vs_spy_20d > 0 = +10
+    - momentum_20d_pct > 0 = +5
+    - status not OK = score 0
+    - cap between 0 and 100
+    """
+    from decimal import Decimal
+
+    if status != "OK":
+        return "0"
+
+    if not normalized_prediction:
+        return "0"
+
+    score = Decimal("0")
+
+    # Recommendation bonus
+    recommendation = normalized_prediction.get("recommendation")
+    if recommendation == "BUY":
+        score += Decimal("35")
+    elif recommendation == "HOLD":
+        score += Decimal("10")
+    elif recommendation == "SELL":
+        score -= Decimal("25")
+
+    # Confidence contribution
+    try:
+        confidence = Decimal(str(normalized_prediction.get("confidence", "0")))
+        score += confidence * Decimal("30")
+    except Exception:
+        pass
+
+    # Positive expected return
+    try:
+        expected_return = Decimal(str(normalized_prediction.get("expected_return_pct", "0")))
+        if expected_return > 0:
+            score += min(expected_return * Decimal("4"), Decimal("20"))
+    except Exception:
+        pass
+
+    # Relative strength bonus
+    if relative_strength_vs_spy_20d:
+        try:
+            rs = Decimal(str(relative_strength_vs_spy_20d))
+            if rs > 0:
+                score += Decimal("10")
+        except Exception:
+            pass
+
+    # Momentum bonus
+    if momentum_20d_pct:
+        try:
+            mom = Decimal(str(momentum_20d_pct))
+            if mom > 0:
+                score += Decimal("5")
+        except Exception:
+            pass
+
+    # Cap at 0-100
+    score = max(Decimal("0"), min(score, Decimal("100")))
+    return str(score.quantize(Decimal("0.01")))
+
+
+def _determine_preview_decision(
+    normalized_prediction: dict | None,
+    status: str,
+    expected_return_pct: str | None,
+) -> tuple[str, list[str]]:
+    """
+    Determine preview decision (CONSIDER/WATCH/REJECT) and reasons.
+
+    Decision logic:
+    - CONSIDER if: status=OK, recommendation=BUY, confidence >= 0.70, expected_return_pct > 0
+    - WATCH if: status=OK, (recommendation=HOLD OR confidence 0.50-0.69 OR expected_return_pct -0.5 to 0.5)
+    - REJECT if: status not OK OR recommendation=SELL OR expected_return_pct < -0.5
+    """
+    from decimal import Decimal
+
+    reasons = []
+
+    # Failure status → REJECT
+    if status != "OK":
+        if status == "FAILED_FETCH":
+            reasons.append("Prediction unavailable: API fetch failed")
+        elif status == "FAILED_NORMALIZATION":
+            reasons.append("Prediction unavailable: API response format invalid")
+        elif status == "MISSING_PREDICTION":
+            reasons.append("Prediction unavailable: No response from API")
+        return "REJECT", reasons
+
+    if not normalized_prediction:
+        return "REJECT", ["Prediction unavailable: No data"]
+
+    recommendation = normalized_prediction.get("recommendation")
+    confidence = Decimal(str(normalized_prediction.get("confidence", "0")))
+    expected_return = Decimal(str(expected_return_pct or "0"))
+
+    # REJECT if SELL or negative return
+    if recommendation == "SELL":
+        reasons.append("Prediction SELL recommendation")
+        return "REJECT", reasons
+
+    if expected_return < Decimal("-0.5"):
+        reasons.append(f"Expected return {expected_return}% below threshold")
+        return "REJECT", reasons
+
+    # CONSIDER if BUY + high confidence + positive return
+    if (
+        recommendation == "BUY"
+        and confidence >= Decimal("0.70")
+        and expected_return > Decimal("0")
+    ):
+        reasons.append("Prediction BUY with high confidence")
+        reasons.append(f"Positive expected 5D return: {expected_return}%")
+        return "CONSIDER", reasons
+
+    # WATCH if HOLD or medium confidence or neutral return
+    if recommendation == "HOLD":
+        reasons.append("Prediction HOLD recommendation")
+        return "WATCH", reasons
+
+    if Decimal("0.50") <= confidence < Decimal("0.70"):
+        reasons.append(f"Moderate confidence: {confidence * 100}%")
+        return "WATCH", reasons
+
+    if Decimal("-0.5") <= expected_return <= Decimal("0.5"):
+        reasons.append(f"Expected return {expected_return}% near breakeven")
+        return "WATCH", reasons
+
+    # Default to WATCH for other cases
+    return "WATCH", reasons
+
+
 @app.post(
     "/v1/strategy/market-scan/prediction-candidates",
     response_model=MarketScanPredictionCandidatesResponse,
@@ -2688,6 +2860,117 @@ async def market_scan_prediction_candidates(
                 "reason": "No prediction response received from API"
             })
 
+    # Build candidate_previews: one row per selected_ticker
+    # This combines scan data with prediction data and decision logic
+    candidate_previews = []
+
+    # Create a map of selected tickers to their scan candidates for quick lookup
+    selected_candidates_map = {c.ticker: c for c in selected_for_prediction}
+
+    # Track which tickers failed and why
+    failed_fetch_map = {f["ticker"]: "FAILED_FETCH" for f in fetch_failures}
+    failed_norm_map = {}
+    missing_pred_map = {}
+
+    # Track normalization failures
+    for failure in all_prediction_failures:
+        ticker = failure["ticker"]
+        if ticker in failed_fetch_tickers:
+            failed_fetch_map[ticker] = "FAILED_FETCH"
+        elif "Normalization failed" in failure.get("reason", ""):
+            failed_norm_map[ticker] = "FAILED_NORMALIZATION"
+        elif "No prediction response" in failure.get("reason", ""):
+            missing_pred_map[ticker] = "MISSING_PREDICTION"
+
+    # Build preview for each selected ticker
+    for selected_ticker in selected_tickers:
+        candidate = selected_candidates_map.get(selected_ticker)
+        normalized = normalized_by_ticker.get(selected_ticker)
+
+        # Determine status
+        if selected_ticker in failed_fetch_map:
+            status = "FAILED_FETCH"
+        elif selected_ticker in failed_norm_map:
+            status = "FAILED_NORMALIZATION"
+        elif selected_ticker in missing_pred_map:
+            status = "MISSING_PREDICTION"
+        elif normalized:
+            status = "OK"
+        else:
+            status = "MISSING_PREDICTION"
+
+        # Extract scan data
+        scan_rank = candidate.rank if candidate else None
+        scan_score = candidate.score if candidate else None
+        latest_price = candidate.latest_price if candidate else None
+        momentum_5d_pct = candidate.momentum_5d_pct if candidate else None
+        momentum_20d_pct = candidate.momentum_20d_pct if candidate else None
+        relative_strength_vs_spy_20d = candidate.relative_strength_vs_spy_20d if candidate else None
+        scan_reason_codes = candidate.reason_codes if candidate else []
+
+        # Extract prediction data
+        prediction_recommendation = normalized.get("recommendation") if normalized else None
+        prediction_confidence = normalized.get("confidence") if normalized else None
+        forecast_price_5d = normalized.get("forecast_price_5d") if normalized else None
+        expected_return_pct = normalized.get("expected_return_pct") if normalized else None
+        market_context = normalized.get("market_context") if normalized else None
+
+        # Determine preview decision and reasons
+        preview_decision, preview_reasons = _determine_preview_decision(
+            normalized, status, expected_return_pct
+        )
+
+        # Add scan context to reasons if available
+        if status == "OK" and preview_decision != "REJECT":
+            if relative_strength_vs_spy_20d:
+                try:
+                    from decimal import Decimal
+                    rs = Decimal(str(relative_strength_vs_spy_20d))
+                    if rs > 0:
+                        preview_reasons.append(f"Outperforming SPY by {relative_strength_vs_spy_20d}%")
+                except Exception:
+                    pass
+
+            if momentum_20d_pct:
+                try:
+                    from decimal import Decimal
+                    mom = Decimal(str(momentum_20d_pct))
+                    if mom > 0:
+                        preview_reasons.append(f"Positive 20D momentum: {momentum_20d_pct}%")
+                except Exception:
+                    pass
+
+        # Calculate preview score
+        preview_score = _calculate_preview_score(
+            normalized,
+            scan_score,
+            relative_strength_vs_spy_20d,
+            momentum_20d_pct,
+            status,
+        )
+
+        # Build preview row
+        preview = CandidatePreview(
+            ticker=selected_ticker,
+            scan_rank=scan_rank,
+            scan_score=scan_score,
+            latest_price=latest_price,
+            momentum_5d_pct=momentum_5d_pct,
+            momentum_20d_pct=momentum_20d_pct,
+            relative_strength_vs_spy_20d=relative_strength_vs_spy_20d,
+            scan_reason_codes=scan_reason_codes,
+            prediction_recommendation=prediction_recommendation,
+            prediction_confidence=prediction_confidence,
+            forecast_price_5d=forecast_price_5d,
+            expected_return_pct=expected_return_pct,
+            market_context=market_context,
+            preview_decision=preview_decision,
+            preview_score=preview_score,
+            preview_reasons=preview_reasons,
+            status=status,
+        )
+        candidate_previews.append(preview)
+
     # Prepare response (no database writes, no workflow execution)
     return MarketScanPredictionCandidatesResponse(
         idempotency_key=body.idempotency_key,
@@ -2707,6 +2990,7 @@ async def market_scan_prediction_candidates(
             PredictionFailureDetail(**f) for f in all_prediction_failures
         ],
         normalized_predictions=normalized_predictions,
+        candidate_previews=candidate_previews,
         signals_submitted=0,
         decisions_made=0,
         orders_created=0,
