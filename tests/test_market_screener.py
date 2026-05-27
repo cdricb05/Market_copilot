@@ -393,3 +393,218 @@ class TestScanMarket:
         )
 
         assert scan_date == base_date
+
+    def test_scan_filters_by_price_type_and_session_type(self, scanner_session):
+        """Scanner filters to CLOSE/REGULAR prices only, ignoring LAST/MANUAL."""
+        base_date = date(2026, 5, 26)
+
+        # AAPL: Mix of CLOSE/REGULAR and LAST/POSTMARKET prices
+        # Should only use CLOSE/REGULAR in calculations
+        for i in range(20):
+            # CLOSE/REGULAR price (use for calculation)
+            ps = PriceSnapshot(
+                ticker="AAPL",
+                price=Decimal("150.00") + Decimal(i) * Decimal("1.00"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=datetime(2026, 5, 7 + i, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(ps)
+
+            # LAST/POSTMARKET price (ignore in calculation)
+            ps_ignored = PriceSnapshot(
+                ticker="AAPL",
+                price=Decimal("200.00"),  # Very different price
+                session_type="POSTMARKET",
+                price_type="LAST",
+                snapshot_ts=datetime(2026, 5, 7 + i, 17, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(ps_ignored)
+
+        scanner_session.commit()
+
+        candidates, skipped, scan_date = scan_market(
+            session=scanner_session,
+            tickers=["AAPL"],
+            lookback_days=20,
+            min_price_points=5,
+        )
+
+        # Should have 1 candidate with momentum calculated from CLOSE/REGULAR only
+        assert len(candidates) == 1
+        # Momentum should reflect CLOSE prices (150-170), not POSTMARKET (200)
+        momentum_5d = Decimal(candidates[0].momentum_5d_pct) if candidates[0].momentum_5d_pct else None
+        if momentum_5d:
+            # Should be around (170-166)/166*100 ≈ 2.4%, not mixing in 200
+            assert momentum_5d > 0 and momentum_5d < 10
+
+    def test_scan_handles_duplicate_dates_deterministically(self, scanner_session):
+        """Multiple rows per ticker/date use latest snapshot_ts."""
+        base_date = date(2026, 5, 26)
+
+        # AAPL: Two prices for same market_date, different snapshot times
+        for i in range(20):
+            # Older snapshot (should be ignored)
+            ps_old = PriceSnapshot(
+                ticker="AAPL",
+                price=Decimal("100.00"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=datetime(2026, 5, 7 + i, 10, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(ps_old)
+
+            # Newer snapshot (should be used)
+            ps_new = PriceSnapshot(
+                ticker="AAPL",
+                price=Decimal("150.00") + Decimal(i) * Decimal("1.00"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=datetime(2026, 5, 7 + i, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(ps_new)
+
+        scanner_session.commit()
+
+        candidates, skipped, scan_date = scan_market(
+            session=scanner_session,
+            tickers=["AAPL"],
+            lookback_days=20,
+            min_price_points=5,
+        )
+
+        # Should have candidate using newer prices (150-170), not old (100)
+        assert len(candidates) == 1
+        momentum_20d = Decimal(candidates[0].momentum_20d_pct) if candidates[0].momentum_20d_pct else None
+        if momentum_20d:
+            # Should be (170-150)/150*100 ≈ 13.3%, not (100-100)/100
+            assert momentum_20d > 10
+
+    def test_scan_skips_extreme_5d_momentum_as_outlier(self, scanner_session):
+        """Extreme 5D momentum (>50%) is marked DATA_QUALITY_OUTLIER and skipped."""
+        base_date = date(2026, 5, 26)
+
+        # AAPL: Extreme price jump in 5 days (100 -> 160 = 60% momentum)
+        # Days are May 7-26. We insert oldest first (i=0 is May 7), newest last (i=19 is May 26)
+        # Query orders DESC, so prices list will be reversed: newest first
+        for i in range(20):
+            if i < 4:
+                price = Decimal("100.00")  # May 7-10: $100
+            else:
+                price = Decimal("100.00") + Decimal(i - 4) * Decimal("10.00")  # May 11-26: $100 -> $210
+            ps = PriceSnapshot(
+                ticker="AAPL",
+                price=price,
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=datetime(2026, 5, 7 + i, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(ps)
+
+        scanner_session.commit()
+
+        candidates, skipped, scan_date = scan_market(
+            session=scanner_session,
+            tickers=["AAPL"],
+            lookback_days=20,
+            min_price_points=5,
+        )
+
+        # Should be skipped as outlier (60% 5D momentum > 50% threshold)
+        assert len(candidates) == 0
+        assert len(skipped) == 1
+        assert skipped[0].ticker == "AAPL"
+        assert skipped[0].reason == "DATA_QUALITY_OUTLIER"
+
+    def test_scan_skips_extreme_20d_momentum_as_outlier(self, scanner_session):
+        """Extreme 20D momentum (>75%) is marked DATA_QUALITY_OUTLIER and skipped."""
+        base_date = date(2026, 5, 26)
+
+        # AAPL: Extreme uptrend (likely data contamination)
+        # 100 -> 200 = 100% momentum
+        for i in range(20):
+            price = Decimal("100.00") + Decimal(i) * Decimal("5.00")  # 100 -> 195
+            ps = PriceSnapshot(
+                ticker="AAPL",
+                price=price,
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=datetime(2026, 5, 7 + i, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(ps)
+
+        scanner_session.commit()
+
+        candidates, skipped, scan_date = scan_market(
+            session=scanner_session,
+            tickers=["AAPL"],
+            lookback_days=20,
+            min_price_points=5,
+        )
+
+        # Should be skipped as outlier (95% momentum > 75% threshold)
+        assert len(candidates) == 0
+        assert len(skipped) == 1
+        assert skipped[0].ticker == "AAPL"
+        assert skipped[0].reason == "DATA_QUALITY_OUTLIER"
+
+    def test_scan_benchmark_filters_to_regular_session(self, scanner_session):
+        """Benchmark scanner filters to REGULAR session only."""
+        base_date = date(2026, 5, 26)
+
+        # AAPL: Normal 20% uptrend
+        for i in range(20):
+            ps = PriceSnapshot(
+                ticker="AAPL",
+                price=Decimal("100.00") + Decimal(i) * Decimal("1.00"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=datetime(2026, 5, 7 + i, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(ps)
+
+        # SPY: Mix of REGULAR and PREMARKET prices
+        for i in range(20):
+            # REGULAR price (use for calculation)
+            bp = BenchmarkPrice(
+                ticker="SPY",
+                price=Decimal("300.00") + Decimal(i) * Decimal("0.5"),
+                session_type="REGULAR",
+                snapshot_ts=datetime(2026, 5, 7 + i, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(bp)
+
+            # PREMARKET price (ignore)
+            bp_pre = BenchmarkPrice(
+                ticker="SPY",
+                price=Decimal("280.00"),  # Different price
+                session_type="PREMARKET",
+                snapshot_ts=datetime(2026, 5, 7 + i, 9, 0, 0, tzinfo=timezone.utc),
+                market_date=base_date - timedelta(days=19 - i),
+            )
+            scanner_session.add(bp_pre)
+
+        scanner_session.commit()
+
+        candidates, skipped, scan_date = scan_market(
+            session=scanner_session,
+            tickers=["AAPL"],
+            benchmark_ticker="SPY",
+            lookback_days=20,
+            min_price_points=5,
+        )
+
+        # Should have candidate with relative strength calculated correctly
+        assert len(candidates) == 1
+        # Should have relative strength (not None)
+        assert candidates[0].relative_strength_vs_spy_20d is not None
+        # Should be outperforming (AAPL 20% > SPY 5%)
+        assert "OUTPERFORMING_SPY" in candidates[0].reason_codes

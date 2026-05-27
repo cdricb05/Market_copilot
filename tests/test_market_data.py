@@ -652,3 +652,39 @@ class TestFetchHistoricalPrices:
         # Only the non-zero price is included
         assert len(successful["AAPL"]) == 1
         assert successful["AAPL"][0]["price"] == Decimal("150.0")
+
+    def test_brk_b_mapping_uses_hyphen_for_yfinance(self, monkeypatch) -> None:
+        """BRK.B (dot) is mapped to BRK-B (hyphen) for yfinance fetch, returns canonical BRK.B."""
+        import paper_trader.engine.market_data as market_data_module
+
+        dates_list = [date(2026, 5, 26), date(2026, 5, 23)]
+        mock_data = MockDataFrame({
+            "Close": [350.0, 340.0],
+        }, dates=dates_list)
+
+        fetch_calls = []
+
+        def mock_download(*args, **kwargs):
+            # Track which symbols are requested
+            symbols_arg = args[0] if args else ""
+            fetch_calls.append(symbols_arg.split())
+            return mock_data
+
+        mock_yf = MockYFinance()
+        mock_yf.download = mock_download
+        monkeypatch.setattr(market_data_module, "yfinance", mock_yf)
+
+        successful, failures = fetch_historical_prices(
+            tickers=["BRK.B"],
+            start_date=date(2026, 5, 23),
+            end_date=date(2026, 5, 26),
+        )
+
+        # Should have fetched using BRK-B (hyphen)
+        assert len(fetch_calls) > 0
+        assert "BRK-B" in fetch_calls[0]
+
+        # But result key should be canonical BRK.B (dot)
+        assert "BRK.B" in successful
+        assert len(successful["BRK.B"]) == 2
+        assert successful["BRK.B"][0]["price"] == Decimal("350.0")

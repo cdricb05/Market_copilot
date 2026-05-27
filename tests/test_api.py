@@ -2446,6 +2446,33 @@ class TestMarketScanEndpoint:
             assert "reason" in skipped
             assert "price_count" in skipped
 
+    def test_response_accounting_is_consistent(self, seeded_client: TestClient) -> None:
+        """Response counts are consistent: evaluated + skipped = total."""
+        resp = seeded_client.post(
+            "/v1/market/scan",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT", "GOOGL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 2,
+                "min_price_points": 5,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Accounting: evaluated_count = total - skipped_count
+        total = data["total_universe_count"]
+        evaluated = data["evaluated_count"]
+        skipped = data["skipped_count"]
+
+        assert total == 3  # Requested 3 tickers
+        assert evaluated + skipped == total  # Equation holds
+        # Only up to top_n are returned in candidates (2 in this case)
+        assert len(data["candidates"]) <= data["top_n"]
+
 
 class TestMarketBackfillPricesEndpoint:
     """POST /v1/market/backfill-prices endpoint tests."""

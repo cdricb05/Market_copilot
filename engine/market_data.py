@@ -24,6 +24,25 @@ except ImportError:
     yfinance = None
 
 
+# Provider-specific ticker mappings (canonical -> yfinance symbol)
+_TICKER_SYMBOL_MAPPING = {
+    "BRK.B": "BRK-B",  # Berkshire Hathaway Class B: dot vs hyphen
+}
+
+
+def _get_yfinance_symbol(ticker: str) -> str:
+    """Map canonical ticker to yfinance symbol."""
+    return _TICKER_SYMBOL_MAPPING.get(ticker, ticker)
+
+
+def _get_canonical_ticker(yfinance_symbol: str) -> str:
+    """Map yfinance symbol back to canonical ticker."""
+    for canonical, yf_symbol in _TICKER_SYMBOL_MAPPING.items():
+        if yf_symbol == yfinance_symbol:
+            return canonical
+    return yfinance_symbol
+
+
 def fetch_latest_prices(tickers: list[str]) -> tuple[list[dict], list[dict]]:
     """
     Fetch latest available prices from Yahoo Finance.
@@ -56,10 +75,14 @@ def fetch_latest_prices(tickers: list[str]) -> tuple[list[dict], list[dict]]:
     # Normalize tickers to uppercase and deduplicate
     normalized_tickers = list(set(t.upper() for t in tickers))
 
+    # Map to yfinance symbols for fetching
+    ticker_to_yf_symbol = {t: _get_yfinance_symbol(t) for t in normalized_tickers}
+    yf_symbols = list(set(ticker_to_yf_symbol.values()))
+
     try:
         # Fetch data for all tickers at once
         data = yfinance.download(
-            " ".join(normalized_tickers),
+            " ".join(yf_symbols),
             period="1d",
             progress=False,
             threads=False,
@@ -72,7 +95,8 @@ def fetch_latest_prices(tickers: list[str]) -> tuple[list[dict], list[dict]]:
 
     # Process each ticker
     for ticker in normalized_tickers:
-        price = _extract_latest_price(ticker, data)
+        yf_symbol = ticker_to_yf_symbol[ticker]
+        price = _extract_latest_price(yf_symbol, data)
 
         if price is None:
             failed[ticker] = "No valid price returned"
@@ -192,6 +216,10 @@ def fetch_historical_prices(
     # Normalize tickers to uppercase and deduplicate
     normalized_tickers = list(set(t.upper() for t in tickers))
 
+    # Map to yfinance symbols for fetching
+    ticker_to_yf_symbol = {t: _get_yfinance_symbol(t) for t in normalized_tickers}
+    yf_symbols = list(set(ticker_to_yf_symbol.values()))
+
     try:
         # Note: yfinance end date is exclusive, so add 1 day
         from datetime import timedelta
@@ -199,7 +227,7 @@ def fetch_historical_prices(
 
         # Fetch data for all tickers at once
         data = yfinance.download(
-            " ".join(normalized_tickers),
+            " ".join(yf_symbols),
             start=start_date,
             end=yf_end_date,
             progress=False,
@@ -213,7 +241,8 @@ def fetch_historical_prices(
 
     # Process each ticker
     for ticker in normalized_tickers:
-        prices = _extract_historical_prices(ticker, data)
+        yf_symbol = ticker_to_yf_symbol[ticker]
+        prices = _extract_historical_prices(yf_symbol, data)
 
         if not prices:  # Empty list or None
             failed[ticker] = "No valid prices returned"

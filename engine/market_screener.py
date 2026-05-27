@@ -140,9 +140,10 @@ def scan_market(
         benchmark_data = session.execute(
             select(BenchmarkPrice.market_date, BenchmarkPrice.price)
             .where(BenchmarkPrice.ticker == benchmark_ticker.upper())
+            .where(BenchmarkPrice.session_type == "REGULAR")
             .where(BenchmarkPrice.market_date >= cutoff_date)
             .where(BenchmarkPrice.market_date <= latest_market_date)
-            .order_by(BenchmarkPrice.market_date.desc())
+            .order_by(BenchmarkPrice.market_date.desc(), BenchmarkPrice.snapshot_ts.desc())
         ).all()
 
         benchmark_prices = {row[0]: Decimal(str(row[1])) for row in benchmark_data}
@@ -153,13 +154,15 @@ def scan_market(
     scan_date_result = None
 
     for ticker in tickers_to_scan:
-        # Fetch price history for this ticker
+        # Fetch price history for this ticker (CLOSE prices from REGULAR session only)
         price_data = session.execute(
             select(PriceSnapshot.market_date, PriceSnapshot.price)
             .where(PriceSnapshot.ticker == ticker)
+            .where(PriceSnapshot.price_type == "CLOSE")
+            .where(PriceSnapshot.session_type == "REGULAR")
             .where(PriceSnapshot.market_date >= cutoff_date)
             .where(PriceSnapshot.market_date <= latest_market_date)
-            .order_by(PriceSnapshot.market_date.desc())
+            .order_by(PriceSnapshot.market_date.desc(), PriceSnapshot.snapshot_ts.desc())
         ).all()
 
         price_count = len(price_data)
@@ -233,6 +236,29 @@ def scan_market(
                 volatility_20d = (variance.sqrt()).quantize(Decimal("0.01"))
             else:
                 volatility_20d = Decimal("0")
+
+        # Data quality check: flag extreme momentum as outliers
+        if momentum_5d is not None and abs(momentum_5d) > Decimal("50"):
+            reason_codes.append("DATA_QUALITY_OUTLIER")
+            skipped_tickers.append(
+                SkippedTicker(
+                    ticker=ticker,
+                    reason="DATA_QUALITY_OUTLIER",
+                    price_count=price_count,
+                )
+            )
+            continue
+
+        if momentum_20d is not None and abs(momentum_20d) > Decimal("75"):
+            reason_codes.append("DATA_QUALITY_OUTLIER")
+            skipped_tickers.append(
+                SkippedTicker(
+                    ticker=ticker,
+                    reason="DATA_QUALITY_OUTLIER",
+                    price_count=price_count,
+                )
+            )
+            continue
 
         # Relative strength vs SPY (if benchmark data exists)
         relative_strength_vs_spy = None

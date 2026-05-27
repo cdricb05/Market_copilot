@@ -2459,12 +2459,13 @@ def scan_market(body: MarketScanRequest) -> MarketScanResponse:
     if body.tickers:
         universe_tickers = body.tickers
 
+    # Accounting: evaluated = total - skipped; returned = top_n from evaluated
     return MarketScanResponse(
         universe=body.universe,
         scan_date=str(scan_date) if scan_date else None,
         benchmark_ticker=body.benchmark_ticker,
         total_universe_count=len(universe_tickers),
-        evaluated_count=len(candidates) + len(skipped),
+        evaluated_count=len(universe_tickers) - len(skipped),
         skipped_count=len(skipped),
         top_n=min(body.top_n, 100),
         candidates=[CandidateOut(**c.to_dict()) for c in candidates],
