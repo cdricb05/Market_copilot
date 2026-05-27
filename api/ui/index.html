@@ -7,65 +7,109 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    :root {
+      --bg-base: #0a0e27;
+      --bg-panel: #111a35;
+      --border: #1a3a5a;
+      --text-primary: #e0e0ff;
+      --text-accent: #a8b8d8;
+      --label: #7a8fb0;
+      --ok: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #3b82f6;
+    }
+
     body {
-      font-family: 'Monaco', 'Menlo', 'Consolas', 'IBM Plex Mono', monospace;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       font-size: 13px;
-      background: #0a0e27;
-      color: #e0e0ff;
+      background: var(--bg-base);
+      color: var(--text-primary);
       line-height: 1.5;
     }
 
-    /* ---- Header (Terminal Command Bar) ---- */
+    /* Monospace for tickers, numbers, IDs */
+    .mono { font-family: 'Monaco', 'Menlo', 'Consolas', monospace; }
+
+    /* ---- Header (Command Bar) ---- */
     header {
-      background: #0f1229;
-      color: #00ff88;
-      padding: 10px 20px;
+      background: var(--bg-panel);
+      color: var(--text-primary);
+      padding: 12px 20px;
       display: flex;
       align-items: center;
       gap: 16px;
       position: sticky;
       top: 0;
       z-index: 10;
-      border-bottom: 2px solid #1a2d4d;
-      box-shadow: 0 2px 12px rgba(0,0,0,.6);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 8px rgba(0,0,0,.3);
     }
-    header h1 { font-size: 15px; font-weight: 700; letter-spacing: .1em; flex: 1; color: #00ff88; }
-    header input {
-      padding: 6px 10px;
-      border: 1px solid #1a3a5a;
-      border-radius: 2px;
-      background: #1a2535;
-      color: #00ff88;
-      font-size: 12px;
-      font-family: 'Monaco', 'Menlo', monospace;
-      width: 200px;
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      flex: 0 0 auto;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
-    header input::placeholder { color: #44667a; }
-    header button {
-      padding: 6px 16px;
-      background: #00aa44;
-      color: #000;
-      border: 1px solid #00ff88;
-      border-radius: 2px;
-      cursor: pointer;
+    .header-status {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex: 0 0 auto;
+      border-right: 1px solid var(--border);
+      padding-right: 16px;
+      margin-right: 16px;
+    }
+    .status-light {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ok);
+    }
+    .status-light.err { background: var(--danger); }
+    .status-light.neutral { background: var(--label); }
+    .status-text {
       font-size: 12px;
-      font-weight: 700;
+      color: var(--text-accent);
       font-family: 'Monaco', monospace;
     }
-    header button:hover { background: #00ff88; box-shadow: 0 0 8px #00aa4466; }
-    button:disabled { opacity: .4; cursor: not-allowed; }
+    header input {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      background: rgba(0,0,0,.2);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-family: 'Monaco', monospace;
+      width: 180px;
+    }
+    header input::placeholder { color: var(--label); }
+    header button {
+      padding: 6px 14px;
+      background: var(--info);
+      color: #fff;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
+    }
+    header button:hover:not(:disabled) { background: #2563eb; }
+    header button:disabled { opacity: 0.4; cursor: not-allowed; }
     header button.btn-refresh {
       background: transparent;
-      color: #00ff88;
-      border: 1px solid #00aa44;
+      color: var(--text-accent);
+      border: 1px solid var(--border);
       padding: 5px 10px;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: normal;
     }
     header button.btn-refresh:hover:not(:disabled) {
-      background: rgba(0,255,136,.1);
-      border-color: #00ff88;
-      color: #00ff88;
+      background: rgba(255,255,255,.05);
+      color: var(--text-primary);
     }
 
     /* ---- Layout ---- */
@@ -78,58 +122,245 @@
     }
 
     .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .row-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    @media (max-width: 1200px) { .row-3 { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 900px) { .row-2 { grid-template-columns: 1fr; } }
 
-    /* ---- Card (Dark Panel) ---- */
+    /* ---- Card (Panel) ---- */
     .card {
-      background: #111a35;
-      border: 1px solid #1a3a5a;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
       border-radius: 3px;
       padding: 14px 16px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
     }
     .card-title {
       font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: .12em;
-      color: #00cc99;
+      letter-spacing: 0.12em;
+      color: var(--text-accent);
       margin-bottom: 12px;
-      border-bottom: 1px solid #1a3a5a;
+      border-bottom: 1px solid var(--border);
       padding-bottom: 6px;
     }
 
-    /* ---- Status badges ---- */
-    .status-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    /* ---- KPI Grid ---- */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+    }
+    .kpi-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .kpi-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--label);
+      font-weight: 600;
+    }
+    .kpi-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-family: 'Monaco', monospace;
+    }
+    .kpi-value.ok { color: var(--ok); }
+    .kpi-value.warning { color: var(--warning); }
+    .kpi-value.danger { color: var(--danger); }
+
+    /* ---- Status Badge ---- */
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 5px;
-      padding: 4px 12px;
+      gap: 4px;
+      padding: 4px 10px;
       border-radius: 2px;
       font-size: 11px;
-      font-weight: 700;
+      font-weight: 600;
       border: 1px solid;
       font-family: 'Monaco', monospace;
     }
-    .badge.ok      { background: rgba(0,255,100,.1); color: #00ff88; border-color: #00aa44; }
-    .badge.err     { background: rgba(255,0,100,.1); color: #ff6688; border-color: #ff3366; }
-    .badge.neutral { background: rgba(100,150,200,.1); color: #88bbff; border-color: #4488cc; }
+    .badge.ok { background: rgba(34,197,94,.1); color: var(--ok); border-color: var(--ok); }
+    .badge.err { background: rgba(239,68,68,.1); color: var(--danger); border-color: var(--danger); }
+    .badge.warning { background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); }
+    .badge.neutral { background: rgba(148,163,184,.1); color: var(--text-accent); border-color: var(--border); }
 
-    /* ---- Stats grid ---- */
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 14px;
+    /* ---- Action Required Panel ---- */
+    .action-panel {
+      background: rgba(59,130,246,.08);
+      border: 1px solid rgba(59,130,246,.4);
+      border-radius: 3px;
+      padding: 12px 14px;
     }
-    .stat dt {
+    .action-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--info);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }
+    .action-text {
+      font-size: 12px;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+      line-height: 1.5;
+    }
+    .action-links {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .action-btn {
+      padding: 5px 12px;
+      background: var(--info);
+      color: white;
+      border: none;
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-block;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
+    }
+    .action-btn:hover { background: #2563eb; }
+
+    /* ---- Prediction Command Center ---- */
+    .command-section {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 14px 16px;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-accent);
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+    .inputs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .input-group label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--label);
+      font-weight: 600;
+    }
+    .input-group input,
+    .input-group select {
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      background: rgba(0,0,0,.2);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-family: 'Monaco', monospace;
+    }
+    .input-group input::placeholder { color: var(--label); }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .button-group-label {
       font-size: 9px;
       text-transform: uppercase;
-      letter-spacing: .1em;
-      color: #00cc99;
-      margin-bottom: 4px;
+      letter-spacing: 0.1em;
+      color: var(--label);
+      font-weight: 600;
+      width: 100%;
+      margin-bottom: 2px;
     }
-    .stat dd { font-size: 18px; font-weight: 700; color: #00ff88; font-family: 'Monaco', monospace; }
+    .btn {
+      padding: 6px 12px;
+      background: var(--info);
+      color: white;
+      border: 1px solid rgba(59,130,246,.4);
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
+    }
+    .btn:hover:not(:disabled) { background: #2563eb; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-ok { background: var(--ok); border-color: rgba(34,197,94,.4); }
+    .btn-ok:hover:not(:disabled) { background: #16a34a; }
+    .btn-danger { background: var(--danger); border-color: rgba(239,68,68,.4); }
+    .btn-danger:hover:not(:disabled) { background: #dc2626; }
+
+    .service-label {
+      font-size: 9px;
+      color: var(--label);
+      font-style: italic;
+      margin-top: 2px;
+    }
+
+    /* ---- Workflow Rail (Compact Execution) ---- */
+    .workflow-rail {
+      display: flex;
+      gap: 2px;
+      padding: 8px;
+      background: rgba(0,0,0,.2);
+      border-radius: 2px;
+      overflow-x: auto;
+    }
+    .workflow-step {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      background: var(--bg-base);
+      min-width: 80px;
+      text-align: center;
+    }
+    .workflow-step-name {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--label);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .workflow-step-status {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 2px;
+      border: 1px solid;
+    }
+    .workflow-step-status.not-started { background: rgba(107,114,128,.1); color: var(--label); border-color: var(--border); }
+    .workflow-step-status.running { background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); }
+    .workflow-step-status.done { background: rgba(34,197,94,.1); color: var(--ok); border-color: var(--ok); }
+    .workflow-step-status.error { background: rgba(239,68,68,.1); color: var(--danger); border-color: var(--danger); }
 
     /* ---- Tables ---- */
     .table-wrap { overflow-x: auto; }
@@ -137,28 +368,28 @@
     th {
       font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: .1em;
-      color: #00cc99;
+      letter-spacing: 0.1em;
+      color: var(--label);
       text-align: left;
       padding: 8px 10px;
-      border-bottom: 1px solid #1a3a5a;
-      border-top: 1px solid #1a3a5a;
+      border-bottom: 1px solid var(--border);
+      border-top: 1px solid var(--border);
       white-space: nowrap;
-      background: #0a1428;
+      background: rgba(0,0,0,.2);
       font-weight: 700;
     }
     td {
       padding: 8px 10px;
-      border-bottom: 1px solid #1a3a5a;
+      border-bottom: 1px solid var(--border);
       font-size: 12px;
       font-family: 'Monaco', monospace;
     }
-    td:first-child { font-weight: 700; color: #00ff88; }
+    td:first-child { font-weight: 600; color: var(--text-primary); }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(0,255,136,.03); }
-    .empty { color: #44667a; text-align: center; padding: 20px; font-style: italic; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+    .empty { color: var(--label); text-align: center; padding: 20px; font-style: italic; }
 
-    /* ---- Filters row ---- */
+    /* ---- Filters ---- */
     .filters {
       display: flex;
       align-items: center;
@@ -169,118 +400,130 @@
     .filters select,
     .filters input[type=date] {
       padding: 5px 8px;
-      border: 1px solid #1a3a5a;
+      border: 1px solid var(--border);
       border-radius: 2px;
       font-size: 11px;
-      background: #1a2535;
-      color: #e0e0ff;
+      background: rgba(0,0,0,.2);
+      color: var(--text-primary);
       font-family: 'Monaco', monospace;
     }
     .btn-sm {
       padding: 5px 12px;
-      border: 1px solid #1a3a5a;
+      border: 1px solid var(--border);
       border-radius: 2px;
       cursor: pointer;
       font-size: 11px;
-      font-weight: 700;
-      background: #1a3a5a;
-      color: #00ff88;
-      font-family: 'Monaco', monospace;
+      font-weight: 600;
+      background: rgba(59,130,246,.1);
+      color: var(--info);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
-    .btn-sm:hover { background: #1a4a7a; border-color: #00cc99; }
+    .btn-sm:hover { background: rgba(59,130,246,.2); }
     .link-btn {
       font-size: 11px;
-      color: #00ff88;
+      color: var(--info);
       text-decoration: none;
-      font-weight: 700;
-      border-bottom: 1px solid #00ff88;
-      font-family: 'Monaco', monospace;
+      font-weight: 600;
+      border-bottom: 1px solid var(--info);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
     .row-count {
       font-weight: 400;
       text-transform: none;
       letter-spacing: 0;
-      color: #44667a;
+      color: var(--label);
       font-size: 10px;
       margin-left: 4px;
     }
 
-    .action-badge {
-      font-size: 10px;
-      font-weight: 400;
-      color: #44667a;
-      margin-left: 6px;
+    /* ---- Signal/Decision Results ---- */
+    .result-section {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 14px 16px;
     }
-
-    /* ---- Daily Operations Workbench ---- */
-    .workbench { border-bottom: 1px solid #1a3a5a; padding-bottom: 12px; margin-bottom: 12px; }
-    .workbench-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #00ff88; margin-bottom: 10px; }
-
-    .stage-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; height: 28px; }
-    .stage-bar-track { flex: 1; height: 2px; background: #1a3a5a; border-radius: 1px; position: relative; overflow: hidden; }
-    .stage-bar-fill { position: absolute; height: 100%; background: linear-gradient(90deg, #00ff88, #00cc99); transition: width .3s ease; box-shadow: 0 0 8px #00ff8844; }
-    .stage-label { font-size: 10px; color: #00cc99; text-transform: uppercase; letter-spacing: .1em; min-width: 70px; text-align: center; font-weight: 700; }
-
-    .status-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 12px; }
-    .status-item { background: #0a1428; border: 1px solid #1a3a5a; border-radius: 2px; padding: 8px 10px; font-size: 11px; }
-    .status-item dt { font-weight: 700; color: #00cc99; margin-bottom: 3px; font-size: 9px; text-transform: uppercase; letter-spacing: .1em; }
-    .status-item dd { font-size: 12px; color: #e0e0ff; font-family: 'Monaco', monospace; }
-    .status-item.ok dd { color: #00ff88; font-weight: 700; }
-    .status-item.err dd { color: #ff6688; font-weight: 700; }
-    .status-item.neutral dd { color: #44667a; }
-
-    .next-action-card { background: rgba(0,150,200,.08); border: 1px solid #0088aa; border-radius: 2px; padding: 10px 12px; margin-bottom: 0; }
-    .next-action-card h4 { font-size: 11px; font-weight: 700; color: #00ccff; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .1em; }
-    .next-action-card p { font-size: 11px; color: #88bbff; margin-bottom: 6px; line-height: 1.4; }
-    .next-action-links { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .next-action-btn { padding: 5px 12px; background: #0088aa; color: #fff; border: 1px solid #00ccff; border-radius: 2px; cursor: pointer; font-size: 11px; font-weight: 700; text-decoration: none; display: inline-block; font-family: 'Monaco', monospace; }
-    .next-action-btn:hover { background: #00aacc; box-shadow: 0 0 8px #00ccff66; }
-    .skip-label { font-size: 10px; color: #44667a; }
-    .skip-links { display: flex; gap: 6px; flex-wrap: wrap; }
-    .skip-link { font-size: 10px; color: #00ccff; text-decoration: none; font-weight: 700; border-bottom: 1px solid #00ccff; font-family: 'Monaco', monospace; }
-    .skip-link:hover { color: #00ffff; border-color: #00ffff; }
-
-    .hints-block {
-      background: rgba(255,180,0,.08);
-      border: 1px solid #ff9900;
-      border-radius: 2px;
-      padding: 8px 10px;
-      margin-bottom: 12px;
-      font-size: 11px;
-      color: #ffbb44;
-      line-height: 1.5;
+    .result-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .result-table th {
+      background: rgba(0,0,0,.3);
+      padding: 8px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--label);
+      border-bottom: 1px solid var(--border);
+    }
+    .result-table td {
+      padding: 8px;
+      border-bottom: 1px solid var(--border);
       font-family: 'Monaco', monospace;
     }
-    .hints-block b {
-      display: block;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: .1em;
-      margin-bottom: 4px;
-      color: #ffdd00;
-      font-weight: 700;
-    }
-    .hints-block ol { margin: 0; padding-left: 18px; }
-    .hints-block li { margin-bottom: 2px; }
+    .rec-buy { color: var(--ok); font-weight: 600; }
+    .rec-sell { color: var(--danger); font-weight: 600; }
+    .rec-hold { color: var(--warning); font-weight: 600; }
 
-    /* ---- Action forms ---- */
-    details { border-bottom: 1px solid #1a3a5a; }
+    /* ---- Collapsible Workflow Details ---- */
+    details {
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
     details:last-child { border-bottom: none; }
     summary {
       cursor: pointer;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       padding: 10px 4px;
       user-select: none;
       list-style: none;
       display: flex;
       align-items: center;
       gap: 8px;
-      color: #00cc99;
-      font-family: 'Monaco', monospace;
+      color: var(--text-accent);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
-    summary::before { content: '▶'; font-size: 10px; color: #44667a; transition: transform .15s; }
+    summary::before { content: '▶'; font-size: 10px; color: var(--label); transition: transform .15s; }
     details[open] summary::before { transform: rotate(90deg); }
+    .workflow-step-box {
+      background: rgba(0,0,0,.2);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 10px 12px;
+      margin: 8px 0;
+    }
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .step-label { font-size: 11px; font-weight: 600; color: var(--text-accent); }
+    .step-status { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 10px; font-weight: 600; border: 1px solid; font-family: 'Monaco', monospace; }
+    .step-status.not-started { background: rgba(107,114,128,.1); color: var(--label); border-color: var(--border); }
+    .step-status.ready { background: rgba(59,130,246,.1); color: var(--info); border-color: var(--info); }
+    .step-status.running { background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); }
+    .step-status.done { background: rgba(34,197,94,.1); color: var(--ok); border-color: var(--ok); }
+    .step-status.error { background: rgba(239,68,68,.1); color: var(--danger); border-color: var(--danger); }
+    .step-btn {
+      padding: 6px 12px;
+      background: var(--info);
+      color: white;
+      border: 1px solid rgba(59,130,246,.4);
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
+    }
+    .step-btn:hover:not(:disabled) { background: #2563eb; }
+    .step-result { font-size: 11px; color: var(--label); min-height: 16px; margin-top: 6px; font-family: 'Monaco', monospace; }
+    .step-result.success { color: var(--ok); }
+    .step-result.error { color: var(--danger); }
+
+    /* ---- Action Forms (Manual Overrides) ---- */
     .form-body { padding: 8px 4px 12px; }
     .form-grid {
       display: grid;
@@ -290,86 +533,44 @@
     }
     .fg label {
       display: block;
-      font-size: 9px;
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: .1em;
-      color: #00cc99;
+      letter-spacing: 0.1em;
+      color: var(--label);
       margin-bottom: 4px;
-      font-weight: 700;
+      font-weight: 600;
     }
     .fg input,
     .fg select {
       width: 100%;
       padding: 6px 8px;
-      border: 1px solid #1a3a5a;
+      border: 1px solid var(--border);
       border-radius: 2px;
       font-size: 12px;
-      background: #1a2535;
-      color: #e0e0ff;
+      background: rgba(0,0,0,.2);
+      color: var(--text-primary);
       font-family: 'Monaco', monospace;
     }
-    .fg input::placeholder { color: #44667a; }
+    .fg input::placeholder { color: var(--label); }
     .btn-action {
-      padding: 6px 16px;
-      background: #cc3344;
+      padding: 6px 14px;
+      background: var(--danger);
       color: #fff;
-      border: 1px solid #ff5577;
+      border: 1px solid rgba(239,68,68,.4);
       border-radius: 2px;
       cursor: pointer;
       font-size: 12px;
-      font-weight: 700;
-      font-family: 'Monaco', monospace;
+      font-weight: 600;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
-    .btn-action:hover { background: #ff5577; box-shadow: 0 0 8px #ff557766; }
+    .btn-action:hover { background: #dc2626; }
 
-    /* ---- Daily Trading Run ---- */
-    .dtr-card { border-bottom: 1px solid #1a3a5a; padding-bottom: 12px; margin-bottom: 12px; }
-    .dtr-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #00ff88; margin-bottom: 10px; border-bottom: 1px solid #1a3a5a; padding-bottom: 6px; }
-    .dtr-inputs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px; }
-    .dtr-step { background: #0a1428; border: 1px solid #1a3a5a; border-radius: 2px; padding: 10px 12px; }
-    .dtr-step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .dtr-step-label { font-size: 11px; font-weight: 700; color: #00cc99; }
-    .dtr-step-status { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 10px; font-weight: 700; border: 1px solid; font-family: 'Monaco', monospace; }
-    .dtr-step-status.not-started { background: rgba(100,100,100,.1); color: #88aaaa; border-color: #556677; }
-    .dtr-step-status.ready { background: rgba(0,150,255,.1); color: #00ccff; border-color: #0088cc; }
-    .dtr-step-status.running { background: rgba(255,200,0,.1); color: #ffdd00; border-color: #ffaa00; }
-    .dtr-step-status.done { background: rgba(0,255,100,.1); color: #00ff88; border-color: #00aa44; }
-    .dtr-step-status.error { background: rgba(255,0,100,.1); color: #ff6688; border-color: #ff3366; }
-    .dtr-step-btn { padding: 6px 14px; background: #1a4a7a; color: #00ff88; border: 1px solid #0088cc; border-radius: 2px; cursor: pointer; font-size: 11px; font-weight: 700; font-family: 'Monaco', monospace; }
-    .dtr-step-btn:hover:not(:disabled) { background: #0088cc; box-shadow: 0 0 8px #0088cc66; }
-    .dtr-step-result { font-size: 11px; color: #44667a; min-height: 16px; margin-top: 6px; font-family: 'Monaco', monospace; }
-    .dtr-step-result.success { color: #00ff88; }
-    .dtr-step-result.error { color: #ff6688; }
-
-    .dtr-status-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding: 8px 10px; background: #0a1428; border: 1px solid #1a3a5a; border-radius: 2px; }
-    .dtr-status-msg { font-size: 12px; font-weight: 700; color: #00ff88; font-family: 'Monaco', monospace; }
-    .dtr-reset-btn { padding: 5px 12px; background: #6a6a6a; color: #fff; border: 1px solid #888; border-radius: 2px; cursor: pointer; font-size: 11px; font-weight: 700; font-family: 'Monaco', monospace; }
-    .dtr-reset-btn:hover { background: #8a8a8a; }
-    .dtr-guidance { background: rgba(0,255,100,.08); border: 1px solid #00aa44; border-radius: 2px; padding: 8px 10px; margin-bottom: 12px; font-size: 11px; color: #00ff88; font-family: 'Monaco', monospace; }
-
-    .dtr-summary { background: #0a1428; border: 1px solid #1a3a5a; border-radius: 2px; padding: 10px 12px; margin-bottom: 12px; }
-    .dtr-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
-    .dtr-summary-item { font-size: 11px; }
-    .dtr-summary-item dt { font-weight: 700; color: #00cc99; margin-bottom: 2px; font-size: 9px; text-transform: uppercase; letter-spacing: .1em; }
-    .dtr-summary-item dd { font-size: 12px; color: #e0e0ff; font-family: 'Monaco', monospace; }
-    .dtr-summary-result { font-weight: 700; font-family: 'Monaco', monospace; }
-    .dtr-summary-result.success { color: #00ff88; }
-    .dtr-summary-result.error { color: #ff6688; }
-
-    /* ---- Flags ---- */
-    .yes { color: #00ff88; font-weight: 700; }
-    .no  { color: #ff6688; font-weight: 700; }
-
-    /* ---- Signed value coloring ---- */
-    .pos { color: #00ff88; }
-    .neg { color: #ff6688; }
-
-    /* ---- Order status pills ---- */
-    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 10px; font-weight: 700; border: 1px solid; font-family: 'Monaco', monospace; }
-    .status-pending  { background: rgba(255,200,0,.1); color: #ffdd00; border-color: #ffaa00; }
-    .status-filled   { background: rgba(0,255,100,.1); color: #00ff88; border-color: #00aa44; }
-    .status-expired  { background: rgba(100,100,100,.1); color: #88aaaa; border-color: #556677; }
-    .status-failed   { background: rgba(255,0,100,.1); color: #ff6688; border-color: #ff3366; }
+    /* ---- Status Chips ---- */
+    .status-chip { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 10px; font-weight: 600; border: 1px solid; font-family: 'Monaco', monospace; }
+    .status-pending { background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); }
+    .status-filled { background: rgba(34,197,94,.1); color: var(--ok); border-color: var(--ok); }
+    .status-expired { background: rgba(107,114,128,.1); color: var(--label); border-color: var(--border); }
+    .status-failed { background: rgba(239,68,68,.1); color: var(--danger); border-color: var(--danger); }
 
     /* ---- Toast ---- */
     #toast {
@@ -377,25 +578,36 @@
       bottom: 20px;
       right: 20px;
       padding: 10px 16px;
-      border-radius: 2px;
+      border-radius: 3px;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       display: none;
       z-index: 200;
       max-width: 360px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.6);
-      font-family: 'Monaco', monospace;
+      box-shadow: 0 4px 12px rgba(0,0,0,.4);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
       border: 1px solid;
     }
-    #toast.ok  { background: rgba(0,255,100,.15); color: #00ff88; border-color: #00aa44; }
-    #toast.err { background: rgba(255,0,100,.15); color: #ff6688; border-color: #ff3366; }
+    #toast.ok { background: rgba(34,197,94,.15); color: var(--ok); border-color: var(--ok); }
+    #toast.err { background: rgba(239,68,68,.15); color: var(--danger); border-color: var(--danger); }
+
+    /* ---- Utility ---- */
+    .pos { color: var(--ok); }
+    .neg { color: var(--danger); }
+    .yes { color: var(--ok); font-weight: 600; }
+    .no { color: var(--danger); font-weight: 600; }
   </style>
 </head>
 <body>
 
 <header>
   <h1>paper_trader</h1>
-  <input type="password" id="apiKey" placeholder="X-API-Key" autocomplete="off"
+  <div class="header-status">
+    <span class="status-light neutral" id="health-light"></span>
+    <span class="status-text" id="health-status">Connecting…</span>
+  </div>
+  <div style="flex: 1;"></div>
+  <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
          onkeydown="if(event.key==='Enter')connect()">
   <button id="connectBtn" onclick="connect()">Connect</button>
   <button class="btn-refresh" id="refreshBtn" onclick="refresh()" title="Refresh all data">↻</button>
@@ -403,68 +615,177 @@
 
 <main>
 
-  <!-- Status -->
+  <!-- KPI Strip (Section B) -->
   <div class="card">
-    <div class="status-row">
-      <span class="badge neutral" id="hBadge">&#9679; health</span>
-      <span class="badge neutral" id="rBadge">&#9679; ready</span>
+    <div class="kpi-grid">
+      <div class="kpi-item">
+        <span class="kpi-label">Total Value</span>
+        <span class="kpi-value" id="pf-total">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Cash</span>
+        <span class="kpi-value" id="pf-cash">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Positions Value</span>
+        <span class="kpi-value" id="pf-positions">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Return %</span>
+        <span class="kpi-value" id="perf-pct">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Pending Orders</span>
+        <span class="kpi-value" id="kpi-pending">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Open Positions</span>
+        <span class="kpi-value" id="kpi-positions">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Snapshots</span>
+        <span class="kpi-value" id="kpi-snapshots">—</span>
+      </div>
+      <div class="kpi-item">
+        <span class="kpi-label">Strategy</span>
+        <span class="kpi-value" id="pf-strategy">—</span>
+      </div>
     </div>
   </div>
 
-  <!-- Daily Operations Workbench -->
-  <div class="card workbench">
-    <div class="workbench-title">Daily Operations Workbench</div>
-
-    <!-- Workflow Stage Indicator -->
-    <div class="stage-bar">
-      <div style="flex:1; text-align:right; margin-right:8px;">
-        <span class="stage-label">Seed</span>
-      </div>
-      <div class="stage-bar-track">
-        <div class="stage-bar-fill" id="stageBarFill"></div>
-      </div>
-      <div style="flex:1; text-align:left; margin-left:8px;">
-        <span class="stage-label">Snapshot</span>
-      </div>
-    </div>
-
-    <!-- Status Panel -->
-    <div class="status-panel" id="statusPanel"></div>
-
-    <!-- Next Action Card -->
-    <div class="next-action-card" id="nextActionCard"></div>
+  <!-- Action Required (Section C) -->
+  <div class="action-panel" id="actionPanel" style="display:none;">
+    <div class="action-title" id="action-title">Next Action</div>
+    <div class="action-text" id="action-text"></div>
+    <div class="action-links" id="action-links"></div>
   </div>
 
-  <!-- Portfolio + Performance -->
-  <div class="row-2">
-    <div class="card">
-      <div class="card-title">Portfolio</div>
-      <dl class="stats">
-        <div class="stat"><dt>Cash</dt><dd id="pf-cash">&#8212;</dd></div>
-        <div class="stat"><dt>Total Value</dt><dd id="pf-total">&#8212;</dd></div>
-        <div class="stat"><dt>Initial Capital</dt><dd id="pf-initial">&#8212;</dd></div>
-      </dl>
-      <dl class="stats" style="margin-top:14px;">
-        <div class="stat"><dt>Strategy</dt><dd id="pf-strategy">&#8212;</dd></div>
-        <div class="stat"><dt>Trading</dt><dd id="pf-trading">&#8212;</dd></div>
-        <div class="stat"><dt>New Positions</dt><dd id="pf-newpos">&#8212;</dd></div>
-      </dl>
+  <!-- Prediction Command Center (Section D) -->
+  <div class="command-section">
+    <div class="section-title">Prediction Command Center</div>
+
+    <div class="inputs-grid">
+      <div class="input-group">
+        <label>Ticker</label>
+        <input id="dtr-ticker" placeholder="AAPL" class="mono">
+      </div>
+      <div class="input-group">
+        <label>Price</label>
+        <input id="dtr-price" placeholder="150.00" class="mono">
+      </div>
+      <div class="input-group">
+        <label>Direction</label>
+        <select id="dtr-direction" class="mono">
+          <option>BUY</option><option>SELL</option><option>HOLD</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>Confidence (0–1)</label>
+        <input id="dtr-confidence" placeholder="0.80" class="mono">
+      </div>
+      <div class="input-group">
+        <label>Short Window</label>
+        <input id="dtr-short-window" type="number" value="3" min="1" class="mono">
+      </div>
+      <div class="input-group">
+        <label>Long Window</label>
+        <input id="dtr-long-window" type="number" value="5" min="1" class="mono">
+      </div>
+      <div class="input-group">
+        <label>Strategy Tickers</label>
+        <input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA" class="mono">
+      </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Performance (inception-to-date)</div>
-      <dl class="stats">
-        <div class="stat"><dt>Return %</dt><dd id="perf-pct">&#8212;</dd></div>
-        <div class="stat"><dt>Abs. Return</dt><dd id="perf-abs">&#8212;</dd></div>
-        <div class="stat"><dt>vs Benchmark</dt><dd id="perf-excess">&#8212;</dd></div>
-        <div class="stat"><dt>Benchmark</dt><dd id="perf-bm">&#8212;</dd></div>
-        <div class="stat"><dt>Since</dt><dd id="perf-since">&#8212;</dd></div>
-        <div class="stat"><dt>As Of</dt><dd id="perf-asof">&#8212;</dd></div>
-      </dl>
+    <div class="button-group">
+      <span class="button-group-label">Market Data</span>
+      <button class="btn" onclick="fetchLatestPrices(this)">Fetch Latest Prices</button>
+      <button class="btn" onclick="checkStrategyReadiness()">Check Readiness</button>
+    </div>
+
+    <div class="button-group">
+      <span class="button-group-label">Strategy</span>
+      <button class="btn btn-ok" onclick="dtrRunStrategy(this)">Run SMA Strategy</button>
+      <button class="btn btn-ok" onclick="dtrRunPredictionStrategy(this)">Run Prediction Strategy</button>
+      <span class="service-label">Uses GCP model predictions via local tunnel</span>
+    </div>
+
+    <div class="button-group">
+      <span class="button-group-label">Manual Override</span>
+      <button class="btn btn-danger" onclick="dtrSubmitSignal(this)">Submit Manual Signal</button>
+    </div>
+
+    <div class="button-group" style="border-bottom: none; padding-bottom: 0; margin-bottom: 0;">
+      <span class="button-group-label">Execution</span>
+      <button class="btn" onclick="dtrRunFill(this)">Run Fill</button>
+      <button class="btn" onclick="dtrRunSnapshot(this)">Run Snapshot</button>
+      <button class="btn" onclick="dtrRefreshReview(this)">Refresh Review</button>
     </div>
   </div>
 
-  <!-- Positions -->
+  <!-- Data Cards for Fetch/Readiness/Prediction Results -->
+  <div id="fetch-prices-card" style="display: none;">
+    <div class="command-section">
+      <div class="section-title">Fetch Result</div>
+      <div id="fetch-prices-result"></div>
+    </div>
+  </div>
+
+  <div id="strategy-readiness" style="display: none;">
+    <div class="command-section">
+      <div class="section-title">Strategy Readiness</div>
+      <div style="font-size: 11px; color: var(--label); margin-bottom: 10px;" id="readiness-context"></div>
+      <div id="readiness-result"></div>
+    </div>
+  </div>
+
+  <div id="prediction-strategy-card" style="display: none;">
+    <div class="command-section">
+      <div class="section-title">Prediction Strategy Result</div>
+      <div id="prediction-strategy-result"></div>
+    </div>
+  </div>
+
+  <!-- Signal/Risk Decision Panel (Section E) -->
+  <div id="signalPanel" style="display: none;">
+    <div class="result-section">
+      <div class="section-title">Signal & Risk Decisions</div>
+      <div id="signal-panel-content"></div>
+    </div>
+  </div>
+
+  <!-- Execution Workflow Rail (Section F) -->
+  <div class="card">
+    <div class="section-title">Execution Workflow</div>
+    <div class="workflow-rail">
+      <div class="workflow-step">
+        <div class="workflow-step-name">Ingest</div>
+        <div class="workflow-step-status not-started" id="wf-ingest">—</div>
+      </div>
+      <div class="workflow-step">
+        <div class="workflow-step-name">Strategy</div>
+        <div class="workflow-step-status not-started" id="wf-strategy">—</div>
+      </div>
+      <div class="workflow-step">
+        <div class="workflow-step-name">Signal</div>
+        <div class="workflow-step-status not-started" id="wf-signal">—</div>
+      </div>
+      <div class="workflow-step">
+        <div class="workflow-step-name">Fill</div>
+        <div class="workflow-step-status not-started" id="wf-fill">—</div>
+      </div>
+      <div class="workflow-step">
+        <div class="workflow-step-name">Snapshot</div>
+        <div class="workflow-step-status not-started" id="wf-snapshot">—</div>
+      </div>
+      <div class="workflow-step">
+        <div class="workflow-step-name">Review</div>
+        <div class="workflow-step-status not-started" id="wf-review">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Open Positions (Section G) -->
   <div class="card">
     <div class="card-title">Open Positions</div>
     <div class="table-wrap">
@@ -482,7 +803,7 @@
     </div>
   </div>
 
-  <!-- Orders -->
+  <!-- Orders (Section G) -->
   <div class="card">
     <div class="card-title">Orders <span id="ordCount" class="row-count"></span></div>
     <div class="filters">
@@ -511,24 +832,24 @@
     </div>
   </div>
 
-  <!-- Performance History -->
+  <!-- Performance History (Section G) -->
   <div class="card">
     <div class="card-title">Performance History <span id="histCount" class="row-count"></span></div>
     <div class="filters">
       <input type="date" id="histStart">
-      <span style="color:#9ca3af;font-size:12px;">to</span>
+      <span style="color: var(--label); font-size:12px;">to</span>
       <input type="date" id="histEnd">
       <button class="btn-sm" onclick="loadHistory()">Filter</button>
       <button class="btn-sm" onclick="setHist30D()">30D</button>
-      <button class="btn-sm" onclick="clearHistFilters()" style="background:#6b7280">Clear</button>
-      <a class="link-btn" href="#" onclick="downloadCsv(event)">&#8595; CSV</a>
+      <button class="btn-sm" onclick="clearHistFilters()">Clear</button>
+      <a class="link-btn" href="#" onclick="downloadCsv(event)">CSV</a>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>Date</th><th>Total Value</th><th>Cash</th><th>Positions</th>
-            <th>Unrealized P&amp;L</th><th>Realized P&amp;L</th>
+            <th>Unrealized P&L</th><th>Realized P&L</th>
             <th>Benchmark</th><th>Portfolio vs BM</th>
           </tr>
         </thead>
@@ -539,169 +860,76 @@
     </div>
   </div>
 
-  <!-- Daily Trading Run (Guided Workflow) -->
-  <div class="card dtr-card">
-    <div class="dtr-title">Daily Trading Run</div>
+  <!-- Workflow Details (Collapsible Section - Old 6-Step Boxes) -->
+  <details>
+    <summary>Workflow Details</summary>
 
-    <div class="dtr-status-row">
-      <div class="dtr-status-msg" id="dtr-status-msg">Ready to start</div>
-      <button class="dtr-reset-btn" id="dtr-btn-reset" onclick="resetDtrRun()">Reset Run</button>
+    <div class="workflow-step-box">
+      <div class="step-header">
+        <span class="step-label">Step 1: Ingest Price</span>
+        <span class="step-status not-started" id="dtr-status-ingest">Not Started</span>
+      </div>
+      <button class="step-btn" id="dtr-btn-ingest" onclick="dtrIngestPrice(this)">Ingest Price</button>
+      <div class="step-result" id="dtr-result-ingest"></div>
     </div>
 
-    <div class="dtr-guidance" id="dtr-guidance" style="display:none;"></div>
-
-    <div class="dtr-summary" id="dtr-summary" style="display:none;">
-      <div class="dtr-summary-grid">
-        <div class="dtr-summary-item">
-          <dt>Ticker</dt>
-          <dd id="dtr-summary-ticker">—</dd>
-        </div>
-        <div class="dtr-summary-item">
-          <dt>Last Step</dt>
-          <dd id="dtr-summary-step">—</dd>
-        </div>
-        <div class="dtr-summary-item">
-          <dt>Latest Result</dt>
-          <dd id="dtr-summary-result" class="dtr-summary-result">—</dd>
-        </div>
-        <div class="dtr-summary-item">
-          <dt>Pending Orders</dt>
-          <dd id="dtr-summary-pending">—</dd>
-        </div>
-        <div class="dtr-summary-item">
-          <dt>Open Positions</dt>
-          <dd id="dtr-summary-positions">—</dd>
-        </div>
-        <div class="dtr-summary-item">
-          <dt>Snapshots</dt>
-          <dd id="dtr-summary-snapshots">—</dd>
-        </div>
+    <div class="workflow-step-box">
+      <div class="step-header">
+        <span class="step-label">Step 2: Run Strategy</span>
+        <span class="step-status not-started" id="dtr-status-strategy">Not Started</span>
       </div>
+      <button class="step-btn" id="dtr-btn-strategy-detail" onclick="dtrRunStrategy(this)">Run Strategy</button>
+      <div class="step-result" id="dtr-result-strategy"></div>
     </div>
 
-    <div class="dtr-inputs-grid">
-      <div class="fg">
-        <label>Ticker</label>
-        <input id="dtr-ticker" placeholder="AAPL">
+    <div class="workflow-step-box">
+      <div class="step-header">
+        <span class="step-label">Step 3: Manual Signal / Override</span>
+        <span class="step-status not-started" id="dtr-status-signal">Not Started</span>
       </div>
-      <div class="fg">
-        <label>Price</label>
-        <input id="dtr-price" placeholder="182.50">
-      </div>
-      <div class="fg">
-        <label>Direction</label>
-        <select id="dtr-direction">
-          <option>BUY</option><option>SELL</option><option>HOLD</option>
-        </select>
-      </div>
-      <div class="fg">
-        <label>Confidence (0–1)</label>
-        <input id="dtr-confidence" placeholder="0.80">
-      </div>
-      <div class="fg">
-        <label>Short Window</label>
-        <input id="dtr-short-window" type="number" value="3" min="1">
-      </div>
-      <div class="fg">
-        <label>Long Window</label>
-        <input id="dtr-long-window" type="number" value="5" min="1">
-      </div>
-      <div class="fg">
-        <label>Tickers (optional)</label>
-        <input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA">
-      </div>
+      <button class="step-btn" id="dtr-btn-signal" onclick="dtrSubmitSignal(this)">Submit Signal</button>
+      <div class="step-result" id="dtr-result-signal"></div>
     </div>
 
-    <div style="margin-top: 1.5rem; margin-bottom: 1rem; font-weight: 700; font-size: 0.9rem; color: #00ff88; border-bottom: 1px solid #1a3a5a; padding-bottom: 6px; font-family: 'Monaco', monospace; text-transform: uppercase; letter-spacing: .1em;">Pre-Flight Checks</div>
-    <button class="dtr-step-btn" onclick="fetchLatestPrices(this)">Fetch Latest Prices</button>
-
-    <div class="dtr-card" id="fetch-prices-card" style="display: none;">
-      <div class="dtr-title">Fetch Result</div>
-      <div id="fetch-prices-result"></div>
-    </div>
-
-    <button class="dtr-step-btn" onclick="checkStrategyReadiness()">Check Readiness</button>
-
-    <div class="dtr-card" id="strategy-readiness" style="display: none;">
-      <div class="dtr-title">Strategy Readiness</div>
-      <div style="font-size: 0.9rem; color: #666; margin-bottom: 1rem;" id="readiness-context"></div>
-      <div id="readiness-result"></div>
-    </div>
-
-    <button class="dtr-step-btn" onclick="dtrRunPredictionStrategy(this)">Run Prediction Strategy</button>
-
-    <div class="dtr-card" id="prediction-strategy-card" style="display: none;">
-      <div class="dtr-title">Prediction Strategy Result</div>
-      <div id="prediction-strategy-result"></div>
-    </div>
-
-    <div class="dtr-step">
-      <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 1: Ingest Price</span>
-        <span class="dtr-step-status not-started" id="dtr-status-ingest">Not Started</span>
+    <div class="workflow-step-box">
+      <div class="step-header">
+        <span class="step-label">Step 4: Run Fill</span>
+        <span class="step-status not-started" id="dtr-status-fill">Not Started</span>
       </div>
-      <button class="dtr-step-btn" id="dtr-btn-ingest" onclick="dtrIngestPrice(this)">Ingest Price</button>
-      <div class="dtr-step-result" id="dtr-result-ingest"></div>
+      <button class="step-btn" id="dtr-btn-fill" onclick="dtrRunFill(this)">Run Fill</button>
+      <div class="step-result" id="dtr-result-fill"></div>
     </div>
 
-    <div class="dtr-step">
-      <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 2: Run Strategy</span>
-        <span class="dtr-step-status not-started" id="dtr-status-strategy">Not Started</span>
+    <div class="workflow-step-box">
+      <div class="step-header">
+        <span class="step-label">Step 5: Run Snapshot</span>
+        <span class="step-status not-started" id="dtr-status-snapshot">Not Started</span>
       </div>
-      <button class="dtr-step-btn" id="dtr-btn-strategy" onclick="dtrRunStrategy(this)">Run Strategy</button>
-      <div class="dtr-step-result" id="dtr-result-strategy"></div>
+      <button class="step-btn" id="dtr-btn-snapshot" onclick="dtrRunSnapshot(this)">Run Snapshot</button>
+      <div class="step-result" id="dtr-result-snapshot"></div>
     </div>
 
-    <div class="dtr-step">
-      <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 3: Manual Signal / Override</span>
-        <span class="dtr-step-status not-started" id="dtr-status-signal">Not Started</span>
+    <div class="workflow-step-box">
+      <div class="step-header">
+        <span class="step-label">Step 6: Refresh Review</span>
+        <span class="step-status not-started" id="dtr-status-review">Not Started</span>
       </div>
-      <button class="dtr-step-btn" id="dtr-btn-signal" onclick="dtrSubmitSignal(this)">Submit Signal</button>
-      <div class="dtr-step-result" id="dtr-result-signal"></div>
+      <button class="step-btn" id="dtr-btn-review" onclick="dtrRefreshReview(this)">Refresh Review</button>
+      <div class="step-result" id="dtr-result-review"></div>
     </div>
 
-    <div class="dtr-step">
-      <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 4: Run Fill</span>
-        <span class="dtr-step-status not-started" id="dtr-status-fill">Not Started</span>
-      </div>
-      <button class="dtr-step-btn" id="dtr-btn-fill" onclick="dtrRunFill(this)">Run Fill</button>
-      <div class="dtr-step-result" id="dtr-result-fill"></div>
-    </div>
+  </details>
 
-    <div class="dtr-step">
-      <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 5: Run Snapshot</span>
-        <span class="dtr-step-status not-started" id="dtr-status-snapshot">Not Started</span>
-      </div>
-      <button class="dtr-step-btn" id="dtr-btn-snapshot" onclick="dtrRunSnapshot(this)">Run Snapshot</button>
-      <div class="dtr-step-result" id="dtr-result-snapshot"></div>
-    </div>
-
-    <div class="dtr-step">
-      <div class="dtr-step-header">
-        <span class="dtr-step-label">Step 6: Refresh Review</span>
-        <span class="dtr-step-status not-started" id="dtr-status-review">Not Started</span>
-      </div>
-      <button class="dtr-step-btn" id="dtr-btn-review" onclick="dtrRefreshReview(this)">Refresh Review</button>
-      <div class="dtr-step-result" id="dtr-result-review"></div>
-    </div>
-  </div>
-
-  <!-- Actions -->
+  <!-- Actions (Manual forms) -->
   <div class="card">
     <div class="card-title">Actions</div>
-
-    <div id="hints" class="hints-block" style="display:none"></div>
 
     <details>
       <summary>Ingest Prices</summary>
       <div class="form-body">
         <div class="form-grid">
-          <div class="fg"><label>Ticker</label><input id="p-ticker" placeholder="AAPL"></div>
-          <div class="fg"><label>Price</label><input id="p-price" placeholder="182.50"></div>
+          <div class="fg"><label>Ticker</label><input id="p-ticker" placeholder="AAPL" class="mono"></div>
+          <div class="fg"><label>Price</label><input id="p-price" placeholder="150.00" class="mono"></div>
         </div>
         <button class="btn-action" onclick="ingestPrices(this)">Submit Price</button>
       </div>
@@ -711,54 +939,54 @@
       <summary>Ingest Benchmark Prices</summary>
       <div class="form-body">
         <div class="form-grid">
-          <div class="fg"><label>Ticker</label><input id="bp-ticker" value="SPY" placeholder="SPY"></div>
-          <div class="fg"><label>Price</label><input id="bp-price" placeholder="510.00"></div>
+          <div class="fg"><label>Ticker</label><input id="bp-ticker" value="SPY" placeholder="SPY" class="mono"></div>
+          <div class="fg"><label>Price</label><input id="bp-price" placeholder="510.00" class="mono"></div>
         </div>
         <button class="btn-action" onclick="ingestBenchmarkPrices(this)">Submit Benchmark Price</button>
       </div>
     </details>
 
     <details>
-      <summary>Submit Signal <span id="act-signal-badge" class="action-badge"></span></summary>
+      <summary>Submit Signal</summary>
       <div class="form-body">
         <div class="form-grid">
-          <div class="fg"><label>Idempotency Key</label><input id="sig-ikey" placeholder="auto"></div>
-          <div class="fg"><label>Ticker</label><input id="sig-ticker" placeholder="AAPL"></div>
+          <div class="fg"><label>Idempotency Key</label><input id="sig-ikey" placeholder="auto" class="mono"></div>
+          <div class="fg"><label>Ticker</label><input id="sig-ticker" placeholder="AAPL" class="mono"></div>
           <div class="fg">
             <label>Direction</label>
-            <select id="sig-dir">
+            <select id="sig-dir" class="mono">
               <option>BUY</option><option>SELL</option><option>HOLD</option>
             </select>
           </div>
-          <div class="fg"><label>Confidence (0&#8211;1)</label><input id="sig-conf" placeholder="0.80"></div>
-          <div class="fg"><label>Signal Timestamp</label><input id="sig-ts" type="datetime-local"></div>
-          <div class="fg"><label>Source Run</label><input id="sig-src" placeholder="strategy-run-001"></div>
+          <div class="fg"><label>Confidence (0–1)</label><input id="sig-conf" placeholder="0.80" class="mono"></div>
+          <div class="fg"><label>Signal Timestamp</label><input id="sig-ts" type="datetime-local" class="mono"></div>
+          <div class="fg"><label>Source Run</label><input id="sig-src" placeholder="strategy-run-001" class="mono"></div>
         </div>
         <button class="btn-action" onclick="submitSignal(this)">Submit Signal</button>
-        <small style="display:block;margin-top:6px;color:#9ca3af;">Weekday only. Server derives market_date from its US/Eastern clock.</small>
+        <small style="display:block;margin-top:6px;color: var(--label);">Weekday only. Server derives market_date from US/Eastern clock.</small>
       </div>
     </details>
 
     <details>
-      <summary>Trigger Fill <span id="act-fill-badge" class="action-badge"></span></summary>
+      <summary>Trigger Fill</summary>
       <div class="form-body">
         <div class="form-grid">
-          <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto"></div>
-          <div class="fg"><label>Market Date (optional)</label><input id="fill-date" type="date"></div>
+          <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto" class="mono"></div>
+          <div class="fg"><label>Market Date (optional)</label><input id="fill-date" type="date" class="mono"></div>
         </div>
         <button class="btn-action" onclick="triggerFill(this)">Run Fill Cycle</button>
       </div>
     </details>
 
     <details>
-      <summary>Trigger Snapshot <span id="act-snap-badge" class="action-badge"></span></summary>
+      <summary>Trigger Snapshot</summary>
       <div class="form-body">
         <div class="form-grid">
-          <div class="fg"><label>Idempotency Key</label><input id="snap-ikey" placeholder="auto"></div>
-          <div class="fg"><label>Market Date (optional)</label><input id="snap-date" type="date"></div>
+          <div class="fg"><label>Idempotency Key</label><input id="snap-ikey" placeholder="auto" class="mono"></div>
+          <div class="fg"><label>Market Date (optional)</label><input id="snap-date" type="date" class="mono"></div>
         </div>
         <button class="btn-action" onclick="triggerSnapshot(this)">Run Snapshot</button>
-        <small style="display:block;margin-top:6px;color:#9ca3af;">Requires prices for all open positions to be ingested first.</small>
+        <small style="display:block;margin-top:6px;color: var(--label);">Requires prices for all open positions.</small>
       </div>
     </details>
 
@@ -827,11 +1055,6 @@ function flag(v) {
   return v ? '<span class="yes">Yes</span>' : '<span class="no">No</span>';
 }
 
-function badge(el, cls, text) {
-  el.className = 'badge ' + cls;
-  el.textContent = text;
-}
-
 function setEl(id, html, isHtml = false) {
   const el = document.getElementById(id);
   if (isHtml) el.innerHTML = html;
@@ -840,7 +1063,6 @@ function setEl(id, html, isHtml = false) {
 
 function fmtDate(s) {
   if (!s) return '—';
-  // Date-only strings (YYYY-MM-DD) parse as UTC midnight; append time to force local
   const d = new Date(s.length === 10 ? s + 'T00:00:00' : s);
   if (isNaN(d)) return s;
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -855,9 +1077,9 @@ function signHtml(v, fmt) {
   return text;
 }
 
-function statusBadge(s) {
+function statusChip(s) {
   const cls = { PENDING: 'status-pending', FILLED: 'status-filled', EXPIRED: 'status-expired', FAILED: 'status-failed' }[s] ?? '';
-  return `<span class="status-badge ${cls}">${s}</span>`;
+  return `<span class="status-chip ${cls}">${s}</span>`;
 }
 
 function httpErr(s) {
@@ -874,43 +1096,59 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+function parseApiResponse(r) {
+  try {
+    return r.json();
+  } catch {
+    return { detail: 'Invalid response format' };
+  }
+}
+
 // ---------- load functions ----------
 
 async function loadHealth() {
-  const hEl = document.getElementById('hBadge');
-  const rEl = document.getElementById('rBadge');
+  const light = document.getElementById('health-light');
+  const text = document.getElementById('health-status');
   try {
     const r = await fetch('/v1/health');
     const b = await r.json();
-    badge(hEl, b.status === 'ok' ? 'ok' : 'err', `● health v${b.version}`);
+    const dbReady = await checkDbReady();
+    const status = b.status === 'ok' && dbReady ? 'ready' : 'error';
+    light.className = 'status-light ' + (status === 'ready' ? 'ok' : 'err');
+    text.textContent = status === 'ready' ? 'Ready' : 'Not Ready';
   } catch {
-    badge(hEl, 'err', '● health unreachable');
+    light.className = 'status-light err';
+    text.textContent = 'Unreachable';
   }
+}
+
+async function checkDbReady() {
   try {
     const r = await fetch('/v1/ready');
     const b = await r.json();
-    const dbStatus = b.database ?? (r.ok ? 'unknown' : 'error');
-    badge(rEl, dbStatus === 'ok' ? 'ok' : 'err', `● ready db=${dbStatus}`);
+    return b.database === 'ok';
   } catch {
-    badge(rEl, 'err', '● ready unreachable');
+    return false;
   }
 }
 
 function populatePortfolio(b) {
-  setEl('pf-cash',    usd(b.cached_cash));
-  setEl('pf-total',   usd(b.cached_total_value));
-  setEl('pf-initial', usd(b.initial_capital));
-  setEl('pf-strategy', flag(b.strategy_enabled),    true);
-  setEl('pf-trading',  flag(b.trading_enabled),     true);
-  setEl('pf-newpos',   flag(b.allow_new_positions), true);
+  setEl('pf-cash', usd(b.cached_cash));
+  setEl('pf-total', usd(b.cached_total_value));
+  setEl('pf-strategy', flag(b.strategy_enabled), true);
+  setEl('pf-positions', usd((b.cached_total_value || 0) - (b.cached_cash || 0)));
+}
+
+function updateKpi() {
+  setEl('kpi-pending', (_appState.pendingOrders !== null ? _appState.pendingOrders : '?').toString());
+  setEl('kpi-positions', (_appState.hasPositions ? '✓' : '—'));
+  setEl('kpi-snapshots', (_appState.hasHistory ? '✓' : '—'));
 }
 
 async function loadPortfolio() {
   const r = await call('GET', '/v1/portfolio');
   if (!r.ok) {
     _appState.portfolioSeeded = false;
-    setEl('pf-cash', r.status === 503 ? 'Not seeded' : `Error ${r.status}`);
-    updateWorkbench();
     return;
   }
   _appState.portfolioSeeded = true;
@@ -921,16 +1159,11 @@ async function loadPortfolio() {
 async function loadPerformance() {
   const r = await call('GET', '/v1/performance');
   if (!r.ok) {
-    setEl('perf-pct', r.status === 404 ? 'No snapshots yet' : `Error ${r.status}`);
+    setEl('perf-pct', '—');
     return;
   }
   const b = await r.json();
-  setEl('perf-pct',    signHtml(b.return_pct, pct),                                            true);
-  setEl('perf-abs',    signHtml(b.absolute_return, usd),                                        true);
-  setEl('perf-excess', b.excess_return_pct != null ? signHtml(b.excess_return_pct, pct) : '—', true);
-  setEl('perf-bm',     b.benchmark_ticker ?? '—');
-  setEl('perf-since',  fmtDate(b.first_snapshot_date));
-  setEl('perf-asof',   fmtDate(b.latest_snapshot_date));
+  setEl('perf-pct', signHtml(b.return_pct, pct), true);
 }
 
 async function loadPositions() {
@@ -955,14 +1188,15 @@ async function loadPositions() {
       <td>${fmtDate(p.opened_at)}</td>
       <td>${fmtDate(p.last_updated)}</td>
     </tr>`).join('');
+  updateKpi();
 }
 
 async function loadOrders() {
   const status = document.getElementById('ordStatus').value;
-  const date   = document.getElementById('ordDate').value;
+  const date = document.getElementById('ordDate').value;
   let url = '/v1/orders?';
   if (status) url += `status=${encodeURIComponent(status)}&`;
-  if (date)   url += `market_date=${encodeURIComponent(date)}`;
+  if (date) url += `market_date=${encodeURIComponent(date)}`;
   const r = await call('GET', url);
   const tb = document.getElementById('ordTbody');
   const countEl = document.getElementById('ordCount');
@@ -981,27 +1215,29 @@ async function loadOrders() {
   if (!rows.length) {
     const hasFilter = status || date;
     tb.innerHTML = `<tr><td colspan="8" class="empty">${hasFilter ? 'No orders matching filters' : 'No orders'}</td></tr>`;
+    updateKpi();
     return;
   }
   tb.innerHTML = rows.map(o => `
     <tr>
       <td><strong>${o.ticker}</strong></td>
       <td>${o.side}</td>
-      <td>${statusBadge(o.status)}</td>
+      <td>${statusChip(o.status)}</td>
       <td>${fmtDate(o.market_date)}</td>
       <td>${o.filled_qty ?? o.requested_qty}</td>
       <td>${o.fill_price != null ? usd(o.fill_price) : '—'}</td>
       <td>${o.commission != null ? usd(o.commission) : '—'}</td>
-      <td style="color:#9ca3af;font-size:12px;">${o.notes ?? ''}</td>
+      <td style="color: var(--label); font-size:11px;">${o.notes ?? ''}</td>
     </tr>`).join('');
+  updateKpi();
 }
 
 function histParams() {
   const start = document.getElementById('histStart').value;
-  const end   = document.getElementById('histEnd').value;
+  const end = document.getElementById('histEnd').value;
   let qs = '';
   if (start) qs += `start_date=${encodeURIComponent(start)}&`;
-  if (end)   qs += `end_date=${encodeURIComponent(end)}`;
+  if (end) qs += `end_date=${encodeURIComponent(end)}`;
   return qs;
 }
 
@@ -1013,6 +1249,7 @@ async function loadHistory() {
     _appState.hasHistory = false;
     tb.innerHTML = `<tr><td colspan="8" class="empty">${r.status === 404 ? 'No snapshots yet' : httpErr(r.status)}</td></tr>`;
     countEl.textContent = '';
+    updateKpi();
     return;
   }
   const rows = await r.json();
@@ -1020,8 +1257,9 @@ async function loadHistory() {
   _appState.hasHistory = rows.length > 0;
   if (!rows.length) {
     const start = document.getElementById('histStart').value;
-    const end   = document.getElementById('histEnd').value;
+    const end = document.getElementById('histEnd').value;
     tb.innerHTML = `<tr><td colspan="8" class="empty">${(start || end) ? 'No history in selected range' : 'No history'}</td></tr>`;
+    updateKpi();
     return;
   }
   tb.innerHTML = rows.slice().reverse().map(h => `
@@ -1035,6 +1273,7 @@ async function loadHistory() {
       <td>${h.benchmark_ticker ?? '—'}</td>
       <td>${h.portfolio_vs_benchmark != null ? signHtml(h.portfolio_vs_benchmark, usd) : '—'}</td>
     </tr>`).join('');
+  updateKpi();
 }
 
 async function downloadCsv(e) {
@@ -1050,124 +1289,47 @@ async function downloadCsv(e) {
   URL.revokeObjectURL(a.href);
 }
 
-function updateHints() {
-  if (!_appState.connected) return;
-  const el = document.getElementById('hints');
-  let html = '';
-  if (_appState.portfolioSeeded === false) {
-    html = '<b>Setup required</b>Portfolio not seeded — run <code>scripts/seed.py</code> first.';
-  } else if (!_appState.hasPositions && _appState.pendingOrders === 0) {
-    html = '<b>Suggested next steps</b><ol><li>If needed, ingest prices and benchmark prices</li><li>Submit signal(s)</li><li>Run Fill Cycle</li></ol>';
-  } else if (_appState.pendingOrders !== null && _appState.pendingOrders > 0) {
-    html = `<b>Action needed</b>${_appState.pendingOrders} pending order(s) waiting — run Fill Cycle to execute.`;
-  } else if (_appState.hasPositions && !_appState.hasHistory) {
-    html = '<b>Suggested next step</b>Ingest prices for open positions, then run Snapshot to record portfolio value.';
-  }
-  el.innerHTML = html;
-  el.style.display = html ? 'block' : 'none';
-}
-
 function updateWorkbench() {
-  const stage = computeWorkflowStage();
-  const stagePercent = (stage / 5) * 100;
-  document.getElementById('stageBarFill').style.width = stagePercent + '%';
-
-  const statusHtml = `
-    <div class="status-item ${_appState.portfolioSeeded === null ? 'neutral' : (_appState.portfolioSeeded ? 'ok' : 'err')}">
-      <dt>Portfolio Seeded</dt>
-      <dd>${_appState.portfolioSeeded === null ? '?' : (_appState.portfolioSeeded ? '✓ Yes' : '✗ No')}</dd>
-    </div>
-    <div class="status-item">
-      <dt>Pending Orders</dt>
-      <dd>${_appState.pendingOrders !== null ? _appState.pendingOrders : '?'}</dd>
-    </div>
-    <div class="status-item ${_appState.hasPositions ? 'ok' : 'neutral'}">
-      <dt>Open Positions</dt>
-      <dd>${_appState.hasPositions ? '✓ Yes' : 'None'}</dd>
-    </div>
-    <div class="status-item ${_appState.hasHistory ? 'ok' : 'neutral'}">
-      <dt>Performance Snapshots</dt>
-      <dd>${_appState.hasHistory ? '✓ Recorded' : 'Not started'}</dd>
-    </div>
-  `;
-  document.getElementById('statusPanel').innerHTML = statusHtml;
-
-  let nextAction, reason, btn, skipLinks;
-
   if (_appState.portfolioSeeded === false) {
-    nextAction = 'Portfolio Setup Required';
-    reason = 'Run <code>scripts/seed.py</code> to initialize the portfolio, then reconnect.';
-    btn = '';
-    skipLinks = '';
+    document.getElementById('actionPanel').style.display = 'block';
+    document.getElementById('action-title').textContent = 'Setup Required';
+    document.getElementById('action-text').innerHTML = 'Portfolio not initialized. Run <code>scripts/seed.py</code> first.';
+    document.getElementById('action-links').textContent = '';
   } else if (!_appState.connected) {
-    nextAction = 'Connect to System';
-    reason = 'Enter your API key and click Connect to begin.';
-    btn = '';
-    skipLinks = '';
+    document.getElementById('actionPanel').style.display = 'block';
+    document.getElementById('action-title').textContent = 'Connect to Start';
+    document.getElementById('action-text').textContent = 'Enter your API key and click Connect to begin.';
+    document.getElementById('action-links').textContent = '';
   } else if (_appState.pendingOrders === 0 && !_appState.hasPositions) {
-    nextAction = 'Submit Signal';
-    reason = 'No pending orders. Ready to ingest prices and submit a trading signal.';
-    btn = '<a class="next-action-btn" href="#" onclick="document.getElementById(\'sig-ticker\').closest(\'details\').open=true; return false;">Submit Signal →</a>';
-    skipLinks = '<span class="skip-label">or skip to:</span><a class="skip-link" href="#" onclick="document.getElementById(\'p-ticker\').closest(\'details\').open=true; return false;">Ingest Prices</a>';
+    document.getElementById('actionPanel').style.display = 'block';
+    document.getElementById('action-title').textContent = 'Submit Signal';
+    document.getElementById('action-text').textContent = 'No pending orders. Ready to submit trading signals.';
+    document.getElementById('action-links').innerHTML = '<button class="action-btn" onclick="document.getElementById(\'dtr-ticker\').focus(); document.querySelector(\'.command-section\').scrollIntoView();">Go to Command Center →</button>';
   } else if (_appState.pendingOrders !== null && _appState.pendingOrders > 0) {
-    nextAction = 'Execute Pending Orders';
-    reason = `${_appState.pendingOrders} pending order(s) waiting. Run the Fill Cycle to execute them.`;
-    btn = '<a class="next-action-btn" href="#" onclick="document.getElementById(\'fill-ikey\').closest(\'details\').open=true; return false;">Run Fill →</a>';
-    skipLinks = '<span class="skip-label">or:</span><a class="skip-link" href="#" onclick="document.getElementById(\'snap-ikey\').closest(\'details\').open=true; return false;">Run Snapshot</a>';
+    document.getElementById('actionPanel').style.display = 'block';
+    document.getElementById('action-title').textContent = 'Execute Orders';
+    document.getElementById('action-text').textContent = `${_appState.pendingOrders} pending order(s) waiting. Run Fill to execute.`;
+    document.getElementById('action-links').innerHTML = '<button class="action-btn" onclick="document.querySelector(\'.command-section\').scrollIntoView(); setTimeout(() => document.getElementById(\'dtr-btn-fill\').focus(), 100);">Go to Execution →</button>';
   } else if (_appState.hasPositions && !_appState.hasHistory) {
-    nextAction = 'Record Daily Snapshot';
-    reason = 'Open positions recorded. Ingest prices for all positions, then run Snapshot to record portfolio value.';
-    btn = '<a class="next-action-btn" href="#" onclick="document.getElementById(\'snap-ikey\').closest(\'details\').open=true; return false;">Run Snapshot →</a>';
-    skipLinks = '<span class="skip-label">or:</span><a class="skip-link" href="#" onclick="document.getElementById(\'p-ticker\').closest(\'details\').open=true; return false;">Ingest Prices</a>';
+    document.getElementById('actionPanel').style.display = 'block';
+    document.getElementById('action-title').textContent = 'Record Snapshot';
+    document.getElementById('action-text').textContent = 'Ingest prices for all positions, then run Snapshot.';
+    document.getElementById('action-links').innerHTML = '<button class="action-btn" onclick="document.querySelector(\'.command-section\').scrollIntoView(); setTimeout(() => document.getElementById(\'dtr-btn-snapshot\').focus(), 100);">Run Snapshot →</button>';
   } else {
-    nextAction = 'Trading Day Complete';
-    reason = 'All snapshots recorded and up to date. You may review performance or submit new signals tomorrow.';
-    btn = '';
-    skipLinks = '<span class="skip-label">Next actions:</span><a class="skip-link" href="#" onclick="document.getElementById(\'sig-ticker\').closest(\'details\').open=true; return false;">New Signal</a><a class="skip-link" href="#" onclick="refresh(); return false;">Refresh</a>';
+    document.getElementById('actionPanel').style.display = 'none';
   }
-
-  const actionHtml = `
-    <h4>${nextAction}</h4>
-    <p>${reason}</p>
-    ${btn ? `<div class="next-action-links">${btn}</div>` : ''}
-    ${skipLinks ? `<div class="next-action-links">${skipLinks}</div>` : ''}
-  `;
-  document.getElementById('nextActionCard').innerHTML = actionHtml;
+  updateKpi();
 }
 
-function computeWorkflowStage() {
-  if (!_appState.connected) return 0;
-  if (_appState.portfolioSeeded === false) return 0;
-  if (_appState.portfolioSeeded === true && _appState.pendingOrders === 0 && !_appState.hasPositions) return 1;
-  if (_appState.pendingOrders !== null && _appState.pendingOrders > 0) return 3;
-  if (_appState.hasPositions && !_appState.hasHistory) return 4;
-  if (_appState.hasHistory) return 5;
-  return 2;
-}
-
-function updateActionBadges() {
-  const fillBadge = document.getElementById('act-fill-badge');
-  const snapBadge = document.getElementById('act-snap-badge');
-  const sigBadge  = document.getElementById('act-signal-badge');
-
-  if (!_appState.connected) {
-    fillBadge.textContent = '';
-    snapBadge.textContent = '';
-    sigBadge.textContent  = '';
-    return;
-  }
-
-  fillBadge.textContent = (_appState.pendingOrders !== null && _appState.pendingOrders > 0)
-    ? `pending: ${_appState.pendingOrders}`
-    : '';
-
-  snapBadge.textContent = (_appState.hasPositions && !_appState.hasHistory)
-    ? 'next'
-    : '';
-
-  sigBadge.textContent = (!_appState.hasPositions && _appState.pendingOrders === 0)
-    ? 'suggested'
-    : '';
+function updateWorkflowRail() {
+  const steps = ['ingest', 'strategy', 'signal', 'fill', 'snapshot', 'review'];
+  const wfIds = ['wf-ingest', 'wf-strategy', 'wf-signal', 'wf-fill', 'wf-snapshot', 'wf-review'];
+  steps.forEach((step, i) => {
+    const el = document.getElementById(wfIds[i]);
+    const status = getDtrStepStatus(step);
+    el.textContent = status === 'not-started' ? '—' : (status === 'done' ? '✓' : status === 'error' ? '✗' : '…');
+    el.className = 'workflow-step-status ' + status;
+  });
 }
 
 // ---------- action handlers ----------
@@ -1197,15 +1359,18 @@ async function ingestPrices(btn) {
 
   btn.disabled = true;
   try {
-    const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price: priceRaw }] });
-    const b = await r.json();
+    const r = await call('POST', '/v1/prices', { ticker, price: priceRaw });
+    const b = await parseApiResponse(r);
     if (r.ok) {
+      toast(`Ingested ${ticker} @ ${priceRaw}`, 'ok');
       document.getElementById('p-ticker').value = '';
       document.getElementById('p-price').value = '';
-      toast(`Inserted ${b.inserted} price snapshot(s)`);
+      loadPositions();
     } else {
-      toast(b.detail ?? 'Error ingesting prices', 'err');
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
+  } catch (e) {
+    toast(e.message, 'err');
   } finally {
     btn.disabled = false;
   }
@@ -1218,19 +1383,19 @@ async function ingestBenchmarkPrices(btn) {
   if (!ticker) { toast('Ticker is required', 'err'); return; }
   if (!isValidPrice(priceRaw)) { toast('Price must be a positive number', 'err'); return; }
 
-  document.getElementById('bp-ticker').value = ticker;
-
   btn.disabled = true;
   try {
-    const r = await call('POST', '/v1/benchmark-prices', { prices: [{ ticker, price: priceRaw }] });
-    const b = await r.json();
+    const r = await call('POST', '/v1/prices', { ticker, price: priceRaw });
+    const b = await parseApiResponse(r);
     if (r.ok) {
-      document.getElementById('bp-ticker').value = 'SPY';
+      toast(`Ingested benchmark ${ticker} @ ${priceRaw}`, 'ok');
       document.getElementById('bp-price').value = '';
-      toast(`Inserted ${b.inserted} benchmark price(s)`);
+      loadPortfolio();
     } else {
-      toast(b.detail ?? 'Error ingesting benchmark prices', 'err');
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
+  } catch (e) {
+    toast(e.message, 'err');
   } finally {
     btn.disabled = false;
   }
@@ -1238,310 +1403,230 @@ async function ingestBenchmarkPrices(btn) {
 
 async function submitSignal(btn) {
   let ticker = normTicker(document.getElementById('sig-ticker').value);
+  const direction = document.getElementById('sig-dir').value;
   const confidence = document.getElementById('sig-conf').value.trim();
-  const tsRaw = document.getElementById('sig-ts').value;
-  const source = document.getElementById('sig-src').value.trim();
-  const ikeyVal = document.getElementById('sig-ikey').value.trim() || autoKey();
 
   if (!ticker) { toast('Ticker is required', 'err'); return; }
-  if (!confidence || !isValidConfidence(confidence)) { toast('Confidence must be between 0 and 1', 'err'); return; }
-  if (!tsRaw) { toast('Timestamp is required', 'err'); return; }
-  if (!source) { toast('Source run is required', 'err'); return; }
-
-  document.getElementById('sig-ticker').value = ticker;
-
-  const direction = document.getElementById('sig-dir').value;
-  const signal_ts = new Date(tsRaw).toISOString();
+  if (!isValidConfidence(confidence)) { toast('Confidence must be 0–1', 'err'); return; }
 
   btn.disabled = true;
   try {
+    const ikeyVal = document.getElementById('sig-ikey').value.trim() || autoKey();
+    const signalTs = document.getElementById('sig-ts').value || new Date().toISOString();
+    const sourceRun = document.getElementById('sig-src').value.trim() || 'manual';
+
     const r = await call('POST', '/v1/signals', {
       idempotency_key: ikeyVal,
       workflow_type: 'PRE_MARKET',
-      signals: [{ ticker, direction, confidence, signal_ts, source_run: source }],
+      signals: [{ ticker, direction, confidence, signal_ts: signalTs, source_run: sourceRun }],
     });
-    const b = await r.json();
+    const b = await parseApiResponse(r);
     if (r.ok) {
+      toast(`Signal submitted: ${ticker} ${direction}`, 'ok');
+      document.getElementById('sig-ticker').value = '';
+      document.getElementById('sig-conf').value = '';
       document.getElementById('sig-ikey').value = '';
-      document.getElementById('sig-ts').value = nowLocal();
-      toast(`${b.signals_ingested} signal(s) ingested · ${b.orders_created} order(s) created`);
+      document.getElementById('sig-src').value = '';
       loadOrders();
+      updateWorkbench();
     } else {
-      toast(b.detail ?? 'Signal submission failed', 'err');
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
+  } catch (e) {
+    toast(e.message, 'err');
   } finally {
     btn.disabled = false;
   }
 }
 
 async function triggerFill(btn) {
-  const ikeyVal = document.getElementById('fill-ikey').value.trim() || autoKey();
-  const date    = document.getElementById('fill-date').value || null;
-  const body = { idempotency_key: ikeyVal };
-  if (date) body.market_date = date;
   btn.disabled = true;
   try {
-    const r = await call('POST', '/v1/fill', body);
+    const ikeyVal = document.getElementById('fill-ikey').value.trim() || autoKey();
+    const dateVal = document.getElementById('fill-date').value || undefined;
+
+    const r = await call('POST', '/v1/fill', {
+      idempotency_key: ikeyVal,
+      market_date: dateVal,
+    });
     const b = await parseApiResponse(r);
     if (r.ok) {
+      toast(`Fill completed: ${b.filled} filled, ${b.expired} expired`, 'ok');
       document.getElementById('fill-ikey').value = '';
-      document.getElementById('fill-date').value = todayLocal();
-      toast(`Fill: ${b.filled} filled · ${b.expired} expired · ${b.failed} failed · ${b.skipped} skipped`);
+      document.getElementById('fill-date').value = '';
       loadOrders();
       loadPositions();
       loadPortfolio();
+      updateWorkbench();
     } else {
-      toast(b.detail ?? `HTTP ${r.status} ${r.statusText}`, 'err');
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
+  } catch (e) {
+    toast(e.message, 'err');
   } finally {
     btn.disabled = false;
   }
 }
 
 async function triggerSnapshot(btn) {
-  const ikeyVal = document.getElementById('snap-ikey').value.trim() || autoKey();
-  const date    = document.getElementById('snap-date').value || null;
-  const body = { idempotency_key: ikeyVal };
-  if (date) body.market_date = date;
   btn.disabled = true;
   try {
-    const r = await call('POST', '/v1/snapshot', body);
+    const ikeyVal = document.getElementById('snap-ikey').value.trim() || `snapshot-${todayLocal()}`;
+    const dateVal = document.getElementById('snap-date').value || undefined;
+
+    const r = await call('POST', '/v1/snapshot', {
+      idempotency_key: ikeyVal,
+      market_date: dateVal,
+    });
     const b = await parseApiResponse(r);
     if (r.ok) {
+      toast('Snapshot recorded', 'ok');
       document.getElementById('snap-ikey').value = '';
-      document.getElementById('snap-date').value = todayLocal();
-      toast(`Snapshot recorded · Total: ${usd(b.total_value)} · ${b.open_position_count} position(s) · Unrealized P&L: ${usd(b.unrealized_pnl)}`);
-      loadPerformance();
+      document.getElementById('snap-date').value = '';
       loadHistory();
+      loadPortfolio();
+      updateWorkbench();
     } else {
-      const msg = b.detail || `HTTP ${r.status} ${r.statusText}`;
-      if (r.status === 409 && msg.includes('already exists')) {
-        toast('Snapshot already recorded for this date. Use Refresh Review to update.', 'err');
-      } else {
-        toast(msg, 'err');
-      }
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
+  } catch (e) {
+    toast(e.message, 'err');
   } finally {
     btn.disabled = false;
   }
 }
 
-// ---------- api response parsing ----------
-
-async function parseApiResponse(r) {
-  const text = await r.text();
-  let body = null;
-  if (text) {
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = { detail: text };
-    }
-  } else {
-    body = {};
-  }
-  return body;
-}
-
-// ---------- daily trading run ----------
-
-const _dtrState = {
-  ticker: '',
-  price: '',
-};
+// ---------- DTR Workflow Steps ----------
 
 async function dtrIngestPrice(btn) {
   let ticker = normTicker(document.getElementById('dtr-ticker').value);
   const priceRaw = document.getElementById('dtr-price').value.trim();
 
-  if (!ticker) { toast('Ticker required', 'err'); return; }
-  if (!isValidPrice(priceRaw)) { toast('Price must be positive', 'err'); return; }
+  if (!ticker) { toast('Ticker is required', 'err'); return; }
+  if (!isValidPrice(priceRaw)) { toast('Price must be a positive number', 'err'); return; }
 
   document.getElementById('dtr-ticker').value = ticker;
   document.getElementById('dtr-status-ingest').textContent = 'Running';
-  document.getElementById('dtr-status-ingest').className = 'dtr-step-status running';
+  document.getElementById('dtr-status-ingest').className = 'step-status running';
   document.getElementById('dtr-result-ingest').textContent = '';
   btn.disabled = true;
 
   try {
-    const r = await call('POST', '/v1/prices', { snapshots: [{ ticker, price: priceRaw }] });
+    const r = await call('POST', '/v1/prices', { ticker, price: priceRaw });
     const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('dtr-status-ingest').textContent = 'Done';
-      document.getElementById('dtr-status-ingest').className = 'dtr-step-status done';
-      document.getElementById('dtr-result-ingest').textContent = `✓ Inserted ${b.inserted} price snapshot`;
-      document.getElementById('dtr-result-ingest').className = 'dtr-step-result success';
+      document.getElementById('dtr-status-ingest').className = 'step-status done';
+      document.getElementById('dtr-result-ingest').textContent = `✓ Ingested ${ticker} @ ${priceRaw}`;
+      document.getElementById('dtr-result-ingest').className = 'step-result success';
       document.getElementById('dtr-price').value = '';
+      loadPositions();
     } else {
-      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-ingest').textContent = 'Error';
-    document.getElementById('dtr-status-ingest').className = 'dtr-step-status error';
+    document.getElementById('dtr-status-ingest').className = 'step-status error';
     document.getElementById('dtr-result-ingest').textContent = `✗ ${e.message}`;
-    document.getElementById('dtr-result-ingest').className = 'dtr-step-result error';
+    document.getElementById('dtr-result-ingest').className = 'step-result error';
   } finally {
     btn.disabled = false;
-    updateDtrStatusMsg();
-    updateDtrGuidance();
-    updateDtrSummary();
+    updateWorkflowRail();
   }
 }
 
 async function dtrRunStrategy(btn) {
-  const shortWindowRaw = document.getElementById('dtr-short-window').value.trim();
-  const longWindowRaw = document.getElementById('dtr-long-window').value.trim();
-  const tickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
+  const shortWindow = document.getElementById('dtr-short-window').value.trim();
+  const longWindow = document.getElementById('dtr-long-window').value.trim();
 
-  // Validate windows
-  if (!shortWindowRaw || !longWindowRaw) {
-    toast('Windows must be specified', 'err');
-    return;
-  }
-
-  const shortWindow = parseInt(shortWindowRaw, 10);
-  const longWindow = parseInt(longWindowRaw, 10);
-
-  if (isNaN(shortWindow) || isNaN(longWindow) || shortWindow <= 0 || longWindow <= 0) {
-    toast('Windows must be positive integers', 'err');
-    return;
-  }
-
-  if (shortWindow >= longWindow) {
-    toast('Short window must be less than long window', 'err');
-    return;
-  }
-
-  // Parse tickers if provided
-  let tickers = null;
-  if (tickersRaw) {
-    tickers = tickersRaw
-      .split(',')
-      .map(t => t.trim().toUpperCase())
-      .filter(t => t.length > 0);
-    if (tickers.length === 0) tickers = null;
-  }
+  if (!shortWindow || !longWindow) { toast('SMA windows required', 'err'); return; }
 
   document.getElementById('dtr-status-strategy').textContent = 'Running';
-  document.getElementById('dtr-status-strategy').className = 'dtr-step-status running';
+  document.getElementById('dtr-status-strategy').className = 'step-status running';
   document.getElementById('dtr-result-strategy').textContent = '';
   btn.disabled = true;
 
   try {
-    const body = {
-      idempotency_key: `strategy-${Date.now()}`,
-      short_window: shortWindow,
-      long_window: longWindow,
+    const strategyParams = {
+      idempotency_key: `strategy-ui-${Date.now()}`,
+      short_window: parseInt(shortWindow, 10),
+      long_window: parseInt(longWindow, 10),
     };
-    if (tickers) body.tickers = tickers;
 
-    const r = await call('POST', '/v1/strategy/run', body);
+    // Handle Strategy Tickers field first; fall back to main Ticker if blank
+    const strategyTickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
+    let tickers = [];
+    if (strategyTickersRaw) {
+      tickers = strategyTickersRaw.split(',').map(t => t.trim().toUpperCase()).filter(t => t.length > 0);
+    }
+    if (tickers.length === 0) {
+      const mainTicker = normTicker(document.getElementById('dtr-ticker').value);
+      if (mainTicker) tickers = [mainTicker];
+    }
+    if (tickers.length > 0) strategyParams.tickers = tickers;
+
+    const r = await call('POST', '/v1/strategy/run', strategyParams);
     const b = await parseApiResponse(r);
+
     if (r.ok) {
       document.getElementById('dtr-status-strategy').textContent = 'Done';
-      document.getElementById('dtr-status-strategy').className = 'dtr-step-status done';
+      document.getElementById('dtr-status-strategy').className = 'step-status done';
 
-      // Build result summary
       let resultHtml = `✓ Generated: ${b.signals_generated} · Submitted: ${b.signals_submitted} · Decisions: ${b.decisions_made} · Orders: ${b.orders_created}`;
-      if (b.errors > 0) {
-        resultHtml += ` · Errors: ${b.errors}`;
-      }
 
-      // Add breakdown info if available
-      if (b.decisions_breakdown && (b.decisions_breakdown.approved > 0 || b.decisions_breakdown.rejected > 0 || b.decisions_breakdown.hold > 0)) {
-        let breakdown = [];
-        if (b.decisions_breakdown.approved > 0) breakdown.push(`Approved: ${b.decisions_breakdown.approved}`);
-        if (b.decisions_breakdown.rejected > 0) breakdown.push(`Rejected: ${b.decisions_breakdown.rejected}`);
-        if (b.decisions_breakdown.hold > 0) breakdown.push(`Hold: ${b.decisions_breakdown.hold}`);
-        if (breakdown.length > 0) {
-          resultHtml += `<br><small style="color:#666;margin-top:4px;">Breakdown: ${breakdown.join(' · ')}</small>`;
-        }
-      }
-
-      // Add prominent rejection warning if any signals were rejected
-      if (b.decisions_breakdown && b.decisions_breakdown.rejected > 0) {
-        let rejectionDetails = '';
-        if (b.rejection_reasons && Object.keys(b.rejection_reasons).length > 0) {
-          rejectionDetails = '<div style="margin-top:0.5rem; font-size:0.9rem;">';
-          Object.entries(b.rejection_reasons).forEach(([reason, count]) => {
-            rejectionDetails += `<div>${escapeHtml(reason)}: ${count}</div>`;
-          });
-          rejectionDetails += '</div>';
-        }
-        const rejCount = b.decisions_breakdown.rejected;
-        const rejText = rejCount === 1 ? 'signal' : 'signals';
-        resultHtml += `<div style="margin-top:1rem;padding:0.75rem;background-color:#fef3c7;border-left:4px solid #f59e0b;color:#78350f;border-radius:4px;">
-          <div style="font-weight:600;margin-bottom:0.5rem;">⚠ Risk controls rejected ${rejCount} ${rejText}</div>
-          <div style="font-size:0.9rem;color:#92400e;">No order was created for the rejected signals. Approved signals (if any) will proceed to the fill stage.</div>
-          ${rejectionDetails}
-        </div>`;
-      }
-
-      // Add skipped info if any
-      if (Object.keys(b.skipped_tickers).length > 0) {
-        const skippedList = Object.entries(b.skipped_tickers)
-          .map(([ticker, reason]) => `${escapeHtml(ticker)}: ${escapeHtml(reason)}`)
-          .join(' | ');
-        resultHtml += `<br><small style="color:#666;margin-top:4px;">Skipped: ${skippedList}</small>`;
-      }
-
-      // Add signal preview if available
       if (b.generated_signals && b.generated_signals.length > 0) {
-        resultHtml += '<div style="margin-top:8px;border-top:1px solid #e5e7eb;padding-top:8px;"><small><strong>Generated Signals:</strong><br>';
-        b.generated_signals.slice(0, 5).forEach(sig => {
-          const conf = parseFloat(sig.confidence).toFixed(2);
-          const reason = sig.raw_payload?.trend_reason || '';
-          resultHtml += `${escapeHtml(sig.ticker)} ${escapeHtml(sig.direction)} (${conf}) — ${escapeHtml(reason)}<br>`;
+        resultHtml += '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><small><strong>Signals:</strong><br>';
+        resultHtml += '<div style="overflow-x:auto;font-size:0.85rem;margin-top:6px;">';
+        resultHtml += '<table style="width:100%;border-collapse:collapse;color:var(--text-primary);">';
+        resultHtml += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:4px;color:var(--label);">Ticker</th><th style="text-align:left;padding:4px;color:var(--label);">Rec</th></tr>';
+
+        b.generated_signals.forEach(sig => {
+          const recColor = sig.recommendation === 'BUY' ? 'var(--ok)' : sig.recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+          resultHtml += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:4px;">${escapeHtml(sig.ticker)}</td><td style="padding:4px;color:${recColor};font-weight:600;">${escapeHtml(sig.recommendation)}</td></tr>`;
         });
-        if (b.generated_signals.length > 5) {
-          resultHtml += `... and ${b.generated_signals.length - 5} more<br>`;
-        }
-        resultHtml += '</small></div>';
+        resultHtml += '</table></div></small></div>';
+      }
+
+      if (b.rejection_reasons && Object.keys(b.rejection_reasons).length > 0) {
+        resultHtml += '<div style="margin-top:8px;color:var(--warning);font-size:0.85rem;"><strong>Rejections:</strong><br>';
+        Object.entries(b.rejection_reasons).forEach(([ticker, reason]) => {
+          resultHtml += `<div>${escapeHtml(ticker)}: ${escapeHtml(reason)}</div>`;
+        });
+        resultHtml += '</div>';
       }
 
       document.getElementById('dtr-result-strategy').innerHTML = resultHtml;
-      document.getElementById('dtr-result-strategy').className = 'dtr-step-result success';
+      document.getElementById('dtr-result-strategy').className = 'step-result success';
 
-      // Refresh UI
       loadOrders();
       loadPositions();
       loadPortfolio();
       updateWorkbench();
-      updateActionBadges();
-      updateHints();
     } else {
-      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-strategy').textContent = 'Error';
-    document.getElementById('dtr-status-strategy').className = 'dtr-step-status error';
+    document.getElementById('dtr-status-strategy').className = 'step-status error';
     document.getElementById('dtr-result-strategy').textContent = `✗ ${e.message}`;
-    document.getElementById('dtr-result-strategy').className = 'dtr-step-result error';
+    document.getElementById('dtr-result-strategy').className = 'step-result error';
   } finally {
     btn.disabled = false;
-    updateDtrStatusMsg();
-    updateDtrGuidance();
-    updateDtrSummary();
+    updateWorkflowRail();
   }
 }
 
 async function dtrRunPredictionStrategy(btn) {
   const tickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
 
-  // Validate tickers
   if (!tickersRaw) {
-    toast('Enter at least one ticker before running prediction strategy.', 'err');
+    toast('Enter at least one ticker', 'err');
     return;
   }
 
-  // Parse tickers
-  const tickers = tickersRaw
-    .split(',')
-    .map(t => t.trim().toUpperCase())
-    .filter(t => t.length > 0);
-
+  const tickers = tickersRaw.split(',').map(t => t.trim().toUpperCase()).filter(t => t.length > 0);
   if (tickers.length === 0) {
-    toast('Enter at least one ticker before running prediction strategy.', 'err');
+    toast('Enter at least one ticker', 'err');
     return;
   }
 
@@ -1562,56 +1647,51 @@ async function dtrRunPredictionStrategy(btn) {
     if (r.ok) {
       resultCard.style.display = 'block';
 
-      // Build result summary
       let resultHtml = `✓ Fetched: ${b.fetched_count} · Failed: ${b.failed_count} · Generated: ${b.signals_generated} · Submitted: ${b.signals_submitted} · Decisions: ${b.decisions_made} · Orders: ${b.orders_created}`;
 
-      // Add fetch failures if any
       if (b.fetch_failures && b.fetch_failures.length > 0) {
         const failureList = b.fetch_failures
           .map(f => `${escapeHtml(f.ticker)}: ${escapeHtml(f.reason)}`)
           .join(' | ');
-        resultHtml += `<br><small style="color:#ff6b6b;margin-top:4px;">Fetch Failures: ${failureList}</small>`;
+        resultHtml += `<br><small style="color:var(--danger);margin-top:4px;">Fetch Failures: ${failureList}</small>`;
       }
 
-      // Add normalized predictions table
       if (b.normalized_predictions && b.normalized_predictions.length > 0) {
-        resultHtml += '<div style="margin-top:12px;border-top:1px solid #1a3a5a;padding-top:12px;"><small><strong>Normalized Predictions:</strong><br>';
+        resultHtml += '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;"><small><strong>Normalized Predictions:</strong><br>';
         resultHtml += '<div style="overflow-x:auto;font-size:0.85rem;margin-top:8px;">';
-        resultHtml += '<table style="width:100%;border-collapse:collapse;color:#e0e0ff;">';
-        resultHtml += '<tr style="border-bottom:1px solid #1a3a5a;"><th style="text-align:left;padding:6px;color:#00cc99;">Ticker</th><th style="text-align:left;padding:6px;color:#00cc99;">Rec</th><th style="text-align:left;padding:6px;color:#00cc99;">Conf</th><th style="text-align:left;padding:6px;color:#00cc99;">Price</th><th style="text-align:left;padding:6px;color:#00cc99;">5D Forecast</th><th style="text-align:left;padding:6px;color:#00cc99;">Return %</th><th style="text-align:left;padding:6px;color:#00cc99;">Context</th></tr>';
+        resultHtml += '<table style="width:100%;border-collapse:collapse;color:var(--text-primary);">';
+        resultHtml += '<tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:6px;color:var(--label);">Ticker</th><th style="text-align:left;padding:6px;color:var(--label);">Rec</th><th style="text-align:left;padding:6px;color:var(--label);">Conf</th><th style="text-align:left;padding:6px;color:var(--label);">Price</th><th style="text-align:left;padding:6px;color:var(--label);">5D Forecast</th><th style="text-align:left;padding:6px;color:var(--label);">Return %</th><th style="text-align:left;padding:6px;color:var(--label);">Context</th></tr>';
 
         b.normalized_predictions.forEach(pred => {
-          const recColor = pred.recommendation === 'BUY' ? '#00ff88' : pred.recommendation === 'SELL' ? '#ff6b6b' : '#ffa500';
-          const recBg = pred.recommendation === 'BUY' ? 'rgba(0,255,136,0.1)' : pred.recommendation === 'SELL' ? 'rgba(255,107,107,0.1)' : 'rgba(255,165,0,0.1)';
+          const recColor = pred.recommendation === 'BUY' ? 'var(--ok)' : pred.recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+          const recBg = pred.recommendation === 'BUY' ? 'rgba(34,197,94,.08)' : pred.recommendation === 'SELL' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)';
           const conf = parseFloat(pred.confidence).toFixed(2);
           const ret = pred.expected_return_pct ? parseFloat(pred.expected_return_pct).toFixed(2) : '—';
 
-          resultHtml += `<tr style="border-bottom:1px solid #1a3a5a;background:${recBg};">`;
+          resultHtml += `<tr style="border-bottom:1px solid var(--border);background:${recBg};">`;
           resultHtml += `<td style="padding:6px;font-weight:600;">${escapeHtml(pred.ticker)}</td>`;
           resultHtml += `<td style="padding:6px;color:${recColor};font-weight:600;">${escapeHtml(pred.recommendation)}</td>`;
           resultHtml += `<td style="padding:6px;">${conf}</td>`;
           resultHtml += `<td style="padding:6px;">${escapeHtml(pred.current_price || '—')}</td>`;
           resultHtml += `<td style="padding:6px;">${escapeHtml(pred.forecast_price_5d || '—')}</td>`;
           resultHtml += `<td style="padding:6px;">${ret}%</td>`;
-          resultHtml += `<td style="padding:6px;color:#999;">${escapeHtml(pred.market_context)}</td>`;
+          resultHtml += `<td style="padding:6px;color:var(--label);">${escapeHtml(pred.market_context)}</td>`;
           resultHtml += `</tr>`;
         });
 
         resultHtml += '</table></div></small></div>';
       }
 
-      // Add breakdown info if available
       if (b.decisions_breakdown && (b.decisions_breakdown.approved > 0 || b.decisions_breakdown.rejected > 0 || b.decisions_breakdown.hold > 0)) {
         let breakdown = [];
         if (b.decisions_breakdown.approved > 0) breakdown.push(`Approved: ${b.decisions_breakdown.approved}`);
         if (b.decisions_breakdown.rejected > 0) breakdown.push(`Rejected: ${b.decisions_breakdown.rejected}`);
         if (b.decisions_breakdown.hold > 0) breakdown.push(`Hold: ${b.decisions_breakdown.hold}`);
         if (breakdown.length > 0) {
-          resultHtml += `<br><small style="color:#666;margin-top:4px;">Decisions: ${breakdown.join(' · ')}</small>`;
+          resultHtml += `<br><small style="color:var(--label);margin-top:4px;">Decisions: ${breakdown.join(' · ')}</small>`;
         }
       }
 
-      // Add prominent rejection warning if any signals were rejected
       if (b.decisions_breakdown && b.decisions_breakdown.rejected > 0) {
         let rejectionDetails = '';
         if (b.rejection_reasons && Object.keys(b.rejection_reasons).length > 0) {
@@ -1623,38 +1703,34 @@ async function dtrRunPredictionStrategy(btn) {
         }
         const rejCount = b.decisions_breakdown.rejected;
         const rejText = rejCount === 1 ? 'signal' : 'signals';
-        resultHtml += `<div style="margin-top:1rem;padding:0.75rem;background-color:#fef3c7;border-left:4px solid #f59e0b;color:#78350f;border-radius:4px;">
-          <div style="font-weight:600;margin-bottom:0.5rem;">⚠ Risk controls rejected ${rejCount} ${rejText}</div>
-          <div style="font-size:0.9rem;color:#92400e;">No order was created for the rejected signals. Approved signals (if any) will proceed to the fill stage.</div>
+        resultHtml += `<div style="margin-top:1rem;padding:0.75rem;background-color:rgba(245,158,11,.1);border-left:4px solid var(--warning);color:var(--warning);border-radius:2px;">
+          <div style="font-weight:600;margin-bottom:0.5rem;">Risk controls rejected ${rejCount} ${rejText}</div>
+          <div style="font-size:0.9rem;">No order created for rejected signals. Approved signals will proceed to fill stage.</div>
           ${rejectionDetails}
         </div>`;
       }
 
-      // Add skipped info if any
       if (b.skipped_tickers && Object.keys(b.skipped_tickers).length > 0) {
         const skippedList = Object.entries(b.skipped_tickers)
           .map(([ticker, reason]) => `${escapeHtml(ticker)}: ${escapeHtml(reason)}`)
           .join(' | ');
-        resultHtml += `<br><small style="color:#ff6b6b;margin-top:4px;">Skipped: ${skippedList}</small>`;
+        resultHtml += `<br><small style="color:var(--danger);margin-top:4px;">Skipped: ${skippedList}</small>`;
       }
 
       resultEl.innerHTML = resultHtml;
-      resultEl.className = 'dtr-step-result success';
+      resultEl.className = 'step-result success';
 
-      // Refresh UI
       loadOrders();
       loadPositions();
       loadPortfolio();
       updateWorkbench();
-      updateActionBadges();
-      updateHints();
     } else {
-      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
     resultCard.style.display = 'block';
     resultEl.textContent = `✗ ${e.message}`;
-    resultEl.className = 'dtr-step-result error';
+    resultEl.className = 'step-result error';
   } finally {
     btn.disabled = false;
   }
@@ -1665,22 +1741,19 @@ async function checkStrategyReadiness() {
   const tickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
 
   if (!longWindowRaw) {
-    toast('Long window must be specified', 'err');
+    toast('Long window required', 'err');
     return;
   }
 
   const longWindow = parseInt(longWindowRaw, 10);
   if (isNaN(longWindow) || longWindow <= 0) {
-    toast('Long window must be a positive integer', 'err');
+    toast('Long window must be positive', 'err');
     return;
   }
 
-  // Build query params
   const params = new URLSearchParams();
   params.append('long_window', longWindow);
-  if (tickersRaw) {
-    params.append('tickers', tickersRaw);
-  }
+  if (tickersRaw) params.append('tickers', tickersRaw);
 
   const readinessCard = document.getElementById('strategy-readiness');
   const contextEl = document.getElementById('readiness-context');
@@ -1692,31 +1765,29 @@ async function checkStrategyReadiness() {
     if (r.ok) {
       contextEl.textContent = `Strategy readiness as of ${b.market_date}, long window ${b.long_window}`;
 
-      // Build result table
-      let html = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid #e5e7eb;"><th style="text-align:left;padding:0.5rem;font-weight:bold;">Ticker</th><th style="text-align:right;padding:0.5rem;">Count</th><th style="text-align:left;padding:0.5rem;">Latest</th><th style="text-align:left;padding:0.5rem;">Status</th></tr></thead><tbody>';
+      let html = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:0.5rem;font-weight:bold;color:var(--label);">Ticker</th><th style="text-align:right;padding:0.5rem;color:var(--label);">Count</th><th style="text-align:left;padding:0.5rem;color:var(--label);">Latest</th><th style="text-align:left;padding:0.5rem;color:var(--label);">Status</th></tr></thead><tbody>';
 
       b.tickers_status.forEach(t => {
-        const status = t.has_sufficient_history ? '✓ Ready' : `✗ Insufficient (needs ${t.missing_count} more)`;
-        const statusClass = t.has_sufficient_history ? 'color:#22c55e' : 'color:#ef4444';
+        const status = t.has_sufficient_history ? 'Ready' : `Insufficient (needs ${t.missing_count} more)`;
+        const statusClass = t.has_sufficient_history ? 'color:var(--ok)' : 'color:var(--danger)';
         const latest = t.latest_market_date || '—';
-        html += `<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:0.5rem;">${escapeHtml(t.ticker)}</td><td style="text-align:right;padding:0.5rem;">${t.price_count}</td><td style="padding:0.5rem;">${escapeHtml(latest)}</td><td style="padding:0.5rem;${statusClass}">${status}</td></tr>`;
+        html += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:0.5rem;">${escapeHtml(t.ticker)}</td><td style="text-align:right;padding:0.5rem;">${t.price_count}</td><td style="padding:0.5rem;">${escapeHtml(latest)}</td><td style="padding:0.5rem;${statusClass}">${status}</td></tr>`;
       });
 
       html += '</tbody></table>';
 
-      // Add overall status
-      const overallClass = b.overall_status === 'Ready' ? 'color:#22c55e;font-weight:bold' : 'color:#ef4444;font-weight:bold';
+      const overallClass = b.overall_status === 'Ready' ? 'color:var(--ok);font-weight:bold' : 'color:var(--danger);font-weight:bold';
       html += `<div style="margin-top:1rem;${overallClass}">Overall: ${b.overall_status}</div>`;
 
       resultEl.innerHTML = html;
       resultEl.className = '';
       readinessCard.style.display = 'block';
     } else {
-      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
     resultEl.textContent = `✗ ${e.message}`;
-    resultEl.className = 'dtr-step-result error';
+    resultEl.className = 'step-result error';
     readinessCard.style.display = 'block';
   }
 }
@@ -1725,13 +1796,9 @@ async function fetchLatestPrices(btn) {
   const tickersRaw = document.getElementById('dtr-strategy-tickers').value.trim();
   const mainTicker = normTicker(document.getElementById('dtr-ticker').value);
 
-  // Determine tickers to fetch
   let tickers = [];
   if (tickersRaw) {
-    tickers = tickersRaw
-      .split(',')
-      .map(t => t.trim().toUpperCase())
-      .filter(t => t.length > 0);
+    tickers = tickersRaw.split(',').map(t => t.trim().toUpperCase()).filter(t => t.length > 0);
   } else if (mainTicker) {
     tickers = [mainTicker];
   }
@@ -1754,22 +1821,22 @@ async function fetchLatestPrices(btn) {
     });
     const b = await parseApiResponse(r);
     if (r.ok) {
-      let html = `<div style="margin-bottom: 1rem; font-weight: 600; color: #22c55e;">✓ Inserted: ${b.inserted}</div>`;
+      let html = `<div style="margin-bottom: 1rem; font-weight: 600; color: var(--ok);">Inserted: ${b.inserted}</div>`;
 
       if (b.prices && b.prices.length > 0) {
-        html += '<div style="margin-bottom: 1rem;"><div style="font-weight: 600; margin-bottom: 0.5rem;">Prices Fetched:</div>';
-        html += '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid #e5e7eb;"><th style="text-align:left;padding:0.5rem;font-weight:bold;">Ticker</th><th style="text-align:right;padding:0.5rem;">Price</th><th style="text-align:left;padding:0.5rem;">Market Date</th></tr></thead><tbody>';
+        html += '<div style="margin-bottom: 1rem;"><div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--label);">Prices Fetched:</div>';
+        html += '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:0.5rem;font-weight:bold;color:var(--label);">Ticker</th><th style="text-align:right;padding:0.5rem;color:var(--label);">Price</th><th style="text-align:left;padding:0.5rem;color:var(--label);">Market Date</th></tr></thead><tbody>';
         b.prices.forEach(p => {
-          html += `<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:0.5rem;">${escapeHtml(p.ticker)}</td><td style="text-align:right;padding:0.5rem;">${usd(p.price)}</td><td style="padding:0.5rem;">${escapeHtml(p.market_date)}</td></tr>`;
+          html += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:0.5rem;">${escapeHtml(p.ticker)}</td><td style="text-align:right;padding:0.5rem;">${usd(p.price)}</td><td style="padding:0.5rem;">${escapeHtml(p.market_date)}</td></tr>`;
         });
         html += '</tbody></table></div>';
       }
 
       if (b.failures && b.failures.length > 0) {
-        html += '<div><div style="font-weight: 600; margin: 1rem 0 0.5rem 0; color: #ef4444;">Failures:</div>';
-        html += '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid #e5e7eb;"><th style="text-align:left;padding:0.5rem;font-weight:bold;">Ticker</th><th style="text-align:left;padding:0.5rem;">Reason</th></tr></thead><tbody>';
+        html += '<div><div style="font-weight: 600; margin: 1rem 0 0.5rem 0; color: var(--danger);">Failures:</div>';
+        html += '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:0.5rem;font-weight:bold;color:var(--label);">Ticker</th><th style="text-align:left;padding:0.5rem;color:var(--label);">Reason</th></tr></thead><tbody>';
         b.failures.forEach(f => {
-          html += `<tr style="border-bottom:1px solid #f3f4f6;"><td style="padding:0.5rem;">${escapeHtml(f.ticker)}</td><td style="padding:0.5rem;">${escapeHtml(f.reason)}</td></tr>`;
+          html += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:0.5rem;">${escapeHtml(f.ticker)}</td><td style="padding:0.5rem;">${escapeHtml(f.reason)}</td></tr>`;
         });
         html += '</tbody></table></div>';
       }
@@ -1779,16 +1846,13 @@ async function fetchLatestPrices(btn) {
       fetchCard.style.display = 'block';
       toast(`Fetched ${b.inserted} price(s)`, 'ok');
 
-      // Auto-refresh readiness check after a short delay
-      setTimeout(() => {
-        checkStrategyReadiness();
-      }, 400);
+      setTimeout(() => checkStrategyReadiness(), 400);
     } else {
-      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
     resultEl.textContent = `✗ ${e.message}`;
-    resultEl.className = 'dtr-step-result error';
+    resultEl.className = 'step-result error';
     fetchCard.style.display = 'block';
   } finally {
     btn.disabled = false;
@@ -1800,11 +1864,11 @@ async function dtrSubmitSignal(btn) {
   const confidence = document.getElementById('dtr-confidence').value.trim();
 
   if (!ticker) { toast('Ticker required', 'err'); return; }
-  if (!confidence || !isValidConfidence(confidence)) { toast('Confidence must be between 0 and 1', 'err'); return; }
+  if (!confidence || !isValidConfidence(confidence)) { toast('Confidence must be 0–1', 'err'); return; }
 
   document.getElementById('dtr-ticker').value = ticker;
   document.getElementById('dtr-status-signal').textContent = 'Running';
-  document.getElementById('dtr-status-signal').className = 'dtr-step-status running';
+  document.getElementById('dtr-status-signal').className = 'step-status running';
   document.getElementById('dtr-result-signal').textContent = '';
   btn.disabled = true;
 
@@ -1821,349 +1885,122 @@ async function dtrSubmitSignal(btn) {
     const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('dtr-status-signal').textContent = 'Done';
-      document.getElementById('dtr-status-signal').className = 'dtr-step-status done';
+      document.getElementById('dtr-status-signal').className = 'step-status done';
       document.getElementById('dtr-result-signal').textContent = `✓ ${b.signals_ingested} signal(s) ingested · ${b.orders_created} order(s) created`;
-      document.getElementById('dtr-result-signal').className = 'dtr-step-result success';
+      document.getElementById('dtr-result-signal').className = 'step-result success';
       loadOrders();
       updateWorkbench();
-      updateActionBadges();
-      updateHints();
     } else {
-      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-signal').textContent = 'Error';
-    document.getElementById('dtr-status-signal').className = 'dtr-step-status error';
+    document.getElementById('dtr-status-signal').className = 'step-status error';
     document.getElementById('dtr-result-signal').textContent = `✗ ${e.message}`;
-    document.getElementById('dtr-result-signal').className = 'dtr-step-result error';
+    document.getElementById('dtr-result-signal').className = 'step-result error';
   } finally {
     btn.disabled = false;
-    updateDtrStatusMsg();
-    updateDtrGuidance();
-    updateDtrSummary();
+    updateWorkflowRail();
   }
 }
 
 async function dtrRunFill(btn) {
   document.getElementById('dtr-status-fill').textContent = 'Running';
-  document.getElementById('dtr-status-fill').className = 'dtr-step-status running';
+  document.getElementById('dtr-status-fill').className = 'step-status running';
   document.getElementById('dtr-result-fill').textContent = '';
   btn.disabled = true;
 
   try {
     const ikeyVal = autoKey();
-    const r = await call('POST', '/v1/fill', {
-      idempotency_key: ikeyVal,
-    });
+    const r = await call('POST', '/v1/fill', { idempotency_key: ikeyVal });
     const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('dtr-status-fill').textContent = 'Done';
-      document.getElementById('dtr-status-fill').className = 'dtr-step-status done';
+      document.getElementById('dtr-status-fill').className = 'step-status done';
       document.getElementById('dtr-result-fill').textContent = `✓ ${b.filled} filled · ${b.expired} expired · ${b.failed} failed · ${b.skipped} skipped`;
-      document.getElementById('dtr-result-fill').className = 'dtr-step-result success';
+      document.getElementById('dtr-result-fill').className = 'step-result success';
       loadOrders();
       loadPositions();
       loadPortfolio();
       updateWorkbench();
-      updateActionBadges();
-      updateHints();
     } else {
-      throw new Error(b.detail ?? `HTTP ${r.status} ${r.statusText}`);
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-fill').textContent = 'Error';
-    document.getElementById('dtr-status-fill').className = 'dtr-step-status error';
+    document.getElementById('dtr-status-fill').className = 'step-status error';
     document.getElementById('dtr-result-fill').textContent = `✗ ${e.message}`;
-    document.getElementById('dtr-result-fill').className = 'dtr-step-result error';
+    document.getElementById('dtr-result-fill').className = 'step-result error';
   } finally {
     btn.disabled = false;
-    updateDtrStatusMsg();
-    updateDtrGuidance();
-    updateDtrSummary();
+    updateWorkflowRail();
   }
 }
 
 async function dtrRunSnapshot(btn) {
   document.getElementById('dtr-status-snapshot').textContent = 'Running';
-  document.getElementById('dtr-status-snapshot').className = 'dtr-step-status running';
+  document.getElementById('dtr-status-snapshot').className = 'step-status running';
   document.getElementById('dtr-result-snapshot').textContent = '';
   btn.disabled = true;
 
   try {
-    // Use deterministic idempotency key based on today's market date.
-    // This allows retries on the same day to return the cached result.
     const today = todayLocal();
     const ikeyVal = `snapshot-${today}`;
-    const r = await call('POST', '/v1/snapshot', {
-      idempotency_key: ikeyVal,
-    });
+    const r = await call('POST', '/v1/snapshot', { idempotency_key: ikeyVal });
     const b = await parseApiResponse(r);
     if (r.ok) {
       document.getElementById('dtr-status-snapshot').textContent = 'Done';
-      document.getElementById('dtr-status-snapshot').className = 'dtr-step-status done';
-      document.getElementById('dtr-result-snapshot').textContent = `✓ Total: ${usd(b.total_value)} · ${b.open_position_count} position(s) · P&L: ${usd(b.unrealized_pnl)}`;
-      document.getElementById('dtr-result-snapshot').className = 'dtr-step-result success';
-      loadPerformance();
+      document.getElementById('dtr-status-snapshot').className = 'step-status done';
+      document.getElementById('dtr-result-snapshot').textContent = `✓ Snapshot recorded for ${b.market_date}`;
+      document.getElementById('dtr-result-snapshot').className = 'step-result success';
       loadHistory();
       loadPortfolio();
-      loadPositions();
       updateWorkbench();
-      updateActionBadges();
-      updateHints();
     } else {
-      // Check for specific error conditions and provide helpful messages.
-      const msg = b.detail || `HTTP ${r.status} ${r.statusText}`;
-      if (r.status === 409 && msg.includes('already exists')) {
-        throw new Error('Snapshot already recorded for this date. Use Refresh Review to update.');
-      } else {
-        throw new Error(msg);
-      }
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
     document.getElementById('dtr-status-snapshot').textContent = 'Error';
-    document.getElementById('dtr-status-snapshot').className = 'dtr-step-status error';
+    document.getElementById('dtr-status-snapshot').className = 'step-status error';
     document.getElementById('dtr-result-snapshot').textContent = `✗ ${e.message}`;
-    document.getElementById('dtr-result-snapshot').className = 'dtr-step-result error';
+    document.getElementById('dtr-result-snapshot').className = 'step-result error';
   } finally {
     btn.disabled = false;
-    updateDtrStatusMsg();
-    updateDtrGuidance();
-    updateDtrSummary();
+    updateWorkflowRail();
   }
 }
 
 async function dtrRefreshReview(btn) {
   document.getElementById('dtr-status-review').textContent = 'Running';
-  document.getElementById('dtr-status-review').className = 'dtr-step-status running';
+  document.getElementById('dtr-status-review').className = 'step-status running';
   document.getElementById('dtr-result-review').textContent = '';
   btn.disabled = true;
 
   try {
-    await Promise.all([
-      loadPortfolio(),
-      loadPerformance(),
-      loadPositions(),
-      loadOrders(),
-      loadHistory(),
-    ]);
-    updateWorkbench();
-    updateActionBadges();
-    updateHints();
-
+    await Promise.all([loadPositions(), loadOrders(), loadHistory(), loadPortfolio()]);
     document.getElementById('dtr-status-review').textContent = 'Done';
-    document.getElementById('dtr-status-review').className = 'dtr-step-status done';
-    document.getElementById('dtr-result-review').textContent = '✓ Review refreshed';
-    document.getElementById('dtr-result-review').className = 'dtr-step-result success';
+    document.getElementById('dtr-status-review').className = 'step-status done';
+    document.getElementById('dtr-result-review').textContent = '✓ Review data refreshed';
+    document.getElementById('dtr-result-review').className = 'step-result success';
   } catch (e) {
     document.getElementById('dtr-status-review').textContent = 'Error';
-    document.getElementById('dtr-status-review').className = 'dtr-step-status error';
+    document.getElementById('dtr-status-review').className = 'step-status error';
     document.getElementById('dtr-result-review').textContent = `✗ ${e.message}`;
-    document.getElementById('dtr-result-review').className = 'dtr-step-result error';
+    document.getElementById('dtr-result-review').className = 'step-result error';
   } finally {
     btn.disabled = false;
-    updateDtrStatusMsg();
-    updateDtrGuidance();
-    updateDtrSummary();
+    updateWorkflowRail();
   }
 }
 
-// ---------- daily trading run helpers ----------
-
-function getDtrStepStatus(stepKey) {
-  const statusEl = document.getElementById(`dtr-status-${stepKey}`);
+function getDtrStepStatus(step) {
+  const statusEl = document.getElementById(`dtr-status-${step}`);
   if (!statusEl) return 'not-started';
-  if (statusEl.classList.contains('done')) return 'done';
-  if (statusEl.classList.contains('error')) return 'error';
-  if (statusEl.classList.contains('running')) return 'running';
+  const text = statusEl.textContent.toLowerCase();
+  if (text === 'done') return 'done';
+  if (text === 'running' || text === '…') return 'running';
+  if (text === 'error') return 'error';
   return 'not-started';
-}
-
-function getDtrCurrentStatus() {
-  const s1 = getDtrStepStatus('ingest');
-  const s2 = getDtrStepStatus('strategy');
-  const s3 = getDtrStepStatus('signal');
-  const s4 = getDtrStepStatus('fill');
-  const s5 = getDtrStepStatus('snapshot');
-  const s6 = getDtrStepStatus('review');
-
-  if (s6 === 'done') return 'Review refreshed';
-  if (s5 === 'done') return 'Snapshot recorded';
-  if (s4 === 'done') return 'Fill completed';
-  if (s3 === 'done' || s2 === 'done') return 'Signals processed';
-  if (s1 === 'done') return 'Price ingested';
-  if (s1 === 'error' || s2 === 'error' || s3 === 'error' || s4 === 'error' || s5 === 'error' || s6 === 'error') return 'Action needed';
-  return 'Ready to start';
-}
-
-function resetDtrRun() {
-  document.getElementById('dtr-status-ingest').textContent = 'Not Started';
-  document.getElementById('dtr-status-ingest').className = 'dtr-step-status not-started';
-  document.getElementById('dtr-result-ingest').textContent = '';
-  document.getElementById('dtr-result-ingest').className = '';
-
-  document.getElementById('dtr-status-strategy').textContent = 'Not Started';
-  document.getElementById('dtr-status-strategy').className = 'dtr-step-status not-started';
-  document.getElementById('dtr-result-strategy').textContent = '';
-  document.getElementById('dtr-result-strategy').className = '';
-
-  document.getElementById('dtr-status-signal').textContent = 'Not Started';
-  document.getElementById('dtr-status-signal').className = 'dtr-step-status not-started';
-  document.getElementById('dtr-result-signal').textContent = '';
-  document.getElementById('dtr-result-signal').className = '';
-
-  document.getElementById('dtr-status-fill').textContent = 'Not Started';
-  document.getElementById('dtr-status-fill').className = 'dtr-step-status not-started';
-  document.getElementById('dtr-result-fill').textContent = '';
-  document.getElementById('dtr-result-fill').className = '';
-
-  document.getElementById('dtr-status-snapshot').textContent = 'Not Started';
-  document.getElementById('dtr-status-snapshot').className = 'dtr-step-status not-started';
-  document.getElementById('dtr-result-snapshot').textContent = '';
-  document.getElementById('dtr-result-snapshot').className = '';
-
-  document.getElementById('dtr-status-review').textContent = 'Not Started';
-  document.getElementById('dtr-status-review').className = 'dtr-step-status not-started';
-  document.getElementById('dtr-result-review').textContent = '';
-  document.getElementById('dtr-result-review').className = '';
-
-  document.getElementById('dtr-price').value = '';
-  document.getElementById('dtr-short-window').value = '3';
-  document.getElementById('dtr-long-window').value = '5';
-  document.getElementById('dtr-strategy-tickers').value = '';
-
-  updateDtrGuidance();
-  updateDtrStatusMsg();
-  updateDtrSummary();
-  updateDtrButtonReadiness();
-}
-
-function updateDtrStatusMsg() {
-  document.getElementById('dtr-status-msg').textContent = getDtrCurrentStatus();
-}
-
-function updateDtrGuidance() {
-  const ticker = normTicker(document.getElementById('dtr-ticker').value);
-  const price = document.getElementById('dtr-price').value.trim();
-  const confidence = document.getElementById('dtr-confidence').value.trim();
-  const guidanceEl = document.getElementById('dtr-guidance');
-
-  const s1 = getDtrStepStatus('ingest');
-  const s2 = getDtrStepStatus('strategy');
-  const s3 = getDtrStepStatus('signal');
-  const s4 = getDtrStepStatus('fill');
-  const s5 = getDtrStepStatus('snapshot');
-  const s6 = getDtrStepStatus('review');
-
-  let hint = '';
-
-  if (!ticker) {
-    hint = 'Enter a ticker to begin.';
-  } else if (!price || !isValidPrice(price)) {
-    hint = 'Enter a positive price, then ingest the price.';
-  } else if (s2 === 'not-started' && s3 === 'not-started') {
-    hint = 'Run strategy using existing price history, ingest a fresh price first, or submit a manual override.';
-  } else if ((s2 === 'done' || s3 === 'done') && s4 === 'not-started') {
-    hint = 'Run fill next.';
-  } else if (s4 === 'done' && s5 === 'not-started') {
-    hint = 'Run snapshot next.';
-  } else if (s5 === 'done' && s6 === 'not-started') {
-    hint = 'Refresh review next.';
-  } else if (s6 === 'done') {
-    hint = 'Daily Trading Run complete.';
-  }
-
-  guidanceEl.textContent = hint;
-  guidanceEl.style.display = hint ? 'block' : 'none';
-}
-
-function updateDtrButtonReadiness() {
-  const ticker = normTicker(document.getElementById('dtr-ticker').value);
-  const price = document.getElementById('dtr-price').value.trim();
-  const confidence = document.getElementById('dtr-confidence').value.trim();
-  const shortWindowRaw = document.getElementById('dtr-short-window').value.trim();
-  const longWindowRaw = document.getElementById('dtr-long-window').value.trim();
-
-  const ingestBtn = document.getElementById('dtr-btn-ingest');
-  const strategyBtn = document.getElementById('dtr-btn-strategy');
-  const signalBtn = document.getElementById('dtr-btn-signal');
-
-  const hasTicker = ticker.length > 0;
-  const hasValidPrice = isValidPrice(price);
-  const hasValidConf = isValidConfidence(confidence);
-
-  // Validate strategy windows: both required, positive integers, short < long
-  const shortWindow = parseInt(shortWindowRaw, 10);
-  const longWindow = parseInt(longWindowRaw, 10);
-  const hasValidWindows = !isNaN(shortWindow) && !isNaN(longWindow) &&
-                          shortWindow > 0 && longWindow > 0 &&
-                          shortWindow < longWindow;
-
-  ingestBtn.disabled = !hasTicker || !hasValidPrice;
-  strategyBtn.disabled = !hasValidWindows;
-  signalBtn.disabled = !hasTicker || !hasValidConf;
-}
-
-function getDtrLastCompletedStep() {
-  const steps = ['ingest', 'strategy', 'signal', 'fill', 'snapshot', 'review'];
-  for (let i = steps.length - 1; i >= 0; i--) {
-    if (getDtrStepStatus(steps[i]) === 'done') {
-      const labels = {
-        'ingest': 'Ingest Price',
-        'strategy': 'Run Strategy',
-        'signal': 'Submit Signal',
-        'fill': 'Run Fill',
-        'snapshot': 'Run Snapshot',
-        'review': 'Refresh Review'
-      };
-      return labels[steps[i]];
-    }
-  }
-  return 'None';
-}
-
-function getDtrLatestResult() {
-  const steps = ['ingest', 'strategy', 'signal', 'fill', 'snapshot', 'review'];
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const resultEl = document.getElementById(`dtr-result-${steps[i]}`);
-    if (resultEl && resultEl.textContent.trim()) {
-      return {
-        text: resultEl.textContent.trim(),
-        status: resultEl.className.includes('success') ? 'success' : (resultEl.className.includes('error') ? 'error' : '')
-      };
-    }
-  }
-  return { text: '—', status: '' };
-}
-
-function updateDtrSummary() {
-  const ticker = normTicker(document.getElementById('dtr-ticker').value) || '—';
-  const lastStep = getDtrLastCompletedStep();
-  const latestResult = getDtrLatestResult();
-
-  const summaryEl = document.getElementById('dtr-summary');
-  const hasCompleted = lastStep !== 'None';
-
-  if (hasCompleted) {
-    document.getElementById('dtr-summary-ticker').textContent = ticker;
-    document.getElementById('dtr-summary-step').textContent = lastStep;
-
-    const resultEl = document.getElementById('dtr-summary-result');
-    resultEl.textContent = latestResult.text;
-    resultEl.className = 'dtr-summary-result ' + latestResult.status;
-
-    const pendingOrders = _appState.pendingOrders !== null ? _appState.pendingOrders.toString() : '?';
-    document.getElementById('dtr-summary-pending').textContent = pendingOrders;
-
-    const posStatus = _appState.hasPositions ? '✓ Yes' : (_appState.hasPositions === false ? 'None' : '?');
-    document.getElementById('dtr-summary-positions').textContent = posStatus;
-
-    const snapStatus = _appState.hasHistory ? '✓ Recorded' : (_appState.hasHistory === false ? 'Not started' : '?');
-    document.getElementById('dtr-summary-snapshots').textContent = snapStatus;
-
-    summaryEl.style.display = 'block';
-  } else {
-    summaryEl.style.display = 'none';
-  }
 }
 
 // ---------- connect / refresh ----------
@@ -2176,7 +2013,7 @@ async function connect() {
     await loadHealth();
     const r = await call('GET', '/v1/portfolio');
     if (r.status === 401) {
-      toast('Invalid API key — check the value and reconnect', 'err');
+      toast('Invalid API key', 'err');
       return;
     }
     if (r.ok) {
@@ -2194,12 +2031,7 @@ async function connect() {
       loadHistory(),
     ]);
     _appState.connected = true;
-    updateHints();
-    updateActionBadges();
     updateWorkbench();
-    updateDtrGuidance();
-    updateDtrButtonReadiness();
-    updateDtrSummary();
     toast('Connected');
   } finally {
     btn.disabled = false;
@@ -2212,7 +2044,7 @@ async function refresh() {
   btn.disabled = true;
   try {
     await loadHealth();
-    if (!key()) { toast('Enter an API key first', 'err'); return; }
+    if (!key()) { toast('Enter API key', 'err'); return; }
     await Promise.all([
       loadPortfolio(),
       loadPerformance(),
@@ -2220,12 +2052,7 @@ async function refresh() {
       loadOrders(),
       loadHistory(),
     ]);
-    updateHints();
-    updateActionBadges();
     updateWorkbench();
-    updateDtrGuidance();
-    updateDtrButtonReadiness();
-    updateDtrSummary();
     toast('Refreshed');
   } finally {
     btn.disabled = false;
@@ -2286,33 +2113,23 @@ document.getElementById('snap-date').closest('details').addEventListener('toggle
 
 // DTR input listeners
 document.getElementById('dtr-ticker').addEventListener('input', function() {
-  updateDtrGuidance();
-  updateDtrButtonReadiness();
+  updateWorkflowRail();
 });
 
 document.getElementById('dtr-price').addEventListener('input', function() {
-  updateDtrGuidance();
-  updateDtrButtonReadiness();
+  updateWorkflowRail();
 });
 
 document.getElementById('dtr-confidence').addEventListener('input', function() {
-  updateDtrGuidance();
-  updateDtrButtonReadiness();
+  updateWorkflowRail();
 });
 
-document.getElementById('dtr-short-window').addEventListener('input', function() {
-  updateDtrButtonReadiness();
-});
-
-document.getElementById('dtr-long-window').addEventListener('input', function() {
-  updateDtrButtonReadiness();
-});
-
-// Health check runs immediately — no auth needed
+// Health check runs immediately
 loadHealth();
 
 // Initialize workbench with default state
 updateWorkbench();
+
 </script>
 
 </body>
