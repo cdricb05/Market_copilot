@@ -398,6 +398,69 @@ class FetchAndRunPredictionResponse(BaseModel):
     rejection_reasons: dict[str, int] = Field(default_factory=dict)
 
 
+class MarketScanRequest(BaseModel):
+    universe: str = Field(
+        default="SP500",
+        description="Universe name ('SP500'). Ignored if tickers provided.",
+    )
+    tickers: list[str] | None = Field(
+        default=None,
+        description="Explicit list of tickers to scan. Takes precedence over universe.",
+    )
+    benchmark_ticker: str = Field(
+        default="SPY",
+        description="Benchmark ticker for relative strength calculation.",
+    )
+    lookback_days: int = Field(
+        default=20,
+        ge=1,
+        description="Number of days of history to consider.",
+    )
+    top_n: int = Field(
+        default=25,
+        ge=1,
+        le=100,
+        description="Return top N candidates (capped at 100).",
+    )
+    min_price_points: int = Field(
+        default=5,
+        ge=1,
+        description="Minimum number of price points required per ticker.",
+    )
+
+
+class CandidateOut(BaseModel):
+    rank: int
+    ticker: str
+    score: str
+    latest_price: str
+    latest_market_date: str
+    price_count: int
+    momentum_5d_pct: str | None
+    momentum_20d_pct: str | None
+    volatility_20d_pct: str | None
+    relative_strength_vs_spy_20d: str | None
+    reason_codes: list[str]
+
+
+class SkippedTickerOut(BaseModel):
+    ticker: str
+    reason: str
+    price_count: int
+
+
+class MarketScanResponse(BaseModel):
+    universe: str
+    scan_date: str | None
+    benchmark_ticker: str
+    total_universe_count: int
+    evaluated_count: int
+    skipped_count: int
+    top_n: int
+    candidates: list[CandidateOut]
+    skipped_tickers: list[SkippedTickerOut]
+
+
 class TickerReadinessOut(BaseModel):
     ticker: str
     price_count: int
@@ -1842,6 +1905,67 @@ def check_strategy_readiness(
         long_window=long_window,
         overall_status="Ready" if all_ready else "Insufficient History",
         tickers_status=tickers_status,
+    )
+
+
+@app.post(
+    "/v1/market/scan",
+    response_model=MarketScanResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def scan_market(body: MarketScanRequest) -> MarketScanResponse:
+    """
+    Scan market candidates using price snapshot data.
+
+    Returns a ranked list of candidates based on momentum, volatility, and
+    relative strength versus a benchmark. Read-only; does not create orders.
+
+    Uses only historical price data from the database. Does not call external
+    APIs (GCP, yfinance, etc.).
+
+    Request:
+        universe: Universe name ("SP500"). Ignored if tickers provided.
+        tickers: Explicit ticker list. Takes precedence over universe.
+        benchmark_ticker: Benchmark for relative strength (default "SPY").
+        lookback_days: History window in days (default 20).
+        top_n: Limit results to top N candidates, capped at 100 (default 25).
+        min_price_points: Min price points per ticker (default 5).
+
+    Response:
+        Returns 200 OK even if no candidates found (skipped_tickers populated).
+        Contains candidates sorted by score descending.
+    """
+    from paper_trader.engine.market_screener import scan_market as scan_market_fn
+
+    with get_dedicated_session() as session:
+        candidates, skipped, scan_date = scan_market_fn(
+            session=session,
+            tickers=body.tickers,
+            universe=body.universe,
+            benchmark_ticker=body.benchmark_ticker,
+            lookback_days=body.lookback_days,
+            top_n=body.top_n,
+            min_price_points=body.min_price_points,
+        )
+
+    # Determine universe size (for response metadata)
+    from paper_trader.engine.universe import get_sp500_universe
+
+    universe_tickers = get_sp500_universe() if body.universe == "SP500" else []
+    if body.tickers:
+        universe_tickers = body.tickers
+
+    return MarketScanResponse(
+        universe=body.universe,
+        scan_date=str(scan_date) if scan_date else None,
+        benchmark_ticker=body.benchmark_ticker,
+        total_universe_count=len(universe_tickers),
+        evaluated_count=len(candidates) + len(skipped),
+        skipped_count=len(skipped),
+        top_n=min(body.top_n, 100),
+        candidates=[CandidateOut(**c.to_dict()) for c in candidates],
+        skipped_tickers=[SkippedTickerOut(**s.to_dict()) for s in skipped],
     )
 
 

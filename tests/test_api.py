@@ -2265,3 +2265,168 @@ class TestFetchAndRunPredictionEndpoint:
         assert tsla_pred["confidence"] == "0.50"
         # All should be in skipped_tickers (as HOLDs won't generate trading signals)
         assert len(data["skipped_tickers"]) >= 0  # HOLD predictions may be skipped downstream
+
+
+class TestMarketScanEndpoint:
+    """POST /v1/market/scan endpoint tests."""
+
+    def test_requires_api_key(self, client: TestClient) -> None:
+        """Endpoint requires X-API-Key header."""
+        resp = client.post(
+            "/v1/market/scan",
+            json={
+                "universe": "SP500",
+                "tickers": None,
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 25,
+                "min_price_points": 5,
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_explicit_tickers_scan(self, seeded_client: TestClient) -> None:
+        """Scan with explicit tickers returns valid response structure."""
+        resp = seeded_client.post(
+            "/v1/market/scan",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 25,
+                "min_price_points": 5,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Verify response structure
+        assert "universe" in data
+        assert "scan_date" in data
+        assert "benchmark_ticker" in data
+        assert data["benchmark_ticker"] == "SPY"
+        assert "total_universe_count" in data
+        assert "evaluated_count" in data
+        assert "skipped_count" in data
+        assert "top_n" in data
+        assert "candidates" in data
+        assert "skipped_tickers" in data
+
+        # With no price data, all tickers should be skipped
+        assert isinstance(data["candidates"], list)
+        assert isinstance(data["skipped_tickers"], list)
+
+    def test_insufficient_data_returns_200_with_skipped_tickers(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Missing price history returns 200 with skipped_tickers populated."""
+        resp = seeded_client.post(
+            "/v1/market/scan",
+            json={
+                "universe": "SP500",
+                "tickers": ["NONEXISTENT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 25,
+                "min_price_points": 5,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Non-existent ticker should be in skipped_tickers
+        assert len(data["skipped_tickers"]) > 0
+
+    def test_invalid_top_n_rejected(self, seeded_client: TestClient) -> None:
+        """Invalid top_n (>100) is rejected."""
+        resp = seeded_client.post(
+            "/v1/market/scan",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 101,  # Over limit
+                "min_price_points": 5,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422  # Validation error
+
+    def test_default_sp500_request(self, seeded_client: TestClient) -> None:
+        """Default SP500 universe request works without internet."""
+        resp = seeded_client.post(
+            "/v1/market/scan",
+            json={
+                "universe": "SP500",
+                "tickers": None,
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 25,
+                "min_price_points": 5,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["universe"] == "SP500"
+        assert data["total_universe_count"] > 0  # From loaded CSV
+
+    def test_response_includes_candidate_fields(self, seeded_client: TestClient) -> None:
+        """Candidate objects have all required fields."""
+        resp = seeded_client.post(
+            "/v1/market/scan",
+            json={
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 25,
+                "min_price_points": 5,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # If candidates exist, verify structure
+        if data["candidates"]:
+            candidate = data["candidates"][0]
+            assert "rank" in candidate
+            assert "ticker" in candidate
+            assert "score" in candidate
+            assert "latest_price" in candidate
+            assert "latest_market_date" in candidate
+            assert "price_count" in candidate
+            assert "momentum_5d_pct" in candidate
+            assert "momentum_20d_pct" in candidate
+            assert "volatility_20d_pct" in candidate
+            assert "relative_strength_vs_spy_20d" in candidate
+            assert "reason_codes" in candidate
+
+    def test_response_includes_skipped_ticker_fields(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Skipped ticker objects have all required fields."""
+        resp = seeded_client.post(
+            "/v1/market/scan",
+            json={
+                "universe": "SP500",
+                "tickers": ["NONEXISTENT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 25,
+                "min_price_points": 5,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        if data["skipped_tickers"]:
+            skipped = data["skipped_tickers"][0]
+            assert "ticker" in skipped
+            assert "reason" in skipped
+            assert "price_count" in skipped
