@@ -732,6 +732,25 @@
     </div>
 
     <div class="button-group">
+      <span class="button-group-label">Prediction Preview</span>
+      <button class="btn" onclick="runPredictionPreview(this)">Run Prediction Preview</button>
+      <span class="service-label">Preview only — no signals, no trading artifacts</span>
+    </div>
+
+    <div class="input-group" style="display: none;" id="pred-preview-inputs">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px;">
+        <div class="input-group">
+          <label>Prediction Top N</label>
+          <input id="pred-preview-top-n" type="number" value="5" min="1" max="50" class="mono">
+        </div>
+        <div class="input-group">
+          <label>Optional Tickers</label>
+          <input id="pred-preview-tickers" placeholder="AAPL,MSFT,NVDA" class="mono">
+        </div>
+      </div>
+    </div>
+
+    <div class="button-group">
       <span class="button-group-label">Strategy</span>
       <button class="btn btn-ok" onclick="dtrRunStrategy(this)">Run SMA Strategy</button>
       <button class="btn btn-ok" onclick="dtrRunPredictionStrategy(this)">Run Prediction Strategy</button>
@@ -778,6 +797,13 @@
     <div class="command-section">
       <div class="section-title">Market Scan Result</div>
       <div id="market-scan-result"></div>
+    </div>
+  </div>
+
+  <div id="prediction-preview-card" style="display: none;">
+    <div class="command-section">
+      <div class="section-title">Prediction Preview</div>
+      <div id="prediction-preview-result"></div>
     </div>
   </div>
 
@@ -1995,6 +2021,184 @@ async function checkStrategyReadiness() {
     resultEl.className = 'step-result error';
     readinessCard.style.display = 'block';
   }
+}
+
+async function runPredictionPreview(btn) {
+  const universe = document.getElementById('market-scan-universe').value || 'SP500';
+  const topN = parseInt(document.getElementById('market-scan-top-n').value, 10) || 20;
+  const lookbackDays = parseInt(document.getElementById('market-scan-lookback').value, 10) || 45;
+  const minPoints = parseInt(document.getElementById('market-scan-min-points').value, 10) || 20;
+  const benchmark = document.getElementById('market-scan-benchmark').value.trim().toUpperCase() || 'SPY';
+  const predictionTopN = parseInt(document.getElementById('pred-preview-top-n').value, 10) || 5;
+
+  const tickersRaw = document.getElementById('pred-preview-tickers').value.trim();
+  let tickers = null;
+  if (tickersRaw) {
+    tickers = tickersRaw.split(',').map(t => t.trim().toUpperCase()).filter(t => t.length > 0);
+    if (tickers.length === 0) tickers = null;
+  }
+
+  const resultCard = document.getElementById('prediction-preview-card');
+  const resultEl = document.getElementById('prediction-preview-result');
+  resultEl.textContent = '';
+  btn.disabled = true;
+
+  try {
+    const body = {
+      idempotency_key: `ui-scan-predict-preview-${Date.now()}`,
+      universe: universe,
+      tickers: tickers,
+      benchmark_ticker: benchmark,
+      lookback_days: lookbackDays,
+      top_n: topN,
+      min_price_points: minPoints,
+      prediction_top_n: predictionTopN,
+      dry_run: true,
+      submit_signals: false,
+      run_risk: false,
+      create_orders: false,
+    };
+
+    const r = await call('POST', '/v1/strategy/market-scan/prediction-candidates', body);
+    const b = await parseApiResponse(r);
+
+    if (r.ok) {
+      resultCard.style.display = 'block';
+      renderPredictionPreviewResult(b, resultEl);
+      toast('Prediction preview complete', 'ok');
+    } else if (r.status === 422) {
+      throw new Error(b.detail ?? 'Validation error (422)');
+    } else if (r.status === 401) {
+      throw new Error('Not authorized (401)');
+    } else {
+      throw new Error(b.detail ?? `HTTP ${r.status}`);
+    }
+  } catch (e) {
+    resultCard.style.display = 'block';
+    resultEl.textContent = `✗ ${e.message}`;
+    resultEl.className = 'step-result error';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderPredictionPreviewResult(data, resultEl) {
+  let html = '';
+
+  // Safety banner
+  html += '<div style="background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.4); border-radius: 3px; padding: 12px 14px; margin-bottom: 16px;">';
+  html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info); margin-bottom: 4px;">🔒 Preview Only</div>';
+  html += '<div style="font-size: 12px; color: var(--text-primary);">No signals submitted. No trading decisions made. No orders created.</div>';
+  html += '</div>';
+
+  // Scan summary cards
+  const scan = data.scan || {};
+  html += '<div style="margin-bottom: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">';
+  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Universe<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${escapeHtml(scan.universe || '—')}</span></div>`;
+  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Scan Date<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${scan.scan_date || '—'}</span></div>`;
+  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Evaluated<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${scan.evaluated_count || 0}</span></div>`;
+  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Skipped<br><span style="font-size: 13px; color: ${(scan.skipped_count || 0) > 0 ? 'var(--warning)' : 'var(--text-primary)'}; font-weight: 700;">${scan.skipped_count || 0}</span></div>`;
+  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Selected<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${(data.selected_tickers || []).length}</span></div>`;
+  html += '</div>';
+
+  // Selected tickers
+  if (data.selected_tickers && data.selected_tickers.length > 0) {
+    html += '<div style="margin-bottom: 16px;">';
+    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent);">Selected Tickers for Prediction</div>';
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 6px;">';
+    data.selected_tickers.forEach(ticker => {
+      html += `<span style="display: inline-block; padding: 4px 10px; border-radius: 2px; background: rgba(59,130,246,.1); color: var(--info); border: 1px solid var(--info); font-size: 11px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(ticker)}</span>`;
+    });
+    html += '</div></div>';
+  }
+
+  // Normalized predictions table
+  if (data.normalized_predictions && data.normalized_predictions.length > 0) {
+    html += '<div style="margin-bottom: 16px;">';
+    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent);">Normalized Predictions</div>';
+    html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Rec</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Conf</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Price</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">5D Forecast</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Return %</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Context</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
+    html += '</tr></thead><tbody>';
+
+    data.normalized_predictions.forEach(pred => {
+      const recColor = pred.recommendation === 'BUY' ? 'var(--ok)' : pred.recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+      const recBg = pred.recommendation === 'BUY' ? 'rgba(34,197,94,.08)' : pred.recommendation === 'SELL' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)';
+      const conf = parseFloat(pred.confidence).toFixed(2);
+      const ret = pred.expected_return_pct ? parseFloat(pred.expected_return_pct).toFixed(2) : '—';
+
+      html += `<tr style="border-bottom: 1px solid var(--border); background: ${recBg};">`;
+      html += `<td style="padding: 6px 8px; font-weight: 600;">${escapeHtml(pred.ticker)}</td>`;
+      html += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: 600;">${escapeHtml(pred.recommendation)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${parseFloat(pred.current_price).toFixed(2)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${pred.forecast_price_5d ? parseFloat(pred.forecast_price_5d).toFixed(2) : '—'}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
+      html += `<td style="padding: 6px 8px; color: var(--label); font-size: 10px;">${escapeHtml(pred.market_context || '—')}</td>`;
+      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label);">${escapeHtml(pred.reason || '—')}</td>`;
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div></div>';
+  }
+
+  // Prediction failures table
+  if (data.prediction_failures && data.prediction_failures.length > 0) {
+    html += '<div style="margin-bottom: 16px;">';
+    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent);">Prediction Failures</div>';
+    html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
+    html += '</tr></thead><tbody>';
+
+    data.prediction_failures.forEach(failure => {
+      html += '<tr style="border-bottom: 1px solid var(--border); background: rgba(239,68,68,.05);">';
+      html += `<td style="padding: 6px 8px; font-weight: 600; color: var(--danger);">${escapeHtml(failure.ticker)}</td>`;
+      html += `<td style="padding: 6px 8px; color: var(--label); font-size: 10px;">${escapeHtml(failure.reason)}</td>`;
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div></div>';
+  }
+
+  // Accounting check
+  const normalized_count = (data.normalized_predictions || []).length;
+  const failures_count = (data.prediction_failures || []).length;
+  const selected_count = (data.selected_tickers || []).length;
+  const accounted_for = normalized_count + failures_count;
+  const accounting_match = accounted_for === selected_count;
+
+  html += '<div style="margin-bottom: 16px; padding: 12px 14px; border-radius: 3px; ' +
+          (accounting_match ? 'background: rgba(34,197,94,.08); border: 1px solid var(--ok);' : 'background: rgba(239,68,68,.08); border: 1px solid var(--danger);') + '">';
+  html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; ' +
+          (accounting_match ? 'color: var(--ok)' : 'color: var(--danger)') + '; margin-bottom: 8px;">Accounting Check</div>';
+  html += `<div style="font-size: 12px; color: var(--text-primary); margin-bottom: 6px;">Selected: <strong>${selected_count}</strong> | Normalized: <strong>${normalized_count}</strong> | Failures: <strong>${failures_count}</strong> | Accounted For: <strong>${accounted_for}</strong></div>`;
+  html += '<div style="font-size: 11px; ' + (accounting_match ? 'color: var(--ok);' : 'color: var(--danger);') + ' font-weight: 600;">' +
+          (accounting_match ? '✓ All selected tickers accounted for' : '✗ Accounting mismatch — missing tickers') + '</div>';
+  html += '</div>';
+
+  // Safety execution counts
+  html += '<div style="margin-top: 16px; padding: 12px 14px; border-radius: 3px; background: rgba(148,163,184,.05); border: 1px solid var(--border);">';
+  html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-accent); margin-bottom: 8px;">Safety Execution Counts</div>';
+  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">';
+  html += `<div><span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); font-weight: 600;">Signals Submitted</span><br><span style="font-size: 14px; font-weight: 700; color: ${data.signals_submitted === 0 ? 'var(--ok)' : 'var(--danger)'};"><strong>${data.signals_submitted || 0}</strong></span></div>`;
+  html += `<div><span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); font-weight: 600;">Decisions Made</span><br><span style="font-size: 14px; font-weight: 700; color: ${data.decisions_made === 0 ? 'var(--ok)' : 'var(--danger)'};"><strong>${data.decisions_made || 0}</strong></span></div>`;
+  html += `<div><span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); font-weight: 600;">Orders Created</span><br><span style="font-size: 14px; font-weight: 700; color: ${data.orders_created === 0 ? 'var(--ok)' : 'var(--danger)'};"><strong>${data.orders_created || 0}</strong></span></div>`;
+  html += '</div>';
+  html += '</div>';
+
+  resultEl.innerHTML = html;
+  resultEl.className = 'step-result success';
 }
 
 async function fetchLatestPrices(btn) {
