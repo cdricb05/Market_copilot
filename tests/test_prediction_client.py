@@ -526,3 +526,173 @@ class TestNormalizePredictionResponse:
             "Naive": "BUY",
             "SMA": "BUY",
         }
+
+    def test_normalize_strong_buy_uppercase(self):
+        """STRONG BUY normalizes to BUY."""
+        raw = {
+            "ticker": "QCOM",
+            "current_price": "150",
+            "ensemble_day5": "165",
+            "d5_change_pct": "10",
+            "confidence": "95",
+            "recommendation": "STRONG BUY",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "BUY"
+        assert normalized["market_context"] == "bullish"
+
+    def test_normalize_strong_buy_underscore(self):
+        """STRONG_BUY normalizes to BUY."""
+        raw = {
+            "ticker": "AMD",
+            "current_price": "160",
+            "ensemble_day5": "175",
+            "d5_change_pct": "9.375",
+            "confidence": "92",
+            "recommendation": "STRONG_BUY",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "BUY"
+
+    def test_normalize_strong_buy_mixed_case(self):
+        """Strong Buy (mixed case) normalizes to BUY."""
+        raw = {
+            "ticker": "NVDA",
+            "current_price": "875",
+            "ensemble_day5": "950",
+            "d5_change_pct": "8.57",
+            "confidence": "88",
+            "recommendation": "Strong Buy",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "BUY"
+
+    def test_normalize_strong_buy_lowercase(self):
+        """strong buy (lowercase) normalizes to BUY."""
+        raw = {
+            "ticker": "CSCO",
+            "current_price": "50",
+            "ensemble_day5": "55",
+            "d5_change_pct": "10",
+            "confidence": "85",
+            "recommendation": "strong buy",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "BUY"
+
+    def test_normalize_strong_sell_uppercase(self):
+        """STRONG SELL normalizes to SELL."""
+        raw = {
+            "ticker": "TXN",
+            "current_price": "165",
+            "ensemble_day5": "145",
+            "d5_change_pct": "-12.12",
+            "confidence": "91",
+            "recommendation": "STRONG SELL",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "SELL"
+        assert normalized["market_context"] == "bearish"
+
+    def test_normalize_strong_sell_underscore(self):
+        """STRONG_SELL normalizes to SELL."""
+        raw = {
+            "ticker": "AMAT",
+            "current_price": "140",
+            "ensemble_day5": "120",
+            "d5_change_pct": "-14.29",
+            "confidence": "89",
+            "recommendation": "STRONG_SELL",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "SELL"
+
+    def test_normalize_strong_sell_mixed_case(self):
+        """Strong Sell (mixed case) normalizes to SELL."""
+        raw = {
+            "ticker": "MU",
+            "current_price": "85",
+            "ensemble_day5": "75",
+            "d5_change_pct": "-11.76",
+            "confidence": "87",
+            "recommendation": "Strong Sell",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "SELL"
+
+    def test_normalize_strong_sell_lowercase(self):
+        """strong sell (lowercase) normalizes to SELL."""
+        raw = {
+            "ticker": "ASML",
+            "current_price": "600",
+            "ensemble_day5": "525",
+            "d5_change_pct": "-12.5",
+            "confidence": "90",
+            "recommendation": "strong sell",
+            "per_model_summary": {},
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["recommendation"] == "SELL"
+
+    def test_normalize_strong_recommendation_preserves_other_fields(self):
+        """STRONG BUY normalization preserves all other fields correctly."""
+        raw = {
+            "ticker": "INTC",
+            "current_price": "45.50",
+            "ensemble_day5": "52.75",
+            "d5_change_pct": "15.93",
+            "confidence": "93.5",
+            "recommendation": "STRONG BUY",
+            "rationale": ["Strong signals", "High conviction"],
+            "per_model_summary": {
+                "prophet": {"direction": "Up"},
+                "arima": {"direction": "Up"},
+            },
+        }
+
+        normalized = normalize_prediction_response(raw)
+
+        assert normalized is not None
+        assert normalized["ticker"] == "INTC"
+        assert normalized["current_price"] == "45.50"
+        assert normalized["forecast_price_5d"] == "52.75"
+        assert normalized["expected_return_pct"] == "15.93"
+        assert normalized["confidence"] == "0.935"
+        assert normalized["recommendation"] == "BUY"
+        assert normalized["reason"] == "Strong signals High conviction"
+        assert normalized["market_context"] == "bullish"
+        assert normalized["model_consensus"] == {
+            "prophet": "BUY",
+            "arima": "BUY",
+        }

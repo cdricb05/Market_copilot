@@ -114,6 +114,44 @@ def normalize_prediction_response(raw: dict[str, Any] | None) -> dict[str, Any] 
     return normalized
 
 
+def _normalize_recommendation(raw_rec: str) -> tuple[str | None, str | None]:
+    """
+    Normalize recommendation from various API formats to BUY/SELL/HOLD.
+
+    Handles:
+        - STRONG BUY, STRONG_BUY, Strong Buy, strong buy → BUY
+        - STRONG SELL, STRONG_SELL, Strong Sell, strong sell → SELL
+        - BUY, SELL, HOLD (case-insensitive)
+
+    Args:
+        raw_rec: Raw recommendation string from API.
+
+    Returns:
+        (normalized_recommendation, error_reason)
+        - On success: (BUY|SELL|HOLD, None)
+        - On error: (None, error_reason_string)
+    """
+    if not raw_rec or not isinstance(raw_rec, str):
+        return None, "Invalid recommendation type"
+
+    # Normalize: uppercase, strip whitespace, replace underscores with spaces
+    normalized = raw_rec.upper().strip().replace("_", " ")
+
+    # Map strong recommendations to base recommendations
+    recommendation_map = {
+        "STRONG BUY": "BUY",
+        "STRONG SELL": "SELL",
+        "BUY": "BUY",
+        "SELL": "SELL",
+        "HOLD": "HOLD",
+    }
+
+    if normalized in recommendation_map:
+        return recommendation_map[normalized], None
+
+    return None, f"Invalid recommendation: {raw_rec}"
+
+
 def normalize_prediction_response_with_error(
     raw: dict[str, Any] | None,
 ) -> tuple[dict[str, Any] | None, str | None]:
@@ -146,7 +184,7 @@ def normalize_prediction_response_with_error(
     Behavior:
         - Skips invalid responses (None, missing required fields).
         - Uses Decimal for numeric fields (confidence, prices).
-        - Uppercases recommendation to BUY/SELL/HOLD.
+        - Normalizes recommendation: accepts STRONG BUY/SELL variants.
         - Derives market_context and model_consensus from response.
     """
     if not raw or not isinstance(raw, dict):
@@ -178,9 +216,9 @@ def normalize_prediction_response_with_error(
     if not recommendation or not isinstance(recommendation, str):
         return None, "Missing or invalid recommendation"
 
-    recommendation = recommendation.upper().strip()
-    if recommendation not in ("BUY", "SELL", "HOLD"):
-        return None, f"Invalid recommendation: {recommendation}"
+    recommendation, rec_error = _normalize_recommendation(recommendation)
+    if recommendation is None:
+        return None, rec_error
 
     # Extract and normalize confidence (0-100 → 0-1)
     confidence_raw = raw.get("confidence")
