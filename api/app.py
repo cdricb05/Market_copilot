@@ -587,6 +587,63 @@ class CandidateReviewStatusUpdate(BaseModel):
     )
 
 
+class ReviewSignalPreviewRequest(BaseModel):
+    """Request to generate signal previews from approved candidates."""
+    idempotency_key: str = Field(
+        ...,
+        description="Unique key for this preview batch.",
+    )
+    review_status: str = Field(
+        default="APPROVED_FOR_SIGNAL",
+        description="Filter by review_status. Defaults to APPROVED_FOR_SIGNAL.",
+    )
+    candidate_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of candidate UUIDs to preview. If provided, queries those IDs without review_status SQL filter; review_status is evaluated in Python.",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of candidates to preview (default 50, max 100).",
+    )
+
+
+class SignalPreviewItem(BaseModel):
+    """A signal preview (not yet created in database)."""
+    candidate_review_id: str
+    ticker: str
+    side: str
+    confidence: str
+    source: str
+    preview_decision: str
+    preview_score: str
+    expected_return_pct: str | None
+    reason: str
+    raw_payload: dict
+
+
+class SkippedCandidateDetail(BaseModel):
+    """Detail on a skipped candidate."""
+    candidate_review_id: str
+    ticker: str
+    reason: str
+
+
+class ReviewSignalPreviewResponse(BaseModel):
+    """Response from signal preview endpoint (PREVIEW ONLY, no database writes)."""
+    idempotency_key: str
+    execution_mode: str
+    candidates_evaluated: int
+    signal_previews_generated: int
+    skipped_count: int
+    signal_previews: list[SignalPreviewItem]
+    skipped: list[SkippedCandidateDetail]
+    signals_created: int
+    decisions_created: int
+    orders_created: int
+
+
 class BackfillRequest(BaseModel):
     universe: str = Field(
         default="SP500",
@@ -3332,6 +3389,191 @@ async def update_review_candidate_status(
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+
+@app.post(
+    "/v1/review/signal-preview",
+    response_model=ReviewSignalPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def preview_signal_from_candidates(
+    body: ReviewSignalPreviewRequest,
+) -> ReviewSignalPreviewResponse:
+    """
+    Generate signal previews from approved candidates in the review queue.
+
+    This endpoint is PREVIEW ONLY. No Signal, TradeDecision, Order, or JobRun
+    rows are created. It shows what signals WOULD be generated without actually
+    creating them.
+
+    Filtering rules:
+    - If candidate_ids is NOT provided: query by review_status in SQL
+    - If candidate_ids IS provided: query all requested IDs, evaluate review_status in Python
+    - Only candidates with status='OK' produce signal previews
+    - HOLD recommendations are skipped (not actionable)
+    - Missing/invalid prediction_recommendation, prediction_confidence are skipped
+    - Review status mismatch (when candidate_ids provided) adds to skipped list
+
+    Returns 0 for signals_created, decisions_created, orders_created.
+    """
+    import uuid as uuid_module
+
+    evaluated = 0
+    generated = 0
+    skipped_list = []
+    signal_previews = []
+
+    with get_session() as session:
+        query = session.query(CandidateReview)
+
+        # Build query based on whether candidate_ids is provided
+        if body.candidate_ids:
+            # Query all requested IDs without review_status filter
+            try:
+                candidate_uuids = [uuid_module.UUID(cid) for cid in body.candidate_ids]
+                query = query.filter(CandidateReview.id.in_(candidate_uuids))
+            except (ValueError, AttributeError):
+                # If any UUID is invalid, return empty result
+                return ReviewSignalPreviewResponse(
+                    idempotency_key=body.idempotency_key,
+                    execution_mode="PREVIEW_ONLY",
+                    candidates_evaluated=0,
+                    signal_previews_generated=0,
+                    skipped_count=0,
+                    signal_previews=[],
+                    skipped=[],
+                    signals_created=0,
+                    decisions_created=0,
+                    orders_created=0,
+                )
+        else:
+            # Filter by review_status in SQL
+            query = query.filter(CandidateReview.review_status == body.review_status)
+
+        # Apply limit
+        rows = query.limit(body.limit).all()
+
+        # Process each row
+        for row in rows:
+            evaluated += 1
+            candidate_id_str = str(row.id)
+
+            # If candidate_ids was provided, check review_status in Python
+            if body.candidate_ids and row.review_status != body.review_status:
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason=f"Review status is {row.review_status}, not {body.review_status}",
+                ))
+                continue
+
+            # Check status is OK
+            if row.status != "OK":
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason=f"Status is {row.status}, not OK",
+                ))
+                continue
+
+            # Check recommendation exists
+            if not row.prediction_recommendation:
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason="Missing prediction_recommendation",
+                ))
+                continue
+
+            # Check HOLD is skipped
+            if row.prediction_recommendation.upper() == "HOLD":
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason="HOLD recommendations do not create actionable signal previews",
+                ))
+                continue
+
+            # Check confidence is present and valid
+            if not row.prediction_confidence:
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason="Missing prediction_confidence",
+                ))
+                continue
+
+            try:
+                confidence_decimal = Decimal(row.prediction_confidence)
+                if not (Decimal("0") <= confidence_decimal <= Decimal("1")):
+                    skipped_list.append(SkippedCandidateDetail(
+                        candidate_review_id=candidate_id_str,
+                        ticker=row.ticker,
+                        reason=f"Confidence {confidence_decimal} out of range [0, 1]",
+                    ))
+                    continue
+            except (ValueError, Exception):
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason=f"Invalid confidence: {row.prediction_confidence}",
+                ))
+                continue
+
+            # Map recommendation to side (BUY/SELL only)
+            side = None
+            rec_upper = row.prediction_recommendation.upper()
+            if rec_upper == "BUY":
+                side = "BUY"
+            elif rec_upper == "SELL":
+                side = "SELL"
+            else:
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason=f"Invalid recommendation: {row.prediction_recommendation}",
+                ))
+                continue
+
+            # Build raw_payload with traceability fields
+            raw_payload = {
+                "candidate_review_id": candidate_id_str,
+                "prediction_recommendation": row.prediction_recommendation,
+                "prediction_confidence": row.prediction_confidence,
+                "forecast_price_5d": row.forecast_price_5d,
+                "market_context": row.market_context,
+                "preview_reasons": row.preview_reasons or [],
+            }
+
+            # Create signal preview item with all required fields
+            signal_preview = SignalPreviewItem(
+                candidate_review_id=candidate_id_str,
+                ticker=row.ticker,
+                side=side,
+                confidence=row.prediction_confidence,
+                source="review_queue_preview_v1",
+                preview_decision=row.preview_decision,
+                preview_score=row.preview_score,
+                expected_return_pct=row.expected_return_pct,
+                reason=f"Preview only: would create {side} signal from approved review candidate.",
+                raw_payload=raw_payload,
+            )
+            signal_previews.append(signal_preview)
+            generated += 1
+
+    return ReviewSignalPreviewResponse(
+        idempotency_key=body.idempotency_key,
+        execution_mode="PREVIEW_ONLY",
+        candidates_evaluated=evaluated,
+        signal_previews_generated=generated,
+        skipped_count=len(skipped_list),
+        signal_previews=signal_previews,
+        skipped=skipped_list,
+        signals_created=0,
+        decisions_created=0,
+        orders_created=0,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -824,6 +824,19 @@
     </div>
   </div>
 
+  <div id="signal-preview-card" style="display: none;">
+    <div class="command-section">
+      <div class="section-title">Signal Preview</div>
+      <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
+        <button class="btn-sm" onclick="generateSignalPreview()">Generate Preview</button>
+        <label for="signal-preview-limit" style="font-size: 11px;">Limit:</label>
+        <input type="number" id="signal-preview-limit" value="50" min="1" max="100" style="width: 60px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">
+        <span style="background: var(--warning); color: white; padding: 4px 8px; border-radius: 2px; font-size: 10px; font-weight: 600;">PREVIEW ONLY</span>
+      </div>
+      <div id="signal-preview-content"></div>
+    </div>
+  </div>
+
   <!-- Signal/Risk Decision Panel (Section E) -->
   <div id="signalPanel" style="display: none;">
     <div class="result-section">
@@ -2554,8 +2567,9 @@ async function saveCandidatesToReviewQueue(mode) {
     const b = await parseApiResponse(r);
     if (r.ok) {
       alert(`✓ Saved ${b.inserted_count} candidates to Review Queue (${b.skipped_existing_count} already existed).`);
-      // Show review queue
+      // Show review queue and signal preview
       document.getElementById('review-queue-card').style.display = 'block';
+      document.getElementById('signal-preview-card').style.display = 'block';
       await loadReviewQueue();
     } else {
       alert(`✗ Failed:\n${formatApiError(b.detail)}`);
@@ -2684,6 +2698,109 @@ function filterReviewQueue() {
   });
 
   renderReviewQueue(filtered);
+}
+
+async function generateSignalPreview() {
+  const limit = parseInt(document.getElementById('signal-preview-limit').value) || 50;
+  const container = document.getElementById('signal-preview-content');
+
+  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Generating preview…</div>';
+
+  try {
+    const r = await call('POST', '/v1/review/signal-preview', {
+      idempotency_key: `preview-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      review_status: 'APPROVED_FOR_SIGNAL',
+      limit: limit,
+    });
+
+    const result = await parseApiResponse(r);
+    if (!r.ok) {
+      container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${result.detail || 'Unknown error'}</div>`;
+      return;
+    }
+
+    renderSignalPreview(result);
+  } catch (e) {
+    container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${e.message}</div>`;
+  }
+}
+
+function renderSignalPreview(data) {
+  const container = document.getElementById('signal-preview-content');
+  let html = '';
+
+  // Summary
+  html += '<div style="margin-bottom: 12px; padding: 12px; background: rgba(59,130,246,.08); border: 1px solid var(--border); border-radius: 2px;">';
+  html += `<div style="font-size: 11px; margin-bottom: 8px;">`;
+  html += `<strong>Evaluated:</strong> ${data.candidates_evaluated} | `;
+  html += `<strong>Generated:</strong> ${data.signal_previews_generated} | `;
+  html += `<strong>Skipped:</strong> ${data.skipped_count}`;
+  html += `</div>`;
+  html += `<div style="font-size: 10px; color: var(--label);">`;
+  html += `Mode: ${data.execution_mode} | Signals: ${data.signals_created} | Decisions: ${data.decisions_created} | Orders: ${data.orders_created}`;
+  html += `</div>`;
+  html += '</div>';
+
+  // Signal Previews table
+  if (data.signal_previews.length > 0) {
+    html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Side</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Confidence</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Score</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Return %</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Decision</th>';
+    html += '</tr></thead><tbody>';
+
+    data.signal_previews.forEach(s => {
+      const sideColor = s.side === 'BUY' ? 'var(--ok)' : 'var(--danger)';
+      const decisionColor = s.preview_decision === 'CONSIDER' ? 'var(--ok)' :
+                           s.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
+
+      const conf = parseFloat(s.confidence).toFixed(2);
+      const score = parseFloat(s.preview_score).toFixed(1);
+      const ret = s.expected_return_pct ? parseFloat(s.expected_return_pct).toFixed(2) : '—';
+
+      html += `<tr style="border-bottom: 1px solid var(--border);">`;
+      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: center; color: ${sideColor}; font-weight: 600;">${escapeHtml(s.side)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right; font-weight: 600;">${score}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
+      html += `<td style="padding: 6px 8px; color: ${decisionColor}; font-weight: 600;">${escapeHtml(s.preview_decision)}</td>`;
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+  }
+
+  // Skipped candidates
+  if (data.skipped.length > 0) {
+    html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
+    html += '</tr></thead><tbody>';
+
+    data.skipped.forEach(s => {
+      html += `<tr style="border-bottom: 1px solid var(--border); background: rgba(239,68,68,.03);">`;
+      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
+      html += `<td style="padding: 6px 8px; color: var(--label);">${escapeHtml(s.reason)}</td>`;
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+  }
+
+  // Safety footer
+  html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-top: 2px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--label); font-weight: 600;">';
+  html += `✓ NO database writes: Signals created = ${data.signals_created}, Decisions created = ${data.decisions_created}, Orders created = ${data.orders_created}`;
+  html += '</div>';
+
+  container.innerHTML = html;
 }
 
 function getDtrStepStatus(step) {

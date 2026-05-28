@@ -6038,3 +6038,933 @@ class TestCandidateReviewQueueEndpoint:
         assert saved["status"] == "ERROR"
         assert saved["scan_rank"] == "5"
         assert saved["prediction_recommendation"] is None
+
+
+class TestReviewSignalPreviewEndpoint:
+    """Tests for POST /v1/review/signal-preview (PREVIEW ONLY, no database writes)."""
+
+    def test_post_requires_api_key(self, client: TestClient) -> None:
+        """POST /v1/review/signal-preview requires X-API-Key."""
+        resp = client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-test-001",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "limit": 50,
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_no_approved_candidates_returns_empty(self, seeded_client: TestClient, api_engine) -> None:
+        """POST returns empty preview with 0 counts when no approved candidates exist."""
+        # Clear candidate_reviews table
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            from paper_trader.db.models import CandidateReview
+            session.query(CandidateReview).delete()
+            session.commit()
+
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-test-empty",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["execution_mode"] == "PREVIEW_ONLY"
+        assert data["candidates_evaluated"] == 0
+        assert data["signal_previews_generated"] == 0
+        assert data["skipped_count"] == 0
+        assert data["signal_previews"] == []
+        assert data["skipped"] == []
+        assert data["signals_created"] == 0
+        assert data["decisions_created"] == 0
+        assert data["orders_created"] == 0
+
+    def test_buy_recommendation_creates_preview(self, seeded_client: TestClient) -> None:
+        """POST generates BUY signal preview from APPROVED_FOR_SIGNAL candidate."""
+        # Save a candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-buy-preview",
+                "candidates": [
+                    {
+                        "ticker": "AAPL",
+                        "scan_score": "10.0",
+                        "latest_price": "150.00",
+                        "momentum_5d_pct": "1.5",
+                        "momentum_20d_pct": "5.0",
+                        "relative_strength_vs_spy_20d": "2.0",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "forecast_price_5d": "155.00",
+                        "expected_return_pct": "3.3",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Approve it
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-buy-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["candidates_evaluated"] == 1
+        assert data["signal_previews_generated"] == 1
+        assert data["skipped_count"] == 0
+        assert len(data["signal_previews"]) == 1
+
+        preview = data["signal_previews"][0]
+        assert preview["ticker"] == "AAPL"
+        assert preview["side"] == "BUY"
+        assert preview["confidence"] == "0.85"
+        assert preview["preview_decision"] == "CONSIDER"
+        assert preview["preview_score"] == "75.0"
+        assert preview["expected_return_pct"] == "3.3"
+        assert data["signals_created"] == 0
+        assert data["decisions_created"] == 0
+        assert data["orders_created"] == 0
+
+    def test_sell_recommendation_creates_preview(self, seeded_client: TestClient) -> None:
+        """POST generates SELL signal preview from APPROVED_FOR_SIGNAL candidate."""
+        # Save a candidate with SELL recommendation
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-sell-preview",
+                "candidates": [
+                    {
+                        "ticker": "MSFT",
+                        "scan_score": "8.0",
+                        "latest_price": "300.00",
+                        "prediction_recommendation": "SELL",
+                        "prediction_confidence": "0.75",
+                        "forecast_price_5d": "290.00",
+                        "expected_return_pct": "-3.3",
+                        "market_context": "bearish",
+                        "preview_decision": "WATCH",
+                        "preview_score": "60.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Approve it
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-sell-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signal_previews_generated"] == 1
+
+        preview = data["signal_previews"][0]
+        assert preview["ticker"] == "MSFT"
+        assert preview["side"] == "SELL"
+        assert preview["confidence"] == "0.75"
+
+    def test_hold_recommendation_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips HOLD recommendations as not actionable."""
+        # Save a candidate with HOLD recommendation
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-hold-preview",
+                "candidates": [
+                    {
+                        "ticker": "GOOGL",
+                        "prediction_recommendation": "HOLD",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "WATCH",
+                        "preview_score": "50.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Approve it
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-hold-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["candidates_evaluated"] == 1
+        assert data["signal_previews_generated"] == 0
+        assert data["skipped_count"] == 1
+        assert len(data["skipped"]) == 1
+        assert data["skipped"][0]["ticker"] == "GOOGL"
+        assert "HOLD" in data["skipped"][0]["reason"]
+
+    def test_non_ok_status_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips candidates with status != OK."""
+        # Save a candidate with ERROR status
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-error-status",
+                "candidates": [
+                    {
+                        "ticker": "TSLA",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.70",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "65.0",
+                        "status": "ERROR",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Approve it
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-error-status-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signal_previews_generated"] == 0
+        assert data["skipped_count"] == 1
+        assert data["skipped"][0]["reason"] == "Status is ERROR, not OK"
+
+    def test_missing_recommendation_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips candidates with missing prediction_recommendation."""
+        # Save a candidate without recommendation
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-rec",
+                "candidates": [
+                    {
+                        "ticker": "NVDA",
+                        "prediction_recommendation": None,
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "WATCH",
+                        "preview_score": "70.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Approve it
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-no-rec-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skipped_count"] == 1
+        assert "Missing prediction_recommendation" in data["skipped"][0]["reason"]
+
+    def test_missing_confidence_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips candidates with missing prediction_confidence."""
+        # Save a candidate without confidence
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-conf",
+                "candidates": [
+                    {
+                        "ticker": "META",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": None,
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "72.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Approve it
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-no-conf-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skipped_count"] == 1
+        assert "Missing prediction_confidence" in data["skipped"][0]["reason"]
+
+    def test_non_approved_status_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips NEW candidates when review_status=APPROVED_FOR_SIGNAL."""
+        # Save a candidate (defaults to NEW status)
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-new-status",
+                "candidates": [
+                    {
+                        "ticker": "AMD",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Get the NEW candidate
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+
+        # Generate preview with candidate_ids explicitly requesting the NEW candidate
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-new-status-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["candidates_evaluated"] == 1  # Evaluated because explicitly requested
+        assert data["signal_previews_generated"] == 0  # Not approved so skipped
+        assert data["skipped_count"] == 1  # NEW status is skipped
+        assert "Review status is NEW" in data["skipped"][0]["reason"]
+
+    def test_limit_respected(self, seeded_client: TestClient) -> None:
+        """POST respects limit parameter."""
+        # Save 3 candidates
+        for i in range(3):
+            seeded_client.post(
+                "/v1/review/candidates",
+                json={
+                    "idempotency_key": f"test-limit-{i}",
+                    "candidates": [
+                        {
+                            "ticker": f"TICK{i}",
+                            "prediction_recommendation": "BUY",
+                            "prediction_confidence": "0.80",
+                            "preview_decision": "CONSIDER",
+                            "preview_score": "70.0",
+                            "status": "OK",
+                        }
+                    ]
+                },
+                headers=_AUTH,
+            )
+
+        # Approve all
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        for candidate in candidates:
+            seeded_client.patch(
+                f"/v1/review/candidates/{candidate['id']}",
+                json={"review_status": "APPROVED_FOR_SIGNAL"},
+                headers=_AUTH,
+            )
+
+        # Preview with limit=1
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-limit-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "limit": 1,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["candidates_evaluated"] == 1
+        assert data["signal_previews_generated"] == 1
+
+    def test_no_signal_rows_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST does not create Signal rows."""
+        # Save and approve a candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-signal-rows",
+                "candidates": [
+                    {
+                        "ticker": "INTRN",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Count Signal rows before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signals_before = session.query(Signal).count()
+
+        # Generate preview with candidate_ids for isolation
+        seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-no-signals-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+
+        # Count Signal rows after
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signals_after = session.query(Signal).count()
+
+        assert signals_before == signals_after
+
+    def test_no_trade_decision_rows_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST does not create TradeDecision rows."""
+        # Save and approve a candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-decisions",
+                "candidates": [
+                    {
+                        "ticker": "INTM",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Count TradeDecision rows before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            decisions_before = session.query(TradeDecision).count()
+
+        # Generate preview with candidate_ids for isolation
+        seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-no-decisions-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+
+        # Count TradeDecision rows after
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            decisions_after = session.query(TradeDecision).count()
+
+        assert decisions_before == decisions_after
+
+    def test_no_order_rows_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST does not create Order rows."""
+        # Save and approve a candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-orders",
+                "candidates": [
+                    {
+                        "ticker": "INTF",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Count Order rows before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_before = session.query(Order).count()
+
+        # Generate preview with candidate_ids for isolation
+        seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-no-orders-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+
+        # Count Order rows after
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_after = session.query(Order).count()
+
+        assert orders_before == orders_after
+
+    def test_response_shape_has_all_required_fields(self, seeded_client: TestClient) -> None:
+        """POST response includes all required fields: candidate_review_id, source, reason, raw_payload."""
+        # Save and approve a candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-response-shape",
+                "candidates": [
+                    {
+                        "ticker": "QCOM",
+                        "scan_score": "12.5",
+                        "latest_price": "150.00",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.96",
+                        "forecast_price_5d": "165.00",
+                        "expected_return_pct": "10.54",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "98.7",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-shape-test",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["signal_previews"]) == 1
+
+        preview = data["signal_previews"][0]
+        # Verify all required fields exist
+        assert "candidate_review_id" in preview
+        assert "ticker" in preview
+        assert "side" in preview
+        assert "confidence" in preview
+        assert "source" in preview
+        assert "preview_decision" in preview
+        assert "preview_score" in preview
+        assert "expected_return_pct" in preview
+        assert "reason" in preview
+        assert "raw_payload" in preview
+
+        # Verify no "direction" field (old name)
+        assert "direction" not in preview
+
+        # Verify field values
+        assert preview["ticker"] == "QCOM"
+        assert preview["side"] == "BUY"
+        assert preview["source"] == "review_queue_preview_v1"
+        assert preview["confidence"] == "0.96"
+        assert preview["reason"] == "Preview only: would create BUY signal from approved review candidate."
+
+        # Verify raw_payload structure
+        raw = preview["raw_payload"]
+        assert "candidate_review_id" in raw
+        assert "prediction_recommendation" in raw
+        assert "prediction_confidence" in raw
+        assert "forecast_price_5d" in raw
+        assert "market_context" in raw
+        assert "preview_reasons" in raw
+        assert raw["prediction_recommendation"] == "BUY"
+        assert raw["prediction_confidence"] == "0.96"
+
+    def test_candidate_ids_mixed_status_skipped(self, seeded_client: TestClient) -> None:
+        """POST with candidate_ids skips rows not matching review_status (evaluated but not generated)."""
+        # Save two candidates
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-mixed-1",
+                "candidates": [
+                    {
+                        "ticker": "APPROVED_BUY",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "80.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-mixed-2",
+                "candidates": [
+                    {
+                        "ticker": "WATCHING_BUY",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Get candidates
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+
+        # Approve first, leave second as NEW
+        approved_id = None
+        watching_id = None
+        for cand in candidates:
+            if cand["ticker"] == "APPROVED_BUY":
+                approved_id = cand["id"]
+                seeded_client.patch(
+                    f"/v1/review/candidates/{approved_id}",
+                    json={"review_status": "APPROVED_FOR_SIGNAL"},
+                    headers=_AUTH,
+                )
+            elif cand["ticker"] == "WATCHING_BUY":
+                watching_id = cand["id"]
+                seeded_client.patch(
+                    f"/v1/review/candidates/{watching_id}",
+                    json={"review_status": "WATCHING"},
+                    headers=_AUTH,
+                )
+
+        # Preview with both IDs, filtering by APPROVED_FOR_SIGNAL
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-mixed-status",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [approved_id, watching_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Both evaluated, only one generated
+        assert data["candidates_evaluated"] == 2
+        assert data["signal_previews_generated"] == 1
+        assert data["skipped_count"] == 1
+
+        # Check skipped includes the WATCHING row
+        assert len(data["skipped"]) == 1
+        skipped = data["skipped"][0]
+        assert "candidate_review_id" in skipped
+        assert skipped["ticker"] == "WATCHING_BUY"
+        assert "WATCHING" in skipped["reason"]
+        assert "APPROVED_FOR_SIGNAL" in skipped["reason"]
+
+        # Check generated is the approved one
+        assert len(data["signal_previews"]) == 1
+        assert data["signal_previews"][0]["ticker"] == "APPROVED_BUY"
+
+    def test_invalid_confidence_skipped(self, seeded_client: TestClient, api_engine) -> None:
+        """POST skips candidates with invalid confidence (non-numeric or out of range)."""
+        # Save a candidate with invalid confidence
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-invalid-conf",
+                "candidates": [
+                    {
+                        "ticker": "BADCONF",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "abc",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "70.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Approve it
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Count database rows before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signals_before = session.query(Signal).count()
+            decisions_before = session.query(TradeDecision).count()
+            orders_before = session.query(Order).count()
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-invalid-conf",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signal_previews_generated"] == 0
+        assert data["skipped_count"] == 1
+        assert "Invalid confidence" in data["skipped"][0]["reason"]
+
+        # Count database rows after and verify no rows created
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signals_after = session.query(Signal).count()
+            decisions_after = session.query(TradeDecision).count()
+            orders_after = session.query(Order).count()
+
+        assert signals_before == signals_after
+        assert decisions_before == decisions_after
+        assert orders_before == orders_after
+
+    def test_skipped_includes_candidate_review_id(self, seeded_client: TestClient) -> None:
+        """POST includes candidate_review_id in skipped items for traceability."""
+        # Save a HOLD candidate and approve it
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-skip-id",
+                "candidates": [
+                    {
+                        "ticker": "HOLDME",
+                        "prediction_recommendation": "HOLD",
+                        "prediction_confidence": "0.75",
+                        "preview_decision": "WATCH",
+                        "preview_score": "50.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = candidates[0]["id"]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Generate preview with candidate_ids for isolation
+        resp = seeded_client.post(
+            "/v1/review/signal-preview",
+            json={
+                "idempotency_key": "preview-skip-id",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["skipped"]) == 1
+
+        skipped = data["skipped"][0]
+        assert "candidate_review_id" in skipped
+        assert skipped["candidate_review_id"] == candidate_id
+        assert skipped["ticker"] == "HOLDME"
+        assert "HOLD" in skipped["reason"]
