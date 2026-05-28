@@ -850,6 +850,26 @@
     </div>
   </div>
 
+  <div id="decision-preview-card" style="display: none;">
+    <div class="command-section">
+      <div class="section-title">Preview Decisions from Review Signals</div>
+      <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
+        <button class="btn-sm" onclick="previewDecisionsFromSignals()" style="background: var(--warning);">Preview Decisions</button>
+        <label for="decision-preview-limit" style="font-size: 11px;">Limit:</label>
+        <input type="number" id="decision-preview-limit" value="50" min="1" max="100" style="width: 60px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">
+        <label style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
+          <input type="checkbox" id="decision-preview-received-only" checked>
+          Received Only
+        </label>
+        <span style="background: var(--warning); color: white; padding: 4px 8px; border-radius: 2px; font-size: 10px; font-weight: 600;">PREVIEW ONLY</span>
+      </div>
+      <div style="background: var(--bg); border-left: 3px solid var(--warning); padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: var(--text-secondary);">
+        ⚠️ Preview only — no TradeDecision or Order rows will be created.
+      </div>
+      <div id="decision-preview-content"></div>
+    </div>
+  </div>
+
   <!-- Signal/Risk Decision Panel (Section E) -->
   <div id="signalPanel" style="display: none;">
     <div class="result-section">
@@ -2580,10 +2600,11 @@ async function saveCandidatesToReviewQueue(mode) {
     const b = await parseApiResponse(r);
     if (r.ok) {
       alert(`✓ Saved ${b.inserted_count} candidates to Review Queue (${b.skipped_existing_count} already existed).`);
-      // Show review queue, signal preview, and create signals
+      // Show review queue, signal preview, create signals, and decision preview
       document.getElementById('review-queue-card').style.display = 'block';
       document.getElementById('signal-preview-card').style.display = 'block';
       document.getElementById('create-signals-card').style.display = 'block';
+      document.getElementById('decision-preview-card').style.display = 'block';
       await loadReviewQueue();
     } else {
       alert(`✗ Failed:\n${formatApiError(b.detail)}`);
@@ -2936,6 +2957,132 @@ function renderCreateSignalsResponse(data) {
   // Safety footer
   html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-top: 2px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--ok); font-weight: 600;">';
   html += `✓ SAFETY: Trade Decisions created = ${tradeDecisionsCreated}, Orders created = ${ordersCreated}`;
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+async function previewDecisionsFromSignals() {
+  const limit = parseInt(document.getElementById('decision-preview-limit').value) || 50;
+  const receivedOnly = document.getElementById('decision-preview-received-only').checked;
+  const container = document.getElementById('decision-preview-content');
+
+  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Previewing decisions…</div>';
+
+  try {
+    const r = await call('POST', '/v1/review/decision-preview', {
+      idempotency_key: `decision-preview-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      limit: limit,
+      received_only: receivedOnly,
+    });
+    if (!r.ok) {
+      const data = await parseApiResponse(r);
+      const errMsg = formatApiError(data);
+      container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${escapeHtml(errMsg)}</div>`;
+      return;
+    }
+    const data = await r.json();
+    renderDecisionPreviewResponse(data);
+  } catch (e) {
+    container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
+  }
+}
+
+function renderDecisionPreviewResponse(data) {
+  const container = document.getElementById('decision-preview-content');
+  let html = '';
+
+  // Defensive defaults for arrays
+  const decisionPreviews = Array.isArray(data.decision_previews) ? data.decision_previews : [];
+  const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+
+  // Defensive defaults for counts
+  const signalsEvaluated = data.signals_evaluated ?? 0;
+  const previewsGenerated = data.decision_previews_generated ?? 0;
+  const skippedCount = data.skipped_count ?? 0;
+  const tradeDecisionsCreated = data.trade_decisions_created ?? 0;
+  const ordersCreated = data.orders_created ?? 0;
+
+  // Check for required fields
+  if (!('signals_evaluated' in data) || !('decision_previews_generated' in data) || !('skipped_count' in data)) {
+    html = '<div style="background: rgba(239,68,68,.1); padding: 12px; border: 1px solid var(--danger); border-radius: 2px; margin-bottom: 12px;">';
+    html += '<div style="color: var(--danger); font-weight: 600; margin-bottom: 8px;">Unexpected decision-preview response:</div>';
+    html += '<pre style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 2px; overflow-x: auto; font-size: 10px;">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+    html += '</div>';
+    container.innerHTML = html;
+    return;
+  }
+
+  // Summary
+  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 12px;">';
+  html += `<div style="background: rgba(59,130,246,.1); padding: 12px; border: 1px solid #3b82f6; border-radius: 2px; text-align: center;">`;
+  html += `<div style="font-size: 10px; color: var(--label);">Previews Generated</div>`;
+  html += `<div style="font-size: 18px; font-weight: 700; color: #3b82f6;">${previewsGenerated}</div>`;
+  html += `</div>`;
+  html += `<div style="background: rgba(239,68,68,.1); padding: 12px; border: 1px solid var(--danger); border-radius: 2px; text-align: center;">`;
+  html += `<div style="font-size: 10px; color: var(--label);">Skipped</div>`;
+  html += `<div style="font-size: 18px; font-weight: 700; color: var(--danger);">${skippedCount}</div>`;
+  html += `</div>`;
+  html += `<div style="background: rgba(34,197,94,.1); padding: 12px; border: 1px solid var(--ok); border-radius: 2px; text-align: center;">`;
+  html += `<div style="font-size: 10px; color: var(--label);">Signals Evaluated</div>`;
+  html += `<div style="font-size: 18px; font-weight: 700; color: var(--ok);">${signalsEvaluated}</div>`;
+  html += `</div>`;
+  html += '</div>';
+
+  // Decision previews table
+  if (decisionPreviews.length > 0) {
+    html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;">';
+    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Side</th>';
+    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Decision</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Confidence</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Approved Qty</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Approved $</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
+    html += '</tr></thead><tbody>';
+
+    decisionPreviews.forEach(p => {
+      const sideColor = p.side === 'BUY' ? '#22c55e' : (p.side === 'SELL' ? '#ef4444' : '#888');
+      const decisionColor = p.preview_decision === 'BUY' ? '#22c55e' : (p.preview_decision === 'SELL' ? '#ef4444' : '#f59e0b');
+      const reasonText = p.reason_code ? `${p.reason_code}` : 'Approved';
+      html += `<tr style="border-bottom: 1px solid var(--border); background: rgba(34,197,94,.03);">`;
+      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(p.ticker)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: center; color: ${sideColor}; font-weight: 600;">${escapeHtml(p.side)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(p.preview_decision)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">${escapeHtml(p.confidence)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">${escapeHtml(p.approved_qty)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">$${escapeHtml(p.approved_notional)}</td>`;
+      html += `<td style="padding: 6px 8px; font-size: 9px; color: var(--label);">${escapeHtml(reasonText)}</td>`;
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+  }
+
+  // Skipped signals
+  if (skipped.length > 0) {
+    html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
+    html += '</tr></thead><tbody>';
+
+    skipped.forEach(s => {
+      html += `<tr style="border-bottom: 1px solid var(--border); background: rgba(239,68,68,.03);">`;
+      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
+      html += `<td style="padding: 6px 8px;">${escapeHtml(s.reason)}</td>`;
+      html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+  }
+
+  // Safety footer
+  html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-top: 2px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--ok); font-weight: 600;">';
+  html += `✓ PREVIEW SAFETY: Trade Decisions created = ${tradeDecisionsCreated}, Orders created = ${ordersCreated}`;
   html += '</div>';
 
   container.innerHTML = html;

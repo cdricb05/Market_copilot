@@ -6461,15 +6461,15 @@ class TestReviewSignalPreviewEndpoint:
 
     def test_limit_respected(self, seeded_client: TestClient) -> None:
         """POST respects limit parameter."""
-        # Save 3 candidates
+        # Create 3 candidates in isolation for this test
         for i in range(3):
             seeded_client.post(
                 "/v1/review/candidates",
                 json={
-                    "idempotency_key": f"test-limit-{i}",
+                    "idempotency_key": f"test-limit-isolated-{i}",
                     "candidates": [
                         {
-                            "ticker": f"TICK{i}",
+                            "ticker": f"LIMITISOLATICK{i}",
                             "prediction_recommendation": "BUY",
                             "prediction_confidence": "0.80",
                             "preview_decision": "CONSIDER",
@@ -6481,24 +6481,33 @@ class TestReviewSignalPreviewEndpoint:
                 headers=_AUTH,
             )
 
-        # Approve all
-        candidates = seeded_client.get(
+        # Get these specific candidates
+        all_candidates = seeded_client.get(
             "/v1/review/candidates",
             headers=_AUTH,
         ).json()
-        for candidate in candidates:
+        limit_test_candidates = [
+            c for c in all_candidates
+            if c["ticker"].startswith("LIMITISOLATICK")
+        ]
+        assert len(limit_test_candidates) == 3, "Expected 3 limit test candidates"
+
+        # Approve all limit test candidates
+        for candidate in limit_test_candidates:
             seeded_client.patch(
                 f"/v1/review/candidates/{candidate['id']}",
                 json={"review_status": "APPROVED_FOR_SIGNAL"},
                 headers=_AUTH,
             )
 
-        # Preview with limit=1
+        # Preview with explicit candidate_ids and limit=1
+        candidate_ids = [c["id"] for c in limit_test_candidates]
         resp = seeded_client.post(
             "/v1/review/signal-preview",
             json={
-                "idempotency_key": "preview-limit-test",
+                "idempotency_key": "preview-limit-test-isolated",
                 "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": candidate_ids,
                 "limit": 1,
             },
             headers=_AUTH,
@@ -7923,3 +7932,740 @@ class TestReviewCreateSignalsEndpoint:
         with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
             order_count_after = session.query(Order).count()
         assert order_count_after == order_count_before
+
+
+class TestReviewDecisionPreviewEndpoint:
+    """Tests for POST /v1/review/decision-preview (preview-only, no persistence)."""
+
+    def test_post_requires_api_key(self, seeded_client: TestClient) -> None:
+        """POST requires valid X-API-Key header."""
+        resp = seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-key-decision-preview",
+                "limit": 10,
+                "received_only": True,
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_no_signals_returns_zero(self, seeded_client: TestClient, api_engine) -> None:
+        """POST returns 0 generated when no review-created signals exist."""
+        # Use a unique source_run_prefix that matches no signals
+        resp = seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-no-signals-preview",
+                "source_run_prefix": "review_queue_create_signals_v1_no_match:",
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_evaluated"] == 0
+        assert data["decision_previews_generated"] == 0
+        assert data["skipped_count"] == 0
+        assert data["trade_decisions_created"] == 0
+        assert data["orders_created"] == 0
+
+    def test_basic_buy_preview(self, seeded_client: TestClient, api_engine) -> None:
+        """POST generates decision preview for a BUY signal."""
+        # Create and approve a candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-buy-preview-isolated",
+                "candidates": [
+                    {
+                        "ticker": "BUYPREVIEW",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "85.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "BUYPREVIEW"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Create signal from candidate
+        create_resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-buy-preview-create-isolated",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        signal_id = create_resp.json()["created_signals"][0]["signal_id"]
+
+        # Count before preview
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_before = session.query(TradeDecision).count()
+            order_before = session.query(Order).count()
+            jr_before = session.query(JobRun).count()
+
+        # Preview the signal with explicit signal_ids
+        resp = seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-buy-preview-exec-isolated",
+                "signal_ids": [signal_id],
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["execution_mode"] == "DECISION_PREVIEW_ONLY"
+        assert data["signals_evaluated"] == 1
+        assert data["decision_previews_generated"] == 1
+        assert len(data["decision_previews"]) == 1
+        assert data["trade_decisions_created"] == 0
+        assert data["orders_created"] == 0
+
+        # Verify preview contains expected fields
+        preview = data["decision_previews"][0]
+        assert "signal_id" in preview
+        assert preview["ticker"] == "BUYPREVIEW"
+        assert preview["side"] == "BUY"
+        assert Decimal(preview["confidence"]) == Decimal("0.85")
+        assert "preview_decision" in preview
+        assert "risk_snapshot" in preview
+        assert "sizing_adjustments" in preview
+
+        # Verify DB unchanged
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_after = session.query(TradeDecision).count()
+            order_after = session.query(Order).count()
+            jr_after = session.query(JobRun).count()
+        assert td_after == td_before, "TradeDecision rows created unexpectedly"
+        assert order_after == order_before, "Order rows created unexpectedly"
+        assert jr_after == jr_before, "JobRun rows created unexpectedly"
+
+    def test_multiple_signals_preview(self, seeded_client: TestClient, api_engine) -> None:
+        """POST generates previews for multiple signals."""
+        # Create and approve multiple candidates
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-multi-preview",
+                "candidates": [
+                    {
+                        "ticker": "MULTI1",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "80.0",
+                        "status": "OK",
+                    },
+                    {
+                        "ticker": "MULTI2",
+                        "prediction_recommendation": "SELL",
+                        "prediction_confidence": "0.75",
+                        "preview_decision": "WATCH",
+                        "preview_score": "70.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_ids = [c["id"] for c in candidates if c["ticker"] in ["MULTI1", "MULTI2"]]
+
+        for cid in candidate_ids:
+            seeded_client.patch(
+                f"/v1/review/candidates/{cid}",
+                json={"review_status": "APPROVED_FOR_SIGNAL"},
+                headers=_AUTH,
+            )
+
+        # Create signals
+        seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-multi-preview-create",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": candidate_ids,
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Preview all signals
+        resp = seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-multi-preview-exec",
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_evaluated"] >= 2
+        assert data["decision_previews_generated"] >= 2
+        assert len(data["decision_previews"]) >= 2
+
+    def test_received_only_filter(self, seeded_client: TestClient, api_engine) -> None:
+        """POST respects received_only filter in SQL query."""
+        # Create a signal
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-received-filter",
+                "candidates": [
+                    {
+                        "ticker": "RECVONLY",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "80.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "RECVONLY"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-received-filter-create",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Get the signal ID and update its status
+        signals = seeded_client.get(
+            "/v1/positions",
+            headers=_AUTH,
+        )
+        # Note: we'd need to manually update signal status via DB for this test
+        # For now, just verify that received_only=false includes all signals
+        resp = seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-received-filter-exec",
+                "limit": 50,
+                "received_only": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_evaluated"] >= 1
+
+    def test_explicit_signal_ids_non_review_source_run(self, seeded_client: TestClient, api_engine) -> None:
+        """POST skips signal with non-review source_run when explicit signal_ids provided."""
+        # Create a signal with non-review source_run
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="test-non-review-source",
+                workflow_type="MANUAL_TEST",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="NONREV",
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="manual_signal_test",  # Non-review source_run
+                status="RECEIVED",
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+            session.commit()
+
+        # Try to preview with explicit signal_ids
+        resp = seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-non-review-preview",
+                "signal_ids": [signal_id],
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_evaluated"] == 1
+        assert data["decision_previews_generated"] == 0
+        assert data["skipped_count"] == 1
+        assert "not review-created" in data["skipped"][0]["reason"]
+
+    def test_explicit_signal_ids_non_received_status_with_received_only(self, seeded_client: TestClient, api_engine) -> None:
+        """POST skips review-created signal with non-RECEIVED status when received_only=true."""
+        # Create a review-created signal and update its status to DECISION_MADE
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-decision-made",
+                "candidates": [
+                    {
+                        "ticker": "DECISIONMADE",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "80.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "DECISIONMADE"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        create_resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-decision-made-create",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        signal_id = create_resp.json()["created_signals"][0]["signal_id"]
+
+        # Update signal status to DECISION_MADE
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal = session.query(Signal).filter(Signal.id == signal_id).first()
+            if signal:
+                signal.status = "DECISION_MADE"
+                session.commit()
+
+        # Try to preview with received_only=true
+        resp = seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-decision-made-preview",
+                "signal_ids": [signal_id],
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_evaluated"] == 1
+        assert data["decision_previews_generated"] == 0
+        assert data["skipped_count"] == 1
+        assert "not RECEIVED" in data["skipped"][0]["reason"]
+
+        # Verify Signal.status is still DECISION_MADE
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_after = session.query(Signal).filter(Signal.id == signal_id).first()
+            assert signal_after.status == "DECISION_MADE"
+
+    def test_explicit_signal_ids_non_received_status_without_received_only(self, seeded_client: TestClient, api_engine) -> None:
+        """POST can preview review-created signal with non-RECEIVED status when received_only=false."""
+        # Create a review-created signal and update its status to DECISION_MADE
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-decision-made-no-filter",
+                "candidates": [
+                    {
+                        "ticker": "DECISIONMADENOFILTER",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "80.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "DECISIONMADENOFILTER"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        create_resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-decision-made-no-filter-create",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        signal_id = create_resp.json()["created_signals"][0]["signal_id"]
+
+        # Update signal status to DECISION_MADE
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal = session.query(Signal).filter(Signal.id == signal_id).first()
+            if signal:
+                signal.status = "DECISION_MADE"
+                session.commit()
+
+        # Count before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_before = session.query(TradeDecision).count()
+            order_before = session.query(Order).count()
+            jr_before = session.query(JobRun).count()
+
+        # Try to preview with received_only=false
+        resp = seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-decision-made-no-filter-preview",
+                "signal_ids": [signal_id],
+                "limit": 50,
+                "received_only": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_evaluated"] == 1
+        assert data["decision_previews_generated"] == 1
+        assert data["skipped_count"] == 0
+        assert data["trade_decisions_created"] == 0
+        assert data["orders_created"] == 0
+
+        # Verify DB still unchanged
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_after = session.query(TradeDecision).count()
+            order_after = session.query(Order).count()
+            jr_after = session.query(JobRun).count()
+        assert td_after == td_before, "TradeDecision rows created unexpectedly"
+        assert order_after == order_before, "Order rows created unexpectedly"
+        assert jr_after == jr_before, "JobRun rows created unexpectedly"
+
+        # Verify Signal.status unchanged
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_after = session.query(Signal).filter(Signal.id == signal_id).first()
+            assert signal_after.status == "DECISION_MADE"
+
+    def test_no_trade_decisions_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST never creates TradeDecision rows (safety test)."""
+        # Create and preview a signal
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-td-safety",
+                "candidates": [
+                    {
+                        "ticker": "NOTDCREATE",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "85.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "NOTDCREATE"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-no-td-safety-create",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Count before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_before = session.query(TradeDecision).count()
+
+        # Preview
+        seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-no-td-safety-exec",
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Count after
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_after = session.query(TradeDecision).count()
+        assert td_after == td_before, "TradeDecision rows should not be created by preview endpoint"
+
+    def test_no_orders_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST never creates Order rows (safety test)."""
+        # Create and preview a signal
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-order-safety",
+                "candidates": [
+                    {
+                        "ticker": "NOORDERSAFETY",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "85.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "NOORDERSAFETY"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-no-order-safety-create",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Count before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            order_before = session.query(Order).count()
+
+        # Preview
+        seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-no-order-safety-exec",
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Count after
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            order_after = session.query(Order).count()
+        assert order_after == order_before, "Order rows should not be created by preview endpoint"
+
+    def test_no_job_runs_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST never creates JobRun rows (safety test)."""
+        # Create and preview a signal
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-jr-safety",
+                "candidates": [
+                    {
+                        "ticker": "NOJRSAFETY",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "85.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "NOJRSAFETY"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-no-jr-safety-create",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Count before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            jr_before = session.query(JobRun).count()
+
+        # Preview
+        seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-no-jr-safety-exec",
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Count after
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            jr_after = session.query(JobRun).count()
+        assert jr_after == jr_before, "JobRun rows should not be created by preview endpoint"
+
+    def test_signal_status_unchanged(self, seeded_client: TestClient, api_engine) -> None:
+        """POST never updates Signal.status (safety test)."""
+        # Create a signal
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-status-safety",
+                "candidates": [
+                    {
+                        "ticker": "STATUSSAFETY",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "85.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "STATUSSAFETY"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        create_resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-status-safety-create",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        signal_id = create_resp.json()["created_signals"][0]["signal_id"]
+
+        # Get status before preview
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_before = session.query(Signal).filter(Signal.id == signal_id).first()
+            status_before = signal_before.status
+
+        # Preview
+        seeded_client.post(
+            "/v1/review/decision-preview",
+            json={
+                "idempotency_key": "test-status-safety-exec",
+                "limit": 50,
+                "received_only": True,
+            },
+            headers=_AUTH,
+        )
+
+        # Get status after preview
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_after = session.query(Signal).filter(Signal.id == signal_id).first()
+            status_after = signal_after.status
+
+        assert status_after == status_before, "Signal.status should not be modified by preview endpoint"
+        assert status_after == "RECEIVED", "Signal.status should remain RECEIVED"

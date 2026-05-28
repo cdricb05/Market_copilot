@@ -76,8 +76,9 @@ from paper_trader.engine.prediction_client import (
 )
 from paper_trader.engine.prediction_strategy import generate_prediction_signals
 from paper_trader.engine.reconciler import run_fill_cycle
+from paper_trader.engine.risk import evaluate_signal
 from paper_trader.engine.strategy import generate_signals
-from paper_trader.workflows.decision import run_decision_workflow
+from paper_trader.workflows.decision import run_decision_workflow, _latest_price
 from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -690,6 +691,70 @@ class ReviewCreateSignalsResponse(BaseModel):
     skipped_existing_count: int
     created_signals: list[CreatedSignalItem]
     skipped: list[SkippedCandidateDetail]
+    trade_decisions_created: int
+    orders_created: int
+
+
+class ReviewDecisionPreviewRequest(BaseModel):
+    """Request to preview trade decisions for review-created Signal rows."""
+    idempotency_key: str = Field(
+        ...,
+        description="Unique key for this decision preview batch.",
+    )
+    signal_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of signal IDs to preview. If provided, queries those exact IDs without source_run SQL filter; source_run and status are evaluated in Python.",
+    )
+    source_run_prefix: str = Field(
+        default="review_queue_create_signals_v1:",
+        description="Source run prefix to filter review-created signals (ignored if signal_ids provided).",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of signals to preview (default 50, max 100).",
+    )
+    received_only: bool = Field(
+        default=True,
+        description="If true, only preview Signals with status='RECEIVED' (ignored when signal_ids provided with received_only=false).",
+    )
+
+
+class DecisionPreviewItem(BaseModel):
+    """A decision preview for a Signal (not yet converted to TradeDecision)."""
+    signal_id: str
+    ticker: str
+    side: str
+    confidence: str
+    source_run: str
+    signal_status: str
+    preview_decision: str
+    reason_code: str | None
+    requested_notional: str
+    approved_notional: str
+    requested_qty: str
+    approved_qty: str
+    risk_snapshot: dict[str, Any]
+    sizing_adjustments: list[str]
+    reason: str
+
+
+class SkippedSignalDetail(BaseModel):
+    """Detail on a skipped signal."""
+    signal_id: str
+    ticker: str
+    reason: str
+
+
+class ReviewDecisionPreviewResponse(BaseModel):
+    """Response from decision preview endpoint (PREVIEW ONLY, no database writes)."""
+    execution_mode: str
+    signals_evaluated: int
+    decision_previews_generated: int
+    skipped_count: int
+    decision_previews: list[DecisionPreviewItem]
+    skipped: list[SkippedSignalDetail]
     trade_decisions_created: int
     orders_created: int
 
@@ -3888,6 +3953,153 @@ async def create_signals_from_candidates(
         skipped_count=len(skipped_list),
         skipped_existing_count=skipped_existing,
         created_signals=created_signals_list,
+        skipped=skipped_list,
+        trade_decisions_created=0,
+        orders_created=0,
+    )
+
+
+@app.post(
+    "/v1/review/decision-preview",
+    response_model=ReviewDecisionPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def preview_decisions_from_signals(
+    body: ReviewDecisionPreviewRequest,
+) -> ReviewDecisionPreviewResponse:
+    """
+    Preview trade decisions that would be made for review-created Signal rows.
+
+    This endpoint is PREVIEW ONLY. No TradeDecision, Order, or JobRun rows are
+    created. It shows what decision would be made without actually creating them.
+    Signal.status is NOT updated.
+
+    Filtering rules:
+    - If signal_ids is NOT provided: query by source_run_prefix in SQL, optionally filter by status
+    - If signal_ids IS provided: query those exact IDs, validate source_run and status in Python
+
+    For each Signal:
+    - Fetch the latest PriceSnapshot for the ticker
+    - Call evaluate_signal() with the Signal data
+    - Return the resulting RiskDecision as a preview
+    - If price is missing, evaluate_signal() will return NO_PRICE_SNAPSHOT reason
+
+    Returns 0 for trade_decisions_created and orders_created.
+    """
+    import uuid as uuid_module
+
+    evaluated = 0
+    generated = 0
+    skipped_list = []
+    decision_previews = []
+
+    with get_session() as session:
+        # Determine market_date (US Eastern) for evaluate_signal call
+        eastern_now = datetime.now(_EASTERN)
+        market_date = eastern_now.date()
+        now = datetime.now(timezone.utc)
+
+        # Get portfolio for risk evaluation
+        portfolio = get_portfolio(session)
+
+        query = session.query(Signal)
+
+        # Build query based on whether signal_ids is provided
+        if body.signal_ids:
+            # Query exact signal IDs without source_run/status filters
+            try:
+                signal_uuids = [uuid_module.UUID(sid) for sid in body.signal_ids]
+                query = query.filter(Signal.id.in_(signal_uuids))
+            except (ValueError, AttributeError):
+                # If any UUID is invalid, return empty result
+                return ReviewDecisionPreviewResponse(
+                    execution_mode="DECISION_PREVIEW_ONLY",
+                    signals_evaluated=0,
+                    decision_previews_generated=0,
+                    skipped_count=0,
+                    decision_previews=[],
+                    skipped=[],
+                    trade_decisions_created=0,
+                    orders_created=0,
+                )
+        else:
+            # Filter by source_run_prefix in SQL
+            query = query.filter(Signal.source_run.startswith(body.source_run_prefix))
+            # Optionally filter by status in SQL
+            if body.received_only:
+                query = query.filter(Signal.status == "RECEIVED")
+
+        # Apply limit
+        rows = query.limit(body.limit).all()
+
+        # Process each signal
+        for signal in rows:
+            evaluated += 1
+            signal_id_str = str(signal.id)
+
+            # If signal_ids was provided, validate source_run and status in Python
+            if body.signal_ids:
+                # Check source_run starts with allowed prefix
+                if not signal.source_run.startswith(body.source_run_prefix):
+                    skipped_list.append(SkippedSignalDetail(
+                        signal_id=signal_id_str,
+                        ticker=signal.ticker,
+                        reason="Signal source_run is not review-created",
+                    ))
+                    continue
+
+                # Check status if received_only=true
+                if body.received_only and signal.status != "RECEIVED":
+                    skipped_list.append(SkippedSignalDetail(
+                        signal_id=signal_id_str,
+                        ticker=signal.ticker,
+                        reason=f"Signal status is {signal.status}, not RECEIVED",
+                    ))
+                    continue
+
+            # Fetch latest price for the ticker (same as real decision workflow)
+            snapshot_price = _latest_price(session, signal.ticker)
+
+            # Call evaluate_signal with signal data (pure function, no DB writes)
+            rd = evaluate_signal(
+                session,
+                portfolio=portfolio,
+                direction=signal.direction,
+                ticker=signal.ticker,
+                confidence=signal.confidence,
+                snapshot_price=snapshot_price,
+                market_date=market_date,
+                now=now,
+            )
+
+            # Create decision preview item with full traceability
+            decision_preview = DecisionPreviewItem(
+                signal_id=signal_id_str,
+                ticker=signal.ticker,
+                side=signal.direction,
+                confidence=str(signal.confidence),
+                source_run=signal.source_run,
+                signal_status=signal.status,
+                preview_decision=rd.decision,
+                reason_code=rd.reason_code,
+                requested_notional=str(rd.requested_notional),
+                approved_notional=str(rd.approved_notional),
+                requested_qty=str(rd.requested_qty),
+                approved_qty=str(rd.approved_qty),
+                risk_snapshot=rd.risk_snapshot,
+                sizing_adjustments=rd.sizing_adjustments,
+                reason=f"Decision preview only: would create {rd.decision} decision from Signal.",
+            )
+            decision_previews.append(decision_preview)
+            generated += 1
+
+    return ReviewDecisionPreviewResponse(
+        execution_mode="DECISION_PREVIEW_ONLY",
+        signals_evaluated=evaluated,
+        decision_previews_generated=generated,
+        skipped_count=len(skipped_list),
+        decision_previews=decision_previews,
         skipped=skipped_list,
         trade_decisions_created=0,
         orders_created=0,
