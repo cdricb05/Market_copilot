@@ -55,6 +55,7 @@ from paper_trader.constants import (
 )
 from paper_trader.db.models import (
     BenchmarkPrice,
+    CandidateReview,
     JobRun,
     Order,
     Portfolio,
@@ -508,6 +509,82 @@ class MarketScanPredictionCandidatesResponse(BaseModel):
     signals_submitted: int
     decisions_made: int
     orders_created: int
+
+
+# ---------------------------------------------------------------------------
+# Candidate Review Queue schemas
+# ---------------------------------------------------------------------------
+
+class CandidateReviewCreate(BaseModel):
+    """One candidate to save to review queue."""
+    ticker: str
+    scan_rank: int | None = None
+    scan_score: str | None = None
+    latest_price: str | None = None
+    momentum_5d_pct: str | None = None
+    momentum_20d_pct: str | None = None
+    relative_strength_vs_spy_20d: str | None = None
+    scan_reason_codes: list[str] | None = None
+    prediction_recommendation: str | None = None
+    prediction_confidence: str | None = None
+    forecast_price_5d: str | None = None
+    expected_return_pct: str | None = None
+    market_context: str | None = None
+    preview_decision: str
+    preview_score: str
+    preview_reasons: list[str] | None = None
+    status: str = "OK"
+
+
+class CandidateReviewSaveRequest(BaseModel):
+    """Save one or more candidates to review queue."""
+    idempotency_key: str
+    candidates: list[CandidateReviewCreate] = Field(
+        ...,
+        min_length=1,
+        description="At least one candidate required.",
+    )
+
+
+class CandidateReviewOut(BaseModel):
+    """Candidate review queue row."""
+    id: str
+    idempotency_key: str
+    ticker: str
+    scan_rank: str | None
+    scan_score: str | None
+    latest_price: str | None
+    momentum_5d_pct: str | None
+    momentum_20d_pct: str | None
+    relative_strength_vs_spy_20d: str | None
+    scan_reason_codes: list[str] | None
+    prediction_recommendation: str | None
+    prediction_confidence: str | None
+    forecast_price_5d: str | None
+    expected_return_pct: str | None
+    market_context: str | None
+    preview_decision: str
+    preview_score: str
+    preview_reasons: list[str] | None
+    status: str
+    review_status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CandidateReviewSaveResponse(BaseModel):
+    """Response from save candidates endpoint."""
+    inserted_count: int
+    skipped_existing_count: int
+    candidates_saved: list[CandidateReviewOut]
+
+
+class CandidateReviewStatusUpdate(BaseModel):
+    """Update review_status for a candidate."""
+    review_status: str = Field(
+        ...,
+        description="NEW | WATCHING | REJECTED | APPROVED_FOR_SIGNAL",
+    )
 
 
 class BackfillRequest(BaseModel):
@@ -2995,6 +3072,266 @@ async def market_scan_prediction_candidates(
         decisions_made=0,
         orders_created=0,
     )
+
+
+# ---------------------------------------------------------------------------
+# Candidate Review Queue endpoints
+# ---------------------------------------------------------------------------
+
+@app.post(
+    "/v1/review/candidates",
+    response_model=CandidateReviewSaveResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def save_review_candidates(
+    body: CandidateReviewSaveRequest,
+) -> CandidateReviewSaveResponse:
+    """
+    Save candidate previews to the review queue.
+
+    Candidates are stored with review_status=NEW for later manual approval.
+    This endpoint is idempotent on (idempotency_key, ticker) — reposting the
+    same pair is a no-op and counted in skipped_existing_count.
+
+    IMPORTANT: This endpoint does NOT create Signal, TradeDecision, or Order rows.
+    Saving to the review queue does not trigger any trading workflows.
+    """
+    inserted = 0
+    skipped = 0
+    saved_rows = []
+
+    with get_session() as session:
+        for candidate in body.candidates:
+            # Check if (idempotency_key, ticker) already exists
+            existing = session.query(CandidateReview).filter(
+                CandidateReview.idempotency_key == body.idempotency_key,
+                CandidateReview.ticker == candidate.ticker,
+            ).first()
+
+            if existing:
+                skipped += 1
+                saved_rows.append(CandidateReviewOut(
+                    id=str(existing.id),
+                    idempotency_key=existing.idempotency_key,
+                    ticker=existing.ticker,
+                    scan_rank=existing.scan_rank,
+                    scan_score=existing.scan_score,
+                    latest_price=existing.latest_price,
+                    momentum_5d_pct=existing.momentum_5d_pct,
+                    momentum_20d_pct=existing.momentum_20d_pct,
+                    relative_strength_vs_spy_20d=existing.relative_strength_vs_spy_20d,
+                    scan_reason_codes=existing.scan_reason_codes,
+                    prediction_recommendation=existing.prediction_recommendation,
+                    prediction_confidence=existing.prediction_confidence,
+                    forecast_price_5d=existing.forecast_price_5d,
+                    expected_return_pct=existing.expected_return_pct,
+                    market_context=existing.market_context,
+                    preview_decision=existing.preview_decision,
+                    preview_score=existing.preview_score,
+                    preview_reasons=existing.preview_reasons,
+                    status=existing.status,
+                    review_status=existing.review_status,
+                    created_at=existing.created_at,
+                    updated_at=existing.updated_at,
+                ))
+                continue
+
+            # Insert new row
+            new_review = CandidateReview(
+                idempotency_key=body.idempotency_key,
+                ticker=candidate.ticker,
+                scan_rank=str(candidate.scan_rank) if candidate.scan_rank is not None else None,
+                scan_score=candidate.scan_score,
+                latest_price=candidate.latest_price,
+                momentum_5d_pct=candidate.momentum_5d_pct,
+                momentum_20d_pct=candidate.momentum_20d_pct,
+                relative_strength_vs_spy_20d=candidate.relative_strength_vs_spy_20d,
+                scan_reason_codes=candidate.scan_reason_codes or [],
+                prediction_recommendation=candidate.prediction_recommendation,
+                prediction_confidence=candidate.prediction_confidence,
+                forecast_price_5d=candidate.forecast_price_5d,
+                expected_return_pct=candidate.expected_return_pct,
+                market_context=candidate.market_context,
+                preview_decision=candidate.preview_decision,
+                preview_score=candidate.preview_score,
+                preview_reasons=candidate.preview_reasons or [],
+                status=candidate.status,
+                review_status="NEW",
+            )
+            session.add(new_review)
+            session.flush()
+
+            inserted += 1
+            saved_rows.append(CandidateReviewOut(
+                id=str(new_review.id),
+                idempotency_key=new_review.idempotency_key,
+                ticker=new_review.ticker,
+                scan_rank=new_review.scan_rank,
+                scan_score=new_review.scan_score,
+                latest_price=new_review.latest_price,
+                momentum_5d_pct=new_review.momentum_5d_pct,
+                momentum_20d_pct=new_review.momentum_20d_pct,
+                relative_strength_vs_spy_20d=new_review.relative_strength_vs_spy_20d,
+                scan_reason_codes=new_review.scan_reason_codes,
+                prediction_recommendation=new_review.prediction_recommendation,
+                prediction_confidence=new_review.prediction_confidence,
+                forecast_price_5d=new_review.forecast_price_5d,
+                expected_return_pct=new_review.expected_return_pct,
+                market_context=new_review.market_context,
+                preview_decision=new_review.preview_decision,
+                preview_score=new_review.preview_score,
+                preview_reasons=new_review.preview_reasons,
+                status=new_review.status,
+                review_status=new_review.review_status,
+                created_at=new_review.created_at,
+                updated_at=new_review.updated_at,
+            ))
+
+    return CandidateReviewSaveResponse(
+        inserted_count=inserted,
+        skipped_existing_count=skipped,
+        candidates_saved=saved_rows,
+    )
+
+
+@app.get(
+    "/v1/review/candidates",
+    response_model=list[CandidateReviewOut],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def list_review_candidates(
+    status: str | None = Query(None, description="Filter by review_status (NEW, WATCHING, REJECTED, APPROVED_FOR_SIGNAL)"),
+    ticker: str | None = Query(None, description="Filter by ticker"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of rows to return"),
+) -> list[CandidateReviewOut]:
+    """
+    List candidates in the review queue.
+
+    Returns rows ordered by created_at descending (most recent first).
+    Optionally filters by review_status and/or ticker.
+    """
+    with get_session() as session:
+        query = session.query(CandidateReview)
+
+        if status:
+            query = query.filter(CandidateReview.review_status == status)
+        if ticker:
+            query = query.filter(CandidateReview.ticker == ticker)
+
+        rows = query.order_by(CandidateReview.created_at.desc()).limit(limit).all()
+
+        return [
+            CandidateReviewOut(
+                id=str(row.id),
+                idempotency_key=row.idempotency_key,
+                ticker=row.ticker,
+                scan_rank=row.scan_rank,
+                scan_score=row.scan_score,
+                latest_price=row.latest_price,
+                momentum_5d_pct=row.momentum_5d_pct,
+                momentum_20d_pct=row.momentum_20d_pct,
+                relative_strength_vs_spy_20d=row.relative_strength_vs_spy_20d,
+                scan_reason_codes=row.scan_reason_codes,
+                prediction_recommendation=row.prediction_recommendation,
+                prediction_confidence=row.prediction_confidence,
+                forecast_price_5d=row.forecast_price_5d,
+                expected_return_pct=row.expected_return_pct,
+                market_context=row.market_context,
+                preview_decision=row.preview_decision,
+                preview_score=row.preview_score,
+                preview_reasons=row.preview_reasons,
+                status=row.status,
+                review_status=row.review_status,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+            for row in rows
+        ]
+
+
+@app.patch(
+    "/v1/review/candidates/{candidate_id}",
+    response_model=CandidateReviewOut,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def update_review_candidate_status(
+    candidate_id: str,
+    body: CandidateReviewStatusUpdate,
+) -> CandidateReviewOut:
+    """
+    Update the review_status of a candidate in the review queue.
+
+    Allowed values: NEW, WATCHING, REJECTED, APPROVED_FOR_SIGNAL
+
+    IMPORTANT: APPROVED_FOR_SIGNAL is a label only. It does NOT create a Signal,
+    TradeDecision, or Order row. Approving a candidate for signal does not
+    trigger any trading workflows.
+
+    Returns 404 if the candidate_id is not found.
+    Returns 422 if the review_status value is invalid.
+    """
+    # Validate review_status
+    allowed_statuses = {"NEW", "WATCHING", "REJECTED", "APPROVED_FOR_SIGNAL"}
+    if body.review_status not in allowed_statuses:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid review_status '{body.review_status}'. Allowed: {allowed_statuses}",
+        )
+
+    with get_session() as session:
+        # Attempt to parse candidate_id as UUID
+        try:
+            import uuid as uuid_module
+            candidate_uuid = uuid_module.UUID(candidate_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Candidate '{candidate_id}' not found.",
+            )
+
+        # Query by id
+        row = session.query(CandidateReview).filter(
+            CandidateReview.id == candidate_uuid
+        ).first()
+
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Candidate '{candidate_id}' not found.",
+            )
+
+        # Update review_status
+        row.review_status = body.review_status
+        session.add(row)
+        session.flush()
+
+        return CandidateReviewOut(
+            id=str(row.id),
+            idempotency_key=row.idempotency_key,
+            ticker=row.ticker,
+            scan_rank=row.scan_rank,
+            scan_score=row.scan_score,
+            latest_price=row.latest_price,
+            momentum_5d_pct=row.momentum_5d_pct,
+            momentum_20d_pct=row.momentum_20d_pct,
+            relative_strength_vs_spy_20d=row.relative_strength_vs_spy_20d,
+            scan_reason_codes=row.scan_reason_codes,
+            prediction_recommendation=row.prediction_recommendation,
+            prediction_confidence=row.prediction_confidence,
+            forecast_price_5d=row.forecast_price_5d,
+            expected_return_pct=row.expected_return_pct,
+            market_context=row.market_context,
+            preview_decision=row.preview_decision,
+            preview_score=row.preview_score,
+            preview_reasons=row.preview_reasons,
+            status=row.status,
+            review_status=row.review_status,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
 
 
 # ---------------------------------------------------------------------------

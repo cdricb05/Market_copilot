@@ -817,6 +817,13 @@
     </div>
   </div>
 
+  <div id="review-queue-card" style="display: none;">
+    <div class="command-section">
+      <div class="section-title">Review Queue</div>
+      <div id="review-queue-content"></div>
+    </div>
+  </div>
+
   <!-- Signal/Risk Decision Panel (Section E) -->
   <div id="signalPanel" style="display: none;">
     <div class="result-section">
@@ -1175,6 +1182,22 @@ function parseApiResponse(r) {
   } catch {
     return { detail: 'Invalid response format' };
   }
+}
+
+function formatApiError(data) {
+  if (typeof data === 'string') return data;
+  if (!data || typeof data !== 'object') return 'Unknown error';
+  if (Array.isArray(data)) {
+    return data.map(err => {
+      if (typeof err === 'string') return err;
+      if (err.loc && Array.isArray(err.loc)) {
+        const path = err.loc.slice(1).join('.');
+        return `${path} - ${err.msg || JSON.stringify(err)}`;
+      }
+      return err.msg || JSON.stringify(err);
+    }).join('\n');
+  }
+  return data.detail || JSON.stringify(data);
 }
 
 // ---------- load functions ----------
@@ -2067,6 +2090,7 @@ async function runPredictionPreview(btn) {
 
     if (r.ok) {
       resultCard.style.display = 'block';
+      window._lastPredictionPreviewData = b;
       renderPredictionPreviewResult(b, resultEl);
       toast('Prediction preview complete', 'ok');
     } else if (r.status === 422) {
@@ -2175,6 +2199,12 @@ function renderPredictionPreviewResult(data, resultEl) {
     });
 
     html += '</tbody></table></div></div>';
+
+    // Save to Review Queue buttons
+    html += '<div style="margin-bottom: 16px; display: flex; gap: 8px;">';
+    html += '<button onclick="saveCandidatesToReviewQueue(\'CONSIDER\')" style="padding: 8px 14px; background: var(--ok); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save CONSIDER to Review Queue</button>';
+    html += '<button onclick="saveCandidatesToReviewQueue(\'ALL\')" style="padding: 8px 14px; background: var(--text-accent); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save All to Review Queue</button>';
+    html += '</div>';
   }
 
   // Secondary: Normalized predictions table
@@ -2465,6 +2495,195 @@ async function dtrRefreshReview(btn) {
     btn.disabled = false;
     updateWorkflowRail();
   }
+}
+
+async function saveCandidatesToReviewQueue(mode) {
+  // Get current candidate previews from the last successful prediction preview run
+  const contentDiv = document.getElementById('prediction-preview-result');
+  if (!contentDiv) {
+    alert('No prediction preview data available.');
+    return;
+  }
+
+  // Parse the current result to extract candidates
+  let candidates = window._lastPredictionPreviewData?.candidate_previews || [];
+  if (!candidates || candidates.length === 0) {
+    alert('No candidates available to save.');
+    return;
+  }
+
+  // Filter if mode is CONSIDER
+  if (mode === 'CONSIDER') {
+    candidates = candidates.filter(c => c.preview_decision === 'CONSIDER');
+    if (candidates.length === 0) {
+      alert('No CONSIDER candidates to save.');
+      return;
+    }
+  }
+
+  // Generate idempotency key
+  const now = new Date();
+  const ikey = `review-save-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+
+  // Build request
+  const payload = {
+    idempotency_key: ikey,
+    candidates: candidates.map(c => ({
+      ticker: c.ticker,
+      scan_rank: c.scan_rank,
+      scan_score: c.scan_score,
+      latest_price: c.latest_price,
+      momentum_5d_pct: c.momentum_5d_pct,
+      momentum_20d_pct: c.momentum_20d_pct,
+      relative_strength_vs_spy_20d: c.relative_strength_vs_spy_20d,
+      scan_reason_codes: c.scan_reason_codes,
+      prediction_recommendation: c.prediction_recommendation,
+      prediction_confidence: c.prediction_confidence,
+      forecast_price_5d: c.forecast_price_5d,
+      expected_return_pct: c.expected_return_pct,
+      market_context: c.market_context,
+      preview_decision: c.preview_decision,
+      preview_score: c.preview_score,
+      preview_reasons: c.preview_reasons,
+      status: c.status,
+    }))
+  };
+
+  try {
+    const r = await call('POST', '/v1/review/candidates', payload);
+    const b = await parseApiResponse(r);
+    if (r.ok) {
+      alert(`✓ Saved ${b.inserted_count} candidates to Review Queue (${b.skipped_existing_count} already existed).`);
+      // Show review queue
+      document.getElementById('review-queue-card').style.display = 'block';
+      await loadReviewQueue();
+    } else {
+      alert(`✗ Failed:\n${formatApiError(b.detail)}`);
+    }
+  } catch (e) {
+    alert(`✗ Error: ${e.message}`);
+  }
+}
+
+async function loadReviewQueue() {
+  try {
+    const r = await call('GET', '/v1/review/candidates?limit=100', null);
+    const candidates = await parseApiResponse(r);
+    if (!r.ok) {
+      throw new Error(candidates.detail);
+    }
+    renderReviewQueue(candidates);
+  } catch (e) {
+    document.getElementById('review-queue-content').innerHTML = `<div style="color: var(--danger); padding: 12px;">Error loading review queue: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderReviewQueue(candidates) {
+  const container = document.getElementById('review-queue-content');
+  let html = '';
+
+  // Controls
+  html += '<div style="margin-bottom: 12px; display: flex; gap: 8px;">';
+  html += '<button class="btn-sm" onclick="loadReviewQueue()">Refresh</button>';
+  html += '<select id="review-status-filter" onchange="filterReviewQueue()" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">';
+  html += '<option value="">All statuses</option>';
+  html += '<option value="NEW">NEW</option>';
+  html += '<option value="WATCHING">WATCHING</option>';
+  html += '<option value="REJECTED">REJECTED</option>';
+  html += '<option value="APPROVED_FOR_SIGNAL">APPROVED_FOR_SIGNAL</option>';
+  html += '</select>';
+  html += '<input type="text" id="review-ticker-filter" placeholder="Filter ticker..." onchange="filterReviewQueue()" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">';
+  html += '</div>';
+
+  if (candidates.length === 0) {
+    html += '<div style="color: var(--label); padding: 12px; text-align: center;">No candidates in review queue</div>';
+    container.innerHTML = html;
+    return;
+  }
+
+  // Table
+  html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+  html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+  html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+  html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+  html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Status</th>';
+  html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Decision</th>';
+  html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Score</th>';
+  html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Rec</th>';
+  html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Conf</th>';
+  html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Return %</th>';
+  html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">RS SPY</th>';
+  html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Actions</th>';
+  html += '</tr></thead><tbody>';
+
+  candidates.forEach(c => {
+    const statusColor = c.review_status === 'NEW' ? 'var(--warning)' :
+                       c.review_status === 'WATCHING' ? 'var(--text-primary)' :
+                       c.review_status === 'REJECTED' ? 'var(--danger)' :
+                       c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
+    const statusBg = c.review_status === 'NEW' ? 'rgba(245,158,11,.08)' :
+                     c.review_status === 'WATCHING' ? 'rgba(59,130,246,.08)' :
+                     c.review_status === 'REJECTED' ? 'rgba(239,68,68,.08)' :
+                     c.review_status === 'APPROVED_FOR_SIGNAL' ? 'rgba(34,197,94,.08)' : 'rgba(0,0,0,.05)';
+
+    const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
+                         c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
+
+    const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
+                    c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+
+    const conf = c.prediction_confidence ? parseFloat(c.prediction_confidence).toFixed(2) : '—';
+    const ret = c.expected_return_pct ? parseFloat(c.expected_return_pct).toFixed(2) : '—';
+    const rs = c.relative_strength_vs_spy_20d ? parseFloat(c.relative_strength_vs_spy_20d).toFixed(2) : '—';
+
+    html += `<tr style="border-bottom: 1px solid var(--border); background: ${statusBg};">`;
+    html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(c.ticker)}</td>`;
+    html += `<td style="padding: 6px 8px; text-align: center; color: ${statusColor}; font-weight: 600; font-size: 10px;">${escapeHtml(c.review_status)}</td>`;
+    html += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(c.preview_decision)}</td>`;
+    html += `<td style="padding: 6px 8px; text-align: right; font-weight: 600;">${parseFloat(c.preview_score).toFixed(1)}</td>`;
+    html += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: 600;">${escapeHtml(c.prediction_recommendation || '—')}</td>`;
+    html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
+    html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
+    html += `<td style="padding: 6px 8px; text-align: right;">${rs}</td>`;
+    html += `<td style="padding: 6px 8px;">`;
+    html += `<button class="btn-xs" onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding: 3px 6px; margin-right: 2px; background: var(--text-accent); color: white; border: none; border-radius: 2px; font-weight: 600; font-size: 9px; cursor: pointer;">Watch</button>`;
+    html += `<button class="btn-xs" onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding: 3px 6px; margin-right: 2px; background: var(--danger); color: white; border: none; border-radius: 2px; font-weight: 600; font-size: 9px; cursor: pointer;">Reject</button>`;
+    html += `<button class="btn-xs" onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding: 3px 6px; background: var(--ok); color: white; border: none; border-radius: 2px; font-weight: 600; font-size: 9px; cursor: pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+    html += '</td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+  window._lastReviewQueueData = candidates;
+}
+
+async function updateReviewStatus(candidateId, newStatus) {
+  try {
+    const r = await call('PATCH', `/v1/review/candidates/${candidateId}`, { review_status: newStatus });
+    const result = await parseApiResponse(r);
+    if (r.ok) {
+      await loadReviewQueue();
+    } else {
+      alert(`✗ Failed: ${result.detail}`);
+    }
+  } catch (e) {
+    alert(`✗ Error: ${e.message}`);
+  }
+}
+
+function filterReviewQueue() {
+  const allCandidates = window._lastReviewQueueData || [];
+  const statusFilter = document.getElementById('review-status-filter')?.value || '';
+  const tickerFilter = document.getElementById('review-ticker-filter')?.value.toUpperCase() || '';
+
+  const filtered = allCandidates.filter(c => {
+    const statusMatch = !statusFilter || c.review_status === statusFilter;
+    const tickerMatch = !tickerFilter || c.ticker.includes(tickerFilter);
+    return statusMatch && tickerMatch;
+  });
+
+  renderReviewQueue(filtered);
 }
 
 function getDtrStepStatus(step) {

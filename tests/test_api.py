@@ -5171,3 +5171,870 @@ class TestMarketBenchmarkBackfillEndpoint:
         )
         assert resp.status_code == 422
         assert "must not be empty" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Candidate Review Queue
+# ---------------------------------------------------------------------------
+
+class TestCandidateReviewQueueEndpoint:
+    """Tests for POST /v1/review/candidates, GET /v1/review/candidates, PATCH /v1/review/candidates/{id}."""
+
+    def test_post_requires_api_key(self, client: TestClient) -> None:
+        """POST /v1/review/candidates requires X-API-Key."""
+        resp = client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-key-001",
+                "candidates": [
+                    {
+                        "ticker": "AAPL",
+                        "scan_score": "10.0",
+                        "latest_price": "150.00",
+                        "momentum_5d_pct": "1.5",
+                        "momentum_20d_pct": "5.0",
+                        "relative_strength_vs_spy_20d": "2.0",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "forecast_price_5d": "155.00",
+                        "expected_return_pct": "3.3",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                    }
+                ]
+            },
+        )
+        assert resp.status_code == 401  # Not authorized (no auth)
+
+    def test_post_empty_candidates_rejected(self, seeded_client: TestClient) -> None:
+        """POST rejects empty candidates list with 422."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-key-001",
+                "candidates": []
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_post_saves_candidate(self, seeded_client: TestClient) -> None:
+        """POST saves a single candidate."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-key-001",
+                "candidates": [
+                    {
+                        "ticker": "AAPL",
+                        "scan_rank": "1",
+                        "scan_score": "15.5",
+                        "latest_price": "150.00",
+                        "momentum_5d_pct": "1.5",
+                        "momentum_20d_pct": "5.0",
+                        "relative_strength_vs_spy_20d": "2.0",
+                        "scan_reason_codes": ["POSITIVE_MOMENTUM"],
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "forecast_price_5d": "155.00",
+                        "expected_return_pct": "3.3",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "85.5",
+                        "preview_reasons": ["High confidence"],
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted_count"] == 1
+        assert data["skipped_existing_count"] == 0
+        assert len(data["candidates_saved"]) == 1
+        assert data["candidates_saved"][0]["ticker"] == "AAPL"
+        assert data["candidates_saved"][0]["review_status"] == "NEW"
+
+    def test_post_defaults_review_status_to_new(self, seeded_client: TestClient) -> None:
+        """POST defaults review_status to NEW."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-key-002",
+                "candidates": [
+                    {
+                        "ticker": "MSFT",
+                        "scan_score": "12.0",
+                        "latest_price": "300.00",
+                        "momentum_5d_pct": "2.0",
+                        "momentum_20d_pct": "6.0",
+                        "relative_strength_vs_spy_20d": "1.5",
+                        "prediction_recommendation": "HOLD",
+                        "prediction_confidence": "0.65",
+                        "forecast_price_5d": "302.00",
+                        "expected_return_pct": "0.67",
+                        "market_context": "neutral",
+                        "preview_decision": "WATCH",
+                        "preview_score": "50.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["candidates_saved"][0]["review_status"] == "NEW"
+
+    def test_post_is_idempotent(self, seeded_client: TestClient) -> None:
+        """POST is idempotent on (idempotency_key, ticker)."""
+        ikey = "test-idem-001"
+        payload = {
+            "idempotency_key": ikey,
+            "candidates": [
+                {
+                    "ticker": "GOOG",
+                    "scan_score": "18.0",
+                    "latest_price": "140.00",
+                    "momentum_5d_pct": "3.0",
+                    "momentum_20d_pct": "7.0",
+                    "relative_strength_vs_spy_20d": "3.5",
+                    "prediction_recommendation": "BUY",
+                    "prediction_confidence": "0.9",
+                    "forecast_price_5d": "145.00",
+                    "expected_return_pct": "3.57",
+                    "market_context": "bullish",
+                    "preview_decision": "CONSIDER",
+                    "preview_score": "90.0",
+                }
+            ]
+        }
+
+        # First POST
+        resp1 = seeded_client.post(
+            "/v1/review/candidates",
+            json=payload,
+            headers=_AUTH,
+        )
+        assert resp1.status_code == 200
+        data1 = resp1.json()
+        assert data1["inserted_count"] == 1
+        assert data1["skipped_existing_count"] == 0
+
+        # Second POST (same ikey, same ticker) should skip
+        resp2 = seeded_client.post(
+            "/v1/review/candidates",
+            json=payload,
+            headers=_AUTH,
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        assert data2["inserted_count"] == 0
+        assert data2["skipped_existing_count"] == 1
+
+    def test_get_requires_api_key(self, client: TestClient) -> None:
+        """GET /v1/review/candidates requires X-API-Key."""
+        resp = client.get("/v1/review/candidates")
+        assert resp.status_code == 401
+
+    def test_get_lists_saved_candidates(self, seeded_client: TestClient) -> None:
+        """GET lists saved candidates."""
+        # Save a candidate first
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-list-001",
+                "candidates": [
+                    {
+                        "ticker": "TSLA",
+                        "scan_score": "20.0",
+                        "latest_price": "250.00",
+                        "momentum_5d_pct": "4.0",
+                        "momentum_20d_pct": "10.0",
+                        "relative_strength_vs_spy_20d": "5.0",
+                        "prediction_recommendation": "SELL",
+                        "prediction_confidence": "0.75",
+                        "forecast_price_5d": "245.00",
+                        "expected_return_pct": "-2.0",
+                        "market_context": "bearish",
+                        "preview_decision": "REJECT",
+                        "preview_score": "25.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # GET should return the candidate
+        resp = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) >= 1
+        assert any(c["ticker"] == "TSLA" for c in data)
+
+    def test_get_filters_by_status(self, seeded_client: TestClient) -> None:
+        """GET filters by review_status."""
+        # Save a candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-filter-001",
+                "candidates": [
+                    {
+                        "ticker": "NVDA",
+                        "scan_score": "22.0",
+                        "latest_price": "880.00",
+                        "momentum_5d_pct": "2.5",
+                        "momentum_20d_pct": "8.0",
+                        "relative_strength_vs_spy_20d": "4.0",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.88",
+                        "forecast_price_5d": "900.00",
+                        "expected_return_pct": "2.27",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "88.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Filter by NEW status
+        resp = seeded_client.get(
+            "/v1/review/candidates?status=NEW",
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert all(c["review_status"] == "NEW" for c in data)
+
+        # Filter by NON-existent status should return empty
+        resp = seeded_client.get(
+            "/v1/review/candidates?status=APPROVED_FOR_SIGNAL",
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 0
+
+    def test_get_filters_by_ticker(self, seeded_client: TestClient) -> None:
+        """GET filters by ticker."""
+        # Save two candidates
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-ticker-filter-001",
+                "candidates": [
+                    {
+                        "ticker": "AMD",
+                        "scan_score": "16.0",
+                        "latest_price": "120.00",
+                        "momentum_5d_pct": "1.8",
+                        "momentum_20d_pct": "4.5",
+                        "relative_strength_vs_spy_20d": "1.8",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "forecast_price_5d": "125.00",
+                        "expected_return_pct": "4.17",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "80.0",
+                    },
+                    {
+                        "ticker": "INTC",
+                        "scan_score": "14.0",
+                        "latest_price": "35.00",
+                        "momentum_5d_pct": "1.2",
+                        "momentum_20d_pct": "3.0",
+                        "relative_strength_vs_spy_20d": "0.5",
+                        "prediction_recommendation": "HOLD",
+                        "prediction_confidence": "0.60",
+                        "forecast_price_5d": "35.50",
+                        "expected_return_pct": "1.43",
+                        "market_context": "neutral",
+                        "preview_decision": "WATCH",
+                        "preview_score": "55.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        # Filter by AMD
+        resp = seeded_client.get(
+            "/v1/review/candidates?ticker=AMD",
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert all(c["ticker"] == "AMD" for c in data)
+
+    def test_get_limit_works(self, seeded_client: TestClient) -> None:
+        """GET respects limit parameter."""
+        # Save multiple candidates
+        for i in range(3):
+            seeded_client.post(
+                "/v1/review/candidates",
+                json={
+                    "idempotency_key": f"test-limit-{i:03d}",
+                    "candidates": [
+                        {
+                            "ticker": f"TST{i}",
+                            "scan_score": f"{15 + i}.0",
+                            "latest_price": "100.00",
+                            "momentum_5d_pct": "1.0",
+                            "momentum_20d_pct": "3.0",
+                            "relative_strength_vs_spy_20d": "0.5",
+                            "prediction_recommendation": "BUY",
+                            "prediction_confidence": "0.75",
+                            "forecast_price_5d": "105.00",
+                            "expected_return_pct": "5.0",
+                            "market_context": "bullish",
+                            "preview_decision": "CONSIDER",
+                            "preview_score": "75.0",
+                        }
+                    ]
+                },
+                headers=_AUTH,
+            )
+
+        # Get with limit=1
+        resp = seeded_client.get(
+            "/v1/review/candidates?limit=1",
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) <= 1
+
+    def test_patch_requires_api_key(self, client: TestClient) -> None:
+        """PATCH /v1/review/candidates/{id} requires X-API-Key."""
+        test_id = "00000000-0000-0000-0000-000000000000"
+        resp = client.patch(
+            f"/v1/review/candidates/{test_id}",
+            json={"review_status": "WATCHING"},
+        )
+        assert resp.status_code == 401
+
+    def test_patch_updates_review_status(self, seeded_client: TestClient) -> None:
+        """PATCH updates review_status."""
+        # Save a candidate
+        save_resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-patch-001",
+                "candidates": [
+                    {
+                        "ticker": "PATCH",
+                        "scan_score": "17.0",
+                        "latest_price": "200.00",
+                        "momentum_5d_pct": "2.0",
+                        "momentum_20d_pct": "5.5",
+                        "relative_strength_vs_spy_20d": "2.5",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.82",
+                        "forecast_price_5d": "210.00",
+                        "expected_return_pct": "5.0",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "82.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        candidate_id = save_resp.json()["candidates_saved"][0]["id"]
+
+        # PATCH to WATCHING
+        resp = seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "WATCHING"},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["review_status"] == "WATCHING"
+
+    def test_patch_rejects_invalid_status(self, seeded_client: TestClient) -> None:
+        """PATCH rejects invalid review_status with 422."""
+        # Save a candidate
+        save_resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-patch-invalid-001",
+                "candidates": [
+                    {
+                        "ticker": "BADSTATUS",
+                        "scan_score": "10.0",
+                        "latest_price": "50.00",
+                        "momentum_5d_pct": "0.5",
+                        "momentum_20d_pct": "1.0",
+                        "relative_strength_vs_spy_20d": "0.2",
+                        "prediction_recommendation": "HOLD",
+                        "prediction_confidence": "0.50",
+                        "forecast_price_5d": "50.50",
+                        "expected_return_pct": "1.0",
+                        "market_context": "neutral",
+                        "preview_decision": "WATCH",
+                        "preview_score": "50.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        candidate_id = save_resp.json()["candidates_saved"][0]["id"]
+
+        # PATCH with invalid status
+        resp = seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "INVALID_STATUS"},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_patch_returns_404_for_unknown_id(self, seeded_client: TestClient) -> None:
+        """PATCH returns 404 for unknown candidate_id."""
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        resp = seeded_client.patch(
+            f"/v1/review/candidates/{fake_id}",
+            json={"review_status": "WATCHING"},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 404
+
+    def test_patch_approved_for_signal_does_not_create_signal(self, seeded_client: TestClient) -> None:
+        """PATCH APPROVED_FOR_SIGNAL does not create Signal rows."""
+        # Save a candidate
+        save_resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-nosignal-001",
+                "candidates": [
+                    {
+                        "ticker": "NOSIG",
+                        "scan_score": "19.0",
+                        "latest_price": "175.00",
+                        "momentum_5d_pct": "2.2",
+                        "momentum_20d_pct": "6.5",
+                        "relative_strength_vs_spy_20d": "3.0",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.91",
+                        "forecast_price_5d": "185.00",
+                        "expected_return_pct": "5.71",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "91.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        candidate_id = save_resp.json()["candidates_saved"][0]["id"]
+
+        # Count signals before PATCH
+        from paper_trader.db.session import get_session
+        with get_session() as session:
+            signals_before = session.query(Signal).count()
+
+        # PATCH to APPROVED_FOR_SIGNAL
+        resp = seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+
+        # Count signals after PATCH — should be unchanged
+        with get_session() as session:
+            signals_after = session.query(Signal).count()
+        assert signals_after == signals_before
+
+    def test_post_does_not_create_signal(self, seeded_client: TestClient) -> None:
+        """POST save does not create Signal rows."""
+        from paper_trader.db.session import get_session
+
+        with get_session() as session:
+            signals_before = session.query(Signal).count()
+
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-post-nosig-001",
+                "candidates": [
+                    {
+                        "ticker": "POSTNOS",
+                        "scan_score": "13.0",
+                        "latest_price": "95.00",
+                        "momentum_5d_pct": "1.3",
+                        "momentum_20d_pct": "4.2",
+                        "relative_strength_vs_spy_20d": "1.2",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.78",
+                        "forecast_price_5d": "100.00",
+                        "expected_return_pct": "5.26",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "78.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        with get_session() as session:
+            signals_after = session.query(Signal).count()
+        assert signals_after == signals_before
+
+    def test_post_does_not_create_trade_decision(self, seeded_client: TestClient) -> None:
+        """POST save does not create TradeDecision rows."""
+        from paper_trader.db.session import get_session
+
+        with get_session() as session:
+            decisions_before = session.query(TradeDecision).count()
+
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-post-nodec-001",
+                "candidates": [
+                    {
+                        "ticker": "POSTNOD",
+                        "scan_score": "11.0",
+                        "latest_price": "80.00",
+                        "momentum_5d_pct": "0.9",
+                        "momentum_20d_pct": "2.8",
+                        "relative_strength_vs_spy_20d": "0.8",
+                        "prediction_recommendation": "HOLD",
+                        "prediction_confidence": "0.65",
+                        "forecast_price_5d": "81.00",
+                        "expected_return_pct": "1.25",
+                        "market_context": "neutral",
+                        "preview_decision": "WATCH",
+                        "preview_score": "60.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        with get_session() as session:
+            decisions_after = session.query(TradeDecision).count()
+        assert decisions_after == decisions_before
+
+    def test_post_does_not_create_order(self, seeded_client: TestClient) -> None:
+        """POST save does not create Order rows."""
+        from paper_trader.db.session import get_session
+
+        with get_session() as session:
+            orders_before = session.query(Order).count()
+
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-post-noord-001",
+                "candidates": [
+                    {
+                        "ticker": "POSTNO",
+                        "scan_score": "9.0",
+                        "latest_price": "65.00",
+                        "momentum_5d_pct": "0.6",
+                        "momentum_20d_pct": "1.9",
+                        "relative_strength_vs_spy_20d": "0.3",
+                        "prediction_recommendation": "SELL",
+                        "prediction_confidence": "0.55",
+                        "forecast_price_5d": "63.00",
+                        "expected_return_pct": "-3.08",
+                        "market_context": "bearish",
+                        "preview_decision": "REJECT",
+                        "preview_score": "25.0",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        with get_session() as session:
+            orders_after = session.query(Order).count()
+        assert orders_after == orders_before
+
+    def test_post_saves_failed_fetch_candidate(self, seeded_client: TestClient) -> None:
+        """POST saves a FAILED_FETCH candidate with null prediction fields."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-failed-fetch-001",
+                "candidates": [
+                    {
+                        "ticker": "FAILFETCH",
+                        "scan_rank": None,
+                        "scan_score": None,
+                        "latest_price": None,
+                        "momentum_5d_pct": None,
+                        "momentum_20d_pct": None,
+                        "relative_strength_vs_spy_20d": None,
+                        "scan_reason_codes": None,
+                        "prediction_recommendation": None,
+                        "prediction_confidence": None,
+                        "forecast_price_5d": None,
+                        "expected_return_pct": None,
+                        "market_context": None,
+                        "preview_decision": "REJECT",
+                        "preview_score": "0.0",
+                        "status": "ERROR",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted_count"] == 1
+        assert len(data["candidates_saved"]) == 1
+        saved = data["candidates_saved"][0]
+        assert saved["ticker"] == "FAILFETCH"
+        assert saved["scan_score"] is None
+        assert saved["prediction_recommendation"] is None
+        assert saved["status"] == "ERROR"
+
+    def test_post_saves_failed_normalization_candidate(self, seeded_client: TestClient) -> None:
+        """POST saves a FAILED_NORMALIZATION candidate with null prediction fields."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-failed-norm-001",
+                "candidates": [
+                    {
+                        "ticker": "FAILNORM",
+                        "scan_score": "12.5",
+                        "latest_price": "100.00",
+                        "momentum_5d_pct": "1.5",
+                        "momentum_20d_pct": "3.0",
+                        "relative_strength_vs_spy_20d": "0.5",
+                        "prediction_recommendation": None,
+                        "prediction_confidence": None,
+                        "forecast_price_5d": None,
+                        "expected_return_pct": None,
+                        "market_context": None,
+                        "preview_decision": "REJECT",
+                        "preview_score": "10.0",
+                        "status": "ERROR",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted_count"] == 1
+        saved = data["candidates_saved"][0]
+        assert saved["ticker"] == "FAILNORM"
+        assert saved["scan_score"] == "12.5"
+        assert saved["prediction_recommendation"] is None
+        assert saved["preview_decision"] == "REJECT"
+
+    def test_post_saves_missing_prediction_candidate(self, seeded_client: TestClient) -> None:
+        """POST saves a MISSING_PREDICTION candidate with null prediction fields."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-missing-pred-001",
+                "candidates": [
+                    {
+                        "ticker": "MISSPRED",
+                        "scan_score": "8.0",
+                        "latest_price": "50.00",
+                        "momentum_5d_pct": "0.8",
+                        "momentum_20d_pct": "2.0",
+                        "relative_strength_vs_spy_20d": "0.3",
+                        "prediction_recommendation": None,
+                        "prediction_confidence": None,
+                        "forecast_price_5d": None,
+                        "expected_return_pct": None,
+                        "market_context": None,
+                        "preview_decision": "WATCH",
+                        "preview_score": "45.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted_count"] == 1
+        saved = data["candidates_saved"][0]
+        assert saved["ticker"] == "MISSPRED"
+        assert saved["preview_decision"] == "WATCH"
+        assert saved["prediction_recommendation"] is None
+
+    def test_post_save_all_use_case_supported(self, seeded_client: TestClient) -> None:
+        """POST supports Save All use case with mixed OK and failed candidates."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-save-all-001",
+                "candidates": [
+                    {
+                        "ticker": "OK_TICKER",
+                        "scan_score": "15.0",
+                        "latest_price": "150.00",
+                        "momentum_5d_pct": "1.5",
+                        "momentum_20d_pct": "5.0",
+                        "relative_strength_vs_spy_20d": "2.0",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "forecast_price_5d": "155.00",
+                        "expected_return_pct": "3.3",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "85.0",
+                        "status": "OK",
+                    },
+                    {
+                        "ticker": "FAILED_TICKER",
+                        "scan_score": None,
+                        "latest_price": None,
+                        "momentum_5d_pct": None,
+                        "momentum_20d_pct": None,
+                        "relative_strength_vs_spy_20d": None,
+                        "prediction_recommendation": None,
+                        "prediction_confidence": None,
+                        "forecast_price_5d": None,
+                        "expected_return_pct": None,
+                        "market_context": None,
+                        "preview_decision": "REJECT",
+                        "preview_score": "5.0",
+                        "status": "ERROR",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted_count"] == 2
+        assert len(data["candidates_saved"]) == 2
+        # Verify both kinds were saved
+        tickers = {c["ticker"] for c in data["candidates_saved"]}
+        assert "OK_TICKER" in tickers
+        assert "FAILED_TICKER" in tickers
+
+    def test_post_failed_candidates_do_not_create_signal(self, seeded_client: TestClient) -> None:
+        """POST save of failed candidates does not create Signal rows."""
+        from paper_trader.db.session import get_session
+
+        with get_session() as session:
+            signals_before = session.query(Signal).count()
+
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-failed-nosig-001",
+                "candidates": [
+                    {
+                        "ticker": "FAILSIG",
+                        "scan_score": None,
+                        "latest_price": None,
+                        "momentum_5d_pct": None,
+                        "momentum_20d_pct": None,
+                        "relative_strength_vs_spy_20d": None,
+                        "prediction_recommendation": None,
+                        "prediction_confidence": None,
+                        "forecast_price_5d": None,
+                        "expected_return_pct": None,
+                        "market_context": None,
+                        "preview_decision": "REJECT",
+                        "preview_score": "0.0",
+                        "status": "ERROR",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        with get_session() as session:
+            signals_after = session.query(Signal).count()
+        assert signals_after == signals_before
+
+    def test_post_accepts_candidate_preview_shape_with_integer_scan_rank(self, seeded_client: TestClient) -> None:
+        """POST accepts live candidate_preview shape with integer scan_rank."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-preview-shape-001",
+                "candidates": [
+                    {
+                        "ticker": "SCAN_INT",
+                        "scan_rank": 3,
+                        "scan_score": "22.5",
+                        "latest_price": "175.00",
+                        "momentum_5d_pct": "2.3",
+                        "momentum_20d_pct": "8.1",
+                        "relative_strength_vs_spy_20d": "5.2",
+                        "scan_reason_codes": ["POSITIVE_5D_MOMENTUM", "OUTPERFORMING_SPY"],
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.92",
+                        "forecast_price_5d": "185.50",
+                        "expected_return_pct": "5.87",
+                        "market_context": "bullish",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "92.3",
+                        "preview_reasons": ["High confidence", "Outperforming benchmark"],
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted_count"] == 1
+        assert data["skipped_existing_count"] == 0
+        saved = data["candidates_saved"][0]
+        assert saved["ticker"] == "SCAN_INT"
+        assert saved["scan_rank"] == "3"
+        assert saved["scan_reason_codes"] == ["POSITIVE_5D_MOMENTUM", "OUTPERFORMING_SPY"]
+        assert saved["preview_reasons"] == ["High confidence", "Outperforming benchmark"]
+
+    def test_post_accepts_all_failed_candidates_shape(self, seeded_client: TestClient) -> None:
+        """POST accepts failed candidates with null prediction fields and default empty lists."""
+        resp = seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-all-failed-001",
+                "candidates": [
+                    {
+                        "ticker": "FAIL_1",
+                        "scan_rank": 5,
+                        "scan_score": "10.0",
+                        "latest_price": "100.00",
+                        "momentum_5d_pct": "0.5",
+                        "momentum_20d_pct": "1.0",
+                        "relative_strength_vs_spy_20d": "0.0",
+                        "scan_reason_codes": [],
+                        "prediction_recommendation": None,
+                        "prediction_confidence": None,
+                        "forecast_price_5d": None,
+                        "expected_return_pct": None,
+                        "market_context": None,
+                        "preview_decision": "WATCH",
+                        "preview_score": "50.0",
+                        "preview_reasons": [],
+                        "status": "ERROR",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted_count"] == 1
+        saved = data["candidates_saved"][0]
+        assert saved["status"] == "ERROR"
+        assert saved["scan_rank"] == "5"
+        assert saved["prediction_recommendation"] is None

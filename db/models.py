@@ -1053,3 +1053,158 @@ class PortfolioSnapshot(Base):
             "at snapshot time. Enables historical charts without joins."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# candidate_reviews
+# ---------------------------------------------------------------------------
+
+class CandidateReview(Base):
+    """
+    Review queue for candidate predictions awaiting manual approval.
+
+    Stores copies of candidate_preview results from market scan + prediction
+    preview endpoint. Allows users to save selected tickers for later review
+    before deciding whether to approve them for trading signals.
+
+    IMPORTANT: review_status is a label only. APPROVED_FOR_SIGNAL does not
+    create Signal, TradeDecision, or Order rows. No trades are executed.
+
+    Idempotency: Unique on (idempotency_key, ticker) prevents duplicate saves.
+    Reposting the same pair is idempotent (skipped, not upserted).
+
+    All numeric fields are stored as String to match API contract with
+    frontend candidate_preview responses.
+    """
+
+    __tablename__ = "candidate_reviews"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", "ticker", name="uq_candidate_reviews_key_ticker"),
+        Index("ix_candidate_reviews_review_status", "review_status"),
+        Index("ix_candidate_reviews_ticker", "ticker"),
+        Index("ix_candidate_reviews_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    idempotency_key: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment="Caller-provided key for deduplication. E.g. 'review-save-20260527-001'.",
+    )
+    ticker: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        comment="Stock ticker symbol, uppercase.",
+    )
+
+    # --- Scan metrics (from market scan) ---
+    scan_rank: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Rank in market scan results. Stored as string for consistency.",
+    )
+    scan_score: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Market scan composite score. Decimal string, e.g. '15.60'. Null if failed.",
+    )
+    latest_price: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Latest price at scan time. Decimal string, e.g. '446.27'. Null if failed.",
+    )
+    momentum_5d_pct: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="5-day momentum percentage. Decimal string, e.g. '1.23'. Null if failed.",
+    )
+    momentum_20d_pct: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="20-day momentum percentage. Decimal string, e.g. '19.51'. Null if failed.",
+    )
+    relative_strength_vs_spy_20d: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Relative Strength vs SPY (20-day). Decimal string, e.g. '14.04'. Null if failed.",
+    )
+    scan_reason_codes: Mapped[Optional[list]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Array of reason codes from market scan, e.g. ['POSITIVE_20D_MOMENTUM', 'OUTPERFORMING_SPY'].",
+    )
+
+    # --- Prediction metrics (from GCP prediction API) ---
+    prediction_recommendation: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="BUY | SELL | HOLD. Null if prediction failed.",
+    )
+    prediction_confidence: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Confidence score (0-1). Decimal string, e.g. '0.99'. Null if prediction failed.",
+    )
+    forecast_price_5d: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="5-day forecast price. Decimal string, e.g. '453.98'. Null if prediction failed.",
+    )
+    expected_return_pct: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Expected return percentage. Decimal string, e.g. '1.73'. Null if prediction failed.",
+    )
+    market_context: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="bullish | bearish | neutral. Null if prediction failed.",
+    )
+
+    # --- Preview decision summary ---
+    preview_decision: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        comment="CONSIDER | WATCH | REJECT (from candidate preview scoring).",
+    )
+    preview_score: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        comment="Preview decision score (0-100). Decimal string, e.g. '86.6'.",
+    )
+    preview_reasons: Mapped[Optional[list]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Array of reason strings explaining preview decision.",
+    )
+
+    # --- Review status (UI-editable) ---
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="OK",
+        comment="OK | ERROR. Indicates whether the candidate was successfully saved.",
+    )
+    review_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="NEW",
+        comment="NEW | WATCHING | REJECTED | APPROVED_FOR_SIGNAL. User-editable review state.",
+    )
+
+    # --- Timestamps ---
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
