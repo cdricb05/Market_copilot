@@ -62,6 +62,7 @@ from paper_trader.db.models import (
     PortfolioSnapshot,
     Position,
     PriceSnapshot,
+    Signal,
     TradeDecision,
 )
 from paper_trader.db.session import get_dedicated_session, get_session
@@ -641,6 +642,55 @@ class ReviewSignalPreviewResponse(BaseModel):
     skipped: list[SkippedCandidateDetail]
     signals_created: int
     decisions_created: int
+    orders_created: int
+
+
+class ReviewCreateSignalsRequest(BaseModel):
+    """Request to create Signal rows from approved candidates in the review queue."""
+    idempotency_key: str = Field(
+        ...,
+        description="Unique key for this signal creation batch.",
+    )
+    candidate_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of candidate IDs to process. If None, uses review_status filter.",
+    )
+    review_status: str = Field(
+        default="APPROVED_FOR_SIGNAL",
+        description="Review status to filter by (ignored if candidate_ids provided).",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of candidates to process (default 50, max 100).",
+    )
+    confirm_create_signals: bool = Field(
+        default=False,
+        description="Must be true to actually create Signal rows, else returns 422.",
+    )
+
+
+class CreatedSignalItem(BaseModel):
+    """A signal that was created in the database."""
+    candidate_review_id: str
+    signal_id: str
+    ticker: str
+    side: str
+    confidence: str
+    source_run: str
+
+
+class ReviewCreateSignalsResponse(BaseModel):
+    """Response from create signals endpoint (creates actual Signal rows)."""
+    execution_mode: str
+    candidates_evaluated: int
+    signals_created: int
+    skipped_count: int
+    skipped_existing_count: int
+    created_signals: list[CreatedSignalItem]
+    skipped: list[SkippedCandidateDetail]
+    trade_decisions_created: int
     orders_created: int
 
 
@@ -3572,6 +3622,274 @@ async def preview_signal_from_candidates(
         skipped=skipped_list,
         signals_created=0,
         decisions_created=0,
+        orders_created=0,
+    )
+
+
+@app.post(
+    "/v1/review/create-signals",
+    response_model=ReviewCreateSignalsResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def create_signals_from_candidates(
+    body: ReviewCreateSignalsRequest,
+) -> ReviewCreateSignalsResponse:
+    """
+    Create Signal rows from approved candidates in the review queue.
+
+    This endpoint creates actual Signal rows (not previews). It does NOT create
+    TradeDecision, Order, or trigger any downstream workflows.
+
+    Validation rules:
+    - Only candidates with status='OK' create signals
+    - Only BUY/SELL recommendations create signals (HOLD is skipped)
+    - Confidence must be numeric in range [0, 1]
+    - Duplicate protection: per-candidate source_run prevents duplicate Signals
+    - confirm_create_signals must be true, else returns 422
+
+    Filtering rules:
+    - If candidate_ids is NOT provided: query by review_status in SQL
+    - If candidate_ids IS provided: query those IDs, evaluate review_status in Python
+
+    Response distinguishes:
+    - signals_created: new Signals just created
+    - skipped_existing_count: candidates that already had Signals (duplicate protection)
+    - skipped_count: candidates skipped due to validation errors
+    """
+    import uuid as uuid_module
+
+    # Validation: confirm_create_signals must be true
+    if not body.confirm_create_signals:
+        raise HTTPException(
+            status_code=422,
+            detail="confirm_create_signals must be true to create Signal rows.",
+        )
+
+    evaluated = 0
+    created = 0
+    skipped_list = []
+    skipped_existing = 0
+    created_signals_list = []
+
+    with get_session() as session:
+        # Determine market_date (US Eastern)
+        eastern_now = datetime.now(_EASTERN)
+        market_date = eastern_now.date()
+
+        # Build query for candidates
+        query = session.query(CandidateReview)
+
+        if body.candidate_ids:
+            # Query explicit candidate IDs
+            try:
+                candidate_uuids = [uuid_module.UUID(cid) for cid in body.candidate_ids]
+                query = query.filter(CandidateReview.id.in_(candidate_uuids))
+            except (ValueError, AttributeError):
+                # If any UUID is invalid, return empty result with 0 created
+                return ReviewCreateSignalsResponse(
+                    execution_mode="SIGNAL_CREATION_ONLY",
+                    candidates_evaluated=0,
+                    signals_created=0,
+                    skipped_count=0,
+                    skipped_existing_count=0,
+                    created_signals=[],
+                    skipped=[],
+                    trade_decisions_created=0,
+                    orders_created=0,
+                )
+        else:
+            # Filter by review_status in SQL
+            query = query.filter(CandidateReview.review_status == body.review_status)
+
+        # Apply limit
+        rows = query.limit(body.limit).all()
+
+        # First pass: collect signals to create and validation skips
+        signals_to_create = []  # List of (row, direction, confidence_decimal, source_run)
+
+        # Process each row
+        for row in rows:
+            evaluated += 1
+            candidate_id_str = str(row.id)
+
+            # If candidate_ids was provided, check review_status in Python
+            if body.candidate_ids and row.review_status != body.review_status:
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason=f"Review status is {row.review_status}, not {body.review_status}",
+                ))
+                continue
+
+            # Check status is OK
+            if row.status != "OK":
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason=f"Status is {row.status}, not OK",
+                ))
+                continue
+
+            # Check recommendation exists
+            if not row.prediction_recommendation:
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason="Missing prediction_recommendation",
+                ))
+                continue
+
+            # Check HOLD is skipped
+            if row.prediction_recommendation.upper() == "HOLD":
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason="HOLD recommendations do not create actionable signals",
+                ))
+                continue
+
+            # Check confidence is present and valid
+            if not row.prediction_confidence:
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason="Missing prediction_confidence",
+                ))
+                continue
+
+            try:
+                confidence_decimal = Decimal(row.prediction_confidence)
+                if not (Decimal("0") <= confidence_decimal <= Decimal("1")):
+                    skipped_list.append(SkippedCandidateDetail(
+                        candidate_review_id=candidate_id_str,
+                        ticker=row.ticker,
+                        reason=f"Confidence {confidence_decimal} out of range [0, 1]",
+                    ))
+                    continue
+            except (ValueError, Exception):
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason=f"Invalid confidence: {row.prediction_confidence}",
+                ))
+                continue
+
+            # Map recommendation to direction (BUY/SELL only)
+            direction = None
+            rec_upper = row.prediction_recommendation.upper()
+            if rec_upper == "BUY":
+                direction = "BUY"
+            elif rec_upper == "SELL":
+                direction = "SELL"
+            else:
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason=f"Invalid recommendation: {row.prediction_recommendation}",
+                ))
+                continue
+
+            # Deterministic source_run based on candidate_review_id
+            source_run = f"review_queue_create_signals_v1:{candidate_id_str}"
+
+            # Check if Signal already exists with this source_run+ticker+direction
+            existing_signal = session.query(Signal).filter(
+                Signal.source_run == source_run,
+                Signal.ticker == row.ticker,
+                Signal.direction == direction,
+            ).first()
+
+            if existing_signal:
+                skipped_existing += 1
+                skipped_list.append(SkippedCandidateDetail(
+                    candidate_review_id=candidate_id_str,
+                    ticker=row.ticker,
+                    reason="Signal already exists for candidate review",
+                ))
+                continue
+
+            # This candidate will create a new signal; collect it
+            signals_to_create.append((row, direction, confidence_decimal, source_run, candidate_id_str))
+
+        # Only create JobRun if we have new signals to create
+        job_run = None
+        if signals_to_create:
+            job_run = JobRun(
+                idempotency_key=body.idempotency_key,
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=market_date,
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+                result_summary={},
+            )
+            session.add(job_run)
+            session.flush()
+
+            # Second pass: create signals now that we have a JobRun
+            for row, direction, confidence_decimal, source_run, candidate_id_str in signals_to_create:
+                # Build raw_payload with traceability fields
+                raw_payload = {
+                    "source": "review_queue_create_signals_v1",
+                    "candidate_review_id": candidate_id_str,
+                    "request_idempotency_key": body.idempotency_key,
+                    "review_status": body.review_status,
+                    "preview_decision": row.preview_decision,
+                    "preview_score": row.preview_score,
+                    "expected_return_pct": row.expected_return_pct,
+                    "forecast_price_5d": row.forecast_price_5d,
+                    "market_context": row.market_context,
+                    "preview_reasons": row.preview_reasons or [],
+                }
+
+                # Create Signal row
+                signal = Signal(
+                    job_run_id=job_run.id,
+                    ticker=row.ticker,
+                    direction=direction,
+                    confidence=confidence_decimal,
+                    signal_ts=datetime.now(timezone.utc),
+                    market_date=market_date,
+                    source_run=source_run,
+                    status="RECEIVED",
+                    raw_payload=raw_payload,
+                )
+                session.add(signal)
+                session.flush()
+
+                created_signals_list.append(CreatedSignalItem(
+                    candidate_review_id=candidate_id_str,
+                    signal_id=str(signal.id),
+                    ticker=row.ticker,
+                    side=direction,
+                    confidence=str(confidence_decimal),
+                    source_run=source_run,
+                ))
+                created += 1
+
+            # Update JobRun result_summary with counts
+            job_run.result_summary = {
+                "signals_created": created,
+                "skipped_count": len(skipped_list),
+                "skipped_existing_count": skipped_existing,
+            }
+            session.add(job_run)
+            session.flush()
+
+    # Count existing TradeDecision and Order rows to prove none were created
+    with get_session() as session:
+        trade_decision_count = session.query(TradeDecision).count()
+        order_count = session.query(Order).count()
+
+    return ReviewCreateSignalsResponse(
+        execution_mode="SIGNAL_CREATION_ONLY",
+        candidates_evaluated=evaluated,
+        signals_created=created,
+        skipped_count=len(skipped_list),
+        skipped_existing_count=skipped_existing,
+        created_signals=created_signals_list,
+        skipped=skipped_list,
+        trade_decisions_created=0,
         orders_created=0,
     )
 

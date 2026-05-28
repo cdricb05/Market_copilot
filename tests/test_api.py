@@ -58,7 +58,7 @@ from sqlalchemy.orm import Session
 from paper_trader.api.app import app
 from paper_trader.config import get_settings
 from paper_trader.constants import CashEntryType, JobRunStatus, WorkflowType
-from paper_trader.db.models import Base, BenchmarkPrice, JobRun, Order, Portfolio, PortfolioSnapshot, PriceSnapshot, Signal, TradeDecision
+from paper_trader.db.models import Base, BenchmarkPrice, CandidateReview, JobRun, Order, Portfolio, PortfolioSnapshot, PriceSnapshot, Signal, TradeDecision
 from paper_trader.db.session import reset_engine_state
 from paper_trader.engine.portfolio import append_cash_entry, open_position
 
@@ -6968,3 +6968,958 @@ class TestReviewSignalPreviewEndpoint:
         assert skipped["candidate_review_id"] == candidate_id
         assert skipped["ticker"] == "HOLDME"
         assert "HOLD" in skipped["reason"]
+
+
+class TestReviewCreateSignalsEndpoint:
+    """Tests for POST /v1/review/create-signals (creates actual Signal rows)."""
+
+    def test_post_requires_api_key(self, seeded_client: TestClient) -> None:
+        """POST requires valid X-API-Key header."""
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-key-api",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "limit": 10,
+                "confirm_create_signals": True,
+            },
+        )
+        assert resp.status_code == 401
+
+    def test_confirm_create_signals_false_returns_422(self, seeded_client: TestClient) -> None:
+        """POST returns 422 if confirm_create_signals is false."""
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-confirm-false",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "limit": 10,
+                "confirm_create_signals": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_confirm_create_signals_missing_returns_422(self, seeded_client: TestClient) -> None:
+        """POST returns 422 if confirm_create_signals is missing."""
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-confirm-missing",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "limit": 10,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_no_approved_candidates_returns_zero(self, seeded_client: TestClient, api_engine) -> None:
+        """POST returns 0 created when no APPROVED_FOR_SIGNAL candidates exist."""
+        # Clear CandidateReview rows to isolate this test
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.query(CandidateReview).delete()
+            session.commit()
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-no-approved",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 0
+        assert data["candidates_evaluated"] == 0
+        assert data["skipped_count"] == 0
+        assert data["skipped_existing_count"] == 0
+
+    def test_approved_buy_creates_signal(self, seeded_client: TestClient, api_engine) -> None:
+        """POST creates Signal row for BUY recommendation."""
+        # Save a BUY candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-buy-create",
+                "candidates": [
+                    {
+                        "ticker": "BUYME",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.95",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "85.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "BUYME"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Verify before count
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_count_before = session.query(Signal).count()
+
+        # Create signal
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-buy-create-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 1
+        assert data["created_signals"][0]["side"] == "BUY"
+        assert data["created_signals"][0]["ticker"] == "BUYME"
+        assert data["trade_decisions_created"] == 0
+        assert data["orders_created"] == 0
+
+        # Verify after count increased
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_count_after = session.query(Signal).count()
+        assert signal_count_after == signal_count_before + 1
+
+    def test_approved_sell_creates_signal(self, seeded_client: TestClient) -> None:
+        """POST creates Signal row for SELL recommendation."""
+        # Save a SELL candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-sell-create",
+                "candidates": [
+                    {
+                        "ticker": "SELLME",
+                        "prediction_recommendation": "SELL",
+                        "prediction_confidence": "0.88",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "SELLME"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-sell-create-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 1
+        assert data["created_signals"][0]["side"] == "SELL"
+        assert data["created_signals"][0]["ticker"] == "SELLME"
+
+    def test_hold_skipped_creates_no_signal(self, seeded_client: TestClient) -> None:
+        """POST skips HOLD recommendations and creates no Signal."""
+        # Save a HOLD candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-hold-skip",
+                "candidates": [
+                    {
+                        "ticker": "HOLDME",
+                        "prediction_recommendation": "HOLD",
+                        "prediction_confidence": "0.75",
+                        "preview_decision": "WATCH",
+                        "preview_score": "50.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "HOLDME"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-hold-skip-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 0
+        assert data["skipped_count"] == 1
+        assert "HOLD" in data["skipped"][0]["reason"]
+
+    def test_error_status_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips candidates with status != OK."""
+        # Save an ERROR status candidate
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-error-status",
+                "candidates": [
+                    {
+                        "ticker": "ERRORME",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "70.0",
+                        "status": "ERROR",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "ERRORME"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-error-status-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 0
+        assert data["skipped_count"] == 1
+        assert "Status is ERROR" in data["skipped"][0]["reason"]
+
+    def test_missing_recommendation_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips candidates with missing prediction_recommendation."""
+        # Save a candidate without recommendation
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-rec",
+                "candidates": [
+                    {
+                        "ticker": "NOREC",
+                        "prediction_recommendation": None,
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "WATCH",
+                        "preview_score": "50.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "NOREC"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-no-rec-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 0
+        assert data["skipped_count"] == 1
+        assert "Missing prediction_recommendation" in data["skipped"][0]["reason"]
+
+    def test_missing_confidence_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips candidates with missing prediction_confidence."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-conf",
+                "candidates": [
+                    {
+                        "ticker": "NOCONF",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": None,
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "70.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "NOCONF"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-no-conf-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 0
+        assert data["skipped_count"] == 1
+        assert "Missing prediction_confidence" in data["skipped"][0]["reason"]
+
+    def test_invalid_confidence_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips candidates with confidence out of [0, 1] range."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-bad-conf",
+                "candidates": [
+                    {
+                        "ticker": "BADCONF",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "1.5",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "70.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "BADCONF"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-bad-conf-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 0
+        assert data["skipped_count"] == 1
+        assert "out of range" in data["skipped"][0]["reason"]
+
+    def test_non_approved_status_explicitly_included_skipped(self, seeded_client: TestClient) -> None:
+        """POST skips non-APPROVED_FOR_SIGNAL status when candidate_ids includes them."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-explicit-new",
+                "candidates": [
+                    {
+                        "ticker": "NEWSTATUS",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "70.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "NEWSTATUS"][0]
+        # Don't approve it - leave it as NEW
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-explicit-new-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 0
+        assert data["skipped_count"] == 1
+        assert "Review status is NEW" in data["skipped"][0]["reason"]
+
+    def test_candidate_ids_filter_works(self, seeded_client: TestClient) -> None:
+        """POST filters to specified candidate_ids only."""
+        # Save two candidates
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-filter-1",
+                "candidates": [
+                    {
+                        "ticker": "FILTER1",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.90",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "80.0",
+                        "status": "OK",
+                    },
+                    {
+                        "ticker": "FILTER2",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id_1 = [c["id"] for c in candidates if c["ticker"] == "FILTER1"][0]
+        
+        # Approve both
+        for c_id in [c["id"] for c in candidates if c["ticker"] in ["FILTER1", "FILTER2"]]:
+            seeded_client.patch(
+                f"/v1/review/candidates/{c_id}",
+                json={"review_status": "APPROVED_FOR_SIGNAL"},
+                headers=_AUTH,
+            )
+
+        # Process only FILTER1
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-filter-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id_1],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["candidates_evaluated"] == 1
+        assert data["signals_created"] == 1
+        assert data["created_signals"][0]["ticker"] == "FILTER1"
+
+    def test_limit_works(self, seeded_client: TestClient) -> None:
+        """POST respects limit parameter."""
+        # Save 5 candidates
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-limit",
+                "candidates": [
+                    {
+                        "ticker": f"LIMIT{i}",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.80",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "70.0",
+                        "status": "OK",
+                    }
+                    for i in range(5)
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        for c in candidates:
+            if c["ticker"].startswith("LIMIT"):
+                seeded_client.patch(
+                    f"/v1/review/candidates/{c['id']}",
+                    json={"review_status": "APPROVED_FOR_SIGNAL"},
+                    headers=_AUTH,
+                )
+
+        # Request with limit=2
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-limit-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "limit": 2,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["candidates_evaluated"] <= 2
+
+    def test_repeated_request_idempotent_zero_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST same idempotency_key twice creates 0 signals second time."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-idem",
+                "candidates": [
+                    {
+                        "ticker": "IDEM1",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.90",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "80.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "IDEM1"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # First call
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_count_before = session.query(Signal).count()
+            decision_count_before = session.query(TradeDecision).count()
+            order_count_before = session.query(Order).count()
+            jobrun_count_before = session.query(JobRun).count()
+
+        resp1 = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-idem-same",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp1.status_code == 200
+        assert resp1.json()["signals_created"] == 1
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_count_after_first = session.query(Signal).count()
+            decision_count_after_first = session.query(TradeDecision).count()
+            order_count_after_first = session.query(Order).count()
+            jobrun_count_after_first = session.query(JobRun).count()
+
+        assert signal_count_after_first == signal_count_before + 1
+        assert decision_count_after_first == decision_count_before
+        assert order_count_after_first == order_count_before
+        assert jobrun_count_after_first == jobrun_count_before + 1
+
+        # Second call with same idempotency_key and candidate
+        resp2 = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-idem-same",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        assert data2["signals_created"] == 0
+        assert data2["skipped_existing_count"] == 1
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_count_after_second = session.query(Signal).count()
+            decision_count_after_second = session.query(TradeDecision).count()
+            order_count_after_second = session.query(Order).count()
+            jobrun_count_after_second = session.query(JobRun).count()
+
+        # Counts should be unchanged (no new JobRun created when no new signals)
+        assert signal_count_after_second == signal_count_after_first
+        assert decision_count_after_second == decision_count_after_first
+        assert order_count_after_second == order_count_after_first
+        assert jobrun_count_after_second == jobrun_count_after_first
+
+    def test_duplicate_protection_different_idempotency_key(self, seeded_client: TestClient, api_engine) -> None:
+        """POST same candidate with different idempotency_key creates no duplicate Signal."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-dup-protect",
+                "candidates": [
+                    {
+                        "ticker": "DUPTEST",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.92",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "82.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "DUPTEST"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # First call with idempotency_key="batch-1"
+        resp1 = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "batch-1",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp1.status_code == 200
+        data1 = resp1.json()
+        assert data1["signals_created"] == 1
+
+        # Count signals before second call
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_count_before = session.query(Signal).count()
+            decision_count_before = session.query(TradeDecision).count()
+            order_count_before = session.query(Order).count()
+
+        # Second call with idempotency_key="batch-2" for SAME candidate
+        resp2 = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "batch-2",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp2.status_code == 200
+        data2 = resp2.json()
+        assert data2["signals_created"] == 0
+        assert data2["skipped_existing_count"] == 1
+        assert "already exists" in data2["skipped"][0]["reason"]
+
+        # Verify counts did NOT increase
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_count_after = session.query(Signal).count()
+            decision_count_after = session.query(TradeDecision).count()
+            order_count_after = session.query(Order).count()
+        assert signal_count_after == signal_count_before
+        assert decision_count_after == decision_count_before
+        assert order_count_after == order_count_before
+
+    def test_raw_payload_includes_candidate_review_id(self, seeded_client: TestClient) -> None:
+        """POST creates Signal with raw_payload containing candidate_review_id."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-payload",
+                "candidates": [
+                    {
+                        "ticker": "PAYLOAD",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.85",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "PAYLOAD"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-payload-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 1
+        signal = data["created_signals"][0]
+        assert signal["candidate_review_id"] == candidate_id
+        assert signal["source_run"] == f"review_queue_create_signals_v1:{candidate_id}"
+
+    def test_source_run_deterministic(self, seeded_client: TestClient) -> None:
+        """POST creates Signal with deterministic source_run based on candidate_id."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-source-run",
+                "candidates": [
+                    {
+                        "ticker": "SRCRUN",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.87",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "77.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "SRCRUN"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-source-run-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_created"] == 1
+        created_signal = data["created_signals"][0]
+        expected_source_run = f"review_queue_create_signals_v1:{candidate_id}"
+        assert created_signal["source_run"] == expected_source_run
+
+    def test_no_trade_decisions_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST proves no TradeDecision rows created (before/after count)."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-decision",
+                "candidates": [
+                    {
+                        "ticker": "NODECISION",
+                        "prediction_recommendation": "BUY",
+                        "prediction_confidence": "0.89",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "79.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "NODECISION"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Count before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            decision_count_before = session.query(TradeDecision).count()
+
+        # Create signal
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-no-decision-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["trade_decisions_created"] == 0
+
+        # Count after
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            decision_count_after = session.query(TradeDecision).count()
+        assert decision_count_after == decision_count_before
+
+    def test_no_orders_created(self, seeded_client: TestClient, api_engine) -> None:
+        """POST proves no Order rows created (before/after count)."""
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-no-order",
+                "candidates": [
+                    {
+                        "ticker": "NOORDER",
+                        "prediction_recommendation": "SELL",
+                        "prediction_confidence": "0.91",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "81.0",
+                        "status": "OK",
+                    }
+                ]
+            },
+            headers=_AUTH,
+        )
+
+        candidates = seeded_client.get(
+            "/v1/review/candidates",
+            headers=_AUTH,
+        ).json()
+        candidate_id = [c["id"] for c in candidates if c["ticker"] == "NOORDER"][0]
+        seeded_client.patch(
+            f"/v1/review/candidates/{candidate_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+
+        # Count before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            order_count_before = session.query(Order).count()
+
+        # Create signal
+        resp = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": "test-no-order-exec",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [candidate_id],
+                "limit": 50,
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["orders_created"] == 0
+
+        # Count after
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            order_count_after = session.query(Order).count()
+        assert order_count_after == order_count_before
