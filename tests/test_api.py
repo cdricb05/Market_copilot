@@ -58,7 +58,7 @@ from sqlalchemy.orm import Session
 from paper_trader.api.app import app
 from paper_trader.config import get_settings
 from paper_trader.constants import CashEntryType, JobRunStatus, WorkflowType
-from paper_trader.db.models import Base, BenchmarkPrice, CandidateReview, JobRun, Order, Portfolio, PortfolioSnapshot, PriceSnapshot, Signal, TradeDecision
+from paper_trader.db.models import Base, BenchmarkPrice, CandidateReview, JobRun, Order, Portfolio, PortfolioSnapshot, Position, PriceSnapshot, Signal, TradeDecision
 from paper_trader.db.session import reset_engine_state
 from paper_trader.engine.portfolio import append_cash_entry, open_position
 
@@ -8669,3 +8669,845 @@ class TestReviewDecisionPreviewEndpoint:
 
         assert status_after == status_before, "Signal.status should not be modified by preview endpoint"
         assert status_after == "RECEIVED", "Signal.status should remain RECEIVED"
+
+
+class TestReviewCreateDecisionsEndpoint:
+    """Test POST /v1/review/create-decisions endpoint."""
+
+    def test_requires_api_key(self, seeded_client: TestClient) -> None:
+        """Test that endpoint requires API key."""
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "test-create-1",
+                "confirm_create_decisions": True,
+            },
+        )
+        assert response.status_code == 401, "Should require API key"
+
+    def test_confirm_create_decisions_missing_returns_422(self, seeded_client: TestClient) -> None:
+        """Test that confirm_create_decisions=false or missing returns HTTP 422."""
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "test-create-1",
+                # confirm_create_decisions missing (defaults to false)
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 422, "Should return 422 when confirm_create_decisions is missing"
+
+    def test_confirm_create_decisions_false_returns_422(self, seeded_client: TestClient) -> None:
+        """Test that confirm_create_decisions=false returns HTTP 422."""
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "test-create-1",
+                "confirm_create_decisions": False,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 422, "Should return 422 when confirm_create_decisions is false"
+
+    def test_no_signals_returns_zero_created(self, seeded_client: TestClient) -> None:
+        """Test that querying non-existent signals returns 0 created."""
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "test-create-no-signals",
+                "source_run_prefix": "nonexistent_prefix_12345:",
+                "limit": 50,
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["signals_evaluated"] == 0
+        assert data["trade_decisions_created"] == 0
+        assert data["skipped_count"] == 0
+        assert data["orders_created"] == 0
+
+    def test_buy_signal_creates_one_trade_decision(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that a BUY signal creates one TradeDecision."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Count TradeDecision rows before
+            td_before = session.query(TradeDecision).count()
+
+            # Create review-created signal (BUY)
+            job_run = JobRun(
+                idempotency_key="setup-signal-buy-signal-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="AAPL",
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-1",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            signal_id = str(signal.id)
+
+            # Ensure price exists
+            price = PriceSnapshot(
+                ticker="AAPL",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("150.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        # Call create-decisions endpoint
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-buy-signal-test",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["signals_evaluated"] == 1
+        assert data["trade_decisions_created"] == 1
+        assert data["skipped_count"] == 0
+        assert data["skipped_existing_count"] == 0
+        assert data["orders_created"] == 0
+        assert len(data["created_decisions"]) == 1
+
+        # Verify TradeDecision row count increased
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_after = session.query(TradeDecision).count()
+            assert td_after == td_before + 1, "TradeDecision count should increase by 1"
+
+            # Verify Signal.status is now DECISION_MADE
+            signal_row = session.query(Signal).filter(Signal.id == uuid.UUID(signal_id)).first()
+            assert signal_row.status == "DECISION_MADE", "Signal.status should be DECISION_MADE"
+
+    def test_sell_signal_creates_one_trade_decision(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that a SELL signal creates one TradeDecision."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_before = session.query(TradeDecision).count()
+
+            # Create a position so SELL works
+            pos = Position(
+                ticker="MSFT",
+                qty=Decimal("100"),
+                avg_cost=Decimal("300.00"),
+                cost_basis=Decimal("30000.00"),
+                opened_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc),
+            )
+            session.add(pos)
+            session.flush()
+
+            # Create review-created signal (SELL)
+            job_run = JobRun(
+                idempotency_key="setup-signal-sell-signal-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="MSFT",
+                direction="SELL",
+                confidence=Decimal("0.80"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-2",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            signal_id = str(signal.id)
+
+            price = PriceSnapshot(
+                ticker="MSFT",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("310.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-sell-signal-test",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["signals_evaluated"] == 1
+        assert data["trade_decisions_created"] == 1
+        assert data["orders_created"] == 0
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_after = session.query(TradeDecision).count()
+            assert td_after == td_before + 1
+
+    def test_non_review_source_run_skipped_by_default(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that signals with non-review source_run are skipped when using default prefix."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create signal with non-matching source_run
+            job_run = JobRun(
+                idempotency_key="setup-signal-non-review-default-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="GOOGL",
+                direction="BUY",
+                confidence=Decimal("0.75"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="some_other_unique_source_xxxxxxxx:signal-1",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-non-review-default-test",
+                "source_run_prefix": "review_queue_create_signals_v1_non_review_default_no_match:",
+                "limit": 50,
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["signals_evaluated"] == 0
+        assert data["trade_decisions_created"] == 0
+        assert data["skipped_count"] == 0
+        assert data["orders_created"] == 0
+
+    def test_explicit_signal_ids_skips_non_review_with_reason(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that explicit signal_ids validates source_run and skips non-review with clear reason."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-explicit-non-review-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="TSLA",
+                direction="BUY",
+                confidence=Decimal("0.80"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="not_review_created:signal-1",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-explicit-non-review-test",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["signals_evaluated"] == 1
+        assert data["trade_decisions_created"] == 0
+        assert len(data["skipped"]) == 1
+        assert "Signal source_run is not review-created" in data["skipped"][0]["reason"]
+
+    def test_received_only_true_skips_non_received(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that received_only=true skips signals with status != RECEIVED."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-non-received-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            # Signal with DECISION_MADE status
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="META",
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-3",
+                status="DECISION_MADE",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-non-received-test",
+                "signal_ids": [signal_id],
+                "received_only": True,
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["signals_evaluated"] == 1
+        assert data["trade_decisions_created"] == 0
+        assert len(data["skipped"]) == 1
+        assert "not RECEIVED" in data["skipped"][0]["reason"]
+
+    def test_limit_parameter_works(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that limit parameter restricts number of signals processed."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-limit-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            # Create 5 review-created signals
+            for i in range(5):
+                signal = Signal(
+                    job_run_id=job_run.id,
+                    ticker=f"TICK{i}",
+                    direction="BUY",
+                    confidence=Decimal("0.75"),
+                    signal_ts=datetime.now(timezone.utc),
+                    market_date=date.today(),
+                    source_run="review_queue_create_signals_v1:candidate-limit-test",
+                    status="RECEIVED",
+                    raw_payload={},
+                )
+                session.add(signal)
+
+            session.flush()
+
+            # Create prices
+            for i in range(5):
+                price = PriceSnapshot(
+                    ticker=f"TICK{i}",
+                    price_type="CLOSE",
+                    session_type="REGULAR",
+                    market_date=date.today(),
+                    price=Decimal("100.00"),
+                    snapshot_ts=datetime.now(timezone.utc),
+                )
+                session.add(price)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-limit-test",
+                "source_run_prefix": "review_queue_create_signals_v1:",
+                "limit": 2,
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["signals_evaluated"] == 2, "Should evaluate only 2 signals (limit)"
+        assert data["trade_decisions_created"] == 2
+
+    def test_trade_decision_fields_match_risk_decision(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that created TradeDecision fields match RiskDecision output."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-field-match-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="NVDA",
+                direction="BUY",
+                confidence=Decimal("0.90"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-field-test",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+
+            price = PriceSnapshot(
+                ticker="NVDA",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("500.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-field-match-test",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["created_decisions"]) == 1
+        decision = data["created_decisions"][0]
+
+        # Verify fields are present
+        assert "signal_id" in decision
+        assert "trade_decision_id" in decision
+        assert "decision" in decision
+        assert "reason_code" in decision
+        assert "requested_notional" in decision
+        assert "approved_notional" in decision
+        assert "requested_qty" in decision
+        assert "approved_qty" in decision
+
+    def test_risk_snapshot_populated(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that TradeDecision.risk_snapshot is populated in database."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-risk-snapshot-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="AMD",
+                direction="BUY",
+                confidence=Decimal("0.70"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-risk-snapshot",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+
+            price = PriceSnapshot(
+                ticker="AMD",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("120.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-risk-snapshot-test",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+
+        # Verify TradeDecision in database has risk_snapshot
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td = session.query(TradeDecision).filter(
+                TradeDecision.signal_id == uuid.UUID(signal_id)
+            ).first()
+            assert td is not None
+            assert td.risk_snapshot is not None
+            assert isinstance(td.risk_snapshot, dict)
+            assert "cash" in td.risk_snapshot
+            assert "total_value" in td.risk_snapshot
+
+    def test_duplicate_protection_same_signal_id(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that same signal_id is not duplicated in TradeDecision."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="dup-same-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="INTC",
+                direction="BUY",
+                confidence=Decimal("0.75"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-dup-same",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+
+            price = PriceSnapshot(
+                ticker="INTC",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("30.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        # First request: creates TradeDecision
+        response1 = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "dup-same-test-req1",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response1.status_code == 200
+        assert response1.json()["trade_decisions_created"] == 1
+
+        # Second request (with different idempotency_key): should skip as duplicate
+        response2 = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "dup-same-test-req2",
+                "signal_ids": [signal_id],
+                "received_only": False,
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response2.status_code == 200
+        data = response2.json()
+        assert data["trade_decisions_created"] == 0
+        assert data["skipped_existing_count"] == 1
+
+    def test_duplicate_skipped_signal_status_unchanged(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that skipped duplicate signals don't mutate Signal.status."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="dup-status-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="NVDA",
+                direction="SELL",
+                confidence=Decimal("0.80"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-dup-status",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+
+            # Create a position for SELL
+            pos = Position(
+                ticker="NVDA",
+                qty=Decimal("50"),
+                avg_cost=Decimal("450.00"),
+                cost_basis=Decimal("22500.00"),
+                opened_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc),
+            )
+            session.add(pos)
+
+            price = PriceSnapshot(
+                ticker="NVDA",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("450.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        # First request: creates TradeDecision and updates Signal.status to DECISION_MADE
+        response1 = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "dup-status-test-req1",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response1.status_code == 200
+        assert response1.json()["trade_decisions_created"] == 1
+
+        # Verify Signal.status is DECISION_MADE
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_row = session.query(Signal).filter(
+                Signal.id == uuid.UUID(signal_id)
+            ).first()
+            assert signal_row.status == "DECISION_MADE"
+
+        # Second request: skipped as duplicate
+        response2 = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "dup-status-test-req2",
+                "signal_ids": [signal_id],
+                "received_only": False,
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response2.status_code == 200
+        assert response2.json()["skipped_existing_count"] == 1
+
+        # Verify Signal.status is still DECISION_MADE (unchanged by skip)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_row = session.query(Signal).filter(
+                Signal.id == uuid.UUID(signal_id)
+            ).first()
+            assert signal_row.status == "DECISION_MADE"
+
+    def test_no_orders_created(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that no Order rows are created."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_before = session.query(Order).count()
+
+            job_run = JobRun(
+                idempotency_key="setup-signal-no-orders-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="AAPL",
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-no-orders",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+
+            price = PriceSnapshot(
+                ticker="AAPL",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("150.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-no-orders-test",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        assert response.json()["orders_created"] == 0
+
+        # Verify Order count unchanged
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_after = session.query(Order).count()
+            assert orders_after == orders_before, "No Orders should be created"
+
+    def test_no_unnecessary_job_run_when_all_skipped(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that JobRun is not created when all signals are skipped."""
+        # Setup: create signal and price snapshot
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-skip-all-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="TSLA",
+                direction="BUY",
+                confidence=Decimal("0.75"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-skip-all",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="TSLA",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("250.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+
+            signal_id = str(signal.id)
+            session.commit()
+
+        # First call: creates TradeDecision and JobRun
+        response1 = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-skip-all-first",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response1.status_code == 200
+        assert response1.json()["trade_decisions_created"] == 1
+
+        # Record state after first call
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_runs_before_second = session.query(JobRun).count()
+            orders_before_second = session.query(Order).count()
+            signal_row = session.query(Signal).filter(Signal.id == uuid.UUID(signal_id)).first()
+            signal_status_before_second = signal_row.status
+
+        # Second call: signal is now duplicate (TradeDecision exists), should skip
+        response2 = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-skip-all-second",
+                "signal_ids": [signal_id],
+                "received_only": False,
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response2.status_code == 200
+        data2 = response2.json()
+        assert data2["signals_evaluated"] == 1
+        assert data2["trade_decisions_created"] == 0
+        assert data2["skipped_existing_count"] == 1
+        assert len(data2["skipped"]) == 1
+        assert "TradeDecision already exists for signal" in data2["skipped"][0]["reason"]
+
+        # Verify no new JobRun was created on second call
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_runs_after_second = session.query(JobRun).count()
+            orders_after_second = session.query(Order).count()
+            signal_row = session.query(Signal).filter(Signal.id == uuid.UUID(signal_id)).first()
+            signal_status_after_second = signal_row.status
+
+            assert job_runs_after_second == job_runs_before_second, "No JobRun should be created when all signals are skipped"
+            assert orders_after_second == orders_before_second, "No Order should be created"
+            assert signal_status_after_second == signal_status_before_second, "Signal.status should not change on skip"

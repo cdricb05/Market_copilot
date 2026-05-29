@@ -759,6 +759,63 @@ class ReviewDecisionPreviewResponse(BaseModel):
     orders_created: int
 
 
+class ReviewCreateDecisionsRequest(BaseModel):
+    """Request to create TradeDecision rows from review-created Signal rows."""
+    idempotency_key: str = Field(
+        ...,
+        description="Unique key for this decision creation batch.",
+    )
+    signal_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of signal IDs to process. If provided, queries those exact IDs and validates in Python; source_run and status are evaluated per request parameters.",
+    )
+    source_run_prefix: str = Field(
+        default="review_queue_create_signals_v1:",
+        description="Source run prefix to filter review-created signals (ignored if signal_ids provided).",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of signals to process (default 50, max 100).",
+    )
+    received_only: bool = Field(
+        default=True,
+        description="If true, only process Signals with status='RECEIVED'.",
+    )
+    confirm_create_decisions: bool = Field(
+        default=False,
+        description="Must be true to actually create TradeDecision rows, else returns 422.",
+    )
+
+
+class CreatedDecisionDetail(BaseModel):
+    """A TradeDecision that was created in the database."""
+    signal_id: str
+    trade_decision_id: str
+    ticker: str
+    side: str
+    decision: str
+    reason_code: str | None
+    requested_notional: str
+    approved_notional: str
+    requested_qty: str
+    approved_qty: str
+    job_run_id: str
+
+
+class ReviewCreateDecisionsResponse(BaseModel):
+    """Response from create decisions endpoint (creates actual TradeDecision rows)."""
+    execution_mode: str
+    signals_evaluated: int
+    trade_decisions_created: int
+    skipped_count: int
+    skipped_existing_count: int
+    created_decisions: list[CreatedDecisionDetail]
+    skipped: list[SkippedSignalDetail]
+    orders_created: int
+
+
 class BackfillRequest(BaseModel):
     universe: str = Field(
         default="SP500",
@@ -4102,6 +4159,238 @@ async def preview_decisions_from_signals(
         decision_previews=decision_previews,
         skipped=skipped_list,
         trade_decisions_created=0,
+        orders_created=0,
+    )
+
+
+@app.post(
+    "/v1/review/create-decisions",
+    response_model=ReviewCreateDecisionsResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def create_decisions_from_signals(
+    body: ReviewCreateDecisionsRequest,
+) -> ReviewCreateDecisionsResponse:
+    """
+    Create TradeDecision rows from review-created Signal rows.
+
+    This endpoint creates real TradeDecision rows but does NOT create Orders.
+    It is a pure decision-creation workflow: Signal → TradeDecision, no Order.
+
+    Signal.status is updated to DECISION_MADE for successfully processed signals.
+    Skipped signals (duplicates, validation failures) have their status unchanged.
+
+    Filtering rules:
+    - If signal_ids is NOT provided: query by source_run_prefix in SQL, optionally filter by status
+    - If signal_ids IS provided: query those exact IDs, validate source_run and status in Python
+
+    Duplicate protection:
+    - Before creating a TradeDecision, check if one already exists for that Signal.id
+    - If it exists: skip, count in skipped_existing_count, do not mutate Signal.status
+    - If it doesn't exist: create the TradeDecision and update Signal.status to DECISION_MADE
+
+    JobRun creation:
+    - Created only if at least one new TradeDecision will be inserted
+    - workflow_type = REVIEW_QUEUE_CREATE_DECISIONS
+    - status = COMPLETED
+    - result_summary includes counts
+
+    confirm_create_decisions validation:
+    - If false or missing, return HTTP 422
+    """
+    import uuid as uuid_module
+
+    # Validate confirm_create_decisions
+    if not body.confirm_create_decisions:
+        raise HTTPException(
+            status_code=422,
+            detail="confirm_create_decisions must be true to create TradeDecisions",
+        )
+
+    evaluated = 0
+    created = 0
+    skipped_existing = 0
+    skipped_list = []
+    created_decisions_list = []
+    decisions_to_create = []
+
+    with get_session() as session:
+        # Determine market_date (US Eastern) for evaluate_signal call
+        eastern_now = datetime.now(_EASTERN)
+        market_date = eastern_now.date()
+        now = datetime.now(timezone.utc)
+
+        # Get portfolio for risk evaluation
+        portfolio = get_portfolio(session)
+
+        query = session.query(Signal)
+
+        # Build query based on whether signal_ids is provided
+        if body.signal_ids:
+            # Query exact signal IDs without source_run/status filters
+            try:
+                signal_uuids = [uuid_module.UUID(sid) for sid in body.signal_ids]
+                query = query.filter(Signal.id.in_(signal_uuids))
+            except (ValueError, AttributeError):
+                # If any UUID is invalid, return empty result
+                return ReviewCreateDecisionsResponse(
+                    execution_mode="DECISION_CREATION_ONLY",
+                    signals_evaluated=0,
+                    trade_decisions_created=0,
+                    skipped_count=0,
+                    skipped_existing_count=0,
+                    created_decisions=[],
+                    skipped=[],
+                    orders_created=0,
+                )
+        else:
+            # Filter by source_run_prefix in SQL
+            query = query.filter(Signal.source_run.startswith(body.source_run_prefix))
+            # Optionally filter by status in SQL
+            if body.received_only:
+                query = query.filter(Signal.status == "RECEIVED")
+
+        # Apply limit
+        rows = query.limit(body.limit).all()
+
+        # First pass: validate and collect signals to process
+        for signal in rows:
+            evaluated += 1
+            signal_id_str = str(signal.id)
+
+            # If signal_ids was provided, validate source_run and status in Python
+            if body.signal_ids:
+                # Check source_run starts with allowed prefix
+                if not signal.source_run.startswith(body.source_run_prefix):
+                    skipped_list.append(SkippedSignalDetail(
+                        signal_id=signal_id_str,
+                        ticker=signal.ticker,
+                        reason="Signal source_run is not review-created",
+                    ))
+                    continue
+
+                # Check status if received_only=true
+                if body.received_only and signal.status != "RECEIVED":
+                    skipped_list.append(SkippedSignalDetail(
+                        signal_id=signal_id_str,
+                        ticker=signal.ticker,
+                        reason=f"Signal status is {signal.status}, not RECEIVED",
+                    ))
+                    continue
+
+            # Check if TradeDecision already exists for this signal
+            existing_decision = session.query(TradeDecision).filter(
+                TradeDecision.signal_id == signal.id
+            ).first()
+
+            if existing_decision:
+                skipped_existing += 1
+                skipped_list.append(SkippedSignalDetail(
+                    signal_id=signal_id_str,
+                    ticker=signal.ticker,
+                    reason="TradeDecision already exists for signal",
+                ))
+                continue
+
+            # This signal will create a new TradeDecision; collect it
+            decisions_to_create.append(signal)
+
+        # Only create JobRun if we have new decisions to create
+        job_run = None
+        if decisions_to_create:
+            job_run = JobRun(
+                idempotency_key=body.idempotency_key,
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=market_date,
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+                result_summary={},
+            )
+            session.add(job_run)
+            session.flush()
+
+            # Second pass: evaluate and create TradeDecisions
+            for signal in decisions_to_create:
+                # Fetch latest price for the ticker (same as real decision workflow)
+                snapshot_price = _latest_price(session, signal.ticker)
+
+                # Call evaluate_signal with signal data (pure function, no DB writes)
+                rd = evaluate_signal(
+                    session,
+                    portfolio=portfolio,
+                    direction=signal.direction,
+                    ticker=signal.ticker,
+                    confidence=signal.confidence,
+                    snapshot_price=snapshot_price,
+                    market_date=market_date,
+                    now=now,
+                )
+
+                # Create TradeDecision row
+                trade_decision = TradeDecision(
+                    signal_id=signal.id,
+                    job_run_id=job_run.id,
+                    ticker=signal.ticker,
+                    signal_direction=signal.direction,
+                    decision=rd.decision,
+                    reason_code=rd.reason_code,
+                    requested_notional=rd.requested_notional if rd.requested_notional > Decimal("0") else None,
+                    approved_notional=rd.approved_notional if rd.approved_notional > Decimal("0") else None,
+                    requested_qty=rd.requested_qty if rd.requested_qty > Decimal("0") else None,
+                    approved_qty=rd.approved_qty if rd.approved_qty > Decimal("0") else None,
+                    risk_snapshot=rd.risk_snapshot,
+                    sizing_adjustments=rd.sizing_adjustments,
+                    decided_at=datetime.now(timezone.utc),
+                    market_date=market_date,
+                )
+                session.add(trade_decision)
+                session.flush()
+
+                # Update Signal.status to DECISION_MADE after successful creation
+                signal.status = "DECISION_MADE"
+                session.add(signal)
+                session.flush()
+
+                # Create response detail
+                created_decisions_list.append(CreatedDecisionDetail(
+                    signal_id=str(signal.id),
+                    trade_decision_id=str(trade_decision.id),
+                    ticker=signal.ticker,
+                    side=signal.direction,
+                    decision=rd.decision,
+                    reason_code=rd.reason_code,
+                    requested_notional=str(rd.requested_notional),
+                    approved_notional=str(rd.approved_notional),
+                    requested_qty=str(rd.requested_qty),
+                    approved_qty=str(rd.approved_qty),
+                    job_run_id=str(job_run.id),
+                ))
+                created += 1
+
+            # Update JobRun result_summary with counts
+            job_run.result_summary = {
+                "signals_evaluated": evaluated,
+                "trade_decisions_created": created,
+                "skipped_count": len(skipped_list),
+                "skipped_existing_count": skipped_existing,
+                "orders_created": 0,
+            }
+            session.add(job_run)
+            session.flush()
+
+    # Count existing Order rows to prove none were created
+    with get_session() as session:
+        order_count = session.query(Order).count()
+
+    return ReviewCreateDecisionsResponse(
+        execution_mode="DECISION_CREATION_ONLY",
+        signals_evaluated=evaluated,
+        trade_decisions_created=created,
+        skipped_count=len(skipped_list),
+        skipped_existing_count=skipped_existing,
+        created_decisions=created_decisions_list,
+        skipped=skipped_list,
         orders_created=0,
     )
 
