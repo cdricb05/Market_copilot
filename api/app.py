@@ -816,6 +816,68 @@ class ReviewCreateDecisionsResponse(BaseModel):
     orders_created: int
 
 
+class OrderPreviewItem(BaseModel):
+    """A preview of an Order that would be created from a TradeDecision."""
+    trade_decision_id: str
+    signal_id: str
+    ticker: str
+    side: str
+    order_type: str
+    status: str
+    qty: str
+    notional: str
+    decision: str
+    reason_code: str | None
+    source_run: str
+    reason: str
+
+
+class SkippedTradeDecisionDetail(BaseModel):
+    """Detail on a skipped trade decision."""
+    trade_decision_id: str
+    ticker: str
+    reason: str
+
+
+class ReviewOrderPreviewRequest(BaseModel):
+    """Request to preview Orders that would be created from TradeDecisions."""
+    idempotency_key: str = Field(
+        ...,
+        description="Unique key for this order preview batch (not persisted).",
+    )
+    trade_decision_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of trade decision IDs to preview. If provided, validates in Python; source_run and approved status are evaluated per request parameters.",
+    )
+    source_run_prefix: str = Field(
+        default="review_queue_create_signals_v1:",
+        description="Source run prefix to filter review-created trade decisions (ignored if trade_decision_ids provided).",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of trade decisions to preview (default 50, max 100).",
+    )
+    approved_only: bool = Field(
+        default=True,
+        description="If true, only preview TradeDecisions with approved_qty > 0.",
+    )
+
+
+class ReviewOrderPreviewResponse(BaseModel):
+    """Response from order preview endpoint (PREVIEW ONLY, no database writes)."""
+    execution_mode: str
+    trade_decisions_evaluated: int
+    order_previews_generated: int
+    skipped_count: int
+    skipped_existing_count: int
+    order_previews: list[OrderPreviewItem]
+    skipped: list[SkippedTradeDecisionDetail]
+    orders_created: int
+    job_runs_created: int
+
+
 class BackfillRequest(BaseModel):
     universe: str = Field(
         default="SP500",
@@ -4392,6 +4454,177 @@ async def create_decisions_from_signals(
         created_decisions=created_decisions_list,
         skipped=skipped_list,
         orders_created=0,
+    )
+
+
+@app.post(
+    "/v1/review/order-preview",
+    response_model=ReviewOrderPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def preview_orders_from_decisions(
+    body: ReviewOrderPreviewRequest,
+) -> ReviewOrderPreviewResponse:
+    """
+    Preview which TradeDecision rows would become Orders, without creating any rows.
+
+    This endpoint is PREVIEW ONLY: no Order rows created, no JobRun rows created,
+    no TradeDecision or Signal rows modified. Safe to call repeatedly.
+
+    Filtering rules:
+    - If trade_decision_ids is NOT provided: query by source_run_prefix in SQL
+    - If trade_decision_ids IS provided: query those exact IDs, validate source_run in Python
+
+    Duplicate protection:
+    - Before previewing a TradeDecision, check if an Order already exists for that
+      TradeDecision.trade_decision_id. If it exists: skip with reason "Order already exists".
+    - If it doesn't exist: preview it with reason "Preview only: this TradeDecision would create an order."
+
+    approved_only parameter:
+    - If true: only preview TradeDecisions with decision=BUY or SELL AND approved_qty > 0
+    - If false: evaluate all decisions but skip non-approved ones with clear reasons
+    """
+    import uuid as uuid_module
+
+    evaluated = 0
+    previewed = 0
+    skipped_existing = 0
+    skipped_list = []
+    preview_list = []
+
+    with get_session() as session:
+        query = session.query(TradeDecision).join(Signal, Signal.id == TradeDecision.signal_id)
+
+        # Build query based on whether trade_decision_ids is provided
+        if body.trade_decision_ids:
+            # Query exact trade decision IDs without source_run filter
+            try:
+                decision_uuids = [uuid_module.UUID(did) for did in body.trade_decision_ids]
+                query = session.query(TradeDecision).filter(TradeDecision.id.in_(decision_uuids))
+            except (ValueError, AttributeError):
+                # If any UUID is invalid, return empty result
+                return ReviewOrderPreviewResponse(
+                    execution_mode="ORDER_PREVIEW_ONLY",
+                    trade_decisions_evaluated=0,
+                    order_previews_generated=0,
+                    skipped_count=0,
+                    skipped_existing_count=0,
+                    order_previews=[],
+                    skipped=[],
+                    orders_created=0,
+                    job_runs_created=0,
+                )
+        else:
+            # Filter by source_run_prefix in SQL
+            query = query.filter(Signal.source_run.startswith(body.source_run_prefix))
+
+        # Apply limit
+        rows = query.limit(body.limit).all()
+
+        # Evaluate each trade decision
+        for td in rows:
+            evaluated += 1
+            decision_id_str = str(td.id)
+            signal_id_str = str(td.signal_id)
+
+            # Fetch the signal for source_run validation (required when trade_decision_ids provided)
+            signal = session.query(Signal).filter(Signal.id == td.signal_id).first()
+            if not signal:
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=decision_id_str,
+                    ticker=td.ticker,
+                    reason="Signal not found",
+                ))
+                continue
+
+            # If trade_decision_ids was provided, validate source_run in Python
+            if body.trade_decision_ids:
+                if not signal.source_run.startswith(body.source_run_prefix):
+                    skipped_list.append(SkippedTradeDecisionDetail(
+                        trade_decision_id=decision_id_str,
+                        ticker=td.ticker,
+                        reason="TradeDecision source signal is not review-created",
+                    ))
+                    continue
+
+            # Check if an Order already exists for this TradeDecision
+            existing_order = session.query(Order).filter(
+                Order.trade_decision_id == td.id
+            ).first()
+
+            if existing_order:
+                skipped_existing += 1
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=decision_id_str,
+                    ticker=td.ticker,
+                    reason="Order already exists for TradeDecision",
+                ))
+                continue
+
+            # Check if this TradeDecision would create an order
+            # Only BUY and SELL decisions with approved_qty > 0 can create orders
+            if td.decision not in ("BUY", "SELL"):
+                if body.approved_only:
+                    # Skip silently when approved_only=true and decision is not BUY/SELL
+                    skipped_list.append(SkippedTradeDecisionDetail(
+                        trade_decision_id=decision_id_str,
+                        ticker=td.ticker,
+                        reason="TradeDecision is not approved for order creation",
+                    ))
+                    continue
+                else:
+                    # Evaluate but skip with reason when approved_only=false
+                    skipped_list.append(SkippedTradeDecisionDetail(
+                        trade_decision_id=decision_id_str,
+                        ticker=td.ticker,
+                        reason=f"TradeDecision decision is {td.decision}, not BUY/SELL",
+                    ))
+                    continue
+
+            # Check if approved_qty is > 0
+            if not td.approved_qty or td.approved_qty <= Decimal("0"):
+                reason = "TradeDecision is not approved for order creation" if body.approved_only else "TradeDecision has zero approved_qty"
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=decision_id_str,
+                    ticker=td.ticker,
+                    reason=reason,
+                ))
+                continue
+
+            # This TradeDecision would create an order preview
+            preview = OrderPreviewItem(
+                trade_decision_id=decision_id_str,
+                signal_id=signal_id_str,
+                ticker=td.ticker,
+                side=td.signal_direction,
+                order_type="MARKET",
+                status="PREVIEW_ONLY",
+                qty=str(td.approved_qty),
+                notional=str(td.approved_notional) if td.approved_notional else "0.00",
+                decision=td.decision,
+                reason_code=td.reason_code,
+                source_run=signal.source_run,
+                reason="Preview only: this TradeDecision would create an order.",
+            )
+            preview_list.append(preview)
+            previewed += 1
+
+    # Count existing Order rows to prove none were created
+    with get_session() as session:
+        order_count = session.query(Order).count()
+        job_run_count = session.query(JobRun).count()
+
+    return ReviewOrderPreviewResponse(
+        execution_mode="ORDER_PREVIEW_ONLY",
+        trade_decisions_evaluated=evaluated,
+        order_previews_generated=previewed,
+        skipped_count=len(skipped_list),
+        skipped_existing_count=skipped_existing,
+        order_previews=preview_list,
+        skipped=skipped_list,
+        orders_created=0,
+        job_runs_created=0,
     )
 
 

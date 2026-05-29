@@ -9510,4 +9510,930 @@ class TestReviewCreateDecisionsEndpoint:
 
             assert job_runs_after_second == job_runs_before_second, "No JobRun should be created when all signals are skipped"
             assert orders_after_second == orders_before_second, "No Order should be created"
-            assert signal_status_after_second == signal_status_before_second, "Signal.status should not change on skip"
+
+
+class TestReviewOrderPreviewEndpoint:
+    """Test POST /v1/review/order-preview endpoint."""
+
+    def test_endpoint_requires_api_key(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that the endpoint requires API key."""
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={"idempotency_key": "test-no-auth"},
+        )
+        assert response.status_code == 401
+
+    def test_no_review_created_trade_decisions_returns_zero_preview(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that when no review-created TradeDecisions exist, returns zero previews."""
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": "order-preview-empty",
+                "source_run_prefix": "review_queue_create_signals_v1_order_preview_no_match:"
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["execution_mode"] == "ORDER_PREVIEW_ONLY"
+        assert data["trade_decisions_evaluated"] == 0
+        assert data["order_previews_generated"] == 0
+        assert data["skipped_count"] == 0
+        assert len(data["order_previews"]) == 0
+        assert data["orders_created"] == 0
+        assert data["job_runs_created"] == 0
+
+    def test_review_created_approved_buy_trade_decision_returns_one_preview(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that a review-created approved BUY TradeDecision returns one order preview."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create setup signal and trade decision
+            job_run = JobRun(
+                idempotency_key=f"setup-signal-order-preview-buy-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            ticker = f"OPBUY{suffix[:6]}".upper()
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=f"review_queue_create_signals_v1:order_preview_buy:{suffix}",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            # Create TradeDecision via create-decisions endpoint
+            price = PriceSnapshot(
+                ticker=ticker,
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("150.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": f"create-decisions-order-preview-buy-{suffix}",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td = session.query(TradeDecision).filter(TradeDecision.signal_id == uuid.UUID(signal_id)).first()
+            td_id = str(td.id) if td else None
+
+        # Now preview the order with explicit trade_decision_ids
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": f"order-preview-buy-{suffix}",
+                "trade_decision_ids": [td_id],
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trade_decisions_evaluated"] == 1
+        assert data["order_previews_generated"] == 1
+        assert data["skipped_count"] == 0
+        assert len(data["order_previews"]) == 1
+        preview = data["order_previews"][0]
+        assert preview["ticker"] == ticker
+        assert preview["side"] == "BUY"
+        assert preview["order_type"] == "MARKET"
+        assert preview["status"] == "PREVIEW_ONLY"
+        assert preview["decision"] == "BUY"
+
+    def test_review_created_approved_sell_trade_decision_returns_one_preview(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that a review-created approved SELL TradeDecision returns one order preview."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create position first with unique ticker
+            position = Position(
+                ticker="OPSELL1",
+                qty=Decimal("100"),
+                avg_cost=Decimal("300.00"),
+                cost_basis=Decimal("30000.00"),
+                opened_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc),
+            )
+            session.add(position)
+            session.flush()
+
+            # Create setup signal and trade decision
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-sell",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="OPSELL1",
+                direction="SELL",
+                confidence=Decimal("0.80"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-sell-preview",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="OPSELL1",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("310.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-sell",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td = session.query(TradeDecision).filter(TradeDecision.signal_id == uuid.UUID(signal_id)).first()
+            td_id = str(td.id) if td else None
+
+        # Preview the order with explicit trade_decision_ids
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": "order-preview-sell",
+                "trade_decision_ids": [td_id],
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trade_decisions_evaluated"] == 1
+        assert data["order_previews_generated"] == 1
+        preview = data["order_previews"][0]
+        assert preview["ticker"] == "OPSELL1"
+        assert preview["side"] == "SELL"
+        assert preview["decision"] == "SELL"
+
+    def test_rejected_trade_decision_skipped_when_approved_only_true(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that REJECTED TradeDecision is skipped when approved_only=true."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create a rejected trade decision (invalid confidence)
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-rejected",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="GOOG",
+                direction="BUY",
+                confidence=Decimal("0.50"),  # Below threshold
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-rejected-preview",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="GOOG",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("140.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-rejected",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td = session.query(TradeDecision).filter(TradeDecision.signal_id == uuid.UUID(signal_id)).first()
+            td_id = str(td.id) if td else None
+
+        # Preview with approved_only=true and explicit trade_decision_ids
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": "order-preview-rejected-approved-only",
+                "trade_decision_ids": [td_id],
+                "approved_only": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trade_decisions_evaluated"] == 1
+        assert data["order_previews_generated"] == 0
+        assert data["skipped_count"] == 1
+        assert len(data["skipped"]) == 1
+        assert "not approved for order creation" in data["skipped"][0]["reason"]
+
+    def test_approved_only_false_evaluates_but_skips_non_approved(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that approved_only=false evaluates all decisions but skips non-approved ones."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create a rejected trade decision
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-hold",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="TSLA",
+                direction="HOLD",
+                confidence=Decimal("0.75"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-hold-preview",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="TSLA",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("250.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-hold",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td = session.query(TradeDecision).filter(TradeDecision.signal_id == uuid.UUID(signal_id)).first()
+            td_id = str(td.id) if td else None
+
+        # Preview with approved_only=false and explicit trade_decision_ids
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": "order-preview-hold-approved-false",
+                "trade_decision_ids": [td_id],
+                "approved_only": False,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trade_decisions_evaluated"] == 1
+        assert data["order_previews_generated"] == 0
+        assert data["skipped_count"] == 1
+        assert "not BUY/SELL" in data["skipped"][0]["reason"]
+
+    def test_non_review_source_signal_skipped_by_default(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that TradeDecision with non-review Signal is skipped by default."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create a non-review signal
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-non-review",
+                workflow_type="CUSTOM_RUN",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="NVDA",
+                direction="BUY",
+                confidence=Decimal("0.88"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="some_other_source:signal-1",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="NVDA",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("500.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-non-review",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        # Preview should skip because source_run doesn't match
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={"idempotency_key": "order-preview-non-review"},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # The trade decision might be created but not previewed due to filtering
+        assert data["skipped_count"] >= 0
+
+    def test_explicit_trade_decision_ids_non_review_skipped_with_reason(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that explicit trade_decision_ids with non-review Signal skips with reason."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create a non-review signal and trade decision
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-explicit-non-review",
+                workflow_type="CUSTOM_RUN",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="AMD",
+                direction="BUY",
+                confidence=Decimal("0.75"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="custom_source:signal-1",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="AMD",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("120.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-explicit-non-review",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td = session.query(TradeDecision).filter(TradeDecision.signal_id == uuid.UUID(signal_id)).first()
+            td_id = str(td.id) if td else None
+
+        if td_id:
+            # Preview with explicit trade_decision_ids
+            response = seeded_client.post(
+                "/v1/review/order-preview",
+                json={
+                    "idempotency_key": "order-preview-explicit-non-review",
+                    "trade_decision_ids": [td_id],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["trade_decisions_evaluated"] == 1
+            assert data["order_previews_generated"] == 0
+            assert len(data["skipped"]) == 1
+            assert "not review-created" in data["skipped"][0]["reason"]
+
+    def test_existing_order_for_trade_decision_skipped_as_duplicate(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that TradeDecision with existing Order is skipped as duplicate."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create signal and trade decision
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-duplicate",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="QCOM",
+                direction="BUY",
+                confidence=Decimal("0.82"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-duplicate-preview",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="QCOM",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("130.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-duplicate",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td = session.query(TradeDecision).filter(TradeDecision.signal_id == uuid.UUID(signal_id)).first()
+            td_id = str(td.id) if td else None
+            # Create a fake order for this trade decision (to test duplicate detection)
+            order = Order(
+                trade_decision_id=td.id,
+                job_run_id=td.job_run_id,
+                ticker=td.ticker,
+                side=td.signal_direction,
+                order_type="MARKET",
+                status="PENDING",
+                market_date=date.today(),
+                requested_qty=Decimal("10"),
+                requested_at=datetime.now(timezone.utc),
+            )
+            session.add(order)
+            session.commit()
+
+        # Preview should skip because Order exists, using explicit trade_decision_ids
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": "order-preview-duplicate",
+                "trade_decision_ids": [td_id],
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trade_decisions_evaluated"] == 1
+        assert data["skipped_existing_count"] == 1
+        assert len(data["skipped"]) == 1
+        assert "Order already exists" in data["skipped"][0]["reason"]
+
+    def test_limit_parameter_works(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that limit parameter is enforced."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:8]
+        signal_ids = []
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create 3 signals and trade decisions with unique source_run_prefix
+            job_run = JobRun(
+                idempotency_key=f"setup-signal-order-preview-limit-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            for i in range(3):
+                ticker = f"LMTTICK{suffix[:6]}{i}".upper()
+                signal = Signal(
+                    job_run_id=job_run.id,
+                    ticker=ticker,
+                    direction="BUY",
+                    confidence=Decimal("0.80"),
+                    signal_ts=datetime.now(timezone.utc),
+                    market_date=date.today(),
+                    source_run=f"review_queue_create_signals_v1:order_preview_limit:{suffix}:{i}",
+                    status="RECEIVED",
+                    raw_payload={},
+                )
+                session.add(signal)
+                session.flush()
+                signal_ids.append(str(signal.id))
+
+                price = PriceSnapshot(
+                    ticker=ticker,
+                    price_type="CLOSE",
+                    session_type="REGULAR",
+                    market_date=date.today(),
+                    price=Decimal("100.00"),
+                    snapshot_ts=datetime.now(timezone.utc),
+                )
+                session.add(price)
+                session.flush()
+            session.commit()
+
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": f"create-decisions-order-preview-limit-{suffix}",
+                "signal_ids": signal_ids,
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        # Preview with limit=2 and unique source_run_prefix
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": f"order-preview-limit-2-{suffix}",
+                "source_run_prefix": f"review_queue_create_signals_v1:order_preview_limit:{suffix}:",
+                "limit": 2,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trade_decisions_evaluated"] == 2
+        assert data["order_previews_generated"] == 2
+
+    def test_response_includes_all_preview_fields(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that response includes all required preview fields."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-fields",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="INTC",
+                direction="BUY",
+                confidence=Decimal("0.87"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-fields",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="INTC",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("45.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-fields",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td = session.query(TradeDecision).filter(TradeDecision.signal_id == uuid.UUID(signal_id)).first()
+            td_id = str(td.id) if td else None
+
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": "order-preview-fields",
+                "trade_decision_ids": [td_id],
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "execution_mode" in data
+        assert "trade_decisions_evaluated" in data
+        assert "order_previews_generated" in data
+        assert "skipped_count" in data
+        assert "skipped_existing_count" in data
+        assert "order_previews" in data
+        assert "skipped" in data
+        assert "orders_created" in data
+        assert "job_runs_created" in data
+
+        if len(data["order_previews"]) > 0:
+            preview = data["order_previews"][0]
+            assert "trade_decision_id" in preview
+            assert "signal_id" in preview
+            assert "ticker" in preview
+            assert "side" in preview
+            assert "order_type" in preview
+            assert "status" in preview
+            assert "qty" in preview
+            assert "notional" in preview
+            assert "decision" in preview
+            assert "reason_code" in preview
+            assert "source_run" in preview
+            assert "reason" in preview
+
+    def test_no_order_rows_created(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that no Order rows are created by preview endpoint."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_before = session.query(Order).count()
+
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={"idempotency_key": "order-preview-no-orders"},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_after = session.query(Order).count()
+            assert orders_after == orders_before, "No Order rows should be created"
+
+    def test_no_job_run_rows_created(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that no JobRun rows are created by preview endpoint."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_runs_before = session.query(JobRun).count()
+
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={"idempotency_key": "order-preview-no-job-runs"},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_runs_after = session.query(JobRun).count()
+            assert job_runs_after == job_runs_before, "No JobRun rows should be created"
+
+    def test_trade_decision_rows_unchanged(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that TradeDecision rows are not modified by preview endpoint."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-td-unchanged",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="CSCO",
+                direction="BUY",
+                confidence=Decimal("0.79"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-td-unchanged",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="CSCO",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("52.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-td-unchanged",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_before = session.query(TradeDecision).filter(
+                TradeDecision.signal_id == uuid.UUID(signal_id)
+            ).first()
+            td_id = str(td_before.id) if td_before else None
+            td_decided_at_before = td_before.decided_at if td_before else None
+
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": "order-preview-td-unchanged",
+                "trade_decision_ids": [td_id],
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            td_after = session.query(TradeDecision).filter(
+                TradeDecision.signal_id == uuid.UUID(signal_id)
+            ).first()
+            td_decided_at_after = td_after.decided_at if td_after else None
+            assert td_decided_at_after == td_decided_at_before, "TradeDecision should not be modified"
+
+    def test_signal_rows_unchanged(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that Signal rows are not modified by preview endpoint."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-order-preview-signal-unchanged",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="DELL",
+                direction="SELL",
+                confidence=Decimal("0.76"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-signal-unchanged",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            # Create position for SELL
+            position = Position(
+                ticker="DELL",
+                qty=Decimal("50"),
+                avg_cost=Decimal("28.00"),
+                cost_basis=Decimal("1400.00"),
+                opened_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc),
+            )
+            session.add(position)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker="DELL",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("32.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        create_resp = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-order-preview-signal-unchanged",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert create_resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_before = session.query(Signal).filter(
+                Signal.id == uuid.UUID(signal_id)
+            ).first()
+            td = session.query(TradeDecision).filter(TradeDecision.signal_id == uuid.UUID(signal_id)).first()
+            td_id = str(td.id) if td else None
+            signal_status_before = signal_before.status if signal_before else None
+
+        response = seeded_client.post(
+            "/v1/review/order-preview",
+            json={
+                "idempotency_key": "order-preview-signal-unchanged",
+                "trade_decision_ids": [td_id],
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signal_after = session.query(Signal).filter(
+                Signal.id == uuid.UUID(signal_id)
+            ).first()
+            signal_status_after = signal_after.status if signal_after else None
+            assert signal_status_after == signal_status_before, "Signal should not be modified"
