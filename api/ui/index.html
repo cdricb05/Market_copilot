@@ -75,6 +75,18 @@
       color: var(--text-accent);
       font-family: 'Monaco', monospace;
     }
+    .status-debug {
+      font-size: 10px;
+      color: var(--label);
+      font-family: 'Monaco', monospace;
+      margin-left: 8px;
+      padding-left: 8px;
+      border-left: 1px solid var(--label);
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     header input {
       padding: 6px 10px;
       border: 1px solid var(--border);
@@ -605,6 +617,7 @@
   <div class="header-status">
     <span class="status-light neutral" id="health-light"></span>
     <span class="status-text" id="health-status">Connecting…</span>
+    <span class="status-debug" id="health-debug"></span>
   </div>
   <div style="flex: 1;"></div>
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
@@ -612,6 +625,64 @@
   <button id="connectBtn" onclick="connect()">Connect</button>
   <button class="btn-refresh" id="refreshBtn" onclick="refresh()" title="Refresh all data">↻</button>
 </header>
+
+<!-- Independent inline status check - runs immediately, doesn't depend on app functions -->
+<script>
+(function() {
+  async function quickStatusCheck() {
+    try {
+      const light = document.getElementById('health-light');
+      const text = document.getElementById('health-status');
+      const debug = document.getElementById('health-debug');
+
+      if (!light || !text) return;
+
+      try {
+        // Health check with 5s timeout
+        const healthController = new AbortController();
+        const healthTimeout = setTimeout(() => healthController.abort(), 5000);
+        const healthResp = await fetch('/v1/health', { signal: healthController.signal });
+        clearTimeout(healthTimeout);
+
+        if (!healthResp.ok) throw new Error('health');
+
+        // Ready check with 5s timeout
+        const readyController = new AbortController();
+        const readyTimeout = setTimeout(() => readyController.abort(), 5000);
+        const readyResp = await fetch('/v1/ready', { signal: readyController.signal });
+        clearTimeout(readyTimeout);
+
+        if (!readyResp.ok) throw new Error('ready');
+
+        // Both OK
+        light.className = 'status-light ok';
+        text.textContent = 'Ready';
+        if (debug) debug.textContent = '/v1/health ✓ /v1/ready ✓';
+      } catch (e) {
+        light.className = 'status-light err';
+        let msg = 'Offline';
+        let debugMsg = 'offline';
+
+        if (e.name === 'AbortError') {
+          msg = 'Timeout';
+          debugMsg = 'timeout';
+        } else if (e.message === 'ready') {
+          msg = 'Not Ready';
+          debugMsg = '/v1/health ✓ /v1/ready ✗';
+        }
+
+        text.textContent = msg;
+        if (debug) debug.textContent = debugMsg;
+      }
+    } catch (outerErr) {
+      const text = document.getElementById('health-status');
+      if (text) text.textContent = 'Offline';
+    }
+  }
+
+  quickStatusCheck();
+})();
+</script>
 
 <main>
 
@@ -819,8 +890,15 @@
 
   <!-- Review Workflow Panel -->
   <div id="review-workflow-panel" class="card" style="margin: 20px 0; display: block;">
-    <div class="section-title">Review Workflow</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <div class="section-title">Review Workflow</div>
+      <button class="btn-sm" onclick="refreshWorkflowStatus()" style="background: var(--info);">Refresh Status</button>
+    </div>
     <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">Complete the following steps in order to review and approve trade decisions.</div>
+    <div id="workflow-status-summary" style="background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 3px; padding: 12px; margin-bottom: 16px; display: none;">
+      <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">WORKFLOW STATUS</div>
+      <div id="workflow-status-content" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px;"></div>
+    </div>
     <div id="workflow-steps-container" style="display: grid; gap: 12px;"></div>
   </div>
 
@@ -1295,25 +1373,54 @@ function formatApiError(data) {
 
 // ---------- load functions ----------
 
+async function fetchWithTimeout(url, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: controller.signal });
+    clearTimeout(id);
+    return r;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
+  }
+}
+
 async function loadHealth() {
   const light = document.getElementById('health-light');
   const text = document.getElementById('health-status');
+  const debug = document.getElementById('health-debug');
   try {
-    const r = await fetch('/v1/health');
+    const r = await fetchWithTimeout('/v1/health', 5000);
+    if (!r.ok) {
+      throw new Error(`HTTP ${r.status}`);
+    }
     const b = await r.json();
     const dbReady = await checkDbReady();
     const status = b.status === 'ok' && dbReady ? 'ready' : 'error';
     light.className = 'status-light ' + (status === 'ready' ? 'ok' : 'err');
     text.textContent = status === 'ready' ? 'Ready' : 'Not Ready';
-  } catch {
+    if (debug) debug.textContent = status === 'ready' ? '/v1/health ✓ /v1/ready ✓' : '/v1/health ✓ /v1/ready ✗';
+  } catch (e) {
     light.className = 'status-light err';
-    text.textContent = 'Unreachable';
+    let msg = 'Offline';
+    let debugMsg = '';
+    if (e.name === 'AbortError') {
+      msg = 'Timeout';
+      debugMsg = '/v1/health timeout';
+    } else {
+      msg = 'Offline';
+      debugMsg = '/v1/health unreachable';
+    }
+    text.textContent = msg;
+    if (debug) debug.textContent = debugMsg;
   }
 }
 
 async function checkDbReady() {
   try {
-    const r = await fetch('/v1/ready');
+    const r = await fetchWithTimeout('/v1/ready', 5000);
+    if (!r.ok) return false;
     const b = await r.json();
     return b.database === 'ok';
   } catch {
@@ -2401,6 +2508,7 @@ function renderPredictionPreviewResult(data, resultEl) {
   resultEl.innerHTML = html;
   resultEl.className = 'step-result success';
   updateReviewWorkflow();
+  refreshWorkflowStatus();
 }
 
 async function fetchLatestPrices(btn) {
@@ -3453,6 +3561,8 @@ async function connect() {
     _appState.connected = true;
     updateWorkbench();
     toast('Connected');
+  } catch (e) {
+    toast('Connection error: ' + (e.message || 'unknown'), 'err');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Connect';
@@ -3474,6 +3584,8 @@ async function refresh() {
     ]);
     updateWorkbench();
     toast('Refreshed');
+  } catch (e) {
+    toast('Refresh error: ' + (e.message || 'unknown'), 'err');
   } finally {
     btn.disabled = false;
   }
@@ -3545,17 +3657,100 @@ const WORKFLOW_STEPS = [
   { id: 'create-orders', name: 'Create Orders', description: 'Create order rows from approved decisions (coming soon)', button: 'Not Available Yet', action: null, disabled: true },
 ];
 
+// Global storage for workflow status data
+let window._workflowStatusData = null;
+
+async function refreshWorkflowStatus() {
+  try {
+    const response = await fetch('/v1/review/workflow-status', {
+      method: 'GET',
+      headers: {
+        'X-API-Key': window._API_KEY || '',
+      },
+    });
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    const data = await response.json();
+    window._workflowStatusData = data;
+    renderWorkflowStatus(data);
+    updateReviewWorkflow();
+  } catch (e) {
+    console.error('Failed to refresh workflow status:', e);
+  }
+}
+
+function renderWorkflowStatus(data) {
+  if (!data) return;
+
+  const summaryEl = document.getElementById('workflow-status-summary');
+  const contentEl = document.getElementById('workflow-status-content');
+  if (!summaryEl || !contentEl) return;
+
+  let html = '';
+  const c = data.review_candidates;
+  const s = data.review_created_signals;
+  const d = data.review_created_trade_decisions;
+  const o = data.orders;
+
+  html += `<div><span style="color: var(--text-secondary);">Review Candidates:</span> <strong>${c.total}</strong> (${c.approved_for_signal} approved)</div>`;
+  html += `<div><span style="color: var(--text-secondary);">Approved Candidates:</span> <strong>${c.approved_for_signal}</strong></div>`;
+  html += `<div><span style="color: var(--text-secondary);">Review Signals:</span> <strong>${s.total}</strong> (${s.received} RECEIVED)</div>`;
+  html += `<div><span style="color: var(--text-secondary);">RECEIVED Signals:</span> <strong>${s.received}</strong></div>`;
+  html += `<div><span style="color: var(--text-secondary);">Trade Decisions:</span> <strong>${d.total}</strong> (${d.order_eligible} order-eligible)</div>`;
+  html += `<div><span style="color: var(--text-secondary);">Order-Eligible Decisions:</span> <strong>${d.order_eligible}</strong></div>`;
+  html += `<div><span style="color: var(--text-secondary);">All Orders:</span> <strong>${o.total}</strong></div>`;
+  html += `<div><span style="color: var(--text-secondary);">Review-Created Orders:</span> <strong>${o.review_created}</strong></div>`;
+
+  contentEl.innerHTML = html;
+  summaryEl.style.display = 'block';
+}
+
+async function getWorkflowStepReason(stepName) {
+  if (!window._workflowStatusData) return '';
+  const step = window._workflowStatusData.workflow_steps.find(s => s.step === stepName);
+  return step ? step.reason : '';
+}
+
 async function updateReviewWorkflow() {
   const container = document.getElementById('workflow-steps-container');
   if (!container) return;
 
+  // If we have API data, use it; otherwise fall back to legacy status checking
+  const useApiData = window._workflowStatusData && window._workflowStatusData.workflow_steps;
+
   let html = '';
-  let prevStepComplete = true; // First step can always start
+  let prevStepReady = true; // First step can always start
 
   for (const step of WORKFLOW_STEPS) {
-    const status = getWorkflowStepStatus(step.id);
-    const isBlocked = !prevStepComplete;
     const isDisabled = step.disabled || false;
+    let status = 'not-started';
+    let blockedReason = '';
+    let stepReady = false;
+
+    if (useApiData) {
+      // Use API data to determine step status
+      const apiStep = window._workflowStatusData.workflow_steps.find(s => s.step === step.name);
+      if (apiStep) {
+        if (apiStep.status === 'READY') {
+          status = 'ready';
+          stepReady = true;
+        } else if (apiStep.status === 'COMPLETE') {
+          status = 'complete';
+          stepReady = true;
+        } else if (apiStep.status === 'BLOCKED') {
+          status = 'blocked';
+          blockedReason = apiStep.reason;
+          stepReady = false;
+        } else if (apiStep.status === 'DISABLED') {
+          status = 'disabled';
+          stepReady = false;
+        }
+      }
+    } else {
+      // Fall back to legacy checking
+      status = getWorkflowStepStatus(step.id);
+      stepReady = (status === 'complete' || status === 'ready') && prevStepReady;
+      if (!stepReady && step.id !== 'pred-preview') status = 'blocked';
+    }
 
     html += '<div style="background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 3px; padding: 12px; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start;">';
 
@@ -3564,7 +3759,7 @@ async function updateReviewWorkflow() {
     html += `<div style="font-weight: 600; font-size: 12px; color: var(--text-primary); margin-bottom: 4px;">${escapeHtml(step.name)}</div>`;
     html += `<div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">${escapeHtml(step.description)}</div>`;
 
-    // Status badge
+    // Status badge and reason
     let statusColor = 'var(--label)';
     let statusText = 'Not Started';
     if (status === 'complete') {
@@ -3576,22 +3771,31 @@ async function updateReviewWorkflow() {
     } else if (status === 'error') {
       statusColor = 'var(--danger)';
       statusText = '✗ Error';
-    } else if (isBlocked) {
+    } else if (status === 'blocked') {
       statusColor = 'var(--label)';
       statusText = 'Blocked';
     } else if (status === 'ready') {
       statusColor = 'var(--ok)';
       statusText = '✓ Ready';
+    } else if (status === 'disabled') {
+      statusColor = 'var(--label)';
+      statusText = 'Disabled';
     }
 
     html += `<div style="display: inline-block; background: rgba(0,0,0,.3); border: 1px solid ${statusColor}; color: ${statusColor}; padding: 4px 8px; border-radius: 2px; font-size: 10px; font-weight: 600;">${statusText}</div>`;
+
+    // Show blocked reason if available
+    if (blockedReason) {
+      html += `<div style="font-size: 10px; color: var(--label); margin-top: 4px;">${escapeHtml(blockedReason)}</div>`;
+    }
+
     html += '</div>';
 
     // Right side - button
     if (step.action) {
-      if (isDisabled) {
+      if (isDisabled || status === 'disabled') {
         html += `<button class="btn-sm" disabled style="background: var(--label); color: white; cursor: not-allowed; opacity: 0.5;">${escapeHtml(step.button)}</button>`;
-      } else if (isBlocked) {
+      } else if (status === 'blocked' || !stepReady) {
         html += `<button class="btn-sm" disabled style="background: var(--label); color: white; cursor: not-allowed; opacity: 0.5;">Blocked</button>`;
       } else if (step.action === 'saveCandidatesToReviewQueue') {
         html += `<button class="btn-sm" onclick="saveCandidatesToReviewQueue('CONSIDER')" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
@@ -3606,10 +3810,10 @@ async function updateReviewWorkflow() {
 
     html += '</div>';
 
-    // Update prevStepComplete for next iteration
-    if (status === 'complete') prevStepComplete = true;
-    else if (step.id === 'pred-preview') prevStepComplete = (status !== 'not-started' && status !== 'error');
-    else prevStepComplete = false;
+    // Update prevStepReady for next iteration
+    if (status === 'complete' || status === 'ready') prevStepReady = true;
+    else if (step.id === 'pred-preview') prevStepReady = (status !== 'not-started' && status !== 'error');
+    else prevStepReady = false;
   }
 
   container.innerHTML = html;
@@ -3671,27 +3875,53 @@ async function refreshReviewQueue() {
   }
 }
 
-// DTR input listeners
-document.getElementById('dtr-ticker').addEventListener('input', function() {
-  updateWorkflowRail();
+// Health check runs immediately and independently
+loadHealth().catch(err => {
+  const text = document.getElementById('health-status');
+  const debug = document.getElementById('health-debug');
+  if (text) text.textContent = 'Offline';
+  if (debug) debug.textContent = 'health check failed';
+  console.error('Health check error:', err);
 });
 
-document.getElementById('dtr-price').addEventListener('input', function() {
-  updateWorkflowRail();
-});
+// DTR input listeners (wrapped in try-catch to not block status check)
+try {
+  const dtrTicker = document.getElementById('dtr-ticker');
+  const dtrPrice = document.getElementById('dtr-price');
+  const dtrConfidence = document.getElementById('dtr-confidence');
+  if (dtrTicker) dtrTicker.addEventListener('input', function() {
+    updateWorkflowRail();
+  });
+  if (dtrPrice) dtrPrice.addEventListener('input', function() {
+    updateWorkflowRail();
+  });
+  if (dtrConfidence) dtrConfidence.addEventListener('input', function() {
+    updateWorkflowRail();
+  });
+} catch (e) {
+  console.warn('DTR listeners setup error:', e);
+}
 
-document.getElementById('dtr-confidence').addEventListener('input', function() {
-  updateWorkflowRail();
-});
+// Initialize workbench with default state (wrapped to not block)
+try {
+  updateWorkbench();
+} catch (e) {
+  console.warn('Workbench init error:', e);
+}
 
-// Health check runs immediately
-loadHealth();
+// Initialize review workflow panel (wrapped to not block)
+try {
+  updateReviewWorkflow();
+} catch (e) {
+  console.warn('Review workflow init error:', e);
+}
 
-// Initialize workbench with default state
-updateWorkbench();
-
-// Initialize review workflow panel
-updateReviewWorkflow();
+// Refresh workflow status from API (wrapped to not block)
+try {
+  refreshWorkflowStatus();
+} catch (e) {
+  console.warn('Workflow status init error:', e);
+}
 
 </script>
 

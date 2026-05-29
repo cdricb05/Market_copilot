@@ -878,6 +878,56 @@ class ReviewOrderPreviewResponse(BaseModel):
     job_runs_created: int
 
 
+class ReviewCandidatesCounts(BaseModel):
+    """Count of review candidates by status."""
+    total: int
+    new: int
+    watching: int
+    approved_for_signal: int
+    rejected: int
+
+
+class ReviewCreatedSignalsCounts(BaseModel):
+    """Count of review-created signals by status."""
+    total: int
+    received: int
+    decision_made: int
+    error: int
+
+
+class ReviewCreatedDecisionsCounts(BaseModel):
+    """Count of review-created trade decisions by decision type."""
+    total: int
+    buy: int
+    sell: int
+    rejected: int
+    order_eligible: int
+    already_has_order: int
+
+
+class OrdersCounts(BaseModel):
+    """Count of orders."""
+    total: int
+    review_created: int
+
+
+class WorkflowStepStatus(BaseModel):
+    """Status of a single workflow step."""
+    step: str
+    status: str
+    reason: str
+
+
+class WorkflowStatusResponse(BaseModel):
+    """Complete workflow status with counts and step evaluation."""
+    review_candidates: ReviewCandidatesCounts
+    review_created_signals: ReviewCreatedSignalsCounts
+    review_created_trade_decisions: ReviewCreatedDecisionsCounts
+    orders: OrdersCounts
+    workflow_steps: list[WorkflowStepStatus]
+    safety: dict[str, bool]
+
+
 class BackfillRequest(BaseModel):
     universe: str = Field(
         default="SP500",
@@ -4625,6 +4675,266 @@ async def preview_orders_from_decisions(
         skipped=skipped_list,
         orders_created=0,
         job_runs_created=0,
+    )
+
+
+@app.get(
+    "/v1/review/workflow-status",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def get_workflow_status() -> WorkflowStatusResponse:
+    """
+    Get live workflow status with counts and step evaluations.
+
+    This endpoint is READ-ONLY: no database writes, no JobRun creation.
+    Returns counts of:
+    - Review candidates by status (NEW, WATCHING, REJECTED, APPROVED_FOR_SIGNAL)
+    - Review-created signals by status (RECEIVED, DECISION_MADE, ERROR)
+    - Review-created trade decisions by decision type and order eligibility
+    - Orders (total and review-created)
+    - Workflow step statuses with reasons for blocked steps
+    """
+    import uuid as uuid_module
+
+    REVIEW_SOURCE_PREFIX = "review_queue_create_signals_v1:"
+
+    with get_session() as session:
+        # Count review candidates by status
+        candidate_total = session.query(CandidateReview).count()
+        candidate_new = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "NEW"
+        ).count()
+        candidate_watching = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "WATCHING"
+        ).count()
+        candidate_approved = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "APPROVED_FOR_SIGNAL"
+        ).count()
+        candidate_rejected = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "REJECTED"
+        ).count()
+
+        candidates_counts = ReviewCandidatesCounts(
+            total=candidate_total,
+            new=candidate_new,
+            watching=candidate_watching,
+            approved_for_signal=candidate_approved,
+            rejected=candidate_rejected,
+        )
+
+        # Count review-created signals by status
+        signal_total = session.query(Signal).filter(
+            Signal.source_run.startswith(REVIEW_SOURCE_PREFIX)
+        ).count()
+        signal_received = session.query(Signal).filter(
+            Signal.source_run.startswith(REVIEW_SOURCE_PREFIX),
+            Signal.status == "RECEIVED",
+        ).count()
+        signal_decision_made = session.query(Signal).filter(
+            Signal.source_run.startswith(REVIEW_SOURCE_PREFIX),
+            Signal.status == "DECISION_MADE",
+        ).count()
+        signal_error = session.query(Signal).filter(
+            Signal.source_run.startswith(REVIEW_SOURCE_PREFIX),
+            Signal.status == "ERROR",
+        ).count()
+
+        signals_counts = ReviewCreatedSignalsCounts(
+            total=signal_total,
+            received=signal_received,
+            decision_made=signal_decision_made,
+            error=signal_error,
+        )
+
+        # Count review-created trade decisions
+        # Join Signal → TradeDecision, filter by source_run prefix
+        decision_query = session.query(TradeDecision).join(
+            Signal, Signal.id == TradeDecision.signal_id
+        ).filter(Signal.source_run.startswith(REVIEW_SOURCE_PREFIX))
+
+        decision_total = decision_query.count()
+        decision_buy = decision_query.filter(
+            TradeDecision.decision == "BUY"
+        ).count()
+        decision_sell = decision_query.filter(
+            TradeDecision.decision == "SELL"
+        ).count()
+        decision_rejected = decision_query.filter(
+            TradeDecision.decision == "REJECTED"
+        ).count()
+
+        # Count order-eligible decisions (BUY/SELL with approved_qty > 0 and no existing order)
+        order_eligible = 0
+        already_has_order = 0
+        eligible_decisions = decision_query.filter(
+            TradeDecision.decision.in_(["BUY", "SELL"]),
+            TradeDecision.approved_qty > Decimal("0"),
+        ).all()
+        for td in eligible_decisions:
+            existing_order = session.query(Order).filter(
+                Order.trade_decision_id == td.id
+            ).first()
+            if existing_order:
+                already_has_order += 1
+            else:
+                order_eligible += 1
+
+        decisions_counts = ReviewCreatedDecisionsCounts(
+            total=decision_total,
+            buy=decision_buy,
+            sell=decision_sell,
+            rejected=decision_rejected,
+            order_eligible=order_eligible,
+            already_has_order=already_has_order,
+        )
+
+        # Count all orders and review-created orders
+        order_total = session.query(Order).count()
+        review_created_orders = session.query(Order).join(
+            TradeDecision, TradeDecision.id == Order.trade_decision_id
+        ).join(Signal, Signal.id == TradeDecision.signal_id).filter(
+            Signal.source_run.startswith(REVIEW_SOURCE_PREFIX)
+        ).count()
+
+        orders_counts = OrdersCounts(
+            total=order_total,
+            review_created=review_created_orders,
+        )
+
+        # Evaluate workflow steps
+        steps = []
+
+        # Step 1: Prediction Preview (always ready)
+        steps.append(WorkflowStepStatus(
+            step="Prediction Preview",
+            status="READY",
+            reason="Run prediction preview to fetch model recommendations.",
+        ))
+
+        # Step 2: Save Candidates (blocked if no CONSIDER candidates)
+        if candidate_approved == 0:
+            # Count CONSIDER candidates from candidate_reviews
+            consider_count = session.query(CandidateReview).filter(
+                CandidateReview.preview_decision == "CONSIDER"
+            ).count()
+            if consider_count == 0:
+                steps.append(WorkflowStepStatus(
+                    step="Save Candidates",
+                    status="BLOCKED",
+                    reason="No CONSIDER candidates available from prediction preview.",
+                ))
+            else:
+                steps.append(WorkflowStepStatus(
+                    step="Save Candidates",
+                    status="READY",
+                    reason=f"{consider_count} CONSIDER candidate(s) available to save.",
+                ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Save Candidates",
+                status="COMPLETE",
+                reason=f"{candidate_approved} candidate(s) approved for signal creation.",
+            ))
+
+        # Step 3: Review Queue (depends on approved candidates)
+        if candidate_approved == 0:
+            steps.append(WorkflowStepStatus(
+                step="Review Queue",
+                status="BLOCKED",
+                reason="No candidates approved for signal creation.",
+            ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Review Queue",
+                status="READY",
+                reason=f"Review {candidate_approved} approved candidate(s).",
+            ))
+
+        # Step 4: Signal Preview (blocked if no signals to preview)
+        if signal_total == 0:
+            steps.append(WorkflowStepStatus(
+                step="Signal Preview",
+                status="BLOCKED",
+                reason="No review-created signals yet.",
+            ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Signal Preview",
+                status="READY",
+                reason=f"{signal_received} RECEIVED signal(s) available to preview.",
+            ))
+
+        # Step 5: Create Signals (blocked if no RECEIVED signals)
+        if signal_received == 0:
+            steps.append(WorkflowStepStatus(
+                step="Create Signals",
+                status="BLOCKED",
+                reason="No RECEIVED signals ready for decision creation.",
+            ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Create Signals",
+                status="READY",
+                reason=f"Create decisions for {signal_received} RECEIVED signal(s).",
+            ))
+
+        # Step 6: Decision Preview (blocked if no decisions to preview)
+        if decision_total == 0:
+            steps.append(WorkflowStepStatus(
+                step="Decision Preview",
+                status="BLOCKED",
+                reason="No review-created trade decisions yet.",
+            ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Decision Preview",
+                status="READY",
+                reason=f"{decision_total} trade decision(s) ready to preview.",
+            ))
+
+        # Step 7: Create Decisions (skipped if no BUY/SELL decisions available)
+        if decision_buy + decision_sell == 0:
+            steps.append(WorkflowStepStatus(
+                step="Create Decisions",
+                status="BLOCKED",
+                reason="No approved trade decisions (BUY/SELL) available.",
+            ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Create Decisions",
+                status="COMPLETE",
+                reason=f"{decision_buy + decision_sell} approved decision(s) available.",
+            ))
+
+        # Step 8: Order Preview (blocked if no order-eligible decisions)
+        if order_eligible == 0:
+            steps.append(WorkflowStepStatus(
+                step="Order Preview",
+                status="BLOCKED",
+                reason="No review-created trade decisions eligible for orders.",
+            ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Order Preview",
+                status="READY",
+                reason=f"{order_eligible} trade decision(s) eligible for order preview.",
+            ))
+
+        # Step 9: Create Orders (disabled)
+        steps.append(WorkflowStepStatus(
+            step="Create Orders",
+            status="DISABLED",
+            reason="Not yet implemented.",
+        ))
+
+    return WorkflowStatusResponse(
+        review_candidates=candidates_counts,
+        review_created_signals=signals_counts,
+        review_created_trade_decisions=decisions_counts,
+        orders=orders_counts,
+        workflow_steps=steps,
+        safety={"create_orders_enabled": False, "automation_enabled": False},
     )
 
 

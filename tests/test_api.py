@@ -10437,3 +10437,238 @@ class TestReviewOrderPreviewEndpoint:
             ).first()
             signal_status_after = signal_after.status if signal_after else None
             assert signal_status_after == signal_status_before, "Signal should not be modified"
+
+
+class TestReviewWorkflowStatusEndpoint:
+    """Test GET /v1/review/workflow-status endpoint (read-only workflow status)."""
+
+    def test_endpoint_requires_api_key(self, seeded_client: TestClient) -> None:
+        """Test that the endpoint requires API key."""
+        response = seeded_client.get("/v1/review/workflow-status")
+        assert response.status_code == 401
+
+    def test_returns_all_top_level_sections(self, seeded_client: TestClient) -> None:
+        """Test that response includes all required top-level sections."""
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+        data = response.json()
+        assert "review_candidates" in data
+        assert "review_created_signals" in data
+        assert "review_created_trade_decisions" in data
+        assert "orders" in data
+        assert "workflow_steps" in data
+        assert "safety" in data
+
+    def test_returns_safe_structure_with_nonnegative_counts(self, seeded_client: TestClient) -> None:
+        """Test that endpoint returns safe structure with non-negative integer counts."""
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all count sections exist and have integer counts >= 0
+        assert isinstance(data["review_candidates"]["total"], int)
+        assert isinstance(data["review_candidates"]["new"], int)
+        assert isinstance(data["review_candidates"]["watching"], int)
+        assert isinstance(data["review_candidates"]["approved_for_signal"], int)
+        assert isinstance(data["review_candidates"]["rejected"], int)
+        assert all(v >= 0 for v in data["review_candidates"].values())
+
+        assert isinstance(data["review_created_signals"]["total"], int)
+        assert isinstance(data["review_created_signals"]["received"], int)
+        assert isinstance(data["review_created_signals"]["decision_made"], int)
+        assert isinstance(data["review_created_signals"]["error"], int)
+        assert all(v >= 0 for v in data["review_created_signals"].values())
+
+        assert isinstance(data["review_created_trade_decisions"]["total"], int)
+        assert isinstance(data["review_created_trade_decisions"]["buy"], int)
+        assert isinstance(data["review_created_trade_decisions"]["sell"], int)
+        assert isinstance(data["review_created_trade_decisions"]["rejected"], int)
+        assert isinstance(data["review_created_trade_decisions"]["order_eligible"], int)
+        assert isinstance(data["review_created_trade_decisions"]["already_has_order"], int)
+        assert all(v >= 0 for v in data["review_created_trade_decisions"].values())
+
+        assert isinstance(data["orders"]["total"], int)
+        assert isinstance(data["orders"]["review_created"], int)
+        assert all(v >= 0 for v in data["orders"].values())
+
+        # Verify safety flags are disabled
+        assert data["safety"]["create_orders_enabled"] is False
+        assert data["safety"]["automation_enabled"] is False
+
+    def test_counts_review_created_signals_with_correct_prefix(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that only signals with review_queue_create_signals_v1: prefix are counted."""
+        # Get baseline counts before setup
+        response_before = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response_before.status_code == 200
+        data_before = response_before.json()
+        baseline_signals = data_before["review_created_signals"]["total"]
+        baseline_received = data_before["review_created_signals"]["received"]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create a JobRun with a valid WorkflowType
+            jr = JobRun(
+                idempotency_key="workflow-status-test-signals",
+                workflow_type=WorkflowType.PRE_MARKET,
+                market_date=date.today(),
+                status=JobRunStatus.COMPLETED,
+            )
+            session.add(jr)
+            session.flush()
+
+            # Create a review-created signal (source_run prefix identifies it as review-created)
+            signal = Signal(
+                job_run_id=jr.id,
+                ticker="AAPL",
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:test-001",
+                status="RECEIVED",
+            )
+            session.add(signal)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should count the review signal using delta pattern (before + 1)
+        assert data["review_created_signals"]["total"] >= baseline_signals + 1
+        assert data["review_created_signals"]["received"] >= baseline_received + 1
+
+    def test_counts_review_created_trade_decisions_through_signal_source_run(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that trade decisions are counted only if their signal has review source_run prefix."""
+        # Get baseline counts before setup
+        response_before = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response_before.status_code == 200
+        data_before = response_before.json()
+        baseline_decisions = data_before["review_created_trade_decisions"]["total"]
+        baseline_sell = data_before["review_created_trade_decisions"]["sell"]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Create a JobRun with a valid WorkflowType
+            jr = JobRun(
+                idempotency_key="workflow-status-test-decisions",
+                workflow_type=WorkflowType.MIDDAY,
+                market_date=date.today(),
+                status=JobRunStatus.COMPLETED,
+            )
+            session.add(jr)
+            session.flush()
+
+            # Create a review-created signal (source_run prefix identifies it as review-created)
+            signal = Signal(
+                job_run_id=jr.id,
+                ticker="MSFT",
+                direction="SELL",
+                confidence=Decimal("0.75"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:test-002",
+                status="RECEIVED",
+            )
+            session.add(signal)
+            session.flush()
+
+            # Create a trade decision from that signal
+            td = TradeDecision(
+                signal_id=signal.id,
+                job_run_id=jr.id,
+                ticker="MSFT",
+                signal_direction="SELL",
+                decision="SELL",
+                reason_code="POSITIVE_SIGNAL",
+                approved_qty=Decimal("100.00"),
+                approved_notional=Decimal("15000.00"),
+                market_date=date.today(),
+            )
+            session.add(td)
+            session.commit()
+
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should count the review-created trade decision using delta pattern (before + 1)
+        assert data["review_created_trade_decisions"]["total"] >= baseline_decisions + 1
+        assert data["review_created_trade_decisions"]["sell"] >= baseline_sell + 1
+
+    def test_does_not_create_job_run_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that the endpoint does not create JobRun rows."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_runs_before = session.query(JobRun).count()
+
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_runs_after = session.query(JobRun).count()
+            assert job_runs_after == job_runs_before, "No JobRun rows should be created"
+
+    def test_does_not_create_signal_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that the endpoint does not create Signal rows."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signals_before = session.query(Signal).count()
+
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            signals_after = session.query(Signal).count()
+            assert signals_after == signals_before, "No Signal rows should be created"
+
+    def test_does_not_create_trade_decision_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that the endpoint does not create TradeDecision rows."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            decisions_before = session.query(TradeDecision).count()
+
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            decisions_after = session.query(TradeDecision).count()
+            assert decisions_after == decisions_before, "No TradeDecision rows should be created"
+
+    def test_does_not_create_order_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """Test that the endpoint does not create Order rows."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_before = session.query(Order).count()
+
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_after = session.query(Order).count()
+            assert orders_after == orders_before, "No Order rows should be created"
+
+    def test_safety_flags_disabled(self, seeded_client: TestClient) -> None:
+        """Test that safety flags indicate features are disabled."""
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["safety"]["create_orders_enabled"] is False
+        assert data["safety"]["automation_enabled"] is False
+
+    def test_workflow_steps_include_nine_steps(self, seeded_client: TestClient) -> None:
+        """Test that workflow_steps includes all 9 steps."""
+        response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data["workflow_steps"]) == 9
+        step_names = {step["step"] for step in data["workflow_steps"]}
+        expected_steps = {
+            "Prediction Preview",
+            "Save Candidates",
+            "Review Queue",
+            "Signal Preview",
+            "Create Signals",
+            "Decision Preview",
+            "Create Decisions",
+            "Order Preview",
+            "Create Orders",
+        }
+        assert step_names == expected_steps
