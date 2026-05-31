@@ -469,6 +469,32 @@ class TestAuthentication:
 
 
 # ---------------------------------------------------------------------------
+# Authentication check endpoint
+# ---------------------------------------------------------------------------
+
+class TestAuthCheck:
+    def test_auth_check_requires_api_key(self, client: TestClient) -> None:
+        resp = client.get("/v1/auth/check")
+        assert resp.status_code == 401
+
+    def test_auth_check_rejects_wrong_key(self, client: TestClient) -> None:
+        resp = client.get("/v1/auth/check", headers={"X-API-Key": "wrong-key"})
+        assert resp.status_code == 401
+
+    def test_auth_check_accepts_valid_key(self, client: TestClient) -> None:
+        resp = client.get("/v1/auth/check", headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["authenticated"] is True
+        assert body["service"] == "paper_trader"
+
+    def test_auth_check_is_lightweight(self, client: TestClient) -> None:
+        """Auth check should not depend on portfolio being seeded."""
+        resp = client.get("/v1/auth/check", headers=_AUTH)
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Unseeded state — must run before seeded_client commits data
 # ---------------------------------------------------------------------------
 
@@ -1801,6 +1827,7 @@ class TestPredictionStrategyEndpoint:
             "/v1/strategy/prediction/run",
             json={
                 "idempotency_key": "pred-api-test-001",
+                "market_date": _DATE_STRAT_APPROVED.isoformat(),
                 "predictions": [
                     {
                         "ticker": "AAPL",
@@ -1991,6 +2018,7 @@ class TestFetchAndRunPredictionEndpoint:
             "/v1/strategy/prediction/fetch-and-run",
             json={
                 "idempotency_key": "fetch-run-api-test-001",
+                "market_date": _DATE_STRAT_APPROVED.isoformat(),
                 "tickers": ["AAPL"],
             },
             headers=_AUTH,

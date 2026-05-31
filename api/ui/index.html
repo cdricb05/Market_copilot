@@ -125,18 +125,83 @@
     }
 
     /* ---- Layout ---- */
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      flex-shrink: 0;
+    }
+    .app-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    .sidebar {
+      width: 180px;
+      background: rgba(11, 15, 40, 0.6);
+      border-right: 1px solid var(--border);
+      padding: 16px 0;
+      overflow-y: auto;
+      flex: 0 0 180px;
+    }
+    .sidebar-section {
+      margin-bottom: 20px;
+      padding: 0 12px;
+    }
+    .sidebar-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--label);
+      font-weight: 600;
+      padding: 8px 8px 4px;
+      margin-bottom: 4px;
+    }
+    .sidebar-link {
+      display: block;
+      padding: 8px 12px;
+      color: var(--text-accent);
+      text-decoration: none;
+      font-size: 12px;
+      border-left: 2px solid transparent;
+      cursor: pointer;
+      transition: 0.15s;
+    }
+    .sidebar-link:hover {
+      color: var(--text-primary);
+      background: rgba(59, 130, 246, 0.1);
+      border-left-color: var(--info);
+    }
     main {
-      max-width: 1600px;
-      margin: 0 auto;
-      padding: 16px 20px;
+      flex: 1;
       display: grid;
       gap: 14px;
+      overflow-y: auto;
+      padding: 16px 20px;
     }
-
+    .right-panel {
+      width: 280px;
+      background: rgba(11, 15, 40, 0.4);
+      border-left: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+      flex: 0 0 280px;
+    }
     .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .row-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
     @media (max-width: 1200px) { .row-3 { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 900px) { .row-2 { grid-template-columns: 1fr; } }
+    @media (max-width: 1024px) {
+      .sidebar { width: 150px; }
+      .right-panel { width: 250px; }
+    }
+    @media (max-width: 768px) {
+      .app-container { flex-direction: column; }
+      .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); padding: 8px 0; height: auto; max-height: 120px; }
+      .right-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); max-height: 150px; }
+      .main-content { padding: 12px 16px; }
+    }
 
     /* ---- Card (Panel) ---- */
     .card {
@@ -608,6 +673,133 @@
     .neg { color: var(--danger); }
     .yes { color: var(--ok); font-weight: 600; }
     .no { color: var(--danger); font-weight: 600; }
+
+    /* ---- Workflow Card (Redesign v1) ---- */
+    .workflow-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      transition: 0.15s;
+    }
+    .workflow-card:hover { border-color: var(--info); box-shadow: 0 2px 6px rgba(59, 130, 246, 0.1); }
+    .workflow-card-left {
+      flex: 1;
+    }
+    .workflow-card-step {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--label);
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .workflow-card-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+    .workflow-card-count {
+      font-size: 11px;
+      color: var(--text-accent);
+      margin-bottom: 4px;
+    }
+    .workflow-card-reason {
+      font-size: 10px;
+      color: var(--warning);
+      font-style: italic;
+      margin-bottom: 4px;
+    }
+    .workflow-card-right {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-end;
+    }
+    .workflow-card-status {
+      font-size: 9px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 2px;
+      border: 1px solid;
+      white-space: nowrap;
+    }
+    .workflow-card-status.ready { background: rgba(59, 130, 246, 0.15); color: var(--info); border-color: var(--info); }
+    .workflow-card-status.complete { background: rgba(34, 197, 94, 0.15); color: var(--ok); border-color: var(--ok); }
+    .workflow-card-status.blocked { background: rgba(239, 68, 68, 0.15); color: var(--danger); border-color: var(--danger); }
+    .workflow-card-status.disabled { background: rgba(107, 114, 128, 0.15); color: var(--label); border-color: var(--border); }
+    .workflow-card-status.pending { background: rgba(245, 158, 11, 0.15); color: var(--warning); border-color: var(--warning); }
+    .workflow-card-btn {
+      padding: 5px 10px;
+      background: var(--info);
+      color: white;
+      border: none;
+      border-radius: 2px;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
+      white-space: nowrap;
+    }
+    .workflow-card-btn:hover:not(:disabled) { background: #2563eb; }
+    .workflow-card-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ---- Safety Labels ---- */
+    .safety-label {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 2px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border: 1px solid;
+    }
+    .safety-label.preview { background: rgba(245, 158, 11, 0.15); color: var(--warning); border-color: var(--warning); }
+    .safety-label.signals { background: rgba(34, 197, 94, 0.15); color: var(--ok); border-color: var(--ok); }
+    .safety-label.decisions { background: rgba(59, 130, 246, 0.15); color: var(--info); border-color: var(--info); }
+    .safety-label.orders-disabled { background: rgba(239, 68, 68, 0.15); color: var(--danger); border-color: var(--danger); }
+    .safety-label.auto-off { background: rgba(107, 114, 128, 0.15); color: var(--label); border-color: var(--border); }
+
+    /* ---- Right Panel Content ---- */
+    .panel-section {
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-section:last-child { border-bottom: none; margin-bottom: 0; }
+    .panel-section-title {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--label);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .panel-item {
+      font-size: 11px;
+      color: var(--text-accent);
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .panel-value {
+      color: var(--text-primary);
+      font-weight: 600;
+      font-family: 'Monaco', monospace;
+    }
+
+    /* ---- Compact Tables (Redesign) ---- */
+    table.compact-table { font-size: 11px; }
+    table.compact-table th { padding: 6px 8px; font-size: 9px; }
+    table.compact-table td { padding: 6px 8px; font-size: 11px; }
   </style>
 </head>
 <body>
@@ -619,10 +811,12 @@
     <span class="status-text" id="health-status">Connecting…</span>
     <span class="status-debug" id="health-debug"></span>
   </div>
+  <span style="font-size: 11px; color: var(--label); margin-right: 24px;">Safety: Manual Review</span>
+  <span style="font-size: 11px; color: var(--label);">Automation: Off</span>
   <div style="flex: 1;"></div>
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
-         onkeydown="if(event.key==='Enter')connect()">
-  <button id="connectBtn" onclick="connect()">Connect</button>
+         onkeydown="if(event.key==='Enter')window.paperTraderConnect(event)">
+  <button id="connectBtn" onclick="window.paperTraderConnect(event)">Connect</button>
   <button class="btn-refresh" id="refreshBtn" onclick="refresh()" title="Refresh all data">↻</button>
 </header>
 
@@ -684,7 +878,230 @@
 })();
 </script>
 
-<main>
+<!-- Independent connection script - runs before app initialization -->
+<script>
+(function() {
+  let _autoConnectAttempted = false;
+
+  window.paperTraderConnect = async function paperTraderConnect(event) {
+    if (event) event.preventDefault();
+
+    try {
+      // Immediately acknowledge click
+      const statusEl = document.getElementById('right-connect-status');
+      if (statusEl) statusEl.textContent = 'Click received';
+
+      // Get elements
+      const apiKeyInput = document.getElementById('apiKey');
+      const btn = document.getElementById('connectBtn');
+      const connectedEl = document.getElementById('right-connected');
+
+      if (!apiKeyInput || !btn || !connectedEl || !statusEl) {
+        console.error('Connect: required UI elements missing');
+        if (statusEl) statusEl.textContent = 'UI elements missing';
+        return;
+      }
+
+      // Read API key
+      const apiKey = apiKeyInput.value.trim();
+      if (!apiKey) {
+        connectedEl.textContent = 'Not Connected';
+        statusEl.textContent = 'No API key provided';
+        return;
+      }
+
+      // Disable button, show connecting state
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+      connectedEl.textContent = 'Connecting…';
+      statusEl.textContent = 'Calling /v1/auth/check…';
+
+      // Store API key in BOTH localStorage keys
+      try {
+        localStorage.setItem('apiKey', apiKey);
+        localStorage.setItem('paper_trader_api_key', apiKey);
+      } catch (e) {
+        console.warn('localStorage write failed:', e);
+      }
+
+      // Call /v1/auth/check directly
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      try {
+        const resp = await fetch('/v1/auth/check', {
+          method: 'GET',
+          headers: { 'X-API-Key': apiKey },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (resp.status === 401) {
+          // Auth failed - invalid key
+          connectedEl.textContent = 'Not Connected';
+          statusEl.textContent = 'Auth failed: /v1/auth/check 401';
+          btn.textContent = 'Connect';
+          btn.disabled = false;
+          return;
+        }
+
+        if (!resp.ok) {
+          // Other HTTP error
+          connectedEl.textContent = 'Not Connected';
+          statusEl.textContent = `API failed: /v1/auth/check HTTP ${resp.status}`;
+          btn.textContent = 'Connect';
+          btn.disabled = false;
+          return;
+        }
+
+        // Success: auth check passed
+        connectedEl.textContent = 'Connected';
+        statusEl.textContent = 'Connected: /v1/auth/check 200';
+        btn.textContent = 'Connected';
+        btn.disabled = false;
+
+        // Mark global connected state
+        window.paperTraderConnected = true;
+        window.paperTraderPostAuthLoadPending = true;
+        if (typeof window._appState !== 'undefined') {
+          window._appState.connected = true;
+        }
+
+        // Try to load dashboard in background
+        if (typeof window.paperTraderDirectDashboardLoad === 'function') {
+          window.paperTraderDirectDashboardLoad().catch(e => {
+            console.error('Dashboard load error:', e);
+          });
+        } else {
+          // Fallback: shouldn't happen, but catch it
+          const actionStatusEl = document.getElementById('right-action-status');
+          if (actionStatusEl) {
+            actionStatusEl.textContent = 'Connected. Dashboard loader unavailable.';
+            actionStatusEl.style.color = 'var(--danger)';
+          }
+        }
+
+      } catch (e) {
+        clearTimeout(timeout);
+        // Network error or timeout
+        connectedEl.textContent = 'Not Connected';
+        const msg = e.name === 'AbortError' ? 'timeout' : (e.message || 'network error');
+        statusEl.textContent = `Network failed: /v1/auth/check ${msg}`;
+        btn.textContent = 'Connect';
+        btn.disabled = false;
+      }
+
+    } catch (outerErr) {
+      console.error('paperTraderConnect error:', outerErr);
+      const statusEl = document.getElementById('right-connect-status');
+      if (statusEl) statusEl.textContent = `Error: ${outerErr.message || 'unknown'}`;
+      const btn = document.getElementById('connectBtn');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Connect';
+      }
+    }
+  };
+
+  // Bind button click handler
+  function bindConnectButton() {
+    const btn = document.getElementById('connectBtn');
+    if (btn && !btn.dataset.connectBound) {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.paperTraderConnect(e);
+      });
+      btn.dataset.connectBound = 'true';
+    }
+  }
+
+  // Try to bind immediately if DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindConnectButton);
+  } else {
+    bindConnectButton();
+  }
+
+  // Auto-connect with retry logic
+  function attemptAutoConnect() {
+    if (_autoConnectAttempted) return;
+
+    try {
+      const apiKeyInput = document.getElementById('apiKey');
+      const statusEl = document.getElementById('right-connect-status');
+
+      if (!apiKeyInput || !statusEl) return;
+
+      // Check localStorage and input field for API key
+      let savedKey = localStorage.getItem('apiKey') || localStorage.getItem('paper_trader_api_key') || '';
+      const inputKey = apiKeyInput.value.trim();
+      const keyToUse = inputKey || savedKey;
+
+      if (!keyToUse) {
+        if (statusEl.textContent === 'Not attempted') {
+          statusEl.textContent = 'Auto-connect waiting for API key';
+        }
+        return;
+      }
+
+      // Populate input if empty
+      if (!inputKey && savedKey) {
+        apiKeyInput.value = savedKey;
+      }
+
+      // Auto-connect
+      _autoConnectAttempted = true;
+      window.paperTraderConnect();
+
+    } catch (e) {
+      console.warn('Auto-connect setup error:', e);
+    }
+  }
+
+  // Run auto-connect at DOMContentLoaded
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      attemptAutoConnect();
+      // Retry at 500ms
+      setTimeout(attemptAutoConnect, 500);
+      // Retry at 1500ms
+      setTimeout(attemptAutoConnect, 1500);
+    });
+  } else {
+    // Already loaded
+    attemptAutoConnect();
+    setTimeout(attemptAutoConnect, 500);
+    setTimeout(attemptAutoConnect, 1500);
+  }
+})();
+</script>
+
+<div class="app-container">
+  <!-- Left Sidebar Navigation -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Views</div>
+      <a class="sidebar-link" onclick="document.getElementById('main-content').scrollTo(0, 0);">Dashboard</a>
+      <a class="sidebar-link" onclick="document.getElementById('main-content').scrollTo(0, 0);">Prediction</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Workflow</div>
+      <a class="sidebar-link" onclick="document.getElementById('main-content').scrollTo(0, document.getElementById('review-workflow-panel')?.offsetTop - 60 || 0);">Review Workflow</a>
+      <a class="sidebar-link" onclick="window.runUiAction('Refresh Workflow Status', () => refreshWorkflowStatus(), this);">↻ Refresh Status</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Data</div>
+      <a class="sidebar-link" onclick="window.runUiAction('Load Orders', () => loadOrders(), this)">Orders</a>
+      <a class="sidebar-link" onclick="window.runUiAction('Load History', () => loadHistory(), this)">History</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Tools</div>
+      <a class="sidebar-link" onclick="refresh();">↻ Full Refresh</a>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main id="main-content">
 
   <!-- KPI Strip (Section B) -->
   <div class="card">
@@ -792,19 +1209,19 @@
 
     <div class="button-group">
       <span class="button-group-label">Market Data</span>
-      <button class="btn" onclick="fetchLatestPrices(this)">Fetch Latest Prices</button>
-      <button class="btn" onclick="checkStrategyReadiness()">Check Readiness</button>
+      <button class="btn" onclick="window.runUiAction('Fetch Latest Prices', () => fetchLatestPrices(this), this)">Fetch Latest Prices</button>
+      <button class="btn" onclick="window.runUiAction('Check Readiness', () => checkStrategyReadiness(), this)">Check Readiness</button>
     </div>
 
     <div class="button-group">
       <span class="button-group-label">Market Scan</span>
-      <button class="btn" onclick="runMarketScan(this)">Run Market Scan</button>
-      <button class="btn" onclick="useTopMarketCandidates(this)">Use Top Candidates</button>
+      <button class="btn" onclick="window.runUiAction('Run Market Scan', () => runMarketScan(this), this)">Run Market Scan</button>
+      <button class="btn" onclick="window.runUiAction('Use Top Candidates', () => useTopMarketCandidates(this), this)">Use Top Candidates</button>
     </div>
 
     <div class="button-group">
       <span class="button-group-label">Prediction Preview</span>
-      <button class="btn" onclick="runPredictionPreview(this)">Run Prediction Preview</button>
+      <button class="btn" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">Run Prediction Preview</button>
       <span class="service-label">Uses safe defaults for decision-grade preview — no signals, no trading artifacts</span>
     </div>
 
@@ -833,21 +1250,21 @@
 
     <div class="button-group">
       <span class="button-group-label">Strategy</span>
-      <button class="btn btn-ok" onclick="dtrRunStrategy(this)">Run SMA Strategy</button>
-      <button class="btn btn-ok" onclick="dtrRunPredictionStrategy(this)">Run Prediction Strategy</button>
+      <button class="btn btn-ok" onclick="window.runUiAction('Run SMA Strategy', () => dtrRunStrategy(this), this)">Run SMA Strategy</button>
+      <button class="btn btn-ok" onclick="window.runUiAction('Run Prediction Strategy', () => dtrRunPredictionStrategy(this), this)">Run Prediction Strategy</button>
       <span class="service-label">Uses GCP model predictions via local tunnel</span>
     </div>
 
     <div class="button-group">
       <span class="button-group-label">Manual Override</span>
-      <button class="btn btn-danger" onclick="dtrSubmitSignal(this)">Submit Manual Signal</button>
+      <button class="btn btn-danger" onclick="window.runUiAction('Submit Manual Signal', () => dtrSubmitSignal(this), this)">Submit Manual Signal</button>
     </div>
 
     <div class="button-group" style="border-bottom: none; padding-bottom: 0; margin-bottom: 0;">
       <span class="button-group-label">Execution</span>
-      <button class="btn" onclick="dtrRunFill(this)">Run Fill</button>
-      <button class="btn" onclick="dtrRunSnapshot(this)">Run Snapshot</button>
-      <button class="btn" onclick="dtrRefreshReview(this)">Refresh Dashboard</button>
+      <button class="btn" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
+      <button class="btn" onclick="window.runUiAction('Run Snapshot', () => dtrRunSnapshot(this), this)">Run Snapshot</button>
+      <button class="btn" onclick="window.runUiAction('Refresh Dashboard', () => dtrRefreshReview(this), this)">Refresh Dashboard</button>
     </div>
   </div>
 
@@ -892,7 +1309,7 @@
   <div id="review-workflow-panel" class="card" style="margin: 20px 0; display: block;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
       <div class="section-title">Review Workflow</div>
-      <button class="btn-sm" onclick="refreshWorkflowStatus()" style="background: var(--info);">Refresh Status</button>
+      <button class="btn-sm" onclick="window.runUiAction('Refresh Workflow Status', () => refreshWorkflowStatus(), this)" style="background: var(--info);">Refresh Status</button>
     </div>
     <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">Complete the following steps in order to review and approve trade decisions.</div>
     <div id="workflow-status-summary" style="background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 3px; padding: 12px; margin-bottom: 16px; display: none;">
@@ -1088,7 +1505,7 @@
       <input type="date" id="histStart">
       <span style="color: var(--label); font-size:12px;">to</span>
       <input type="date" id="histEnd">
-      <button class="btn-sm" onclick="loadHistory()">Filter</button>
+      <button class="btn-sm" onclick="window.runUiAction('Filter History', () => loadHistory(), this)">Filter</button>
       <button class="btn-sm" onclick="setHist30D()">30D</button>
       <button class="btn-sm" onclick="clearHistFilters()">Clear</button>
       <a class="link-btn" href="#" onclick="downloadCsv(event)">CSV</a>
@@ -1145,7 +1562,7 @@
         <span class="step-label">Step 4: Run Fill</span>
         <span class="step-status not-started" id="dtr-status-fill">Not Started</span>
       </div>
-      <button class="step-btn" id="dtr-btn-fill" onclick="dtrRunFill(this)">Run Fill</button>
+      <button class="step-btn" id="dtr-btn-fill" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
       <div class="step-result" id="dtr-result-fill"></div>
     </div>
 
@@ -1154,7 +1571,7 @@
         <span class="step-label">Step 5: Run Snapshot</span>
         <span class="step-status not-started" id="dtr-status-snapshot">Not Started</span>
       </div>
-      <button class="step-btn" id="dtr-btn-snapshot" onclick="dtrRunSnapshot(this)">Run Snapshot</button>
+      <button class="step-btn" id="dtr-btn-snapshot" onclick="window.runUiAction('Run Snapshot', () => dtrRunSnapshot(this), this)">Run Snapshot</button>
       <div class="step-result" id="dtr-result-snapshot"></div>
     </div>
 
@@ -1163,7 +1580,7 @@
         <span class="step-label">Step 6: Refresh Dashboard</span>
         <span class="step-status not-started" id="dtr-status-review">Not Started</span>
       </div>
-      <button class="step-btn" id="dtr-btn-review" onclick="dtrRefreshReview(this)">Refresh Dashboard</button>
+      <button class="step-btn" id="dtr-btn-review" onclick="window.runUiAction('Refresh Dashboard', () => dtrRefreshReview(this), this)">Refresh Dashboard</button>
       <div class="step-result" id="dtr-result-review"></div>
     </div>
 
@@ -1223,7 +1640,7 @@
           <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto" class="mono"></div>
           <div class="fg"><label>Market Date (optional)</label><input id="fill-date" type="date" class="mono"></div>
         </div>
-        <button class="btn-action" onclick="triggerFill(this)">Run Fill Cycle</button>
+        <button class="btn-action" onclick="window.runUiAction('Run Fill Cycle', () => triggerFill(this), this)">Run Fill Cycle</button>
       </div>
     </details>
 
@@ -1234,7 +1651,7 @@
           <div class="fg"><label>Idempotency Key</label><input id="snap-ikey" placeholder="auto" class="mono"></div>
           <div class="fg"><label>Market Date (optional)</label><input id="snap-date" type="date" class="mono"></div>
         </div>
-        <button class="btn-action" onclick="triggerSnapshot(this)">Run Snapshot</button>
+        <button class="btn-action" onclick="window.runUiAction('Run Snapshot', () => triggerSnapshot(this), this)">Run Snapshot</button>
         <small style="display:block;margin-top:6px;color: var(--label);">Requires prices for all open positions.</small>
       </div>
     </details>
@@ -1243,10 +1660,326 @@
 
 </main>
 
+  <!-- Right Panel: Safety & Status -->
+  <div class="right-panel">
+    <div class="panel-section">
+      <div class="panel-section-title">Current State</div>
+      <div class="panel-item">
+        <span>Backend</span>
+        <span class="panel-value" id="right-status">—</span>
+      </div>
+      <div class="panel-item">
+        <span>App Session</span>
+        <span class="panel-value" id="right-connected">Not Connected</span>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Last Connect Check</div>
+      <div style="font-size: 11px; color: var(--text-accent);" id="right-connect-status">Not attempted</div>
+      <div style="font-size: 10px; color: var(--label); margin-top: 6px; font-style: italic;">Auth endpoint: /v1/auth/check</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Last UI Action</div>
+      <div style="font-size: 11px; color: var(--text-accent);" id="right-action-status">Not attempted</div>
+      <button class="btn" style="margin-top: 8px; width: 100%;" onclick="window.paperTraderPostAuthLoad()">Reload Dashboard Data</button>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">UI Runtime Status</div>
+      <div style="font-size: 10px; line-height: 1.6; color: var(--text-accent);">
+        <div><span style="color: var(--label);">Bootstrap:</span> <span id="runtime-bootstrap">—</span></div>
+        <div><span style="color: var(--label);">Main started:</span> <span id="runtime-main-started">—</span></div>
+        <div><span style="color: var(--label);">Main completed:</span> <span id="runtime-main-completed">—</span></div>
+        <div><span style="color: var(--label);">PostAuthLoad fn:</span> <span id="runtime-post-auth">—</span></div>
+        <div><span style="color: var(--label);">runUiAction fn:</span> <span id="runtime-run-action">—</span></div>
+        <div id="runtime-last-error" style="color: var(--danger); margin-top: 6px; display: none;"><span style="color: var(--label);">Last Error:</span> <span id="runtime-error-text"></span></div>
+        <div id="runtime-last-rejection" style="color: var(--danger); margin-top: 6px; display: none;"><span style="color: var(--label);">Last Rejection:</span> <span id="runtime-rejection-text"></span></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Safety Mode</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4; margin-bottom: 8px;">Manual Review</div>
+      <div style="font-size: 10px; color: var(--label); font-style: italic;">All trading actions require explicit approval.</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Automation</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4; margin-bottom: 8px;">Off</div>
+      <div style="font-size: 10px; color: var(--label); font-style: italic;">No scheduled jobs running.</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Next Action</div>
+      <div id="right-next-action" style="font-size: 11px; color: var(--text-accent);">
+        View Review Workflow
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Create Orders</div>
+      <div style="font-size: 10px; color: var(--danger); font-weight: 600; margin-bottom: 6px;">🔒 DISABLED</div>
+      <div style="font-size: 10px; color: var(--label); font-style: italic;">Coming later. For now, preview and review only.</div>
+    </div>
+  </div>
+</div><!-- .app-container -->
+
 <div id="toast"></div>
+
+<!-- Early error capture - independent runtime diagnostics -->
+<script>
+window.__paperTraderRuntime = {
+  bootstrapStarted: true,
+  mainStarted: false,
+  mainCompleted: false,
+  lastError: null,
+  lastRejection: null
+};
+
+function updateRuntimeStatus() {
+  const bootstrap = document.getElementById('runtime-bootstrap');
+  const mainStarted = document.getElementById('runtime-main-started');
+  const mainCompleted = document.getElementById('runtime-main-completed');
+  const postAuth = document.getElementById('runtime-post-auth');
+  const runAction = document.getElementById('runtime-run-action');
+  const errorDiv = document.getElementById('runtime-last-error');
+  const errorText = document.getElementById('runtime-error-text');
+  const rejectionDiv = document.getElementById('runtime-last-rejection');
+  const rejectionText = document.getElementById('runtime-rejection-text');
+
+  if (bootstrap) bootstrap.textContent = 'OK';
+  if (mainStarted) mainStarted.textContent = window.__paperTraderRuntime.mainStarted ? 'Yes' : 'No';
+  if (mainCompleted) mainCompleted.textContent = window.__paperTraderRuntime.mainCompleted ? 'Yes' : 'No';
+  if (postAuth) postAuth.textContent = (typeof window.paperTraderPostAuthLoad === 'function') ? 'Yes' : 'No';
+  if (runAction) runAction.textContent = (typeof window.runUiAction === 'function') ? 'Yes' : 'No';
+
+  if (window.__paperTraderRuntime.lastError) {
+    if (errorDiv) errorDiv.style.display = 'block';
+    if (errorText) errorText.textContent = window.__paperTraderRuntime.lastError;
+  }
+  if (window.__paperTraderRuntime.lastRejection) {
+    if (rejectionDiv) rejectionDiv.style.display = 'block';
+    if (rejectionText) rejectionText.textContent = window.__paperTraderRuntime.lastRejection;
+  }
+}
+
+window.onerror = function(message, source, lineno, colno, error) {
+  window.__paperTraderRuntime.lastError = `${message} at ${source}:${lineno}:${colno}`;
+  updateRuntimeStatus();
+  return false;
+};
+
+window.onunhandledrejection = function(event) {
+  const msg = event.reason ? (event.reason.message || String(event.reason)) : 'Unknown rejection';
+  window.__paperTraderRuntime.lastRejection = msg;
+  updateRuntimeStatus();
+};
+
+// Initial update
+updateRuntimeStatus();
+</script>
+
+<!-- Independent action wrapper and direct dashboard loader -->
+<script>
+// Safe action wrapper - works even if main app fails
+window.runUiAction = async function runUiAction(actionName, fn, btn = null) {
+  const actionStatusEl = document.getElementById('right-action-status');
+
+  try {
+    if (actionStatusEl) {
+      actionStatusEl.textContent = `Running ${actionName}...`;
+      actionStatusEl.style.color = 'var(--text-accent)';
+    }
+
+    if (typeof fn !== 'function') {
+      const errorMsg = `Failed: ${actionName} - function missing`;
+      if (actionStatusEl) {
+        actionStatusEl.textContent = errorMsg;
+        actionStatusEl.style.color = 'var(--danger)';
+      }
+      return;
+    }
+
+    const result = await fn();
+
+    if (actionStatusEl) {
+      actionStatusEl.textContent = `Success: ${actionName}`;
+      actionStatusEl.style.color = 'var(--ok)';
+    }
+    return result;
+  } catch (error) {
+    const msg = error ? (error.message || String(error)) : 'unknown error';
+    const errorMsg = `Failed: ${actionName} - ${msg}`;
+    if (actionStatusEl) {
+      actionStatusEl.textContent = errorMsg;
+      actionStatusEl.style.color = 'var(--danger)';
+    }
+    console.error(`${actionName} error:`, error);
+  }
+};
+
+// Direct dashboard loader - independent of main app script
+window.paperTraderDirectDashboardLoad = async function paperTraderDirectDashboardLoad() {
+  const actionStatusEl = document.getElementById('right-action-status');
+  const apiKey = document.getElementById('apiKey') ? document.getElementById('apiKey').value.trim() : null;
+
+  if (!apiKey) {
+    if (actionStatusEl) {
+      actionStatusEl.textContent = 'Failed: No API key set';
+      actionStatusEl.style.color = 'var(--danger)';
+    }
+    return;
+  }
+
+  try {
+    if (actionStatusEl) {
+      actionStatusEl.textContent = 'Running dashboard load...';
+      actionStatusEl.style.color = 'var(--text-accent)';
+    }
+
+    const failedLoaders = [];
+    const baseUrl = window.location.origin;
+
+    // Load portfolio
+    try {
+      const resp = await fetch(`${baseUrl}/v1/portfolio`, {
+        method: 'GET',
+        headers: { 'X-API-Key': apiKey }
+      });
+      if (!resp.ok) {
+        failedLoaders.push(`portfolio:${resp.status}`);
+      }
+    } catch (e) {
+      failedLoaders.push('portfolio:network');
+    }
+
+    // Load positions
+    try {
+      const resp = await fetch(`${baseUrl}/v1/positions`, {
+        method: 'GET',
+        headers: { 'X-API-Key': apiKey }
+      });
+      if (!resp.ok) {
+        failedLoaders.push(`positions:${resp.status}`);
+      } else {
+        const data = await resp.json();
+        const positionsTable = document.querySelector('table:has(th:contains("Ticker"))');
+        if (positionsTable && Array.isArray(data)) {
+          const tbody = positionsTable.querySelector('tbody');
+          if (tbody) {
+            tbody.innerHTML = '';
+            if (data.length === 0) {
+              const row = document.createElement('tr');
+              row.innerHTML = '<td colspan="100%" style="text-align: center; color: var(--label);">No open positions</td>';
+              tbody.appendChild(row);
+            } else {
+              data.forEach(pos => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                  <td class="mono">${pos.ticker || '—'}</td>
+                  <td>${pos.shares || '—'}</td>
+                  <td>${pos.avg_cost || '—'}</td>
+                  <td>${pos.market_price || '—'}</td>
+                  <td>${pos.market_value || '—'}</td>
+                  <td>${pos.gain_loss || '—'}</td>
+                  <td>${pos.gain_loss_pct || '—'}</td>
+                `;
+                tbody.appendChild(row);
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      failedLoaders.push('positions:network');
+    }
+
+    // Load orders
+    try {
+      const resp = await fetch(`${baseUrl}/v1/orders`, {
+        method: 'GET',
+        headers: { 'X-API-Key': apiKey }
+      });
+      if (!resp.ok) {
+        failedLoaders.push(`orders:${resp.status}`);
+      } else {
+        const data = await resp.json();
+        const ordersTable = document.querySelector('table:has(th:contains("Order ID"))');
+        if (ordersTable && Array.isArray(data)) {
+          const tbody = ordersTable.querySelector('tbody');
+          if (tbody) {
+            tbody.innerHTML = '';
+            if (data.length === 0) {
+              const row = document.createElement('tr');
+              row.innerHTML = '<td colspan="100%" style="text-align: center; color: var(--label);">No orders</td>';
+              tbody.appendChild(row);
+            } else {
+              data.forEach(order => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                  <td class="mono">${order.order_id || '—'}</td>
+                  <td>${order.ticker || '—'}</td>
+                  <td>${order.side || '—'}</td>
+                  <td>${order.quantity || '—'}</td>
+                  <td>${order.price || '—'}</td>
+                  <td>${order.status || '—'}</td>
+                  <td>${order.created_at || '—'}</td>
+                `;
+                tbody.appendChild(row);
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      failedLoaders.push('orders:network');
+    }
+
+    // Load workflow status
+    try {
+      const resp = await fetch(`${baseUrl}/v1/review/workflow-status`, {
+        method: 'GET',
+        headers: { 'X-API-Key': apiKey }
+      });
+      if (!resp.ok) {
+        failedLoaders.push(`workflow:${resp.status}`);
+      }
+    } catch (e) {
+      failedLoaders.push('workflow:network');
+    }
+
+    // Update status based on results
+    if (actionStatusEl) {
+      if (failedLoaders.length === 0) {
+        actionStatusEl.textContent = 'Success: dashboard loaded';
+        actionStatusEl.style.color = 'var(--ok)';
+      } else {
+        const failMsg = failedLoaders.join(', ');
+        actionStatusEl.textContent = `Partial: ${failMsg}`;
+        actionStatusEl.style.color = 'var(--text-accent)';
+      }
+    }
+  } catch (e) {
+    if (actionStatusEl) {
+      actionStatusEl.textContent = `Failed: dashboard load - ${e.message || 'unknown error'}`;
+      actionStatusEl.style.color = 'var(--danger)';
+    }
+    console.error('Dashboard load error:', e);
+  }
+};
+
+// Alias for compatibility
+window.paperTraderPostAuthLoad = window.paperTraderDirectDashboardLoad;
+</script>
 
 <script>
 "use strict";
+
+// Mark main script execution start
+window.__paperTraderRuntime.mainStarted = true;
+window.updateRuntimeStatus();
 
 // ---------- helpers ----------
 
@@ -1370,6 +2103,131 @@ function formatApiError(data) {
   }
   return data.detail || JSON.stringify(data);
 }
+
+// Note: Connection logic is now in the independent <script> block at the top
+// The independent paperTraderConnect() function and auto-connect logic handles all connection needs
+
+// ---------- post-auth dashboard load ----------
+
+window.paperTraderPostAuthLoad = async function paperTraderPostAuthLoad() {
+  const actionStatusEl = document.getElementById('right-action-status');
+
+  if (!_appState.connected) return;
+
+  try {
+    // Update UI to show loading started
+    if (actionStatusEl) {
+      actionStatusEl.textContent = 'Running dashboard load...';
+      actionStatusEl.style.color = 'var(--text-accent)';
+    }
+
+    const failedLoaders = [];
+
+    // Load data endpoints
+    try {
+      await loadHealth();
+    } catch (e) {
+      failedLoaders.push('health');
+      console.error('Health load error:', e);
+    }
+
+    try {
+      await loadPortfolio();
+    } catch (e) {
+      failedLoaders.push('portfolio');
+      console.error('Portfolio load error:', e);
+    }
+
+    try {
+      await loadPerformance();
+    } catch (e) {
+      failedLoaders.push('performance');
+      console.error('Performance load error:', e);
+    }
+
+    try {
+      await loadPositions();
+    } catch (e) {
+      failedLoaders.push('positions');
+      console.error('Positions load error:', e);
+    }
+
+    try {
+      await loadOrders();
+    } catch (e) {
+      failedLoaders.push('orders');
+      console.error('Orders load error:', e);
+    }
+
+    try {
+      await loadHistory();
+    } catch (e) {
+      failedLoaders.push('history');
+      console.error('History load error:', e);
+    }
+
+    try {
+      await refreshWorkflowStatus();
+    } catch (e) {
+      failedLoaders.push('workflow');
+      console.error('Workflow status load error:', e);
+    }
+
+    // Update status based on results
+    if (actionStatusEl) {
+      if (failedLoaders.length === 0) {
+        actionStatusEl.textContent = 'Success: dashboard loaded';
+        actionStatusEl.style.color = 'var(--ok)';
+      } else if (failedLoaders.length < 7) {
+        actionStatusEl.textContent = `Partial dashboard load: ${failedLoaders.join(', ')} failed`;
+        actionStatusEl.style.color = 'var(--text-accent)';
+      } else {
+        actionStatusEl.textContent = 'Failed: dashboard load - all loaders failed';
+        actionStatusEl.style.color = 'var(--danger)';
+      }
+    }
+  } catch (e) {
+    if (actionStatusEl) {
+      actionStatusEl.textContent = `Failed: dashboard load - ${e.message || 'unknown error'}`;
+      actionStatusEl.style.color = 'var(--danger)';
+    }
+    console.error('Dashboard post-auth load error:', e);
+  }
+};
+
+// ---------- safe action wrapper ----------
+
+window.runUiAction = async function runUiAction(actionName, fn, btn = null) {
+  const actionStatusEl = document.getElementById('right-action-status');
+
+  try {
+    if (actionStatusEl) {
+      actionStatusEl.textContent = `Running ${actionName}…`;
+      actionStatusEl.style.color = 'var(--text-accent)';
+    }
+
+    if (btn) btn.disabled = true;
+
+    const result = await fn();
+
+    if (actionStatusEl) {
+      actionStatusEl.textContent = `Success: ${actionName}`;
+      actionStatusEl.style.color = 'var(--ok)';
+    }
+
+    return result;
+  } catch (e) {
+    const errorMsg = e.message || 'Unknown error';
+    if (actionStatusEl) {
+      actionStatusEl.textContent = `Failed: ${actionName} - ${errorMsg}`;
+      actionStatusEl.style.color = 'var(--danger)';
+    }
+    console.error(`Action failed: ${actionName}`, e);
+    throw e;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
 
 // ---------- load functions ----------
 
@@ -3533,40 +4391,73 @@ function getDtrStepStatus(step) {
 
 // ---------- connect / refresh ----------
 
-async function connect() {
+async function connectDashboardLegacy() {
   const btn = document.getElementById('connectBtn');
   btn.disabled = true;
   btn.textContent = 'Connecting…';
   try {
-    await loadHealth();
-    const r = await call('GET', '/v1/portfolio');
-    if (r.status === 401) {
+    // 1. Check auth first
+    const authR = await call('GET', '/v1/auth/check');
+    if (authR.status === 401) {
+      _appState.connected = false;
+      updateConnectStatus('Auth failed: Invalid API key');
       toast('Invalid API key', 'err');
       return;
     }
-    if (r.ok) {
+    if (!authR.ok) {
+      _appState.connected = false;
+      updateConnectStatus(`Auth failed: ${authR.status}`);
+      toast(`Auth failed: HTTP ${authR.status}`, 'err');
+      return;
+    }
+
+    // 2. Auth successful, load dashboard data
+    _appState.connected = true;
+    document.getElementById('right-connected').textContent = 'Connected';
+    updateConnectStatus('Connecting…');
+
+    if (!document.getElementById('histStart').value)
+      document.getElementById('histStart').value = nDaysAgoLocal(30);
+
+    // Load portfolio first to check if seeded
+    const portfolioR = await call('GET', '/v1/portfolio');
+    if (portfolioR.ok) {
       _appState.portfolioSeeded = true;
-      populatePortfolio(await r.json());
+      populatePortfolio(await portfolioR.json());
     } else {
       _appState.portfolioSeeded = false;
     }
-    if (!document.getElementById('histStart').value)
-      document.getElementById('histStart').value = nDaysAgoLocal(30);
-    await Promise.all([
-      loadPerformance(),
-      loadPositions(),
-      loadOrders(),
-      loadHistory(),
-    ]);
-    _appState.connected = true;
+
+    // Load other dashboard data in parallel
+    try {
+      await Promise.all([
+        loadPerformance(),
+        loadPositions(),
+        loadOrders(),
+        loadHistory(),
+      ]);
+      updateConnectStatus('Connected');
+    } catch (e) {
+      // Partial failures don't disconnect the session
+      updateConnectStatus(`Partial load: ${e.message}`);
+      console.error('Dashboard load error:', e);
+    }
+
     updateWorkbench();
     toast('Connected');
   } catch (e) {
+    _appState.connected = false;
+    document.getElementById('right-connected').textContent = 'Not Connected';
+    updateConnectStatus(`Error: ${e.message || 'unknown'}`);
     toast('Connection error: ' + (e.message || 'unknown'), 'err');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Connect';
   }
+}
+
+function updateConnectStatus(msg) {
+  document.getElementById('right-connect-status').textContent = msg;
 }
 
 async function refresh() {
@@ -3658,7 +4549,7 @@ const WORKFLOW_STEPS = [
 ];
 
 // Global storage for workflow status data
-let window._workflowStatusData = null;
+window._workflowStatusData = null;
 
 async function refreshWorkflowStatus() {
   try {
@@ -3923,6 +4814,79 @@ try {
   console.warn('Workflow status init error:', e);
 }
 
+// Auto-connect is now handled by the independent connection script above (robustConnect)
+
+// ---------- late startup bridge ----------
+// If auth succeeded before paperTraderPostAuthLoad was defined, call it now
+if (window.paperTraderPostAuthLoadPending || window.paperTraderConnected || localStorage.getItem('apiKey') || localStorage.getItem('paper_trader_api_key')) {
+  window.paperTraderPostAuthLoadPending = true;
+  if (typeof window.paperTraderPostAuthLoad === 'function') {
+    setTimeout(() => {
+      if (window.paperTraderPostAuthLoadPending && _appState.connected) {
+        window.paperTraderPostAuthLoad().catch(e => {
+          console.error('Late startup dashboard load error:', e);
+        });
+      }
+    }, 0);
+    setTimeout(() => {
+      if (window.paperTraderPostAuthLoadPending && _appState.connected) {
+        window.paperTraderPostAuthLoad().catch(e => {
+          console.error('Late startup dashboard load error (retry):', e);
+        });
+      }
+    }, 500);
+  }
+}
+
+// Mark main script execution complete
+window.__paperTraderRuntime.mainCompleted = true;
+window.updateRuntimeStatus();
+
+</script>
+
+<!-- Final diagnostic script - runs even if main script fails -->
+<script>
+setTimeout(() => {
+  // Update runtime status with function availability
+  if (typeof window.updateRuntimeStatus === 'function') {
+    window.updateRuntimeStatus();
+  }
+
+  // Check which critical functions are available
+  const criticalFunctions = [
+    'paperTraderPostAuthLoad',
+    'paperTraderDirectDashboardLoad',
+    'runUiAction',
+    'fetchLatestPrices',
+    'runMarketScan',
+    'runPredictionPreview',
+    'dtrRunStrategy',
+    'dtrRunPredictionStrategy',
+    'dtrRunFill',
+    'dtrRunSnapshot',
+    'loadPortfolio',
+    'loadPositions',
+    'loadOrders'
+  ];
+
+  const missing = criticalFunctions.filter(fn => typeof window[fn] !== 'function');
+
+  if (missing.length > 0) {
+    console.warn('Missing critical functions:', missing);
+  }
+
+  // If auth is connected but main script didn't complete, trigger direct loader
+  if (window.__paperTraderRuntime.mainStarted && !window.__paperTraderRuntime.mainCompleted) {
+    console.warn('Main script incomplete. Triggering direct dashboard load.');
+    if (typeof window.paperTraderDirectDashboardLoad === 'function') {
+      setTimeout(() => {
+        window.paperTraderDirectDashboardLoad().catch(e => {
+          console.error('Direct dashboard load error:', e);
+        });
+      }, 100);
+    }
+  }
+}, 100);
 </script>
 
 </body>

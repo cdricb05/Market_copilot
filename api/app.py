@@ -119,6 +119,11 @@ class ReadyOut(BaseModel):
     database: str
 
 
+class AuthCheckOut(BaseModel):
+    authenticated: bool
+    service: str
+
+
 class SignalIn(BaseModel):
     ticker: str
     direction: str
@@ -365,11 +370,13 @@ class StrategyRunResponse(BaseModel):
 class PredictionRunRequest(BaseModel):
     idempotency_key: str
     predictions: list[dict[str, Any]]
+    market_date: date | None = None
 
 
 class FetchAndRunPredictionRequest(BaseModel):
     idempotency_key: str
     tickers: list[str]
+    market_date: date | None = None
 
 
 class FetchFailure(BaseModel):
@@ -1384,6 +1391,25 @@ def ready() -> ReadyOut:
     )
 
 
+@app.get(
+    "/v1/auth/check",
+    response_model=AuthCheckOut,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def auth_check() -> AuthCheckOut:
+    """
+    Lightweight authentication check endpoint.
+
+    Requires valid X-API-Key header. Returns 401 if key is missing or invalid.
+    No database operations; useful for UI-side connection validation.
+    """
+    return AuthCheckOut(
+        authenticated=True,
+        service=_SERVICE_NAME,
+    )
+
+
 @app.post(
     "/v1/signals",
     response_model=DecisionResponse,
@@ -2086,8 +2112,9 @@ def run_strategy(body: StrategyRunRequest) -> StrategyRunResponse:
         )
 
     # Submit generated signals through the decision workflow
-    if not is_weekday(now):
-        # Return on weekend with skipped message
+    # Allow processing of past market dates; only reject if trading NOW on a weekend
+    if not is_weekday(now) and market_date >= now.date():
+        # Return on weekend with skipped message (current-day or future trading)
         return StrategyRunResponse(
             signals_generated=signals_generated,
             signals_submitted=0,
@@ -2184,8 +2211,12 @@ def run_prediction_strategy(body: PredictionRunRequest) -> StrategyRunResponse:
         - Valid predictions flow through decision/risk engine.
         - Weekday enforcement: returns zero submissions on weekend.
         - Returns 200 even if all predictions are invalid.
+
+    market_date defaults to current US-Eastern date if not supplied.
     """
     now, market_date = _now_and_date()
+    if body.market_date is not None:
+        market_date = body.market_date
 
     # Convert predictions to signals
     try:
@@ -2215,7 +2246,8 @@ def run_prediction_strategy(body: PredictionRunRequest) -> StrategyRunResponse:
         )
 
     # Check weekday before submission
-    if not is_weekday(now):
+    # Allow processing of past market dates; only reject if trading NOW on a weekend
+    if not is_weekday(now) and market_date >= now.date():
         return StrategyRunResponse(
             signals_generated=signals_generated,
             signals_submitted=0,
@@ -2305,8 +2337,12 @@ async def fetch_and_run_prediction_strategy(
         - Returns 200 if at least one fetch succeeds (partial failures included).
         - Returns 503 if all fetches fail due to service unavailability.
         - Returns 422 if the request is invalid.
+
+    market_date defaults to current US-Eastern date if not supplied.
     """
     now, market_date = _now_and_date()
+    if body.market_date is not None:
+        market_date = body.market_date
     settings = get_settings()
 
     # Fetch predictions from external API
@@ -2376,7 +2412,8 @@ async def fetch_and_run_prediction_strategy(
             )
 
         # Check weekday before submission
-        if not is_weekday(now):
+        # Allow processing of past market dates; only reject if trading NOW on a weekend
+        if not is_weekday(now) and market_date >= now.date():
             return FetchAndRunPredictionResponse(
                 fetched_count=fetched_count,
                 failed_count=failed_count,
