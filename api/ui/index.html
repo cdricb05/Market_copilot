@@ -1239,6 +1239,23 @@
           </div>
         </div>
 
+        <!-- Rotation Preview (optional — when portfolio is at max positions) -->
+        <div id="step3b-rotation-preview">
+          <div class="command-section" style="border-color: var(--warning);">
+            <div style="font-weight: 600; color: var(--warning); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Rotation Preview &mdash; Optional</div>
+            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">When the portfolio is already at max positions, new BUY candidates are rejected unless we free capacity. Rotation Preview compares approved BUY candidates against existing profitable holdings and shows whether replacing one position makes sense. <strong style="color: var(--ok);">This is preview-only and creates no signals, decisions, or orders.</strong></div>
+            <button class="btn" style="background: var(--warning); color: white; font-weight: 600;" onclick="runRotationPreview(this)">Preview Rotation</button>
+          </div>
+        </div>
+
+        <!-- Rotation Preview Result Card -->
+        <div id="rotation-preview-card" style="display:none;">
+          <div class="command-section">
+            <div class="section-title">Rotation Preview</div>
+            <div id="rotation-preview-result"></div>
+          </div>
+        </div>
+
         <!-- Step 4: Signals & Decisions (shown after review queue visited) -->
         <div id="step4-signal-decisions" style="display:none;">
           <div class="command-section" style="border-color: var(--border);">
@@ -3378,8 +3395,16 @@ async function runPredictionPreview(btn) {
 
   const resultCard = document.getElementById('prediction-preview-card');
   const resultEl = document.getElementById('prediction-preview-result');
-  resultEl.textContent = '';
+  if (!resultEl || !btn) return;
   btn.disabled = true;
+
+  // Show loading feedback immediately — request can take 1-2 minutes
+  if (resultCard) resultCard.style.display = 'block';
+  resultEl.innerHTML = '<div style="color:var(--warning);padding:8px 0;">Running prediction scan... this may take 1-2 minutes</div>';
+  const _naEl0 = document.getElementById('cockpit-next-action');
+  if (_naEl0) _naEl0.textContent = 'Running prediction scan - please wait...';
+  const _asEl0 = document.getElementById('right-action-status');
+  if (_asEl0) { _asEl0.textContent = 'Running...'; _asEl0.style.color = 'var(--warning)'; }
 
   try {
     const body = {
@@ -3401,7 +3426,6 @@ async function runPredictionPreview(btn) {
     const b = await parseApiResponse(r);
 
     if (r.ok) {
-      resultCard.style.display = 'block';
       window._lastPredictionPreviewData = b;
       renderPredictionPreviewResult(b, resultEl);
       toast('Prediction preview complete', 'ok');
@@ -3417,12 +3441,125 @@ async function runPredictionPreview(btn) {
       throw new Error(b.detail ?? `HTTP ${r.status}`);
     }
   } catch (e) {
-    resultCard.style.display = 'block';
     resultEl.textContent = `✗ ${e.message}`;
     resultEl.className = 'step-result error';
+    const _asEl0err = document.getElementById('right-action-status');
+    if (_asEl0err) { _asEl0err.textContent = `Error: ${e.message}`; _asEl0err.style.color = 'var(--danger)'; }
   } finally {
     btn.disabled = false;
   }
+}
+
+async function runRotationPreview(btn) {
+  const resultCard = document.getElementById('rotation-preview-card');
+  const resultEl = document.getElementById('rotation-preview-result');
+  if (!resultEl) return;
+  resultEl.textContent = '';
+  if (btn) btn.disabled = true;
+
+  try {
+    const r = await call('POST', '/v1/review/rotation-preview', {});
+    const b = await parseApiResponse(r);
+
+    if (r.ok) {
+      if (resultCard) resultCard.style.display = 'block';
+      renderRotationPreviewResult(b, resultEl);
+      toast('Rotation preview complete', 'ok');
+      const _naEl = document.getElementById('cockpit-next-action');
+      if (_naEl) {
+        if (b.rotation_pairs && b.rotation_pairs.length > 0) {
+          _naEl.textContent = 'Review proposed rotation. No trade is created. Next: decide whether to create SELL/BUY signal workflow later.';
+        } else {
+          _naEl.textContent = 'No safe profitable rotation found. Existing BUY rejections are expected due to max positions.';
+        }
+      }
+      const _asEl = document.getElementById('right-action-status');
+      if (_asEl) { _asEl.textContent = new Date().toLocaleTimeString(); _asEl.style.color = 'var(--ok)'; }
+    } else if (r.status === 401) {
+      throw new Error('Not authorized (401)');
+    } else {
+      throw new Error((b && b.detail) ? b.detail : `HTTP ${r.status}`);
+    }
+  } catch (e) {
+    if (resultCard) resultCard.style.display = 'block';
+    resultEl.textContent = '✗ ' + e.message;
+    resultEl.className = 'step-result error';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderRotationPreviewResult(data, el) {
+  let html = '';
+
+  // Summary stats row
+  const capacityColor = data.capacity_available ? 'var(--ok)' : 'var(--warning)';
+  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 12px;">';
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Positions</div><div style="font-weight: 600; font-size: 14px;">${escapeHtml(String(data.current_position_count))} / ${escapeHtml(String(data.max_positions))}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Capacity</div><div style="font-weight: 600; font-size: 14px; color: ${capacityColor};">${data.capacity_available ? 'Available' : 'Full'}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Rotation Needed</div><div style="font-weight: 600; font-size: 14px; color: ${data.rotation_required ? 'var(--warning)' : 'var(--ok)'};">${data.rotation_required ? 'Yes' : 'No'}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Candidates</div><div style="font-weight: 600; font-size: 14px;">${escapeHtml(String(data.candidates_considered))}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Positions Checked</div><div style="font-weight: 600; font-size: 14px;">${escapeHtml(String(data.positions_considered))}</div></div>`;
+  html += '</div>';
+
+  // Explanation
+  html += `<div style="font-size: 11px; color: var(--text-accent); margin-bottom: 12px; padding: 8px; background: rgba(0,0,0,.2); border-radius: 3px;">${escapeHtml(data.explanation)}</div>`;
+
+  // Safety badge
+  const sc = data.safety_counts;
+  const allZero = sc.signals_created === 0 && sc.decisions_created === 0 && sc.orders_created === 0 && sc.db_rows_created === 0;
+  const badgeColor = allZero ? 'var(--ok)' : 'var(--danger)';
+  html += `<div style="margin-bottom: 12px; padding: 6px 10px; background: rgba(0,0,0,.2); border: 1px solid ${badgeColor}; border-radius: 3px; font-size: 11px; color: ${badgeColor}; font-weight: 600; text-align: center;">PREVIEW ONLY - NO TRADE CREATED &nbsp;|&nbsp; Signals: ${sc.signals_created} &nbsp;|&nbsp; Decisions: ${sc.decisions_created} &nbsp;|&nbsp; Orders: ${sc.orders_created} &nbsp;|&nbsp; DB rows: ${sc.db_rows_created}</div>`;
+
+  // Proposed rotation pairs
+  if (data.rotation_pairs && data.rotation_pairs.length > 0) {
+    html += `<div style="font-weight: 600; font-size: 11px; color: var(--ok); margin-bottom: 6px;">Proposed Rotation Pairs (${data.rotation_pairs.length})</div>`;
+    for (const p of data.rotation_pairs) {
+      const pnlVal = parseFloat(p.sell_unrealized_pnl_pct);
+      const pnlColor = pnlVal >= 0 ? 'var(--ok)' : 'var(--danger)';
+      html += '<div style="background: rgba(0,0,0,.2); border: 1px solid var(--ok); border-radius: 3px; padding: 10px; margin-bottom: 8px;">';
+      html += '<div style="display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; margin-bottom: 6px;">';
+      html += `<div><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">SELL</div><div style="font-weight: 600; font-size: 14px; color: var(--warning);">${escapeHtml(p.sell_ticker)}</div><div style="font-size: 10px; color: var(--text-secondary);">PnL: <span style="color: ${pnlColor};">${escapeHtml(p.sell_unrealized_pnl_pct)}%</span></div><div style="font-size: 10px; color: var(--text-secondary);">Unrealized: ${escapeHtml(p.sell_unrealized_pnl)}</div></div>`;
+      html += '<div style="font-size: 18px; color: var(--text-secondary); text-align: center;">&rarr;</div>';
+      html += `<div><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">BUY</div><div style="font-weight: 600; font-size: 14px; color: var(--ok);">${escapeHtml(p.buy_ticker)}</div><div style="font-size: 10px; color: var(--text-secondary);">Score: ${escapeHtml(p.buy_candidate_score)}</div><div style="font-size: 10px; color: var(--text-secondary);">Improvement: ${escapeHtml(p.improvement_score)}</div></div>`;
+      html += '</div>';
+      html += `<div style="font-size: 10px; color: var(--text-secondary);">${escapeHtml(p.reason)}</div>`;
+      html += `<div style="font-size: 10px; color: var(--ok); margin-top: 4px; font-weight: 600;">${escapeHtml(p.safety_note)}</div>`;
+      html += '</div>';
+    }
+  } else {
+    html += '<div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 12px;">No rotation pairs proposed.</div>';
+  }
+
+  // Rejected pairs
+  if (data.rejected_pairs && data.rejected_pairs.length > 0) {
+    html += `<div style="font-weight: 600; font-size: 11px; color: var(--label); margin-bottom: 6px; margin-top: 8px;">Rejected Pairs (${data.rejected_pairs.length})</div>`;
+    for (const p of data.rejected_pairs) {
+      html += '<div style="background: rgba(0,0,0,.1); border: 1px solid var(--border); border-radius: 3px; padding: 8px; margin-bottom: 6px; display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap;">';
+      html += `<div style="flex: 0 0 auto;"><span style="color: var(--warning);">${escapeHtml(p.sell_ticker)}</span> <span style="color: var(--text-secondary);">&rarr;</span> <span style="color: var(--ok);">${escapeHtml(p.buy_ticker)}</span></div>`;
+      html += `<div style="flex: 1; min-width: 120px; font-size: 10px; color: var(--label);">${escapeHtml(p.reason)}</div>`;
+      html += '</div>';
+    }
+  }
+
+  // Blocked positions (negative PnL — do not sell at loss)
+  if (data.blocked_positions && data.blocked_positions.length > 0) {
+    html += `<div style="font-weight: 600; font-size: 11px; color: var(--danger); margin-bottom: 6px; margin-top: 8px;">Blocked from Rotation (${data.blocked_positions.length})</div>`;
+    for (const pos of data.blocked_positions) {
+      html += '<div style="background: rgba(0,0,0,.1); border: 1px solid var(--danger); border-radius: 3px; padding: 8px; margin-bottom: 6px;">';
+      html += `<div style="font-weight: 600; font-size: 12px; color: var(--danger); margin-bottom: 2px;">${escapeHtml(pos.ticker)}</div>`;
+      if (pos.unrealized_pnl_pct != null) {
+        html += `<div style="font-size: 10px; color: var(--text-secondary);">PnL: <span style="color: var(--danger);">${escapeHtml(String(pos.unrealized_pnl_pct))}%</span></div>`;
+      }
+      if (pos.blocked_reason) {
+        html += `<div style="font-size: 10px; color: var(--label);">${escapeHtml(pos.blocked_reason)}</div>`;
+      }
+      html += '</div>';
+    }
+  }
+
+  el.innerHTML = html;
+  el.className = 'step-result';
 }
 
 function renderPredictionPreviewResult(data, resultEl) {
@@ -4952,6 +5089,7 @@ const WORKFLOW_STEPS = [
   { id: 'pred-preview', name: 'Prediction Preview', description: 'Scan market and preview candidates for review', button: 'Run Prediction Preview', action: 'runPredictionPreview' },
   { id: 'save-review-queue', name: 'Save Candidates', description: 'Save CONSIDER candidates to review queue', button: 'Save CONSIDER', action: 'saveCandidatesToReviewQueue' },
   { id: 'review-queue', name: 'Review Queue', description: 'Candidates waiting for signal creation decision', button: 'Refresh', action: 'refreshReviewQueue' },
+  { id: 'rotation-preview', name: 'Rotation Preview', description: 'Preview profitable rotation pairs when portfolio is at max positions (preview only, no trades created)', button: 'Preview Rotation', action: 'runRotationPreview' },
   { id: 'signal-preview', name: 'Signal Preview', description: 'Preview signals that will be created from review candidates', button: 'Generate Preview', action: 'generateSignalPreview' },
   { id: 'create-signals', name: 'Create Signals', description: 'Create signal rows from review queue candidates', button: 'Create Signals', action: 'createSignalsFromCandidates' },
   { id: 'decision-preview', name: 'Decision Preview', description: 'Preview trade decisions that will be created from signals', button: 'Preview Decisions', action: 'previewDecisionsFromSignals' },
@@ -5050,6 +5188,12 @@ async function updateReviewWorkflow() {
       if (!stepReady && step.id !== 'pred-preview') status = 'blocked';
     }
 
+    // Rotation preview is always available — it's informational and standalone
+    if (step.id === 'rotation-preview' && status !== 'complete') {
+      status = 'ready';
+      stepReady = true;
+    }
+
     html += '<div style="background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 3px; padding: 12px; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start;">';
 
     // Left side - step info
@@ -5101,6 +5245,8 @@ async function updateReviewWorkflow() {
         html += `<button class="btn-sm" onclick="runPredictionPreview(this)" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
       } else if (step.action === 'refreshReviewQueue') {
         html += `<button class="btn-sm" onclick="refreshReviewQueue()" style="background: var(--info);">${escapeHtml(step.button)}</button>`;
+      } else if (step.action === 'runRotationPreview') {
+        html += `<button class="btn-sm" onclick="runRotationPreview(this)" style="background: var(--warning);">${escapeHtml(step.button)}</button>`;
       } else {
         html += `<button class="btn-sm" onclick="${step.action}()" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
       }
@@ -5138,6 +5284,9 @@ function getWorkflowStepStatus(stepId) {
         return considerCandidates.length > 0 ? 'ready' : 'not-started';
       }
       return 'not-started';
+
+    case 'rotation-preview':
+      return 'ready';
 
     case 'review-queue':
     case 'signal-preview':
