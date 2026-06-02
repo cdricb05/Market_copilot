@@ -11400,9 +11400,7 @@ class TestDailyPlanPreviewEndpoint:
 
         # Create a position at a loss (avg_cost=100, current price=80 → -20%)
         with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
-            portfolio_obj = s.query(Portfolio).first()
             pos = Position(
-                portfolio_id=portfolio_obj.id,
                 ticker=ticker_loss,
                 qty=Decimal("10"),
                 avg_cost=Decimal("100.00"),
@@ -11470,9 +11468,7 @@ class TestDailyPlanPreviewEndpoint:
             s.commit()
 
         with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
-            portfolio_obj = s.query(Portfolio).first()
             pos = Position(
-                portfolio_id=portfolio_obj.id,
                 ticker=ticker_held,
                 qty=Decimal("5"),
                 avg_cost=Decimal("100.00"),
@@ -11543,10 +11539,8 @@ class TestDailyPlanPreviewEndpoint:
             s.commit()
 
         with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
-            portfolio_obj = s.query(Portfolio).first()
             # Held position: cost=$900, price=$1000 → PnL = +11.1%
             pos = Position(
-                portfolio_id=portfolio_obj.id,
                 ticker=ticker_held,
                 qty=Decimal("10"),
                 avg_cost=Decimal("90.00"),

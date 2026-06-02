@@ -5943,8 +5943,14 @@ async def daily_plan_preview(
                 "Wait for existing positions to appreciate, or lower the rotation threshold."
             )
         elif watch_candidates:
-            recommended_next_action = f"Monitor {len(watch_candidates)} watch candidate(s). No immediate action required."
-            explanation = "No candidates are ready for immediate action. Candidates are being watched."
+            recommended_next_action = (
+                f"Open Review Queue to review {len(watch_candidates)} watch candidate(s). "
+                "Approve or reject candidates to proceed."
+            )
+            explanation = (
+                "Candidates are in watch status. "
+                "Go to the Review Queue tab to approve or reject them before running the daily plan."
+            )
         else:
             recommended_next_action = "No action required. All positions are in good standing."
             explanation = (
