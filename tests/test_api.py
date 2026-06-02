@@ -11377,7 +11377,7 @@ class TestDailyPlanPreviewEndpoint:
         try:
             response = seeded_client.post(
                 "/v1/review/daily-plan-preview",
-                json={"approved_only": True},
+                json={"candidate_ids": []},
                 headers=_AUTH,
             )
             assert response.status_code == 200
@@ -11434,7 +11434,7 @@ class TestDailyPlanPreviewEndpoint:
         try:
             response = seeded_client.post(
                 "/v1/review/daily-plan-preview",
-                json={"block_loss_realization": True},
+                json={"block_loss_realization": True, "candidate_ids": [cand_id]},
                 headers=_AUTH,
             )
             assert response.status_code == 200
@@ -11504,7 +11504,7 @@ class TestDailyPlanPreviewEndpoint:
         try:
             response = seeded_client.post(
                 "/v1/review/daily-plan-preview",
-                json={"approved_only": True},
+                json={"approved_only": True, "candidate_ids": [cand_id]},
                 headers=_AUTH,
             )
             assert response.status_code == 200
@@ -11578,7 +11578,13 @@ class TestDailyPlanPreviewEndpoint:
         try:
             response = seeded_client.post(
                 "/v1/review/daily-plan-preview",
-                json={"approved_only": True, "min_rotation_improvement_pct": 5.0, "include_rotation": True},
+                json={
+                    "approved_only": True,
+                    "min_rotation_improvement_pct": 5.0,
+                    "include_rotation": True,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [ticker_held],
+                },
                 headers=_AUTH,
             )
             assert response.status_code == 200
@@ -11597,4 +11603,67 @@ class TestDailyPlanPreviewEndpoint:
                 s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
                 s.query(PriceSnapshot).filter(PriceSnapshot.ticker.in_([ticker_held, ticker_buy])).delete()
                 s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_position_tickers_scopes_evaluation(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """position_tickers filters which open positions are evaluated; no DB rows are written."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_a = f"DPPTA{suffix}"
+        ticker_b = f"DPPTB{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos_a = Position(
+                ticker=ticker_a, qty=Decimal("3"), avg_cost=Decimal("50.00"),
+                cost_basis=Decimal("150.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            pos_b = Position(
+                ticker=ticker_b, qty=Decimal("3"), avg_cost=Decimal("50.00"),
+                cost_basis=Decimal("150.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos_a)
+            s.add(pos_b)
+            s.flush()
+            pos_a_id = pos_a.id
+            pos_b_id = pos_b.id
+            s.add(PriceSnapshot(
+                ticker=ticker_a, price=Decimal("55.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker_b, price=Decimal("55.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.commit()
+
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                pos_before = s.query(Position).count()
+
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={"candidate_ids": [], "position_tickers": [ticker_a]},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            hold_tickers = [h["ticker"] for h in data["hold_positions"]]
+            assert ticker_a in hold_tickers
+            assert ticker_b not in hold_tickers
+
+            # Endpoint must not write any rows
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(Position).count() == pos_before
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(
+                    PriceSnapshot.ticker.in_([ticker_a, ticker_b])
+                ).delete()
+                s.query(Position).filter(
+                    Position.id.in_([pos_a_id, pos_b_id])
+                ).delete()
                 s.commit()

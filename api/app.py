@@ -1168,6 +1168,21 @@ class DailyPlanPreviewRequest(BaseModel):
         default=5.0,
         description="Minimum improvement score to propose a rotation pair.",
     )
+    candidate_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "If provided, evaluate only these specific CandidateReview UUIDs. "
+            "An empty list evaluates zero candidates. "
+            "Bypasses limit_candidates; approved_only still applies."
+        ),
+    )
+    position_tickers: list[str] | None = Field(
+        default=None,
+        description=(
+            "If provided, evaluate only open positions for these tickers (case-insensitive). "
+            "Bypasses full portfolio scan; useful for deterministic preview scope."
+        ),
+    )
 
 
 class DailyPlanPreviewResponse(BaseModel):
@@ -5537,6 +5552,9 @@ async def daily_plan_preview(
         portfolio = get_portfolio(session)
         cfg_max = int((portfolio.config or {}).get("max_positions", get_settings().max_positions))
         open_positions = list(session.execute(select(Position)).scalars().all())
+        if body.position_tickers is not None:
+            _pos_filter = {t.strip().upper() for t in body.position_tickers}
+            open_positions = [p for p in open_positions if p.ticker.upper() in _pos_filter]
         held_tickers = {p.ticker for p in open_positions}
         current_count = len(open_positions)
         available_slots = max(0, cfg_max - current_count)
@@ -5547,10 +5565,19 @@ async def daily_plan_preview(
         stale_cutoff = now - timedelta(days=body.max_price_age_days)
 
         # 2. Load candidates
+        import uuid as _uuid_mod
         cand_q = session.query(CandidateReview)
         if body.approved_only:
             cand_q = cand_q.filter(CandidateReview.review_status == "APPROVED_FOR_SIGNAL")
-        raw_candidates = list(cand_q.limit(body.limit_candidates).all())
+        if body.candidate_ids is not None:
+            if not body.candidate_ids:
+                raw_candidates = []
+            else:
+                _id_list = [_uuid_mod.UUID(cid) for cid in body.candidate_ids]
+                cand_q = cand_q.filter(CandidateReview.id.in_(_id_list))
+                raw_candidates = list(cand_q.all())
+        else:
+            raw_candidates = list(cand_q.limit(body.limit_candidates).all())
         no_candidates = len(raw_candidates) == 0
 
         sell_signal_tickers: set[str] = {
