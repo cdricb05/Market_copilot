@@ -9620,6 +9620,13 @@ class TestReviewCreateDecisionsEndpoint:
             ).count()
             assert order_count == 0, "No Order rows must be created for REJECTED decisions"
 
+        # Cleanup: remove synthetic positions to avoid polluting subsequent tests
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.query(Position).filter(
+                Position.ticker.in_([f"MAXPOS{i}" for i in range(5)])
+            ).delete(synchronize_session=False)
+            session.commit()
+
     def test_no_position_to_sell_rejected(self, seeded_client: TestClient, api_engine) -> None:
         """SELL signal for a ticker with no open position is rejected with NO_POSITION_TO_SELL."""
         with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
