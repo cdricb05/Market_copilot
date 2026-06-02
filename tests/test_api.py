@@ -10854,3 +10854,428 @@ class TestReviewWorkflowStatusEndpoint:
             "Create Orders",
         }
         assert step_names == expected_steps
+
+
+# ---------------------------------------------------------------------------
+# Rotation Preview endpoint
+# ---------------------------------------------------------------------------
+
+class TestReviewRotationPreviewEndpoint:
+    """Test POST /v1/review/rotation-preview endpoint (read-only, no DB writes)."""
+
+    def test_rotation_preview_requires_api_key(self, seeded_client: TestClient) -> None:
+        """Test that the endpoint requires API key."""
+        response = seeded_client.post("/v1/review/rotation-preview", json={})
+        assert response.status_code == 401
+
+    def test_rotation_preview_creates_zero_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Test that the endpoint creates no database rows of any kind."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            jr_before  = s.query(JobRun).count()
+            sig_before = s.query(Signal).count()
+            td_before  = s.query(TradeDecision).count()
+            ord_before = s.query(Order).count()
+            pos_before = s.query(Position).count()
+
+        response = seeded_client.post(
+            "/v1/review/rotation-preview", json={}, headers=_AUTH
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["safety_counts"]["signals_created"]   == 0
+        assert data["safety_counts"]["decisions_created"] == 0
+        assert data["safety_counts"]["orders_created"]    == 0
+        assert data["safety_counts"]["db_rows_created"]   == 0
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            assert s.query(JobRun).count()       == jr_before
+            assert s.query(Signal).count()       == sig_before
+            assert s.query(TradeDecision).count() == td_before
+            assert s.query(Order).count()        == ord_before
+            assert s.query(Position).count()     == pos_before
+
+    def test_rotation_preview_capacity_available_no_rotation_required(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Test that with fewer than max_positions held, capacity_available=True."""
+        response = seeded_client.post(
+            "/v1/review/rotation-preview", json={}, headers=_AUTH
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # seeded_client portfolio has <=4 positions at this point (well below 5)
+        assert data["capacity_available"] is True
+        assert data["rotation_required"] is False
+        assert "capacity" in data["explanation"].lower()
+        assert data["safety_counts"]["signals_created"] == 0
+        assert data["safety_counts"]["db_rows_created"] == 0
+
+    def test_rotation_preview_at_max_positions_proposes_profitable_rotation(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Test that at max positions with a high-opportunity candidate, a rotation pair is proposed."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        cand_ticker = f"RTPC{suffix}"
+        ikey = f"rtp-cand-{suffix}"
+        created_pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            portfolio_obj = session.query(Portfolio).first()
+            max_pos = int(
+                (portfolio_obj.config or {}).get("max_positions", get_settings().max_positions)
+            )
+            current_count = session.query(Position).count()
+
+            # Fill slots up to (max_pos - 1) with strong positions (30% gain)
+            strong_count = max(0, (max_pos - 1) - current_count)
+            for i in range(strong_count):
+                t = f"RTPS{suffix}{i}"
+                pos = Position(
+                    ticker=t, qty=Decimal("10"),
+                    avg_cost=Decimal("100.000000"), cost_basis=Decimal("1000.00"),
+                    opened_at=datetime.now(timezone.utc),
+                    last_updated=datetime.now(timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                created_pos_ids.append(pos.id)
+                session.add(PriceSnapshot(
+                    ticker=t, price=Decimal("130.000000"),
+                    price_type="CLOSE", session_type="REGULAR",
+                    market_date=date.today(), snapshot_ts=datetime.now(timezone.utc),
+                ))
+
+            # Add the weak position: -5% gain → guaranteed weakest when others are positive
+            ticker_weak = f"RTPW{suffix}"
+            pos_weak = Position(
+                ticker=ticker_weak, qty=Decimal("10"),
+                avg_cost=Decimal("100.000000"), cost_basis=Decimal("1000.00"),
+                opened_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc),
+            )
+            session.add(pos_weak)
+            session.flush()
+            created_pos_ids.append(pos_weak.id)
+            session.add(PriceSnapshot(
+                ticker=ticker_weak, price=Decimal("95.000000"),  # -5% P&L
+                price_type="CLOSE", session_type="REGULAR",
+                market_date=date.today(), snapshot_ts=datetime.now(timezone.utc),
+            ))
+
+            # Candidate: score = 0.90 * 10.0 = 9.0; improvement vs -5.0% = 14.0 >= 5.0
+            cand = CandidateReview(
+                idempotency_key=ikey, ticker=cand_ticker,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="10.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            session.add(cand)
+            session.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/rotation-preview",
+                json={
+                    "candidate_review_ids": [cand_id],
+                    "min_improvement_score": 5.0,
+                    "block_loss_realization": False,  # allow selling the -5% position
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["rotation_required"] is True
+            assert data["capacity_available"] is False
+            assert len(data["rotation_pairs"]) >= 1
+            pair = data["rotation_pairs"][0]
+            assert pair["sell_ticker"] == ticker_weak
+            assert pair["buy_ticker"] == cand_ticker
+            assert pair["meets_threshold"] is True
+            assert data["safety_counts"]["db_rows_created"] == 0
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for pid in created_pos_ids:
+                    session.query(Position).filter(Position.id == pid).delete()
+                session.commit()
+
+    def test_rotation_preview_blocks_negative_pnl_position(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Test that a position with negative unrealized P&L is blocked from rotation."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_loss = f"RTPL{suffix}"
+        ikey = f"rtp-loss-cand-{suffix}"
+        cand_ticker = f"RTPLC{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            pos = Position(
+                ticker=ticker_loss, qty=Decimal("10"),
+                avg_cost=Decimal("100.000000"), cost_basis=Decimal("1000.00"),
+                opened_at=datetime.now(timezone.utc), last_updated=datetime.now(timezone.utc),
+            )
+            session.add(pos)
+            session.add(PriceSnapshot(
+                ticker=ticker_loss, price=Decimal("80.000000"),  # -20% loss
+                price_type="CLOSE", session_type="REGULAR",
+                market_date=date.today(), snapshot_ts=datetime.now(timezone.utc),
+            ))
+            cand = CandidateReview(
+                idempotency_key=ikey, ticker=cand_ticker,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="10.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            session.add(cand)
+            session.commit()
+            pos_id = pos.id
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/rotation-preview",
+                json={
+                    "candidate_review_ids": [cand_id],
+                    "block_loss_realization": True,
+                    "min_exit_pnl_pct": 0.0,
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            blocked = data["blocked_positions"]
+            blocked_tickers = [b["ticker"] for b in blocked]
+            assert ticker_loss in blocked_tickers
+            entry = next(b for b in blocked if b["ticker"] == ticker_loss)
+            assert entry["sellable_for_rotation"] is False
+            assert entry["blocked_reason"] == "LOSS_REALIZATION_BLOCKED"
+            # Must not appear as sell side of any rotation pair
+            all_pairs = data["rotation_pairs"] + data["rejected_pairs"]
+            for pair in all_pairs:
+                assert pair["sell_ticker"] != ticker_loss
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(Position).filter(Position.id == pos_id).delete()
+                session.commit()
+
+    def test_rotation_preview_missing_price_blocks_position(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Test that a position with no price snapshot is blocked with MISSING_PRICE."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_no_price = f"RTPNP{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            pos = Position(
+                ticker=ticker_no_price, qty=Decimal("5"),
+                avg_cost=Decimal("200.000000"), cost_basis=Decimal("1000.00"),
+                opened_at=datetime.now(timezone.utc), last_updated=datetime.now(timezone.utc),
+            )
+            session.add(pos)
+            session.commit()
+            pos_id = pos.id
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/rotation-preview", json={}, headers=_AUTH
+            )
+            assert response.status_code == 200
+            data = response.json()
+            blocked = data["blocked_positions"]
+            blocked_tickers = [b["ticker"] for b in blocked]
+            assert ticker_no_price in blocked_tickers
+            entry = next(b for b in blocked if b["ticker"] == ticker_no_price)
+            assert entry["sellable_for_rotation"] is False
+            assert entry["blocked_reason"] == "MISSING_PRICE"
+            assert entry["latest_price"] is None
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(Position).filter(Position.id == pos_id).delete()
+                session.commit()
+
+    def test_rotation_preview_already_held_candidate_rejected(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Test that a candidate for a ticker already held is excluded from candidates."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        held_ticker = f"RTPAH{suffix}"
+        ikey = f"rtp-held-{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            pos = Position(
+                ticker=held_ticker, qty=Decimal("10"),
+                avg_cost=Decimal("100.000000"), cost_basis=Decimal("1000.00"),
+                opened_at=datetime.now(timezone.utc), last_updated=datetime.now(timezone.utc),
+            )
+            session.add(pos)
+            session.add(PriceSnapshot(
+                ticker=held_ticker, price=Decimal("110.000000"),
+                price_type="CLOSE", session_type="REGULAR",
+                market_date=date.today(), snapshot_ts=datetime.now(timezone.utc),
+            ))
+            cand = CandidateReview(
+                idempotency_key=ikey, ticker=held_ticker,  # same ticker as held position
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="10.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            session.add(cand)
+            session.commit()
+            pos_id = pos.id
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/rotation-preview",
+                json={"candidate_review_ids": [cand_id]},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            cand_tickers = [c["ticker"] for c in data["strongest_candidates"]]
+            assert held_ticker not in cand_tickers
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(Position).filter(Position.id == pos_id).delete()
+                session.commit()
+
+    def test_rotation_preview_below_threshold_rejected(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Test that pairs below min_improvement_score appear in rejected_pairs, not rotation_pairs."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        cand_ticker = f"RTPBTC{suffix}"
+        ikey = f"rtp-bt-{suffix}"
+        created_pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            portfolio_obj = session.query(Portfolio).first()
+            max_pos = int(
+                (portfolio_obj.config or {}).get("max_positions", get_settings().max_positions)
+            )
+            current_count = session.query(Position).count()
+
+            # Fill remaining slots so we're at max_positions (triggers rotation logic)
+            for i in range(max(0, max_pos - current_count)):
+                t = f"RTPBTS{suffix}{i}"
+                pos = Position(
+                    ticker=t, qty=Decimal("10"),
+                    avg_cost=Decimal("100.000000"), cost_basis=Decimal("1000.00"),
+                    opened_at=datetime.now(timezone.utc), last_updated=datetime.now(timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                created_pos_ids.append(pos.id)
+                session.add(PriceSnapshot(
+                    ticker=t, price=Decimal("120.000000"),
+                    price_type="CLOSE", session_type="REGULAR",
+                    market_date=date.today(), snapshot_ts=datetime.now(timezone.utc),
+                ))
+
+            # Candidate with moderate score (0.70 * 3.0 = 2.1)
+            cand = CandidateReview(
+                idempotency_key=ikey, ticker=cand_ticker,
+                prediction_recommendation="BUY", prediction_confidence="0.70",
+                expected_return_pct="3.0", preview_decision="WATCH",
+                preview_score="40.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            session.add(cand)
+            session.commit()
+            cand_id = str(cand.id)
+
+        try:
+            # min_improvement_score=1000 is impossible to meet → all pairs rejected
+            response = seeded_client.post(
+                "/v1/review/rotation-preview",
+                json={
+                    "candidate_review_ids": [cand_id],
+                    "min_improvement_score": 1000.0,
+                    "block_loss_realization": False,
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["rotation_required"] is True
+            assert len(data["rotation_pairs"]) == 0
+            assert len(data["rejected_pairs"]) >= 1
+            assert data["rejected_pairs"][0]["meets_threshold"] is False
+            assert data["rejected_pairs"][0]["buy_ticker"] == cand_ticker
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for pid in created_pos_ids:
+                    session.query(Position).filter(Position.id == pid).delete()
+                session.commit()
+
+    def test_rotation_preview_uses_approved_candidates_by_default(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Test that approved_only=True (default) filters to APPROVED_FOR_SIGNAL candidates."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_approved = f"RTPAP{suffix}"
+        ticker_new      = f"RTPNW{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.add(CandidateReview(
+                idempotency_key=f"rtp-approved-{suffix}", ticker=ticker_approved,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="10.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            ))
+            session.add(CandidateReview(
+                idempotency_key=f"rtp-new-{suffix}", ticker=ticker_new,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="8.0", preview_decision="CONSIDER",
+                preview_score="75.0", review_status="NEW", status="OK",
+            ))
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/rotation-preview",
+            json={"approved_only": True},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        cand_tickers = [c["ticker"] for c in data["strongest_candidates"]]
+        assert ticker_approved in cand_tickers
+        assert ticker_new not in cand_tickers
+
+    def test_rotation_preview_explicit_candidate_ids(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Test that explicit candidate_review_ids bypasses the approved_only SQL filter."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_watching = f"RTPWT{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            cand = CandidateReview(
+                idempotency_key=f"rtp-watching-{suffix}", ticker=ticker_watching,
+                prediction_recommendation="BUY", prediction_confidence="0.88",
+                expected_return_pct="12.0", preview_decision="CONSIDER",
+                preview_score="88.0", review_status="WATCHING", status="OK",
+            )
+            session.add(cand)
+            session.commit()
+            cand_id = str(cand.id)
+
+        response = seeded_client.post(
+            "/v1/review/rotation-preview",
+            json={"candidate_review_ids": [cand_id]},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        # candidates_considered counts raw candidates loaded (before filter for held/BUY)
+        assert data["candidates_considered"] == 1
+        cand_tickers = [c["ticker"] for c in data["strongest_candidates"]]
+        assert ticker_watching in cand_tickers

@@ -20,6 +20,7 @@ Endpoints:
     POST /v1/market/scan           — scan market candidates (read-only)
     POST /v1/strategy/prediction/fetch-and-run — fetch predictions and run workflow (creates decisions/orders)
     POST /v1/strategy/market-scan/prediction-candidates — market scan + prediction preview (V1 PREVIEW ONLY)
+    POST /v1/review/rotation-preview — preview portfolio rotations when at max positions (read-only)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -933,6 +934,109 @@ class WorkflowStatusResponse(BaseModel):
     orders: OrdersCounts
     workflow_steps: list[WorkflowStepStatus]
     safety: dict[str, bool]
+
+
+class WeakestPositionDetail(BaseModel):
+    """A position with unrealized P&L data for rotation analysis."""
+    ticker: str
+    qty: str
+    avg_cost: str
+    cost_basis: str
+    latest_price: str | None
+    current_value: str | None
+    unrealized_pnl: str | None
+    unrealized_pnl_pct: str | None
+    sellable_for_rotation: bool
+    blocked_reason: str | None
+
+
+class CandidateStrengthDetail(BaseModel):
+    """A candidate from the review queue with opportunity scoring."""
+    candidate_review_id: str
+    ticker: str
+    decision: str
+    recommendation: str | None
+    preview_score: str
+    prediction_confidence: str | None
+    expected_return_pct: str | None
+    candidate_score: str
+
+
+class RotationPairDetail(BaseModel):
+    """A proposed or rejected sell-then-buy rotation pair."""
+    sell_ticker: str
+    buy_ticker: str
+    sell_unrealized_pnl_pct: str
+    sell_unrealized_pnl: str
+    buy_candidate_score: str
+    improvement_score: str
+    meets_threshold: bool
+    reason: str
+    safety_note: str
+
+
+class RotationSafetyCounts(BaseModel):
+    """Zero-write safety counters confirming no DB rows were created."""
+    signals_created: int = 0
+    decisions_created: int = 0
+    orders_created: int = 0
+    db_rows_created: int = 0
+
+
+class RotationPreviewRequest(BaseModel):
+    """Request to preview possible portfolio rotations (PREVIEW ONLY, no DB writes)."""
+    candidate_review_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of CandidateReview UUIDs to consider. If None, uses approved_only filter.",
+    )
+    limit_pairs: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum number of rotation pairs to propose.",
+    )
+    min_improvement_score: float = Field(
+        default=5.0,
+        description="Minimum improvement score (candidate_score - holding_unrealized_pnl_pct) required to propose a pair.",
+    )
+    min_exit_pnl_pct: float = Field(
+        default=0.0,
+        description="Minimum unrealized P&L % required to sell a position. Positions below this are blocked when block_loss_realization=True.",
+    )
+    block_loss_realization: bool = Field(
+        default=True,
+        description="If True, positions with unrealized_pnl_pct < min_exit_pnl_pct are blocked from rotation.",
+    )
+    max_price_age_days: int = Field(
+        default=5,
+        ge=1,
+        le=30,
+        description="Maximum age in calendar days for a price snapshot to be considered fresh.",
+    )
+    approved_only: bool = Field(
+        default=True,
+        description="If True and candidate_review_ids is None, only load APPROVED_FOR_SIGNAL candidates.",
+    )
+
+
+class RotationPreviewResponse(BaseModel):
+    """Response from rotation preview endpoint (PREVIEW ONLY, no database writes)."""
+    current_position_count: int
+    max_positions: int
+    capacity_available: bool
+    rotation_required: bool
+    block_loss_realization: bool
+    min_exit_pnl_pct: str
+    min_improvement_score: str
+    candidates_considered: int
+    positions_considered: int
+    weakest_positions: list[WeakestPositionDetail]
+    blocked_positions: list[WeakestPositionDetail]
+    strongest_candidates: list[CandidateStrengthDetail]
+    rotation_pairs: list[RotationPairDetail]
+    rejected_pairs: list[RotationPairDetail]
+    explanation: str
+    safety_counts: RotationSafetyCounts
 
 
 class BackfillRequest(BaseModel):
@@ -4972,6 +5076,280 @@ async def get_workflow_status() -> WorkflowStatusResponse:
         orders=orders_counts,
         workflow_steps=steps,
         safety={"create_orders_enabled": False, "automation_enabled": False},
+    )
+
+
+@app.post(
+    "/v1/review/rotation-preview",
+    response_model=RotationPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def preview_portfolio_rotation(
+    body: RotationPreviewRequest,
+) -> RotationPreviewResponse:
+    """
+    Preview possible portfolio rotations when max positions are reached.
+
+    This endpoint is PREVIEW ONLY. No Signal, TradeDecision, Order, Position,
+    JobRun, or any other database rows are created or mutated.
+
+    Rotation logic:
+    1. Read open positions and latest price snapshots.
+    2. Compute unrealized P&L for each position.
+    3. Block positions from rotation if: price is missing/stale, or
+       block_loss_realization=True and unrealized_pnl_pct < min_exit_pnl_pct.
+    4. If portfolio has capacity, returns CAPACITY_AVAILABLE_NO_ROTATION_REQUIRED.
+    5. If at max positions, ranks sellable positions by weakness (ascending pnl_pct)
+       and approved BUY candidates by opportunity (prediction_confidence * expected_return_pct).
+    6. Proposes rotation pairs where improvement_score >= min_improvement_score.
+
+    improvement_score = candidate_score - holding_unrealized_pnl_pct
+    (where candidate_score = prediction_confidence * expected_return_pct)
+    """
+    import uuid as uuid_module
+    from datetime import timedelta
+
+    _SAFETY = "Preview only. No signals, decisions, or orders created."
+    _DOLLARS = Decimal("0.01")
+
+    with get_session() as session:
+        portfolio = get_portfolio(session)
+        cfg_max = int((portfolio.config or {}).get("max_positions", get_settings().max_positions))
+
+        open_positions = list(session.execute(select(Position)).scalars().all())
+        held_tickers = {p.ticker for p in open_positions}
+        current_count = len(open_positions)
+        capacity_available = current_count < cfg_max
+
+        now = datetime.now(timezone.utc)
+        stale_cutoff = now - timedelta(days=body.max_price_age_days)
+
+        positions_with_pnl: list[tuple[WeakestPositionDetail, float]] = []
+        blocked_positions: list[WeakestPositionDetail] = []
+
+        for pos in open_positions:
+            row = session.execute(
+                select(PriceSnapshot.price, PriceSnapshot.snapshot_ts)
+                .where(PriceSnapshot.ticker == pos.ticker)
+                .order_by(PriceSnapshot.snapshot_ts.desc())
+                .limit(1)
+            ).first()
+
+            if row is None:
+                blocked_positions.append(WeakestPositionDetail(
+                    ticker=pos.ticker,
+                    qty=str(pos.qty),
+                    avg_cost=str(pos.avg_cost),
+                    cost_basis=str(pos.cost_basis),
+                    latest_price=None,
+                    current_value=None,
+                    unrealized_pnl=None,
+                    unrealized_pnl_pct=None,
+                    sellable_for_rotation=False,
+                    blocked_reason="MISSING_PRICE",
+                ))
+                continue
+
+            snap_price, snap_ts = row
+            snap_price = Decimal(str(snap_price))
+            if snap_ts.tzinfo is None:
+                snap_ts = snap_ts.replace(tzinfo=timezone.utc)
+
+            if snap_ts < stale_cutoff:
+                blocked_positions.append(WeakestPositionDetail(
+                    ticker=pos.ticker,
+                    qty=str(pos.qty),
+                    avg_cost=str(pos.avg_cost),
+                    cost_basis=str(pos.cost_basis),
+                    latest_price=str(snap_price),
+                    current_value=None,
+                    unrealized_pnl=None,
+                    unrealized_pnl_pct=None,
+                    sellable_for_rotation=False,
+                    blocked_reason="STALE_PRICE",
+                ))
+                continue
+
+            current_value = (pos.qty * snap_price).quantize(_DOLLARS)
+            unrealized_pnl = (current_value - pos.cost_basis).quantize(_DOLLARS)
+            cost_basis_f = float(pos.cost_basis)
+            pnl_pct = float(unrealized_pnl) / cost_basis_f * 100.0 if cost_basis_f != 0.0 else 0.0
+
+            sellable = True
+            blocked_reason = None
+            if body.block_loss_realization and pnl_pct < body.min_exit_pnl_pct:
+                sellable = False
+                blocked_reason = "LOSS_REALIZATION_BLOCKED"
+
+            detail = WeakestPositionDetail(
+                ticker=pos.ticker,
+                qty=str(pos.qty),
+                avg_cost=str(pos.avg_cost),
+                cost_basis=str(pos.cost_basis),
+                latest_price=str(snap_price),
+                current_value=str(current_value),
+                unrealized_pnl=str(unrealized_pnl),
+                unrealized_pnl_pct=f"{pnl_pct:.4f}",
+                sellable_for_rotation=sellable,
+                blocked_reason=blocked_reason,
+            )
+
+            if sellable:
+                positions_with_pnl.append((detail, pnl_pct))
+            else:
+                blocked_positions.append(detail)
+
+        # Sort sellable positions: weakest (lowest pnl_pct) first
+        positions_with_pnl.sort(key=lambda x: x[1])
+        weakest_positions = [x[0] for x in positions_with_pnl]
+
+        # Load candidates
+        if body.candidate_review_ids:
+            try:
+                uuids = [uuid_module.UUID(cid) for cid in body.candidate_review_ids]
+                raw_candidates = list(
+                    session.query(CandidateReview).filter(CandidateReview.id.in_(uuids)).all()
+                )
+            except (ValueError, AttributeError):
+                raw_candidates = []
+        else:
+            q = session.query(CandidateReview)
+            if body.approved_only:
+                q = q.filter(CandidateReview.review_status == "APPROVED_FOR_SIGNAL")
+            raw_candidates = list(q.all())
+
+        candidates_considered = len(raw_candidates)
+
+        # Score BUY candidates not already held
+        scored_candidates: list[tuple[CandidateStrengthDetail, float]] = []
+        for cand in raw_candidates:
+            if not cand.prediction_recommendation:
+                continue
+            if cand.prediction_recommendation.upper() != "BUY":
+                continue
+            if cand.ticker in held_tickers:
+                continue
+            try:
+                conf = float(cand.prediction_confidence or "0")
+                exp_ret = float(cand.expected_return_pct or "0")
+            except (ValueError, TypeError):
+                continue
+            cand_score = conf * exp_ret
+            scored_candidates.append((
+                CandidateStrengthDetail(
+                    candidate_review_id=str(cand.id),
+                    ticker=cand.ticker,
+                    decision=cand.preview_decision,
+                    recommendation=cand.prediction_recommendation,
+                    preview_score=cand.preview_score,
+                    prediction_confidence=cand.prediction_confidence,
+                    expected_return_pct=cand.expected_return_pct,
+                    candidate_score=f"{cand_score:.4f}",
+                ),
+                cand_score,
+            ))
+
+        # Sort candidates: strongest (highest score) first
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        strongest_candidates = [x[0] for x in scored_candidates]
+
+        rotation_pairs: list[RotationPairDetail] = []
+        rejected_pairs: list[RotationPairDetail] = []
+
+        if capacity_available:
+            explanation = (
+                f"Portfolio has capacity ({current_count}/{cfg_max} positions used). "
+                "Rotation is not required; new positions can be opened without selling existing ones."
+            )
+        elif not weakest_positions:
+            n_blocked = len(blocked_positions)
+            explanation = (
+                f"At max positions ({current_count}/{cfg_max}). "
+                f"All {n_blocked} position(s) are blocked from rotation "
+                "(loss realization protection or missing/stale price)."
+            ) if n_blocked else (
+                f"At max positions ({current_count}/{cfg_max}). No positions available for rotation."
+            )
+        elif not scored_candidates:
+            explanation = (
+                f"At max positions ({current_count}/{cfg_max}). "
+                "No approved BUY candidates available for rotation."
+            )
+        else:
+            used_cand_tickers: set[str] = set()
+            pairs_limit = min(body.limit_pairs, len(positions_with_pnl), len(scored_candidates))
+
+            for pos_detail, pos_pnl_pct in positions_with_pnl[:pairs_limit]:
+                best: tuple[CandidateStrengthDetail, float] | None = None
+                for cd, cs in scored_candidates:
+                    if cd.ticker not in used_cand_tickers:
+                        best = (cd, cs)
+                        break
+                if best is None:
+                    break
+
+                best_detail, best_score = best
+                improvement = best_score - pos_pnl_pct
+                meets = improvement >= body.min_improvement_score
+
+                pair = RotationPairDetail(
+                    sell_ticker=pos_detail.ticker,
+                    buy_ticker=best_detail.ticker,
+                    sell_unrealized_pnl_pct=pos_detail.unrealized_pnl_pct or "0.0000",
+                    sell_unrealized_pnl=pos_detail.unrealized_pnl or "0.00",
+                    buy_candidate_score=best_detail.candidate_score,
+                    improvement_score=f"{improvement:.4f}",
+                    meets_threshold=meets,
+                    reason=(
+                        f"Candidate {best_detail.ticker} (score {best_score:.4f}) vs "
+                        f"holding {pos_detail.ticker} (unrealized_pnl_pct {pos_pnl_pct:.4f}%); "
+                        f"improvement {improvement:.4f} "
+                        f"{'meets' if meets else 'below'} threshold {body.min_improvement_score}."
+                    ),
+                    safety_note=_SAFETY,
+                )
+
+                if meets:
+                    rotation_pairs.append(pair)
+                    used_cand_tickers.add(best_detail.ticker)
+                else:
+                    rejected_pairs.append(pair)
+
+            if rotation_pairs:
+                explanation = (
+                    f"At max positions ({current_count}/{cfg_max}). "
+                    f"{len(rotation_pairs)} rotation pair(s) proposed. "
+                    f"{len(rejected_pairs)} pair(s) below improvement threshold."
+                )
+            else:
+                explanation = (
+                    f"At max positions ({current_count}/{cfg_max}). "
+                    f"No rotation pairs meet the minimum improvement threshold of {body.min_improvement_score}."
+                )
+
+    return RotationPreviewResponse(
+        current_position_count=current_count,
+        max_positions=cfg_max,
+        capacity_available=capacity_available,
+        rotation_required=not capacity_available,
+        block_loss_realization=body.block_loss_realization,
+        min_exit_pnl_pct=str(body.min_exit_pnl_pct),
+        min_improvement_score=str(body.min_improvement_score),
+        candidates_considered=candidates_considered,
+        positions_considered=current_count,
+        weakest_positions=weakest_positions,
+        blocked_positions=blocked_positions,
+        strongest_candidates=strongest_candidates,
+        rotation_pairs=rotation_pairs,
+        rejected_pairs=rejected_pairs,
+        explanation=explanation,
+        safety_counts=RotationSafetyCounts(
+            signals_created=0,
+            decisions_created=0,
+            orders_created=0,
+            db_rows_created=0,
+        ),
     )
 
 
