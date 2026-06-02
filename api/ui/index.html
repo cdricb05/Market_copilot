@@ -3571,6 +3571,55 @@ function renderDailyPlanResult(data, el) {
     html += '</div>';
   }
 
+  // Action stack
+  if (data.action_stack && data.action_stack.length > 0) {
+    const ACTION_COLORS = {
+      ROTATE:    { bg: 'rgba(251,191,36,.1)',  border: 'rgba(251,191,36,.5)',  text: 'var(--warning)',       badge: 'rgba(251,191,36,.25)' },
+      BUY:       { bg: 'rgba(34,197,94,.08)',  border: 'rgba(34,197,94,.4)',   text: 'var(--ok)',            badge: 'rgba(34,197,94,.2)' },
+      SELL:      { bg: 'rgba(251,191,36,.06)', border: 'rgba(251,191,36,.3)',  text: 'var(--label)',         badge: 'rgba(251,191,36,.2)' },
+      HOLD:      { bg: 'rgba(255,255,255,.03)',border: 'rgba(255,255,255,.1)', text: 'var(--text-accent)',   badge: 'rgba(255,255,255,.1)' },
+      WATCH:     { bg: 'rgba(255,255,255,.03)',border: 'rgba(255,255,255,.1)', text: 'var(--text-secondary)', badge: 'rgba(255,255,255,.1)' },
+      BLOCKED:   { bg: 'rgba(239,68,68,.05)',  border: 'rgba(239,68,68,.3)',  text: 'var(--danger)',        badge: 'rgba(239,68,68,.2)' },
+      NO_ACTION: { bg: 'rgba(255,255,255,.02)',border: 'rgba(255,255,255,.08)',text: 'var(--text-secondary)', badge: 'rgba(255,255,255,.08)' },
+    };
+    html += '<div style="margin-bottom: 14px;">';
+    html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 8px;">Today\'s Recommended Action Stack</div>';
+    for (const item of data.action_stack) {
+      const c = ACTION_COLORS[item.action_type] || ACTION_COLORS.NO_ACTION;
+      html += `<div style="display:flex; gap:10px; align-items:flex-start; background:${c.bg}; border:1px solid ${c.border}; border-radius:3px; padding:8px 10px; margin-bottom:5px;">`;
+      html += `<div style="min-width:20px; font-size:10px; font-weight:700; color:var(--text-secondary); padding-top:1px;">#${escapeHtml(String(item.priority))}</div>`;
+      html += `<div style="min-width:64px;"><span style="background:${c.badge}; color:${c.text}; padding:2px 6px; border-radius:2px; font-size:10px; font-weight:700;">${escapeHtml(item.action_type)}</span></div>`;
+      html += '<div style="flex:1; min-width:0;">';
+      html += `<div style="font-size:12px; font-weight:600; color:${c.text}; margin-bottom:2px;">${escapeHtml(item.title)}</div>`;
+      html += `<div style="font-size:11px; color:var(--text-primary); margin-bottom:3px;">${escapeHtml(item.recommendation)}</div>`;
+      html += `<div style="font-size:10px; color:var(--text-secondary);">${escapeHtml(item.reason)}</div>`;
+      // Metric chips
+      const chips = [];
+      if (item.confidence) {
+        const confPct = (parseFloat(item.confidence) * 100).toFixed(0);
+        chips.push(`<span style="background:rgba(255,255,255,.07); padding:1px 5px; border-radius:2px; font-size:10px;">Conf: ${escapeHtml(confPct)}%</span>`);
+      }
+      if (item.expected_return_pct) {
+        chips.push(`<span style="background:rgba(255,255,255,.07); padding:1px 5px; border-radius:2px; font-size:10px; color:var(--ok);">Ret: ${escapeHtml(parseFloat(item.expected_return_pct).toFixed(1))}%</span>`);
+      }
+      if (item.pnl_pct) {
+        const pnlNum = parseFloat(item.pnl_pct);
+        const pnlColor = pnlNum >= 0 ? 'var(--ok)' : 'var(--danger)';
+        chips.push(`<span style="background:rgba(255,255,255,.07); padding:1px 5px; border-radius:2px; font-size:10px; color:${pnlColor};">PnL: ${pnlNum >= 0 ? '+' : ''}${pnlNum.toFixed(2)}%</span>`);
+      }
+      if (item.blocked_reason) {
+        chips.push(`<span style="background:rgba(239,68,68,.15); padding:1px 5px; border-radius:2px; font-size:10px; color:var(--danger);">${escapeHtml(item.blocked_reason)}</span>`);
+      }
+      if (chips.length > 0) {
+        html += `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:4px;">${chips.join('')}</div>`;
+      }
+      html += `<div style="font-size:9px; color:var(--text-secondary); margin-top:4px; opacity:0.7;">${escapeHtml(item.safety_note)}</div>`;
+      html += '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
   // BUY recommendations
   if (data.buy_recommendations && data.buy_recommendations.length > 0) {
     html += `<div style="font-weight: 600; font-size: 11px; color: var(--ok); margin-bottom: 6px; margin-top: 8px;">Buy Candidates (${data.buy_recommendations.length})</div>`;

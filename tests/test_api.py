@@ -11667,3 +11667,233 @@ class TestDailyPlanPreviewEndpoint:
                     Position.id.in_([pos_a_id, pos_b_id])
                 ).delete()
                 s.commit()
+
+    def test_daily_plan_response_includes_action_stack(self, seeded_client: TestClient) -> None:
+        """action_stack field is present in the response and is a list."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "action_stack" in data
+        assert isinstance(data["action_stack"], list)
+
+    def test_daily_plan_action_stack_safety_note(self, seeded_client: TestClient) -> None:
+        """Every action_stack item has a safety_note confirming preview-only / no orders."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        for item in data["action_stack"]:
+            note = item.get("safety_note", "").lower()
+            assert "preview" in note or "no signals" in note or "no orders" in note, (
+                f"safety_note does not mention preview/no-signals/no-orders: {item['safety_note']!r}"
+            )
+
+    def test_daily_plan_action_stack_rotate_before_buy(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """ROTATE action_type appears at a lower priority number than BUY when a rotation exists."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPASH{suffix}"
+        ticker_buy  = f"DPASB{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            portfolio_obj = s.query(Portfolio).first()
+            old_config = dict(portfolio_obj.config or {})
+            portfolio_obj.config = {"max_positions": 1}
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_held, price=Decimal("100.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker_buy, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-as-rot-{suffix}", ticker=ticker_buy,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="20.0", preview_decision="CONSIDER",
+                preview_score="90.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "min_rotation_improvement_pct": 5.0,
+                    "include_rotation": True,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [ticker_held],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            stack = data["action_stack"]
+            rotate_priorities = [i["priority"] for i in stack if i["action_type"] == "ROTATE"]
+            buy_priorities    = [i["priority"] for i in stack if i["action_type"] == "BUY"]
+            assert len(rotate_priorities) >= 1, "Expected at least one ROTATE item in action_stack"
+            if buy_priorities:
+                assert min(rotate_priorities) < min(buy_priorities), (
+                    "ROTATE priority must be lower (earlier) than BUY priority"
+                )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                portfolio_obj = s.query(Portfolio).first()
+                portfolio_obj.config = old_config
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker.in_([ticker_held, ticker_buy])).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_action_stack_blocked_max_positions(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """BLOCKED item with blocked_reason=MAX_POSITIONS_REACHED appears in action_stack."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPASMXH{suffix}"
+        ticker_buy  = f"DPASMXB{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            portfolio_obj = s.query(Portfolio).first()
+            old_config = dict(portfolio_obj.config or {})
+            portfolio_obj.config = {"max_positions": 1}
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("5"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("500.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_buy, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-as-maxpos-{suffix}", ticker=ticker_buy,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="15.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={"approved_only": True, "include_rotation": False, "candidate_ids": [cand_id]},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            stack = data["action_stack"]
+            blocked_items = [i for i in stack if i["action_type"] == "BLOCKED"]
+            blocked_reasons = {i["ticker"]: i["blocked_reason"] for i in blocked_items}
+            assert blocked_reasons.get(ticker_buy) == "MAX_POSITIONS_REACHED", (
+                f"Expected BLOCKED/MAX_POSITIONS_REACHED for {ticker_buy}, got: {blocked_reasons}"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                portfolio_obj = s.query(Portfolio).first()
+                portfolio_obj.config = old_config
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker_buy).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_action_stack_negative_pnl_blocked_not_sell(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Loss position appears as BLOCKED in action_stack, never as SELL."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_loss = f"DPASLOSS{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_loss, qty=Decimal("10"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("1000.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_loss, price=Decimal("80.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-as-loss-{suffix}", ticker=ticker_loss,
+                prediction_recommendation="SELL", prediction_confidence="0.85",
+                preview_decision="CONSIDER", preview_score="85.0",
+                review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={"block_loss_realization": True, "candidate_ids": [cand_id]},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            stack = data["action_stack"]
+            sell_tickers    = {i["ticker"] for i in stack if i["action_type"] == "SELL"}
+            rotate_tickers  = {i["ticker"] for i in stack if i["action_type"] == "ROTATE"}
+            blocked_reasons = {i["ticker"]: i["blocked_reason"] for i in stack if i["action_type"] == "BLOCKED"}
+            assert ticker_loss not in sell_tickers, "Loss ticker must not appear as SELL"
+            assert ticker_loss not in rotate_tickers, "Loss ticker must not appear as ROTATE sell leg"
+            assert blocked_reasons.get(ticker_loss) == "NEGATIVE_PNL_BLOCKED", (
+                f"Expected BLOCKED/NEGATIVE_PNL_BLOCKED for {ticker_loss}, got: {blocked_reasons}"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker_loss).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker_loss).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_action_stack_no_action_when_empty(self, seeded_client: TestClient) -> None:
+        """When no candidates and no actionable positions, action_stack has a NO_ACTION item."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "position_tickers": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        stack = data["action_stack"]
+        types = [i["action_type"] for i in stack]
+        assert "NO_ACTION" in types, f"Expected NO_ACTION in action_stack, got: {types}"

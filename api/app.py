@@ -1132,6 +1132,22 @@ class DailyPlanBlockedItem(BaseModel):
     explanation: str
 
 
+class DailyPlanActionItem(BaseModel):
+    """A single prioritized action in the consolidated daily action stack."""
+    priority: int
+    action_type: str  # ROTATE, BUY, SELL, HOLD, WATCH, BLOCKED, NO_ACTION
+    ticker: str | None = None
+    secondary_ticker: str | None = None
+    title: str
+    recommendation: str
+    reason: str
+    confidence: str | None = None
+    expected_return_pct: str | None = None
+    pnl_pct: str | None = None
+    blocked_reason: str | None = None
+    safety_note: str = "Preview only. No signals, decisions, or orders created."
+
+
 class DailyPlanPreviewRequest(BaseModel):
     """Request to generate a read-only consolidated daily trading plan."""
     approved_only: bool = Field(
@@ -1195,6 +1211,7 @@ class DailyPlanPreviewResponse(BaseModel):
     watch_candidates: list[WatchCandidateItem]
     rotation_plan: list[DailyPlanRotationItem]
     blocked_actions: list[DailyPlanBlockedItem]
+    action_stack: list[DailyPlanActionItem] = Field(default_factory=list)
     recommended_next_action: str
     explanation: str
     safety_counts: DailyPlanSafetyCounts
@@ -5990,6 +6007,102 @@ async def daily_plan_preview(
                 "Consider running a new prediction scan to find opportunities."
             )
 
+        # 7. Build prioritized action stack
+        action_stack: list[DailyPlanActionItem] = []
+        _priority = 1
+        _rotated_sell: set[str] = set()
+        _rotated_buy: set[str] = set()
+
+        for rot in good_rotations:
+            action_stack.append(DailyPlanActionItem(
+                priority=_priority,
+                action_type="ROTATE",
+                ticker=rot.sell_ticker,
+                secondary_ticker=rot.buy_ticker,
+                title=f"Rotate: Sell {rot.sell_ticker}, Buy {rot.buy_ticker}",
+                recommendation=f"Sell {rot.sell_ticker} (+{float(rot.sell_unrealized_pnl_pct):.2f}%) to buy {rot.buy_ticker}",
+                reason=rot.reason,
+                pnl_pct=rot.sell_unrealized_pnl_pct,
+            ))
+            _rotated_sell.add(rot.sell_ticker)
+            _rotated_buy.add(rot.buy_ticker)
+            _priority += 1
+
+        for buy in buy_recommendations:
+            if buy.ticker in _rotated_buy:
+                continue
+            action_stack.append(DailyPlanActionItem(
+                priority=_priority,
+                action_type="BUY",
+                ticker=buy.ticker,
+                title=f"Buy candidate: {buy.ticker}",
+                recommendation=buy.reason,
+                reason=f"Confidence: {float(buy.prediction_confidence or '0') * 100:.0f}%, Expected return: {buy.expected_return_pct or '-'}%",
+                confidence=buy.prediction_confidence,
+                expected_return_pct=buy.expected_return_pct,
+            ))
+            _priority += 1
+
+        for sell in sell_recommendations:
+            if sell.ticker in _rotated_sell:
+                continue
+            action_stack.append(DailyPlanActionItem(
+                priority=_priority,
+                action_type="SELL",
+                ticker=sell.ticker,
+                title=f"Sell candidate: {sell.ticker}",
+                recommendation=sell.reason,
+                reason=f"PnL: {float(sell.unrealized_pnl_pct):.2f}%",
+                pnl_pct=sell.unrealized_pnl_pct,
+            ))
+            _priority += 1
+
+        for hold in hold_positions:
+            action_stack.append(DailyPlanActionItem(
+                priority=_priority,
+                action_type="HOLD",
+                ticker=hold.ticker,
+                title=f"Hold: {hold.ticker}",
+                recommendation="Hold position",
+                reason=hold.reason,
+                pnl_pct=hold.unrealized_pnl_pct,
+            ))
+            _priority += 1
+
+        for watch in watch_candidates:
+            action_stack.append(DailyPlanActionItem(
+                priority=_priority,
+                action_type="WATCH",
+                ticker=watch.ticker,
+                title=f"Watch: {watch.ticker}",
+                recommendation="No immediate action",
+                reason=watch.reason,
+                confidence=watch.prediction_confidence,
+                expected_return_pct=watch.expected_return_pct,
+            ))
+            _priority += 1
+
+        for blocked in blocked_actions:
+            action_stack.append(DailyPlanActionItem(
+                priority=_priority,
+                action_type="BLOCKED",
+                ticker=blocked.ticker,
+                title=f"Blocked: {blocked.ticker}",
+                recommendation=f"Action blocked: {blocked.action}",
+                reason=blocked.explanation,
+                blocked_reason=blocked.blocked_reason,
+            ))
+            _priority += 1
+
+        if not action_stack:
+            action_stack.append(DailyPlanActionItem(
+                priority=1,
+                action_type="NO_ACTION",
+                title="No action required",
+                recommendation="No action required",
+                reason="No approved BUY candidates and no sell signals. Consider running a new prediction scan.",
+            ))
+
         total_value = portfolio.cached_total_value or portfolio.cached_cash or Decimal("0")
         cash = portfolio.cached_cash or Decimal("0")
         portfolio_summary = PortfolioCapacitySummary(
@@ -6010,6 +6123,7 @@ async def daily_plan_preview(
         watch_candidates=watch_candidates,
         rotation_plan=rotation_plan,
         blocked_actions=blocked_actions,
+        action_stack=action_stack,
         recommended_next_action=recommended_next_action,
         explanation=explanation,
         safety_counts=DailyPlanSafetyCounts(
