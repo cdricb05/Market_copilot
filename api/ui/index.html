@@ -1430,6 +1430,13 @@
           Each step creates the indicated rows only. No step creates orders automatically.
         </div>
 
+        <!-- Decision Outcome Summary (populated after Step C/D run) -->
+        <div id="decision-outcome-summary" style="display:none; margin-top: 10px;">
+          <div style="font-size: 10px; font-weight: 600; color: var(--text-accent); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;">Decision Outcome Summary</div>
+          <div id="decision-outcome-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; margin-bottom: 6px;"></div>
+          <div style="font-size: 9px; color: var(--label); font-style: italic;" id="decision-outcome-source"></div>
+        </div>
+
         <!-- Step A: Signal Preview -->
         <div class="command-section">
           <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
@@ -1750,6 +1757,22 @@
       <div class="panel-section-title" style="color: var(--info);">Next Step</div>
       <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px;" id="right-next-step">-</div>
       <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4;" id="right-next-step-detail"></div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-section-title">Portfolio Capacity</div>
+      <div class="panel-item">
+        <span>Open positions</span>
+        <span class="panel-value" id="cap-open-positions">-</span>
+      </div>
+      <div class="panel-item">
+        <span>Max positions</span>
+        <span class="panel-value" id="cap-max-positions">5</span>
+      </div>
+      <div class="panel-item">
+        <span>Available slots</span>
+        <span class="panel-value" id="cap-available-slots" style="font-weight: 700;">-</span>
+      </div>
+      <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;" id="cap-status-note">Max enforced by risk engine</div>
     </div>
     <div class="panel-section">
       <div class="panel-section-title">Current State</div>
@@ -2524,6 +2547,27 @@ async function loadPerformance() {
   setEl('perf-pct', signHtml(b.return_pct, pct), true);
 }
 
+function updatePortfolioCapacityDisplay() {
+  const openCount = _appState.positionCount !== undefined ? _appState.positionCount : null;
+  const maxPos = window._riskMaxPositions !== undefined ? window._riskMaxPositions : 5;
+  const openEl = document.getElementById('cap-open-positions');
+  const maxEl = document.getElementById('cap-max-positions');
+  const slotsEl = document.getElementById('cap-available-slots');
+  const noteEl = document.getElementById('cap-status-note');
+  if (openEl && openCount !== null) openEl.textContent = openCount;
+  if (maxEl) maxEl.textContent = maxPos;
+  if (slotsEl && openCount !== null) {
+    const slots = Math.max(0, maxPos - openCount);
+    slotsEl.textContent = slots;
+    slotsEl.style.color = slots === 0 ? 'var(--danger)' : slots === 1 ? 'var(--warning)' : 'var(--ok)';
+  }
+  if (noteEl) {
+    const slots = openCount !== null ? Math.max(0, maxPos - openCount) : null;
+    noteEl.textContent = slots === 0 ? 'No new BUY capacity' : 'Max enforced by risk engine';
+    noteEl.style.color = slots === 0 ? 'var(--danger)' : 'var(--label)';
+  }
+}
+
 async function loadPositions() {
   const r = await call('GET', '/v1/positions');
   const tb = document.getElementById('posTbody');
@@ -2533,6 +2577,8 @@ async function loadPositions() {
   }
   const rows = await r.json();
   _appState.hasPositions = rows.length > 0;
+  _appState.positionCount = rows.length;
+  updatePortfolioCapacityDisplay();
   if (!rows.length) {
     tb.innerHTML = '<tr><td colspan="6" class="empty">No open positions</td></tr>';
     return;
@@ -4263,6 +4309,48 @@ function renderCreateSignalsResponse(data) {
   toast(`Created ${signalsCreated} signal(s)`, 'ok');
 }
 
+function updateDecisionOutcomeSummary(items, sourceLabel) {
+  const summaryEl = document.getElementById('decision-outcome-summary');
+  const gridEl = document.getElementById('decision-outcome-grid');
+  const sourceEl = document.getElementById('decision-outcome-source');
+  if (!summaryEl || !gridEl) return;
+
+  const buyApproved = items.filter(i => i.decision === 'BUY' || i.preview_decision === 'BUY').length;
+  const sellApproved = items.filter(i => i.decision === 'SELL' || i.preview_decision === 'SELL').length;
+  const holdCount = items.filter(i => (i.decision || i.preview_decision) === 'HOLD').length;
+  const rejMaxPos = items.filter(i => (i.reason_code || '').includes('MAX_POSITIONS')).length;
+  const rejAvgDown = items.filter(i => (i.reason_code || '').includes('AVERAGING_DOWN')).length;
+  const rejNoPos = items.filter(i => (i.reason_code || '').includes('NO_POSITION_TO_SELL')).length;
+  const rejConf = items.filter(i => (i.reason_code || '').includes('CONFIDENCE_BELOW')).length;
+  const rejOther = items.filter(i => {
+    const rc = i.reason_code || '';
+    return (i.decision === 'REJECTED' || i.preview_decision === 'REJECTED') &&
+      !rc.includes('MAX_POSITIONS') && !rc.includes('AVERAGING_DOWN') &&
+      !rc.includes('NO_POSITION_TO_SELL') && !rc.includes('CONFIDENCE_BELOW');
+  }).length;
+
+  const cards = [
+    { label: 'BUY Approved', val: buyApproved, color: 'var(--ok)' },
+    { label: 'SELL Approved', val: sellApproved, color: '#60a5fa' },
+    { label: 'HOLD', val: holdCount, color: 'var(--warning)' },
+    { label: 'Rej: MAX_POSITIONS', val: rejMaxPos, color: 'var(--info)' },
+    { label: 'Rej: AVG_DOWN', val: rejAvgDown, color: 'var(--label)' },
+    { label: 'Rej: NO_POS_SELL', val: rejNoPos, color: 'var(--label)' },
+    { label: 'Rej: CONF_LOW', val: rejConf, color: 'var(--label)' },
+    { label: 'Rej: Other', val: rejOther, color: 'var(--label)' },
+  ];
+
+  gridEl.innerHTML = cards.map(c =>
+    `<div style="background:rgba(0,0,0,.15);border:1px solid var(--border);border-radius:2px;padding:6px 8px;text-align:center;">` +
+    `<div style="font-size:9px;color:var(--label);margin-bottom:2px;">${escapeHtml(c.label)}</div>` +
+    `<div style="font-size:16px;font-weight:700;color:${c.color};">${c.val}</div>` +
+    `</div>`
+  ).join('');
+
+  if (sourceEl) sourceEl.textContent = sourceLabel || '';
+  summaryEl.style.display = 'block';
+}
+
 async function previewDecisionsFromSignals() {
   const limit = parseInt(document.getElementById('decision-preview-limit').value) || 50;
   const receivedOnly = document.getElementById('decision-preview-received-only').checked;
@@ -4330,6 +4418,23 @@ function renderDecisionPreviewResponse(data) {
   html += `</div>`;
   html += '</div>';
 
+  // MAX_POSITIONS_REACHED explanation banner (must check decisionPreviews, not skipped)
+  const _maxPosRejected = decisionPreviews.filter(p => (p.reason_code || '').includes('MAX_POSITIONS'));
+  if (_maxPosRejected.length > 0) {
+    const _snap = _maxPosRejected[0].risk_snapshot || {};
+    const _openPos = _snap.open_position_count !== undefined ? _snap.open_position_count : '?';
+    const _maxPos = _snap.max_positions !== undefined ? _snap.max_positions : '5';
+    const _slots = (typeof _openPos === 'number' && typeof _maxPos === 'number') ? Math.max(0, _maxPos - _openPos) : 0;
+    html += '<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.3);border-radius:2px;padding:10px 12px;margin-bottom:10px;font-size:10px;line-height:1.5;">';
+    html += '<div style="font-weight:700;color:var(--info);margin-bottom:4px;">Risk Rule: MAX_POSITIONS_REACHED (' + _maxPosRejected.length + ' signal(s))</div>';
+    html += '<div style="color:var(--text-accent);margin-bottom:6px;">Portfolio is full: <strong>' + _openPos + '</strong> open positions (limit: <strong>' + _maxPos + '</strong>). New BUY decisions are blocked by risk controls. Available slots: <strong>' + _slots + '</strong>. This is expected behavior, not a model failure.</div>';
+    html += '<div style="color:var(--label);font-size:9px;">Options: (1) Hold current positions. &nbsp; (2) Sell or reduce an existing position to free a slot. &nbsp; (3) Max positions limit is currently enforced by risk engine settings.</div>';
+    html += '</div>';
+    window._riskMaxPositions = _maxPos;
+    window._riskOpenPositions = _openPos;
+    updatePortfolioCapacityDisplay();
+  }
+
   // Decision previews table
   if (decisionPreviews.length > 0) {
     html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
@@ -4362,16 +4467,8 @@ function renderDecisionPreviewResponse(data) {
     html += '</tbody></table></div>';
   }
 
-  // Skipped signals
+  // Skipped signals (validation failures only -- risk rejections appear in decision_previews above)
   if (skipped.length > 0) {
-    // MAX_POSITIONS_REACHED explanation
-    const maxPosCount = skipped.filter(s => (s.reason || '').includes('MAX_POSITIONS')).length;
-    if (maxPosCount > 0) {
-      html += '<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.3);border-radius:2px;padding:10px 12px;margin-bottom:10px;font-size:10px;line-height:1.5;">';
-      html += '<div style="font-weight:700;color:var(--info);margin-bottom:4px;">Risk Rule: MAX_POSITIONS_REACHED</div>';
-      html += `<div style="color:var(--text-accent);">${maxPosCount} signal(s) rejected because the portfolio is at the maximum allowed number of open positions. The app blocked additional BUY decisions to avoid over-concentration. This is expected risk behavior, not a technical error.</div>`;
-      html += '</div>';
-    }
     html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
     html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
     html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
@@ -4395,6 +4492,7 @@ function renderDecisionPreviewResponse(data) {
   html += '</div>';
 
   container.innerHTML = html;
+  updateDecisionOutcomeSummary(decisionPreviews, 'Last updated: Decision Preview (Step C)');
 }
 
 async function createDecisionsFromSignals() {
@@ -4481,6 +4579,16 @@ function renderCreateDecisionsResponse(data) {
   html += `</div>`;
   html += '</div>';
 
+  // MAX_POSITIONS_REACHED explanation banner (must check createdDecisions, not skipped)
+  const _maxPosCreated = createdDecisions.filter(d => (d.reason_code || '').includes('MAX_POSITIONS'));
+  if (_maxPosCreated.length > 0) {
+    html += '<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.3);border-radius:2px;padding:10px 12px;margin-bottom:10px;font-size:10px;line-height:1.5;">';
+    html += '<div style="font-weight:700;color:var(--info);margin-bottom:4px;">Risk Rule: MAX_POSITIONS_REACHED (' + _maxPosCreated.length + ' decision(s))</div>';
+    html += '<div style="color:var(--text-accent);margin-bottom:6px;">Portfolio is at the maximum number of open positions. These BUY decisions were recorded as REJECTED by risk controls. No orders will be placed for them. This is expected behavior, not a model failure.</div>';
+    html += '<div style="color:var(--label);font-size:9px;">Options: (1) Hold current positions. &nbsp; (2) Sell or reduce an existing position to free a slot. &nbsp; (3) Max positions limit is currently enforced by risk engine settings.</div>';
+    html += '</div>';
+  }
+
   // Created decisions table
   if (createdDecisions.length > 0) {
     html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
@@ -4511,16 +4619,8 @@ function renderCreateDecisionsResponse(data) {
     html += '</tbody></table></div>';
   }
 
-  // Skipped signals
+  // Skipped signals (validation failures only -- risk rejections appear in created_decisions above)
   if (skipped.length > 0) {
-    // MAX_POSITIONS_REACHED explanation
-    const maxPosCount = skipped.filter(s => (s.reason || '').includes('MAX_POSITIONS')).length;
-    if (maxPosCount > 0) {
-      html += '<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.3);border-radius:2px;padding:10px 12px;margin-bottom:10px;font-size:10px;line-height:1.5;">';
-      html += '<div style="font-weight:700;color:var(--info);margin-bottom:4px;">Risk Rule: MAX_POSITIONS_REACHED</div>';
-      html += `<div style="color:var(--text-accent);">${maxPosCount} signal(s) rejected because the portfolio is at the maximum allowed number of open positions. The app blocked additional BUY decisions to avoid over-concentration. This is expected risk behavior, not a technical error.</div>`;
-      html += '</div>';
-    }
     html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
     html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
     html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
@@ -4557,6 +4657,7 @@ function renderCreateDecisionsResponse(data) {
 
   // Show toast confirmation
   toast(`Created ${decisionsCreated} decision(s)`, 'ok');
+  updateDecisionOutcomeSummary(createdDecisions, 'Last updated: Create Decisions (Step D)');
 }
 
 async function previewOrdersFromDecisions() {

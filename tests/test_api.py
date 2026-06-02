@@ -8078,6 +8078,7 @@ class TestReviewDecisionPreviewEndpoint:
         assert Decimal(preview["confidence"]) == Decimal("0.85")
         assert "preview_decision" in preview
         assert "risk_snapshot" in preview
+        assert "max_positions" in preview["risk_snapshot"], "risk_snapshot must include max_positions"
         assert "sizing_adjustments" in preview
 
         # Verify DB unchanged
@@ -9227,6 +9228,8 @@ class TestReviewCreateDecisionsEndpoint:
             assert isinstance(td.risk_snapshot, dict)
             assert "cash" in td.risk_snapshot
             assert "total_value" in td.risk_snapshot
+            assert "max_positions" in td.risk_snapshot, "risk_snapshot must include max_positions"
+            assert "open_position_count" in td.risk_snapshot
 
     def test_duplicate_protection_same_signal_id(self, seeded_client: TestClient, api_engine) -> None:
         """Test that same signal_id is not duplicated in TradeDecision."""
@@ -9538,6 +9541,150 @@ class TestReviewCreateDecisionsEndpoint:
 
             assert job_runs_after_second == job_runs_before_second, "No JobRun should be created when all signals are skipped"
             assert orders_after_second == orders_before_second, "No Order should be created"
+
+    def test_max_positions_blocks_buy_at_limit(self, seeded_client: TestClient, api_engine) -> None:
+        """BUY signal is rejected with MAX_POSITIONS_REACHED when portfolio is at position limit."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Fill portfolio to the max_positions limit (default=5) with open positions
+            for i in range(5):
+                pos = Position(
+                    ticker=f"MAXPOS{i}",
+                    qty=Decimal("10"),
+                    avg_cost=Decimal("100.00"),
+                    cost_basis=Decimal("1000.00"),
+                    opened_at=datetime.now(timezone.utc),
+                    last_updated=datetime.now(timezone.utc),
+                )
+                session.add(pos)
+
+            job_run = JobRun(
+                idempotency_key="setup-signal-max-pos-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="NEWSTOCK",
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-max-pos",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+
+            price = PriceSnapshot(
+                ticker="NEWSTOCK",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-max-pos-test",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trade_decisions_created"] == 1
+        assert data["orders_created"] == 0
+
+        # The created TradeDecision must be REJECTED with MAX_POSITIONS_REACHED
+        decision = data["created_decisions"][0]
+        assert decision["decision"] == "REJECTED"
+        assert decision["reason_code"] == "MAX_POSITIONS_REACHED"
+
+        # No orders created (critical safety check)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            order_count = session.query(Order).filter(
+                Order.trade_decision_id == uuid.UUID(decision["trade_decision_id"])
+            ).count()
+            assert order_count == 0, "No Order rows must be created for REJECTED decisions"
+
+    def test_no_position_to_sell_rejected(self, seeded_client: TestClient, api_engine) -> None:
+        """SELL signal for a ticker with no open position is rejected with NO_POSITION_TO_SELL."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key="setup-signal-no-pos-sell-test",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker="NOPOSITIONSTOCK",
+                direction="SELL",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:candidate-no-pos-sell",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = str(signal.id)
+
+            price = PriceSnapshot(
+                ticker="NOPOSITIONSTOCK",
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("75.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-decisions",
+            json={
+                "idempotency_key": "create-decisions-no-pos-sell-test",
+                "signal_ids": [signal_id],
+                "confirm_create_decisions": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trade_decisions_created"] == 1
+        assert data["orders_created"] == 0
+
+        # The created TradeDecision must be REJECTED with NO_POSITION_TO_SELL
+        decision = data["created_decisions"][0]
+        assert decision["decision"] == "REJECTED"
+        assert decision["reason_code"] == "NO_POSITION_TO_SELL"
+
+        # No orders created (critical safety check)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            order_count = session.query(Order).filter(
+                Order.trade_decision_id == uuid.UUID(decision["trade_decision_id"])
+            ).count()
+            assert order_count == 0, "No Order rows must be created for REJECTED decisions"
 
 
 class TestReviewOrderPreviewEndpoint:

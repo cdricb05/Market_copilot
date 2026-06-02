@@ -171,6 +171,7 @@ def evaluate_signal(
         "cash":                str(cash),
         "total_value":         str(total_value),
         "open_position_count": len(open_positions),
+        "max_positions":       cfg["max_positions"],
         "daily_exposure_used": str(daily_exposure),
         "daily_exposure_limit":str(daily_limit),
     }
