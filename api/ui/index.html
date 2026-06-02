@@ -3678,6 +3678,27 @@ function renderDailyPlanResult(data, el) {
     html += '</div></details>';
   }
 
+  // WATCH candidates
+  if (data.watch_candidates && data.watch_candidates.length > 0) {
+    html += `<details style="margin-top: 8px; margin-bottom: 8px;"><summary style="cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-secondary); padding: 4px 0;">Watch Candidates (${data.watch_candidates.length})</summary>`;
+    html += '<div style="margin-top: 4px; font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;">Watch candidates are not buy/sell actions yet. Review them later or keep them in the queue.</div>';
+    html += '<div>';
+    for (const w of data.watch_candidates) {
+      const confVal = w.prediction_confidence ? parseFloat(w.prediction_confidence) : null;
+      const retVal = w.expected_return_pct ? parseFloat(w.expected_return_pct) : null;
+      const confStr = confVal !== null ? (confVal * 100).toFixed(0) + '%' : '-';
+      const retStr = retVal !== null ? retVal.toFixed(1) + '%' : '-';
+      html += '<div style="display: flex; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.04); flex-wrap: wrap;">';
+      html += `<span style="font-weight: 600; min-width: 60px; font-size: 11px;">${escapeHtml(w.ticker)}</span>`;
+      html += `<span style="background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 2px; font-size: 10px; color: var(--text-secondary);">${escapeHtml(w.prediction_recommendation || '-')}</span>`;
+      html += `<span style="font-size: 10px; color: var(--text-secondary);">Conf: ${escapeHtml(confStr)}</span>`;
+      html += `<span style="font-size: 10px; color: var(--text-secondary);">Ret: ${escapeHtml(retStr)}</span>`;
+      html += `<span style="font-size: 10px; color: var(--text-secondary); flex: 1;">${escapeHtml(w.reason)}</span>`;
+      html += '</div>';
+    }
+    html += '</div></details>';
+  }
+
   // Safety banner
   const allZero = (sc.signals_created || 0) === 0 && (sc.trade_decisions_created || 0) === 0 && (sc.orders_created || 0) === 0 && (sc.db_rows_created || 0) === 0;
   const safeColor = allZero ? 'var(--ok)' : 'var(--danger)';

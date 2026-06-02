@@ -5938,10 +5938,14 @@ async def daily_plan_preview(
             )
         elif buy_recommendations:
             slots_note = f" Portfolio has {available_slots} open slot(s)." if available_slots > 0 else ""
-            recommended_next_action = f"Approve {len(buy_recommendations)} BUY candidate(s) and create signals.{slots_note}"
+            recommended_next_action = (
+                f"{len(buy_recommendations)} BUY candidate(s) are risk-approved in this preview.{slots_note}"
+                " Review the plan below, then proceed to Signal Creation only if you agree."
+            )
             explanation = (
-                f"{len(buy_recommendations)} BUY candidate(s) approved by risk engine. "
-                "Proceed to create signals and trade decisions in the Signals & Decisions tab."
+                f"{len(buy_recommendations)} BUY candidate(s) passed the risk engine check. "
+                "This preview does not create any signals or decisions. "
+                "Proceed to the Signals & Decisions tab only after reviewing the plan."
             )
         elif good_rotations:
             recommended_next_action = (
@@ -5971,12 +5975,13 @@ async def daily_plan_preview(
             )
         elif watch_candidates:
             recommended_next_action = (
-                f"Open Review Queue to review {len(watch_candidates)} watch candidate(s). "
-                "Approve or reject candidates to proceed."
+                f"Review {len(watch_candidates)} WATCH candidate(s) below. "
+                "No buy/sell action is recommended yet."
             )
             explanation = (
-                "Candidates are in watch status. "
-                "Go to the Review Queue tab to approve or reject them before running the daily plan."
+                "These candidates are in watch status. "
+                "No immediate action is required. "
+                "Approve or reject them in the Review Queue when ready."
             )
         else:
             recommended_next_action = "No action required. All positions are in good standing."
