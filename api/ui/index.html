@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -28,10 +28,8 @@
       line-height: 1.5;
     }
 
-    /* Monospace for tickers, numbers, IDs */
     .mono { font-family: 'Monaco', 'Menlo', 'Consolas', monospace; }
 
-    /* ---- Header (Command Bar) ---- */
     header {
       background: var(--bg-panel);
       color: var(--text-primary);
@@ -124,7 +122,6 @@
       color: var(--text-primary);
     }
 
-    /* ---- Layout ---- */
     body {
       display: flex;
       flex-direction: column;
@@ -174,13 +171,64 @@
       background: rgba(59, 130, 246, 0.1);
       border-left-color: var(--info);
     }
+
     main {
       flex: 1;
-      display: grid;
-      gap: 14px;
-      overflow-y: auto;
-      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
+
+    .tab-bar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+
+    .tab-button {
+      padding: 8px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      background: transparent;
+      color: var(--text-accent);
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
+    }
+
+    .tab-button.active {
+      color: var(--text-primary);
+      border-bottom-color: var(--info);
+    }
+
+    .tab-button:hover {
+      color: var(--text-primary);
+    }
+
+    .main-content-area {
+      flex: 1;
+      display: grid;
+      gap: 12px;
+      overflow-y: auto;
+      padding: 12px 16px;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: grid;
+      gap: 12px;
+      grid-auto-flow: row;
+    }
+
     .right-panel {
       width: 280px;
       background: rgba(11, 15, 40, 0.4);
@@ -189,8 +237,10 @@
       overflow-y: auto;
       flex: 0 0 280px;
     }
-    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .row-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+
     @media (max-width: 1200px) { .row-3 { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 1024px) {
       .sidebar { width: 150px; }
@@ -200,15 +250,13 @@
       .app-container { flex-direction: column; }
       .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); padding: 8px 0; height: auto; max-height: 120px; }
       .right-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); max-height: 150px; }
-      .main-content { padding: 12px 16px; }
     }
 
-    /* ---- Card (Panel) ---- */
     .card {
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: 3px;
-      padding: 14px 16px;
+      padding: 12px 14px;
       box-shadow: 0 2px 8px rgba(0,0,0,.2);
     }
     .card-title {
@@ -222,26 +270,29 @@
       padding-bottom: 6px;
     }
 
-    /* ---- KPI Grid ---- */
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 8px;
     }
     .kpi-item {
       display: flex;
       flex-direction: column;
       gap: 4px;
+      background: rgba(0,0,0,0.2);
+      padding: 8px;
+      border-radius: 2px;
+      border: 1px solid var(--border);
     }
     .kpi-label {
-      font-size: 10px;
+      font-size: 9px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--label);
       font-weight: 600;
     }
     .kpi-value {
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 700;
       color: var(--text-primary);
       font-family: 'Monaco', monospace;
@@ -250,7 +301,6 @@
     .kpi-value.warning { color: var(--warning); }
     .kpi-value.danger { color: var(--danger); }
 
-    /* ---- Status Badge ---- */
     .badge {
       display: inline-flex;
       align-items: center;
@@ -267,7 +317,6 @@
     .badge.warning { background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); }
     .badge.neutral { background: rgba(148,163,184,.1); color: var(--text-accent); border-color: var(--border); }
 
-    /* ---- Action Required Panel ---- */
     .action-panel {
       background: rgba(59,130,246,.08);
       border: 1px solid rgba(59,130,246,.4);
@@ -308,28 +357,27 @@
     }
     .action-btn:hover { background: #2563eb; }
 
-    /* ---- Prediction Command Center ---- */
     .command-section {
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: 3px;
-      padding: 14px 16px;
+      padding: 12px 14px;
     }
     .section-title {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.12em;
       color: var(--text-accent);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       border-bottom: 1px solid var(--border);
       padding-bottom: 6px;
     }
     .inputs-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      gap: 10px;
-      margin-bottom: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
     }
     .input-group {
       display: flex;
@@ -337,7 +385,7 @@
       gap: 4px;
     }
     .input-group label {
-      font-size: 10px;
+      font-size: 9px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--label);
@@ -345,12 +393,12 @@
     }
     .input-group input,
     .input-group select {
-      padding: 6px 8px;
+      padding: 5px 6px;
       border: 1px solid var(--border);
       border-radius: 2px;
       background: rgba(0,0,0,.2);
       color: var(--text-primary);
-      font-size: 12px;
+      font-size: 11px;
       font-family: 'Monaco', monospace;
     }
     .input-group input::placeholder { color: var(--label); }
@@ -358,13 +406,13 @@
     .button-group {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 10px;
-      padding-bottom: 10px;
+      gap: 6px;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
       border-bottom: 1px solid var(--border);
     }
     .button-group-label {
-      font-size: 9px;
+      font-size: 8px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--label);
@@ -373,31 +421,30 @@
       margin-bottom: 2px;
     }
     .btn {
-      padding: 6px 12px;
+      padding: 5px 10px;
       background: var(--info);
       color: white;
       border: 1px solid rgba(59,130,246,.4);
       border-radius: 2px;
       cursor: pointer;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
     .btn:hover:not(:disabled) { background: #2563eb; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-ok { background: var(--ok); border-color: rgba(34,197,94,.4); }
+    .btn-ok { background: var(--ok); border-color: rgba(34,197,94,.4); color: white; }
     .btn-ok:hover:not(:disabled) { background: #16a34a; }
-    .btn-danger { background: var(--danger); border-color: rgba(239,68,68,.4); }
+    .btn-danger { background: var(--danger); border-color: rgba(239,68,68,.4); color: white; }
     .btn-danger:hover:not(:disabled) { background: #dc2626; }
 
     .service-label {
-      font-size: 9px;
+      font-size: 8px;
       color: var(--label);
       font-style: italic;
       margin-top: 2px;
     }
 
-    /* ---- Workflow Rail (Compact Execution) ---- */
     .workflow-rail {
       display: flex;
       gap: 2px;
@@ -416,11 +463,11 @@
       border: 1px solid var(--border);
       border-radius: 2px;
       background: var(--bg-base);
-      min-width: 80px;
+      min-width: 70px;
       text-align: center;
     }
     .workflow-step-name {
-      font-size: 9px;
+      font-size: 8px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: var(--label);
@@ -428,9 +475,9 @@
       white-space: nowrap;
     }
     .workflow-step-status {
-      font-size: 9px;
+      font-size: 8px;
       font-weight: 600;
-      padding: 2px 6px;
+      padding: 2px 4px;
       border-radius: 2px;
       border: 1px solid;
     }
@@ -439,16 +486,15 @@
     .workflow-step-status.done { background: rgba(34,197,94,.1); color: var(--ok); border-color: var(--ok); }
     .workflow-step-status.error { background: rgba(239,68,68,.1); color: var(--danger); border-color: var(--danger); }
 
-    /* ---- Tables ---- */
     .table-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; }
     th {
-      font-size: 10px;
+      font-size: 9px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--label);
       text-align: left;
-      padding: 8px 10px;
+      padding: 6px 8px;
       border-bottom: 1px solid var(--border);
       border-top: 1px solid var(--border);
       white-space: nowrap;
@@ -456,22 +502,21 @@
       font-weight: 700;
     }
     td {
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--border);
-      font-size: 12px;
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(26,58,90,.3);
+      font-size: 11px;
       font-family: 'Monaco', monospace;
     }
     td:first-child { font-weight: 600; color: var(--text-primary); }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: rgba(255,255,255,.02); }
+    tr:hover td { background: rgba(59,130,246,.05); }
     .empty { color: var(--label); text-align: center; padding: 20px; font-style: italic; }
 
-    /* ---- Filters ---- */
     .filters {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       flex-wrap: wrap;
     }
     .filters select,
@@ -479,25 +524,26 @@
       padding: 5px 8px;
       border: 1px solid var(--border);
       border-radius: 2px;
-      font-size: 11px;
+      font-size: 10px;
       background: rgba(0,0,0,.2);
       color: var(--text-primary);
       font-family: 'Monaco', monospace;
     }
     .btn-sm {
-      padding: 5px 12px;
+      padding: 5px 10px;
       border: 1px solid var(--border);
       border-radius: 2px;
       cursor: pointer;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       background: rgba(59,130,246,.1);
-      color: var(--info);
+      color: white;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
-    .btn-sm:hover { background: rgba(59,130,246,.2); }
+    .btn-sm:hover:not(:disabled) { background: rgba(59,130,246,.2); }
+    .btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
     .link-btn {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--info);
       text-decoration: none;
       font-weight: 600;
@@ -509,33 +555,32 @@
       text-transform: none;
       letter-spacing: 0;
       color: var(--label);
-      font-size: 10px;
+      font-size: 9px;
       margin-left: 4px;
     }
 
-    /* ---- Signal/Decision Results ---- */
     .result-section {
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: 3px;
-      padding: 14px 16px;
+      padding: 12px 14px;
     }
     .result-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: 11px;
     }
     .result-table th {
       background: rgba(0,0,0,.3);
-      padding: 8px;
+      padding: 6px 8px;
       text-align: left;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 600;
       color: var(--label);
       border-bottom: 1px solid var(--border);
     }
     .result-table td {
-      padding: 8px;
+      padding: 6px 8px;
       border-bottom: 1px solid var(--border);
       font-family: 'Monaco', monospace;
     }
@@ -543,17 +588,16 @@
     .rec-sell { color: var(--danger); font-weight: 600; }
     .rec-hold { color: var(--warning); font-weight: 600; }
 
-    /* ---- Collapsible Workflow Details ---- */
     details {
       border-bottom: 1px solid var(--border);
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     details:last-child { border-bottom: none; }
     summary {
       cursor: pointer;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
-      padding: 10px 4px;
+      padding: 8px 4px;
       user-select: none;
       list-style: none;
       display: flex;
@@ -562,8 +606,10 @@
       color: var(--text-accent);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
-    summary::before { content: '▶'; font-size: 10px; color: var(--label); transition: transform .15s; }
+    summary::before { content: '>'; font-size: 9px; color: var(--label); transition: transform .15s; margin-right: 6px; display: inline-block; }
     details[open] summary::before { transform: rotate(90deg); }
+    summary { cursor: pointer; font-weight: 500; user-select: none; }
+
     .workflow-step-box {
       background: rgba(0,0,0,.2);
       border: 1px solid var(--border);
@@ -577,40 +623,39 @@
       align-items: center;
       margin-bottom: 6px;
     }
-    .step-label { font-size: 11px; font-weight: 600; color: var(--text-accent); }
-    .step-status { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 10px; font-weight: 600; border: 1px solid; font-family: 'Monaco', monospace; }
+    .step-label { font-size: 10px; font-weight: 600; color: var(--text-accent); }
+    .step-status { display: inline-block; padding: 2px 6px; border-radius: 2px; font-size: 9px; font-weight: 600; border: 1px solid; font-family: 'Monaco', monospace; }
     .step-status.not-started { background: rgba(107,114,128,.1); color: var(--label); border-color: var(--border); }
     .step-status.ready { background: rgba(59,130,246,.1); color: var(--info); border-color: var(--info); }
     .step-status.running { background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); }
     .step-status.done { background: rgba(34,197,94,.1); color: var(--ok); border-color: var(--ok); }
     .step-status.error { background: rgba(239,68,68,.1); color: var(--danger); border-color: var(--danger); }
     .step-btn {
-      padding: 6px 12px;
+      padding: 5px 10px;
       background: var(--info);
       color: white;
       border: 1px solid rgba(59,130,246,.4);
       border-radius: 2px;
       cursor: pointer;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
     .step-btn:hover:not(:disabled) { background: #2563eb; }
-    .step-result { font-size: 11px; color: var(--label); min-height: 16px; margin-top: 6px; font-family: 'Monaco', monospace; }
+    .step-result { font-size: 10px; color: var(--label); min-height: 16px; margin-top: 6px; font-family: 'Monaco', monospace; }
     .step-result.success { color: var(--ok); }
     .step-result.error { color: var(--danger); }
 
-    /* ---- Action Forms (Manual Overrides) ---- */
-    .form-body { padding: 8px 4px 12px; }
+    .form-body { padding: 8px 4px 10px; }
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 10px;
-      margin-bottom: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
+      margin-bottom: 8px;
     }
     .fg label {
       display: block;
-      font-size: 10px;
+      font-size: 9px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--label);
@@ -620,175 +665,148 @@
     .fg input,
     .fg select {
       width: 100%;
-      padding: 6px 8px;
+      padding: 5px 6px;
       border: 1px solid var(--border);
       border-radius: 2px;
-      font-size: 12px;
+      font-size: 11px;
       background: rgba(0,0,0,.2);
       color: var(--text-primary);
       font-family: 'Monaco', monospace;
     }
     .fg input::placeholder { color: var(--label); }
     .btn-action {
-      padding: 6px 14px;
+      padding: 6px 12px;
       background: var(--danger);
       color: #fff;
       border: 1px solid rgba(239,68,68,.4);
       border-radius: 2px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
     }
     .btn-action:hover { background: #dc2626; }
 
-    /* ---- Status Chips ---- */
-    .status-chip { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 10px; font-weight: 600; border: 1px solid; font-family: 'Monaco', monospace; }
+    .status-chip { display: inline-block; padding: 2px 8px; border-radius: 2px; font-size: 9px; font-weight: 600; border: 1px solid; font-family: 'Monaco', monospace; }
     .status-pending { background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); }
     .status-filled { background: rgba(34,197,94,.1); color: var(--ok); border-color: var(--ok); }
     .status-expired { background: rgba(107,114,128,.1); color: var(--label); border-color: var(--border); }
     .status-failed { background: rgba(239,68,68,.1); color: var(--danger); border-color: var(--danger); }
 
-    /* ---- Toast ---- */
+    .pos { color: var(--ok); }
+    .neg { color: var(--danger); }
+    .yes { color: var(--ok); font-weight: 600; }
+    .no { color: var(--danger); font-weight: 600; }
+
     #toast {
       position: fixed;
-      bottom: 20px;
+      top: 20px;
       right: 20px;
-      padding: 10px 16px;
+      padding: 12px 16px;
       border-radius: 3px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       display: none;
-      z-index: 200;
+      z-index: 900;
       max-width: 360px;
       box-shadow: 0 4px 12px rgba(0,0,0,.4);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
       border: 1px solid;
     }
     #toast.ok { background: rgba(34,197,94,.15); color: var(--ok); border-color: var(--ok); }
+    #toast.info { background: rgba(59,130,246,.15); color: var(--info); border-color: var(--info); }
+    #toast.warning { background: rgba(245,158,11,.15); color: var(--warning); border-color: var(--warning); }
     #toast.err { background: rgba(239,68,68,.15); color: var(--danger); border-color: var(--danger); }
 
-    /* ---- Utility ---- */
-    .pos { color: var(--ok); }
-    .neg { color: var(--danger); }
-    .yes { color: var(--ok); font-weight: 600; }
-    .no { color: var(--danger); font-weight: 600; }
+    .confirm-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 950;
+    }
 
-    /* ---- Workflow Card (Redesign v1) ---- */
-    .workflow-card {
+    .confirm-modal.active {
+      display: flex;
+    }
+
+    .confirm-modal-content {
       background: var(--bg-panel);
       border: 1px solid var(--border);
-      border-radius: 3px;
-      padding: 12px 14px;
-      margin-bottom: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 10px;
-      transition: 0.15s;
+      padding: 20px;
+      border-radius: 4px;
+      max-width: 400px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.5);
     }
-    .workflow-card:hover { border-color: var(--info); box-shadow: 0 2px 6px rgba(59, 130, 246, 0.1); }
-    .workflow-card-left {
-      flex: 1;
-    }
-    .workflow-card-step {
-      font-size: 9px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--label);
-      font-weight: 600;
-      margin-bottom: 2px;
-    }
-    .workflow-card-title {
+
+    .confirm-modal-title {
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 700;
       color: var(--text-primary);
-      margin-bottom: 4px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
     }
-    .workflow-card-count {
+
+    .confirm-modal-message {
       font-size: 11px;
       color: var(--text-accent);
-      margin-bottom: 4px;
+      margin-bottom: 16px;
+      line-height: 1.5;
     }
-    .workflow-card-reason {
-      font-size: 10px;
-      color: var(--warning);
-      font-style: italic;
-      margin-bottom: 4px;
-    }
-    .workflow-card-right {
+
+    .confirm-modal-buttons {
       display: flex;
-      flex-direction: column;
-      gap: 6px;
-      align-items: flex-end;
+      gap: 8px;
+      justify-content: flex-end;
     }
-    .workflow-card-status {
-      font-size: 9px;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 2px;
-      border: 1px solid;
-      white-space: nowrap;
-    }
-    .workflow-card-status.ready { background: rgba(59, 130, 246, 0.15); color: var(--info); border-color: var(--info); }
-    .workflow-card-status.complete { background: rgba(34, 197, 94, 0.15); color: var(--ok); border-color: var(--ok); }
-    .workflow-card-status.blocked { background: rgba(239, 68, 68, 0.15); color: var(--danger); border-color: var(--danger); }
-    .workflow-card-status.disabled { background: rgba(107, 114, 128, 0.15); color: var(--label); border-color: var(--border); }
-    .workflow-card-status.pending { background: rgba(245, 158, 11, 0.15); color: var(--warning); border-color: var(--warning); }
-    .workflow-card-btn {
-      padding: 5px 10px;
-      background: var(--info);
-      color: white;
+
+    .confirm-modal-buttons button {
+      padding: 6px 14px;
       border: none;
       border-radius: 2px;
       cursor: pointer;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 600;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
-      white-space: nowrap;
     }
-    .workflow-card-btn:hover:not(:disabled) { background: #2563eb; }
-    .workflow-card-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* ---- Safety Labels ---- */
-    .safety-label {
-      display: inline-block;
-      padding: 3px 8px;
-      border-radius: 2px;
-      font-size: 9px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      border: 1px solid;
+    .confirm-modal-buttons .btn-cancel {
+      background: var(--label);
+      color: white;
     }
-    .safety-label.preview { background: rgba(245, 158, 11, 0.15); color: var(--warning); border-color: var(--warning); }
-    .safety-label.signals { background: rgba(34, 197, 94, 0.15); color: var(--ok); border-color: var(--ok); }
-    .safety-label.decisions { background: rgba(59, 130, 246, 0.15); color: var(--info); border-color: var(--info); }
-    .safety-label.orders-disabled { background: rgba(239, 68, 68, 0.15); color: var(--danger); border-color: var(--danger); }
-    .safety-label.auto-off { background: rgba(107, 114, 128, 0.15); color: var(--label); border-color: var(--border); }
 
-    /* ---- Right Panel Content ---- */
+    .confirm-modal-buttons .btn-confirm {
+      background: var(--info);
+      color: white;
+    }
+
     .panel-section {
-      margin-bottom: 16px;
-      padding-bottom: 12px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
       border-bottom: 1px solid var(--border);
     }
     .panel-section:last-child { border-bottom: none; margin-bottom: 0; }
     .panel-section-title {
-      font-size: 9px;
+      font-size: 8px;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--label);
       font-weight: 600;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .panel-item {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-accent);
       margin-bottom: 4px;
       display: flex;
       justify-content: space-between;
-      gap: 8px;
+      gap: 6px;
     }
     .panel-value {
       color: var(--text-primary);
@@ -796,10 +814,9 @@
       font-family: 'Monaco', monospace;
     }
 
-    /* ---- Compact Tables (Redesign) ---- */
-    table.compact-table { font-size: 11px; }
-    table.compact-table th { padding: 6px 8px; font-size: 9px; }
-    table.compact-table td { padding: 6px 8px; font-size: 11px; }
+    table.compact-table { font-size: 10px; }
+    table.compact-table th { padding: 5px 6px; font-size: 8px; }
+    table.compact-table td { padding: 5px 6px; font-size: 10px; }
   </style>
 </head>
 <body>
@@ -808,7 +825,7 @@
   <h1>paper_trader</h1>
   <div class="header-status">
     <span class="status-light neutral" id="health-light"></span>
-    <span class="status-text" id="health-status">Connecting…</span>
+    <span class="status-text" id="health-status">Connecting...</span>
     <span class="status-debug" id="health-debug"></span>
   </div>
   <span style="font-size: 11px; color: var(--label); margin-right: 24px;">Safety: Manual Review</span>
@@ -817,10 +834,10 @@
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
          onkeydown="if(event.key==='Enter')window.paperTraderConnect(event)">
   <button id="connectBtn" onclick="window.paperTraderConnect(event)">Connect</button>
-  <button class="btn-refresh" id="refreshBtn" onclick="refresh()" title="Refresh all data">↻</button>
+  <button class="btn-refresh" id="refreshBtn" onclick="refresh()" title="Refresh all data">Refresh</button>
 </header>
 
-<!-- Independent inline status check - runs immediately, doesn't depend on app functions -->
+<!-- Independent inline status check -->
 <script>
 (function() {
   async function quickStatusCheck() {
@@ -828,43 +845,32 @@
       const light = document.getElementById('health-light');
       const text = document.getElementById('health-status');
       const debug = document.getElementById('health-debug');
-
       if (!light || !text) return;
-
       try {
-        // Health check with 5s timeout
         const healthController = new AbortController();
         const healthTimeout = setTimeout(() => healthController.abort(), 5000);
         const healthResp = await fetch('/v1/health', { signal: healthController.signal });
         clearTimeout(healthTimeout);
-
         if (!healthResp.ok) throw new Error('health');
-
-        // Ready check with 5s timeout
         const readyController = new AbortController();
         const readyTimeout = setTimeout(() => readyController.abort(), 5000);
         const readyResp = await fetch('/v1/ready', { signal: readyController.signal });
         clearTimeout(readyTimeout);
-
         if (!readyResp.ok) throw new Error('ready');
-
-        // Both OK
         light.className = 'status-light ok';
         text.textContent = 'Ready';
-        if (debug) debug.textContent = '/v1/health ✓ /v1/ready ✓';
+        if (debug) debug.textContent = '/v1/health OK /v1/ready OK';
       } catch (e) {
         light.className = 'status-light err';
         let msg = 'Offline';
         let debugMsg = 'offline';
-
         if (e.name === 'AbortError') {
           msg = 'Timeout';
           debugMsg = 'timeout';
         } else if (e.message === 'ready') {
           msg = 'Not Ready';
-          debugMsg = '/v1/health ✓ /v1/ready ✗';
+          debugMsg = '/v1/health OK /v1/ready FAIL';
         }
-
         text.textContent = msg;
         if (debug) debug.textContent = debugMsg;
       }
@@ -873,124 +879,90 @@
       if (text) text.textContent = 'Offline';
     }
   }
-
   quickStatusCheck();
 })();
 </script>
 
-<!-- Independent connection script - runs before app initialization -->
+<!-- Independent connection script -->
 <script>
 (function() {
   let _autoConnectAttempted = false;
-
   window.paperTraderConnect = async function paperTraderConnect(event) {
     if (event) event.preventDefault();
-
     try {
-      // Immediately acknowledge click
       const statusEl = document.getElementById('right-connect-status');
       if (statusEl) statusEl.textContent = 'Click received';
-
-      // Get elements
       const apiKeyInput = document.getElementById('apiKey');
       const btn = document.getElementById('connectBtn');
       const connectedEl = document.getElementById('right-connected');
-
       if (!apiKeyInput || !btn || !connectedEl || !statusEl) {
         console.error('Connect: required UI elements missing');
         if (statusEl) statusEl.textContent = 'UI elements missing';
         return;
       }
-
-      // Read API key
       const apiKey = apiKeyInput.value.trim();
       if (!apiKey) {
         connectedEl.textContent = 'Not Connected';
         statusEl.textContent = 'No API key provided';
         return;
       }
-
-      // Disable button, show connecting state
       btn.disabled = true;
-      btn.textContent = 'Connecting…';
-      connectedEl.textContent = 'Connecting…';
-      statusEl.textContent = 'Calling /v1/auth/check…';
-
-      // Store API key in BOTH localStorage keys
+      btn.textContent = 'Connecting...';
+      connectedEl.textContent = 'Connecting...';
+      statusEl.textContent = 'Calling /v1/auth/check...';
       try {
         localStorage.setItem('apiKey', apiKey);
         localStorage.setItem('paper_trader_api_key', apiKey);
       } catch (e) {
         console.warn('localStorage write failed:', e);
       }
-
-      // Call /v1/auth/check directly
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
-
       try {
-        const resp = await fetch('/v1/auth/check', {
-          method: 'GET',
-          headers: { 'X-API-Key': apiKey },
-          signal: controller.signal
-        });
+        const resp = await fetch('/v1/auth/check', { method: 'GET', headers: { 'X-API-Key': apiKey }, signal: controller.signal });
         clearTimeout(timeout);
-
         if (resp.status === 401) {
-          // Auth failed - invalid key
           connectedEl.textContent = 'Not Connected';
           statusEl.textContent = 'Auth failed: /v1/auth/check 401';
           btn.textContent = 'Connect';
           btn.disabled = false;
           return;
         }
-
         if (!resp.ok) {
-          // Other HTTP error
           connectedEl.textContent = 'Not Connected';
           statusEl.textContent = `API failed: /v1/auth/check HTTP ${resp.status}`;
           btn.textContent = 'Connect';
           btn.disabled = false;
           return;
         }
-
-        // Success: auth check passed
         connectedEl.textContent = 'Connected';
         statusEl.textContent = 'Connected: /v1/auth/check 200';
         btn.textContent = 'Connected';
         btn.disabled = false;
-
-        // Mark global connected state
         window.paperTraderConnected = true;
         window.paperTraderPostAuthLoadPending = true;
         if (typeof window._appState !== 'undefined') {
           window._appState.connected = true;
         }
-
-        // Try to load dashboard in background
         if (typeof window.paperTraderDirectDashboardLoad === 'function') {
           window.paperTraderDirectDashboardLoad().catch(e => {
             console.error('Dashboard load error:', e);
           });
         } else {
-          // Fallback: shouldn't happen, but catch it
           const actionStatusEl = document.getElementById('right-action-status');
           if (actionStatusEl) {
             actionStatusEl.textContent = 'Connected. Dashboard loader unavailable.';
             actionStatusEl.style.color = 'var(--danger)';
           }
         }
-
       } catch (e) {
         clearTimeout(timeout);
-        // Network error or timeout
         connectedEl.textContent = 'Not Connected';
         const msg = e.name === 'AbortError' ? 'timeout' : (e.message || 'network error');
         statusEl.textContent = `Network failed: /v1/auth/check ${msg}`;
         btn.textContent = 'Connect';
         btn.disabled = false;
       }
-
     } catch (outerErr) {
       console.error('paperTraderConnect error:', outerErr);
       const statusEl = document.getElementById('right-connect-status');
@@ -1002,8 +974,6 @@
       }
     }
   };
-
-  // Bind button click handler
   function bindConnectButton() {
     const btn = document.getElementById('connectBtn');
     if (btn && !btn.dataset.connectBound) {
@@ -1014,61 +984,42 @@
       btn.dataset.connectBound = 'true';
     }
   }
-
-  // Try to bind immediately if DOM is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindConnectButton);
   } else {
     bindConnectButton();
   }
-
-  // Auto-connect with retry logic
   function attemptAutoConnect() {
     if (_autoConnectAttempted) return;
-
     try {
       const apiKeyInput = document.getElementById('apiKey');
       const statusEl = document.getElementById('right-connect-status');
-
       if (!apiKeyInput || !statusEl) return;
-
-      // Check localStorage and input field for API key
       let savedKey = localStorage.getItem('apiKey') || localStorage.getItem('paper_trader_api_key') || '';
       const inputKey = apiKeyInput.value.trim();
       const keyToUse = inputKey || savedKey;
-
       if (!keyToUse) {
         if (statusEl.textContent === 'Not attempted') {
           statusEl.textContent = 'Auto-connect waiting for API key';
         }
         return;
       }
-
-      // Populate input if empty
       if (!inputKey && savedKey) {
         apiKeyInput.value = savedKey;
       }
-
-      // Auto-connect
       _autoConnectAttempted = true;
       window.paperTraderConnect();
-
     } catch (e) {
       console.warn('Auto-connect setup error:', e);
     }
   }
-
-  // Run auto-connect at DOMContentLoaded
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       attemptAutoConnect();
-      // Retry at 500ms
       setTimeout(attemptAutoConnect, 500);
-      // Retry at 1500ms
       setTimeout(attemptAutoConnect, 1500);
     });
   } else {
-    // Already loaded
     attemptAutoConnect();
     setTimeout(attemptAutoConnect, 500);
     setTimeout(attemptAutoConnect, 1500);
@@ -1077,17 +1028,15 @@
 </script>
 
 <div class="app-container">
-  <!-- Left Sidebar Navigation -->
   <div class="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-label">Views</div>
-      <a class="sidebar-link" onclick="document.getElementById('main-content').scrollTo(0, 0);">Dashboard</a>
-      <a class="sidebar-link" onclick="document.getElementById('main-content').scrollTo(0, 0);">Prediction</a>
+      <a class="sidebar-link" onclick="window._switchTab('prediction-cockpit');">Dashboard</a>
+      <a class="sidebar-link" onclick="window._switchTab('review-queue');">Review Queue</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Workflow</div>
-      <a class="sidebar-link" onclick="document.getElementById('main-content').scrollTo(0, document.getElementById('review-workflow-panel')?.offsetTop - 60 || 0);">Review Workflow</a>
-      <a class="sidebar-link" onclick="window.runUiAction('Refresh Workflow Status', () => refreshWorkflowStatus(), this);">↻ Refresh Status</a>
+      <a class="sidebar-link" onclick="window.runUiAction('Refresh Workflow Status', () => refreshWorkflowStatus(), this);">Refresh Status</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Data</div>
@@ -1096,569 +1045,591 @@
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Tools</div>
-      <a class="sidebar-link" onclick="refresh();">↻ Full Refresh</a>
+      <a class="sidebar-link" onclick="refresh();">Full Refresh</a>
     </div>
   </div>
 
-  <!-- Main Content -->
   <main id="main-content">
-
-  <!-- KPI Strip (Section B) -->
-  <div class="card">
-    <div class="kpi-grid">
-      <div class="kpi-item">
-        <span class="kpi-label">Total Value</span>
-        <span class="kpi-value" id="pf-total">—</span>
-      </div>
-      <div class="kpi-item">
-        <span class="kpi-label">Cash</span>
-        <span class="kpi-value" id="pf-cash">—</span>
-      </div>
-      <div class="kpi-item">
-        <span class="kpi-label">Positions Value</span>
-        <span class="kpi-value" id="pf-positions">—</span>
-      </div>
-      <div class="kpi-item">
-        <span class="kpi-label">Return %</span>
-        <span class="kpi-value" id="perf-pct">—</span>
-      </div>
-      <div class="kpi-item">
-        <span class="kpi-label">Pending Orders</span>
-        <span class="kpi-value" id="kpi-pending">—</span>
-      </div>
-      <div class="kpi-item">
-        <span class="kpi-label">Open Positions</span>
-        <span class="kpi-value" id="kpi-positions">—</span>
-      </div>
-      <div class="kpi-item">
-        <span class="kpi-label">Snapshots</span>
-        <span class="kpi-value" id="kpi-snapshots">—</span>
-      </div>
-      <div class="kpi-item">
-        <span class="kpi-label">Strategy</span>
-        <span class="kpi-value" id="pf-strategy">—</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Action Required (Section C) -->
-  <div class="action-panel" id="actionPanel" style="display:none;">
-    <div class="action-title" id="action-title">Next Action</div>
-    <div class="action-text" id="action-text"></div>
-    <div class="action-links" id="action-links"></div>
-  </div>
-
-  <!-- Prediction Command Center (Section D) -->
-  <div class="command-section">
-    <div class="section-title">Prediction Command Center</div>
-
-    <div class="inputs-grid">
-      <div class="input-group">
-        <label>Ticker</label>
-        <input id="dtr-ticker" placeholder="AAPL" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Price</label>
-        <input id="dtr-price" placeholder="150.00" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Direction</label>
-        <select id="dtr-direction" class="mono">
-          <option>BUY</option><option>SELL</option><option>HOLD</option>
-        </select>
-      </div>
-      <div class="input-group">
-        <label>Confidence (0–1)</label>
-        <input id="dtr-confidence" placeholder="0.80" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Short Window</label>
-        <input id="dtr-short-window" type="number" value="3" min="1" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Long Window</label>
-        <input id="dtr-long-window" type="number" value="5" min="1" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Strategy Tickers</label>
-        <input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Scan Universe</label>
-        <select id="market-scan-universe" class="mono">
-          <option>SP500</option>
-        </select>
-      </div>
-      <div class="input-group">
-        <label>Top N</label>
-        <input id="market-scan-top-n" type="number" value="10" min="1" max="100" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Lookback Days</label>
-        <input id="market-scan-lookback" type="number" value="20" min="1" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Min Price Points</label>
-        <input id="market-scan-min-points" type="number" value="5" min="1" class="mono">
-      </div>
-      <div class="input-group">
-        <label>Benchmark</label>
-        <input id="market-scan-benchmark" value="SPY" placeholder="SPY" class="mono">
-      </div>
+    <!-- TAB BAR -->
+    <div class="tab-bar">
+      <button class="tab-button active" onclick="window._switchTab('prediction-cockpit')">Prediction Cockpit</button>
+      <button class="tab-button" onclick="window._switchTab('review-queue')">Review Queue</button>
+      <button class="tab-button" onclick="window._switchTab('signals-decisions')">Signals & Decisions</button>
+      <button class="tab-button" onclick="window._switchTab('portfolio')">Portfolio</button>
+      <button class="tab-button" onclick="window._switchTab('audit-advanced')">Audit / Advanced</button>
     </div>
 
-    <div class="button-group">
-      <span class="button-group-label">Market Data</span>
-      <button class="btn" onclick="window.runUiAction('Fetch Latest Prices', () => fetchLatestPrices(this), this)">Fetch Latest Prices</button>
-      <button class="btn" onclick="window.runUiAction('Check Readiness', () => checkStrategyReadiness(), this)">Check Readiness</button>
-    </div>
+    <div class="main-content-area">
+      <!-- TAB 1: PREDICTION COCKPIT (DEFAULT) -->
+      <div id="tab-prediction-cockpit" class="tab-content active">
 
-    <div class="button-group">
-      <span class="button-group-label">Market Scan</span>
-      <button class="btn" onclick="window.runUiAction('Run Market Scan', () => runMarketScan(this), this)">Run Market Scan</button>
-      <button class="btn" onclick="window.runUiAction('Use Top Candidates', () => useTopMarketCandidates(this), this)">Use Top Candidates</button>
-    </div>
-
-    <div class="button-group">
-      <span class="button-group-label">Prediction Preview</span>
-      <button class="btn" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">Run Prediction Preview</button>
-      <span class="service-label">Uses safe defaults for decision-grade preview — no signals, no trading artifacts</span>
-    </div>
-
-    <div style="margin-bottom: 12px; padding: 10px 12px; background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 2px;">
-      <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); font-weight: 600; margin-bottom: 8px;">Preview Configuration</div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
-        <div class="input-group">
-          <label>Lookback Days</label>
-          <input id="pred-preview-lookback" type="number" value="45" min="1" class="mono">
-        </div>
-        <div class="input-group">
-          <label>Top Scan Candidates</label>
-          <input id="pred-preview-scan-top-n" type="number" value="20" min="1" max="100" class="mono">
-        </div>
-        <div class="input-group">
-          <label>Min Price Points</label>
-          <input id="pred-preview-min-points" type="number" value="20" min="1" class="mono">
-        </div>
-        <div class="input-group">
-          <label>Prediction Top N</label>
-          <input id="pred-preview-top-n" type="number" value="5" min="1" max="50" class="mono">
-        </div>
-      </div>
-      <div style="font-size: 10px; color: var(--label); margin-top: 8px; font-style: italic;">Uses 45 calendar days to support 20-trading-day momentum and SPY relative strength calculations.</div>
-    </div>
-
-    <div class="button-group">
-      <span class="button-group-label">Strategy</span>
-      <button class="btn btn-ok" onclick="window.runUiAction('Run SMA Strategy', () => dtrRunStrategy(this), this)">Run SMA Strategy</button>
-      <button class="btn btn-ok" onclick="window.runUiAction('Run Prediction Strategy', () => dtrRunPredictionStrategy(this), this)">Run Prediction Strategy</button>
-      <span class="service-label">Uses GCP model predictions via local tunnel</span>
-    </div>
-
-    <div class="button-group">
-      <span class="button-group-label">Manual Override</span>
-      <button class="btn btn-danger" onclick="window.runUiAction('Submit Manual Signal', () => dtrSubmitSignal(this), this)">Submit Manual Signal</button>
-    </div>
-
-    <div class="button-group" style="border-bottom: none; padding-bottom: 0; margin-bottom: 0;">
-      <span class="button-group-label">Execution</span>
-      <button class="btn" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
-      <button class="btn" onclick="window.runUiAction('Run Snapshot', () => dtrRunSnapshot(this), this)">Run Snapshot</button>
-      <button class="btn" onclick="window.runUiAction('Refresh Dashboard', () => dtrRefreshReview(this), this)">Refresh Dashboard</button>
-    </div>
-  </div>
-
-  <!-- Data Cards for Fetch/Readiness/Prediction Results -->
-  <div id="fetch-prices-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Fetch Result</div>
-      <div id="fetch-prices-result"></div>
-    </div>
-  </div>
-
-  <div id="strategy-readiness" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Strategy Readiness</div>
-      <div style="font-size: 11px; color: var(--label); margin-bottom: 10px;" id="readiness-context"></div>
-      <div id="readiness-result"></div>
-    </div>
-  </div>
-
-  <div id="prediction-strategy-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Prediction Strategy Result</div>
-      <div id="prediction-strategy-result"></div>
-    </div>
-  </div>
-
-  <div id="market-scan-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Market Scan Result</div>
-      <div id="market-scan-result"></div>
-    </div>
-  </div>
-
-  <div id="prediction-preview-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Prediction Preview</div>
-      <div id="prediction-preview-result"></div>
-    </div>
-  </div>
-
-  <!-- Review Workflow Panel -->
-  <div id="review-workflow-panel" class="card" style="margin: 20px 0; display: block;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-      <div class="section-title">Review Workflow</div>
-      <button class="btn-sm" onclick="window.runUiAction('Refresh Workflow Status', () => refreshWorkflowStatus(), this)" style="background: var(--info);">Refresh Status</button>
-    </div>
-    <div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">Complete the following steps in order to review and approve trade decisions.</div>
-    <div id="workflow-status-summary" style="background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 3px; padding: 12px; margin-bottom: 16px; display: none;">
-      <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">WORKFLOW STATUS</div>
-      <div id="workflow-status-content" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px;"></div>
-    </div>
-    <div id="workflow-steps-container" style="display: grid; gap: 12px;"></div>
-  </div>
-
-  <div id="review-queue-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Review Queue</div>
-      <div id="review-queue-content"></div>
-    </div>
-  </div>
-
-  <div id="signal-preview-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Signal Preview</div>
-      <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
-        <button class="btn-sm" onclick="generateSignalPreview()">Generate Preview</button>
-        <label for="signal-preview-limit" style="font-size: 11px;">Limit:</label>
-        <input type="number" id="signal-preview-limit" value="50" min="1" max="100" style="width: 60px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">
-        <span style="background: var(--warning); color: white; padding: 4px 8px; border-radius: 2px; font-size: 10px; font-weight: 600;">PREVIEW ONLY</span>
-      </div>
-      <div id="signal-preview-content"></div>
-    </div>
-  </div>
-
-  <div id="create-signals-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Create Signals</div>
-      <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
-        <button class="btn-sm" onclick="createSignalsFromCandidates()" style="background: var(--ok);">Create Signals</button>
-        <label for="create-signals-limit" style="font-size: 11px;">Limit:</label>
-        <input type="number" id="create-signals-limit" value="50" min="1" max="100" style="width: 60px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">
-        <span style="background: var(--ok); color: white; padding: 4px 8px; border-radius: 2px; font-size: 10px; font-weight: 600;">CREATES SIGNALS</span>
-      </div>
-      <div id="create-signals-content"></div>
-    </div>
-  </div>
-
-  <div id="decision-preview-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Preview Decisions from Review Signals</div>
-      <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
-        <button class="btn-sm" onclick="previewDecisionsFromSignals()" style="background: var(--warning);">Preview Decisions</button>
-        <label for="decision-preview-limit" style="font-size: 11px;">Limit:</label>
-        <input type="number" id="decision-preview-limit" value="50" min="1" max="100" style="width: 60px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">
-        <label style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
-          <input type="checkbox" id="decision-preview-received-only" checked>
-          Received Only
-        </label>
-        <span style="background: var(--warning); color: white; padding: 4px 8px; border-radius: 2px; font-size: 10px; font-weight: 600;">PREVIEW ONLY</span>
-      </div>
-      <div style="background: var(--bg); border-left: 3px solid var(--warning); padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: var(--text-secondary);">
-        ⚠️ Preview only — no TradeDecision or Order rows will be created.
-      </div>
-      <div id="decision-preview-content"></div>
-    </div>
-  </div>
-
-  <div id="create-decisions-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Create Trade Decisions from Review Signals</div>
-      <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
-        <button class="btn-sm" onclick="createDecisionsFromSignals()" style="background: var(--success);">Create Trade Decisions</button>
-        <label for="create-decisions-limit" style="font-size: 11px;">Limit:</label>
-        <input type="number" id="create-decisions-limit" value="50" min="1" max="100" style="width: 60px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">
-        <label style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
-          <input type="checkbox" id="create-decisions-received-only" checked>
-          Received Only
-        </label>
-        <span style="background: var(--success); color: white; padding: 4px 8px; border-radius: 2px; font-size: 10px; font-weight: 600;">DECISIONS ONLY</span>
-      </div>
-      <div style="background: var(--bg); border-left: 3px solid var(--success); padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: var(--text-secondary);">
-        ⚠️ This will create TradeDecision rows only. It will NOT create Orders. After confirmation, Signal.status will become DECISION_MADE for successfully processed signals.
-      </div>
-      <div id="create-decisions-content"></div>
-    </div>
-  </div>
-
-  <div id="order-preview-card" style="display: none;">
-    <div class="command-section">
-      <div class="section-title">Order Preview</div>
-      <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
-        <button class="btn-sm" onclick="previewOrdersFromDecisions()" style="background: var(--info);">Preview Orders from Review Decisions</button>
-        <label for="order-preview-limit" style="font-size: 11px;">Limit:</label>
-        <input type="number" id="order-preview-limit" value="50" min="1" max="100" style="width: 60px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">
-        <label style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
-          <input type="checkbox" id="order-preview-approved-only" checked>
-          Approved Only
-        </label>
-        <span style="background: var(--info); color: white; padding: 4px 8px; border-radius: 2px; font-size: 10px; font-weight: 600;">PREVIEW ONLY</span>
-      </div>
-      <div style="background: var(--bg); border-left: 3px solid var(--info); padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: var(--text-secondary);">
-        ⚠️ Preview only — no Order rows will be created. No JobRun rows will be created. No TradeDecision or Signal rows will be modified.
-      </div>
-      <div id="order-preview-content"></div>
-    </div>
-  </div>
-
-  <!-- Signal/Risk Decision Panel (Section E) -->
-  <div id="signalPanel" style="display: none;">
-    <div class="result-section">
-      <div class="section-title">Signal & Risk Decisions</div>
-      <div id="signal-panel-content"></div>
-    </div>
-  </div>
-
-  <!-- Execution Workflow Rail (Section F) -->
-  <div class="card">
-    <div class="section-title">Execution Workflow</div>
-    <div class="workflow-rail">
-      <div class="workflow-step">
-        <div class="workflow-step-name">Ingest</div>
-        <div class="workflow-step-status not-started" id="wf-ingest">—</div>
-      </div>
-      <div class="workflow-step">
-        <div class="workflow-step-name">Strategy</div>
-        <div class="workflow-step-status not-started" id="wf-strategy">—</div>
-      </div>
-      <div class="workflow-step">
-        <div class="workflow-step-name">Signal</div>
-        <div class="workflow-step-status not-started" id="wf-signal">—</div>
-      </div>
-      <div class="workflow-step">
-        <div class="workflow-step-name">Fill</div>
-        <div class="workflow-step-status not-started" id="wf-fill">—</div>
-      </div>
-      <div class="workflow-step">
-        <div class="workflow-step-name">Snapshot</div>
-        <div class="workflow-step-status not-started" id="wf-snapshot">—</div>
-      </div>
-      <div class="workflow-step">
-        <div class="workflow-step-name">Review</div>
-        <div class="workflow-step-status not-started" id="wf-review">—</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Open Positions (Section G) -->
-  <div class="card">
-    <div class="card-title">Open Positions</div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Ticker</th><th>Qty</th><th>Avg Cost</th>
-            <th>Cost Basis</th><th>Opened</th><th>Updated</th>
-          </tr>
-        </thead>
-        <tbody id="posTbody">
-          <tr><td colspan="6" class="empty">Connect to load</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Orders (Section G) -->
-  <div class="card">
-    <div class="card-title">Orders <span id="ordCount" class="row-count"></span></div>
-    <div class="filters">
-      <select id="ordStatus" onchange="loadOrders()">
-        <option value="">All statuses</option>
-        <option value="PENDING">PENDING</option>
-        <option value="FILLED">FILLED</option>
-        <option value="EXPIRED">EXPIRED</option>
-        <option value="FAILED">FAILED</option>
-      </select>
-      <input type="date" id="ordDate" onchange="loadOrders()">
-      <button class="btn-sm" onclick="setOrdToday()">Today</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Ticker</th><th>Side</th><th>Status</th><th>Date</th>
-            <th>Qty</th><th>Fill Px</th><th>Commission</th><th>Notes</th>
-          </tr>
-        </thead>
-        <tbody id="ordTbody">
-          <tr><td colspan="8" class="empty">Connect to load</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Performance History (Section G) -->
-  <div class="card">
-    <div class="card-title">Performance History <span id="histCount" class="row-count"></span></div>
-    <div class="filters">
-      <input type="date" id="histStart">
-      <span style="color: var(--label); font-size:12px;">to</span>
-      <input type="date" id="histEnd">
-      <button class="btn-sm" onclick="window.runUiAction('Filter History', () => loadHistory(), this)">Filter</button>
-      <button class="btn-sm" onclick="setHist30D()">30D</button>
-      <button class="btn-sm" onclick="clearHistFilters()">Clear</button>
-      <a class="link-btn" href="#" onclick="downloadCsv(event)">CSV</a>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th><th>Total Value</th><th>Cash</th><th>Positions</th>
-            <th>Unrealized P&L</th><th>Realized P&L</th>
-            <th>Benchmark</th><th>Portfolio vs BM</th>
-          </tr>
-        </thead>
-        <tbody id="histTbody">
-          <tr><td colspan="8" class="empty">Connect to load</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Workflow Details (Collapsible Section - Old 6-Step Boxes) -->
-  <details>
-    <summary>Workflow Details</summary>
-
-    <div class="workflow-step-box">
-      <div class="step-header">
-        <span class="step-label">Step 1: Ingest Price</span>
-        <span class="step-status not-started" id="dtr-status-ingest">Not Started</span>
-      </div>
-      <button class="step-btn" id="dtr-btn-ingest" onclick="dtrIngestPrice(this)">Ingest Price</button>
-      <div class="step-result" id="dtr-result-ingest"></div>
-    </div>
-
-    <div class="workflow-step-box">
-      <div class="step-header">
-        <span class="step-label">Step 2: Run Strategy</span>
-        <span class="step-status not-started" id="dtr-status-strategy">Not Started</span>
-      </div>
-      <button class="step-btn" id="dtr-btn-strategy-detail" onclick="dtrRunStrategy(this)">Run Strategy</button>
-      <div class="step-result" id="dtr-result-strategy"></div>
-    </div>
-
-    <div class="workflow-step-box">
-      <div class="step-header">
-        <span class="step-label">Step 3: Manual Signal / Override</span>
-        <span class="step-status not-started" id="dtr-status-signal">Not Started</span>
-      </div>
-      <button class="step-btn" id="dtr-btn-signal" onclick="dtrSubmitSignal(this)">Submit Signal</button>
-      <div class="step-result" id="dtr-result-signal"></div>
-    </div>
-
-    <div class="workflow-step-box">
-      <div class="step-header">
-        <span class="step-label">Step 4: Run Fill</span>
-        <span class="step-status not-started" id="dtr-status-fill">Not Started</span>
-      </div>
-      <button class="step-btn" id="dtr-btn-fill" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
-      <div class="step-result" id="dtr-result-fill"></div>
-    </div>
-
-    <div class="workflow-step-box">
-      <div class="step-header">
-        <span class="step-label">Step 5: Run Snapshot</span>
-        <span class="step-status not-started" id="dtr-status-snapshot">Not Started</span>
-      </div>
-      <button class="step-btn" id="dtr-btn-snapshot" onclick="window.runUiAction('Run Snapshot', () => dtrRunSnapshot(this), this)">Run Snapshot</button>
-      <div class="step-result" id="dtr-result-snapshot"></div>
-    </div>
-
-    <div class="workflow-step-box">
-      <div class="step-header">
-        <span class="step-label">Step 6: Refresh Dashboard</span>
-        <span class="step-status not-started" id="dtr-status-review">Not Started</span>
-      </div>
-      <button class="step-btn" id="dtr-btn-review" onclick="window.runUiAction('Refresh Dashboard', () => dtrRefreshReview(this), this)">Refresh Dashboard</button>
-      <div class="step-result" id="dtr-result-review"></div>
-    </div>
-
-  </details>
-
-  <!-- Actions (Manual forms) -->
-  <div class="card">
-    <div class="card-title">Actions</div>
-
-    <details>
-      <summary>Ingest Prices</summary>
-      <div class="form-body">
-        <div class="form-grid">
-          <div class="fg"><label>Ticker</label><input id="p-ticker" placeholder="AAPL" class="mono"></div>
-          <div class="fg"><label>Price</label><input id="p-price" placeholder="150.00" class="mono"></div>
-        </div>
-        <button class="btn-action" onclick="ingestPrices(this)">Submit Price</button>
-      </div>
-    </details>
-
-    <details>
-      <summary>Ingest Benchmark Prices</summary>
-      <div class="form-body">
-        <div class="form-grid">
-          <div class="fg"><label>Ticker</label><input id="bp-ticker" value="SPY" placeholder="SPY" class="mono"></div>
-          <div class="fg"><label>Price</label><input id="bp-price" placeholder="510.00" class="mono"></div>
-        </div>
-        <button class="btn-action" onclick="ingestBenchmarkPrices(this)">Submit Benchmark Price</button>
-      </div>
-    </details>
-
-    <details>
-      <summary>Submit Signal</summary>
-      <div class="form-body">
-        <div class="form-grid">
-          <div class="fg"><label>Idempotency Key</label><input id="sig-ikey" placeholder="auto" class="mono"></div>
-          <div class="fg"><label>Ticker</label><input id="sig-ticker" placeholder="AAPL" class="mono"></div>
-          <div class="fg">
-            <label>Direction</label>
-            <select id="sig-dir" class="mono">
-              <option>BUY</option><option>SELL</option><option>HOLD</option>
-            </select>
+        <!-- KPI Grid -->
+        <div class="card">
+          <div class="kpi-grid">
+            <div class="kpi-item">
+              <span class="kpi-label">Total Value</span>
+              <span class="kpi-value" id="pf-total">-</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Cash</span>
+              <span class="kpi-value" id="pf-cash">-</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Positions Value</span>
+              <span class="kpi-value" id="pf-positions">-</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Return %</span>
+              <span class="kpi-value" id="perf-pct">-</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Pending Orders</span>
+              <span class="kpi-value" id="kpi-pending">-</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Open Positions</span>
+              <span class="kpi-value" id="kpi-positions">-</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Snapshots</span>
+              <span class="kpi-value" id="kpi-snapshots">-</span>
+            </div>
+            <div class="kpi-item">
+              <span class="kpi-label">Strategy</span>
+              <span class="kpi-value" id="pf-strategy">-</span>
+            </div>
           </div>
-          <div class="fg"><label>Confidence (0–1)</label><input id="sig-conf" placeholder="0.80" class="mono"></div>
-          <div class="fg"><label>Signal Timestamp</label><input id="sig-ts" type="datetime-local" class="mono"></div>
-          <div class="fg"><label>Source Run</label><input id="sig-src" placeholder="strategy-run-001" class="mono"></div>
         </div>
-        <button class="btn-action" onclick="submitSignal(this)">Submit Signal</button>
-        <small style="display:block;margin-top:6px;color: var(--label);">Weekday only. Server derives market_date from US/Eastern clock.</small>
-      </div>
-    </details>
 
-    <details>
-      <summary>Trigger Fill</summary>
-      <div class="form-body">
-        <div class="form-grid">
-          <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto" class="mono"></div>
-          <div class="fg"><label>Market Date (optional)</label><input id="fill-date" type="date" class="mono"></div>
+        <!-- Prediction Command Center -->
+        <div class="command-section">
+          <div class="section-title">Prediction Command Center</div>
+          <div class="inputs-grid">
+            <div class="input-group">
+              <label>Ticker</label>
+              <input id="dtr-ticker" placeholder="AAPL" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Price</label>
+              <input id="dtr-price" placeholder="150.00" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Direction</label>
+              <select id="dtr-direction" class="mono">
+                <option>BUY</option><option>SELL</option><option>HOLD</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label>Confidence (0-1)</label>
+              <input id="dtr-confidence" placeholder="0.80" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Short Window</label>
+              <input id="dtr-short-window" type="number" value="3" min="1" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Long Window</label>
+              <input id="dtr-long-window" type="number" value="5" min="1" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Strategy Tickers</label>
+              <input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Scan Universe</label>
+              <select id="market-scan-universe" class="mono">
+                <option>SP500</option>
+              </select>
+            </div>
+            <div class="input-group">
+              <label>Top N</label>
+              <input id="market-scan-top-n" type="number" value="10" min="1" max="100" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Lookback Days</label>
+              <input id="market-scan-lookback" type="number" value="20" min="1" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Min Price Points</label>
+              <input id="market-scan-min-points" type="number" value="5" min="1" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Benchmark</label>
+              <input id="market-scan-benchmark" value="SPY" placeholder="SPY" class="mono">
+            </div>
+            <!-- Hidden inputs for Prediction Preview defaults -->
+            <input id="pred-preview-lookback" type="hidden" value="45">
+            <input id="pred-preview-scan-top-n" type="hidden" value="20">
+            <input id="pred-preview-min-points" type="hidden" value="20">
+            <input id="pred-preview-top-n" type="hidden" value="5">
+          </div>
+          <!-- Current Objective & Primary Action -->
+          <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid var(--info); border-radius: 2px; padding: 10px 12px; margin: 10px 0; font-size: 11px;">
+            <div style="font-weight: 600; color: var(--info); margin-bottom: 6px;">Step 1: Generate Prediction Candidates</div>
+            <div style="color: var(--text-accent); line-height: 1.4;">Click below to preview candidates. No signals, decisions, or orders are created. Safe to run multiple times.</div>
+          </div>
+
+          <div class="button-group" style="padding: 12px 0; border: none; margin: 0;">
+            <button class="btn" style="background: var(--info); color: white; padding: 10px 16px; font-weight: 600; width: 100%;" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">Run Prediction Preview</button>
+          </div>
+
+          <!-- Advanced Manual Actions (collapsed) -->
+          <details style="margin-top: 12px; border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">
+            <summary style="padding: 8px 12px; background: rgba(0,0,0,0.2); cursor: pointer; font-size: 11px; font-weight: 600; user-select: none;">Advanced Manual Actions</summary>
+            <div style="padding: 12px;">
+              <div class="button-group">
+                <span class="button-group-label">Market Data</span>
+                <button class="btn" onclick="window.runUiAction('Fetch Latest Prices', () => fetchLatestPrices(this), this)">Fetch Latest Prices</button>
+                <button class="btn" onclick="window.runUiAction('Check Readiness', () => checkStrategyReadiness(), this)">Check Readiness</button>
+              </div>
+              <div class="button-group">
+                <span class="button-group-label">Market Scan</span>
+                <button class="btn" onclick="window.runUiAction('Run Market Scan', () => runMarketScan(this), this)">Run Market Scan</button>
+                <button class="btn" onclick="window.runUiAction('Use Top Candidates', () => useTopMarketCandidates(this), this)">Use Top Candidates</button>
+              </div>
+              <div class="button-group">
+                <span class="button-group-label">Strategy</span>
+                <button class="btn btn-ok" onclick="window.runUiAction('Run SMA Strategy', () => dtrRunStrategy(this), this)">Run SMA Strategy</button>
+                <button class="btn btn-ok" onclick="window.runUiAction('Run Prediction Strategy', () => dtrRunPredictionStrategy(this), this)">Run Prediction Strategy</button>
+                <span class="service-label">Uses GCP model predictions via local tunnel</span>
+              </div>
+              <div class="button-group">
+                <span class="button-group-label">Manual Override</span>
+                <button class="btn btn-danger" onclick="window.runUiAction('Submit Manual Signal', () => dtrSubmitSignal(this), this)">Submit Manual Signal</button>
+              </div>
+              <div class="button-group" style="border-bottom: none; padding-bottom: 0; margin-bottom: 0;">
+                <span class="button-group-label">Execution</span>
+                <button class="btn" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
+                <button class="btn" onclick="window.runUiAction('Run Snapshot', () => dtrRunSnapshot(this), this)">Run Snapshot</button>
+                <button class="btn" onclick="window.runUiAction('Refresh Dashboard', () => dtrRefreshReview(this), this)">Refresh Dashboard</button>
+              </div>
+            </div>
+          </details>
         </div>
-        <button class="btn-action" onclick="window.runUiAction('Run Fill Cycle', () => triggerFill(this), this)">Run Fill Cycle</button>
-      </div>
-    </details>
 
-    <details>
-      <summary>Trigger Snapshot</summary>
-      <div class="form-body">
-        <div class="form-grid">
-          <div class="fg"><label>Idempotency Key</label><input id="snap-ikey" placeholder="auto" class="mono"></div>
-          <div class="fg"><label>Market Date (optional)</label><input id="snap-date" type="date" class="mono"></div>
+        <!-- Prediction Preview -->
+        <div id="prediction-preview-card" style="display: none;">
+          <div class="command-section">
+            <div class="section-title">Prediction Preview</div>
+            <div id="prediction-preview-result"></div>
+          </div>
         </div>
-        <button class="btn-action" onclick="window.runUiAction('Run Snapshot', () => triggerSnapshot(this), this)">Run Snapshot</button>
-        <small style="display:block;margin-top:6px;color: var(--label);">Requires prices for all open positions.</small>
-      </div>
-    </details>
 
-  </div>
+        <!-- Result cards for Advanced Manual Actions (hidden until used) -->
+        <div id="fetch-prices-card" style="display:none;">
+          <div class="command-section">
+            <div class="section-title">Fetch Prices Result</div>
+            <div id="fetch-prices-result" class="step-result"></div>
+          </div>
+        </div>
+        <div id="market-scan-card" style="display:none;">
+          <div class="command-section">
+            <div class="section-title">Market Scan Result</div>
+            <div id="market-scan-result" class="step-result"></div>
+          </div>
+        </div>
+        <div id="prediction-strategy-card" style="display:none;">
+          <div class="command-section">
+            <div class="section-title">Prediction Strategy Result</div>
+            <div id="prediction-strategy-result" class="step-result"></div>
+          </div>
+        </div>
+        <div id="strategy-readiness" style="display:none;">
+          <div class="command-section">
+            <div class="section-title">Strategy Readiness</div>
+            <div id="readiness-context" style="font-size:10px;color:var(--label);margin-bottom:8px;"></div>
+            <div id="readiness-result" class="step-result"></div>
+          </div>
+        </div>
 
-</main>
+        <!-- Workflow Status Strip (Compact) -->
+        <div class="card">
+          <div class="section-title">Workflow Status</div>
+          <div class="workflow-rail">
+            <div class="workflow-step">
+              <div class="workflow-step-name">Preview</div>
+              <div class="workflow-step-status not-started" id="ws-preview">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Candidates</div>
+              <div class="workflow-step-status not-started" id="ws-candidates">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Queue</div>
+              <div class="workflow-step-status not-started" id="ws-queue">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Signals</div>
+              <div class="workflow-step-status not-started" id="ws-signals">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Decisions</div>
+              <div class="workflow-step-status not-started" id="ws-decisions">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Orders</div>
+              <div class="workflow-step-status not-started" id="ws-orders">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Create</div>
+              <div class="workflow-step-status not-started" id="ws-create">-</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Next Action Card -->
+        <div class="action-panel" id="actionPanel">
+          <div class="action-title" id="action-title">Next Action</div>
+          <div class="action-text" id="cockpit-next-action">Run Prediction Strategy to generate signals</div>
+          <div id="action-links"></div>
+        </div>
+
+        <!-- Hidden: workflow status elements for JS rendering -->
+        <div id="workflow-status-summary" style="display:none;"></div>
+        <div id="workflow-status-content" style="display:none;font-size:10px;color:var(--text-accent);"></div>
+        <div id="workflow-steps-container" style="display:none;"></div>
+        <!-- Hidden: card visibility markers (used by saveCandidatesToReviewQueue and getWorkflowStepStatus) -->
+        <div id="review-queue-card" style="display:none;"></div>
+        <div id="signal-preview-card" style="display:none;"></div>
+        <div id="create-signals-card" style="display:none;"></div>
+        <div id="decision-preview-card" style="display:none;"></div>
+        <div id="create-decisions-card" style="display:none;"></div>
+        <div id="order-preview-card" style="display:none;"></div>
+
+      </div><!-- end tab-prediction-cockpit -->
+
+      <!-- TAB 2: REVIEW QUEUE -->
+      <div id="tab-review-queue" class="tab-content">
+
+        <div class="command-section">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="section-title" style="margin-bottom: 0;">Review Queue</div>
+            <button class="btn-sm" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh</button>
+          </div>
+          <div class="filters" style="margin-bottom: 10px;">
+            <select id="rq-status" onchange="loadReviewQueue()" style="padding: 5px 6px; border: 1px solid var(--border); border-radius: 2px; background: rgba(0,0,0,.2); color: var(--text-primary); font-size: 10px; font-family: 'Monaco', monospace;">
+              <option value="">All statuses</option>
+              <option value="PENDING">PENDING</option>
+              <option value="APPROVED">APPROVED</option>
+            </select>
+            <input type="text" id="rq-ticker" placeholder="Search ticker..." style="padding: 5px 6px; border: 1px solid var(--border); border-radius: 2px; background: rgba(0,0,0,.2); color: var(--text-primary); font-size: 10px;">
+            <label style="font-size: 10px; display: flex; align-items: center; gap: 4px;">
+              <input type="checkbox" id="rq-latest-only" checked onchange="filterReviewQueue()">
+              Latest per ticker
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th><th>Status</th><th>Decision</th><th>Score</th><th>Rec</th><th>Conf</th><th>Return %</th><th>RS SPY</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="rq-tbody">
+                <tr><td colspan="9" class="empty">Connect to load</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- end tab-review-queue -->
+
+      <!-- TAB 3: SIGNALS & DECISIONS -->
+      <div id="tab-signals-decisions" class="tab-content">
+
+        <!-- Signal Preview -->
+        <div class="command-section">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="section-title" style="margin-bottom: 0;">Signal Preview</div>
+            <button class="btn-sm" onclick="generateSignalPreview()">Generate</button>
+          </div>
+          <input type="hidden" id="signal-preview-limit" value="50">
+          <div id="signal-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No signal preview yet. Approve candidates in Review Queue first, then click Generate.</div>
+        </div>
+
+        <!-- Create Signals -->
+        <div class="command-section">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="section-title" style="margin-bottom: 0;">Create Signals</div>
+            <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createSignalsFromCandidates()">Create Signals</button>
+          </div>
+          <input type="hidden" id="create-signals-limit" value="50">
+          <div id="create-signals-content" style="font-size: 10px; color: var(--text-accent);">Ready to create signals from candidates</div>
+        </div>
+
+        <!-- Decision Preview -->
+        <div class="command-section">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="section-title" style="margin-bottom: 0;">Decision Preview</div>
+            <button class="btn-sm" style="background: var(--warning); color: white;" onclick="previewDecisionsFromSignals()">Preview</button>
+          </div>
+          <input type="hidden" id="decision-preview-limit" value="50">
+          <input type="checkbox" id="decision-preview-received-only" style="display:none;">
+          <div id="decision-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No decision preview yet. Create signals first, then click Preview.</div>
+        </div>
+
+        <!-- Create Decisions -->
+        <div class="command-section">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="section-title" style="margin-bottom: 0;">Create Decisions</div>
+            <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createDecisionsFromSignals()">Create Decisions</button>
+          </div>
+          <input type="hidden" id="create-decisions-limit" value="50">
+          <input type="checkbox" id="create-decisions-received-only" style="display:none;">
+          <div id="create-decisions-content" style="font-size: 10px; color: var(--text-accent);">Ready to create trade decisions</div>
+        </div>
+
+        <!-- Order Preview -->
+        <div class="command-section">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div class="section-title" style="margin-bottom: 0;">Order Preview</div>
+            <button class="btn-sm" onclick="previewOrdersFromDecisions()">Preview Orders</button>
+          </div>
+          <input type="hidden" id="order-preview-limit" value="50">
+          <input type="checkbox" id="order-preview-approved-only" style="display:none;" checked>
+          <div id="order-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No order preview yet. Create decisions first, then click Preview Orders.</div>
+        </div>
+
+      </div><!-- end tab-signals-decisions -->
+
+      <!-- TAB 4: PORTFOLIO -->
+      <div id="tab-portfolio" class="tab-content">
+
+        <!-- Open Positions -->
+        <div class="card">
+          <div class="card-title">Open Positions</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th><th>Qty</th><th>Avg Cost</th>
+                  <th>Cost Basis</th><th>Opened</th><th>Updated</th>
+                </tr>
+              </thead>
+              <tbody id="posTbody">
+                <tr><td colspan="6" class="empty">Connect to load</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Orders -->
+        <div class="card">
+          <div class="card-title">Orders <span id="ordCount" class="row-count"></span></div>
+          <div class="filters">
+            <select id="ordStatus" onchange="loadOrders()">
+              <option value="">All statuses</option>
+              <option value="PENDING">PENDING</option>
+              <option value="FILLED">FILLED</option>
+              <option value="EXPIRED">EXPIRED</option>
+              <option value="FAILED">FAILED</option>
+            </select>
+            <input type="date" id="ordDate" onchange="loadOrders()">
+            <button class="btn-sm" onclick="setOrdToday()">Today</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th><th>Side</th><th>Status</th><th>Date</th>
+                  <th>Qty</th><th>Fill Px</th><th>Commission</th><th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="ordTbody">
+                <tr><td colspan="8" class="empty">Connect to load</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Performance History -->
+        <div class="card">
+          <div class="card-title">Performance History <span id="histCount" class="row-count"></span></div>
+          <div class="filters">
+            <input type="date" id="histStart">
+            <span style="color: var(--label); font-size:11px;">to</span>
+            <input type="date" id="histEnd">
+            <button class="btn-sm" onclick="window.runUiAction('Filter History', () => loadHistory(), this)">Filter</button>
+            <button class="btn-sm" onclick="setHist30D()">30D</button>
+            <button class="btn-sm" onclick="clearHistFilters()">Clear</button>
+            <a class="link-btn" href="#" onclick="downloadCsv(event)">CSV</a>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th><th>Total Value</th><th>Cash</th><th>Positions</th>
+                  <th>Unrealized P&L</th><th>Realized P&L</th>
+                  <th>Benchmark</th><th>Portfolio vs BM</th>
+                </tr>
+              </thead>
+              <tbody id="histTbody">
+                <tr><td colspan="8" class="empty">Connect to load</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- end tab-portfolio -->
+
+      <!-- TAB 5: AUDIT / ADVANCED -->
+      <div id="tab-audit-advanced" class="tab-content">
+
+        <!-- Execution Workflow -->
+        <div class="card">
+          <div class="section-title">Execution Workflow</div>
+          <div class="workflow-rail">
+            <div class="workflow-step">
+              <div class="workflow-step-name">Ingest</div>
+              <div class="workflow-step-status not-started" id="wf-ingest">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Strategy</div>
+              <div class="workflow-step-status not-started" id="wf-strategy">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Signal</div>
+              <div class="workflow-step-status not-started" id="wf-signal">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Fill</div>
+              <div class="workflow-step-status not-started" id="wf-fill">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Snapshot</div>
+              <div class="workflow-step-status not-started" id="wf-snapshot">-</div>
+            </div>
+            <div class="workflow-step">
+              <div class="workflow-step-name">Review</div>
+              <div class="workflow-step-status not-started" id="wf-review">-</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Workflow Details -->
+        <details>
+          <summary>Workflow Details</summary>
+          <div class="workflow-step-box">
+            <div class="step-header">
+              <span class="step-label">Step 1: Ingest Price</span>
+              <span class="step-status not-started" id="dtr-status-ingest">Not Started</span>
+            </div>
+            <button class="step-btn" id="dtr-btn-ingest" onclick="dtrIngestPrice(this)">Ingest Price</button>
+            <div class="step-result" id="dtr-result-ingest"></div>
+          </div>
+          <div class="workflow-step-box">
+            <div class="step-header">
+              <span class="step-label">Step 2: Run Strategy</span>
+              <span class="step-status not-started" id="dtr-status-strategy">Not Started</span>
+            </div>
+            <button class="step-btn" id="dtr-btn-strategy-detail" onclick="dtrRunStrategy(this)">Run Strategy</button>
+            <div class="step-result" id="dtr-result-strategy"></div>
+          </div>
+          <div class="workflow-step-box">
+            <div class="step-header">
+              <span class="step-label">Step 3: Manual Signal / Override</span>
+              <span class="step-status not-started" id="dtr-status-signal">Not Started</span>
+            </div>
+            <button class="step-btn" id="dtr-btn-signal" onclick="dtrSubmitSignal(this)">Submit Signal</button>
+            <div class="step-result" id="dtr-result-signal"></div>
+          </div>
+          <div class="workflow-step-box">
+            <div class="step-header">
+              <span class="step-label">Step 4: Run Fill</span>
+              <span class="step-status not-started" id="dtr-status-fill">Not Started</span>
+            </div>
+            <button class="step-btn" id="dtr-btn-fill" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
+            <div class="step-result" id="dtr-result-fill"></div>
+          </div>
+          <div class="workflow-step-box">
+            <div class="step-header">
+              <span class="step-label">Step 5: Run Snapshot</span>
+              <span class="step-status not-started" id="dtr-status-snapshot">Not Started</span>
+            </div>
+            <button class="step-btn" id="dtr-btn-snapshot" onclick="window.runUiAction('Run Snapshot', () => dtrRunSnapshot(this), this)">Run Snapshot</button>
+            <div class="step-result" id="dtr-result-snapshot"></div>
+          </div>
+          <div class="workflow-step-box">
+            <div class="step-header">
+              <span class="step-label">Step 6: Refresh Dashboard</span>
+              <span class="step-status not-started" id="dtr-status-review">Not Started</span>
+            </div>
+            <button class="step-btn" id="dtr-btn-review" onclick="window.runUiAction('Refresh Dashboard', () => dtrRefreshReview(this), this)">Refresh Dashboard</button>
+            <div class="step-result" id="dtr-result-review"></div>
+          </div>
+        </details>
+
+        <!-- Actions -->
+        <div class="card">
+          <div class="card-title">Actions</div>
+          <details>
+            <summary>Ingest Prices</summary>
+            <div class="form-body">
+              <div class="form-grid">
+                <div class="fg"><label>Ticker</label><input id="p-ticker" placeholder="AAPL" class="mono"></div>
+                <div class="fg"><label>Price</label><input id="p-price" placeholder="150.00" class="mono"></div>
+              </div>
+              <button class="btn-action" onclick="ingestPrices(this)">Submit Price</button>
+            </div>
+          </details>
+          <details>
+            <summary>Ingest Benchmark Prices</summary>
+            <div class="form-body">
+              <div class="form-grid">
+                <div class="fg"><label>Ticker</label><input id="bp-ticker" value="SPY" placeholder="SPY" class="mono"></div>
+                <div class="fg"><label>Price</label><input id="bp-price" placeholder="510.00" class="mono"></div>
+              </div>
+              <button class="btn-action" onclick="ingestBenchmarkPrices(this)">Submit Benchmark Price</button>
+            </div>
+          </details>
+          <details>
+            <summary>Submit Signal</summary>
+            <div class="form-body">
+              <div class="form-grid">
+                <div class="fg"><label>Idempotency Key</label><input id="sig-ikey" placeholder="auto" class="mono"></div>
+                <div class="fg"><label>Ticker</label><input id="sig-ticker" placeholder="AAPL" class="mono"></div>
+                <div class="fg">
+                  <label>Direction</label>
+                  <select id="sig-dir" class="mono">
+                    <option>BUY</option><option>SELL</option><option>HOLD</option>
+                  </select>
+                </div>
+                <div class="fg"><label>Confidence (0-1)</label><input id="sig-conf" placeholder="0.80" class="mono"></div>
+                <div class="fg"><label>Signal Timestamp</label><input id="sig-ts" type="datetime-local" class="mono"></div>
+                <div class="fg"><label>Source Run</label><input id="sig-src" placeholder="strategy-run-001" class="mono"></div>
+              </div>
+              <button class="btn-action" onclick="submitSignal(this)">Submit Signal</button>
+              <small style="display:block;margin-top:6px;color: var(--label);">Weekday only. Server derives market_date from US/Eastern clock.</small>
+            </div>
+          </details>
+          <details>
+            <summary>Trigger Fill</summary>
+            <div class="form-body">
+              <div class="form-grid">
+                <div class="fg"><label>Idempotency Key</label><input id="fill-ikey" placeholder="auto" class="mono"></div>
+                <div class="fg"><label>Market Date (optional)</label><input id="fill-date" type="date" class="mono"></div>
+              </div>
+              <button class="btn-action" onclick="window.runUiAction('Run Fill Cycle', () => triggerFill(this), this)">Run Fill Cycle</button>
+            </div>
+          </details>
+          <details>
+            <summary>Trigger Snapshot</summary>
+            <div class="form-body">
+              <div class="form-grid">
+                <div class="fg"><label>Idempotency Key</label><input id="snap-ikey" placeholder="auto" class="mono"></div>
+                <div class="fg"><label>Market Date (optional)</label><input id="snap-date" type="date" class="mono"></div>
+              </div>
+              <button class="btn-action" onclick="window.runUiAction('Run Snapshot', () => triggerSnapshot(this), this)">Run Snapshot</button>
+              <small style="display:block;margin-top:6px;color: var(--label);">Requires prices for all open positions.</small>
+            </div>
+          </details>
+        </div>
+
+      </div><!-- end tab-audit-advanced -->
+
+    </div><!-- end main-content-area -->
+
+  </main>
 
   <!-- Right Panel: Safety & Status -->
   <div class="right-panel">
@@ -1666,7 +1637,7 @@
       <div class="panel-section-title">Current State</div>
       <div class="panel-item">
         <span>Backend</span>
-        <span class="panel-value" id="right-status">—</span>
+        <span class="panel-value" id="right-status">-</span>
       </div>
       <div class="panel-item">
         <span>App Session</span>
@@ -1676,60 +1647,171 @@
 
     <div class="panel-section">
       <div class="panel-section-title">Last Connect Check</div>
-      <div style="font-size: 11px; color: var(--text-accent);" id="right-connect-status">Not attempted</div>
-      <div style="font-size: 10px; color: var(--label); margin-top: 6px; font-style: italic;">Auth endpoint: /v1/auth/check</div>
+      <div style="font-size: 10px; color: var(--text-accent);" id="right-connect-status">Not attempted</div>
+      <div style="font-size: 9px; color: var(--label); margin-top: 4px; font-style: italic;">Auth endpoint: /v1/auth/check</div>
     </div>
 
     <div class="panel-section">
       <div class="panel-section-title">Last UI Action</div>
-      <div style="font-size: 11px; color: var(--text-accent);" id="right-action-status">Not attempted</div>
-      <button class="btn" style="margin-top: 8px; width: 100%;" onclick="window.paperTraderPostAuthLoad()">Reload Dashboard Data</button>
+      <div style="font-size: 10px; color: var(--text-accent);" id="right-action-status">Not attempted</div>
+      <button class="btn" style="margin-top: 6px; width: 100%; padding: 5px; font-size: 10px;" onclick="window.paperTraderPostAuthLoad()">Reload Data</button>
     </div>
 
     <div class="panel-section">
       <div class="panel-section-title">UI Runtime Status</div>
-      <div style="font-size: 10px; line-height: 1.6; color: var(--text-accent);">
-        <div><span style="color: var(--label);">Bootstrap:</span> <span id="runtime-bootstrap">—</span></div>
-        <div><span style="color: var(--label);">Main started:</span> <span id="runtime-main-started">—</span></div>
-        <div><span style="color: var(--label);">Main completed:</span> <span id="runtime-main-completed">—</span></div>
-        <div><span style="color: var(--label);">PostAuthLoad fn:</span> <span id="runtime-post-auth">—</span></div>
-        <div><span style="color: var(--label);">runUiAction fn:</span> <span id="runtime-run-action">—</span></div>
-        <div id="runtime-last-error" style="color: var(--danger); margin-top: 6px; display: none;"><span style="color: var(--label);">Last Error:</span> <span id="runtime-error-text"></span></div>
-        <div id="runtime-last-rejection" style="color: var(--danger); margin-top: 6px; display: none;"><span style="color: var(--label);">Last Rejection:</span> <span id="runtime-rejection-text"></span></div>
+      <div style="font-size: 9px; line-height: 1.4; color: var(--text-accent);">
+        <div><span style="color: var(--label);">Bootstrap:</span> <span id="runtime-bootstrap">-</span></div>
+        <div><span style="color: var(--label);">Main started:</span> <span id="runtime-main-started">-</span></div>
+        <div><span style="color: var(--label);">Main completed:</span> <span id="runtime-main-completed">-</span></div>
+        <div><span style="color: var(--label);">Post-auth:</span> <span id="runtime-post-auth">-</span></div>
+        <div><span style="color: var(--label);">Run action:</span> <span id="runtime-run-action">-</span></div>
+        <div id="runtime-last-error" style="display:none;margin-top:4px;">
+          <span style="color: var(--label);">Last error:</span> <span id="runtime-error-text" style="color:var(--danger);"></span>
+        </div>
+        <div id="runtime-last-rejection" style="display:none;margin-top:4px;">
+          <span style="color: var(--label);">Last rejection:</span> <span id="runtime-rejection-text" style="color:var(--warning);"></span>
+        </div>
       </div>
     </div>
 
     <div class="panel-section">
       <div class="panel-section-title">Safety Mode</div>
-      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4; margin-bottom: 8px;">Manual Review</div>
-      <div style="font-size: 10px; color: var(--label); font-style: italic;">All trading actions require explicit approval.</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4; margin-bottom: 6px;">Manual Review</div>
+      <div style="font-size: 9px; color: var(--label); font-style: italic;">All trading actions require explicit approval.</div>
     </div>
 
     <div class="panel-section">
       <div class="panel-section-title">Automation</div>
-      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4; margin-bottom: 8px;">Off</div>
-      <div style="font-size: 10px; color: var(--label); font-style: italic;">No scheduled jobs running.</div>
-    </div>
-
-    <div class="panel-section">
-      <div class="panel-section-title">Next Action</div>
-      <div id="right-next-action" style="font-size: 11px; color: var(--text-accent);">
-        View Review Workflow
-      </div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4; margin-bottom: 6px;">Off</div>
+      <div style="font-size: 9px; color: var(--label); font-style: italic;">No scheduled jobs running.</div>
     </div>
 
     <div class="panel-section">
       <div class="panel-section-title">Create Orders</div>
-      <div style="font-size: 10px; color: var(--danger); font-weight: 600; margin-bottom: 6px;">🔒 DISABLED</div>
-      <div style="font-size: 10px; color: var(--label); font-style: italic;">Coming later. For now, preview and review only.</div>
+      <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 4px;">DISABLED</div>
+      <div style="font-size: 9px; color: var(--label); font-style: italic;">Orders cannot be created.</div>
+    </div>
+
+    <div class="panel-section">
+      <div style="font-size: 9px; color: var(--danger); font-weight: 600; background: rgba(239,68,68,.1); border: 1px solid var(--danger); padding: 6px 8px; border-radius: 2px; text-align: center;">
+        NO ORDERS / ORDERS DISABLED
+      </div>
     </div>
   </div>
+
 </div><!-- .app-container -->
 
 <div id="toast"></div>
 
-<!-- Early error capture - independent runtime diagnostics -->
+<!-- Confirm Modal -->
+<div id="confirm-modal" class="confirm-modal">
+  <div class="confirm-modal-content">
+    <div class="confirm-modal-title" id="confirm-title">Confirm Action</div>
+    <div class="confirm-modal-message" id="confirm-message"></div>
+    <div class="confirm-modal-buttons">
+      <button class="btn-cancel" onclick="window._hideConfirmModal()">Cancel</button>
+      <button class="btn-confirm" onclick="window._confirmAction()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Core Tab & Alert Functions -->
 <script>
+window._switchTab = function(tabName) {
+  // Hide all tabs
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
+
+  // Show selected tab
+  const tabEl = document.getElementById('tab-' + tabName);
+  if (tabEl) {
+    tabEl.classList.add('active');
+  }
+
+  // Highlight active button
+  const buttons = document.querySelectorAll('.tab-button');
+  buttons.forEach(btn => {
+    if (btn.onclick && btn.onclick.toString().includes(tabName)) {
+      btn.classList.add('active');
+    }
+  });
+
+  if (tabName === 'review-queue' && window._appState?.connected) {
+    loadReviewQueue();
+  }
+};
+
+window._showToast = function(message, type='info', duration=3000) {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+
+  toast.textContent = message;
+  toast.className = type;
+  toast.style.display = 'block';
+
+  setTimeout(() => {
+    toast.style.display = 'none';
+  }, duration);
+};
+
+window._currentConfirmCallback = null;
+
+window._showConfirmModal = function(message, onConfirm, onCancel) {
+  const modal = document.getElementById('confirm-modal');
+  const msgEl = document.getElementById('confirm-message');
+  if (!modal || !msgEl) return;
+
+  msgEl.textContent = message;
+  window._currentConfirmCallback = onConfirm;
+  window._currentConfirmOnCancel = onCancel;
+  modal.classList.add('active');
+};
+
+window._hideConfirmModal = function() {
+  const modal = document.getElementById('confirm-modal');
+  if (modal) {
+    modal.classList.remove('active');
+    if (window._currentConfirmOnCancel) {
+      window._currentConfirmOnCancel();
+    }
+    window._currentConfirmCallback = null;
+    window._currentConfirmOnCancel = null;
+  }
+};
+
+window._confirmAction = function() {
+  const modal = document.getElementById('confirm-modal');
+  if (modal && window._currentConfirmCallback) {
+    window._currentConfirmCallback();
+  }
+  window._hideConfirmModal();
+};
+
+// Replace alert with toast
+window._originalAlert = window.alert;
+window.alert = function(message) {
+  window._showToast(message, 'info', 5000);
+};
+
+// Replace confirm with modal
+window._originalConfirm = window.confirm;
+window.confirm = function(message) {
+  let result = false;
+  const promise = new Promise(resolve => {
+    window._showConfirmModal(message, () => {
+      result = true;
+      resolve(true);
+    }, () => {
+      resolve(false);
+    });
+  });
+  // For now, return true if confirm is called, but proper handling requires async
+  return result;
+};
+</script>
+
+<script>
+<!-- Early error capture - independent runtime diagnostics -->
 window.__paperTraderRuntime = {
   bootstrapStarted: true,
   mainStarted: false,
@@ -1878,13 +1960,13 @@ window.paperTraderDirectDashboardLoad = async function paperTraderDirectDashboar
               data.forEach(pos => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                  <td class="mono">${pos.ticker || '—'}</td>
-                  <td>${pos.shares || '—'}</td>
-                  <td>${pos.avg_cost || '—'}</td>
-                  <td>${pos.market_price || '—'}</td>
-                  <td>${pos.market_value || '—'}</td>
-                  <td>${pos.gain_loss || '—'}</td>
-                  <td>${pos.gain_loss_pct || '—'}</td>
+                  <td class="mono">${pos.ticker || '-'}</td>
+                  <td>${pos.shares || '-'}</td>
+                  <td>${pos.avg_cost || '-'}</td>
+                  <td>${pos.market_price || '-'}</td>
+                  <td>${pos.market_value || '-'}</td>
+                  <td>${pos.gain_loss || '-'}</td>
+                  <td>${pos.gain_loss_pct || '-'}</td>
                 `;
                 tbody.appendChild(row);
               });
@@ -1919,13 +2001,13 @@ window.paperTraderDirectDashboardLoad = async function paperTraderDirectDashboar
               data.forEach(order => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                  <td class="mono">${order.order_id || '—'}</td>
-                  <td>${order.ticker || '—'}</td>
-                  <td>${order.side || '—'}</td>
-                  <td>${order.quantity || '—'}</td>
-                  <td>${order.price || '—'}</td>
-                  <td>${order.status || '—'}</td>
-                  <td>${order.created_at || '—'}</td>
+                  <td class="mono">${order.order_id || '-'}</td>
+                  <td>${order.ticker || '-'}</td>
+                  <td>${order.side || '-'}</td>
+                  <td>${order.quantity || '-'}</td>
+                  <td>${order.price || '-'}</td>
+                  <td>${order.status || '-'}</td>
+                  <td>${order.created_at || '-'}</td>
                 `;
                 tbody.appendChild(row);
               });
@@ -2019,18 +2101,22 @@ const _appState = {
   hasPositions: false,
   hasHistory: false,
 };
+// Expose _appState on window so the independent connection script
+// (earlier <script> block) can set _appState.connected = true on success,
+// and so _switchTab can check window._appState?.connected correctly.
+window._appState = _appState;
 
 let _latestMarketScan = null;
 
 function usd(v) {
-  if (v == null) return '—';
+  if (v == null) return '-';
   const n = parseFloat(v);
   const abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return (n < 0 ? '-$' : '$') + abs;
 }
 
 function pct(v) {
-  if (v == null) return '—';
+  if (v == null) return '-';
   const n = parseFloat(v);
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 }
@@ -2046,14 +2132,14 @@ function setEl(id, html, isHtml = false) {
 }
 
 function fmtDate(s) {
-  if (!s) return '—';
+  if (!s) return '-';
   const d = new Date(s.length === 10 ? s + 'T00:00:00' : s);
   if (isNaN(d)) return s;
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function signHtml(v, fmt) {
-  if (v == null) return '—';
+  if (v == null) return '-';
   const n = parseFloat(v);
   const text = fmt(v);
   if (n > 0) return `<span class="pos">${text}</span>`;
@@ -2202,7 +2288,7 @@ window.runUiAction = async function runUiAction(actionName, fn, btn = null) {
 
   try {
     if (actionStatusEl) {
-      actionStatusEl.textContent = `Running ${actionName}…`;
+      actionStatusEl.textContent = `Running ${actionName}...`;
       actionStatusEl.style.color = 'var(--text-accent)';
     }
 
@@ -2295,8 +2381,8 @@ function populatePortfolio(b) {
 
 function updateKpi() {
   setEl('kpi-pending', (_appState.pendingOrders !== null ? _appState.pendingOrders : '?').toString());
-  setEl('kpi-positions', (_appState.hasPositions ? '✓' : '—'));
-  setEl('kpi-snapshots', (_appState.hasHistory ? '✓' : '—'));
+  setEl('kpi-positions', (_appState.hasPositions ? '✓' : '-'));
+  setEl('kpi-snapshots', (_appState.hasHistory ? '✓' : '-'));
 }
 
 async function loadPortfolio() {
@@ -2313,7 +2399,7 @@ async function loadPortfolio() {
 async function loadPerformance() {
   const r = await call('GET', '/v1/performance');
   if (!r.ok) {
-    setEl('perf-pct', '—');
+    setEl('perf-pct', '-');
     return;
   }
   const b = await r.json();
@@ -2379,8 +2465,8 @@ async function loadOrders() {
       <td>${statusChip(o.status)}</td>
       <td>${fmtDate(o.market_date)}</td>
       <td>${o.filled_qty ?? o.requested_qty}</td>
-      <td>${o.fill_price != null ? usd(o.fill_price) : '—'}</td>
-      <td>${o.commission != null ? usd(o.commission) : '—'}</td>
+      <td>${o.fill_price != null ? usd(o.fill_price) : '-'}</td>
+      <td>${o.commission != null ? usd(o.commission) : '-'}</td>
       <td style="color: var(--label); font-size:11px;">${o.notes ?? ''}</td>
     </tr>`).join('');
   updateKpi();
@@ -2424,8 +2510,8 @@ async function loadHistory() {
       <td>${usd(h.positions_value)}</td>
       <td>${signHtml(h.unrealized_pnl, usd)}</td>
       <td>${signHtml(h.realized_pnl_cumulative, usd)}</td>
-      <td>${h.benchmark_ticker ?? '—'}</td>
-      <td>${h.portfolio_vs_benchmark != null ? signHtml(h.portfolio_vs_benchmark, usd) : '—'}</td>
+      <td>${h.benchmark_ticker ?? '-'}</td>
+      <td>${h.portfolio_vs_benchmark != null ? signHtml(h.portfolio_vs_benchmark, usd) : '-'}</td>
     </tr>`).join('');
   updateKpi();
 }
@@ -2447,27 +2533,24 @@ function updateWorkbench() {
   if (_appState.portfolioSeeded === false) {
     document.getElementById('actionPanel').style.display = 'block';
     document.getElementById('action-title').textContent = 'Setup Required';
-    document.getElementById('action-text').innerHTML = 'Portfolio not initialized. Run <code>scripts/seed.py</code> first.';
+    document.getElementById('cockpit-next-action').innerHTML = 'Portfolio not initialized. Run <code>scripts/seed.py</code> first.';
     document.getElementById('action-links').textContent = '';
   } else if (!_appState.connected) {
-    document.getElementById('actionPanel').style.display = 'block';
-    document.getElementById('action-title').textContent = 'Connect to Start';
-    document.getElementById('action-text').textContent = 'Enter your API key and click Connect to begin.';
-    document.getElementById('action-links').textContent = '';
+    document.getElementById('actionPanel').style.display = 'none';
   } else if (_appState.pendingOrders === 0 && !_appState.hasPositions) {
     document.getElementById('actionPanel').style.display = 'block';
     document.getElementById('action-title').textContent = 'Submit Signal';
-    document.getElementById('action-text').textContent = 'No pending orders. Ready to submit trading signals.';
+    document.getElementById('cockpit-next-action').textContent = 'No pending orders. Ready to submit trading signals.';
     document.getElementById('action-links').innerHTML = '<button class="action-btn" onclick="document.getElementById(\'dtr-ticker\').focus(); document.querySelector(\'.command-section\').scrollIntoView();">Go to Command Center →</button>';
   } else if (_appState.pendingOrders !== null && _appState.pendingOrders > 0) {
     document.getElementById('actionPanel').style.display = 'block';
     document.getElementById('action-title').textContent = 'Execute Orders';
-    document.getElementById('action-text').textContent = `${_appState.pendingOrders} pending order(s) waiting. Run Fill to execute.`;
+    document.getElementById('cockpit-next-action').textContent = `${_appState.pendingOrders} pending order(s) waiting. Run Fill to execute.`;
     document.getElementById('action-links').innerHTML = '<button class="action-btn" onclick="document.querySelector(\'.command-section\').scrollIntoView(); setTimeout(() => document.getElementById(\'dtr-btn-fill\').focus(), 100);">Go to Execution →</button>';
   } else if (_appState.hasPositions && !_appState.hasHistory) {
     document.getElementById('actionPanel').style.display = 'block';
     document.getElementById('action-title').textContent = 'Record Snapshot';
-    document.getElementById('action-text').textContent = 'Ingest prices for all positions, then run Snapshot.';
+    document.getElementById('cockpit-next-action').textContent = 'Ingest prices for all positions, then run Snapshot.';
     document.getElementById('action-links').innerHTML = '<button class="action-btn" onclick="document.querySelector(\'.command-section\').scrollIntoView(); setTimeout(() => document.getElementById(\'dtr-btn-snapshot\').focus(), 100);">Run Snapshot →</button>';
   } else {
     document.getElementById('actionPanel').style.display = 'none';
@@ -2481,7 +2564,7 @@ function updateWorkflowRail() {
   steps.forEach((step, i) => {
     const el = document.getElementById(wfIds[i]);
     const status = getDtrStepStatus(step);
-    el.textContent = status === 'not-started' ? '—' : (status === 'done' ? '✓' : status === 'error' ? '✗' : '…');
+    el.textContent = status === 'not-started' ? '-' : (status === 'done' ? '✓' : status === 'error' ? '✗' : '...');
     el.className = 'workflow-step-status ' + status;
   });
 }
@@ -2561,7 +2644,7 @@ async function submitSignal(btn) {
   const confidence = document.getElementById('sig-conf').value.trim();
 
   if (!ticker) { toast('Ticker is required', 'err'); return; }
-  if (!isValidConfidence(confidence)) { toast('Confidence must be 0–1', 'err'); return; }
+  if (!isValidConfidence(confidence)) { toast('Confidence must be 0-1', 'err'); return; }
 
   btn.disabled = true;
   try {
@@ -2823,7 +2906,7 @@ function renderMarketScanResult(data, resultEl) {
   html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Universe<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${escapeHtml(data.universe)}</span></div>`;
   html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Evaluated<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${data.evaluated_count}</span></div>`;
   html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Skipped<br><span style="font-size:13px;color:${data.skipped_count > 0 ? 'var(--warning)' : 'var(--text-primary)'};font-weight:700;">${data.skipped_count}</span></div>`;
-  html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Scan Date<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${data.scan_date || '—'}</span></div>`;
+  html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Scan Date<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${data.scan_date || '-'}</span></div>`;
   html += `<div style="font-size:11px;color:var(--label);text-transform:uppercase;font-weight:600;">Benchmark<br><span style="font-size:13px;color:var(--text-primary);font-weight:700;">${escapeHtml(data.benchmark_ticker)}</span></div>`;
   html += '</div>';
 
@@ -2866,10 +2949,10 @@ function renderMarketScanResult(data, resultEl) {
       const volColor = vol === null ? 'var(--label)' : 'var(--text-primary)';
       const rsColor = rs === null ? 'var(--label)' : rs > 0 ? 'var(--ok)' : 'var(--danger)';
 
-      html += `<td style="padding:6px 8px;text-align:right;color:${mom5Color};font-weight:600;">${momentum5d !== null ? (momentum5d >= 0 ? '+' : '') + momentum5d.toFixed(2) : '—'}</td>`;
-      html += `<td style="padding:6px 8px;text-align:right;color:${mom20Color};font-weight:600;">${momentum20d !== null ? (momentum20d >= 0 ? '+' : '') + momentum20d.toFixed(2) : '—'}</td>`;
-      html += `<td style="padding:6px 8px;text-align:right;color:${volColor};">${vol !== null ? vol.toFixed(2) : '—'}</td>`;
-      html += `<td style="padding:6px 8px;text-align:right;color:${rsColor};font-weight:600;">${rs !== null ? (rs >= 0 ? '+' : '') + rs.toFixed(2) : '—'}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;color:${mom5Color};font-weight:600;">${momentum5d !== null ? (momentum5d >= 0 ? '+' : '') + momentum5d.toFixed(2) : '-'}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;color:${mom20Color};font-weight:600;">${momentum20d !== null ? (momentum20d >= 0 ? '+' : '') + momentum20d.toFixed(2) : '-'}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;color:${volColor};">${vol !== null ? vol.toFixed(2) : '-'}</td>`;
+      html += `<td style="padding:6px 8px;text-align:right;color:${rsColor};font-weight:600;">${rs !== null ? (rs >= 0 ? '+' : '') + rs.toFixed(2) : '-'}</td>`;
 
       if (c.reason_codes && c.reason_codes.length > 0) {
         const chips = c.reason_codes.map(code => {
@@ -2889,7 +2972,7 @@ function renderMarketScanResult(data, resultEl) {
         }).join('');
         html += `<td style="padding:6px 8px;font-size:9px;">${chips}</td>`;
       } else {
-        html += '<td style="padding:6px 8px;color:var(--label);">—</td>';
+        html += '<td style="padding:6px 8px;color:var(--label);">-</td>';
       }
 
       html += '</tr>';
@@ -2988,14 +3071,14 @@ async function dtrRunPredictionStrategy(btn) {
           const recColor = pred.recommendation === 'BUY' ? 'var(--ok)' : pred.recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
           const recBg = pred.recommendation === 'BUY' ? 'rgba(34,197,94,.08)' : pred.recommendation === 'SELL' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)';
           const conf = parseFloat(pred.confidence).toFixed(2);
-          const ret = pred.expected_return_pct ? parseFloat(pred.expected_return_pct).toFixed(2) : '—';
+          const ret = pred.expected_return_pct ? parseFloat(pred.expected_return_pct).toFixed(2) : '-';
 
           resultHtml += `<tr style="border-bottom:1px solid var(--border);background:${recBg};">`;
           resultHtml += `<td style="padding:6px;font-weight:600;">${escapeHtml(pred.ticker)}</td>`;
           resultHtml += `<td style="padding:6px;color:${recColor};font-weight:600;">${escapeHtml(pred.recommendation)}</td>`;
           resultHtml += `<td style="padding:6px;">${conf}</td>`;
-          resultHtml += `<td style="padding:6px;">${escapeHtml(pred.current_price || '—')}</td>`;
-          resultHtml += `<td style="padding:6px;">${escapeHtml(pred.forecast_price_5d || '—')}</td>`;
+          resultHtml += `<td style="padding:6px;">${escapeHtml(pred.current_price || '-')}</td>`;
+          resultHtml += `<td style="padding:6px;">${escapeHtml(pred.forecast_price_5d || '-')}</td>`;
           resultHtml += `<td style="padding:6px;">${ret}%</td>`;
           resultHtml += `<td style="padding:6px;color:var(--label);">${escapeHtml(pred.market_context)}</td>`;
           resultHtml += `</tr>`;
@@ -3092,7 +3175,7 @@ async function checkStrategyReadiness() {
       b.tickers_status.forEach(t => {
         const status = t.has_sufficient_history ? 'Ready' : `Insufficient (needs ${t.missing_count} more)`;
         const statusClass = t.has_sufficient_history ? 'color:var(--ok)' : 'color:var(--danger)';
-        const latest = t.latest_market_date || '—';
+        const latest = t.latest_market_date || '-';
         html += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:0.5rem;">${escapeHtml(t.ticker)}</td><td style="text-align:right;padding:0.5rem;">${t.price_count}</td><td style="padding:0.5rem;">${escapeHtml(latest)}</td><td style="padding:0.5rem;${statusClass}">${status}</td></tr>`;
       });
 
@@ -3151,6 +3234,10 @@ async function runPredictionPreview(btn) {
       window._lastPredictionPreviewData = b;
       renderPredictionPreviewResult(b, resultEl);
       toast('Prediction preview complete', 'ok');
+      const _naEl = document.getElementById('cockpit-next-action');
+      if (_naEl) _naEl.textContent = 'Preview complete - review candidates and click Save to Review Queue';
+      const _asEl = document.getElementById('right-action-status');
+      if (_asEl) { _asEl.textContent = new Date().toLocaleTimeString(); _asEl.style.color = 'var(--ok)'; }
     } else if (r.status === 422) {
       throw new Error(b.detail ?? 'Validation error (422)');
     } else if (r.status === 401) {
@@ -3209,8 +3296,8 @@ function renderPredictionPreviewResult(data, resultEl) {
   // Scan summary cards
   const scan = data.scan || {};
   html += '<div style="margin-bottom: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">';
-  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Universe<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${escapeHtml(scan.universe || '—')}</span></div>`;
-  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Scan Date<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${scan.scan_date || '—'}</span></div>`;
+  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Universe<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${escapeHtml(scan.universe || '-')}</span></div>`;
+  html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Scan Date<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${scan.scan_date || '-'}</span></div>`;
   html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Evaluated<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${scan.evaluated_count || 0}</span></div>`;
   html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Skipped<br><span style="font-size: 13px; color: ${(scan.skipped_count || 0) > 0 ? 'var(--warning)' : 'var(--text-primary)'}; font-weight: 700;">${scan.skipped_count || 0}</span></div>`;
   html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Selected<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${(data.selected_tickers || []).length}</span></div>`;
@@ -3248,19 +3335,19 @@ function renderPredictionPreviewResult(data, resultEl) {
                       preview.prediction_recommendation === 'SELL' ? 'var(--danger)' :
                       preview.prediction_recommendation ? 'var(--warning)' : 'var(--label)';
 
-      const conf = preview.prediction_confidence ? parseFloat(preview.prediction_confidence).toFixed(2) : '—';
-      const ret = preview.expected_return_pct ? parseFloat(preview.expected_return_pct).toFixed(2) : '—';
+      const conf = preview.prediction_confidence ? parseFloat(preview.prediction_confidence).toFixed(2) : '-';
+      const ret = preview.expected_return_pct ? parseFloat(preview.expected_return_pct).toFixed(2) : '-';
       const rs = preview.relative_strength_vs_spy_20d ? parseFloat(preview.relative_strength_vs_spy_20d).toFixed(2) : 'Insufficient data';
 
-      const reasonsText = preview.preview_reasons ? preview.preview_reasons.join('; ') : '—';
+      const reasonsText = preview.preview_reasons ? preview.preview_reasons.join('; ') : '-';
 
       html += `<tr style="border-bottom: 1px solid var(--border); background: ${decisionBg};">`;
       html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(preview.ticker)}</td>`;
       html += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(preview.preview_decision)}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right; font-weight: 600;">${parseFloat(preview.preview_score).toFixed(1)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_rank || '—'}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_score ? parseFloat(preview.scan_score).toFixed(2) : '—'}</td>`;
-      html += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: ${preview.prediction_recommendation ? '600' : '400'};">${escapeHtml(preview.prediction_recommendation || '—')}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_rank || '-'}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_score ? parseFloat(preview.scan_score).toFixed(2) : '-'}</td>`;
+      html += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: ${preview.prediction_recommendation ? '600' : '400'};">${escapeHtml(preview.prediction_recommendation || '-')}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right;">${rs}</td>`;
@@ -3273,8 +3360,8 @@ function renderPredictionPreviewResult(data, resultEl) {
 
     // Save to Review Queue buttons
     html += '<div style="margin-bottom: 16px; display: flex; gap: 8px;">';
-    html += '<button onclick="saveCandidatesToReviewQueue(\'CONSIDER\')" style="padding: 8px 14px; background: var(--ok); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save CONSIDER to Review Queue</button>';
-    html += '<button onclick="saveCandidatesToReviewQueue(\'ALL\')" style="padding: 8px 14px; background: var(--text-accent); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save All to Review Queue</button>';
+    html += '<button onclick="saveCandidatesToReviewQueue(\'CONSIDER\', this)" style="padding: 8px 14px; background: var(--ok); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save CONSIDER to Review Queue</button>';
+    html += '<button onclick="saveCandidatesToReviewQueue(\'ALL\', this)" style="padding: 8px 14px; background: var(--text-accent); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save All to Review Queue</button>';
     html += '</div>';
   }
 
@@ -3299,17 +3386,17 @@ function renderPredictionPreviewResult(data, resultEl) {
       const recColor = pred.recommendation === 'BUY' ? 'var(--ok)' : pred.recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
       const recBg = pred.recommendation === 'BUY' ? 'rgba(34,197,94,.08)' : pred.recommendation === 'SELL' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)';
       const conf = parseFloat(pred.confidence).toFixed(2);
-      const ret = pred.expected_return_pct ? parseFloat(pred.expected_return_pct).toFixed(2) : '—';
+      const ret = pred.expected_return_pct ? parseFloat(pred.expected_return_pct).toFixed(2) : '-';
 
       html += `<tr style="border-bottom: 1px solid var(--border); background: ${recBg};">`;
       html += `<td style="padding: 6px 8px; font-weight: 600;">${escapeHtml(pred.ticker)}</td>`;
       html += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: 600;">${escapeHtml(pred.recommendation)}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right;">${parseFloat(pred.current_price).toFixed(2)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${pred.forecast_price_5d ? parseFloat(pred.forecast_price_5d).toFixed(2) : '—'}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${pred.forecast_price_5d ? parseFloat(pred.forecast_price_5d).toFixed(2) : '-'}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
-      html += `<td style="padding: 6px 8px; color: var(--label); font-size: 10px;">${escapeHtml(pred.market_context || '—')}</td>`;
-      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label);">${escapeHtml(pred.reason || '—')}</td>`;
+      html += `<td style="padding: 6px 8px; color: var(--label); font-size: 10px;">${escapeHtml(pred.market_context || '-')}</td>`;
+      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label);">${escapeHtml(pred.reason || '-')}</td>`;
       html += '</tr>';
     });
 
@@ -3350,7 +3437,7 @@ function renderPredictionPreviewResult(data, resultEl) {
           (accounting_match ? 'color: var(--ok)' : 'color: var(--danger)') + '; margin-bottom: 8px;">Accounting Check</div>';
   html += `<div style="font-size: 12px; color: var(--text-primary); margin-bottom: 6px;">Selected: <strong>${selected_count}</strong> | Normalized: <strong>${normalized_count}</strong> | Failures: <strong>${failures_count}</strong> | Accounted For: <strong>${accounted_for}</strong></div>`;
   html += '<div style="font-size: 11px; ' + (accounting_match ? 'color: var(--ok);' : 'color: var(--danger);') + ' font-weight: 600;">' +
-          (accounting_match ? '✓ All selected tickers accounted for' : '✗ Accounting mismatch — missing tickers') + '</div>';
+          (accounting_match ? '✓ All selected tickers accounted for' : '✗ Accounting mismatch - missing tickers') + '</div>';
   html += '</div>';
 
   // Safety execution counts
@@ -3441,7 +3528,7 @@ async function dtrSubmitSignal(btn) {
   const confidence = document.getElementById('dtr-confidence').value.trim();
 
   if (!ticker) { toast('Ticker required', 'err'); return; }
-  if (!confidence || !isValidConfidence(confidence)) { toast('Confidence must be 0–1', 'err'); return; }
+  if (!confidence || !isValidConfidence(confidence)) { toast('Confidence must be 0-1', 'err'); return; }
 
   document.getElementById('dtr-ticker').value = ticker;
   document.getElementById('dtr-status-signal').textContent = 'Running';
@@ -3570,76 +3657,102 @@ async function dtrRefreshReview(btn) {
   }
 }
 
-async function saveCandidatesToReviewQueue(mode) {
-  // Get current candidate previews from the last successful prediction preview run
-  const contentDiv = document.getElementById('prediction-preview-result');
-  if (!contentDiv) {
-    alert('No prediction preview data available.');
-    return;
-  }
-
-  // Parse the current result to extract candidates
-  let candidates = window._lastPredictionPreviewData?.candidate_previews || [];
-  if (!candidates || candidates.length === 0) {
-    alert('No candidates available to save.');
-    return;
-  }
-
-  // Filter if mode is CONSIDER
-  if (mode === 'CONSIDER') {
-    candidates = candidates.filter(c => c.preview_decision === 'CONSIDER');
-    if (candidates.length === 0) {
-      alert('No CONSIDER candidates to save.');
+async function saveCandidatesToReviewQueue(mode, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    // Get current candidate previews from the last successful prediction preview run
+    const contentDiv = document.getElementById('prediction-preview-result');
+    if (!contentDiv) {
+      toast('No prediction preview data available', 'err');
       return;
     }
-  }
 
-  // Generate idempotency key
-  const now = new Date();
-  const ikey = `review-save-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+    // Dedup guard: prevent saving the same preview batch twice
+    if (window._lastPredictionPreviewData?._saved) {
+      toast('Already saved. Re-run Prediction Preview to reset.', 'info');
+      return;
+    }
 
-  // Build request
-  const payload = {
-    idempotency_key: ikey,
-    candidates: candidates.map(c => ({
-      ticker: c.ticker,
-      scan_rank: c.scan_rank,
-      scan_score: c.scan_score,
-      latest_price: c.latest_price,
-      momentum_5d_pct: c.momentum_5d_pct,
-      momentum_20d_pct: c.momentum_20d_pct,
-      relative_strength_vs_spy_20d: c.relative_strength_vs_spy_20d,
-      scan_reason_codes: c.scan_reason_codes,
-      prediction_recommendation: c.prediction_recommendation,
-      prediction_confidence: c.prediction_confidence,
-      forecast_price_5d: c.forecast_price_5d,
-      expected_return_pct: c.expected_return_pct,
-      market_context: c.market_context,
-      preview_decision: c.preview_decision,
-      preview_score: c.preview_score,
-      preview_reasons: c.preview_reasons,
-      status: c.status,
-    }))
-  };
+    // Parse the current result to extract candidates
+    let candidates = window._lastPredictionPreviewData?.candidate_previews || [];
+    if (!candidates || candidates.length === 0) {
+      toast('No candidates available to save', 'err');
+      return;
+    }
 
-  try {
+    // Filter if mode is CONSIDER
+    if (mode === 'CONSIDER') {
+      candidates = candidates.filter(c => c.preview_decision === 'CONSIDER');
+      if (candidates.length === 0) {
+        toast('No CONSIDER candidates to save', 'err');
+        return;
+      }
+    }
+
+    // Generate idempotency key
+    const now = new Date();
+    const ikey = `review-save-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+
+    // Build request
+    const payload = {
+      idempotency_key: ikey,
+      candidates: candidates.map(c => ({
+        ticker: c.ticker,
+        scan_rank: c.scan_rank,
+        scan_score: c.scan_score,
+        latest_price: c.latest_price,
+        momentum_5d_pct: c.momentum_5d_pct,
+        momentum_20d_pct: c.momentum_20d_pct,
+        relative_strength_vs_spy_20d: c.relative_strength_vs_spy_20d,
+        scan_reason_codes: c.scan_reason_codes,
+        prediction_recommendation: c.prediction_recommendation,
+        prediction_confidence: c.prediction_confidence,
+        forecast_price_5d: c.forecast_price_5d,
+        expected_return_pct: c.expected_return_pct,
+        market_context: c.market_context,
+        preview_decision: c.preview_decision,
+        preview_score: c.preview_score,
+        preview_reasons: c.preview_reasons,
+        status: c.status,
+      }))
+    };
+
     const r = await call('POST', '/v1/review/candidates', payload);
     const b = await parseApiResponse(r);
     if (r.ok) {
-      alert(`✓ Saved ${b.inserted_count} candidates to Review Queue (${b.skipped_existing_count} already existed).`);
+      const msg = b.inserted_count || b.skipped_existing_count ?
+        `Saved ${b.inserted_count || 0} candidates. ${b.skipped_existing_count || 0} already existed.` :
+        'Candidates saved to Review Queue.';
+      toast(msg, 'ok');
+
+      // Mark this preview batch as saved to prevent duplicate posts
+      if (window._lastPredictionPreviewData) window._lastPredictionPreviewData._saved = true;
+
+      // Update Last UI Action
+      const actionEl = document.getElementById('right-action-status');
+      if (actionEl) actionEl.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+      // Update Next Action
+      const nextActionEl = document.getElementById('cockpit-next-action');
+      if (nextActionEl) {
+        nextActionEl.textContent = 'Open Review Queue to create signals from saved candidates';
+      }
+
       // Show review queue, signal preview, create signals, decision preview, create decisions, and order preview
-      document.getElementById('review-queue-card').style.display = 'block';
-      document.getElementById('signal-preview-card').style.display = 'block';
-      document.getElementById('create-signals-card').style.display = 'block';
-      document.getElementById('decision-preview-card').style.display = 'block';
-      document.getElementById('create-decisions-card').style.display = 'block';
-      document.getElementById('order-preview-card').style.display = 'block';
+      const _rqCard = document.getElementById('review-queue-card'); if (_rqCard) _rqCard.style.display = 'block';
+      const _spCard = document.getElementById('signal-preview-card'); if (_spCard) _spCard.style.display = 'block';
+      const _csCard = document.getElementById('create-signals-card'); if (_csCard) _csCard.style.display = 'block';
+      const _dpCard = document.getElementById('decision-preview-card'); if (_dpCard) _dpCard.style.display = 'block';
+      const _cdCard = document.getElementById('create-decisions-card'); if (_cdCard) _cdCard.style.display = 'block';
+      const _opCard = document.getElementById('order-preview-card'); if (_opCard) _opCard.style.display = 'block';
       await loadReviewQueue();
     } else {
-      alert(`✗ Failed:\n${formatApiError(b.detail)}`);
+      toast(`Failed: ${formatApiError(b.detail)}`, 'err');
     }
   } catch (e) {
-    alert(`✗ Error: ${e.message}`);
+    toast(`Error: ${e.message}`, 'err');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -3648,91 +3761,54 @@ async function loadReviewQueue() {
     const r = await call('GET', '/v1/review/candidates?limit=100', null);
     const candidates = await parseApiResponse(r);
     if (!r.ok) {
-      throw new Error(candidates.detail);
+      throw new Error(candidates.detail || `HTTP ${r.status}`);
     }
-    renderReviewQueue(candidates);
+    window._lastReviewQueueData = candidates;
+    filterReviewQueue();
   } catch (e) {
-    document.getElementById('review-queue-content').innerHTML = `<div style="color: var(--danger); padding: 12px;">Error loading review queue: ${escapeHtml(e.message)}</div>`;
+    const tb = document.getElementById('rq-tbody');
+    if (tb) tb.innerHTML = `<tr><td colspan="9" class="empty" style="color: var(--danger);">Error: ${escapeHtml(e.message)}</td></tr>`;
   }
 }
 
 function renderReviewQueue(candidates) {
-  const container = document.getElementById('review-queue-content');
-  let html = '';
-
-  // Controls
-  html += '<div style="margin-bottom: 12px; display: flex; gap: 8px;">';
-  html += '<button class="btn-sm" onclick="loadReviewQueue()">Refresh</button>';
-  html += '<select id="review-status-filter" onchange="filterReviewQueue()" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">';
-  html += '<option value="">All statuses</option>';
-  html += '<option value="NEW">NEW</option>';
-  html += '<option value="WATCHING">WATCHING</option>';
-  html += '<option value="REJECTED">REJECTED</option>';
-  html += '<option value="APPROVED_FOR_SIGNAL">APPROVED_FOR_SIGNAL</option>';
-  html += '</select>';
-  html += '<input type="text" id="review-ticker-filter" placeholder="Filter ticker..." onchange="filterReviewQueue()" style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); color: var(--text-primary); font-size: 11px;">';
-  html += '</div>';
+  const tbody = document.getElementById('rq-tbody');
+  if (!tbody) return;
 
   if (candidates.length === 0) {
-    html += '<div style="color: var(--label); padding: 12px; text-align: center;">No candidates in review queue</div>';
-    container.innerHTML = html;
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">No candidates in review queue</td></tr>';
     return;
   }
 
-  // Table
-  html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
-  html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
-  html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
-  html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
-  html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Status</th>';
-  html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Decision</th>';
-  html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Score</th>';
-  html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Rec</th>';
-  html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Conf</th>';
-  html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Return %</th>';
-  html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">RS SPY</th>';
-  html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Actions</th>';
-  html += '</tr></thead><tbody>';
-
-  candidates.forEach(c => {
+  tbody.innerHTML = candidates.map(c => {
     const statusColor = c.review_status === 'NEW' ? 'var(--warning)' :
                        c.review_status === 'WATCHING' ? 'var(--text-primary)' :
                        c.review_status === 'REJECTED' ? 'var(--danger)' :
                        c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
-    const statusBg = c.review_status === 'NEW' ? 'rgba(245,158,11,.08)' :
-                     c.review_status === 'WATCHING' ? 'rgba(59,130,246,.08)' :
-                     c.review_status === 'REJECTED' ? 'rgba(239,68,68,.08)' :
-                     c.review_status === 'APPROVED_FOR_SIGNAL' ? 'rgba(34,197,94,.08)' : 'rgba(0,0,0,.05)';
-
     const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
                          c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
-
     const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
                     c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+    const conf = c.prediction_confidence ? parseFloat(c.prediction_confidence).toFixed(2) : '-';
+    const ret = c.expected_return_pct ? parseFloat(c.expected_return_pct).toFixed(2) : '-';
+    const rs = c.relative_strength_vs_spy_20d ? parseFloat(c.relative_strength_vs_spy_20d).toFixed(2) : '-';
+    return `<tr>
+      <td><strong>${escapeHtml(c.ticker)}</strong></td>
+      <td style="color:${statusColor};font-weight:600;font-size:10px;">${escapeHtml(c.review_status)}</td>
+      <td style="color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
+      <td style="text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
+      <td style="color:${recColor};font-weight:600;">${escapeHtml(c.prediction_recommendation || '-')}</td>
+      <td style="text-align:right;">${conf}</td>
+      <td style="text-align:right;">${ret}</td>
+      <td style="text-align:right;">${rs}</td>
+      <td>
+        <button onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding:3px 6px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Watch</button>
+        <button onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding:3px 6px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Reject</button>
+        <button onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding:3px 6px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>
+      </td>
+    </tr>`;
+  }).join('');
 
-    const conf = c.prediction_confidence ? parseFloat(c.prediction_confidence).toFixed(2) : '—';
-    const ret = c.expected_return_pct ? parseFloat(c.expected_return_pct).toFixed(2) : '—';
-    const rs = c.relative_strength_vs_spy_20d ? parseFloat(c.relative_strength_vs_spy_20d).toFixed(2) : '—';
-
-    html += `<tr style="border-bottom: 1px solid var(--border); background: ${statusBg};">`;
-    html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(c.ticker)}</td>`;
-    html += `<td style="padding: 6px 8px; text-align: center; color: ${statusColor}; font-weight: 600; font-size: 10px;">${escapeHtml(c.review_status)}</td>`;
-    html += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(c.preview_decision)}</td>`;
-    html += `<td style="padding: 6px 8px; text-align: right; font-weight: 600;">${parseFloat(c.preview_score).toFixed(1)}</td>`;
-    html += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: 600;">${escapeHtml(c.prediction_recommendation || '—')}</td>`;
-    html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
-    html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
-    html += `<td style="padding: 6px 8px; text-align: right;">${rs}</td>`;
-    html += `<td style="padding: 6px 8px;">`;
-    html += `<button class="btn-xs" onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding: 3px 6px; margin-right: 2px; background: var(--text-accent); color: white; border: none; border-radius: 2px; font-weight: 600; font-size: 9px; cursor: pointer;">Watch</button>`;
-    html += `<button class="btn-xs" onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding: 3px 6px; margin-right: 2px; background: var(--danger); color: white; border: none; border-radius: 2px; font-weight: 600; font-size: 9px; cursor: pointer;">Reject</button>`;
-    html += `<button class="btn-xs" onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding: 3px 6px; background: var(--ok); color: white; border: none; border-radius: 2px; font-weight: 600; font-size: 9px; cursor: pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
-    html += '</td>';
-    html += '</tr>';
-  });
-
-  html += '</tbody></table></div>';
-  container.innerHTML = html;
   window._lastReviewQueueData = candidates;
 }
 
@@ -3743,23 +3819,35 @@ async function updateReviewStatus(candidateId, newStatus) {
     if (r.ok) {
       await loadReviewQueue();
     } else {
-      alert(`✗ Failed: ${result.detail}`);
+      toast(`Failed: ${result.detail}`, 'err');
     }
   } catch (e) {
-    alert(`✗ Error: ${e.message}`);
+    toast(`Error: ${e.message}`, 'err');
   }
 }
 
 function filterReviewQueue() {
   const allCandidates = window._lastReviewQueueData || [];
-  const statusFilter = document.getElementById('review-status-filter')?.value || '';
-  const tickerFilter = document.getElementById('review-ticker-filter')?.value.toUpperCase() || '';
+  const statusFilter = document.getElementById('rq-status')?.value || '';
+  const tickerFilter = (document.getElementById('rq-ticker')?.value || '').toUpperCase();
+  const latestOnly = document.getElementById('rq-latest-only')?.checked || false;
 
-  const filtered = allCandidates.filter(c => {
+  let filtered = allCandidates.filter(c => {
     const statusMatch = !statusFilter || c.review_status === statusFilter;
     const tickerMatch = !tickerFilter || c.ticker.includes(tickerFilter);
     return statusMatch && tickerMatch;
   });
+
+  // If latest per ticker is checked, keep only the most recent entry per ticker
+  if (latestOnly) {
+    const latestMap = {};
+    filtered.forEach(c => {
+      if (!latestMap[c.ticker] || new Date(c.created_at) > new Date(latestMap[c.ticker].created_at)) {
+        latestMap[c.ticker] = c;
+      }
+    });
+    filtered = Object.values(latestMap);
+  }
 
   renderReviewQueue(filtered);
 }
@@ -3768,7 +3856,7 @@ async function generateSignalPreview() {
   const limit = parseInt(document.getElementById('signal-preview-limit').value) || 50;
   const container = document.getElementById('signal-preview-content');
 
-  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Generating preview…</div>';
+  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Generating preview...</div>';
 
   try {
     const r = await call('POST', '/v1/review/signal-preview', {
@@ -3825,7 +3913,7 @@ function renderSignalPreview(data) {
 
       const conf = parseFloat(s.confidence).toFixed(2);
       const score = parseFloat(s.preview_score).toFixed(1);
-      const ret = s.expected_return_pct ? parseFloat(s.expected_return_pct).toFixed(2) : '—';
+      const ret = s.expected_return_pct ? parseFloat(s.expected_return_pct).toFixed(2) : '-';
 
       html += `<tr style="border-bottom: 1px solid var(--border);">`;
       html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
@@ -3871,30 +3959,38 @@ async function createSignalsFromCandidates() {
   const limit = parseInt(document.getElementById('create-signals-limit').value) || 50;
   const container = document.getElementById('create-signals-content');
 
-  if (!confirm('This will create Signal rows only. It will NOT create decisions or orders. Continue?')) {
-    return;
-  }
+  // Show confirm modal and continue only if confirmed
+  return new Promise(resolve => {
+    window._showConfirmModal(
+      'This will create Signal rows only. It will NOT create decisions or orders. Continue?',
+      async () => {
+        container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Creating signals...</div>';
 
-  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Creating signals…</div>';
-
-  try {
-    const r = await call('POST', '/v1/review/create-signals', {
-      idempotency_key: `create-signals-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      review_status: 'APPROVED_FOR_SIGNAL',
-      limit: limit,
-      confirm_create_signals: true,
-    });
-    if (!r.ok) {
-      const data = await parseApiResponse(r);
-      const errMsg = formatApiError(data);
-      container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${escapeHtml(errMsg)}</div>`;
-      return;
-    }
-    const data = await r.json();
-    renderCreateSignalsResponse(data);
-  } catch (e) {
-    container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
-  }
+        try {
+          const r = await call('POST', '/v1/review/create-signals', {
+            idempotency_key: `create-signals-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            review_status: 'APPROVED_FOR_SIGNAL',
+            limit: limit,
+            confirm_create_signals: true,
+          });
+          if (!r.ok) {
+            const data = await parseApiResponse(r);
+            const errMsg = formatApiError(data);
+            container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${escapeHtml(errMsg)}</div>`;
+            resolve();
+            return;
+          }
+          const data = await r.json();
+          renderCreateSignalsResponse(data);
+          resolve();
+        } catch (e) {
+          container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
+          resolve();
+        }
+      },
+      () => resolve()
+    );
+  });
 }
 
 function renderCreateSignalsResponse(data) {
@@ -3956,7 +4052,7 @@ function renderCreateSignalsResponse(data) {
       html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
       html += `<td style="padding: 6px 8px; text-align: center; color: ${sideColor}; font-weight: 600;">${escapeHtml(s.side)}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">${escapeHtml(s.confidence)}</td>`;
-      html += `<td style="padding: 6px 8px; font-family: 'Monaco', monospace; font-size: 10px; color: var(--label);">${escapeHtml(s.signal_id.slice(0, 8))}…</td>`;
+      html += `<td style="padding: 6px 8px; font-family: 'Monaco', monospace; font-size: 10px; color: var(--label);">${escapeHtml(s.signal_id.slice(0, 8))}...</td>`;
       html += '</tr>';
     });
 
@@ -3985,10 +4081,23 @@ function renderCreateSignalsResponse(data) {
 
   // Safety footer
   html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-top: 2px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--ok); font-weight: 600;">';
-  html += `✓ SAFETY: Trade Decisions created = ${tradeDecisionsCreated}, Orders created = ${ordersCreated}`;
+  html += `[OK] SAFETY: Trade Decisions created = ${tradeDecisionsCreated}, Orders created = ${ordersCreated}`;
   html += '</div>';
 
   container.innerHTML = html;
+
+  // Update Last UI Action
+  const actionEl = document.getElementById('right-action-status');
+  if (actionEl) actionEl.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+  // Update Next Action
+  const nextActionEl = document.getElementById('cockpit-next-action');
+  if (nextActionEl) {
+    nextActionEl.textContent = 'Create decisions from signals to plan trades';
+  }
+
+  // Show toast confirmation
+  toast(`Created ${signalsCreated} signal(s)`, 'ok');
 }
 
 async function previewDecisionsFromSignals() {
@@ -3996,7 +4105,7 @@ async function previewDecisionsFromSignals() {
   const receivedOnly = document.getElementById('decision-preview-received-only').checked;
   const container = document.getElementById('decision-preview-content');
 
-  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Previewing decisions…</div>';
+  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Previewing decisions...</div>';
 
   try {
     const r = await call('POST', '/v1/review/decision-preview', {
@@ -4111,40 +4220,49 @@ function renderDecisionPreviewResponse(data) {
 
   // Safety footer
   html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-top: 2px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--ok); font-weight: 600;">';
-  html += `✓ PREVIEW SAFETY: Trade Decisions created = ${tradeDecisionsCreated}, Orders created = ${ordersCreated}`;
+  html += `[OK] PREVIEW SAFETY: Trade Decisions created = ${tradeDecisionsCreated}, Orders created = ${ordersCreated}`;
   html += '</div>';
 
   container.innerHTML = html;
 }
 
 async function createDecisionsFromSignals() {
-  const confirmed = confirm('This will create TradeDecision rows only.\nIt will NOT create Orders.\nContinue?');
-  if (!confirmed) return;
-
   const limit = parseInt(document.getElementById('create-decisions-limit').value) || 50;
   const receivedOnly = document.getElementById('create-decisions-received-only').checked;
   const container = document.getElementById('create-decisions-content');
 
-  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Creating trade decisions…</div>';
+  // Show confirm modal and continue only if confirmed
+  return new Promise(resolve => {
+    window._showConfirmModal(
+      'This will create TradeDecision rows only. It will NOT create Orders. Continue?',
+      async () => {
+        container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Creating trade decisions...</div>';
 
-  try {
-    const r = await call('POST', '/v1/review/create-decisions', {
-      idempotency_key: `create-decisions-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      limit: limit,
-      received_only: receivedOnly,
-      confirm_create_decisions: true,
-    });
-    if (!r.ok) {
-      const data = await parseApiResponse(r);
-      const errMsg = formatApiError(data);
-      container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${escapeHtml(errMsg)}</div>`;
-      return;
-    }
-    const data = await r.json();
-    renderCreateDecisionsResponse(data);
-  } catch (e) {
-    container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
-  }
+        try {
+          const r = await call('POST', '/v1/review/create-decisions', {
+            idempotency_key: `create-decisions-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            limit: limit,
+            received_only: receivedOnly,
+            confirm_create_decisions: true,
+          });
+          if (!r.ok) {
+            const data = await parseApiResponse(r);
+            const errMsg = formatApiError(data);
+            container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${escapeHtml(errMsg)}</div>`;
+            resolve();
+            return;
+          }
+          const data = await r.json();
+          renderCreateDecisionsResponse(data);
+          resolve();
+        } catch (e) {
+          container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
+          resolve();
+        }
+      },
+      () => resolve()
+    );
+  });
 }
 
 function renderCreateDecisionsResponse(data) {
@@ -4243,10 +4361,23 @@ function renderCreateDecisionsResponse(data) {
 
   // Safety footer
   html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-top: 2px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--ok); font-weight: 600;">';
-  html += `✓ SAFETY: Trade Decisions created = ${decisionsCreated}, Orders created = ${ordersCreated}`;
+  html += `[OK] SAFETY: Trade Decisions created = ${decisionsCreated}, Orders created = ${ordersCreated}`;
   html += '</div>';
 
   container.innerHTML = html;
+
+  // Update Last UI Action
+  const actionEl = document.getElementById('right-action-status');
+  if (actionEl) actionEl.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+  // Update Next Action
+  const nextActionEl = document.getElementById('cockpit-next-action');
+  if (nextActionEl) {
+    nextActionEl.textContent = 'Review and execute orders if ready';
+  }
+
+  // Show toast confirmation
+  toast(`Created ${decisionsCreated} decision(s)`, 'ok');
 }
 
 async function previewOrdersFromDecisions() {
@@ -4254,7 +4385,7 @@ async function previewOrdersFromDecisions() {
   const approvedOnly = document.getElementById('order-preview-approved-only').checked;
   const container = document.getElementById('order-preview-content');
 
-  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Previewing orders…</div>';
+  container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Previewing orders...</div>';
 
   try {
     const r = await call('POST', '/v1/review/order-preview', {
@@ -4384,7 +4515,7 @@ function getDtrStepStatus(step) {
   if (!statusEl) return 'not-started';
   const text = statusEl.textContent.toLowerCase();
   if (text === 'done') return 'done';
-  if (text === 'running' || text === '…') return 'running';
+  if (text === 'running' || text === '...') return 'running';
   if (text === 'error') return 'error';
   return 'not-started';
 }
@@ -4394,7 +4525,7 @@ function getDtrStepStatus(step) {
 async function connectDashboardLegacy() {
   const btn = document.getElementById('connectBtn');
   btn.disabled = true;
-  btn.textContent = 'Connecting…';
+  btn.textContent = 'Connecting...';
   try {
     // 1. Check auth first
     const authR = await call('GET', '/v1/auth/check');
@@ -4414,7 +4545,7 @@ async function connectDashboardLegacy() {
     // 2. Auth successful, load dashboard data
     _appState.connected = true;
     document.getElementById('right-connected').textContent = 'Connected';
-    updateConnectStatus('Connecting…');
+    updateConnectStatus('Connecting...');
 
     if (!document.getElementById('histStart').value)
       document.getElementById('histStart').value = nDaysAgoLocal(30);
@@ -4435,6 +4566,7 @@ async function connectDashboardLegacy() {
         loadPositions(),
         loadOrders(),
         loadHistory(),
+        loadReviewQueue(),
       ]);
       updateConnectStatus('Connected');
     } catch (e) {
@@ -4537,7 +4669,7 @@ document.getElementById('snap-date').closest('details').addEventListener('toggle
 // ---- Review Workflow Panel Functions ----
 
 const WORKFLOW_STEPS = [
-  { id: 'pred-preview', name: 'Prediction Preview', description: 'Scan market and preview candidates for review', button: 'Run Prediction Strategy', action: 'dtrRunPredictionStrategy' },
+  { id: 'pred-preview', name: 'Prediction Preview', description: 'Scan market and preview candidates for review', button: 'Run Prediction Preview', action: 'runPredictionPreview' },
   { id: 'save-review-queue', name: 'Save Candidates', description: 'Save CONSIDER candidates to review queue', button: 'Save CONSIDER', action: 'saveCandidatesToReviewQueue' },
   { id: 'review-queue', name: 'Review Queue', description: 'Candidates waiting for signal creation decision', button: 'Refresh', action: 'refreshReviewQueue' },
   { id: 'signal-preview', name: 'Signal Preview', description: 'Preview signals that will be created from review candidates', button: 'Generate Preview', action: 'generateSignalPreview' },
@@ -4553,12 +4685,7 @@ window._workflowStatusData = null;
 
 async function refreshWorkflowStatus() {
   try {
-    const response = await fetch('/v1/review/workflow-status', {
-      method: 'GET',
-      headers: {
-        'X-API-Key': window._API_KEY || '',
-      },
-    });
+    const response = await call('GET', '/v1/review/workflow-status');
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     const data = await response.json();
     window._workflowStatusData = data;
@@ -4689,9 +4816,9 @@ async function updateReviewWorkflow() {
       } else if (status === 'blocked' || !stepReady) {
         html += `<button class="btn-sm" disabled style="background: var(--label); color: white; cursor: not-allowed; opacity: 0.5;">Blocked</button>`;
       } else if (step.action === 'saveCandidatesToReviewQueue') {
-        html += `<button class="btn-sm" onclick="saveCandidatesToReviewQueue('CONSIDER')" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
-      } else if (step.action === 'dtrRunPredictionStrategy') {
-        html += `<button class="btn-sm" onclick="${step.action}(this)" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
+        html += `<button class="btn-sm" onclick="saveCandidatesToReviewQueue('CONSIDER', this)" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
+      } else if (step.action === 'runPredictionPreview') {
+        html += `<button class="btn-sm" onclick="runPredictionPreview(this)" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
       } else if (step.action === 'refreshReviewQueue') {
         html += `<button class="btn-sm" onclick="refreshReviewQueue()" style="background: var(--info);">${escapeHtml(step.button)}</button>`;
       } else {
@@ -4754,16 +4881,9 @@ function getWorkflowStepStatus(stepId) {
 }
 
 async function refreshReviewQueue() {
-  const card = document.getElementById('review-queue-card');
-  const content = document.getElementById('review-queue-content');
-  try {
-    content.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Loading review queue…</div>';
-    await loadReviewQueue();
-    card.style.display = 'block';
-  } catch (e) {
-    card.style.display = 'block';
-    content.innerHTML = `<div style="color: var(--danger);">Error: ${escapeHtml(e.message)}</div>`;
-  }
+  const tb = document.getElementById('rq-tbody');
+  if (tb) tb.innerHTML = '<tr><td colspan="9" class="empty">Loading review queue...</td></tr>';
+  await loadReviewQueue();
 }
 
 // Health check runs immediately and independently
