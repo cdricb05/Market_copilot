@@ -21,6 +21,7 @@ Endpoints:
     POST /v1/strategy/prediction/fetch-and-run — fetch predictions and run workflow (creates decisions/orders)
     POST /v1/strategy/market-scan/prediction-candidates — market scan + prediction preview (V1 PREVIEW ONLY)
     POST /v1/review/rotation-preview — preview portfolio rotations when at max positions (read-only)
+    POST /v1/review/daily-plan-preview — consolidated daily plan: BUY/SELL/HOLD/ROTATION/BLOCKED (read-only)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -1038,6 +1039,153 @@ class RotationPreviewResponse(BaseModel):
     explanation: str
     safety_counts: RotationSafetyCounts
 
+
+# ---------------------------------------------------------------------------
+# Daily Plan Preview schemas
+# ---------------------------------------------------------------------------
+
+class DailyPlanSafetyCounts(BaseModel):
+    """Zero-write safety counters confirming no DB rows were created."""
+    signals_created: int = 0
+    trade_decisions_created: int = 0
+    orders_created: int = 0
+    job_runs_created: int = 0
+    db_rows_created: int = 0
+
+
+class PortfolioCapacitySummary(BaseModel):
+    """Portfolio capacity and value summary for daily plan."""
+    total_value: str
+    cash: str
+    open_positions: int
+    max_positions: int
+    available_slots: int
+    capacity_status: str
+
+
+class BuyRecommendationItem(BaseModel):
+    """A BUY candidate approved by the risk engine."""
+    ticker: str
+    candidate_review_id: str
+    prediction_confidence: str | None
+    expected_return_pct: str | None
+    forecast_price_5d: str | None
+    latest_price: str | None
+    candidate_score: str
+    approved_qty: str
+    approved_notional: str
+    reason: str
+
+
+class SellRecommendationItem(BaseModel):
+    """A position recommended for sale (SELL signal from review queue, PnL >= 0)."""
+    ticker: str
+    qty: str
+    avg_cost: str
+    latest_price: str | None
+    unrealized_pnl: str
+    unrealized_pnl_pct: str
+    sell_qty: str
+    sell_notional: str
+    reason: str
+
+
+class HoldPositionItem(BaseModel):
+    """A position to hold (no sell signal, or sell blocked)."""
+    ticker: str
+    qty: str
+    avg_cost: str
+    latest_price: str | None
+    unrealized_pnl: str | None
+    unrealized_pnl_pct: str | None
+    reason: str
+
+
+class WatchCandidateItem(BaseModel):
+    """A candidate to watch (HOLD/non-BUY recommendation, or ticker already held)."""
+    candidate_review_id: str
+    ticker: str
+    prediction_recommendation: str | None
+    prediction_confidence: str | None
+    expected_return_pct: str | None
+    preview_decision: str
+    reason: str
+
+
+class DailyPlanRotationItem(BaseModel):
+    """A proposed rotation pair (sell a profitable holding, buy a candidate)."""
+    sell_ticker: str
+    buy_ticker: str
+    sell_unrealized_pnl_pct: str
+    sell_unrealized_pnl: str
+    buy_candidate_score: str
+    improvement_score: str
+    meets_threshold: bool
+    reason: str
+
+
+class DailyPlanBlockedItem(BaseModel):
+    """An action blocked by risk rules, with reason and plain-English explanation."""
+    ticker: str
+    action: str
+    blocked_reason: str
+    explanation: str
+
+
+class DailyPlanPreviewRequest(BaseModel):
+    """Request to generate a read-only consolidated daily trading plan."""
+    approved_only: bool = Field(
+        default=True,
+        description="If True, only consider APPROVED_FOR_SIGNAL candidates.",
+    )
+    min_confidence: float = Field(
+        default=0.65,
+        ge=0.0,
+        le=1.0,
+        description="Minimum prediction confidence to include a BUY candidate.",
+    )
+    max_price_age_days: int = Field(
+        default=5,
+        ge=1,
+        le=30,
+        description="Maximum age in days for a price snapshot to be considered fresh.",
+    )
+    block_loss_realization: bool = Field(
+        default=True,
+        description="If True, positions with unrealized PnL < 0 are blocked from SELL.",
+    )
+    include_rotation: bool = Field(
+        default=True,
+        description="If True, include rotation plan when portfolio is at max positions.",
+    )
+    limit_candidates: int = Field(
+        default=25,
+        ge=1,
+        le=100,
+        description="Maximum number of candidates to evaluate.",
+    )
+    min_rotation_improvement_pct: float = Field(
+        default=5.0,
+        description="Minimum improvement score to propose a rotation pair.",
+    )
+
+
+class DailyPlanPreviewResponse(BaseModel):
+    """Response from daily plan preview endpoint (PREVIEW ONLY, no database writes)."""
+    as_of: datetime
+    portfolio_summary: PortfolioCapacitySummary
+    buy_recommendations: list[BuyRecommendationItem]
+    sell_recommendations: list[SellRecommendationItem]
+    hold_positions: list[HoldPositionItem]
+    watch_candidates: list[WatchCandidateItem]
+    rotation_plan: list[DailyPlanRotationItem]
+    blocked_actions: list[DailyPlanBlockedItem]
+    recommended_next_action: str
+    explanation: str
+    safety_counts: DailyPlanSafetyCounts
+
+
+# ---------------------------------------------------------------------------
 
 class BackfillRequest(BaseModel):
     universe: str = Field(
@@ -5348,6 +5496,489 @@ async def preview_portfolio_rotation(
             signals_created=0,
             decisions_created=0,
             orders_created=0,
+            db_rows_created=0,
+        ),
+    )
+
+
+@app.post(
+    "/v1/review/daily-plan-preview",
+    response_model=DailyPlanPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def daily_plan_preview(
+    body: DailyPlanPreviewRequest,
+) -> DailyPlanPreviewResponse:
+    """
+    Generate a read-only consolidated daily trading plan.
+
+    PREVIEW ONLY. No Signal, TradeDecision, Order, Position, JobRun, or any
+    other database rows are created or mutated.
+
+    Logic:
+    1. Read portfolio state and open positions.
+    2. Compute unrealized P&L per holding using latest price snapshots.
+    3. Positions with a SELL signal in the review queue and PnL >= 0 → sell_recommendations.
+       Positions with PnL < 0 and block_loss_realization=True → blocked from SELL.
+       All others → hold_positions.
+    4. BUY candidates from review queue are evaluated via evaluate_signal().
+       Approved → buy_recommendations; rejected → blocked_actions.
+    5. If at max positions and BUYs are blocked by MAX_POSITIONS_REACHED,
+       build rotation_plan pairing profitable holdings with strong BUY candidates.
+    6. Derive recommended_next_action from results.
+    """
+    from datetime import timedelta
+
+    _DOLLARS = Decimal("0.01")
+
+    with get_session() as session:
+        # 1. Portfolio & position state
+        portfolio = get_portfolio(session)
+        cfg_max = int((portfolio.config or {}).get("max_positions", get_settings().max_positions))
+        open_positions = list(session.execute(select(Position)).scalars().all())
+        held_tickers = {p.ticker for p in open_positions}
+        current_count = len(open_positions)
+        available_slots = max(0, cfg_max - current_count)
+        capacity_status = "HAS_CAPACITY" if current_count < cfg_max else "AT_CAPACITY"
+
+        now = datetime.now(timezone.utc)
+        eastern_date = now.astimezone(_EASTERN).date()
+        stale_cutoff = now - timedelta(days=body.max_price_age_days)
+
+        # 2. Load candidates
+        cand_q = session.query(CandidateReview)
+        if body.approved_only:
+            cand_q = cand_q.filter(CandidateReview.review_status == "APPROVED_FOR_SIGNAL")
+        raw_candidates = list(cand_q.limit(body.limit_candidates).all())
+        no_candidates = len(raw_candidates) == 0
+
+        sell_signal_tickers: set[str] = {
+            c.ticker for c in raw_candidates
+            if c.prediction_recommendation
+            and c.prediction_recommendation.upper() == "SELL"
+            and c.ticker in held_tickers
+        }
+
+        # 3. Analyze current holdings
+        blocked_actions: list[DailyPlanBlockedItem] = []
+        hold_positions: list[HoldPositionItem] = []
+        sell_recommendations: list[SellRecommendationItem] = []
+        profitable_positions: list[tuple] = []  # (ticker, pnl_pct, snap_price, pos)
+
+        for pos in open_positions:
+            price_row = session.execute(
+                select(PriceSnapshot.price, PriceSnapshot.snapshot_ts)
+                .where(PriceSnapshot.ticker == pos.ticker)
+                .order_by(PriceSnapshot.snapshot_ts.desc())
+                .limit(1)
+            ).first()
+
+            if price_row is None:
+                if pos.ticker in sell_signal_tickers:
+                    blocked_actions.append(DailyPlanBlockedItem(
+                        ticker=pos.ticker, action="SELL",
+                        blocked_reason="MISSING_PRICE",
+                        explanation="No price snapshot found. Cannot evaluate sell.",
+                    ))
+                hold_positions.append(HoldPositionItem(
+                    ticker=pos.ticker, qty=str(pos.qty), avg_cost=str(pos.avg_cost),
+                    latest_price=None, unrealized_pnl=None, unrealized_pnl_pct=None,
+                    reason="No price data. Hold until price is refreshed.",
+                ))
+                continue
+
+            snap_price, snap_ts = price_row
+            snap_price = Decimal(str(snap_price))
+            if snap_ts.tzinfo is None:
+                snap_ts = snap_ts.replace(tzinfo=timezone.utc)
+            stale = snap_ts < stale_cutoff
+
+            current_value = (pos.qty * snap_price).quantize(_DOLLARS)
+            unrealized_pnl = (current_value - pos.cost_basis).quantize(_DOLLARS)
+            cost_basis_f = float(pos.cost_basis)
+            pnl_pct = float(unrealized_pnl) / cost_basis_f * 100.0 if cost_basis_f != 0.0 else 0.0
+
+            if stale:
+                if pos.ticker in sell_signal_tickers:
+                    blocked_actions.append(DailyPlanBlockedItem(
+                        ticker=pos.ticker, action="SELL",
+                        blocked_reason="STALE_PRICE",
+                        explanation=f"Price snapshot older than {body.max_price_age_days} days.",
+                    ))
+                hold_positions.append(HoldPositionItem(
+                    ticker=pos.ticker, qty=str(pos.qty), avg_cost=str(pos.avg_cost),
+                    latest_price=str(snap_price),
+                    unrealized_pnl=str(unrealized_pnl),
+                    unrealized_pnl_pct=f"{pnl_pct:.4f}",
+                    reason=f"Price stale (>{body.max_price_age_days}d). Hold until refreshed.",
+                ))
+                continue
+
+            is_sell_ticker = pos.ticker in sell_signal_tickers
+
+            if is_sell_ticker:
+                if body.block_loss_realization and pnl_pct < 0:
+                    blocked_actions.append(DailyPlanBlockedItem(
+                        ticker=pos.ticker, action="SELL",
+                        blocked_reason="NEGATIVE_PNL_BLOCKED",
+                        explanation=f"Position is {pnl_pct:.2f}% below cost. Selling would realize a loss.",
+                    ))
+                    hold_positions.append(HoldPositionItem(
+                        ticker=pos.ticker, qty=str(pos.qty), avg_cost=str(pos.avg_cost),
+                        latest_price=str(snap_price),
+                        unrealized_pnl=str(unrealized_pnl),
+                        unrealized_pnl_pct=f"{pnl_pct:.4f}",
+                        reason=f"Sell signal blocked: {pnl_pct:.2f}% below cost. Selling would realize a loss.",
+                    ))
+                else:
+                    sell_cand = next(
+                        (c for c in raw_candidates
+                         if c.ticker == pos.ticker
+                         and c.prediction_recommendation
+                         and c.prediction_recommendation.upper() == "SELL"),
+                        None,
+                    )
+                    try:
+                        sell_conf = Decimal(str(sell_cand.prediction_confidence or "0.80")) if sell_cand else Decimal("0.80")
+                    except (ValueError, TypeError):
+                        sell_conf = Decimal("0.80")
+
+                    rd = None
+                    try:
+                        rd = evaluate_signal(
+                            session,
+                            portfolio=portfolio,
+                            direction="SELL",
+                            ticker=pos.ticker,
+                            confidence=sell_conf,
+                            snapshot_price=snap_price,
+                            market_date=eastern_date,
+                            now=now,
+                        )
+                    except Exception as exc:
+                        blocked_actions.append(DailyPlanBlockedItem(
+                            ticker=pos.ticker, action="SELL",
+                            blocked_reason="EVALUATION_ERROR",
+                            explanation=f"Risk evaluation error: {exc}",
+                        ))
+                        hold_positions.append(HoldPositionItem(
+                            ticker=pos.ticker, qty=str(pos.qty), avg_cost=str(pos.avg_cost),
+                            latest_price=str(snap_price),
+                            unrealized_pnl=str(unrealized_pnl),
+                            unrealized_pnl_pct=f"{pnl_pct:.4f}",
+                            reason="Sell evaluation failed. Hold.",
+                        ))
+
+                    if rd is not None and rd.decision == DecisionType.SELL:
+                        sell_notional = (rd.approved_qty * snap_price).quantize(_DOLLARS)
+                        sell_recommendations.append(SellRecommendationItem(
+                            ticker=pos.ticker,
+                            qty=str(pos.qty),
+                            avg_cost=str(pos.avg_cost),
+                            latest_price=str(snap_price),
+                            unrealized_pnl=str(unrealized_pnl),
+                            unrealized_pnl_pct=f"{pnl_pct:.4f}",
+                            sell_qty=str(rd.approved_qty),
+                            sell_notional=str(sell_notional),
+                            reason=f"Sell {rd.approved_qty} share(s) at ~${snap_price}. Gain: {pnl_pct:.2f}%.",
+                        ))
+                    elif rd is not None:
+                        reason_code = rd.reason_code or "REJECTED"
+                        blocked_actions.append(DailyPlanBlockedItem(
+                            ticker=pos.ticker, action="SELL",
+                            blocked_reason=reason_code,
+                            explanation=f"Sell rejected: {reason_code}.",
+                        ))
+                        hold_positions.append(HoldPositionItem(
+                            ticker=pos.ticker, qty=str(pos.qty), avg_cost=str(pos.avg_cost),
+                            latest_price=str(snap_price),
+                            unrealized_pnl=str(unrealized_pnl),
+                            unrealized_pnl_pct=f"{pnl_pct:.4f}",
+                            reason=f"Sell signal rejected: {reason_code}.",
+                        ))
+                        if pnl_pct >= 0:
+                            profitable_positions.append((pos.ticker, pnl_pct, snap_price, pos))
+            else:
+                pnl_sign = "+" if pnl_pct >= 0 else ""
+                hold_positions.append(HoldPositionItem(
+                    ticker=pos.ticker, qty=str(pos.qty), avg_cost=str(pos.avg_cost),
+                    latest_price=str(snap_price),
+                    unrealized_pnl=str(unrealized_pnl),
+                    unrealized_pnl_pct=f"{pnl_pct:.4f}",
+                    reason=f"HOLD ({pnl_sign}{pnl_pct:.2f}%). No sell signal in review queue.",
+                ))
+                if pnl_pct >= 0:
+                    profitable_positions.append((pos.ticker, pnl_pct, snap_price, pos))
+
+        # 4. Evaluate BUY candidates
+        buy_recommendations: list[BuyRecommendationItem] = []
+        watch_candidates: list[WatchCandidateItem] = []
+        _buy_reason_map = {
+            "MAX_POSITIONS_REACHED": f"Portfolio is full ({current_count}/{cfg_max}). Free capacity or use rotation.",
+            "CASH_RESERVE_BREACH": "Not enough available cash after maintaining the minimum cash reserve.",
+            "DAILY_EXPOSURE_LIMIT": "Daily new-exposure limit already reached for today.",
+            "CONCENTRATION_LIMIT": "Would exceed max single-ticker concentration limit.",
+            "MIN_ORDER_TOO_SMALL": "Order size too small (below minimum notional threshold).",
+            "DUPLICATE_SIGNAL": "A pending order for this ticker already exists today.",
+            "TICKER_IN_COOLDOWN": "Ticker recently sold — cooldown period has not expired.",
+            "NEW_POSITIONS_DISABLED": "New position creation is disabled in portfolio settings.",
+            "AVERAGING_DOWN_BLOCKED": "Averaging down is blocked by portfolio settings.",
+            "STRATEGY_DISABLED": "Strategy is currently disabled in portfolio settings.",
+            "TRADING_DISABLED": "Trading is currently disabled in portfolio settings.",
+        }
+
+        for cand in raw_candidates:
+            rec = (cand.prediction_recommendation or "").upper()
+
+            if rec == "SELL":
+                continue  # handled in positions section
+
+            if rec != "BUY":
+                watch_candidates.append(WatchCandidateItem(
+                    candidate_review_id=str(cand.id),
+                    ticker=cand.ticker,
+                    prediction_recommendation=cand.prediction_recommendation,
+                    prediction_confidence=cand.prediction_confidence,
+                    expected_return_pct=cand.expected_return_pct,
+                    preview_decision=cand.preview_decision,
+                    reason=f"Recommendation is '{cand.prediction_recommendation or 'unknown'}' — watching.",
+                ))
+                continue
+
+            if cand.ticker in held_tickers:
+                watch_candidates.append(WatchCandidateItem(
+                    candidate_review_id=str(cand.id),
+                    ticker=cand.ticker,
+                    prediction_recommendation=cand.prediction_recommendation,
+                    prediction_confidence=cand.prediction_confidence,
+                    expected_return_pct=cand.expected_return_pct,
+                    preview_decision=cand.preview_decision,
+                    reason="Ticker already held. Not a new buy candidate.",
+                ))
+                continue
+
+            try:
+                conf = float(cand.prediction_confidence or "0")
+            except (ValueError, TypeError):
+                conf = 0.0
+
+            if conf < body.min_confidence:
+                blocked_actions.append(DailyPlanBlockedItem(
+                    ticker=cand.ticker, action="BUY",
+                    blocked_reason="CONFIDENCE_BELOW_THRESHOLD",
+                    explanation=f"Confidence {conf:.2f} is below minimum {body.min_confidence:.2f}.",
+                ))
+                continue
+
+            price_row = session.execute(
+                select(PriceSnapshot.price, PriceSnapshot.snapshot_ts)
+                .where(PriceSnapshot.ticker == cand.ticker)
+                .order_by(PriceSnapshot.snapshot_ts.desc())
+                .limit(1)
+            ).first()
+
+            snapshot_price: Decimal | None = None
+            if price_row:
+                sp, sts = price_row
+                if sts.tzinfo is None:
+                    sts = sts.replace(tzinfo=timezone.utc)
+                if sts >= stale_cutoff:
+                    snapshot_price = Decimal(str(sp))
+
+            if snapshot_price is None:
+                blocked_actions.append(DailyPlanBlockedItem(
+                    ticker=cand.ticker, action="BUY",
+                    blocked_reason="NO_PRICE_SNAPSHOT",
+                    explanation="No current price snapshot. Cannot size the order.",
+                ))
+                continue
+
+            try:
+                rd = evaluate_signal(
+                    session,
+                    portfolio=portfolio,
+                    direction="BUY",
+                    ticker=cand.ticker,
+                    confidence=Decimal(str(conf)),
+                    snapshot_price=snapshot_price,
+                    market_date=eastern_date,
+                    now=now,
+                )
+            except Exception as exc:
+                blocked_actions.append(DailyPlanBlockedItem(
+                    ticker=cand.ticker, action="BUY",
+                    blocked_reason="EVALUATION_ERROR",
+                    explanation=f"Risk evaluation failed: {exc}",
+                ))
+                continue
+
+            if rd.decision == DecisionType.BUY:
+                try:
+                    exp_ret = float(cand.expected_return_pct or "0")
+                except (ValueError, TypeError):
+                    exp_ret = 0.0
+                cand_score = conf * exp_ret
+                buy_recommendations.append(BuyRecommendationItem(
+                    ticker=cand.ticker,
+                    candidate_review_id=str(cand.id),
+                    prediction_confidence=cand.prediction_confidence,
+                    expected_return_pct=cand.expected_return_pct,
+                    forecast_price_5d=cand.forecast_price_5d,
+                    latest_price=str(snapshot_price),
+                    candidate_score=f"{cand_score:.4f}",
+                    approved_qty=str(rd.approved_qty),
+                    approved_notional=str(rd.approved_notional),
+                    reason=f"Buy {rd.approved_qty} share(s) at ~${snapshot_price} = ${rd.approved_notional}.",
+                ))
+            else:
+                reason_code = rd.reason_code or "REJECTED"
+                blocked_actions.append(DailyPlanBlockedItem(
+                    ticker=cand.ticker, action="BUY",
+                    blocked_reason=reason_code,
+                    explanation=_buy_reason_map.get(reason_code, f"Rejected: {reason_code}."),
+                ))
+
+        # 5. Rotation plan (at max positions, BUYs blocked by capacity)
+        rotation_plan: list[DailyPlanRotationItem] = []
+
+        if body.include_rotation and current_count >= cfg_max:
+            capacity_blocked_tickers = {
+                a.ticker for a in blocked_actions
+                if a.action == "BUY" and a.blocked_reason == "MAX_POSITIONS_REACHED"
+            }
+
+            if capacity_blocked_tickers and profitable_positions:
+                profitable_positions.sort(key=lambda x: x[1])  # weakest first
+
+                scored_buy_cands: list[tuple] = []
+                for cand in raw_candidates:
+                    if (cand.prediction_recommendation or "").upper() == "BUY" and cand.ticker in capacity_blocked_tickers:
+                        try:
+                            conf = float(cand.prediction_confidence or "0")
+                            exp_ret = float(cand.expected_return_pct or "0")
+                            score = conf * exp_ret
+                        except (ValueError, TypeError):
+                            score = 0.0
+                        scored_buy_cands.append((cand, score))
+                scored_buy_cands.sort(key=lambda x: x[1], reverse=True)
+
+                pairs_limit = min(3, len(profitable_positions), len(scored_buy_cands))
+                used_buy_tickers: set[str] = set()
+
+                for sell_ticker, sell_pnl_pct, sell_price, sell_pos in profitable_positions[:pairs_limit]:
+                    best: tuple | None = None
+                    for cand, score in scored_buy_cands:
+                        if cand.ticker not in used_buy_tickers:
+                            best = (cand, score)
+                            break
+                    if best is None:
+                        break
+
+                    buy_cand, buy_score = best
+                    improvement = buy_score - sell_pnl_pct
+                    meets = improvement >= body.min_rotation_improvement_pct
+                    sell_value = (sell_pos.qty * sell_price).quantize(_DOLLARS)
+                    sell_pnl_d = (sell_value - sell_pos.cost_basis).quantize(_DOLLARS)
+
+                    rotation_plan.append(DailyPlanRotationItem(
+                        sell_ticker=sell_ticker,
+                        buy_ticker=buy_cand.ticker,
+                        sell_unrealized_pnl_pct=f"{sell_pnl_pct:.4f}",
+                        sell_unrealized_pnl=str(sell_pnl_d),
+                        buy_candidate_score=f"{buy_score:.4f}",
+                        improvement_score=f"{improvement:.4f}",
+                        meets_threshold=meets,
+                        reason=(
+                            f"Sell {sell_ticker} (+{sell_pnl_pct:.2f}%) to buy {buy_cand.ticker} "
+                            f"(score {buy_score:.4f}). "
+                            f"Improvement {improvement:.4f} "
+                            f"({'meets' if meets else 'below'} threshold {body.min_rotation_improvement_pct})."
+                        ),
+                    ))
+                    if meets:
+                        used_buy_tickers.add(buy_cand.ticker)
+
+        # 6. Recommended next action
+        good_rotations = [r for r in rotation_plan if r.meets_threshold]
+        cap_blocked_count = sum(1 for a in blocked_actions if a.action == "BUY" and a.blocked_reason == "MAX_POSITIONS_REACHED")
+
+        if no_candidates:
+            recommended_next_action = "Open Review Queue and approve candidates first. No approved candidates found."
+            explanation = (
+                "No candidates are approved for trading. "
+                "Go to the Review Queue tab and approve candidates before running the daily plan."
+            )
+        elif buy_recommendations:
+            slots_note = f" Portfolio has {available_slots} open slot(s)." if available_slots > 0 else ""
+            recommended_next_action = f"Approve {len(buy_recommendations)} BUY candidate(s) and create signals.{slots_note}"
+            explanation = (
+                f"{len(buy_recommendations)} BUY candidate(s) approved by risk engine. "
+                "Proceed to create signals and trade decisions in the Signals & Decisions tab."
+            )
+        elif good_rotations:
+            recommended_next_action = (
+                f"Execute {len(good_rotations)} rotation pair(s): sell weakest profitable holding(s) "
+                "to make room for stronger candidates."
+            )
+            explanation = (
+                f"Portfolio is at max positions ({current_count}/{cfg_max}). "
+                f"{len(good_rotations)} rotation pair(s) proposed. "
+                "Selling profitable holdings creates capacity for higher-scoring candidates."
+            )
+        elif sell_recommendations:
+            recommended_next_action = f"Review {len(sell_recommendations)} SELL recommendation(s) from prediction model."
+            explanation = (
+                f"{len(sell_recommendations)} position(s) have SELL signals from the prediction model "
+                "with no loss-realization risk. Review and approve in the Signals & Decisions tab."
+            )
+        elif cap_blocked_count:
+            recommended_next_action = (
+                f"Portfolio is full. {cap_blocked_count} BUY candidate(s) blocked by max positions. "
+                "No profitable rotation meets the threshold."
+            )
+            explanation = (
+                f"Portfolio is at max positions ({current_count}/{cfg_max}). "
+                "No rotation pairs meet the improvement threshold. "
+                "Wait for existing positions to appreciate, or lower the rotation threshold."
+            )
+        elif watch_candidates:
+            recommended_next_action = f"Monitor {len(watch_candidates)} watch candidate(s). No immediate action required."
+            explanation = "No candidates are ready for immediate action. Candidates are being watched."
+        else:
+            recommended_next_action = "No action required. All positions are in good standing."
+            explanation = (
+                "No approved BUY candidates and no sell signals. "
+                "Consider running a new prediction scan to find opportunities."
+            )
+
+        total_value = portfolio.cached_total_value or portfolio.cached_cash or Decimal("0")
+        cash = portfolio.cached_cash or Decimal("0")
+        portfolio_summary = PortfolioCapacitySummary(
+            total_value=str(total_value),
+            cash=str(cash),
+            open_positions=current_count,
+            max_positions=cfg_max,
+            available_slots=available_slots,
+            capacity_status=capacity_status,
+        )
+
+    return DailyPlanPreviewResponse(
+        as_of=now,
+        portfolio_summary=portfolio_summary,
+        buy_recommendations=buy_recommendations,
+        sell_recommendations=sell_recommendations,
+        hold_positions=hold_positions,
+        watch_candidates=watch_candidates,
+        rotation_plan=rotation_plan,
+        blocked_actions=blocked_actions,
+        recommended_next_action=recommended_next_action,
+        explanation=explanation,
+        safety_counts=DailyPlanSafetyCounts(
+            signals_created=0,
+            trade_decisions_created=0,
+            orders_created=0,
+            job_runs_created=0,
             db_rows_created=0,
         ),
     )

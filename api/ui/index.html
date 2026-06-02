@@ -1256,6 +1256,23 @@
           </div>
         </div>
 
+        <!-- Daily Plan Preview -->
+        <div id="step3c-daily-plan">
+          <div class="command-section" style="border-color: var(--ok);">
+            <div style="font-weight: 600; color: var(--ok); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Daily Plan Preview &mdash; Recommended</div>
+            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Generate a single consolidated recommendation: what to buy, sell, hold, watch, and rotate. Uses approved candidates + live risk evaluation. <strong style="color: var(--ok);">Preview only &mdash; no signals, decisions, or orders created.</strong></div>
+            <button class="btn" style="background: var(--ok); color: white; font-weight: 600;" onclick="runDailyPlan(this)">Generate Daily Plan</button>
+          </div>
+        </div>
+
+        <!-- Daily Plan Result Card -->
+        <div id="daily-plan-card" style="display:none;">
+          <div class="command-section">
+            <div class="section-title">Daily Plan Preview</div>
+            <div id="daily-plan-result"></div>
+          </div>
+        </div>
+
         <!-- Step 4: Signals & Decisions (shown after review queue visited) -->
         <div id="step4-signal-decisions" style="display:none;">
           <div class="command-section" style="border-color: var(--border);">
@@ -3487,6 +3504,187 @@ async function runRotationPreview(btn) {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+async function runDailyPlan(btn) {
+  const resultCard = document.getElementById('daily-plan-card');
+  const resultEl = document.getElementById('daily-plan-result');
+  if (!resultEl || !btn) return;
+  btn.disabled = true;
+  if (resultCard) resultCard.style.display = 'block';
+  resultEl.innerHTML = '<div style="color:var(--warning);padding:8px 0;">Generating daily plan...</div>';
+  const _naEl0 = document.getElementById('cockpit-next-action');
+  if (_naEl0) _naEl0.textContent = 'Generating daily plan...';
+  const _asEl0 = document.getElementById('right-action-status');
+  if (_asEl0) { _asEl0.textContent = 'Running...'; _asEl0.style.color = 'var(--warning)'; }
+
+  try {
+    const r = await call('POST', '/v1/review/daily-plan-preview', {});
+    const b = await parseApiResponse(r);
+
+    if (r.ok) {
+      renderDailyPlanResult(b, resultEl);
+      toast('Daily plan preview generated', 'ok');
+      const _naEl = document.getElementById('cockpit-next-action');
+      if (_naEl) _naEl.textContent = b.recommended_next_action || 'Review daily plan above';
+      const _asEl = document.getElementById('right-action-status');
+      if (_asEl) { _asEl.textContent = new Date().toLocaleTimeString(); _asEl.style.color = 'var(--ok)'; }
+    } else if (r.status === 401) {
+      throw new Error('Not authorized (401)');
+    } else {
+      throw new Error((b && b.detail) ? b.detail : `HTTP ${r.status}`);
+    }
+  } catch (e) {
+    resultEl.textContent = '✗ ' + e.message;
+    resultEl.className = 'step-result error';
+    const _asElerr = document.getElementById('right-action-status');
+    if (_asElerr) { _asElerr.textContent = `Error: ${e.message}`; _asElerr.style.color = 'var(--danger)'; }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderDailyPlanResult(data, el) {
+  const ps = data.portfolio_summary || {};
+  const sc = data.safety_counts || {};
+  let html = '';
+
+  // Summary stats row
+  const capColor = ps.capacity_status === 'HAS_CAPACITY' ? 'var(--ok)' : 'var(--warning)';
+  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-bottom: 12px;">';
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Positions</div><div style="font-weight: 600; font-size: 14px; color: ${capColor};">${escapeHtml(String(ps.open_positions || 0))} / ${escapeHtml(String(ps.max_positions || 0))}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Slots Free</div><div style="font-weight: 600; font-size: 14px; color: ${capColor};">${escapeHtml(String(ps.available_slots || 0))}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">BUY</div><div style="font-weight: 600; font-size: 14px; color: var(--ok);">${escapeHtml(String((data.buy_recommendations || []).length))}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">SELL</div><div style="font-weight: 600; font-size: 14px; color: var(--label);">${escapeHtml(String((data.sell_recommendations || []).length))}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">WATCH</div><div style="font-weight: 600; font-size: 14px;">${escapeHtml(String((data.watch_candidates || []).length))}</div></div>`;
+  html += `<div style="background: rgba(0,0,0,.2); padding: 8px; border-radius: 3px; text-align: center;"><div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Blocked</div><div style="font-weight: 600; font-size: 14px; color: var(--danger);">${escapeHtml(String((data.blocked_actions || []).length))}</div></div>`;
+  html += '</div>';
+
+  // Recommended next action callout
+  if (data.recommended_next_action) {
+    html += '<div style="background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.4); border-radius: 3px; padding: 10px 14px; margin-bottom: 12px;">';
+    html += '<div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok); margin-bottom: 4px;">Recommended Next Action</div>';
+    html += `<div style="font-size: 13px; font-weight: 600; color: var(--text-primary);">${escapeHtml(data.recommended_next_action)}</div>`;
+    if (data.explanation) {
+      html += `<div style="font-size: 11px; color: var(--text-accent); margin-top: 4px;">${escapeHtml(data.explanation)}</div>`;
+    }
+    html += '</div>';
+  }
+
+  // BUY recommendations
+  if (data.buy_recommendations && data.buy_recommendations.length > 0) {
+    html += `<div style="font-weight: 600; font-size: 11px; color: var(--ok); margin-bottom: 6px; margin-top: 8px;">Buy Candidates (${data.buy_recommendations.length})</div>`;
+    html += '<table style="width:100%; border-collapse: collapse; font-size: 11px; margin-bottom: 12px;">';
+    html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+    html += '<th style="text-align:left; padding: 4px 6px; color: var(--label); font-weight: 600;">Ticker</th>';
+    html += '<th style="text-align:right; padding: 4px 6px; color: var(--label); font-weight: 600;">Conf</th>';
+    html += '<th style="text-align:right; padding: 4px 6px; color: var(--label); font-weight: 600;">Return%</th>';
+    html += '<th style="text-align:right; padding: 4px 6px; color: var(--label); font-weight: 600;">Price</th>';
+    html += '<th style="text-align:right; padding: 4px 6px; color: var(--label); font-weight: 600;">Qty</th>';
+    html += '<th style="text-align:right; padding: 4px 6px; color: var(--label); font-weight: 600;">Notional</th>';
+    html += '</tr></thead><tbody>';
+    for (const b of data.buy_recommendations) {
+      const confVal = b.prediction_confidence ? parseFloat(b.prediction_confidence) : null;
+      const retVal = b.expected_return_pct ? parseFloat(b.expected_return_pct) : null;
+      const confStr = confVal !== null ? (confVal * 100).toFixed(0) + '%' : '-';
+      const retStr = retVal !== null ? retVal.toFixed(1) + '%' : '-';
+      html += `<tr style="border-bottom: 1px solid rgba(255,255,255,.05);">`;
+      html += `<td style="padding: 5px 6px; font-weight: 600; color: var(--ok);">${escapeHtml(b.ticker)}</td>`;
+      html += `<td style="padding: 5px 6px; text-align:right;">${escapeHtml(confStr)}</td>`;
+      html += `<td style="padding: 5px 6px; text-align:right; color: var(--ok);">${escapeHtml(retStr)}</td>`;
+      html += `<td style="padding: 5px 6px; text-align:right;">$${escapeHtml(String(b.latest_price || '-'))}</td>`;
+      html += `<td style="padding: 5px 6px; text-align:right;">${escapeHtml(String(b.approved_qty))}</td>`;
+      html += `<td style="padding: 5px 6px; text-align:right;">$${escapeHtml(String(b.approved_notional))}</td>`;
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+
+  // SELL recommendations
+  if (data.sell_recommendations && data.sell_recommendations.length > 0) {
+    html += `<div style="font-weight: 600; font-size: 11px; color: var(--label); margin-bottom: 6px; margin-top: 8px;">Sell Recommendations (${data.sell_recommendations.length})</div>`;
+    html += '<table style="width:100%; border-collapse: collapse; font-size: 11px; margin-bottom: 12px;">';
+    html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+    html += '<th style="text-align:left; padding: 4px 6px; color: var(--label);">Ticker</th>';
+    html += '<th style="text-align:right; padding: 4px 6px; color: var(--label);">PnL%</th>';
+    html += '<th style="text-align:right; padding: 4px 6px; color: var(--label);">Sell Qty</th>';
+    html += '<th style="text-align:right; padding: 4px 6px; color: var(--label);">Notional</th>';
+    html += '</tr></thead><tbody>';
+    for (const s of data.sell_recommendations) {
+      const pnlVal = parseFloat(s.unrealized_pnl_pct);
+      const pnlColor = pnlVal >= 0 ? 'var(--ok)' : 'var(--danger)';
+      html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.05);">';
+      html += `<td style="padding: 5px 6px; font-weight: 600;">${escapeHtml(s.ticker)}</td>`;
+      html += `<td style="padding: 5px 6px; text-align:right; color: ${pnlColor};">${pnlVal >= 0 ? '+' : ''}${pnlVal.toFixed(2)}%</td>`;
+      html += `<td style="padding: 5px 6px; text-align:right;">${escapeHtml(String(s.sell_qty))}</td>`;
+      html += `<td style="padding: 5px 6px; text-align:right;">$${escapeHtml(String(s.sell_notional))}</td>`;
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+
+  // Rotation plan
+  if (data.rotation_plan && data.rotation_plan.length > 0) {
+    const goodRotations = data.rotation_plan.filter(r => r.meets_threshold);
+    const badRotations = data.rotation_plan.filter(r => !r.meets_threshold);
+    if (goodRotations.length > 0) {
+      html += `<div style="font-weight: 600; font-size: 11px; color: var(--warning); margin-bottom: 6px; margin-top: 8px;">Rotation Candidates (${goodRotations.length})</div>`;
+      for (const r of goodRotations) {
+        html += '<div style="background: rgba(0,0,0,.2); border: 1px solid var(--warning); border-radius: 3px; padding: 8px; margin-bottom: 6px; display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap;">';
+        html += `<div style="min-width: 80px;"><div style="font-size: 10px; color: var(--text-secondary);">SELL</div><div style="font-weight: 600; font-size: 13px; color: var(--warning);">${escapeHtml(r.sell_ticker)}</div><div style="font-size: 10px; color: var(--ok);">+${parseFloat(r.sell_unrealized_pnl_pct).toFixed(2)}%</div></div>`;
+        html += '<div style="font-size: 18px; color: var(--text-secondary); align-self: center;">&rarr;</div>';
+        html += `<div style="min-width: 80px;"><div style="font-size: 10px; color: var(--text-secondary);">BUY</div><div style="font-weight: 600; font-size: 13px; color: var(--ok);">${escapeHtml(r.buy_ticker)}</div><div style="font-size: 10px; color: var(--text-secondary);">Score: ${escapeHtml(r.buy_candidate_score)}</div></div>`;
+        html += `<div style="flex: 1; min-width: 120px; font-size: 10px; color: var(--text-accent);">${escapeHtml(r.reason)}</div>`;
+        html += '</div>';
+      }
+    }
+    if (badRotations.length > 0) {
+      html += `<div style="font-weight: 600; font-size: 11px; color: var(--label); margin-bottom: 4px; margin-top: 6px;">Rotation Below Threshold (${badRotations.length})</div>`;
+      for (const r of badRotations) {
+        html += `<div style="font-size: 10px; color: var(--label); margin-bottom: 3px;">${escapeHtml(r.sell_ticker)} &rarr; ${escapeHtml(r.buy_ticker)}: ${escapeHtml(r.reason)}</div>`;
+      }
+    }
+  }
+
+  // Hold positions (collapsed by default if many)
+  if (data.hold_positions && data.hold_positions.length > 0) {
+    html += `<details style="margin-top: 8px; margin-bottom: 8px;"><summary style="cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-accent); padding: 4px 0;">Hold Positions (${data.hold_positions.length})</summary>`;
+    html += '<div style="margin-top: 6px;">';
+    for (const h of data.hold_positions) {
+      const pnlVal = h.unrealized_pnl_pct !== null ? parseFloat(h.unrealized_pnl_pct) : null;
+      const pnlColor = pnlVal === null ? 'var(--text-secondary)' : pnlVal >= 0 ? 'var(--ok)' : 'var(--danger)';
+      const pnlStr = pnlVal === null ? '-' : (pnlVal >= 0 ? '+' : '') + pnlVal.toFixed(2) + '%';
+      html += `<div style="display:flex; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.04); font-size: 11px;">`;
+      html += `<span style="font-weight: 600; min-width: 60px;">${escapeHtml(h.ticker)}</span>`;
+      html += `<span style="color: ${pnlColor};">${pnlStr}</span>`;
+      html += `<span style="color: var(--text-secondary); font-size: 10px; flex: 1;">${escapeHtml(h.reason)}</span>`;
+      html += '</div>';
+    }
+    html += '</div></details>';
+  }
+
+  // Blocked actions
+  if (data.blocked_actions && data.blocked_actions.length > 0) {
+    html += `<details style="margin-top: 8px; margin-bottom: 8px;"><summary style="cursor: pointer; font-size: 11px; font-weight: 600; color: var(--danger); padding: 4px 0;">Blocked Actions (${data.blocked_actions.length})</summary>`;
+    html += '<div style="margin-top: 6px;">';
+    for (const bl of data.blocked_actions) {
+      html += '<div style="background: rgba(239,68,68,.05); border: 1px solid rgba(239,68,68,.2); border-radius: 3px; padding: 6px 8px; margin-bottom: 4px; font-size: 11px;">';
+      html += `<span style="font-weight: 600; color: var(--danger);">${escapeHtml(bl.ticker)}</span> `;
+      html += `<span style="background: rgba(239,68,68,.2); color: var(--danger); padding: 1px 4px; border-radius: 2px; font-size: 10px; margin-right: 6px;">${escapeHtml(bl.action)}</span>`;
+      html += `<span style="color: var(--label); font-size: 10px;">${escapeHtml(bl.blocked_reason)}</span>`;
+      html += `<div style="color: var(--text-secondary); font-size: 10px; margin-top: 2px;">${escapeHtml(bl.explanation)}</div>`;
+      html += '</div>';
+    }
+    html += '</div></details>';
+  }
+
+  // Safety banner
+  const allZero = (sc.signals_created || 0) === 0 && (sc.trade_decisions_created || 0) === 0 && (sc.orders_created || 0) === 0 && (sc.db_rows_created || 0) === 0;
+  const safeColor = allZero ? 'var(--ok)' : 'var(--danger)';
+  html += `<div style="margin-top: 12px; padding: 6px 10px; background: rgba(0,0,0,.2); border: 1px solid ${safeColor}; border-radius: 3px; font-size: 11px; color: ${safeColor}; font-weight: 600; text-align: center;">PREVIEW ONLY &nbsp;|&nbsp; Signals: ${sc.signals_created || 0} &nbsp;|&nbsp; Decisions: ${sc.trade_decisions_created || 0} &nbsp;|&nbsp; Orders: ${sc.orders_created || 0} &nbsp;|&nbsp; DB rows: ${sc.db_rows_created || 0}</div>`;
+
+  el.innerHTML = html;
+  el.className = 'step-result';
 }
 
 function renderRotationPreviewResult(data, el) {
