@@ -1165,12 +1165,13 @@
           </div>
           <!-- Current Objective & Primary Action -->
           <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid var(--info); border-radius: 2px; padding: 10px 12px; margin: 10px 0; font-size: 11px;">
-            <div style="font-weight: 600; color: var(--info); margin-bottom: 6px;">Step 1: Generate Prediction Candidates</div>
-            <div style="color: var(--text-accent); line-height: 1.4;">Click below to preview candidates. No signals, decisions, or orders are created. Safe to run multiple times.</div>
+            <div style="font-weight: 600; color: var(--info); margin-bottom: 4px;">Step 1 of 4 &mdash; Generate Candidate Preview</div>
+            <div style="color: var(--text-accent); line-height: 1.4; margin-bottom: 4px;">Scan the market and preview candidates ranked by model prediction, score, and relative strength. <strong style="color: var(--ok);">Creates nothing.</strong> Safe to run multiple times.</div>
+            <div style="font-size: 10px; color: var(--label);">After preview: Step 2 (Save) &rarr; Step 3 (Review Queue) &rarr; Step 4 (Signals &amp; Decisions)</div>
           </div>
 
           <div class="button-group" style="padding: 12px 0; border: none; margin: 0;">
-            <button class="btn" style="background: var(--info); color: white; padding: 10px 16px; font-weight: 600; width: 100%;" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">Run Prediction Preview</button>
+            <button class="btn" style="background: var(--info); color: white; padding: 10px 16px; font-weight: 600; width: 100%;" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">Generate Candidate Preview</button>
           </div>
 
           <!-- Advanced Manual Actions (collapsed) -->
@@ -1212,6 +1213,38 @@
           <div class="command-section">
             <div class="section-title">Prediction Preview</div>
             <div id="prediction-preview-result"></div>
+          </div>
+        </div>
+
+        <!-- Step 2: Save Candidates (shown after preview runs) -->
+        <div id="step2-save-candidates" style="display:none;">
+          <div class="command-section" style="border-color: var(--ok);">
+            <div style="font-weight: 600; color: var(--ok); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Step 2 of 4 &mdash; Save Candidates to Review Queue</div>
+            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Saves CandidateReview rows only. <strong style="color: var(--ok);">No signals, decisions, or orders are created.</strong></div>
+            <div id="step2-candidate-summary" style="font-size: 11px; color: var(--text-accent); margin-bottom: 10px; padding: 6px 10px; background: rgba(0,0,0,.2); border-radius: 2px;"></div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn" style="background: var(--ok); color: white; font-weight: 600;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save CONSIDER Candidates</button>
+              <button class="btn" style="background: transparent; border: 1px solid var(--border); color: var(--text-accent);" onclick="saveCandidatesToReviewQueue('ALL', this)">Save All Candidates</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Review Queue Summary (shown after saving) -->
+        <div id="step3-review-queue" style="display:none;">
+          <div class="command-section" style="border-color: var(--info);">
+            <div style="font-weight: 600; color: var(--info); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Step 3 of 4 &mdash; Review Queue</div>
+            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Approve candidates to make them eligible for signal creation. Rejecting or watching does not create signals or orders.</div>
+            <div id="step3-rq-summary" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px;"></div>
+            <button class="btn" style="background: var(--info); color: white; font-weight: 600;" onclick="window._switchTab('review-queue')">Open Review Queue &rarr;</button>
+          </div>
+        </div>
+
+        <!-- Step 4: Signals & Decisions (shown after review queue visited) -->
+        <div id="step4-signal-decisions" style="display:none;">
+          <div class="command-section" style="border-color: var(--border);">
+            <div style="font-weight: 600; color: var(--text-accent); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Step 4 of 4 &mdash; Signals &amp; Decisions</div>
+            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">After approving candidates, create signals and trade decisions. <strong style="color: var(--warning);">Orders are disabled. No trades will be executed.</strong></div>
+            <button class="btn" style="background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-accent); font-weight: 600;" onclick="window._switchTab('signals-decisions')">Go to Signals &amp; Decisions &rarr;</button>
           </div>
         </div>
 
@@ -1284,6 +1317,18 @@
           <div id="action-links"></div>
         </div>
 
+        <!-- Signal & Decision Glossary (collapsed) -->
+        <details style="border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">
+          <summary style="padding: 8px 12px; background: rgba(0,0,0,.2); cursor: pointer; font-size: 11px; font-weight: 600; user-select: none; color: var(--text-accent);">Signal &amp; Decision Glossary</summary>
+          <div style="padding: 12px; font-size: 11px; line-height: 1.6;">
+            <div style="margin-bottom: 6px;"><strong style="color: var(--ok);">BUY</strong> &mdash; Candidate may be considered for a long position. Requires manual approval, signal creation, and decision creation. Does not create orders automatically.</div>
+            <div style="margin-bottom: 6px;"><strong style="color: var(--warning);">HOLD / WATCH</strong> &mdash; Model does not recommend a new long entry at this time. Candidate is tracked but no signal is created.</div>
+            <div style="margin-bottom: 6px;"><strong style="color: var(--danger);">REJECTED</strong> &mdash; Risk rules blocked the trade decision. Most common reason: MAX_POSITIONS_REACHED (portfolio is at the position limit). This is expected behavior, not a technical error.</div>
+            <div style="margin-bottom: 6px;"><strong style="color: var(--label);">SELL</strong> &mdash; Not generated in this candidate-entry workflow. A dedicated position-exit workflow based on open positions handles SELL decisions separately. Short selling is not implemented.</div>
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10px; color: var(--label);">Decision = what the app recommends doing with a candidate | Rec = model recommendation | Conf = model confidence (0-1) | Return % = expected 5-day return | RS SPY = relative strength vs SPY over 20 days</div>
+          </div>
+        </details>
+
         <!-- Hidden: workflow status elements for JS rendering -->
         <div id="workflow-status-summary" style="display:none;"></div>
         <div id="workflow-status-content" style="display:none;font-size:10px;color:var(--text-accent);"></div>
@@ -1306,11 +1351,48 @@
             <div class="section-title" style="margin-bottom: 0;">Review Queue</div>
             <button class="btn-sm" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh</button>
           </div>
+
+          <!-- Summary cards -->
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px;">
+            <div style="text-align:center; background:rgba(0,0,0,.2); padding:8px; border-radius:2px; border:1px solid var(--border);">
+              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Total</div>
+              <div style="font-size:18px; font-weight:700; color:var(--text-primary);" id="rq-card-total">-</div>
+            </div>
+            <div style="text-align:center; background:rgba(34,197,94,.08); padding:8px; border-radius:2px; border:1px solid rgba(34,197,94,.3);">
+              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Approved</div>
+              <div style="font-size:18px; font-weight:700; color:var(--ok);" id="rq-card-approved">-</div>
+            </div>
+            <div style="text-align:center; background:rgba(245,158,11,.08); padding:8px; border-radius:2px; border:1px solid rgba(245,158,11,.3);">
+              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Watching</div>
+              <div style="font-size:18px; font-weight:700; color:var(--warning);" id="rq-card-watching">-</div>
+            </div>
+            <div style="text-align:center; background:rgba(239,68,68,.08); padding:8px; border-radius:2px; border:1px solid rgba(239,68,68,.3);">
+              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Rejected</div>
+              <div style="font-size:18px; font-weight:700; color:var(--danger);" id="rq-card-rejected">-</div>
+            </div>
+            <div style="text-align:center; background:rgba(0,0,0,.2); padding:8px; border-radius:2px; border:1px solid var(--border);">
+              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Pending</div>
+              <div style="font-size:18px; font-weight:700; color:var(--text-accent);" id="rq-card-pending">-</div>
+            </div>
+          </div>
+
+          <!-- Instruction line -->
+          <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 10px; padding: 6px 10px; background: rgba(59,130,246,.06); border-left: 2px solid var(--info); border-radius: 0 2px 2px 0;">
+            Approve only candidates you want eligible for signal creation. Watch or Reject the rest. <strong>Approving does not create orders.</strong>
+          </div>
+
+          <!-- Column legend -->
+          <div style="font-size: 9px; color: var(--label); margin-bottom: 8px;">
+            Decision = app recommendation &nbsp;|&nbsp; Rec = model recommendation &nbsp;|&nbsp; Conf = model confidence &nbsp;|&nbsp; Return % = expected 5-day &nbsp;|&nbsp; RS SPY = relative strength vs SPY 20d
+          </div>
+
           <div class="filters" style="margin-bottom: 10px;">
             <select id="rq-status" onchange="loadReviewQueue()" style="padding: 5px 6px; border: 1px solid var(--border); border-radius: 2px; background: rgba(0,0,0,.2); color: var(--text-primary); font-size: 10px; font-family: 'Monaco', monospace;">
               <option value="">All statuses</option>
-              <option value="PENDING">PENDING</option>
-              <option value="APPROVED">APPROVED</option>
+              <option value="NEW">NEW</option>
+              <option value="WATCHING">WATCHING</option>
+              <option value="APPROVED_FOR_SIGNAL">APPROVED</option>
+              <option value="REJECTED">REJECTED</option>
             </select>
             <input type="text" id="rq-ticker" placeholder="Search ticker..." style="padding: 5px 6px; border: 1px solid var(--border); border-radius: 2px; background: rgba(0,0,0,.2); color: var(--text-primary); font-size: 10px;">
             <label style="font-size: 10px; display: flex; align-items: center; gap: 4px;">
@@ -1330,6 +1412,11 @@
               </tbody>
             </table>
           </div>
+
+          <!-- Action legend -->
+          <div style="font-size: 9px; color: var(--label); margin-top: 8px;">
+            Watch = keep tracking, no signal &nbsp;|&nbsp; Reject = exclude from signal creation &nbsp;|&nbsp; Approve = eligible for signal creation (does not create orders)
+          </div>
         </div>
 
       </div><!-- end tab-review-queue -->
@@ -1337,54 +1424,80 @@
       <!-- TAB 3: SIGNALS & DECISIONS -->
       <div id="tab-signals-decisions" class="tab-content">
 
-        <!-- Signal Preview -->
-        <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div class="section-title" style="margin-bottom: 0;">Signal Preview</div>
-            <button class="btn-sm" onclick="generateSignalPreview()">Generate</button>
-          </div>
-          <input type="hidden" id="signal-preview-limit" value="50">
-          <div id="signal-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No signal preview yet. Approve candidates in Review Queue first, then click Generate.</div>
+        <!-- Procedure header -->
+        <div style="padding: 10px 14px; background: rgba(59,130,246,.06); border: 1px solid rgba(59,130,246,.2); border-radius: 2px; font-size: 11px; color: var(--text-accent); line-height: 1.5;">
+          <strong style="color: var(--info);">Pipeline order:</strong> Preview Signals &rarr; Create Signals &rarr; Preview Decisions &rarr; Create Decisions &rarr; Preview Orders (orders disabled).
+          Each step creates the indicated rows only. No step creates orders automatically.
         </div>
 
-        <!-- Create Signals -->
+        <!-- Step A: Signal Preview -->
         <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div class="section-title" style="margin-bottom: 0;">Create Signals</div>
+          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+            <div>
+              <div style="font-size: 9px; color: var(--info); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step A</div>
+              <div class="section-title" style="margin-bottom: 0;">Preview Signals</div>
+            </div>
+            <button class="btn-sm" onclick="generateSignalPreview()">Preview Signals</button>
+          </div>
+          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write Signal rows. Reads APPROVED_FOR_SIGNAL candidates from Review Queue.</div>
+          <input type="hidden" id="signal-preview-limit" value="50">
+          <div id="signal-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No signal preview yet. Approve candidates in Review Queue first, then click Preview Signals.</div>
+        </div>
+
+        <!-- Step B: Create Signals -->
+        <div class="command-section">
+          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+            <div>
+              <div style="font-size: 9px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step B</div>
+              <div class="section-title" style="margin-bottom: 0;">Create Signals</div>
+            </div>
             <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createSignalsFromCandidates()">Create Signals</button>
           </div>
+          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates Signal rows only. Does not create TradeDecisions or Orders. Requires confirmation.</div>
           <input type="hidden" id="create-signals-limit" value="50">
           <div id="create-signals-content" style="font-size: 10px; color: var(--text-accent);">Ready to create signals from candidates</div>
         </div>
 
-        <!-- Decision Preview -->
+        <!-- Step C: Decision Preview -->
         <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div class="section-title" style="margin-bottom: 0;">Decision Preview</div>
-            <button class="btn-sm" style="background: var(--warning); color: white;" onclick="previewDecisionsFromSignals()">Preview</button>
+          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+            <div>
+              <div style="font-size: 9px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step C</div>
+              <div class="section-title" style="margin-bottom: 0;">Preview Trade Decisions</div>
+            </div>
+            <button class="btn-sm" style="background: var(--warning); color: white;" onclick="previewDecisionsFromSignals()">Preview Decisions</button>
           </div>
+          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write TradeDecision rows. Shows which signals pass risk rules and at what qty/notional. REJECTED = risk rule blocked (e.g. MAX_POSITIONS_REACHED).</div>
           <input type="hidden" id="decision-preview-limit" value="50">
           <input type="checkbox" id="decision-preview-received-only" style="display:none;">
-          <div id="decision-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No decision preview yet. Create signals first, then click Preview.</div>
+          <div id="decision-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No decision preview yet. Create signals first, then click Preview Decisions.</div>
         </div>
 
-        <!-- Create Decisions -->
+        <!-- Step D: Create Decisions -->
         <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div class="section-title" style="margin-bottom: 0;">Create Decisions</div>
+          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+            <div>
+              <div style="font-size: 9px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step D</div>
+              <div class="section-title" style="margin-bottom: 0;">Create Trade Decisions</div>
+            </div>
             <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createDecisionsFromSignals()">Create Decisions</button>
           </div>
+          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates TradeDecision rows only. Does not create Orders. Requires confirmation. Safety: no orders created.</div>
           <input type="hidden" id="create-decisions-limit" value="50">
           <input type="checkbox" id="create-decisions-received-only" style="display:none;">
           <div id="create-decisions-content" style="font-size: 10px; color: var(--text-accent);">Ready to create trade decisions</div>
         </div>
 
-        <!-- Order Preview -->
+        <!-- Step E: Order Preview -->
         <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div class="section-title" style="margin-bottom: 0;">Order Preview</div>
+          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+            <div>
+              <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step E</div>
+              <div class="section-title" style="margin-bottom: 0;">Preview Orders</div>
+            </div>
             <button class="btn-sm" onclick="previewOrdersFromDecisions()">Preview Orders</button>
           </div>
+          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. <strong style="color: var(--danger);">Orders are disabled.</strong> No orders will be created. For information only.</div>
           <input type="hidden" id="order-preview-limit" value="50">
           <input type="checkbox" id="order-preview-approved-only" style="display:none;" checked>
           <div id="order-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No order preview yet. Create decisions first, then click Preview Orders.</div>
@@ -1633,6 +1746,11 @@
 
   <!-- Right Panel: Safety & Status -->
   <div class="right-panel">
+    <div class="panel-section" style="border-color: var(--info);">
+      <div class="panel-section-title" style="color: var(--info);">Next Step</div>
+      <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px;" id="right-next-step">-</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4;" id="right-next-step-detail"></div>
+    </div>
     <div class="panel-section">
       <div class="panel-section-title">Current State</div>
       <div class="panel-item">
@@ -1693,8 +1811,8 @@
     </div>
 
     <div class="panel-section">
-      <div style="font-size: 9px; color: var(--danger); font-weight: 600; background: rgba(239,68,68,.1); border: 1px solid var(--danger); padding: 6px 8px; border-radius: 2px; text-align: center;">
-        NO ORDERS / ORDERS DISABLED
+      <div style="font-size: 9px; color: var(--ok); font-weight: 600; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); padding: 8px; border-radius: 2px; text-align: center; line-height: 1.4;">
+        Manual Review &nbsp;|&nbsp; No Orders &nbsp;|&nbsp; Automation Off
       </div>
     </div>
   </div>
@@ -2554,6 +2672,13 @@ function updateWorkbench() {
     document.getElementById('action-links').innerHTML = '<button class="action-btn" onclick="document.querySelector(\'.command-section\').scrollIntoView(); setTimeout(() => document.getElementById(\'dtr-btn-snapshot\').focus(), 100);">Run Snapshot →</button>';
   } else {
     document.getElementById('actionPanel').style.display = 'none';
+  }
+  // Update right panel "Next Step" based on current state
+  const _rnStep = document.getElementById('right-next-step');
+  const _rnDetail = document.getElementById('right-next-step-detail');
+  if (_rnStep && !window._lastPredictionPreviewData) {
+    _rnStep.textContent = 'Generate Candidate Preview';
+    if (_rnDetail) _rnDetail.textContent = 'Run "Generate Candidate Preview" in the Prediction Cockpit to start.';
   }
   updateKpi();
 }
@@ -3450,6 +3575,32 @@ function renderPredictionPreviewResult(data, resultEl) {
   html += '</div>';
   html += '</div>';
 
+  // Candidate explanation summary (prepend to html)
+  const _previews = data.candidate_previews || [];
+  const _consider = _previews.filter(c => c.preview_decision === 'CONSIDER').length;
+  const _watch = _previews.filter(c => c.preview_decision === 'WATCH').length;
+  const _other = _previews.length - _consider - _watch;
+  let _summaryHtml = '<div style="background:rgba(0,0,0,.2);border:1px solid var(--border);border-radius:2px;padding:10px 12px;margin-bottom:16px;font-size:11px;">';
+  _summaryHtml += `<div style="font-weight:600;color:var(--text-accent);margin-bottom:6px;">${_previews.length} candidate(s) evaluated by prediction model</div>`;
+  _summaryHtml += `<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:10px;">`;
+  _summaryHtml += `<span style="color:var(--ok);font-weight:600;">${_consider} CONSIDER</span>`;
+  _summaryHtml += `<span style="color:var(--warning);font-weight:600;">${_watch} WATCH</span>`;
+  _summaryHtml += `<span style="color:var(--label);font-weight:600;">${_other} other</span>`;
+  _summaryHtml += `</div>`;
+  _summaryHtml += `<div style="margin-top:6px;font-size:10px;color:var(--label);">Candidates ranked by: scan score, prediction recommendation, confidence, expected 5-day return, and relative strength vs SPY.</div>`;
+  _summaryHtml += '</div>';
+  html = _summaryHtml + html;
+
+  // Show Step 2 save section
+  const _s2 = document.getElementById('step2-save-candidates');
+  if (_s2) {
+    _s2.style.display = 'block';
+    const _summEl = document.getElementById('step2-candidate-summary');
+    if (_summEl) {
+      _summEl.innerHTML = `<strong>${_previews.length}</strong> candidates total &mdash; <span style="color:var(--ok);font-weight:600;">${_consider} CONSIDER</span> &nbsp;|&nbsp; <span style="color:var(--warning);">${_watch} WATCH</span> &nbsp;|&nbsp; <span style="color:var(--label);">${_other} other</span>`;
+    }
+  }
+
   resultEl.innerHTML = html;
   resultEl.className = 'step-result success';
   updateReviewWorkflow();
@@ -3746,6 +3897,17 @@ async function saveCandidatesToReviewQueue(mode, btn) {
       const _cdCard = document.getElementById('create-decisions-card'); if (_cdCard) _cdCard.style.display = 'block';
       const _opCard = document.getElementById('order-preview-card'); if (_opCard) _opCard.style.display = 'block';
       await loadReviewQueue();
+      // Show Step 3 and Step 4
+      const _s3 = document.getElementById('step3-review-queue');
+      if (_s3) _s3.style.display = 'block';
+      const _s4 = document.getElementById('step4-signal-decisions');
+      if (_s4) _s4.style.display = 'block';
+      updateCockpitReviewSummary();
+      // Update right panel
+      const _rnStep = document.getElementById('right-next-step');
+      if (_rnStep) _rnStep.textContent = 'Open Review Queue';
+      const _rnDetail = document.getElementById('right-next-step-detail');
+      if (_rnDetail) _rnDetail.textContent = 'Approve candidates you want eligible for signal creation, then go to Signals & Decisions.';
     } else {
       toast(`Failed: ${formatApiError(b.detail)}`, 'err');
     }
@@ -3850,6 +4012,7 @@ function filterReviewQueue() {
   }
 
   renderReviewQueue(filtered);
+  updateCockpitReviewSummary();
 }
 
 async function generateSignalPreview() {
@@ -4201,6 +4364,14 @@ function renderDecisionPreviewResponse(data) {
 
   // Skipped signals
   if (skipped.length > 0) {
+    // MAX_POSITIONS_REACHED explanation
+    const maxPosCount = skipped.filter(s => (s.reason || '').includes('MAX_POSITIONS')).length;
+    if (maxPosCount > 0) {
+      html += '<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.3);border-radius:2px;padding:10px 12px;margin-bottom:10px;font-size:10px;line-height:1.5;">';
+      html += '<div style="font-weight:700;color:var(--info);margin-bottom:4px;">Risk Rule: MAX_POSITIONS_REACHED</div>';
+      html += `<div style="color:var(--text-accent);">${maxPosCount} signal(s) rejected because the portfolio is at the maximum allowed number of open positions. The app blocked additional BUY decisions to avoid over-concentration. This is expected risk behavior, not a technical error.</div>`;
+      html += '</div>';
+    }
     html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
     html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
     html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
@@ -4342,6 +4513,14 @@ function renderCreateDecisionsResponse(data) {
 
   // Skipped signals
   if (skipped.length > 0) {
+    // MAX_POSITIONS_REACHED explanation
+    const maxPosCount = skipped.filter(s => (s.reason || '').includes('MAX_POSITIONS')).length;
+    if (maxPosCount > 0) {
+      html += '<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.3);border-radius:2px;padding:10px 12px;margin-bottom:10px;font-size:10px;line-height:1.5;">';
+      html += '<div style="font-weight:700;color:var(--info);margin-bottom:4px;">Risk Rule: MAX_POSITIONS_REACHED</div>';
+      html += `<div style="color:var(--text-accent);">${maxPosCount} signal(s) rejected because the portfolio is at the maximum allowed number of open positions. The app blocked additional BUY decisions to avoid over-concentration. This is expected risk behavior, not a technical error.</div>`;
+      html += '</div>';
+    }
     html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
     html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
     html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
@@ -4878,6 +5057,45 @@ function getWorkflowStepStatus(stepId) {
     default:
       return 'not-started';
   }
+}
+
+function updateCockpitReviewSummary() {
+  const all = window._lastReviewQueueData || [];
+  const latestMap = {};
+  all.forEach(c => {
+    if (!latestMap[c.ticker] || new Date(c.created_at) > new Date(latestMap[c.ticker].created_at)) {
+      latestMap[c.ticker] = c;
+    }
+  });
+  const latest = Object.values(latestMap);
+  const total = latest.length;
+  const approved = latest.filter(c => c.review_status === 'APPROVED_FOR_SIGNAL').length;
+  const watching = latest.filter(c => c.review_status === 'WATCHING').length;
+  const rejected = latest.filter(c => c.review_status === 'REJECTED').length;
+  const pending = total - approved - watching - rejected;
+
+  // Update cockpit Step 3 summary grid
+  const s3el = document.getElementById('step3-rq-summary');
+  if (s3el) {
+    s3el.innerHTML =
+      `<div style="text-align:center;background:rgba(0,0,0,.2);padding:6px;border-radius:2px;border:1px solid var(--border);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Total</div><div style="font-size:16px;font-weight:700;color:var(--text-primary);">${total}</div></div>` +
+      `<div style="text-align:center;background:rgba(34,197,94,.08);padding:6px;border-radius:2px;border:1px solid rgba(34,197,94,.3);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Approved</div><div style="font-size:16px;font-weight:700;color:var(--ok);">${approved}</div></div>` +
+      `<div style="text-align:center;background:rgba(245,158,11,.08);padding:6px;border-radius:2px;border:1px solid rgba(245,158,11,.3);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Watching</div><div style="font-size:16px;font-weight:700;color:var(--warning);">${watching}</div></div>` +
+      `<div style="text-align:center;background:rgba(239,68,68,.08);padding:6px;border-radius:2px;border:1px solid rgba(239,68,68,.3);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Rejected</div><div style="font-size:16px;font-weight:700;color:var(--danger);">${rejected}</div></div>` +
+      `<div style="text-align:center;background:rgba(0,0,0,.2);padding:6px;border-radius:2px;border:1px solid var(--border);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Pending</div><div style="font-size:16px;font-weight:700;color:var(--text-accent);">${pending}</div></div>`;
+  }
+
+  // Update Tab 2 summary cards
+  const rqTotal = document.getElementById('rq-card-total');
+  const rqApproved = document.getElementById('rq-card-approved');
+  const rqWatching = document.getElementById('rq-card-watching');
+  const rqRejected = document.getElementById('rq-card-rejected');
+  const rqPending = document.getElementById('rq-card-pending');
+  if (rqTotal) rqTotal.textContent = total;
+  if (rqApproved) rqApproved.textContent = approved;
+  if (rqWatching) rqWatching.textContent = watching;
+  if (rqRejected) rqRejected.textContent = rejected;
+  if (rqPending) rqPending.textContent = pending;
 }
 
 async function refreshReviewQueue() {
