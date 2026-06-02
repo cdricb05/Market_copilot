@@ -10897,20 +10897,46 @@ class TestReviewRotationPreviewEndpoint:
             assert s.query(Position).count()     == pos_before
 
     def test_rotation_preview_capacity_available_no_rotation_required(
-        self, seeded_client: TestClient
+        self, seeded_client: TestClient, api_engine
     ) -> None:
-        """Test that with fewer than max_positions held, capacity_available=True."""
-        response = seeded_client.post(
-            "/v1/review/rotation-preview", json={}, headers=_AUTH
-        )
-        assert response.status_code == 200
-        data = response.json()
-        # seeded_client portfolio has <=4 positions at this point (well below 5)
-        assert data["capacity_available"] is True
-        assert data["rotation_required"] is False
-        assert "capacity" in data["explanation"].lower()
-        assert data["safety_counts"]["signals_created"] == 0
-        assert data["safety_counts"]["db_rows_created"] == 0
+        """Test that with fewer than max_positions held, capacity_available=True.
+
+        Prior test classes commit Position rows that persist across the module
+        (TSLA, MSFT, NVDA, OPSELL1, DELL — 5 rows = default max_positions=5).
+        When the full suite runs those positions saturate the default limit, so
+        this test temporarily raises max_positions to current_count+1 in
+        portfolio.config to guarantee the endpoint sees available capacity.
+        The original config is unconditionally restored in finally.
+        """
+        old_config: dict | None = None
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            portfolio_obj = s.query(Portfolio).first()
+            current_count = s.query(Position).count()
+            cfg_max = int(
+                (portfolio_obj.config or {}).get("max_positions", get_settings().max_positions)
+            )
+            if current_count >= cfg_max:
+                old_config = dict(portfolio_obj.config or {})
+                portfolio_obj.config = {**old_config, "max_positions": current_count + 1}
+                s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/rotation-preview", json={}, headers=_AUTH
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["capacity_available"] is True
+            assert data["rotation_required"] is False
+            assert "capacity" in data["explanation"].lower()
+            assert data["safety_counts"]["signals_created"] == 0
+            assert data["safety_counts"]["db_rows_created"] == 0
+        finally:
+            if old_config is not None:
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    portfolio_obj = s.query(Portfolio).first()
+                    portfolio_obj.config = old_config
+                    s.commit()
 
     def test_rotation_preview_at_max_positions_proposes_profitable_rotation(
         self, seeded_client: TestClient, api_engine
