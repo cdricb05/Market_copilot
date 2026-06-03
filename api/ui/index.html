@@ -3620,6 +3620,37 @@ function renderDailyPlanResult(data, el) {
     html += '</div>';
   }
 
+  // Plan Approval Preview
+  {
+    const _actionable = (data.action_stack || []).filter(
+      item => (item.action_type === 'BUY' || item.action_type === 'SELL') && item.candidate_review_id
+    );
+    const _rotateWithId = (data.action_stack || []).filter(
+      item => item.action_type === 'ROTATE' && item.candidate_review_id
+    );
+    window._dailyPlanActionableIds = _actionable.map(item => item.candidate_review_id);
+    html += '<div style="border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 10px 12px; margin-bottom: 14px; background: rgba(0,0,0,.12);">';
+    html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 8px;">Plan Approval Preview</div>';
+    if (_actionable.length > 0) {
+      html += '<div style="font-size: 11px; color: var(--text-accent); margin-bottom: 6px;">Actionable items to send to signal preview:</div>';
+      html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
+      for (const _item of _actionable) {
+        const _tagColor = _item.action_type === 'BUY' ? 'var(--ok)' : 'var(--label)';
+        html += `<span style="background: rgba(255,255,255,.07); border-radius: 3px; padding: 3px 7px; font-size: 10px;"><span style="color: ${_tagColor}; font-weight: 700;">${escapeHtml(_item.action_type)}</span> ${escapeHtml(_item.ticker)}</span>`;
+      }
+      html += '</div>';
+    } else {
+      html += '<div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">No actionable BUY/SELL items with signal candidates in this plan.</div>';
+    }
+    if (_rotateWithId.length > 0) {
+      html += '<div style="background: rgba(251,191,36,.06); border: 1px solid rgba(251,191,36,.2); border-radius: 3px; padding: 6px 8px; margin-bottom: 8px; font-size: 10px; color: var(--warning);">Rotation approval is not enabled yet because the SELL leg needs explicit signal mapping.</div>';
+    }
+    const _disabledAttr = _actionable.length === 0 ? 'disabled' : '';
+    html += `<button class="btn-sm" onclick="previewSignalsFromDailyPlan(this)" style="background: rgba(34,197,94,.15); color: var(--ok); border: 1px solid rgba(34,197,94,.4);" ${_disabledAttr}>Preview Signals From Daily Plan</button>`;
+    html += '<div id="daily-plan-signal-preview-result" style="margin-top: 8px;"></div>';
+    html += '</div>';
+  }
+
   // BUY recommendations
   if (data.buy_recommendations && data.buy_recommendations.length > 0) {
     html += `<div style="font-weight: 600; font-size: 11px; color: var(--ok); margin-bottom: 6px; margin-top: 8px;">Buy Candidates (${data.buy_recommendations.length})</div>`;
@@ -3755,6 +3786,83 @@ function renderDailyPlanResult(data, el) {
 
   el.innerHTML = html;
   el.className = 'step-result';
+}
+
+async function previewSignalsFromDailyPlan(btn) {
+  const resultEl = document.getElementById('daily-plan-signal-preview-result');
+  if (!resultEl) return;
+  const candidateIds = window._dailyPlanActionableIds || [];
+  if (candidateIds.length === 0) {
+    toast('No actionable BUY/SELL candidates with signal candidates in this plan.', 'info');
+    return;
+  }
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<div style="color: var(--warning); font-size: 11px; padding: 6px 0;">Fetching signal preview...</div>';
+  try {
+    const r = await call('POST', '/v1/review/signal-preview', {
+      idempotency_key: `plan-preview-${Date.now()}`,
+      candidate_ids: candidateIds,
+      review_status: 'APPROVED_FOR_SIGNAL',
+      limit: 50,
+    });
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : `HTTP ${r.status}`);
+
+    let html = '';
+
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.candidates_evaluated))}</span>`;
+    html += `<span style="background: rgba(34,197,94,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok);">Previewed: ${escapeHtml(String(data.signal_previews_generated))}</span>`;
+    if ((data.skipped_count || 0) > 0) {
+      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ${escapeHtml(String(data.skipped_count))}</span>`;
+    }
+    html += '</div>';
+
+    if (data.signal_previews && data.signal_previews.length > 0) {
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 6px;">';
+      html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Ticker</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Side</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Conf</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Return%</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Decision</th>';
+      html += '</tr></thead><tbody>';
+      for (const sp of data.signal_previews) {
+        const sideColor = sp.side === 'BUY' ? 'var(--ok)' : 'var(--label)';
+        const confVal = parseFloat(sp.confidence);
+        const confStr = isNaN(confVal) ? '-' : (confVal * 100).toFixed(0) + '%';
+        const retVal = sp.expected_return_pct ? parseFloat(sp.expected_return_pct) : null;
+        const retStr = retVal !== null ? retVal.toFixed(1) + '%' : '-';
+        const decColor = sp.preview_decision === 'CONSIDER' ? 'var(--ok)' : sp.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--label)';
+        html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+        html += `<td style="padding: 4px 5px; font-weight: 600;">${escapeHtml(sp.ticker)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${sideColor}; font-weight: 600;">${escapeHtml(sp.side)}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(confStr)}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right; color: var(--ok);">${escapeHtml(retStr)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${decColor}; font-weight: 600;">${escapeHtml(sp.preview_decision)}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    } else {
+      html += '<div style="font-size: 11px; color: var(--text-secondary); padding: 4px 0; margin-bottom: 6px;">No signal previews generated.</div>';
+    }
+
+    if (data.skipped && data.skipped.length > 0) {
+      html += '<div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Skipped:</div>';
+      for (const sk of data.skipped) {
+        html += `<div style="font-size: 10px; color: var(--danger); margin-bottom: 2px;">${escapeHtml(sk.ticker)}: ${escapeHtml(sk.reason)}</div>`;
+      }
+    }
+
+    html += '<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--ok); font-weight: 600; text-align: center;">Preview only -- no signals, decisions, or orders created.</div>';
+
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.textContent = 'Error: ' + e.message;
+    resultEl.className = 'step-result error';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function renderRotationPreviewResult(data, el) {
