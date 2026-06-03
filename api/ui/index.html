@@ -1261,6 +1261,12 @@
           <div class="command-section" style="border-color: var(--ok);">
             <div style="font-weight: 600; color: var(--ok); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Daily Plan Preview &mdash; Recommended</div>
             <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Generate a single consolidated recommendation: what to buy, sell, hold, watch, and rotate. Uses approved candidates + live risk evaluation. <strong style="color: var(--ok);">Preview only &mdash; no signals, decisions, or orders created.</strong></div>
+            <div style="margin-bottom: 10px; padding: 8px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px;">
+              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 5px;">Refresh Plan Prices</div>
+              <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;">Fetches latest prices for approved candidates + open positions. Required before Daily Plan if prices are stale (&gt;5 days).</div>
+              <button class="btn-sm" onclick="refreshPlanPrices(this)" style="background: rgba(59,130,246,.15); color: var(--accent); border: 1px solid rgba(59,130,246,.4);">Refresh Plan Prices</button>
+              <div id="plan-prices-refresh-result" style="margin-top: 6px; font-size: 10px;"></div>
+            </div>
             <button class="btn" style="background: var(--ok); color: white; font-weight: 600;" onclick="runDailyPlan(this)">Generate Daily Plan</button>
           </div>
         </div>
@@ -3544,6 +3550,59 @@ async function runDailyPlan(btn) {
   }
 }
 
+async function refreshPlanPrices(btn) {
+  const resultEl = document.getElementById('plan-prices-refresh-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<span style="color: var(--warning);">Fetching plan universe tickers...</span>';
+  try {
+    const [rCands, rPos] = await Promise.all([
+      call('GET', '/v1/review/candidates?status=APPROVED_FOR_SIGNAL&limit=200'),
+      call('GET', '/v1/positions'),
+    ]);
+    const candsData = await parseApiResponse(rCands);
+    const posData = await parseApiResponse(rPos);
+    const tickers = new Set();
+    if (rCands.ok && Array.isArray(candsData)) {
+      candsData.forEach(c => { if (c.ticker) tickers.add(c.ticker.toUpperCase()); });
+    }
+    if (rPos.ok && Array.isArray(posData)) {
+      posData.forEach(p => { if (p.ticker) tickers.add(p.ticker.toUpperCase()); });
+    }
+    const tickerList = [...tickers];
+    if (tickerList.length === 0) {
+      resultEl.innerHTML = '<span style="color: var(--text-secondary);">No approved candidates or open positions found.</span>';
+      return;
+    }
+    resultEl.innerHTML = `<span style="color: var(--warning);">Fetching prices for ${escapeHtml(String(tickerList.length))} tickers...</span>`;
+    const r = await call('POST', '/v1/prices/fetch', {
+      tickers: tickerList,
+      price_type: 'LAST',
+      session_type: 'REGULAR',
+    });
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : `HTTP ${r.status}`);
+    let html = `<span style="color: var(--ok); font-weight: 600;">Refreshed ${escapeHtml(String(data.inserted || 0))} price(s)</span>`;
+    if (data.prices && data.prices.length > 0) {
+      html += ' &mdash; ' + data.prices.map(p => `<span style="color: var(--text-accent);">${escapeHtml(p.ticker)}</span>`).join(', ');
+    }
+    if (data.failures && data.failures.length > 0) {
+      html += `<div style="color: var(--danger); margin-top: 3px;">Failed: ${data.failures.map(f => escapeHtml(f.ticker)).join(', ')}</div>`;
+    }
+    resultEl.innerHTML = html;
+    toast(`Plan prices refreshed: ${data.inserted || 0} inserted`, 'ok');
+    const _naEl = document.getElementById('cockpit-next-action');
+    if (_naEl) _naEl.textContent = 'Plan prices refreshed. Ready to Generate Daily Plan.';
+    const _asEl = document.getElementById('right-action-status');
+    if (_asEl) { _asEl.textContent = new Date().toLocaleTimeString(); _asEl.style.color = 'var(--ok)'; }
+  } catch (e) {
+    resultEl.innerHTML = `<span style="color: var(--danger);">Error: ${escapeHtml(e.message)}</span>`;
+    toast('Price refresh failed: ' + e.message, 'err');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function renderDailyPlanResult(data, el) {
   const ps = data.portfolio_summary || {};
   const sc = data.safety_counts || {};
@@ -3648,6 +3707,23 @@ function renderDailyPlanResult(data, el) {
     const _disabledAttr = _actionable.length === 0 ? 'disabled' : '';
     html += `<button class="btn-sm" onclick="previewSignalsFromDailyPlan(this)" style="background: rgba(34,197,94,.15); color: var(--ok); border: 1px solid rgba(34,197,94,.4);" ${_disabledAttr}>Preview Signals From Daily Plan</button>`;
     html += '<div id="daily-plan-signal-preview-result" style="margin-top: 8px;"></div>';
+    html += '<div id="daily-plan-approve-section" style="display: none; margin-top: 10px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 10px;">';
+    html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 6px;">Approve Daily Plan Signals</div>';
+    html += '<div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 8px;">This creates Signal rows only. It does not create trade decisions or orders.</div>';
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 3px; font-size: 10px;">';
+    html += '<span style="color: var(--text-secondary);">Signals may be created</span>';
+    html += '<span style="color: var(--text-secondary); opacity: .5; margin: 0 2px;">|</span>';
+    html += '<span>Trade decisions: <span style="color: var(--ok);">0</span></span>';
+    html += '<span style="color: var(--text-secondary); opacity: .5; margin: 0 2px;">|</span>';
+    html += '<span>Orders: <span style="color: var(--ok);">0</span></span>';
+    html += '<span style="color: var(--text-secondary); opacity: .5; margin: 0 2px;">|</span>';
+    html += '<span>Automation: <span style="color: var(--ok);">off</span></span>';
+    html += '<span style="color: var(--text-secondary); opacity: .5; margin: 0 2px;">|</span>';
+    html += '<span style="color: var(--ok);">Orders disabled</span>';
+    html += '</div>';
+    html += '<button id="daily-plan-create-signals-btn" class="btn-sm" onclick="createSignalsFromDailyPlan(this)" disabled style="background: rgba(99,102,241,.15); color: var(--accent); border: 1px solid rgba(99,102,241,.4);">Create Signals From Daily Plan</button>';
+    html += '<div id="daily-plan-create-signals-result" style="margin-top: 8px;"></div>';
+    html += '</div>';
     html += '</div>';
   }
 
@@ -3756,6 +3832,13 @@ function renderDailyPlanResult(data, el) {
       html += '</div>';
     }
     html += '</div></details>';
+    const _priceBlocked = data.blocked_actions.filter(
+      bl => bl.blocked_reason === 'STALE_PRICE' || bl.blocked_reason === 'NO_PRICE_SNAPSHOT'
+    );
+    if (_priceBlocked.length > 0) {
+      const _staleTickers = [...new Set(_priceBlocked.map(bl => bl.ticker))].join(', ');
+      html += `<div style="background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.25); border-radius: 3px; padding: 6px 8px; margin-top: 4px; font-size: 10px; color: var(--accent);">Price refresh required for: <strong>${escapeHtml(_staleTickers)}</strong>. Use <strong>Refresh Plan Prices</strong> above, then re-run the Daily Plan.</div>`;
+    }
   }
 
   // WATCH candidates
@@ -3857,9 +3940,105 @@ async function previewSignalsFromDailyPlan(btn) {
     html += '<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--ok); font-weight: 600; text-align: center;">Preview only -- no signals, decisions, or orders created.</div>';
 
     resultEl.innerHTML = html;
+
+    // Show/enable approve section only when there are previewable signals
+    const _approveSection = document.getElementById('daily-plan-approve-section');
+    const _createBtn = document.getElementById('daily-plan-create-signals-btn');
+    if (_approveSection) {
+      if ((data.signal_previews_generated || 0) > 0) {
+        _approveSection.style.display = 'block';
+        if (_createBtn) _createBtn.disabled = false;
+      } else {
+        _approveSection.style.display = 'none';
+        if (_createBtn) _createBtn.disabled = true;
+      }
+    }
   } catch (e) {
     resultEl.textContent = 'Error: ' + e.message;
     resultEl.className = 'step-result error';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function createSignalsFromDailyPlan(btn) {
+  const resultEl = document.getElementById('daily-plan-create-signals-result');
+  if (!resultEl) return;
+  const candidateIds = window._dailyPlanActionableIds || [];
+  if (candidateIds.length === 0) {
+    toast('No actionable BUY/SELL candidates to create signals for.', 'info');
+    return;
+  }
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<div style="color: var(--warning); font-size: 11px; padding: 6px 0;">Creating signals...</div>';
+  try {
+    const r = await call('POST', '/v1/review/create-signals', {
+      idempotency_key: `plan-approve-${new Date().toISOString().slice(0,10)}-${Date.now()}`,
+      candidate_ids: candidateIds,
+      review_status: 'APPROVED_FOR_SIGNAL',
+      confirm_create_signals: true,
+      limit: 50,
+    });
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : `HTTP ${r.status}`);
+
+    let html = '';
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.candidates_evaluated))}</span>`;
+    const _createdColor = (data.signals_created || 0) > 0 ? 'rgba(34,197,94,.1)' : 'rgba(255,255,255,.07)';
+    const _createdText = (data.signals_created || 0) > 0 ? 'color: var(--ok);' : '';
+    html += `<span style="background: ${_createdColor}; padding: 2px 7px; border-radius: 3px; font-size: 10px; ${_createdText}font-weight: 600;">Signals created: ${escapeHtml(String(data.signals_created))}</span>`;
+    if ((data.skipped_count || 0) > 0) {
+      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ${escapeHtml(String(data.skipped_count))}</span>`;
+    }
+    if ((data.skipped_existing_count || 0) > 0) {
+      html += `<span style="background: rgba(251,191,36,.08); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--warning);">Already existed: ${escapeHtml(String(data.skipped_existing_count))}</span>`;
+    }
+    html += `<span style="background: rgba(34,197,94,.06); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok);">Decisions: ${escapeHtml(String(data.trade_decisions_created || 0))}</span>`;
+    html += `<span style="background: rgba(34,197,94,.06); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok);">Orders: ${escapeHtml(String(data.orders_created || 0))}</span>`;
+    html += '</div>';
+
+    if (data.created_signals && data.created_signals.length > 0) {
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 6px;">';
+      html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Ticker</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Side</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Conf</th>';
+      html += '</tr></thead><tbody>';
+      for (const sig of data.created_signals) {
+        const sideColor = sig.side === 'BUY' ? 'var(--ok)' : 'var(--label)';
+        const confVal = parseFloat(sig.confidence);
+        const confStr = isNaN(confVal) ? '-' : (confVal * 100).toFixed(0) + '%';
+        html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+        html += `<td style="padding: 4px 5px; font-weight: 600; color: var(--ok);">${escapeHtml(sig.ticker)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${sideColor}; font-weight: 600;">${escapeHtml(sig.side)}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(confStr)}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    if (data.skipped && data.skipped.length > 0) {
+      html += '<div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Skipped:</div>';
+      for (const sk of data.skipped) {
+        html += `<div style="font-size: 10px; color: var(--danger); margin-bottom: 2px;">${escapeHtml(sk.ticker)}: ${escapeHtml(sk.reason)}</div>`;
+      }
+    }
+
+    if ((data.signals_created || 0) > 0) {
+      const nextActionEl = document.getElementById('cockpit-next-action');
+      if (nextActionEl) nextActionEl.textContent = 'Signals created. Next: run Decision Preview.';
+      const actionStatusEl = document.getElementById('right-action-status');
+      if (actionStatusEl) {
+        actionStatusEl.textContent = new Date().toLocaleTimeString();
+        actionStatusEl.style.color = 'var(--ok)';
+      }
+    }
+
+    html += `<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">Signals created: ${escapeHtml(String(data.signals_created))} | Trade decisions: 0 | Orders: 0 | Automation: off</div>`;
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
   } finally {
     if (btn) btn.disabled = false;
   }
