@@ -4225,6 +4225,295 @@ class TestMarketScanPredictionCandidatesEndpoint:
         assert isinstance(preview["preview_reasons"], list)
         assert len(preview["preview_reasons"]) > 0
 
+    # ------------------------------------------------------------------
+    # candidate_funnel tests
+    # ------------------------------------------------------------------
+
+    def test_prediction_candidates_response_includes_candidate_funnel(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Response includes a candidate_funnel object with all required keys."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-funnel-001",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "candidate_funnel" in data
+        funnel = data["candidate_funnel"]
+        for key in (
+            "universe_count", "evaluated_count", "skipped_count",
+            "skipped_by_reason", "top_scan_count", "clean_scan_count",
+            "prediction_top_n", "gcp_prediction_count", "not_sent_to_gcp_count",
+            "prediction_outcomes", "top_scan_not_predicted", "skipped_examples",
+        ):
+            assert key in funnel, f"Missing funnel key: {key}"
+        outcomes = funnel["prediction_outcomes"]
+        for ok in ("consider", "watch", "reject", "failed_fetch", "other"):
+            assert ok in outcomes, f"Missing outcomes key: {ok}"
+
+    def test_candidate_funnel_counts_universe_evaluated_skipped(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """candidate_funnel.universe_count, evaluated_count, skipped_count are correct."""
+        from paper_trader.engine.market_screener import CandidateScore, SkippedTicker
+
+        def mock_scan(session, tickers=None, **kwargs):
+            candidates = [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.00", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.00", relative_strength_vs_spy_20d="1.00",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ]
+            skipped = [
+                SkippedTicker(ticker="XYZ", reason="INSUFFICIENT_PRICE_HISTORY", price_count=2),
+                SkippedTicker(ticker="ABC", reason="NO_PRICE_DATA", price_count=0),
+            ]
+            return candidates, skipped, date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-funnel-002",
+                "universe": "SP500",
+                "tickers": ["AAPL", "XYZ", "ABC"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 1,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        funnel = resp.json()["candidate_funnel"]
+        assert funnel["universe_count"] == 3
+        assert funnel["skipped_count"] == 2
+        assert funnel["evaluated_count"] == 1
+
+    def test_candidate_funnel_skipped_by_reason(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """candidate_funnel.skipped_by_reason aggregates skip reasons correctly."""
+        from paper_trader.engine.market_screener import SkippedTicker
+
+        def mock_scan(session, tickers=None, **kwargs):
+            skipped = [
+                SkippedTicker(ticker="T1", reason="INSUFFICIENT_PRICE_HISTORY", price_count=1),
+                SkippedTicker(ticker="T2", reason="INSUFFICIENT_PRICE_HISTORY", price_count=3),
+                SkippedTicker(ticker="T3", reason="DATA_QUALITY_OUTLIER", price_count=20),
+            ]
+            return [], skipped, None
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-funnel-003",
+                "universe": "SP500",
+                "tickers": ["T1", "T2", "T3"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 5,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        sbr = resp.json()["candidate_funnel"]["skipped_by_reason"]
+        assert sbr.get("INSUFFICIENT_PRICE_HISTORY") == 2
+        assert sbr.get("DATA_QUALITY_OUTLIER") == 1
+
+    def test_candidate_funnel_prediction_top_n_cutoff(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """top_scan_not_predicted lists candidates beyond prediction_top_n cutoff."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            candidates = [
+                CandidateScore(
+                    rank=i, ticker=f"TK{i}", score=str(10.0 - i),
+                    latest_price="100.00", latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="1.00", momentum_20d_pct="2.00",
+                    volatility_20d_pct="1.50", relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                )
+                for i in range(1, 6)  # 5 candidates
+            ]
+            return candidates, [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-funnel-004",
+                "universe": "SP500",
+                "tickers": [f"TK{i}" for i in range(1, 6)],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        funnel = resp.json()["candidate_funnel"]
+        assert funnel["gcp_prediction_count"] == 2
+        assert funnel["not_sent_to_gcp_count"] == 3
+        not_pred = funnel["top_scan_not_predicted"]
+        assert len(not_pred) == 3
+        assert all(entry["reason"] == "Below prediction_top_n cutoff" for entry in not_pred)
+
+    def test_candidate_funnel_prediction_outcomes(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """candidate_funnel.prediction_outcomes counts decisions correctly."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.00", relative_strength_vs_spy_20d="1.00",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return (
+                [{
+                    "ticker": "AAPL", "current_price": "150.00",
+                    "ensemble_day5": "157.50", "d5_change_pct": "5.00",
+                    "confidence": "85.0", "recommendation": "BUY",
+                    "per_model_summary": {},
+                }],
+                [],
+            )
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-funnel-005",
+                "universe": "SP500",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 1,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        outcomes = resp.json()["candidate_funnel"]["prediction_outcomes"]
+        total = (
+            outcomes["consider"] + outcomes["watch"] + outcomes["reject"]
+            + outcomes["failed_fetch"] + outcomes["other"]
+        )
+        assert total >= 1
+        # BUY at 85% confidence + 5% return should land as CONSIDER or WATCH
+        assert outcomes["consider"] >= 1 or outcomes["watch"] >= 1
+
+    def test_candidate_funnel_preserves_preview_only_safety(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """candidate_funnel addition must not create signals, decisions, or orders."""
+        async def mock_fetch(tickers, api_url, timeout_seconds):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-funnel-006",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 10,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_submitted"] == 0
+        assert data["decisions_made"] == 0
+        assert data["orders_created"] == 0
+        assert "candidate_funnel" in data
+
 
 class TestMarketBackfillPricesEndpoint:
     """POST /v1/market/backfill-prices endpoint tests."""

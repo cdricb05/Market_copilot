@@ -508,6 +508,46 @@ class ScanSummaryOut(BaseModel):
     candidate_count: int
 
 
+class SkippedTickerDetail(BaseModel):
+    """Compact skipped ticker entry for candidate funnel diagnostics."""
+    ticker: str
+    reason_codes: list[str]
+    price_points: int
+
+
+class TopScanNotPredicted(BaseModel):
+    """Candidate that passed scan but was not sent to GCP due to prediction_top_n cutoff."""
+    rank: int
+    ticker: str
+    scan_score: str
+    reason: str = "Below prediction_top_n cutoff"
+
+
+class PredictionOutcomes(BaseModel):
+    """Breakdown of prediction outcomes for the selected tickers."""
+    consider: int = 0
+    watch: int = 0
+    reject: int = 0
+    failed_fetch: int = 0
+    other: int = 0
+
+
+class CandidateFunnelOut(BaseModel):
+    """Diagnostic breakdown of the candidate selection funnel."""
+    universe_count: int
+    evaluated_count: int
+    skipped_count: int
+    skipped_by_reason: dict[str, int]
+    top_scan_count: int
+    clean_scan_count: int
+    prediction_top_n: int
+    gcp_prediction_count: int
+    not_sent_to_gcp_count: int
+    prediction_outcomes: PredictionOutcomes
+    top_scan_not_predicted: list[TopScanNotPredicted]
+    skipped_examples: list[SkippedTickerDetail]
+
+
 class PredictionFailureDetail(BaseModel):
     ticker: str
     reason: str
@@ -519,6 +559,7 @@ class MarketScanPredictionCandidatesResponse(BaseModel):
     dry_run: bool
     execution_mode: str
     scan: ScanSummaryOut
+    candidate_funnel: CandidateFunnelOut
     selected_tickers: list[str]
     predictions_fetched: int
     prediction_failures: list[PredictionFailureDetail]
@@ -3826,6 +3867,57 @@ async def market_scan_prediction_candidates(
         )
         candidate_previews.append(preview)
 
+    # Build candidate funnel diagnostics
+    skipped_by_reason: dict[str, int] = {}
+    for s in skipped:
+        skipped_by_reason[s.reason] = skipped_by_reason.get(s.reason, 0) + 1
+
+    not_sent_candidates = clean_candidates[body.prediction_top_n:]
+    top_scan_not_predicted = [
+        TopScanNotPredicted(
+            rank=c.rank,
+            ticker=c.ticker,
+            scan_score=c.score,
+        )
+        for c in not_sent_candidates[:25]
+    ]
+
+    skipped_examples = [
+        SkippedTickerDetail(
+            ticker=s.ticker,
+            reason_codes=[s.reason],
+            price_points=s.price_count,
+        )
+        for s in skipped[:50]
+    ]
+
+    outcomes_consider = sum(1 for p in candidate_previews if p.preview_decision == "CONSIDER")
+    outcomes_watch = sum(1 for p in candidate_previews if p.preview_decision == "WATCH")
+    outcomes_reject = sum(1 for p in candidate_previews if p.preview_decision == "REJECT")
+    outcomes_failed = len(all_prediction_failures)
+    outcomes_other = max(0, len(candidate_previews) - outcomes_consider - outcomes_watch - outcomes_reject)
+
+    candidate_funnel = CandidateFunnelOut(
+        universe_count=len(universe_tickers),
+        evaluated_count=len(universe_tickers) - len(skipped),
+        skipped_count=len(skipped),
+        skipped_by_reason=skipped_by_reason,
+        top_scan_count=len(clean_candidates),
+        clean_scan_count=len(clean_candidates),
+        prediction_top_n=body.prediction_top_n,
+        gcp_prediction_count=len(selected_tickers),
+        not_sent_to_gcp_count=len(not_sent_candidates),
+        prediction_outcomes=PredictionOutcomes(
+            consider=outcomes_consider,
+            watch=outcomes_watch,
+            reject=outcomes_reject,
+            failed_fetch=outcomes_failed,
+            other=outcomes_other,
+        ),
+        top_scan_not_predicted=top_scan_not_predicted,
+        skipped_examples=skipped_examples,
+    )
+
     # Prepare response (no database writes, no workflow execution)
     return MarketScanPredictionCandidatesResponse(
         idempotency_key=body.idempotency_key,
@@ -3839,6 +3931,7 @@ async def market_scan_prediction_candidates(
             skipped_count=len(skipped),
             candidate_count=len(clean_candidates),
         ),
+        candidate_funnel=candidate_funnel,
         selected_tickers=selected_tickers,
         predictions_fetched=len(fetched_responses),
         prediction_failures=[

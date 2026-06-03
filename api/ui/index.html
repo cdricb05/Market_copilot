@@ -4361,6 +4361,95 @@ function renderPredictionPreviewResult(data, resultEl) {
   html += `<div style="font-size: 11px; color: var(--label); text-transform: uppercase; font-weight: 600;">Selected<br><span style="font-size: 13px; color: var(--text-primary); font-weight: 700;">${(data.selected_tickers || []).length}</span></div>`;
   html += '</div>';
 
+  // Candidate Funnel diagnostics
+  const funnel = data.candidate_funnel || {};
+  if (Object.keys(funnel).length > 0) {
+    html += '<details style="margin-bottom: 16px; border: 1px solid var(--border); border-radius: 3px; overflow: hidden;" open>';
+    html += '<summary style="padding: 10px 14px; background: rgba(0,0,0,.2); cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-accent); user-select: none;">Candidate Funnel</summary>';
+    html += '<div style="padding: 12px 14px;">';
+
+    // Plain-English explanation
+    html += '<div style="font-size: 11px; color: var(--label); margin-bottom: 10px; line-height: 1.6; border-left: 3px solid var(--info); padding-left: 10px;">';
+    html += `Universe source currently contains <strong style="color: var(--text-primary);">${funnel.universe_count || 0} tickers</strong>. `;
+    html += `<strong style="color: var(--text-primary);">${funnel.evaluated_count || 0}</strong> had enough price history to score; <strong style="color: ${(funnel.skipped_count || 0) > 0 ? 'var(--warning)' : 'var(--text-primary)'};">${funnel.skipped_count || 0} skipped</strong>. `;
+    html += `<strong style="color: var(--text-primary);">${funnel.clean_scan_count || 0}</strong> passed scan quality filters. `;
+    html += `Prediction Top N = <strong style="color: var(--info);">${funnel.prediction_top_n || 0}</strong> controls how many scan winners are sent to GCP &mdash; `;
+    html += `<strong style="color: var(--ok);">${funnel.gcp_prediction_count || 0} sent</strong>, <strong style="color: var(--label);">${funnel.not_sent_to_gcp_count || 0} not sent</strong>. `;
+    html += 'Only tickers sent to GCP receive prediction forecasts. The rest are ranked by market scan only.';
+    html += '</div>';
+
+    // Funnel flow numbers
+    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-bottom: 12px;">';
+    const funnelStats = [
+      { label: 'Universe', value: funnel.universe_count || 0, color: 'var(--text-primary)' },
+      { label: 'Evaluated', value: funnel.evaluated_count || 0, color: 'var(--text-primary)' },
+      { label: 'Skipped', value: funnel.skipped_count || 0, color: (funnel.skipped_count || 0) > 0 ? 'var(--warning)' : 'var(--text-primary)' },
+      { label: 'Top Scan', value: funnel.clean_scan_count || 0, color: 'var(--text-primary)' },
+      { label: 'Sent to GCP', value: funnel.gcp_prediction_count || 0, color: 'var(--ok)' },
+      { label: 'Not Sent', value: funnel.not_sent_to_gcp_count || 0, color: 'var(--label)' },
+    ];
+    funnelStats.forEach(s => {
+      html += `<div style="text-align: center; padding: 6px 4px; background: rgba(0,0,0,.15); border-radius: 2px;">`;
+      html += `<div style="font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--label); font-weight: 600; margin-bottom: 3px;">${escapeHtml(s.label)}</div>`;
+      html += `<div style="font-size: 15px; font-weight: 700; color: ${s.color};">${s.value}</div>`;
+      html += '</div>';
+    });
+    html += '</div>';
+
+    // Prediction outcomes
+    const outcomes = funnel.prediction_outcomes || {};
+    html += '<div style="margin-bottom: 12px;">';
+    html += '<div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--label); margin-bottom: 5px;">Prediction Outcomes</div>';
+    html += '<div style="display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px;">';
+    html += `<span><span style="color: var(--ok); font-weight: 700;">${outcomes.consider || 0}</span> <span style="color: var(--label);">CONSIDER</span></span>`;
+    html += `<span><span style="color: var(--warning); font-weight: 700;">${outcomes.watch || 0}</span> <span style="color: var(--label);">WATCH</span></span>`;
+    html += `<span><span style="color: var(--danger); font-weight: 700;">${outcomes.reject || 0}</span> <span style="color: var(--label);">REJECT</span></span>`;
+    html += `<span><span style="color: var(--label); font-weight: 700;">${outcomes.failed_fetch || 0}</span> <span style="color: var(--label);">failed</span></span>`;
+    if ((outcomes.other || 0) > 0) {
+      html += `<span><span style="color: var(--label); font-weight: 700;">${outcomes.other}</span> <span style="color: var(--label);">other</span></span>`;
+    }
+    html += '</div></div>';
+
+    // Skipped by reason
+    const skippedByReason = funnel.skipped_by_reason || {};
+    const sbrKeys = Object.keys(skippedByReason);
+    if (sbrKeys.length > 0) {
+      html += '<div style="margin-bottom: 12px;">';
+      html += '<div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--label); margin-bottom: 5px;">Skipped by Reason</div>';
+      html += '<div style="display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px;">';
+      sbrKeys.forEach(reason => {
+        html += `<span><span style="color: var(--warning); font-weight: 700;">${skippedByReason[reason]}</span> <span style="color: var(--label);">${escapeHtml(reason)}</span></span>`;
+      });
+      html += '</div></div>';
+    }
+
+    // Top scan not predicted
+    const notPredicted = funnel.top_scan_not_predicted || [];
+    if (notPredicted.length > 0) {
+      html += '<div>';
+      html += `<div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--label); margin-bottom: 5px;">Scan Winners Not Sent to GCP (${notPredicted.length})</div>`;
+      html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;">';
+      html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+      html += '<th style="padding: 4px 8px; text-align: left; color: var(--label); font-weight: 600;">Rank</th>';
+      html += '<th style="padding: 4px 8px; text-align: left; color: var(--label); font-weight: 600;">Ticker</th>';
+      html += '<th style="padding: 4px 8px; text-align: right; color: var(--label); font-weight: 600;">Scan Score</th>';
+      html += '<th style="padding: 4px 8px; text-align: left; color: var(--label); font-weight: 600;">Reason</th>';
+      html += '</tr></thead><tbody>';
+      notPredicted.forEach(c => {
+        html += `<tr style="border-bottom: 1px solid var(--border);">`;
+        html += `<td style="padding: 4px 8px; color: var(--label);">${c.rank}</td>`;
+        html += `<td style="padding: 4px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(c.ticker)}</td>`;
+        html += `<td style="padding: 4px 8px; text-align: right;">${parseFloat(c.scan_score).toFixed(2)}</td>`;
+        html += `<td style="padding: 4px 8px; color: var(--label); font-size: 9px;">${escapeHtml(c.reason)}</td>`;
+        html += '</tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    html += '</div></details>';
+  }
+
   // Primary: Candidate Previews table
   if (data.candidate_previews && data.candidate_previews.length > 0) {
     html += '<div style="margin-bottom: 16px;">';
