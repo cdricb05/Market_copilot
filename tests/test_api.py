@@ -10991,11 +10991,12 @@ class TestReviewRotationPreviewEndpoint:
                 market_date=date.today(), snapshot_ts=datetime.now(timezone.utc),
             ))
 
-            # Candidate: score = 0.90 * 10.0 = 9.0; improvement vs -5.0% = 14.0 >= 5.0
+            # Candidate v2 score = 0.90 * (10.0/100) = 0.09; scan_score=50 → neutral (scan_adj=0)
+            # holding no prediction → hold_score=0.0; improvement=0.09 >= 0.05 threshold → meets
             cand = CandidateReview(
                 idempotency_key=ikey, ticker=cand_ticker,
                 prediction_recommendation="BUY", prediction_confidence="0.90",
-                expected_return_pct="10.0", preview_decision="CONSIDER",
+                expected_return_pct="10.0", scan_score="50", preview_decision="CONSIDER",
                 preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
             )
             session.add(cand)
@@ -11007,7 +11008,7 @@ class TestReviewRotationPreviewEndpoint:
                 "/v1/review/rotation-preview",
                 json={
                     "candidate_review_ids": [cand_id],
-                    "min_improvement_score": 5.0,
+                    "min_improvement_score": 0.05,
                     "block_loss_realization": False,  # allow selling the -5% position
                 },
                 headers=_AUTH,
@@ -11021,6 +11022,10 @@ class TestReviewRotationPreviewEndpoint:
             assert pair["sell_ticker"] == ticker_weak
             assert pair["buy_ticker"] == cand_ticker
             assert pair["meets_threshold"] is True
+            # Explicit v2 score: base=0.90*(10/100)=0.09, scan_adj=0 → total=0.09; hold=0.0 → imp=0.09
+            assert float(pair["improvement_score"]) == pytest.approx(0.09, abs=0.002), (
+                f"Expected improvement ~0.09 (0.90 x 0.10, scan neutral), got {pair['improvement_score']}"
+            )
             assert data["safety_counts"]["db_rows_created"] == 0
         finally:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
@@ -11563,8 +11568,9 @@ class TestDailyPlanPreviewEndpoint:
                 session_type="REGULAR", price_type="LAST",
             )
             s.add(snap_buy)
-            # BUY candidate: conf=0.90, return%=20.0 → score=18.0
-            # improvement = 18.0 - 11.11 = 6.89 >= 5.0 → meets threshold
+            # BUY candidate: conf=0.90, return%=20.0
+            # v2 score = 0.90 * (20.0/100) = 0.18; holding has no prediction → 0.0
+            # improvement = 0.18 - 0.0 = 0.18 >= 0.05 threshold → meets
             cand = CandidateReview(
                 idempotency_key=f"dp-rot-buy-{suffix}", ticker=ticker_buy,
                 prediction_recommendation="BUY", prediction_confidence="0.90",
@@ -11580,7 +11586,7 @@ class TestDailyPlanPreviewEndpoint:
                 "/v1/review/daily-plan-preview",
                 json={
                     "approved_only": True,
-                    "min_rotation_improvement_pct": 5.0,
+                    "min_rotation_improvement_pct": 0.05,
                     "include_rotation": True,
                     "candidate_ids": [cand_id],
                     "position_tickers": [ticker_held],
@@ -11743,7 +11749,7 @@ class TestDailyPlanPreviewEndpoint:
                 "/v1/review/daily-plan-preview",
                 json={
                     "approved_only": True,
-                    "min_rotation_improvement_pct": 5.0,
+                    "min_rotation_improvement_pct": 0.05,
                     "include_rotation": True,
                     "candidate_ids": [cand_id],
                     "position_tickers": [ticker_held],
@@ -12059,7 +12065,7 @@ class TestDailyPlanPreviewEndpoint:
                 "/v1/review/daily-plan-preview",
                 json={
                     "approved_only": True,
-                    "min_rotation_improvement_pct": 5.0,
+                    "min_rotation_improvement_pct": 0.05,
                     "include_rotation": True,
                     "candidate_ids": [cand_id],
                     "position_tickers": [ticker_held],
@@ -12083,5 +12089,363 @@ class TestDailyPlanPreviewEndpoint:
                 portfolio_obj.config = old_config
                 s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
                 s.query(PriceSnapshot).filter(PriceSnapshot.ticker.in_([ticker_held, ticker_buy])).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    # -----------------------------------------------------------------------
+    # Decision Model v2 integration tests
+    # -----------------------------------------------------------------------
+
+    def test_daily_plan_v2_uses_forward_vs_forward_not_score_vs_pnl(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Rotation uses forward-vs-forward scoring, not candidate_score minus pnl_pct."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPFWFH{suffix}"
+        ticker_buy  = f"DPFWFB{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            portfolio_obj = s.query(Portfolio).first()
+            old_config = dict(portfolio_obj.config or {})
+            portfolio_obj.config = {"max_positions": 1}
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            # Holding cost=$10, price=$50 -> PnL=+400% (would block old formula)
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("10"), avg_cost=Decimal("10.00"),
+                cost_basis=Decimal("100.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_held, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker_buy, price=Decimal("20.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            # v2 candidate score = 0.80*(8/100)=0.064; scan_score=50 → neutral (scan_adj=0)
+            # holding has no pred -> hold_score=0.0; improvement=0.064 >= 0.05 -> meets
+            cand = CandidateReview(
+                idempotency_key=f"dp-fwf-{suffix}", ticker=ticker_buy,
+                prediction_recommendation="BUY", prediction_confidence="0.80",
+                expected_return_pct="8.0", scan_score="50", preview_decision="CONSIDER",
+                preview_score="80.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "min_rotation_improvement_pct": 0.05,
+                    "include_rotation": True,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [ticker_held],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            good = [r for r in data["rotation_plan"] if r["meets_threshold"]]
+            assert len(good) >= 1, (
+                "Expected rotation to meet threshold under forward-vs-forward. "
+                f"rotation_plan={data['rotation_plan']}"
+            )
+            improvement_f = float(good[0]["improvement_score"])
+            # v2 forward-vs-forward: cand=0.80*(8/100)=0.064 minus hold=0.0 → ~0.064
+            assert improvement_f == pytest.approx(0.064, abs=0.002), (
+                f"Expected improvement ~0.064 (0.80 x 0.08, scan neutral), got {improvement_f}"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                portfolio_obj = s.query(Portfolio).first()
+                portfolio_obj.config = old_config
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker.in_([ticker_held, ticker_buy])).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_v2_prediction_missing_flagged_in_rotation(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Rotation pair has prediction_missing=True when the holding has no CandidateReview."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPPMH{suffix}"
+        ticker_buy  = f"DPPMB{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            portfolio_obj = s.query(Portfolio).first()
+            old_config = dict(portfolio_obj.config or {})
+            portfolio_obj.config = {"max_positions": 1}
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_held, price=Decimal("100.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker_buy, price=Decimal("30.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            # No CandidateReview for ticker_held -> prediction_missing must be True
+            cand = CandidateReview(
+                idempotency_key=f"dp-pm-{suffix}", ticker=ticker_buy,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="10.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "min_rotation_improvement_pct": 0.02,
+                    "include_rotation": True,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [ticker_held],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            rot_items = data["rotation_plan"]
+            assert len(rot_items) >= 1, "Expected at least one rotation pair"
+            rot = rot_items[0]
+            assert rot["prediction_missing"] is True
+            assert rot["holding_score_v2"] == "0.0000"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                portfolio_obj = s.query(Portfolio).first()
+                portfolio_obj.config = old_config
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker.in_([ticker_held, ticker_buy])).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_v2_holding_with_strong_prediction_blocks_weak_rotation(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Rotation not proposed when the holding forward score exceeds the candidate's."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPHLDH{suffix}"
+        ticker_buy  = f"DPHLDB{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            portfolio_obj = s.query(Portfolio).first()
+            old_config = dict(portfolio_obj.config or {})
+            portfolio_obj.config = {"max_positions": 1}
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_held, price=Decimal("100.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker_buy, price=Decimal("30.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            # Holding: conf=0.90, exp_ret=15% -> v2 score=0.135
+            held_cr = CandidateReview(
+                idempotency_key=f"dp-held-{suffix}", ticker=ticker_held,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="15.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="NEW", status="OK",
+            )
+            s.add(held_cr)
+            # Buy candidate: conf=0.70, exp_ret=3% -> v2 score=0.021
+            # improvement = 0.021 - 0.135 = -0.114 < 0.02 -> does NOT meet
+            buy_cand = CandidateReview(
+                idempotency_key=f"dp-hld-buy-{suffix}", ticker=ticker_buy,
+                prediction_recommendation="BUY", prediction_confidence="0.70",
+                expected_return_pct="3.0", preview_decision="WATCH",
+                preview_score="40.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(buy_cand)
+            s.commit()
+            buy_cand_id = str(buy_cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "min_rotation_improvement_pct": 0.02,
+                    "include_rotation": True,
+                    "candidate_ids": [buy_cand_id],
+                    "position_tickers": [ticker_held],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            good = [r for r in data["rotation_plan"] if r["meets_threshold"]]
+            assert len(good) == 0, (
+                f"Rotation must not meet threshold when holding has stronger fwd score. good={good}"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                portfolio_obj = s.query(Portfolio).first()
+                portfolio_obj.config = old_config
+                s.query(CandidateReview).filter(
+                    CandidateReview.ticker.in_([ticker_held, ticker_buy])
+                ).delete()
+                s.query(PriceSnapshot).filter(
+                    PriceSnapshot.ticker.in_([ticker_held, ticker_buy])
+                ).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_v2_score_factors_v2_present_in_buy_recommendation(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """buy_recommendations expose score_factors_v2 with factor breakdown keys."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker = f"DPSFV2{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-sfv2-{suffix}", ticker=ticker,
+                prediction_recommendation="BUY", prediction_confidence="0.80",
+                expected_return_pct="10.0", preview_decision="CONSIDER",
+                preview_score="80.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={"approved_only": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            buy_items = [b for b in data["buy_recommendations"] if b["ticker"] == ticker]
+            assert len(buy_items) >= 1, f"Expected BUY recommendation for {ticker}"
+            sf = buy_items[0].get("score_factors_v2")
+            assert sf is not None, "score_factors_v2 must be present"
+            for key in ("total_score", "base_score", "momentum_adj", "rs_adj",
+                        "scan_adj", "confidence", "expected_return_pct"):
+                assert key in sf, f"score_factors_v2 missing key: {key}"
+            assert abs(sf["base_score"] - 0.08) < 1e-4
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_daily_plan_v2_negative_pnl_holding_excluded_from_rotation(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A holding at a loss is never proposed as the sell leg of a rotation pair."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPNPNH{suffix}"
+        ticker_buy  = f"DPNPNB{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            portfolio_obj = s.query(Portfolio).first()
+            old_config = dict(portfolio_obj.config or {})
+            portfolio_obj.config = {"max_positions": 1}
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("10"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("1000.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_held, price=Decimal("80.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker_buy, price=Decimal("30.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-npn-{suffix}", ticker=ticker_buy,
+                prediction_recommendation="BUY", prediction_confidence="0.99",
+                expected_return_pct="50.0", preview_decision="CONSIDER",
+                preview_score="99.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "block_loss_realization": True,
+                    "min_rotation_improvement_pct": 0.01,
+                    "include_rotation": True,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [ticker_held],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            good = [r for r in data["rotation_plan"] if r["meets_threshold"]]
+            assert len(good) == 0, (
+                f"Loss position must not appear in qualifying rotation. rotation_plan={data['rotation_plan']}"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                portfolio_obj = s.query(Portfolio).first()
+                portfolio_obj.config = old_config
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
+                s.query(PriceSnapshot).filter(
+                    PriceSnapshot.ticker.in_([ticker_held, ticker_buy])
+                ).delete()
                 s.query(Position).filter(Position.id == pos_id).delete()
                 s.commit()

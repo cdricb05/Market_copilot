@@ -79,6 +79,13 @@ from paper_trader.engine.prediction_client import (
 from paper_trader.engine.prediction_strategy import generate_prediction_signals
 from paper_trader.engine.reconciler import run_fill_cycle
 from paper_trader.engine.risk import evaluate_signal
+from paper_trader.engine.scoring import (
+    score_candidate_v2 as _score_candidate_v2,
+    score_holding_v2 as _score_holding_v2,
+    score_rotation_v2 as _score_rotation_v2,
+    explain_score_factors as _explain_score_factors,
+    safe_float as _safe_float,
+)
 from paper_trader.engine.strategy import generate_signals
 from paper_trader.workflows.decision import run_decision_workflow, _latest_price
 from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow
@@ -997,8 +1004,8 @@ class RotationPreviewRequest(BaseModel):
         description="Maximum number of rotation pairs to propose.",
     )
     min_improvement_score: float = Field(
-        default=5.0,
-        description="Minimum improvement score (candidate_score - holding_unrealized_pnl_pct) required to propose a pair.",
+        default=0.02,
+        description="Minimum forward-score improvement (candidate_score_v2 - holding_score_v2) required to propose a pair.",
     )
     min_exit_pnl_pct: float = Field(
         default=0.0,
@@ -1075,6 +1082,7 @@ class BuyRecommendationItem(BaseModel):
     approved_qty: str
     approved_notional: str
     reason: str
+    score_factors_v2: dict | None = None
 
 
 class SellRecommendationItem(BaseModel):
@@ -1124,6 +1132,10 @@ class DailyPlanRotationItem(BaseModel):
     meets_threshold: bool
     reason: str
     buy_candidate_review_id: str | None = None
+    holding_score_v2: str | None = None
+    candidate_score_v2: str | None = None
+    prediction_missing: bool = False
+    score_explanation: str | None = None
 
 
 class DailyPlanBlockedItem(BaseModel):
@@ -1186,8 +1198,8 @@ class DailyPlanPreviewRequest(BaseModel):
         description="Maximum number of candidates to evaluate.",
     )
     min_rotation_improvement_pct: float = Field(
-        default=5.0,
-        description="Minimum improvement score to propose a rotation pair.",
+        default=0.02,
+        description="Minimum forward-score improvement (candidate_score_v2 - holding_score_v2) to propose a rotation pair.",
     )
     candidate_ids: list[str] | None = Field(
         default=None,
@@ -3329,6 +3341,29 @@ def scan_market(body: MarketScanRequest) -> MarketScanResponse:
     )
 
 
+def _cand_to_score_dict(cand: Any) -> dict:
+    """Build a score_candidate_v2 input dict from a CandidateReview ORM object.
+
+    DB fields store percentages as decimal strings (e.g. '1.73' = 1.73 %);
+    score_candidate_v2 expects fractions (0.0173).  scan_score is passed
+    as-is — the scoring module auto-detects 0-1 vs 0-100 scale.
+    """
+    def _pct(val: str | None) -> float:
+        try:
+            return float(val or "0") / 100.0
+        except (ValueError, TypeError):
+            return 0.0
+
+    return {
+        "prediction_confidence":        _safe_float(cand.prediction_confidence, 0.0),
+        "expected_return_pct":          _pct(cand.expected_return_pct),
+        "momentum_5d_pct":              _pct(cand.momentum_5d_pct),
+        "momentum_20d_pct":             _pct(cand.momentum_20d_pct),
+        "relative_strength_vs_spy_20d": _pct(cand.relative_strength_vs_spy_20d),
+        "scan_score":                   _safe_float(cand.scan_score, 0.0),
+    }
+
+
 def _calculate_preview_score(
     normalized_prediction: dict | None,
     candidate_score: str | None,
@@ -5406,7 +5441,7 @@ async def preview_portfolio_rotation(
 
         candidates_considered = len(raw_candidates)
 
-        # Score BUY candidates not already held
+        # Score BUY candidates not already held using Decision Model v2
         scored_candidates: list[tuple[CandidateStrengthDetail, float]] = []
         for cand in raw_candidates:
             if not cand.prediction_recommendation:
@@ -5415,12 +5450,8 @@ async def preview_portfolio_rotation(
                 continue
             if cand.ticker in held_tickers:
                 continue
-            try:
-                conf = float(cand.prediction_confidence or "0")
-                exp_ret = float(cand.expected_return_pct or "0")
-            except (ValueError, TypeError):
-                continue
-            cand_score = conf * exp_ret
+            _rp_sf = _score_candidate_v2(_cand_to_score_dict(cand))
+            cand_score = _rp_sf.total_score
             scored_candidates.append((
                 CandidateStrengthDetail(
                     candidate_review_id=str(cand.id),
@@ -5465,6 +5496,22 @@ async def preview_portfolio_rotation(
             used_cand_tickers: set[str] = set()
             pairs_limit = min(body.limit_pairs, len(positions_with_pnl), len(scored_candidates))
 
+            # Look up forward-score predictions for each sellable holding
+            _rp_held_pred_cache: dict[str, dict | None] = {}
+            for pos_detail, _ in positions_with_pnl:
+                _rp_hcr = session.execute(
+                    select(CandidateReview)
+                    .where(
+                        CandidateReview.ticker == pos_detail.ticker,
+                        CandidateReview.prediction_confidence.is_not(None),
+                    )
+                    .order_by(CandidateReview.created_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+                _rp_held_pred_cache[pos_detail.ticker] = (
+                    _cand_to_score_dict(_rp_hcr) if _rp_hcr is not None else None
+                )
+
             for pos_detail, pos_pnl_pct in positions_with_pnl[:pairs_limit]:
                 best: tuple[CandidateStrengthDetail, float] | None = None
                 for cd, cs in scored_candidates:
@@ -5475,7 +5522,12 @@ async def preview_portfolio_rotation(
                     break
 
                 best_detail, best_score = best
-                improvement = best_score - pos_pnl_pct
+                _rp_hold_pred = _rp_held_pred_cache.get(pos_detail.ticker)
+                _rp_hold_sf = _score_holding_v2({}, holding_prediction=_rp_hold_pred)
+                hold_score = _rp_hold_sf.total_score
+
+                # Forward-vs-forward improvement; PnL gate is handled by sellable_for_rotation
+                improvement = best_score - hold_score
                 meets = improvement >= body.min_improvement_score
 
                 pair = RotationPairDetail(
@@ -5488,7 +5540,7 @@ async def preview_portfolio_rotation(
                     meets_threshold=meets,
                     reason=(
                         f"Candidate {best_detail.ticker} (score {best_score:.4f}) vs "
-                        f"holding {pos_detail.ticker} (unrealized_pnl_pct {pos_pnl_pct:.4f}%); "
+                        f"holding {pos_detail.ticker} (fwd score {hold_score:.4f}); "
                         f"improvement {improvement:.4f} "
                         f"{'meets' if meets else 'below'} threshold {body.min_improvement_score}."
                     ),
@@ -5865,11 +5917,8 @@ async def daily_plan_preview(
                 continue
 
             if rd.decision == DecisionType.BUY:
-                try:
-                    exp_ret = float(cand.expected_return_pct or "0")
-                except (ValueError, TypeError):
-                    exp_ret = 0.0
-                cand_score = conf * exp_ret
+                _buy_sf = _score_candidate_v2(_cand_to_score_dict(cand))
+                cand_score = _buy_sf.total_score
                 buy_recommendations.append(BuyRecommendationItem(
                     ticker=cand.ticker,
                     candidate_review_id=str(cand.id),
@@ -5881,6 +5930,7 @@ async def daily_plan_preview(
                     approved_qty=str(rd.approved_qty),
                     approved_notional=str(rd.approved_notional),
                     reason=f"Buy {rd.approved_qty} share(s) at ~${snapshot_price} = ${rd.approved_notional}.",
+                    score_factors_v2=_buy_sf.as_dict(),
                 ))
             else:
                 reason_code = rd.reason_code or "REJECTED"
@@ -5905,30 +5955,49 @@ async def daily_plan_preview(
                 scored_buy_cands: list[tuple] = []
                 for cand in raw_candidates:
                     if (cand.prediction_recommendation or "").upper() == "BUY" and cand.ticker in capacity_blocked_tickers:
-                        try:
-                            conf = float(cand.prediction_confidence or "0")
-                            exp_ret = float(cand.expected_return_pct or "0")
-                            score = conf * exp_ret
-                        except (ValueError, TypeError):
-                            score = 0.0
-                        scored_buy_cands.append((cand, score))
+                        _rot_sf = _score_candidate_v2(_cand_to_score_dict(cand))
+                        scored_buy_cands.append((cand, _rot_sf.total_score, _rot_sf))
                 scored_buy_cands.sort(key=lambda x: x[1], reverse=True)
+
+                # Look up forward-score predictions for profitable holdings
+                _held_pred_cache: dict[str, dict | None] = {}
+                for _ht, _, _, _ in profitable_positions:
+                    _hcr = session.execute(
+                        select(CandidateReview)
+                        .where(
+                            CandidateReview.ticker == _ht,
+                            CandidateReview.prediction_confidence.is_not(None),
+                        )
+                        .order_by(CandidateReview.created_at.desc())
+                        .limit(1)
+                    ).scalar_one_or_none()
+                    _held_pred_cache[_ht] = _cand_to_score_dict(_hcr) if _hcr is not None else None
 
                 pairs_limit = min(3, len(profitable_positions), len(scored_buy_cands))
                 used_buy_tickers: set[str] = set()
 
                 for sell_ticker, sell_pnl_pct, sell_price, sell_pos in profitable_positions[:pairs_limit]:
                     best: tuple | None = None
-                    for cand, score in scored_buy_cands:
+                    for cand, score, csf in scored_buy_cands:
                         if cand.ticker not in used_buy_tickers:
-                            best = (cand, score)
+                            best = (cand, score, csf)
                             break
                     if best is None:
                         break
 
-                    buy_cand, buy_score = best
-                    improvement = buy_score - sell_pnl_pct
-                    meets = improvement >= body.min_rotation_improvement_pct
+                    buy_cand, buy_score, buy_sf = best
+                    _hold_pred = _held_pred_cache.get(sell_ticker)
+                    _hold_sf = _score_holding_v2({}, holding_prediction=_hold_pred)
+                    hold_score = _hold_sf.total_score
+
+                    _rot_result = _score_rotation_v2(
+                        candidate_score=buy_score,
+                        holding_score=hold_score,
+                        holding_pnl_pct=sell_pnl_pct / 100.0,
+                        min_improvement_score=body.min_rotation_improvement_pct,
+                    )
+                    improvement = _rot_result.improvement_score
+                    meets = _rot_result.eligible
                     sell_value = (sell_pos.qty * sell_price).quantize(_DOLLARS)
                     sell_pnl_d = (sell_value - sell_pos.cost_basis).quantize(_DOLLARS)
 
@@ -5942,11 +6011,17 @@ async def daily_plan_preview(
                         meets_threshold=meets,
                         reason=(
                             f"Sell {sell_ticker} (+{sell_pnl_pct:.2f}%) to buy {buy_cand.ticker} "
-                            f"(score {buy_score:.4f}). "
+                            f"(score {buy_score:.4f}, holding fwd score {hold_score:.4f}). "
                             f"Improvement {improvement:.4f} "
                             f"({'meets' if meets else 'below'} threshold {body.min_rotation_improvement_pct})."
+                            + (" [holding has no prediction — compared vs neutral 0.0]"
+                               if _hold_sf.prediction_missing else "")
                         ),
                         buy_candidate_review_id=str(buy_cand.id),
+                        holding_score_v2=f"{hold_score:.4f}",
+                        candidate_score_v2=f"{buy_score:.4f}",
+                        prediction_missing=_hold_sf.prediction_missing,
+                        score_explanation=_explain_score_factors(buy_sf),
                     ))
                     if meets:
                         used_buy_tickers.add(buy_cand.ticker)
