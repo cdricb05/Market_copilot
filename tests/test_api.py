@@ -11897,3 +11897,191 @@ class TestDailyPlanPreviewEndpoint:
         stack = data["action_stack"]
         types = [i["action_type"] for i in stack]
         assert "NO_ACTION" in types, f"Expected NO_ACTION in action_stack, got: {types}"
+
+    def test_daily_plan_buy_action_item_exposes_candidate_review_id_and_approved_qty(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """BUY action_stack item must expose candidate_review_id and approved_qty."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker = f"DPBUYID{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-buy-id-{suffix}", ticker=ticker,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="20.0", preview_decision="CONSIDER",
+                preview_score="90.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            stack = data["action_stack"]
+            buy_items = [i for i in stack if i["action_type"] == "BUY" and i["ticker"] == ticker]
+            assert len(buy_items) >= 1, f"Expected a BUY item for {ticker}, got: {[i['ticker'] for i in stack]}"
+            item = buy_items[0]
+            assert item["candidate_review_id"] == cand_id, (
+                f"BUY item candidate_review_id mismatch: got {item['candidate_review_id']!r}, want {cand_id!r}"
+            )
+            assert item["approved_qty"] is not None, "BUY item approved_qty must not be None"
+            assert Decimal(item["approved_qty"]) >= Decimal("1"), f"BUY item approved_qty must be >= 1, got {item['approved_qty']!r}"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_daily_plan_sell_action_item_exposes_candidate_review_id_and_sell_qty(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """SELL action_stack item must expose candidate_review_id and sell_qty when a SELL candidate exists."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker = f"DPSELLID{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker, qty=Decimal("10"), avg_cost=Decimal("80.00"),
+                cost_basis=Decimal("800.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("100.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-sell-id-{suffix}", ticker=ticker,
+                prediction_recommendation="SELL", prediction_confidence="0.90",
+                preview_decision="CONSIDER", preview_score="90.0",
+                review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": False,
+                    "block_loss_realization": False,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            stack = data["action_stack"]
+            sell_items = [i for i in stack if i["action_type"] == "SELL" and i["ticker"] == ticker]
+            assert len(sell_items) >= 1, (
+                f"Expected a SELL item for {ticker}, got types: {[i['action_type'] for i in stack]}"
+            )
+            item = sell_items[0]
+            assert item["candidate_review_id"] == cand_id, (
+                f"SELL item candidate_review_id mismatch: got {item['candidate_review_id']!r}, want {cand_id!r}"
+            )
+            assert item["sell_qty"] is not None, "SELL item sell_qty must not be None"
+            assert Decimal(item["sell_qty"]) >= Decimal("1"), f"SELL item sell_qty must be >= 1, got {item['sell_qty']!r}"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_rotate_action_item_exposes_buy_candidate_review_id(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """ROTATE action_stack item candidate_review_id must equal the BUY candidate's CandidateReview id."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPROTSH{suffix}"
+        ticker_buy  = f"DPROTSB{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            portfolio_obj = s.query(Portfolio).first()
+            old_config = dict(portfolio_obj.config or {})
+            portfolio_obj.config = {"max_positions": 1}
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_held, price=Decimal("100.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker_buy, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-rot-id-{suffix}", ticker=ticker_buy,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="20.0", preview_decision="CONSIDER",
+                preview_score="90.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "min_rotation_improvement_pct": 5.0,
+                    "include_rotation": True,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [ticker_held],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            stack = data["action_stack"]
+            rotate_items = [i for i in stack if i["action_type"] == "ROTATE"]
+            assert len(rotate_items) >= 1, (
+                f"Expected at least one ROTATE item, got types: {[i['action_type'] for i in stack]}"
+            )
+            item = rotate_items[0]
+            assert item["candidate_review_id"] == cand_id, (
+                f"ROTATE item candidate_review_id mismatch: got {item['candidate_review_id']!r}, want {cand_id!r}"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                portfolio_obj = s.query(Portfolio).first()
+                portfolio_obj.config = old_config
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker.in_([ticker_held, ticker_buy])).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()

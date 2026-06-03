@@ -1088,6 +1088,7 @@ class SellRecommendationItem(BaseModel):
     sell_qty: str
     sell_notional: str
     reason: str
+    candidate_review_id: str | None = None
 
 
 class HoldPositionItem(BaseModel):
@@ -1122,6 +1123,7 @@ class DailyPlanRotationItem(BaseModel):
     improvement_score: str
     meets_threshold: bool
     reason: str
+    buy_candidate_review_id: str | None = None
 
 
 class DailyPlanBlockedItem(BaseModel):
@@ -1145,6 +1147,9 @@ class DailyPlanActionItem(BaseModel):
     expected_return_pct: str | None = None
     pnl_pct: str | None = None
     blocked_reason: str | None = None
+    candidate_review_id: str | None = None
+    approved_qty: str | None = None
+    sell_qty: str | None = None
     safety_note: str = "Preview only. No signals, decisions, or orders created."
 
 
@@ -5726,6 +5731,7 @@ async def daily_plan_preview(
                             sell_qty=str(rd.approved_qty),
                             sell_notional=str(sell_notional),
                             reason=f"Sell {rd.approved_qty} share(s) at ~${snap_price}. Gain: {pnl_pct:.2f}%.",
+                            candidate_review_id=str(sell_cand.id) if sell_cand is not None else None,
                         ))
                     elif rd is not None:
                         reason_code = rd.reason_code or "REJECTED"
@@ -5848,6 +5854,7 @@ async def daily_plan_preview(
                     snapshot_price=snapshot_price,
                     market_date=eastern_date,
                     now=now,
+                    position_count_override=current_count if body.position_tickers is not None else None,
                 )
             except Exception as exc:
                 blocked_actions.append(DailyPlanBlockedItem(
@@ -5939,6 +5946,7 @@ async def daily_plan_preview(
                             f"Improvement {improvement:.4f} "
                             f"({'meets' if meets else 'below'} threshold {body.min_rotation_improvement_pct})."
                         ),
+                        buy_candidate_review_id=str(buy_cand.id),
                     ))
                     if meets:
                         used_buy_tickers.add(buy_cand.ticker)
@@ -6023,6 +6031,7 @@ async def daily_plan_preview(
                 recommendation=f"Sell {rot.sell_ticker} (+{float(rot.sell_unrealized_pnl_pct):.2f}%) to buy {rot.buy_ticker}",
                 reason=rot.reason,
                 pnl_pct=rot.sell_unrealized_pnl_pct,
+                candidate_review_id=rot.buy_candidate_review_id,
             ))
             _rotated_sell.add(rot.sell_ticker)
             _rotated_buy.add(rot.buy_ticker)
@@ -6040,6 +6049,8 @@ async def daily_plan_preview(
                 reason=f"Confidence: {float(buy.prediction_confidence or '0') * 100:.0f}%, Expected return: {buy.expected_return_pct or '-'}%",
                 confidence=buy.prediction_confidence,
                 expected_return_pct=buy.expected_return_pct,
+                candidate_review_id=buy.candidate_review_id,
+                approved_qty=buy.approved_qty,
             ))
             _priority += 1
 
@@ -6054,6 +6065,8 @@ async def daily_plan_preview(
                 recommendation=sell.reason,
                 reason=f"PnL: {float(sell.unrealized_pnl_pct):.2f}%",
                 pnl_pct=sell.unrealized_pnl_pct,
+                candidate_review_id=sell.candidate_review_id,
+                sell_qty=sell.sell_qty,
             ))
             _priority += 1
 

@@ -151,6 +151,7 @@ def evaluate_signal(
     snapshot_price: Decimal | None,
     market_date: date,
     now: datetime,
+    position_count_override: int | None = None,
 ) -> RiskDecision:
     """
     Evaluate a signal against current portfolio state and risk parameters.
@@ -164,13 +165,14 @@ def evaluate_signal(
     cash           = compute_cash(session)
     total_value    = portfolio.cached_total_value or cash
     open_positions = get_open_positions(session)
+    effective_count = position_count_override if position_count_override is not None else len(open_positions)
     daily_exposure = _daily_buy_exposure(session, market_date)
     daily_limit    = (cfg["max_daily_new_exposure_pct"] * total_value).quantize(_DOLLARS)
 
     risk_snapshot: dict[str, Any] = {
         "cash":                str(cash),
         "total_value":         str(total_value),
-        "open_position_count": len(open_positions),
+        "open_position_count": effective_count,
         "max_positions":       cfg["max_positions"],
         "daily_exposure_used": str(daily_exposure),
         "daily_exposure_limit":str(daily_limit),
@@ -219,7 +221,7 @@ def evaluate_signal(
         if position is None:
             if not cfg["allow_new_positions"]:
                 return _reject(RejectionReason.NEW_POSITIONS_DISABLED)
-            if len(open_positions) >= cfg["max_positions"]:
+            if effective_count >= cfg["max_positions"]:
                 return _reject(RejectionReason.MAX_POSITIONS_REACHED)
 
         # 5. Averaging-down check (unconditional when position exists and
