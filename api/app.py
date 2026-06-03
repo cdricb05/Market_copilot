@@ -1165,6 +1165,81 @@ class DailyPlanActionItem(BaseModel):
     safety_note: str = "Preview only. No signals, decisions, or orders created."
 
 
+# ---------------------------------------------------------------------------
+# Capital Allocation / Rotation v3 schemas (preview-only, no DB writes)
+# ---------------------------------------------------------------------------
+
+class CapitalReleasePositionItem(BaseModel):
+    """Per-position capital release analysis (preview-only)."""
+    ticker: str
+    qty: str
+    avg_cost: str
+    cost_basis: str
+    current_price: str | None
+    current_value: str | None
+    unrealized_pnl: str | None
+    unrealized_pnl_pct: str | None
+    sellable_standard_mode: bool
+    blocked_reason: str | None
+    releasable_cash_standard_mode: str
+    releasable_cash_theoretical: str
+    max_sell_qty_standard_mode: str
+    explanation: str
+
+
+class CapitalReleaseSummary(BaseModel):
+    """Portfolio-level capital release summary."""
+    current_cash: str
+    total_position_value: str
+    max_releasable_cash_standard_mode: str
+    max_releasable_cash_theoretical: str
+    blocked_cash_due_to_negative_pnl: str
+    blocked_cash_due_to_missing_or_stale_price: str
+    sellable_positions_count: int
+    blocked_positions_count: int
+
+
+class CandidateRedeployItem(BaseModel):
+    """Model-implied expected return from redeploying cash into a BUY candidate."""
+    ticker: str
+    current_price: str | None
+    prediction_confidence: str | None
+    expected_return_pct: str | None
+    candidate_score_v2: str
+    risk_adjusted_expected_return_pct: str
+    expected_pnl_per_1000: str
+    explanation: str
+
+
+class RotationOpportunityItem(BaseModel):
+    """A candidate rotation opportunity with dollar-PnL impact estimate (preview-only)."""
+    sell_ticker: str
+    buy_ticker: str
+    cash_released: str
+    buy_price: str | None
+    estimated_buy_qty: str | None
+    expected_return_pct: str | None
+    prediction_confidence: str | None
+    risk_adjusted_expected_return_pct: str
+    expected_forward_pnl: str
+    holding_forward_score_v2: str
+    candidate_score_v2: str
+    score_improvement: str
+    expected_pnl_improvement: str
+    meets_threshold: bool
+    blocked_reason: str | None
+    explanation: str
+
+
+class CapitalAllocationAnalysis(BaseModel):
+    """Capital Allocation / Rotation v3 analysis (PREVIEW ONLY — no trades created)."""
+    capital_release_summary: CapitalReleaseSummary
+    position_release_details: list[CapitalReleasePositionItem]
+    candidate_redeployment: list[CandidateRedeployItem]
+    rotation_opportunities: list[RotationOpportunityItem]
+    model_note: str
+
+
 class DailyPlanPreviewRequest(BaseModel):
     """Request to generate a read-only consolidated daily trading plan."""
     approved_only: bool = Field(
@@ -1232,6 +1307,7 @@ class DailyPlanPreviewResponse(BaseModel):
     recommended_next_action: str
     explanation: str
     safety_counts: DailyPlanSafetyCounts
+    capital_allocation: CapitalAllocationAnalysis | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -5664,6 +5740,7 @@ async def daily_plan_preview(
         # 3. Analyze current holdings
         blocked_actions: list[DailyPlanBlockedItem] = []
         hold_positions: list[HoldPositionItem] = []
+        _cap_release_raw: list[dict] = []   # capital allocation position data (one entry per position)
         sell_recommendations: list[SellRecommendationItem] = []
         profitable_positions: list[tuple] = []  # (ticker, pnl_pct, snap_price, pos)
 
@@ -5676,6 +5753,11 @@ async def daily_plan_preview(
             ).first()
 
             if price_row is None:
+                _cap_release_raw.append({
+                    "pos": pos, "price": None, "pnl_pct": None,
+                    "cv": None, "upnl": None,
+                    "sellable": False, "blocked_reason": "NO_PRICE_SNAPSHOT",
+                })
                 if pos.ticker in sell_signal_tickers:
                     blocked_actions.append(DailyPlanBlockedItem(
                         ticker=pos.ticker, action="SELL",
@@ -5701,6 +5783,11 @@ async def daily_plan_preview(
             pnl_pct = float(unrealized_pnl) / cost_basis_f * 100.0 if cost_basis_f != 0.0 else 0.0
 
             if stale:
+                _cap_release_raw.append({
+                    "pos": pos, "price": snap_price, "pnl_pct": pnl_pct,
+                    "cv": current_value, "upnl": unrealized_pnl,
+                    "sellable": False, "blocked_reason": "STALE_PRICE",
+                })
                 if pos.ticker in sell_signal_tickers:
                     blocked_actions.append(DailyPlanBlockedItem(
                         ticker=pos.ticker, action="SELL",
@@ -5813,9 +5900,19 @@ async def daily_plan_preview(
                 if pnl_pct >= 0:
                     profitable_positions.append((pos.ticker, pnl_pct, snap_price, pos))
 
+            # Capital allocation data for this position (normal-flow: price exists and is fresh)
+            _cap_sell = not (body.block_loss_realization and pnl_pct < 0)
+            _cap_release_raw.append({
+                "pos": pos, "price": snap_price, "pnl_pct": pnl_pct,
+                "cv": current_value, "upnl": unrealized_pnl,
+                "sellable": _cap_sell,
+                "blocked_reason": None if _cap_sell else "NEGATIVE_PNL_BLOCKED",
+            })
+
         # 4. Evaluate BUY candidates
         buy_recommendations: list[BuyRecommendationItem] = []
         watch_candidates: list[WatchCandidateItem] = []
+        _buy_cap_info: dict[str, dict] = {}   # ticker -> {price, conf, exp_ret_pct, score, cand}
         _buy_reason_map = {
             "MAX_POSITIONS_REACHED": f"Portfolio is full ({current_count}/{cfg_max}). Free capacity or use rotation.",
             "CASH_RESERVE_BREACH": "Not enough available cash after maintaining the minimum cash reserve.",
@@ -5932,6 +6029,13 @@ async def daily_plan_preview(
                     reason=f"Buy {rd.approved_qty} share(s) at ~${snapshot_price} = ${rd.approved_notional}.",
                     score_factors_v2=_buy_sf.as_dict(),
                 ))
+                _buy_cap_info[cand.ticker] = {
+                    "price": snapshot_price,
+                    "conf": conf,
+                    "exp_ret_pct": _safe_float(cand.expected_return_pct, 0.0),
+                    "score": cand_score,
+                    "cand": cand,
+                }
             else:
                 reason_code = rd.reason_code or "REJECTED"
                 blocked_actions.append(DailyPlanBlockedItem(
@@ -6202,6 +6306,184 @@ async def daily_plan_preview(
             capacity_status=capacity_status,
         )
 
+        # 8. Capital Allocation / Rotation v3 analysis (preview-only, no trades)
+        _CA_DOLLARS = Decimal("0.01")
+        _ca_pos_details: list[CapitalReleasePositionItem] = []
+        _ca_total_pos_value = Decimal("0")
+        _ca_releasable_std = Decimal("0")
+        _ca_releasable_theo = Decimal("0")
+        _ca_blocked_neg_pnl = Decimal("0")
+        _ca_blocked_no_price = Decimal("0")
+        _ca_sellable_count = 0
+        _ca_blocked_count = 0
+
+        for _crd in _cap_release_raw:
+            _crd_pos = _crd["pos"]
+            _crd_price = _crd["price"]
+            _crd_cv = _crd["cv"]
+            _crd_upnl = _crd["upnl"]
+            _crd_pct = _crd["pnl_pct"]
+            _crd_sell = _crd["sellable"]
+            _crd_br = _crd["blocked_reason"]
+
+            _theo_cash = _crd_cv if _crd_cv is not None else Decimal("0")
+            _std_cash = _crd_cv if (_crd_cv is not None and _crd_sell) else Decimal("0")
+
+            if _crd_cv is not None:
+                _ca_total_pos_value += _crd_cv
+                _ca_releasable_theo += _theo_cash
+                if _crd_sell:
+                    _ca_releasable_std += _std_cash
+                    _ca_sellable_count += 1
+                else:
+                    _ca_blocked_count += 1
+                    if _crd_br == "NEGATIVE_PNL_BLOCKED":
+                        _ca_blocked_neg_pnl += _theo_cash
+                    else:
+                        _ca_blocked_no_price += _theo_cash
+            else:
+                _ca_blocked_count += 1
+
+            _ca_max_qty = _crd_pos.qty if _crd_sell else Decimal("0")
+            _ca_pos_details.append(CapitalReleasePositionItem(
+                ticker=_crd_pos.ticker,
+                qty=str(_crd_pos.qty),
+                avg_cost=str(_crd_pos.avg_cost),
+                cost_basis=str(_crd_pos.cost_basis),
+                current_price=str(_crd_price) if _crd_price is not None else None,
+                current_value=str(_crd_cv.quantize(_CA_DOLLARS)) if _crd_cv is not None else None,
+                unrealized_pnl=str(_crd_upnl.quantize(_CA_DOLLARS)) if _crd_upnl is not None else None,
+                unrealized_pnl_pct=f"{_crd_pct:.4f}" if _crd_pct is not None else None,
+                sellable_standard_mode=_crd_sell,
+                blocked_reason=_crd_br,
+                releasable_cash_standard_mode=str(_std_cash.quantize(_CA_DOLLARS)),
+                releasable_cash_theoretical=str(_theo_cash.quantize(_CA_DOLLARS)),
+                max_sell_qty_standard_mode=str(_ca_max_qty),
+                explanation=(
+                    f"Sellable at ${_crd_price}. Releases ${_std_cash.quantize(_CA_DOLLARS)} in standard mode."
+                    if _crd_sell
+                    else f"Blocked ({_crd_br}). Theoretical value ${_theo_cash.quantize(_CA_DOLLARS)} if sold."
+                ),
+            ))
+
+        _ca_release_summary = CapitalReleaseSummary(
+            current_cash=str(cash.quantize(_CA_DOLLARS)),
+            total_position_value=str(_ca_total_pos_value.quantize(_CA_DOLLARS)),
+            max_releasable_cash_standard_mode=str(_ca_releasable_std.quantize(_CA_DOLLARS)),
+            max_releasable_cash_theoretical=str(_ca_releasable_theo.quantize(_CA_DOLLARS)),
+            blocked_cash_due_to_negative_pnl=str(_ca_blocked_neg_pnl.quantize(_CA_DOLLARS)),
+            blocked_cash_due_to_missing_or_stale_price=str(_ca_blocked_no_price.quantize(_CA_DOLLARS)),
+            sellable_positions_count=_ca_sellable_count,
+            blocked_positions_count=_ca_blocked_count,
+        )
+
+        # Candidate redeployment analysis
+        _ca_cand_redeploy: list[CandidateRedeployItem] = []
+        for _bt, _binfo in _buy_cap_info.items():
+            _b_exp_pct = _binfo["exp_ret_pct"]      # stored as float % (e.g. 10.0 = 10%)
+            _b_conf = _binfo["conf"]                 # fraction (e.g. 0.80)
+            _b_risk_adj = _b_exp_pct * _b_conf       # risk-adjusted % (e.g. 8.0)
+            _b_pnl_1k = 1000.0 * _b_risk_adj / 100.0  # dollar per $1,000 (e.g. 80.0)
+            _ca_cand_redeploy.append(CandidateRedeployItem(
+                ticker=_bt,
+                current_price=str(_binfo["price"]) if _binfo["price"] else None,
+                prediction_confidence=_binfo["cand"].prediction_confidence,
+                expected_return_pct=_binfo["cand"].expected_return_pct,
+                candidate_score_v2=f"{_binfo['score']:.4f}",
+                risk_adjusted_expected_return_pct=f"{_b_risk_adj:.4f}",
+                expected_pnl_per_1000=f"{_b_pnl_1k:.2f}",
+                explanation=(
+                    f"Risk-adjusted return: {_b_risk_adj:.2f}% "
+                    f"(confidence {_b_conf:.2f} x expected {_b_exp_pct:.2f}%). "
+                    f"Model-implied expected PnL per $1,000 deployed: ${_b_pnl_1k:.2f}."
+                ),
+            ))
+
+        # Rotation opportunities: sellable positions x BUY candidates
+        _ca_rot_opps: list[RotationOpportunityItem] = []
+        for _crd in [r for r in _cap_release_raw if r["sellable"]]:
+            _sell_t = _crd["pos"].ticker
+            _cash_rel = _crd["cv"]
+            if _cash_rel is None:
+                continue
+
+            # Look up holding forward prediction via latest CandidateReview for this ticker
+            _h_cr = session.execute(
+                select(CandidateReview)
+                .where(
+                    CandidateReview.ticker == _sell_t,
+                    CandidateReview.prediction_confidence.is_not(None),
+                )
+                .order_by(CandidateReview.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            _h_pred: dict | None = _cand_to_score_dict(_h_cr) if _h_cr is not None else None
+
+            _h_sf = _score_holding_v2({}, holding_prediction=_h_pred)
+            _hold_score = _h_sf.total_score
+            # Holding expected forward PnL (dollar estimate)
+            _h_exp_pct = (float(_h_pred["expected_return_pct"]) * 100.0) if _h_pred else 0.0
+            _h_conf_v = (float(_h_pred["prediction_confidence"])) if _h_pred else 0.0
+            _h_risk_adj = _h_exp_pct * _h_conf_v
+            _hold_expected_pnl = float(_cash_rel) * _h_risk_adj / 100.0
+
+            for _bt, _binfo in _buy_cap_info.items():
+                if _bt == _sell_t:
+                    continue
+                _b_exp_pct = _binfo["exp_ret_pct"]
+                _b_conf = _binfo["conf"]
+                _b_risk_adj = _b_exp_pct * _b_conf
+                _b_price = _binfo["price"]
+                _b_score = _binfo["score"]
+                _score_imp = _b_score - _hold_score
+                _fwd_pnl = float(_cash_rel) * _b_risk_adj / 100.0
+                _pnl_imp = _fwd_pnl - _hold_expected_pnl
+                _meets = _score_imp > body.min_rotation_improvement_pct
+                _est_qty: int | None = None
+                if _b_price and float(_b_price) > 0:
+                    _est_qty = int(float(_cash_rel) / float(_b_price))
+                _ca_rot_opps.append(RotationOpportunityItem(
+                    sell_ticker=_sell_t,
+                    buy_ticker=_bt,
+                    cash_released=str(_cash_rel.quantize(_CA_DOLLARS)),
+                    buy_price=str(_b_price) if _b_price else None,
+                    estimated_buy_qty=str(_est_qty) if _est_qty is not None else None,
+                    expected_return_pct=_binfo["cand"].expected_return_pct,
+                    prediction_confidence=_binfo["cand"].prediction_confidence,
+                    risk_adjusted_expected_return_pct=f"{_b_risk_adj:.4f}",
+                    expected_forward_pnl=f"{_fwd_pnl:.2f}",
+                    holding_forward_score_v2=f"{_hold_score:.4f}",
+                    candidate_score_v2=f"{_b_score:.4f}",
+                    score_improvement=f"{_score_imp:.4f}",
+                    expected_pnl_improvement=f"{_pnl_imp:.2f}",
+                    meets_threshold=_meets,
+                    blocked_reason=None if _meets else "INSUFFICIENT_IMPROVEMENT",
+                    explanation=(
+                        f"Sell {_sell_t} releasing ${_cash_rel.quantize(_CA_DOLLARS)}. "
+                        f"Redeploy into {_bt} (risk-adj return {_b_risk_adj:.2f}%) "
+                        f"-> model-implied expected PnL ${_fwd_pnl:.2f}. "
+                        f"Score improvement {_score_imp:.4f} "
+                        f"({'meets' if _meets else 'below'} threshold {body.min_rotation_improvement_pct})."
+                    ),
+                ))
+
+        _ca_rot_opps.sort(key=lambda x: float(x.expected_pnl_improvement), reverse=True)
+
+        capital_allocation = CapitalAllocationAnalysis(
+            capital_release_summary=_ca_release_summary,
+            position_release_details=_ca_pos_details,
+            candidate_redeployment=_ca_cand_redeploy,
+            rotation_opportunities=_ca_rot_opps,
+            model_note=(
+                "Rotation is recommended only when selling a profitable holding releases cash "
+                "that can be redeployed into a candidate with higher model-implied expected PnL. "
+                "Current PnL controls whether a position is sellable. "
+                "Expected return controls which replacement candidate is better. "
+                "A loss-making position is never recommended for sale in standard mode. "
+                "All figures are model-implied estimates, not guaranteed returns."
+            ),
+        )
+
     return DailyPlanPreviewResponse(
         as_of=now,
         portfolio_summary=portfolio_summary,
@@ -6221,6 +6503,7 @@ async def daily_plan_preview(
             job_runs_created=0,
             db_rows_created=0,
         ),
+        capital_allocation=capital_allocation,
     )
 
 

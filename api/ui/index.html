@@ -3904,6 +3904,149 @@ function renderDailyPlanResult(data, el) {
     html += '</div></details>';
   }
 
+  // Capital Allocation / Rotation v3
+  if (data.capital_allocation) {
+    const ca = data.capital_allocation;
+    const cs = ca.capital_release_summary || {};
+    const posDetails = ca.position_release_details || [];
+    const redeploy = ca.candidate_redeployment || [];
+    const rotOpps = ca.rotation_opportunities || [];
+    const bestOpp = rotOpps.length > 0 ? rotOpps[0] : null;
+
+    html += '<details style="margin-top: 10px; margin-bottom: 8px;"><summary style="cursor: pointer; font-size: 11px; font-weight: 600; color: var(--info); padding: 4px 0;">Capital Allocation Analysis (v3)</summary>';
+    html += '<div style="margin-top: 8px;">';
+
+    // Model note
+    html += `<div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 8px; padding: 5px 8px; background: rgba(59,130,246,.06); border: 1px solid rgba(59,130,246,.15); border-radius: 3px;">${escapeHtml(ca.model_note || '')}</div>`;
+
+    // Portfolio cash release summary
+    html += '<div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 5px;">Portfolio Cash Release</div>';
+    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 5px; margin-bottom: 10px;">';
+    const _caItems = [
+      ['Current Cash', cs.current_cash, 'var(--text-accent)'],
+      ['Releasable (Std)', cs.max_releasable_cash_standard_mode, 'var(--ok)'],
+      ['Theoretical Max', cs.max_releasable_cash_theoretical, 'var(--warning)'],
+      ['Blocked (Loss Rule)', cs.blocked_cash_due_to_negative_pnl, 'var(--danger)'],
+      ['Blocked (No Price)', cs.blocked_cash_due_to_missing_or_stale_price, 'var(--label)'],
+    ];
+    for (const [label, val, col] of _caItems) {
+      const dispVal = val != null ? '$' + parseFloat(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-';
+      html += `<div style="background: rgba(0,0,0,.2); padding: 6px 8px; border-radius: 3px; font-size: 10px;"><div style="color: var(--text-secondary); margin-bottom: 1px;">${escapeHtml(String(label))}</div><div style="font-weight: 600; color: ${col};">${escapeHtml(dispVal)}</div></div>`;
+    }
+    html += `<div style="background: rgba(0,0,0,.2); padding: 6px 8px; border-radius: 3px; font-size: 10px;"><div style="color: var(--text-secondary); margin-bottom: 1px;">Sellable Pos</div><div style="font-weight: 600; color: var(--ok);">${escapeHtml(String(cs.sellable_positions_count || 0))}</div></div>`;
+    html += `<div style="background: rgba(0,0,0,.2); padding: 6px 8px; border-radius: 3px; font-size: 10px;"><div style="color: var(--text-secondary); margin-bottom: 1px;">Blocked Pos</div><div style="font-weight: 600; color: var(--danger);">${escapeHtml(String(cs.blocked_positions_count || 0))}</div></div>`;
+    html += '</div>';
+
+    // Position release table
+    if (posDetails.length > 0) {
+      html += '<div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Position Release Detail</div>';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px;"><thead><tr style="border-bottom:1px solid rgba(255,255,255,.1);">';
+      for (const h of ['Ticker', 'Value', 'PnL%', 'Releasable', 'Status', 'Reason']) {
+        html += `<th style="text-align:left;padding:3px 5px;color:var(--text-secondary);font-weight:600;">${h}</th>`;
+      }
+      html += '</tr></thead><tbody>';
+      for (const pd of posDetails) {
+        const _pdSell = pd.sellable_standard_mode;
+        const _pdColor = _pdSell ? 'var(--ok)' : 'var(--danger)';
+        const _pdVal = pd.current_value ? '$' + parseFloat(pd.current_value).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-';
+        const _pdRel = '$' + parseFloat(pd.releasable_cash_standard_mode || '0').toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const _pdPnl = pd.unrealized_pnl_pct ? parseFloat(pd.unrealized_pnl_pct).toFixed(2) + '%' : '-';
+        html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">`;
+        html += `<td style="padding:3px 5px;font-weight:600;">${escapeHtml(pd.ticker)}</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;">${escapeHtml(_pdVal)}</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;color:${parseFloat(pd.unrealized_pnl_pct || '0') >= 0 ? 'var(--ok)' : 'var(--danger)'};">${escapeHtml(_pdPnl)}</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;color:${_pdColor};">${escapeHtml(_pdRel)}</td>`;
+        html += `<td style="padding:3px 5px;"><span style="background:${_pdSell ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)'};color:${_pdColor};padding:1px 5px;border-radius:2px;font-size:9px;font-weight:700;">${_pdSell ? 'SELLABLE' : 'BLOCKED'}</span></td>`;
+        html += `<td style="padding:3px 5px;color:var(--text-secondary);">${escapeHtml(pd.blocked_reason || '')}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    // Candidate redeployment
+    if (redeploy.length > 0) {
+      html += '<div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Candidate Redeployment Opportunity</div>';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px;"><thead><tr style="border-bottom:1px solid rgba(255,255,255,.1);">';
+      for (const h of ['Ticker', 'Price', 'Conf', 'Exp Ret%', 'Risk-Adj%', 'PnL per $1k', 'v2 Score']) {
+        html += `<th style="text-align:left;padding:3px 5px;color:var(--text-secondary);font-weight:600;">${h}</th>`;
+      }
+      html += '</tr></thead><tbody>';
+      for (const rd of redeploy) {
+        const _rdPnl1k = parseFloat(rd.expected_pnl_per_1000 || '0').toFixed(2);
+        const _rdRiskAdj = parseFloat(rd.risk_adjusted_expected_return_pct || '0').toFixed(2);
+        html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">`;
+        html += `<td style="padding:3px 5px;font-weight:600;">${escapeHtml(rd.ticker)}</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;">${rd.current_price ? '$' + escapeHtml(rd.current_price) : '-'}</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;">${rd.prediction_confidence ? (parseFloat(rd.prediction_confidence) * 100).toFixed(0) + '%' : '-'}</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;">${rd.expected_return_pct ? parseFloat(rd.expected_return_pct).toFixed(1) + '%' : '-'}</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;color:var(--ok);">${escapeHtml(_rdRiskAdj)}%</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;color:var(--ok);font-weight:600;">$${escapeHtml(_rdPnl1k)}</td>`;
+        html += `<td style="padding:3px 5px;font-family:monospace;">${escapeHtml(rd.candidate_score_v2 || '-')}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+
+    // Best rotation opportunity
+    if (bestOpp) {
+      const _boColor = bestOpp.meets_threshold ? 'var(--ok)' : 'var(--danger)';
+      const _boLabel = bestOpp.meets_threshold ? 'QUALIFIES' : 'BELOW THRESHOLD';
+      html += '<div style="font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Best Rotation Opportunity</div>';
+      html += `<div style="background: rgba(0,0,0,.2); border: 1px solid ${bestOpp.meets_threshold ? 'rgba(34,197,94,.25)' : 'rgba(239,68,68,.2)'}; border-radius: 3px; padding: 8px 10px; font-size: 10px; margin-bottom: 8px;">`;
+      html += `<div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 6px;">`;
+      html += `<span style="font-weight: 700; font-size: 12px;">${escapeHtml(bestOpp.sell_ticker)} &rarr; ${escapeHtml(bestOpp.buy_ticker)}</span>`;
+      html += `<span style="background:${bestOpp.meets_threshold ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)'};color:${_boColor};padding:2px 7px;border-radius:2px;font-size:10px;font-weight:700;">${_boLabel}</span>`;
+      html += '</div>';
+      html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 4px;">`;
+      const _boItems = [
+        ['Cash Released', bestOpp.cash_released ? '$' + parseFloat(bestOpp.cash_released).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'],
+        ['Buy Price', bestOpp.buy_price ? '$' + bestOpp.buy_price : '-'],
+        ['Est. Qty', bestOpp.estimated_buy_qty || '-'],
+        ['Exp. Forward PnL', bestOpp.expected_forward_pnl ? '$' + parseFloat(bestOpp.expected_forward_pnl).toFixed(2) : '-'],
+        ['PnL Improvement', bestOpp.expected_pnl_improvement ? '$' + parseFloat(bestOpp.expected_pnl_improvement).toFixed(2) : '-'],
+        ['Score Improvement', bestOpp.score_improvement || '-'],
+        ['Hold Fwd Score', bestOpp.holding_forward_score_v2 || '-'],
+        ['Cand Score', bestOpp.candidate_score_v2 || '-'],
+      ];
+      for (const [lbl, val] of _boItems) {
+        html += `<div style="background:rgba(255,255,255,.04);padding:4px 6px;border-radius:2px;"><div style="color:var(--text-secondary);font-size:9px;">${escapeHtml(String(lbl))}</div><div style="font-family:monospace;font-weight:600;">${escapeHtml(String(val))}</div></div>`;
+      }
+      html += '</div>';
+      if (bestOpp.explanation) {
+        html += `<div style="margin-top: 5px; font-size: 10px; color: var(--text-secondary);">${escapeHtml(bestOpp.explanation)}</div>`;
+      }
+      html += '</div>';
+
+      // Show all rotation opps if there are multiple
+      if (rotOpps.length > 1) {
+        html += `<div style="font-size:10px;color:var(--text-secondary);margin-bottom:3px;">${rotOpps.length} total rotation opportunities (sorted by expected PnL improvement):</div>`;
+        html += '<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px;"><thead><tr style="border-bottom:1px solid rgba(255,255,255,.1);">';
+        for (const h of ['Sell', 'Buy', 'Cash', 'Fwd PnL', 'PnL Impr', 'Threshold']) {
+          html += `<th style="text-align:left;padding:2px 5px;color:var(--text-secondary);">${h}</th>`;
+        }
+        html += '</tr></thead><tbody>';
+        for (const opp of rotOpps) {
+          const _oc = opp.meets_threshold ? 'var(--ok)' : 'var(--danger)';
+          html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">`;
+          html += `<td style="padding:2px 5px;font-weight:600;">${escapeHtml(opp.sell_ticker)}</td>`;
+          html += `<td style="padding:2px 5px;font-weight:600;">${escapeHtml(opp.buy_ticker)}</td>`;
+          html += `<td style="padding:2px 5px;font-family:monospace;">$${parseFloat(opp.cash_released || '0').toFixed(0)}</td>`;
+          html += `<td style="padding:2px 5px;font-family:monospace;color:var(--ok);">$${parseFloat(opp.expected_forward_pnl || '0').toFixed(2)}</td>`;
+          html += `<td style="padding:2px 5px;font-family:monospace;color:${_oc};">$${parseFloat(opp.expected_pnl_improvement || '0').toFixed(2)}</td>`;
+          html += `<td style="padding:2px 5px;"><span style="color:${_oc};font-weight:700;">${opp.meets_threshold ? 'YES' : 'NO'}</span></td>`;
+          html += '</tr>';
+        }
+        html += '</tbody></table>';
+      }
+    } else if (redeploy.length === 0 && posDetails.length === 0) {
+      html += '<div style="font-size:10px;color:var(--text-secondary);padding:6px 0;">No positions and no approved buy candidates to analyze.</div>';
+    } else if (rotOpps.length === 0) {
+      html += '<div style="font-size:10px;color:var(--text-secondary);padding:4px 0;">No rotation opportunities (no sellable positions or no approved BUY candidates with prices).</div>';
+    }
+
+    html += '</div></details>';
+  }
+
   // Safety banner
   const allZero = (sc.signals_created || 0) === 0 && (sc.trade_decisions_created || 0) === 0 && (sc.orders_created || 0) === 0 && (sc.db_rows_created || 0) === 0;
   const safeColor = allZero ? 'var(--ok)' : 'var(--danger)';

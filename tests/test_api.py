@@ -12449,3 +12449,376 @@ class TestDailyPlanPreviewEndpoint:
                 ).delete()
                 s.query(Position).filter(Position.id == pos_id).delete()
                 s.commit()
+
+    # -----------------------------------------------------------------------
+    # Capital Allocation / Rotation v3 tests
+    # -----------------------------------------------------------------------
+
+    def test_daily_plan_capital_release_summary_profitable_position(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Profitable position appears as sellable; releasable cash > 0."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker = f"DPCAP1{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker, qty=Decimal("10"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("1000.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("110.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={"candidate_ids": [], "position_tickers": [ticker]},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            ca = data.get("capital_allocation")
+            assert ca is not None, "capital_allocation must be present"
+            summary = ca["capital_release_summary"]
+            assert float(summary["max_releasable_cash_standard_mode"]) > 0.0, (
+                "Profitable position should release cash in standard mode"
+            )
+            assert summary["sellable_positions_count"] >= 1
+            details = [d for d in ca["position_release_details"] if d["ticker"] == ticker]
+            assert len(details) == 1
+            assert details[0]["sellable_standard_mode"] is True
+            assert details[0]["blocked_reason"] is None
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_capital_release_blocks_negative_pnl(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Loss-making position is not sellable; theoretical cash > 0; standard = 0."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker = f"DPCAP2{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker, qty=Decimal("10"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("1000.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("80.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "block_loss_realization": True,
+                    "candidate_ids": [],
+                    "position_tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            ca = data.get("capital_allocation")
+            assert ca is not None
+            summary = ca["capital_release_summary"]
+            # Standard mode: 0 (blocked by loss rule)
+            assert float(summary["max_releasable_cash_standard_mode"]) == 0.0
+            # Theoretical: position value > 0 (10 * 80 = 800)
+            assert float(summary["max_releasable_cash_theoretical"]) > 0.0
+            assert float(summary["blocked_cash_due_to_negative_pnl"]) > 0.0
+            # Per-position detail
+            details = [d for d in ca["position_release_details"] if d["ticker"] == ticker]
+            assert len(details) == 1
+            d = details[0]
+            assert d["sellable_standard_mode"] is False
+            assert d["blocked_reason"] == "NEGATIVE_PNL_BLOCKED"
+            assert float(d["releasable_cash_standard_mode"]) == 0.0
+            assert float(d["releasable_cash_theoretical"]) > 0.0
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_candidate_expected_pnl_per_1000(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """expected_pnl_per_1000 = 1000 * expected_return_pct * confidence / 100."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker = f"DPCAP3{suffix}"
+
+        # confidence=0.80, expected_return_pct=10.0
+        # risk_adj = 10.0 * 0.80 = 8.0 %; pnl_per_1000 = 1000 * 8.0 / 100 = 80.00
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-cap3-{suffix}", ticker=ticker,
+                prediction_recommendation="BUY", prediction_confidence="0.80",
+                expected_return_pct="10.0", preview_decision="CONSIDER",
+                preview_score="80.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={"approved_only": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            ca = data.get("capital_allocation")
+            assert ca is not None
+            redeploy = [r for r in ca["candidate_redeployment"] if r["ticker"] == ticker]
+            assert len(redeploy) >= 1, f"Expected candidate_redeployment entry for {ticker}"
+            r = redeploy[0]
+            assert abs(float(r["expected_pnl_per_1000"]) - 80.0) < 0.01, (
+                f"Expected pnl_per_1000=80.00, got {r['expected_pnl_per_1000']}"
+            )
+            assert abs(float(r["risk_adjusted_expected_return_pct"]) - 8.0) < 0.01
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_daily_plan_rotation_opportunity_uses_cash_released_and_expected_pnl(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """rotation_opportunities.expected_forward_pnl = cash_released * risk_adj_return / 100."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPCAP4H{suffix}"
+        ticker_buy  = f"DPCAP4B{suffix}"
+
+        # Holding: 10 shares * $110 = $1,100 cash if sold (PnL > 0)
+        # Candidate: confidence=0.80, expected_return=10% -> risk_adj=8%
+        # expected_forward_pnl = 1100 * 8 / 100 = 88.00
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("10"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("1000.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            s.add(PriceSnapshot(
+                ticker=ticker_held, price=Decimal("110.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker_buy, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-cap4-{suffix}", ticker=ticker_buy,
+                prediction_recommendation="BUY", prediction_confidence="0.80",
+                expected_return_pct="10.0", preview_decision="CONSIDER",
+                preview_score="80.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "candidate_ids": [cand_id],
+                    "position_tickers": [ticker_held],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            ca = data.get("capital_allocation")
+            assert ca is not None
+            rot_opps = [
+                o for o in ca["rotation_opportunities"]
+                if o["sell_ticker"] == ticker_held and o["buy_ticker"] == ticker_buy
+            ]
+            assert len(rot_opps) >= 1, (
+                f"Expected rotation opportunity {ticker_held}->{ticker_buy}, got {ca['rotation_opportunities']}"
+            )
+            opp = rot_opps[0]
+            # cash_released = 10 * 110 = 1100
+            assert abs(float(opp["cash_released"]) - 1100.0) < 0.01
+            # expected_forward_pnl = 1100 * 0.80 * 0.10 = 88.00
+            assert abs(float(opp["expected_forward_pnl"]) - 88.0) < 0.5
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker_buy).delete()
+                s.query(PriceSnapshot).filter(
+                    PriceSnapshot.ticker.in_([ticker_held, ticker_buy])
+                ).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_rotation_opportunity_sorted_by_expected_pnl(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """rotation_opportunities is sorted by expected_pnl_improvement descending."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker_held = f"DPCAP5H{suffix}"
+        ticker_buy_a = f"DPCAP5A{suffix}"
+        ticker_buy_b = f"DPCAP5B{suffix}"
+
+        # Candidate A: confidence=0.90, expected_return=20% -> risk_adj=18% -> pnl per $1k = $180
+        # Candidate B: confidence=0.70, expected_return=5%  -> risk_adj=3.5% -> pnl per $1k = $35
+        # A should appear first in rotation_opportunities
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_held, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_id = pos.id
+            for t, p in [(ticker_held, "100.00"), (ticker_buy_a, "50.00"), (ticker_buy_b, "40.00")]:
+                s.add(PriceSnapshot(
+                    ticker=t, price=Decimal(p),
+                    snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                    session_type="REGULAR", price_type="LAST",
+                ))
+            cand_a = CandidateReview(
+                idempotency_key=f"dp-cap5a-{suffix}", ticker=ticker_buy_a,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="20.0", preview_decision="CONSIDER",
+                preview_score="90.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            cand_b = CandidateReview(
+                idempotency_key=f"dp-cap5b-{suffix}", ticker=ticker_buy_b,
+                prediction_recommendation="BUY", prediction_confidence="0.70",
+                expected_return_pct="5.0", preview_decision="CONSIDER",
+                preview_score="70.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand_a)
+            s.add(cand_b)
+            s.commit()
+            cand_a_id = str(cand_a.id)
+            cand_b_id = str(cand_b.id)
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "approved_only": True,
+                    "candidate_ids": [cand_a_id, cand_b_id],
+                    "position_tickers": [ticker_held],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            ca = data.get("capital_allocation")
+            assert ca is not None
+            rot_opps = [
+                o for o in ca["rotation_opportunities"] if o["sell_ticker"] == ticker_held
+            ]
+            assert len(rot_opps) >= 2, f"Expected at least 2 rotation opportunities, got {len(rot_opps)}"
+            # First opportunity should have higher pnl_improvement
+            imp_0 = float(rot_opps[0]["expected_pnl_improvement"])
+            imp_1 = float(rot_opps[1]["expected_pnl_improvement"])
+            assert imp_0 >= imp_1, (
+                f"Expected rotation_opportunities sorted descending by pnl_improvement: "
+                f"{imp_0} >= {imp_1}"
+            )
+            # Candidate A (higher return) should be first
+            assert rot_opps[0]["buy_ticker"] == ticker_buy_a, (
+                f"Expected candidate A ({ticker_buy_a}) first, got {rot_opps[0]['buy_ticker']}"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CandidateReview).filter(
+                    CandidateReview.ticker.in_([ticker_buy_a, ticker_buy_b])
+                ).delete()
+                s.query(PriceSnapshot).filter(
+                    PriceSnapshot.ticker.in_([ticker_held, ticker_buy_a, ticker_buy_b])
+                ).delete()
+                s.query(Position).filter(Position.id == pos_id).delete()
+                s.commit()
+
+    def test_daily_plan_capital_analysis_creates_zero_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """capital_allocation section creates no new DB rows of any kind."""
+        import uuid as uuid_module
+        suffix = uuid_module.uuid4().hex[:6]
+        ticker = f"DPCAP6{suffix}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("50.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            cand = CandidateReview(
+                idempotency_key=f"dp-cap6-{suffix}", ticker=ticker,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="12.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cand)
+            s.commit()
+            cand_id = str(cand.id)
+
+        # Snapshot row counts before
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            sig_before  = s.query(Signal).count()
+            td_before   = s.query(TradeDecision).count()
+            ord_before  = s.query(Order).count()
+            pos_before  = s.query(Position).count()
+            cand_before = s.query(CandidateReview).count()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={"approved_only": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data.get("capital_allocation") is not None, "capital_allocation must be in response"
+
+            # Verify no rows were created
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(Signal).count()          == sig_before
+                assert s.query(TradeDecision).count()   == td_before
+                assert s.query(Order).count()           == ord_before
+                assert s.query(Position).count()        == pos_before
+                assert s.query(CandidateReview).count() == cand_before
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CandidateReview).filter(CandidateReview.ticker == ticker).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
