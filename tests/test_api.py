@@ -5140,6 +5140,251 @@ class TestMarketBackfillPricesEndpoint:
         for field in required_fields:
             assert field in data, f"Missing field: {field}"
 
+    def test_backfill_prices_start_index_selects_expected_slice(
+        self, seeded_client: TestClient, monkeypatch, tmp_path
+    ) -> None:
+        """start_index=2 with max_tickers=2 selects tickers at indices 2 and 3."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        universe_tickers = ["BI0000", "BI0001", "BI0002", "BI0003", "BI0004"]
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\n" + "\n".join(universe_tickers) + "\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        captured_tickers: list[str] = []
+
+        def mock_fetch(tickers, *args, **kwargs):
+            captured_tickers.extend(tickers)
+            return {t: [{"market_date": date_type(2026, 7, 1), "price": Decimal("100.00")}] for t in tickers}, {}
+
+        monkeypatch.setattr(app_module, "fetch_historical_prices", mock_fetch)
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "start_date": "2026-07-01",
+                "end_date": "2026-07-01",
+                "max_tickers": 2,
+                "start_index": 2,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert captured_tickers == ["BI0002", "BI0003"]
+
+    def test_backfill_prices_response_includes_batch_metadata(
+        self, seeded_client: TestClient, monkeypatch, tmp_path
+    ) -> None:
+        """Response includes all batch metadata fields with correct values."""
+        import paper_trader.api.app as app_module
+
+        universe_tickers = ["BM0000", "BM0001", "BM0002", "BM0003", "BM0004"]
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\n" + "\n".join(universe_tickers) + "\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+        monkeypatch.setattr(app_module, "fetch_historical_prices", lambda tickers, *a, **k: ({}, {}))
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "start_date": "2026-07-02",
+                "end_date": "2026-07-02",
+                "max_tickers": 2,
+                "start_index": 0,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        for field in ["total_available_tickers", "start_index", "end_index_exclusive",
+                      "next_start_index", "has_more", "selected_ticker_count"]:
+            assert field in data, f"Missing batch metadata field: {field}"
+        assert data["total_available_tickers"] == 5
+        assert data["start_index"] == 0
+        assert data["end_index_exclusive"] == 2
+        assert data["next_start_index"] == 2
+        assert data["has_more"] is True
+        assert data["selected_ticker_count"] == 2
+
+    def test_backfill_prices_has_more_true_when_more_tickers_remaining(
+        self, seeded_client: TestClient, monkeypatch, tmp_path
+    ) -> None:
+        """has_more is True when tickers remain after this batch."""
+        import paper_trader.api.app as app_module
+
+        universe_tickers = ["BH0000", "BH0001", "BH0002", "BH0003", "BH0004"]
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\n" + "\n".join(universe_tickers) + "\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+        monkeypatch.setattr(app_module, "fetch_historical_prices", lambda tickers, *a, **k: ({}, {}))
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "start_date": "2026-07-03",
+                "end_date": "2026-07-03",
+                "max_tickers": 2,
+                "start_index": 0,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["has_more"] is True
+
+    def test_backfill_prices_has_more_false_on_last_batch(
+        self, seeded_client: TestClient, monkeypatch, tmp_path
+    ) -> None:
+        """has_more is False when this batch reaches the end of the universe."""
+        import paper_trader.api.app as app_module
+
+        universe_tickers = ["BF0000", "BF0001", "BF0002", "BF0003", "BF0004"]
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\n" + "\n".join(universe_tickers) + "\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+        monkeypatch.setattr(app_module, "fetch_historical_prices", lambda tickers, *a, **k: ({}, {}))
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "start_date": "2026-07-04",
+                "end_date": "2026-07-04",
+                "max_tickers": 2,
+                "start_index": 4,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["has_more"] is False
+        assert data["selected_ticker_count"] == 1
+
+    def test_backfill_prices_start_index_beyond_universe_returns_zero_selected(
+        self, seeded_client: TestClient, monkeypatch, tmp_path
+    ) -> None:
+        """start_index >= universe size returns zero selected tickers and has_more=False."""
+        import paper_trader.api.app as app_module
+
+        universe_tickers = ["BZ0000", "BZ0001", "BZ0002"]
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\n" + "\n".join(universe_tickers) + "\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+        monkeypatch.setattr(app_module, "fetch_historical_prices", lambda tickers, *a, **k: ({}, {}))
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "start_date": "2026-07-05",
+                "end_date": "2026-07-05",
+                "max_tickers": 2,
+                "start_index": 10,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["selected_ticker_count"] == 0
+        assert data["processed_count"] == 0
+        assert data["has_more"] is False
+
+    def test_backfill_prices_dry_run_with_offset_creates_zero_rows(
+        self, seeded_client: TestClient, monkeypatch, api_engine, tmp_path
+    ) -> None:
+        """dry_run=True with non-zero start_index inserts zero PriceSnapshot rows."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        universe_tickers = ["BD0000", "BD0001", "BD0002", "BD0003", "BD0004"]
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\n" + "\n".join(universe_tickers) + "\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        mock_data = {
+            "BD0002": [{"market_date": date_type(2026, 7, 6), "price": Decimal("100.00")}],
+            "BD0003": [{"market_date": date_type(2026, 7, 6), "price": Decimal("101.00")}],
+        }
+        monkeypatch.setattr(app_module, "fetch_historical_prices", lambda tickers, *a, **k: (mock_data, {}))
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "start_date": "2026-07-06",
+                "end_date": "2026-07-06",
+                "max_tickers": 2,
+                "start_index": 2,
+                "dry_run": True,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["dry_run"] is True
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            count = s.query(PriceSnapshot).filter(
+                PriceSnapshot.ticker.in_(["BD0002", "BD0003"]),
+                PriceSnapshot.market_date == date_type(2026, 7, 6),
+            ).count()
+        assert count == 0, "dry_run must not insert rows"
+
+    def test_backfill_prices_non_dry_run_with_offset_writes_only_price_snapshots(
+        self, seeded_client: TestClient, monkeypatch, api_engine, tmp_path
+    ) -> None:
+        """Non-dry-run with start_index writes PriceSnapshot rows only, no other tables."""
+        from datetime import date as date_type
+        import paper_trader.api.app as app_module
+
+        universe_tickers = ["BW0000", "BW0001", "BW0002", "BW0003", "BW0004"]
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\n" + "\n".join(universe_tickers) + "\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        mock_data = {
+            "BW0002": [{"market_date": date_type(2026, 7, 7), "price": Decimal("200.00")}],
+        }
+        monkeypatch.setattr(app_module, "fetch_historical_prices", lambda tickers, *a, **k: (mock_data, {}))
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pre_signal_count   = s.query(Signal).count()
+            pre_decision_count = s.query(TradeDecision).count()
+            pre_order_count    = s.query(Order).count()
+
+        resp = seeded_client.post(
+            "/v1/market/backfill-prices",
+            json={
+                "universe": "SP500",
+                "start_date": "2026-07-07",
+                "end_date": "2026-07-07",
+                "max_tickers": 2,
+                "start_index": 2,
+                "dry_run": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inserted_count"] == 1
+        assert data["dry_run"] is False
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            snap_count = s.query(PriceSnapshot).filter(
+                PriceSnapshot.ticker == "BW0002",
+                PriceSnapshot.market_date == date_type(2026, 7, 7),
+            ).count()
+            assert snap_count == 1, "PriceSnapshot row must be written"
+            assert s.query(Signal).count() == pre_signal_count
+            assert s.query(TradeDecision).count() == pre_decision_count
+            assert s.query(Order).count() == pre_order_count
+
 
 class TestMarketBenchmarkBackfillEndpoint:
     """POST /v1/market/backfill-benchmark-prices endpoint tests."""

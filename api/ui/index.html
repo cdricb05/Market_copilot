@@ -1819,7 +1819,7 @@
             <p style="font-size:11px;color:var(--warning);margin:8px 0;">
               Backfill writes market data only. It does not create signals, decisions, orders, or automation.
             </p>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:8px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:8px;">
               <div class="input-group">
                 <label>Start Date</label>
                 <input type="date" id="backfill-start-date" class="mono">
@@ -1832,19 +1832,25 @@
                 <label>Max Tickers (max 50)</label>
                 <input type="number" id="backfill-max-tickers" value="50" min="1" max="50" class="mono">
               </div>
+              <div class="input-group">
+                <label>Start Index</label>
+                <input type="number" id="backfill-start-index" value="0" min="0" class="mono">
+              </div>
             </div>
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
               <input type="checkbox" id="backfill-dry-run" checked>
               <label for="backfill-dry-run" style="font-size:12px;color:var(--text-primary);cursor:pointer;">Dry Run (preview, no writes)</label>
             </div>
             <div id="backfill-result" style="font-size:12px;min-height:18px;margin-bottom:8px;"></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn-action" onclick="runUniverseBackfill(this)">Universe Backfill</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;" id="backfill-btn-row">
+              <button class="btn-action" onclick="runOneBatchBackfill(this)">Run One Batch</button>
+              <button class="btn-action" style="background:var(--warning);" onclick="runAllBatchesBackfill(this)">Run All Batches</button>
+              <button class="btn-action" style="background:var(--danger);display:none;" id="backfill-stop-btn" onclick="window._backfillCancelRequested=true;this.disabled=true;this.textContent='Stopping...';">Stop</button>
               <button class="btn-action" style="background:var(--info);" onclick="runBenchmarkBackfill(this)">Backfill SPY Benchmark</button>
             </div>
             <p style="font-size:11px;color:var(--label);margin:8px 0 0;">
-              Universe: writes price_snapshots only, first max_tickers per run (no auto-loop yet).<br>
-              Benchmark: writes benchmark_prices only.
+              Universe: writes price_snapshots only. Run One Batch processes up to Max Tickers starting at Start Index.<br>
+              Run All Batches loops sequentially (dry run recommended first). Benchmark: writes benchmark_prices only.
             </p>
           </details>
         </div>
@@ -6426,22 +6432,25 @@ async function loadCoverageStatus(btn) {
   }
 }
 
-async function runUniverseBackfill(btn) {
+async function runOneBatchBackfill(btn) {
   const startDate  = (document.getElementById('backfill-start-date') || {}).value || '';
   const endDate    = (document.getElementById('backfill-end-date')   || {}).value || '';
   const maxInput   = document.getElementById('backfill-max-tickers');
   const maxTickers = Math.min(parseInt((maxInput || {}).value || '50', 10), 50);
+  const startIdxEl = document.getElementById('backfill-start-index');
+  const startIndex = Math.max(0, parseInt((startIdxEl || {}).value || '0', 10));
   const dryRun     = !!(document.getElementById('backfill-dry-run') || {}).checked;
   const resultEl   = document.getElementById('backfill-result');
   if (!startDate || !endDate) { toast('Enter start and end dates.', 'err'); return; }
   if (btn) btn.disabled = true;
-  if (resultEl) resultEl.innerHTML = '<span style="color:var(--warning);">Running' + (dryRun ? ' dry run' : '') + '...</span>';
+  if (resultEl) resultEl.innerHTML = '<span style="color:var(--warning);">Running batch (start_index=' + startIndex + ')' + (dryRun ? ' [DRY RUN]' : '') + '...</span>';
   try {
     const r = await call('POST', '/v1/market/backfill-prices', {
       universe: 'SP500',
       start_date: startDate,
       end_date: endDate,
       max_tickers: maxTickers,
+      start_index: startIndex,
       dry_run: dryRun,
     });
     const data = await r.json().catch(() => ({}));
@@ -6450,16 +6459,95 @@ async function runUniverseBackfill(btn) {
       return;
     }
     const label = dryRun ? '[DRY RUN] ' : '';
+    const batchInfo = (data.total_available_tickers !== undefined)
+      ? (' | Range ' + (data.start_index || 0) + '-' + (data.end_index_exclusive || 0) + '/' + data.total_available_tickers +
+         (data.has_more ? ' | Next: ' + data.next_start_index : ' | Done'))
+      : '';
     if (resultEl) resultEl.innerHTML =
       '<span style="color:var(--ok);">' + label + 'Processed: ' + (data.processed_count || 0) +
       ' | Inserted: ' + (data.inserted_count || 0) +
       ' | Skipped: ' + (data.skipped_existing_count || 0) +
-      ' | Failed: ' + (data.failed_count || 0) + '</span>';
+      ' | Failed: ' + (data.failed_count || 0) + batchInfo + '</span>';
+    if (data.next_start_index !== undefined && startIdxEl) {
+      startIdxEl.value = String(data.next_start_index);
+    }
     loadCoverageStatus(null);
   } catch (e) {
     if (resultEl) resultEl.innerHTML = '<span style="color:var(--danger);">Failed: ' + escapeHtml(String(e)) + '</span>';
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function runAllBatchesBackfill(btn) {
+  const startDate  = (document.getElementById('backfill-start-date') || {}).value || '';
+  const endDate    = (document.getElementById('backfill-end-date')   || {}).value || '';
+  const maxInput   = document.getElementById('backfill-max-tickers');
+  const maxTickers = Math.min(parseInt((maxInput || {}).value || '50', 10), 50);
+  const startIdxEl = document.getElementById('backfill-start-index');
+  var   startIndex = Math.max(0, parseInt((startIdxEl || {}).value || '0', 10));
+  const dryRun     = !!(document.getElementById('backfill-dry-run') || {}).checked;
+  const resultEl   = document.getElementById('backfill-result');
+  const stopBtn    = document.getElementById('backfill-stop-btn');
+  if (!startDate || !endDate) { toast('Enter start and end dates.', 'err'); return; }
+  if (!dryRun && resultEl) {
+    resultEl.innerHTML = '<span style="color:var(--warning);">Non-dry-run: writes price_snapshots only. Starting in 2s...</span>';
+    await new Promise(function(res) { setTimeout(res, 2000); });
+  }
+  window._backfillCancelRequested = false;
+  if (btn) btn.disabled = true;
+  if (stopBtn) { stopBtn.style.display = ''; stopBtn.disabled = false; stopBtn.textContent = 'Stop'; }
+  var batchNum      = 0;
+  var totalInserted = 0;
+  var totalSkipped  = 0;
+  var totalFailed   = 0;
+  try {
+    while (true) {
+      if (window._backfillCancelRequested) {
+        if (resultEl) resultEl.innerHTML += '<br><span style="color:var(--warning);">Stopped at start_index=' + startIndex + '.</span>';
+        break;
+      }
+      batchNum++;
+      if (resultEl) resultEl.innerHTML = '<span style="color:var(--warning);">Batch ' + batchNum + ' (start_index=' + startIndex + ')' + (dryRun ? ' [DRY RUN]' : '') + '...</span>';
+      const r = await call('POST', '/v1/market/backfill-prices', {
+        universe: 'SP500',
+        start_date: startDate,
+        end_date: endDate,
+        max_tickers: maxTickers,
+        start_index: startIndex,
+        dry_run: dryRun,
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (resultEl) resultEl.innerHTML = '<span style="color:var(--danger);">Error on batch ' + batchNum + ' (status ' + r.status + '): ' + escapeHtml((data.detail || '').toString()) + '</span>';
+        break;
+      }
+      totalInserted += (data.inserted_count || 0);
+      totalSkipped  += (data.skipped_existing_count || 0);
+      totalFailed   += (data.failed_count || 0);
+      if (!dryRun && totalFailed >= 20) {
+        if (resultEl) resultEl.innerHTML = '<span style="color:var(--danger);">Stopped: ' + totalFailed + ' cumulative failures at batch ' + batchNum + '.</span>';
+        break;
+      }
+      const label   = dryRun ? '[DRY RUN] ' : '';
+      const total   = data.total_available_tickers || '?';
+      const progress = label + 'Batch ' + batchNum + ' | ' + (data.end_index_exclusive || 0) + '/' + total +
+        ' | Inserted: ' + totalInserted + ' | Skipped: ' + totalSkipped + ' | Failed: ' + totalFailed;
+      if (resultEl) resultEl.innerHTML = '<span style="color:var(--ok);">' + progress + '</span>';
+      if (!data.has_more) {
+        if (resultEl) resultEl.innerHTML += '<br><span style="color:var(--ok);">All batches complete.</span>';
+        break;
+      }
+      startIndex = data.next_start_index || (startIndex + maxTickers);
+      if (startIdxEl) startIdxEl.value = String(startIndex);
+    }
+  } catch (e) {
+    if (resultEl) resultEl.innerHTML = '<span style="color:var(--danger);">Failed: ' + escapeHtml(String(e)) + '</span>';
+  } finally {
+    if (btn) btn.disabled = false;
+    if (stopBtn) stopBtn.style.display = 'none';
+    window._backfillCancelRequested = false;
+    loadCoverageStatus(null);
   }
 }
 

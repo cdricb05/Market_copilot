@@ -1397,6 +1397,11 @@ class BackfillRequest(BaseModel):
         default=False,
         description="If true, fetch data but don't insert rows.",
     )
+    start_index: int = Field(
+        default=0,
+        ge=0,
+        description="Offset into the full ticker list for batching. Applied before max_tickers cap.",
+    )
 
 
 class BackfillResultDetail(BaseModel):
@@ -1427,6 +1432,12 @@ class BackfillResponse(BaseModel):
     end_date: str
     results: list[BackfillResultDetail]
     failures: list[BackfillFailure]
+    total_available_tickers: int = Field(default=0)
+    start_index: int = Field(default=0)
+    end_index_exclusive: int = Field(default=0)
+    next_start_index: int = Field(default=0)
+    has_more: bool = Field(default=False)
+    selected_ticker_count: int = Field(default=0)
 
 
 class BenchmarkBackfillRequest(BaseModel):
@@ -3110,19 +3121,20 @@ def backfill_prices(body: BackfillRequest) -> BackfillResponse:
             detail=f"date range must be <= 180 days, got {date_range_days}",
         )
 
-    # Resolve tickers: explicit tickers take precedence
+    # Resolve full ticker list; explicit tickers take precedence over universe
     from paper_trader.engine.universe import get_sp500_universe
     if body.tickers:
-        tickers_to_backfill = body.tickers
+        all_tickers: list[str] = list(body.tickers)
     else:
-        if body.universe == "SP500":
-            tickers_to_backfill = get_sp500_universe()
-        else:
-            tickers_to_backfill = get_sp500_universe()
+        all_tickers = get_sp500_universe()
 
-    # Cap to max_tickers
-    requested_count = len(tickers_to_backfill)
-    tickers_to_backfill = tickers_to_backfill[:body.max_tickers]
+    total_available = len(all_tickers)
+    start_idx = body.start_index
+    tickers_to_backfill = all_tickers[start_idx : start_idx + body.max_tickers]
+    end_idx_exclusive = start_idx + len(tickers_to_backfill)
+    next_start = end_idx_exclusive
+    has_more = end_idx_exclusive < total_available
+    requested_count = total_available
 
     # Fetch historical prices from yfinance
     successful_prices, fetch_failures = fetch_historical_prices(
@@ -3240,6 +3252,12 @@ def backfill_prices(body: BackfillRequest) -> BackfillResponse:
         end_date=str(body.end_date),
         results=results,
         failures=failures_list,
+        total_available_tickers=total_available,
+        start_index=start_idx,
+        end_index_exclusive=end_idx_exclusive,
+        next_start_index=next_start,
+        has_more=has_more,
+        selected_ticker_count=len(tickers_to_backfill),
     )
 
 
