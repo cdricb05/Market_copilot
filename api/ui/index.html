@@ -1262,7 +1262,7 @@
           </div>
         </div>
 
-        <!-- Rotation Preview (optional — when portfolio is at max positions) -->
+        <!-- Rotation Preview (optional  --  when portfolio is at max positions) -->
         <div id="step3b-rotation-preview">
           <div class="command-section" style="border-color: var(--warning);">
             <div style="font-weight: 600; color: var(--warning); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Rotation Preview &mdash; Optional</div>
@@ -1290,7 +1290,38 @@
               <button class="btn-sm" onclick="refreshPlanPrices(this)" style="background: rgba(59,130,246,.15); color: var(--accent); border: 1px solid rgba(59,130,246,.4);">Refresh Plan Prices</button>
               <div id="plan-prices-refresh-result" style="margin-top: 6px; font-size: 10px;"></div>
             </div>
-            <button class="btn" style="background: var(--ok); color: white; font-weight: 600;" onclick="runDailyPlan(this)">Generate Daily Plan</button>
+            <div style="margin-top: 10px; padding: 8px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px;">
+              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 6px;">Calibrated Rotation Options</div>
+              <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 6px;">
+                <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; cursor: pointer;">
+                  <input type="checkbox" id="dp-use-calibrated-rotation" checked style="cursor: pointer;"> Use calibrated rotation
+                </label>
+                <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; cursor: pointer;">
+                  <input type="checkbox" id="dp-allow-loss-realization" style="cursor: pointer;"> Allow loss realization
+                </label>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <label style="font-size: 10px; color: var(--text-secondary);">Scoring Profile</label>
+                  <select id="dp-scoring-profile" style="background: var(--surface); color: var(--text-primary); border: 1px solid rgba(255,255,255,.15); border-radius: 3px; padding: 3px 6px; font-size: 11px;">
+                    <option value="calibration_recommended">Calibration Recommended</option>
+                    <option value="current">Current</option>
+                    <option value="balanced_preview">Balanced Preview</option>
+                    <option value="quality_preview">Quality Preview</option>
+                    <option value="risk_adjusted_preview">Risk Adjusted Preview</option>
+                  </select>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <label style="font-size: 10px; color: var(--text-secondary);">Min Improvement %</label>
+                  <input type="number" id="dp-min-improvement-pct" value="1.0" min="0" step="0.1" style="width: 70px; background: var(--surface); color: var(--text-primary); border: 1px solid rgba(255,255,255,.15); border-radius: 3px; padding: 3px 6px; font-size: 11px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <label style="font-size: 10px; color: var(--text-secondary);">Min PnL $</label>
+                  <input type="number" id="dp-min-pnl-dollars" value="25" min="0" step="5" style="width: 70px; background: var(--surface); color: var(--text-primary); border: 1px solid rgba(255,255,255,.15); border-radius: 3px; padding: 3px 6px; font-size: 11px;">
+                </div>
+              </div>
+            </div>
+            <button class="btn" style="background: var(--ok); color: white; font-weight: 600; margin-top: 10px;" onclick="runDailyPlan(this)">Generate Daily Plan</button>
           </div>
         </div>
 
@@ -3595,7 +3626,7 @@ async function runPredictionPreview(btn) {
   if (!resultEl || !btn) return;
   btn.disabled = true;
 
-  // Show loading feedback immediately — request can take 1-2 minutes
+  // Show loading feedback immediately  --  request can take 1-2 minutes
   if (resultCard) resultCard.style.display = 'block';
   resultEl.innerHTML = '<div style="color:var(--warning);padding:8px 0;">Running prediction scan... this may take 1-2 minutes</div>';
   const _naEl0 = document.getElementById('cockpit-next-action');
@@ -3702,7 +3733,19 @@ async function runDailyPlan(btn) {
   if (_asEl0) { _asEl0.textContent = 'Running...'; _asEl0.style.color = 'var(--warning)'; }
 
   try {
-    const r = await call('POST', '/v1/review/daily-plan-preview', {});
+    const _dpUseCrw = document.getElementById('dp-use-calibrated-rotation');
+    const _dpScoringProfile = document.getElementById('dp-scoring-profile');
+    const _dpMinImpPct = document.getElementById('dp-min-improvement-pct');
+    const _dpMinPnl = document.getElementById('dp-min-pnl-dollars');
+    const _dpAllowLoss = document.getElementById('dp-allow-loss-realization');
+    const _dpBody = {
+      use_calibrated_rotation: _dpUseCrw ? _dpUseCrw.checked : true,
+      scoring_profile: _dpScoringProfile ? _dpScoringProfile.value : 'calibration_recommended',
+      min_expected_improvement_pct: _dpMinImpPct ? parseFloat(_dpMinImpPct.value) || 1.0 : 1.0,
+      min_expected_pnl_dollars: _dpMinPnl ? parseFloat(_dpMinPnl.value) || 25.0 : 25.0,
+      allow_loss_realization: _dpAllowLoss ? _dpAllowLoss.checked : false,
+    };
+    const r = await call('POST', '/v1/review/daily-plan-preview', _dpBody);
     const b = await parseApiResponse(r);
 
     if (r.ok) {
@@ -3803,6 +3846,46 @@ function renderDailyPlanResult(data, el) {
     html += `<div style="font-size: 13px; font-weight: 600; color: var(--text-primary);">${escapeHtml(data.recommended_next_action)}</div>`;
     if (data.explanation) {
       html += `<div style="font-size: 11px; color: var(--text-accent); margin-top: 4px;">${escapeHtml(data.explanation)}</div>`;
+    }
+    html += '</div>';
+  }
+
+  // Calibrated rotation context card
+  const crwCtx = data.calibrated_rotation_context;
+  if (crwCtx) {
+    const crwColor = crwCtx.enabled && crwCtx.eligible_rotation_pairs > 0 ? 'var(--warning)' : 'var(--text-secondary)';
+    const crwBorder = crwCtx.enabled && crwCtx.eligible_rotation_pairs > 0 ? 'rgba(251,191,36,.4)' : 'rgba(255,255,255,.1)';
+    const crwBg = crwCtx.enabled && crwCtx.eligible_rotation_pairs > 0 ? 'rgba(251,191,36,.06)' : 'rgba(255,255,255,.02)';
+    html += `<div style="background:${crwBg}; border:1px solid ${crwBorder}; border-radius:3px; padding:10px 14px; margin-bottom:12px;">`;
+    html += '<div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-secondary); margin-bottom:6px;">Calibrated Rotation Context</div>';
+    if (crwCtx.fallback_used) {
+      html += `<div style="font-size:11px; color:var(--danger);">Fallback: ${escapeHtml(crwCtx.fallback_reason || 'unavailable')}. Existing rotation logic used.</div>`;
+    } else if (!crwCtx.enabled) {
+      html += '<div style="font-size:11px; color:var(--text-secondary);">Calibrated rotation disabled.</div>';
+    } else {
+      html += `<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px;">`;
+      html += `<span style="font-size:10px; background:rgba(255,255,255,.07); padding:2px 6px; border-radius:2px;">Profile: <strong>${escapeHtml(crwCtx.scoring_profile_used)}</strong></span>`;
+      if (crwCtx.calibration_confidence) {
+        const confColor = crwCtx.calibration_confidence === 'HIGH' ? 'var(--ok)' : crwCtx.calibration_confidence === 'MEDIUM' ? 'var(--warning)' : 'var(--text-secondary)';
+        html += `<span style="font-size:10px; background:rgba(255,255,255,.07); padding:2px 6px; border-radius:2px;">Confidence: <strong style="color:${confColor}">${escapeHtml(crwCtx.calibration_confidence)}</strong></span>`;
+      }
+      html += `<span style="font-size:10px; background:rgba(255,255,255,.07); padding:2px 6px; border-radius:2px; color:${crwCtx.eligible_rotation_pairs > 0 ? 'var(--warning)' : 'var(--text-secondary)'};">Eligible pairs: <strong>${escapeHtml(String(crwCtx.eligible_rotation_pairs))}</strong></span>`;
+      html += `<span style="font-size:10px; background:rgba(255,255,255,.07); padding:2px 6px; border-radius:2px;">Blocked: ${escapeHtml(String(crwCtx.blocked_pairs))}</span>`;
+      html += `</div>`;
+      if (crwCtx.best_rotation_pair) {
+        const bp = crwCtx.best_rotation_pair;
+        html += `<div style="background:rgba(0,0,0,.2); border-radius:3px; padding:7px 10px; font-size:11px;">`;
+        html += `<span style="color:${crwColor}; font-weight:600;">Best pair: Sell ${escapeHtml(bp.sell_ticker)} &rarr; Buy ${escapeHtml(bp.buy_ticker)}</span>`;
+        html += `<div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; font-size:10px; color:var(--text-secondary);">`;
+        html += `<span>Cash released: <strong style="color:var(--text-primary);">$${escapeHtml(bp.cash_released)}</strong></span>`;
+        html += `<span>PnL if hold: <strong>$${escapeHtml(bp.expected_pnl_if_hold)}</strong></span>`;
+        html += `<span>PnL if rotate: <strong>$${escapeHtml(bp.expected_pnl_if_rotate)}</strong></span>`;
+        html += `<span style="color:${crwColor};">Improvement: <strong>$${escapeHtml(bp.expected_pnl_improvement)} (${escapeHtml(parseFloat(bp.expected_improvement_pct).toFixed(2))}%)</strong></span>`;
+        html += `</div>`;
+        html += `</div>`;
+      } else {
+        html += '<div style="font-size:11px; color:var(--text-secondary);">No qualifying rotation pair found. All pairs below threshold or blocked.</div>';
+      }
     }
     html += '</div>';
   }
@@ -4469,7 +4552,7 @@ function renderRotationPreviewResult(data, el) {
     }
   }
 
-  // Blocked positions (negative PnL — do not sell at loss)
+  // Blocked positions (negative PnL  --  do not sell at loss)
   if (data.blocked_positions && data.blocked_positions.length > 0) {
     html += `<div style="font-weight: 600; font-size: 11px; color: var(--danger); margin-bottom: 6px; margin-top: 8px;">Blocked from Rotation (${data.blocked_positions.length})</div>`;
     for (const pos of data.blocked_positions) {
@@ -4682,7 +4765,7 @@ function renderPredictionPreviewResult(data, resultEl) {
     html += '</div></details>';
   }
 
-  // Primary: Candidate Previews table — separated by candidate_type
+  // Primary: Candidate Previews table  --  separated by candidate_type
   if (data.candidate_previews && data.candidate_previews.length > 0) {
     const newBuyCandidates = data.candidate_previews.filter(p => p.candidate_type !== 'CURRENT_HOLDING_MONITOR');
     const holdingMonitors = data.candidate_previews.filter(p => p.candidate_type === 'CURRENT_HOLDING_MONITOR');
@@ -4789,7 +4872,7 @@ function renderPredictionPreviewResult(data, resultEl) {
       html += renderCandidateTable(holdingMonitors, 'Current Holdings Monitor (' + holdingMonitors.length + ')', 'var(--warning)', true);
     }
 
-    // Scoring comparison section (all non-current profiles — Phase 4B/4C)
+    // Scoring comparison section (all non-current profiles  --  Phase 4B/4C)
     const cmp = data.scoring_profile_comparison;
     if (cmp && cmp.active_profile && cmp.active_profile !== 'current') {
       const _cmpColor = cmp.active_profile === 'risk_adjusted_preview' ? 'var(--danger)' : 'var(--warning)';
@@ -5275,7 +5358,7 @@ async function saveCandidatesToReviewQueue(mode, btn) {
       return;
     }
 
-    // Filter if mode is CONSIDER — only send eligible new buy candidates
+    // Filter if mode is CONSIDER  --  only send eligible new buy candidates
     if (mode === 'CONSIDER') {
       candidates = candidates.filter(c => c.eligible_for_review_queue === true || (c.eligible_for_review_queue === undefined && c.preview_decision === 'CONSIDER' && c.candidate_type !== 'CURRENT_HOLDING_MONITOR'));
       if (candidates.length === 0) {
@@ -5288,7 +5371,7 @@ async function saveCandidatesToReviewQueue(mode, btn) {
     const now = new Date();
     const ikey = `review-save-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
 
-    // Build request — include Phase 4B classification fields so backend can validate
+    // Build request  --  include Phase 4B classification fields so backend can validate
     const payload = {
       idempotency_key: ikey,
       candidates: candidates.map(c => ({
@@ -6462,7 +6545,7 @@ async function updateReviewWorkflow() {
       if (!stepReady && step.id !== 'pred-preview') status = 'blocked';
     }
 
-    // Rotation preview is always available — it's informational and standalone
+    // Rotation preview is always available  --  it's informational and standalone
     if (step.id === 'rotation-preview' && status !== 'complete') {
       status = 'ready';
       stepReady = true;

@@ -1624,6 +1624,52 @@ class DailyPlanPreviewRequest(BaseModel):
             "Bypasses full portfolio scan; useful for deterministic preview scope."
         ),
     )
+    use_calibrated_rotation: bool = Field(
+        default=True,
+        description="If True, run calibrated rotation analysis to drive recommended_action.",
+    )
+    scoring_profile: str = Field(
+        default="calibration_recommended",
+        description="Scoring profile: calibration_recommended, current, balanced_preview, quality_preview, risk_adjusted_preview.",
+    )
+    calibration_as_of_dates: list[date] | None = Field(
+        default=None,
+        description="Historical dates for calibration. Defaults to latest market date in price snapshots.",
+    )
+    min_expected_improvement_pct: float = Field(
+        default=1.0,
+        description="Minimum expected PnL improvement % for a rotation pair to qualify.",
+    )
+    min_expected_pnl_dollars: float = Field(
+        default=25.0,
+        description="Minimum expected PnL improvement $ for a rotation pair to qualify.",
+    )
+    allow_loss_realization: bool = Field(
+        default=False,
+        description="If True, allow rotating out of positions with negative unrealized PnL.",
+    )
+
+    @field_validator("scoring_profile")
+    @classmethod
+    def _validate_dp_scoring_profile(cls, v: str) -> str:
+        _allowed = {"calibration_recommended", "current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
+        if v not in _allowed:
+            raise ValueError(f"scoring_profile must be one of {sorted(_allowed)}")
+        return v
+
+
+class DailyPlanCalibratedRotationContext(BaseModel):
+    """Calibrated rotation analysis embedded in Daily Plan (PREVIEW ONLY, no DB writes)."""
+    enabled: bool
+    scoring_profile_used: str
+    calibration_recommended_profile: str | None = None
+    calibration_confidence: str | None = None
+    calibration_warning_count: int = 0
+    eligible_rotation_pairs: int = 0
+    blocked_pairs: int = 0
+    best_rotation_pair: dict | None = None
+    fallback_used: bool = False
+    fallback_reason: str | None = None
 
 
 class DailyPlanPreviewResponse(BaseModel):
@@ -1641,6 +1687,7 @@ class DailyPlanPreviewResponse(BaseModel):
     explanation: str
     safety_counts: DailyPlanSafetyCounts
     capital_allocation: CapitalAllocationAnalysis | None = None
+    calibrated_rotation_context: DailyPlanCalibratedRotationContext | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -7023,11 +7070,74 @@ async def daily_plan_preview(
                     if meets:
                         used_buy_tickers.add(buy_cand.ticker)
 
+        # 5b. Calibrated rotation analysis (PREVIEW ONLY, no DB writes, no GCP calls)
+        _crw_ctx: DailyPlanCalibratedRotationContext | None = None
+        if body.use_calibrated_rotation:
+            # Query approved BUY candidates from CandidateReview directly so that
+            # calibrated rotation works even when candidate_ids=[] (no regular pipeline).
+            _crw_approved_reviews = (
+                session.query(CandidateReview)
+                .filter(CandidateReview.review_status == "APPROVED_FOR_SIGNAL")
+                .all()
+            )
+            _crw_buy_tickers = [
+                c.ticker for c in _crw_approved_reviews
+                if (c.prediction_recommendation or "").upper() == "BUY"
+                and c.ticker not in held_tickers
+            ] or None
+            try:
+                _crw = _compute_calibrated_rotation(
+                    session,
+                    scoring_profile=body.scoring_profile,
+                    calibration_as_of_dates=body.calibration_as_of_dates,
+                    lookback_days=20,
+                    forward_return_days=5,
+                    scan_top_n=50,
+                    profile_top_n=10,
+                    min_price_points=5,
+                    benchmark_ticker="SPY",
+                    tickers=_crw_buy_tickers,
+                    max_rotation_pairs=5,
+                    min_expected_improvement_pct=body.min_expected_improvement_pct,
+                    min_expected_pnl_dollars=body.min_expected_pnl_dollars,
+                    allow_loss_realization=body.allow_loss_realization,
+                    position_tickers=body.position_tickers,
+                    as_of_date=None,
+                )
+                _crw_eligible = [p for p in _crw.rotation_pairs if p.decision == "ROTATE"]
+                _crw_blocked_pairs = [p for p in _crw.rotation_pairs if p.decision == "BLOCKED"]
+                _crw_warnings = _crw.calibration_context.calibration_warnings
+                _crw_warning_count = sum(1 for v in _crw_warnings.values() if v)
+                _crw_best = _crw_eligible[0] if _crw_eligible else None
+                _crw_ctx = DailyPlanCalibratedRotationContext(
+                    enabled=True,
+                    scoring_profile_used=_crw.calibration_context.scoring_profile_used,
+                    calibration_recommended_profile=_crw.calibration_context.calibration_recommended_profile,
+                    calibration_confidence=_crw.calibration_context.calibration_confidence,
+                    calibration_warning_count=_crw_warning_count,
+                    eligible_rotation_pairs=len(_crw_eligible),
+                    blocked_pairs=len(_crw_blocked_pairs) + len(_crw.blocked_actions),
+                    best_rotation_pair=_crw_best.model_dump() if _crw_best else None,
+                    fallback_used=False,
+                    fallback_reason=None,
+                )
+            except Exception as _crw_exc:
+                _crw_ctx = DailyPlanCalibratedRotationContext(
+                    enabled=False,
+                    scoring_profile_used=body.scoring_profile,
+                    fallback_used=True,
+                    fallback_reason=f"Calibrated rotation unavailable: {_crw_exc}",
+                )
+
         # 6. Recommended next action
         good_rotations = [r for r in rotation_plan if r.meets_threshold]
         cap_blocked_count = sum(1 for a in blocked_actions if a.action == "BUY" and a.blocked_reason == "MAX_POSITIONS_REACHED")
 
-        if no_candidates:
+        if no_candidates and (
+            _crw_ctx is None
+            or not _crw_ctx.enabled
+            or _crw_ctx.eligible_rotation_pairs == 0
+        ):
             recommended_next_action = "Open Review Queue and approve candidates first. No approved candidates found."
             explanation = (
                 "No candidates are approved for trading. "
@@ -7043,6 +7153,35 @@ async def daily_plan_preview(
                 f"{len(buy_recommendations)} BUY candidate(s) passed the risk engine check. "
                 "This preview does not create any signals or decisions. "
                 "Proceed to the Signals & Decisions tab only after reviewing the plan."
+            )
+        elif (
+            _crw_ctx is not None
+            and _crw_ctx.enabled
+            and _crw_ctx.eligible_rotation_pairs > 0
+        ):
+            _crw_bp = _crw_ctx.best_rotation_pair or {}
+            _sell_tk = _crw_bp.get("sell_ticker", "?")
+            _buy_tk = _crw_bp.get("buy_ticker", "?")
+            _pnl_imp = _crw_bp.get("expected_pnl_improvement", "?")
+            _imp_pct = _crw_bp.get("expected_improvement_pct", "?")
+            _cash_rel_str = _crw_bp.get("cash_released", "?")
+            _if_hold = _crw_bp.get("expected_pnl_if_hold", "?")
+            _if_rot = _crw_bp.get("expected_pnl_if_rotate", "?")
+            recommended_next_action = (
+                f"ROTATE: Sell {_sell_tk} to buy {_buy_tk}. "
+                f"Expected improvement: ${_pnl_imp} ({_imp_pct}%). "
+                f"Profile: {_crw_ctx.scoring_profile_used}. "
+                f"{_crw_ctx.eligible_rotation_pairs} qualifying pair(s) found."
+            )
+            explanation = (
+                f"Calibrated rotation recommends selling {_sell_tk} "
+                f"(cash released: ${_cash_rel_str}) to buy {_buy_tk}. "
+                f"Expected PnL if holding: ${_if_hold}. "
+                f"Expected PnL if rotating: ${_if_rot}. "
+                f"Improvement: ${_pnl_imp} ({_imp_pct}%). "
+                f"Scoring profile: {_crw_ctx.scoring_profile_used}. "
+                f"Calibration confidence: {_crw_ctx.calibration_confidence or 'N/A'}. "
+                f"Preview only - no signals or orders created."
             )
         elif good_rotations:
             recommended_next_action = (
@@ -7397,6 +7536,7 @@ async def daily_plan_preview(
             db_rows_created=0,
         ),
         capital_allocation=capital_allocation,
+        calibrated_rotation_context=_crw_ctx,
     )
 
 
@@ -8190,35 +8330,50 @@ class CalibratedRotationResponse(BaseModel):
     safety_counts: CalibratedRotationSafetyCounts
 
 
-@app.post(
-    "/v1/strategy/calibrated-rotation-preview",
-    response_model=CalibratedRotationResponse,
-    status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_verify_api_key)],
-)
-def calibrated_rotation_preview(body: CalibratedRotationRequest) -> CalibratedRotationResponse:
-    """
-    POST /v1/strategy/calibrated-rotation-preview — Calibration-aware rotation workbench.
+def _ticker_price_features(rows_desc: list, min_pts: int) -> dict | None:
+    """Compute momentum/scan features from DESC-ordered (date, price) rows."""
+    if len(rows_desc) < min_pts:
+        return None
+    prices = [float(r[1]) for r in rows_desc]
+    mom_5d = 0.0
+    if len(prices) >= 5 and prices[4] > 0:
+        mom_5d = (prices[0] - prices[4]) / prices[4]
+    mom_20d = 0.0
+    if len(prices) >= 20 and prices[19] > 0:
+        mom_20d = (prices[0] - prices[19]) / prices[19]
+    scan_raw = 0.0
+    if mom_5d > 0:
+        scan_raw += mom_5d * 100.0 * 0.3
+    if mom_20d > 0:
+        scan_raw += mom_20d * 100.0 * 0.4
+    return {
+        "latest_price": prices[0],
+        "mom_5d": mom_5d,
+        "mom_20d": mom_20d,
+        "scan_score": max(0.0, min(100.0, scan_raw)),
+    }
 
-    PREVIEW ONLY. No Signal, TradeDecision, Order, Position, JobRun, or any
-    other database rows are created or mutated.
 
-    Logic:
-    1. Resolve the scoring profile: if scoring_profile=calibration_recommended, run an
-       abbreviated multi-profile calibration using historical price data to determine the
-       best-performing profile, then use that profile for candidate scoring.
-    2. Scan price_snapshots for candidate tickers (SP500 universe or explicit tickers).
-    3. Score candidates and current holdings using the resolved profile's scoring function.
-    4. Compute momentum-based expected forward return (5d momentum as proxy) for each.
-    5. Build rotation pairs: for each holding x candidate, estimate cash_released,
-       expected_pnl_if_hold, expected_pnl_if_rotate, and pnl_improvement.
-    6. Apply rejection filters: LOSS_REALIZATION_BLOCKED, BELOW_MIN_IMPROVEMENT_PCT,
-       BELOW_MIN_EXPECTED_PNL, MISSING_PRICE_SNAPSHOT.
-    7. Return ranked eligible pairs, blocked actions, and a recommended action.
-
-    Safety guarantee: signals_created=0, decisions_created=0, orders_created=0, rows_created=0.
-    No GCP calls. No DB writes of any kind.
-    """
+def _compute_calibrated_rotation(
+    session,
+    *,
+    scoring_profile: str,
+    calibration_as_of_dates,
+    lookback_days: int,
+    forward_return_days: int,
+    scan_top_n: int,
+    profile_top_n: int,
+    min_price_points: int,
+    benchmark_ticker: str,
+    tickers,
+    max_rotation_pairs: int,
+    min_expected_improvement_pct: float,
+    min_expected_pnl_dollars: float,
+    allow_loss_realization: bool,
+    as_of_date,
+    position_tickers: "list[str] | None" = None,
+) -> "CalibratedRotationResponse":
+    """Shared helper: calibrated rotation core logic. PREVIEW ONLY — no DB writes, no GCP calls."""
     import statistics as _statistics
     from datetime import timedelta as _timedelta
     from paper_trader.engine.universe import get_sp500_universe as _get_sp500_universe
@@ -8233,233 +8388,222 @@ def calibrated_rotation_preview(body: CalibratedRotationRequest) -> CalibratedRo
         "risk_adjusted_preview": _score_candidate_risk_adjusted_preview,
     }
 
-    def _ticker_features(rows_desc: list, min_pts: int) -> dict | None:
-        """Compute momentum/scan features from DESC-ordered (date, price) rows."""
-        if len(rows_desc) < min_pts:
-            return None
-        prices = [float(r[1]) for r in rows_desc]
-        mom_5d = 0.0
-        if len(prices) >= 5 and prices[4] > 0:
-            mom_5d = (prices[0] - prices[4]) / prices[4]
-        mom_20d = 0.0
-        if len(prices) >= 20 and prices[19] > 0:
-            mom_20d = (prices[0] - prices[19]) / prices[19]
-        scan_raw = 0.0
-        if mom_5d > 0:
-            scan_raw += mom_5d * 100.0 * 0.3
-        if mom_20d > 0:
-            scan_raw += mom_20d * 100.0 * 0.4
-        return {
-            "latest_price": prices[0],
-            "mom_5d": mom_5d,
-            "mom_20d": mom_20d,
-            "scan_score": max(0.0, min(100.0, scan_raw)),
-        }
+    # --- Portfolio state ---
+    portfolio = get_portfolio(session)
+    cfg_max = int((portfolio.config or {}).get("max_positions", get_settings().max_positions))
+    open_positions = list(session.execute(select(Position)).scalars().all())
+    if position_tickers is not None:
+        _pt_filter = {t.strip().upper() for t in position_tickers}
+        open_positions = [p for p in open_positions if p.ticker.upper() in _pt_filter]
+    held_tickers = {p.ticker for p in open_positions}
+    current_count = len(open_positions)
+    available_slots = max(0, cfg_max - current_count)
+    cash_val = Decimal(str(portfolio.cached_cash or "0"))
 
-    with get_session() as session:
-        # --- Portfolio state ---
-        portfolio = get_portfolio(session)
-        cfg_max = int((portfolio.config or {}).get("max_positions", get_settings().max_positions))
-        open_positions = list(session.execute(select(Position)).scalars().all())
-        held_tickers = {p.ticker for p in open_positions}
-        current_count = len(open_positions)
-        available_slots = max(0, cfg_max - current_count)
-        cash_val = Decimal(str(portfolio.cached_cash or "0"))
+    # --- Resolve scoring profile via calibration ---
+    _calib_rec_profile: str | None = None
+    _calib_confidence: str | None = None
+    _calib_reason: str | None = None
+    _calib_warnings_dict: dict[str, Any] = {}
+    _profile_used: str = scoring_profile
 
-        # --- Resolve scoring profile via calibration ---
-        _calib_rec_profile: str | None = None
-        _calib_confidence: str | None = None
-        _calib_reason: str | None = None
-        _calib_warnings_dict: dict[str, Any] = {}
-        _profile_used: str = body.scoring_profile
+    if scoring_profile == "calibration_recommended":
+        _calib_profiles = list(_all_score_funcs.keys())
 
-        if body.scoring_profile == "calibration_recommended":
-            _calib_profiles = list(_all_score_funcs.keys())
+        if calibration_as_of_dates:
+            _calib_dates = sorted(set(calibration_as_of_dates))
+        elif as_of_date:
+            _calib_dates = [as_of_date]
+        else:
+            _calib_latest = session.execute(
+                select(func.max(PriceSnapshot.market_date))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+            ).scalar()
+            _calib_dates = [_calib_latest] if _calib_latest else []
 
-            # Determine calibration dates
-            if body.calibration_as_of_dates:
-                _calib_dates = sorted(set(body.calibration_as_of_dates))
-            elif body.as_of_date:
-                _calib_dates = [body.as_of_date]
+        if _calib_dates:
+            _calib_universe: list[str]
+            if tickers:
+                _calib_universe = [t.strip().upper() for t in tickers if t.strip()]
             else:
-                _calib_latest = session.execute(
-                    select(func.max(PriceSnapshot.market_date))
+                _calib_universe = _get_sp500_universe()
+
+            _calib_date_runs: list[dict] = []
+
+            for _ceff in _calib_dates:
+                _ccutoff = _ceff - _timedelta(days=lookback_days + 10)
+
+                _cbm_rows = session.execute(
+                    select(BenchmarkPrice.market_date, BenchmarkPrice.price)
+                    .where(BenchmarkPrice.ticker == benchmark_ticker.upper())
+                    .where(BenchmarkPrice.session_type == "REGULAR")
+                    .where(BenchmarkPrice.market_date >= _ccutoff)
+                    .where(BenchmarkPrice.market_date <= _ceff)
+                    .order_by(BenchmarkPrice.market_date.desc())
+                ).all()
+                _cspy = {r[0]: float(r[1]) for r in _cbm_rows}
+                _cbm_avail = len(_cspy) >= 5
+
+                _cspy_as_of: float | None = None
+                if _cspy:
+                    _aod_ds = [d for d in _cspy if d <= _ceff]
+                    if _aod_ds:
+                        _cspy_as_of = _cspy[max(_aod_ds)]
+
+                _cfwd_cut = _ceff + _timedelta(days=forward_return_days)
+                _cfwd_max = _ceff + _timedelta(days=forward_return_days + 10)
+                _cspy_fwd_row = session.execute(
+                    select(BenchmarkPrice.price)
+                    .where(BenchmarkPrice.ticker == benchmark_ticker.upper())
+                    .where(BenchmarkPrice.session_type == "REGULAR")
+                    .where(BenchmarkPrice.market_date >= _cfwd_cut)
+                    .where(BenchmarkPrice.market_date <= _cfwd_max)
+                    .order_by(BenchmarkPrice.market_date.asc())
+                    .limit(1)
+                ).scalar()
+                _cspy_fwd = float(_cspy_fwd_row) if _cspy_fwd_row else None
+                _cspy_fwd_ret: float | None = None
+                if _cspy_fwd and _cspy_as_of and _cspy_as_of > 0:
+                    _cspy_fwd_ret = (_cspy_fwd - _cspy_as_of) / _cspy_as_of
+
+                _cp_rows = session.execute(
+                    select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+                    .where(PriceSnapshot.ticker.in_(_calib_universe[:scan_top_n * 3]))
                     .where(PriceSnapshot.price_type == "CLOSE")
                     .where(PriceSnapshot.session_type == "REGULAR")
-                ).scalar()
-                _calib_dates = [_calib_latest] if _calib_latest else []
+                    .where(PriceSnapshot.market_date >= _ccutoff)
+                    .where(PriceSnapshot.market_date <= _ceff)
+                    .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
+                ).all()
+                _cp_map: dict[str, list] = {}
+                for _cpr in _cp_rows:
+                    _cp_map.setdefault(_cpr[0], []).append((_cpr[1], float(_cpr[2])))
 
-            if _calib_dates:
-                _calib_universe: list[str]
-                if body.tickers:
-                    _calib_universe = [t.strip().upper() for t in body.tickers if t.strip()]
-                else:
-                    _calib_universe = _get_sp500_universe()
-
-                _calib_date_runs: list[dict] = []
-
-                for _ceff in _calib_dates:
-                    _ccutoff = _ceff - _timedelta(days=body.lookback_days + 10)
-
-                    _cbm_rows = session.execute(
-                        select(BenchmarkPrice.market_date, BenchmarkPrice.price)
-                        .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
-                        .where(BenchmarkPrice.session_type == "REGULAR")
-                        .where(BenchmarkPrice.market_date >= _ccutoff)
-                        .where(BenchmarkPrice.market_date <= _ceff)
-                        .order_by(BenchmarkPrice.market_date.desc())
-                    ).all()
-                    _cspy = {r[0]: float(r[1]) for r in _cbm_rows}
-                    _cbm_avail = len(_cspy) >= 5
-
-                    _cspy_as_of: float | None = None
-                    if _cspy:
-                        _aod_ds = [d for d in _cspy if d <= _ceff]
-                        if _aod_ds:
-                            _cspy_as_of = _cspy[max(_aod_ds)]
-
-                    _cfwd_cut = _ceff + _timedelta(days=body.forward_return_days)
-                    _cfwd_max = _ceff + _timedelta(days=body.forward_return_days + 10)
-                    _cspy_fwd_row = session.execute(
-                        select(BenchmarkPrice.price)
-                        .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
-                        .where(BenchmarkPrice.session_type == "REGULAR")
-                        .where(BenchmarkPrice.market_date >= _cfwd_cut)
-                        .where(BenchmarkPrice.market_date <= _cfwd_max)
-                        .order_by(BenchmarkPrice.market_date.asc())
-                        .limit(1)
-                    ).scalar()
-                    _cspy_fwd = float(_cspy_fwd_row) if _cspy_fwd_row else None
-                    _cspy_fwd_ret: float | None = None
-                    if _cspy_fwd and _cspy_as_of and _cspy_as_of > 0:
-                        _cspy_fwd_ret = (_cspy_fwd - _cspy_as_of) / _cspy_as_of
-
-                    _cp_rows = session.execute(
-                        select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
-                        .where(PriceSnapshot.ticker.in_(_calib_universe[:body.scan_top_n * 3]))
-                        .where(PriceSnapshot.price_type == "CLOSE")
-                        .where(PriceSnapshot.session_type == "REGULAR")
-                        .where(PriceSnapshot.market_date >= _ccutoff)
-                        .where(PriceSnapshot.market_date <= _ceff)
-                        .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
-                    ).all()
-                    _cp_map: dict[str, list] = {}
-                    for _cpr in _cp_rows:
-                        _cp_map.setdefault(_cpr[0], []).append((_cpr[1], float(_cpr[2])))
-
-                    _ceval: list[dict] = []
-                    for _ct in _calib_universe[:body.scan_top_n * 3]:
-                        _crows = _cp_map.get(_ct, [])
-                        if len(_crows) < body.min_price_points:
-                            continue
-                        _cprices = [r[1] for r in _crows]
-                        _cm5 = 0.0
-                        if len(_cprices) >= 5 and _cprices[4] > 0:
-                            _cm5 = (_cprices[0] - _cprices[4]) / _cprices[4]
-                        _cm20 = 0.0
-                        if len(_cprices) >= 20 and _cprices[19] > 0:
-                            _cm20 = (_cprices[0] - _cprices[19]) / _cprices[19]
-                        _cvol = 0.0
-                        if len(_cprices) >= 2:
-                            _cn = min(20, len(_cprices) - 1)
-                            _cdrs = [(_cprices[i] - _cprices[i + 1]) / _cprices[i + 1]
-                                     for i in range(_cn) if _cprices[i + 1] > 0]
-                            if len(_cdrs) >= 2:
-                                try:
-                                    _cvol = _statistics.stdev(_cdrs)
-                                except Exception:
-                                    pass
-                        _cscraw = 0.0
-                        if _cm5 > 0:
-                            _cscraw += _cm5 * 100.0 * 0.3
-                        if _cm20 > 0:
-                            _cscraw += _cm20 * 100.0 * 0.4
-                        _ceval.append({
-                            "ticker": _ct, "scan_score": max(0.0, min(100.0, _cscraw)),
-                            "mom_5d": _cm5, "mom_20d": _cm20, "vol_20d": _cvol,
-                            "latest_price": _cprices[0], "rs_spy": 0.0,
-                        })
-
-                    _ceval.sort(key=lambda x: -x["scan_score"])
-                    _cpool = _ceval[:body.scan_top_n]
-
-                    _cpfwd_map: dict[str, float] = {}
-                    _cpfwd_tickers = [c["ticker"] for c in _cpool]
-                    if _cpfwd_tickers:
-                        _cpfwd_rows = session.execute(
-                            select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
-                            .where(PriceSnapshot.ticker.in_(_cpfwd_tickers))
-                            .where(PriceSnapshot.price_type == "CLOSE")
-                            .where(PriceSnapshot.session_type == "REGULAR")
-                            .where(PriceSnapshot.market_date >= _cfwd_cut)
-                            .where(PriceSnapshot.market_date <= _cfwd_max)
-                            .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.asc())
-                        ).all()
-                        for _cfr in _cpfwd_rows:
-                            if _cfr[0] not in _cpfwd_map:
-                                _cpfwd_map[_cfr[0]] = float(_cfr[2])
-
-                    _calib_pr: list[CalibrationProfileResult] = []
-                    for _cprofn in _calib_profiles:
-                        _cpsf = _all_score_funcs[_cprofn]
-                        _cpscored: list[dict] = []
-                        for _cpc in _cpool:
-                            _cpinp: dict[str, Any] = {
-                                "prediction_confidence": 0.5, "expected_return_pct": 0.0,
-                                "momentum_5d_pct": _cpc["mom_5d"], "momentum_20d_pct": _cpc["mom_20d"],
-                                "relative_strength_vs_spy_20d": _cpc.get("rs_spy", 0.0),
-                                "scan_score": _cpc["scan_score"], "volatility_20d_pct": _cpc.get("vol_20d", 0.0),
-                                "is_current_holding": False,
-                            }
-                            _cpfact = _cpsf(_cpinp)
-                            _cpfwd = _cpfwd_map.get(_cpc["ticker"])
-                            _cpfret: float | None = None
-                            if _cpfwd and _cpc["latest_price"] > 0:
-                                _cpfret = (_cpfwd - _cpc["latest_price"]) / _cpc["latest_price"]
-                            _cpexc: float | None = None
-                            if _cpfret is not None and _cspy_fwd_ret is not None:
-                                _cpexc = _cpfret - _cspy_fwd_ret
-                            _cpscored.append({"score": _cpfact.total_score, "fwd_ret": _cpfret, "excess": _cpexc})
-                        _cpscored.sort(key=lambda x: -x["score"])
-                        _cptop = _cpscored[:body.profile_top_n]
-                        _cprets = [s["fwd_ret"] * 100.0 for s in _cptop if s["fwd_ret"] is not None]
-                        _cpexcs = [s["excess"] * 100.0 for s in _cptop if s["excess"] is not None]
-                        _calib_pr.append(CalibrationProfileResult(
-                            profile_name=_cprofn,
-                            top_n=len(_cptop),
-                            average_forward_return_pct=round(_statistics.mean(_cprets), 4) if _cprets else None,
-                            median_forward_return_pct=round(_statistics.median(_cprets), 4) if _cprets else None,
-                            win_rate_pct=round(sum(1 for r in _cprets if r > 0) / len(_cprets) * 100.0, 2) if _cprets else None,
-                            average_excess_return_vs_spy_pct=round(_statistics.mean(_cpexcs), 4) if _cpexcs else None,
-                            top_candidates=[],
-                        ))
-
-                    _calib_date_runs.append({
-                        "effective_date": _ceff,
-                        "profile_results": _calib_pr,
-                        "benchmark_available": _cbm_avail,
-                        "evaluated_count": len(_ceval),
+                _ceval: list[dict] = []
+                for _ct in _calib_universe[:scan_top_n * 3]:
+                    _crows = _cp_map.get(_ct, [])
+                    if len(_crows) < min_price_points:
+                        continue
+                    _cprices = [r[1] for r in _crows]
+                    _cm5 = 0.0
+                    if len(_cprices) >= 5 and _cprices[4] > 0:
+                        _cm5 = (_cprices[0] - _cprices[4]) / _cprices[4]
+                    _cm20 = 0.0
+                    if len(_cprices) >= 20 and _cprices[19] > 0:
+                        _cm20 = (_cprices[0] - _cprices[19]) / _cprices[19]
+                    _cvol = 0.0
+                    if len(_cprices) >= 2:
+                        _cn = min(20, len(_cprices) - 1)
+                        _cdrs = [(_cprices[i] - _cprices[i + 1]) / _cprices[i + 1]
+                                 for i in range(_cn) if _cprices[i + 1] > 0]
+                        if len(_cdrs) >= 2:
+                            try:
+                                _cvol = _statistics.stdev(_cdrs)
+                            except Exception:
+                                pass
+                    _cscraw = 0.0
+                    if _cm5 > 0:
+                        _cscraw += _cm5 * 100.0 * 0.3
+                    if _cm20 > 0:
+                        _cscraw += _cm20 * 100.0 * 0.4
+                    _ceval.append({
+                        "ticker": _ct, "scan_score": max(0.0, min(100.0, _cscraw)),
+                        "mom_5d": _cm5, "mom_20d": _cm20, "vol_20d": _cvol,
+                        "latest_price": _cprices[0], "rs_spy": 0.0,
                     })
 
-                _crec = _build_calibration_recommendation(_calib_profiles, _calib_date_runs)
-                _calib_rec_profile = _crec.recommended_profile
-                _calib_confidence = _crec.confidence_level
-                _calib_reason = _crec.reason_summary
-                _calib_warnings_dict = _crec.warnings.model_dump()
-                _profile_used = _calib_rec_profile or "current"
-            else:
-                _profile_used = "current"
-                _calib_confidence = "LOW"
-                _calib_reason = "No price data available for calibration"
-                _calib_warnings_dict = {
-                    "insufficient_dates": True, "missing_benchmark": False,
-                    "too_few_evaluated_tickers": True, "inconsistent_profile_winners": False,
-                }
+                _ceval.sort(key=lambda x: -x["scan_score"])
+                _cpool = _ceval[:scan_top_n]
 
-        _score_fn = _all_score_funcs.get(_profile_used, _all_score_funcs["current"])
+                _cpfwd_map: dict[str, float] = {}
+                _cpfwd_tickers = [c["ticker"] for c in _cpool]
+                if _cpfwd_tickers:
+                    _cpfwd_rows = session.execute(
+                        select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+                        .where(PriceSnapshot.ticker.in_(_cpfwd_tickers))
+                        .where(PriceSnapshot.price_type == "CLOSE")
+                        .where(PriceSnapshot.session_type == "REGULAR")
+                        .where(PriceSnapshot.market_date >= _cfwd_cut)
+                        .where(PriceSnapshot.market_date <= _cfwd_max)
+                        .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.asc())
+                    ).all()
+                    for _cfr in _cpfwd_rows:
+                        if _cfr[0] not in _cpfwd_map:
+                            _cpfwd_map[_cfr[0]] = float(_cfr[2])
 
-        # --- Resolve scan date ---
-        _scan_date = body.as_of_date
+                _calib_pr: list[CalibrationProfileResult] = []
+                for _cprofn in _calib_profiles:
+                    _cpsf = _all_score_funcs[_cprofn]
+                    _cpscored: list[dict] = []
+                    for _cpc in _cpool:
+                        _cpinp: dict[str, Any] = {
+                            "prediction_confidence": 0.5, "expected_return_pct": 0.0,
+                            "momentum_5d_pct": _cpc["mom_5d"], "momentum_20d_pct": _cpc["mom_20d"],
+                            "relative_strength_vs_spy_20d": _cpc.get("rs_spy", 0.0),
+                            "scan_score": _cpc["scan_score"], "volatility_20d_pct": _cpc.get("vol_20d", 0.0),
+                            "is_current_holding": False,
+                        }
+                        _cpfact = _cpsf(_cpinp)
+                        _cpfwd = _cpfwd_map.get(_cpc["ticker"])
+                        _cpfret: float | None = None
+                        if _cpfwd and _cpc["latest_price"] > 0:
+                            _cpfret = (_cpfwd - _cpc["latest_price"]) / _cpc["latest_price"]
+                        _cpexc: float | None = None
+                        if _cpfret is not None and _cspy_fwd_ret is not None:
+                            _cpexc = _cpfret - _cspy_fwd_ret
+                        _cpscored.append({"score": _cpfact.total_score, "fwd_ret": _cpfret, "excess": _cpexc})
+                    _cpscored.sort(key=lambda x: -x["score"])
+                    _cptop = _cpscored[:profile_top_n]
+                    _cprets = [s["fwd_ret"] * 100.0 for s in _cptop if s["fwd_ret"] is not None]
+                    _cpexcs = [s["excess"] * 100.0 for s in _cptop if s["excess"] is not None]
+                    _calib_pr.append(CalibrationProfileResult(
+                        profile_name=_cprofn,
+                        top_n=len(_cptop),
+                        average_forward_return_pct=round(_statistics.mean(_cprets), 4) if _cprets else None,
+                        median_forward_return_pct=round(_statistics.median(_cprets), 4) if _cprets else None,
+                        win_rate_pct=round(sum(1 for r in _cprets if r > 0) / len(_cprets) * 100.0, 2) if _cprets else None,
+                        average_excess_return_vs_spy_pct=round(_statistics.mean(_cpexcs), 4) if _cpexcs else None,
+                        top_candidates=[],
+                    ))
+
+                _calib_date_runs.append({
+                    "effective_date": _ceff,
+                    "profile_results": _calib_pr,
+                    "benchmark_available": _cbm_avail,
+                    "evaluated_count": len(_ceval),
+                })
+
+            _crec = _build_calibration_recommendation(_calib_profiles, _calib_date_runs)
+            _calib_rec_profile = _crec.recommended_profile
+            _calib_confidence = _crec.confidence_level
+            _calib_reason = _crec.reason_summary
+            _calib_warnings_dict = _crec.warnings.model_dump()
+            _profile_used = _calib_rec_profile or "current"
+        else:
+            _profile_used = "current"
+            _calib_confidence = "LOW"
+            _calib_reason = "No price data available for calibration"
+            _calib_warnings_dict = {
+                "insufficient_dates": True, "missing_benchmark": False,
+                "too_few_evaluated_tickers": True, "inconsistent_profile_winners": False,
+            }
+
+    _score_fn = _all_score_funcs.get(_profile_used, _all_score_funcs["current"])
+
+    # --- Resolve scan date ---
+    # Scope to held tickers so unrelated DB rows (e.g. from other tests or stale data)
+    # don't shift the lookback window away from the actual portfolio's price history.
+    _scan_date = as_of_date
+    if _scan_date is None:
+        _held_ticker_list = list(held_tickers)
+        if _held_ticker_list:
+            _scan_date = session.execute(
+                select(func.max(PriceSnapshot.market_date))
+                .where(PriceSnapshot.ticker.in_(_held_ticker_list))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+            ).scalar()
         if _scan_date is None:
             _scan_date = session.execute(
                 select(func.max(PriceSnapshot.market_date))
@@ -8467,315 +8611,349 @@ def calibrated_rotation_preview(body: CalibratedRotationRequest) -> CalibratedRo
                 .where(PriceSnapshot.session_type == "REGULAR")
             ).scalar()
 
-        _empty_portfolio_ctx = CalibratedRotationPortfolioContext(
-            open_positions=current_count,
-            max_positions=cfg_max,
-            available_slots=available_slots,
-            cash=str(cash_val.quantize(_DOLLARS)),
-            total_value=str(cash_val.quantize(_DOLLARS)),
-            positions_value="0.00",
+    _empty_portfolio_ctx = CalibratedRotationPortfolioContext(
+        open_positions=current_count,
+        max_positions=cfg_max,
+        available_slots=available_slots,
+        cash=str(cash_val.quantize(_DOLLARS)),
+        total_value=str(cash_val.quantize(_DOLLARS)),
+        positions_value="0.00",
+    )
+    _empty_calib_ctx = CalibratedRotationCalibrationContext(
+        scoring_profile_used=_profile_used,
+        calibration_recommended_profile=_calib_rec_profile,
+        calibration_confidence=_calib_confidence,
+        calibration_reason_summary=_calib_reason,
+        calibration_warnings=_calib_warnings_dict,
+    )
+
+    if _scan_date is None:
+        return CalibratedRotationResponse(
+            calibration_context=_empty_calib_ctx,
+            portfolio_context=_empty_portfolio_ctx,
+            candidate_summary=CalibratedRotationCandidateSummary(
+                new_buy_candidates_count=0, current_holdings_count=current_count,
+                eligible_rotation_pairs=0, blocked_pairs=0,
+            ),
+            recommended_action=CalibratedRotationRecommendedAction(
+                action_type="WATCH",
+                title="No market data",
+                explanation="No price snapshots found. Add price data to enable rotation analysis.",
+                confidence="LOW",
+            ),
+            rotation_pairs=[], blocked_actions=[], safety_counts=_safety_zero,
         )
-        _empty_calib_ctx = CalibratedRotationCalibrationContext(
+
+    _lookback_cutoff = _scan_date - _timedelta(days=lookback_days + 10)
+
+    if tickers:
+        _seen_t: set[str] = set()
+        _cand_universe: list[str] = []
+        for _tu in tickers:
+            _tun = _tu.strip().upper()
+            if _tun and _tun not in _seen_t:
+                _seen_t.add(_tun)
+                _cand_universe.append(_tun)
+    else:
+        _cand_universe = _get_sp500_universe()
+
+    _fetch_tickers = list(set(_cand_universe[:scan_top_n * 5] + list(held_tickers)))
+    _price_rows = session.execute(
+        select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+        .where(PriceSnapshot.ticker.in_(_fetch_tickers))
+        .where(PriceSnapshot.price_type == "CLOSE")
+        .where(PriceSnapshot.session_type == "REGULAR")
+        .where(PriceSnapshot.market_date >= _lookback_cutoff)
+        .where(PriceSnapshot.market_date <= _scan_date)
+        .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
+    ).all()
+
+    _tpm: dict[str, list] = {}
+    for _pr in _price_rows:
+        _tpm.setdefault(_pr[0], []).append((_pr[1], float(_pr[2])))
+
+    _cand_features: list[dict] = []
+    for _ticker in _cand_universe:
+        if _ticker in held_tickers:
+            continue
+        _feat = _ticker_price_features(_tpm.get(_ticker, []), min_price_points)
+        if _feat is None:
+            continue
+        _inp: dict[str, Any] = {
+            "prediction_confidence": 0.5, "expected_return_pct": 0.0,
+            "momentum_5d_pct": _feat["mom_5d"], "momentum_20d_pct": _feat["mom_20d"],
+            "relative_strength_vs_spy_20d": 0.0,
+            "scan_score": _feat["scan_score"], "volatility_20d_pct": 0.0,
+            "is_current_holding": False,
+        }
+        _feat["ticker"] = _ticker
+        _feat["score"] = _score_fn(_inp).total_score
+        _cand_features.append(_feat)
+
+    _cand_features.sort(key=lambda x: -x["score"])
+    _top_candidates: list[dict] = _cand_features[:profile_top_n]
+
+    _holding_features: dict[str, dict] = {}
+    for _pos in open_positions:
+        _hrows = _tpm.get(_pos.ticker, [])
+        _hfeat = _ticker_price_features(_hrows, 1)
+        if _hfeat is None:
+            _sp = session.execute(
+                select(PriceSnapshot.price)
+                .where(PriceSnapshot.ticker == _pos.ticker)
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .order_by(PriceSnapshot.snapshot_ts.desc())
+                .limit(1)
+            ).scalar()
+            if _sp:
+                _hfeat = {"latest_price": float(_sp), "mom_5d": 0.0, "mom_20d": 0.0, "scan_score": 0.0}
+            else:
+                continue
+        _hinp: dict[str, Any] = {
+            "prediction_confidence": 0.5, "expected_return_pct": 0.0,
+            "momentum_5d_pct": _hfeat.get("mom_5d", 0.0), "momentum_20d_pct": _hfeat.get("mom_20d", 0.0),
+            "relative_strength_vs_spy_20d": 0.0,
+            "scan_score": _hfeat.get("scan_score", 0.0), "volatility_20d_pct": 0.0,
+            "is_current_holding": True,
+        }
+        _hfeat["ticker"] = _pos.ticker
+        _hfeat["score"] = _score_fn(_hinp).total_score
+        _holding_features[_pos.ticker] = _hfeat
+
+    _blocked_actions: list[CalibratedRotationBlockedAction] = []
+    _all_pairs: list[CalibratedRotationPair] = []
+
+    for _pos in open_positions:
+        _hfeat = _holding_features.get(_pos.ticker)
+        if _hfeat is None:
+            _blocked_actions.append(CalibratedRotationBlockedAction(
+                ticker=_pos.ticker,
+                action_type="SELL",
+                reason="MISSING_PRICE_SNAPSHOT",
+                details="No price data found for this holding.",
+            ))
+            continue
+
+        _lp = Decimal(str(round(_hfeat["latest_price"], 6)))
+        _cash_rel = (_pos.qty * _lp).quantize(_DOLLARS)
+        _upnl = (_cash_rel - _pos.cost_basis).quantize(_DOLLARS)
+        _cb_f = float(_pos.cost_basis)
+        _pnl_pct = float(_upnl) / _cb_f * 100.0 if _cb_f > 0 else 0.0
+
+        _sell_fwd_pct = _hfeat.get("mom_5d", 0.0) * 100.0
+        _exp_hold = float(_cash_rel) * _sell_fwd_pct / 100.0
+        _sell_score = _hfeat.get("score", 0.0)
+
+        if not allow_loss_realization and _pnl_pct < 0:
+            _blocked_actions.append(CalibratedRotationBlockedAction(
+                ticker=_pos.ticker,
+                action_type="SELL",
+                reason="LOSS_REALIZATION_BLOCKED",
+                details=f"Position is {_pnl_pct:.2f}% below cost; allow_loss_realization=false.",
+            ))
+            for _bc in _top_candidates[:3]:
+                _bfwd = _bc.get("mom_5d", 0.0) * 100.0
+                _brot = float(_cash_rel) * _bfwd / 100.0
+                _bimp = _brot - _exp_hold
+                _bpct = _bimp / float(_cash_rel) * 100.0 if float(_cash_rel) > 0 else 0.0
+                _all_pairs.append(CalibratedRotationPair(
+                    sell_ticker=_pos.ticker, buy_ticker=_bc["ticker"],
+                    sell_current_price=str(_lp),
+                    buy_current_price=str(round(_bc["latest_price"], 2)),
+                    shares_to_sell=str(_pos.qty), cash_released=str(_cash_rel),
+                    sell_unrealized_pnl_pct=f"{_pnl_pct:.4f}",
+                    sell_expected_forward_return_pct=f"{_sell_fwd_pct:.4f}",
+                    buy_expected_forward_return_pct=f"{_bfwd:.4f}",
+                    expected_pnl_if_hold=f"{_exp_hold:.2f}",
+                    expected_pnl_if_rotate=f"{_brot:.2f}",
+                    expected_pnl_improvement=f"{_bimp:.2f}",
+                    expected_improvement_pct=f"{_bpct:.4f}",
+                    sell_score=f"{_sell_score:.6f}",
+                    buy_score=f"{_bc.get('score', 0.0):.6f}",
+                    score_improvement=f"{_bc.get('score', 0.0) - _sell_score:.6f}",
+                    decision="BLOCKED", reasons=[], blockers=["LOSS_REALIZATION_BLOCKED"],
+                ))
+            continue
+
+        for _cand in _top_candidates:
+            _buy_ticker = _cand["ticker"]
+            _buy_fwd_pct = _cand.get("mom_5d", 0.0) * 100.0
+            _exp_rotate = float(_cash_rel) * _buy_fwd_pct / 100.0
+            _improvement = _exp_rotate - _exp_hold
+            _impr_pct = _improvement / float(_cash_rel) * 100.0 if float(_cash_rel) > 0 else 0.0
+            _buy_score = _cand.get("score", 0.0)
+            _sc_impr = _buy_score - _sell_score
+
+            _blockers: list[str] = []
+            _reasons: list[str] = []
+
+            if _impr_pct < min_expected_improvement_pct:
+                _blockers.append("BELOW_MIN_IMPROVEMENT_PCT")
+            if _improvement < min_expected_pnl_dollars:
+                _blockers.append("BELOW_MIN_EXPECTED_PNL")
+
+            if not _blockers:
+                _decision = "ROTATE"
+                _reasons.append(
+                    f"{_buy_ticker} expected {_buy_fwd_pct:.2f}% vs "
+                    f"{_pos.ticker} {_sell_fwd_pct:.2f}% "
+                    f"(improvement {_impr_pct:.2f}%, ${_improvement:.2f})"
+                )
+            else:
+                _decision = "BLOCKED"
+
+            _all_pairs.append(CalibratedRotationPair(
+                sell_ticker=_pos.ticker, buy_ticker=_buy_ticker,
+                sell_current_price=str(_lp),
+                buy_current_price=str(round(_cand["latest_price"], 2)),
+                shares_to_sell=str(_pos.qty), cash_released=str(_cash_rel),
+                sell_unrealized_pnl_pct=f"{_pnl_pct:.4f}",
+                sell_expected_forward_return_pct=f"{_sell_fwd_pct:.4f}",
+                buy_expected_forward_return_pct=f"{_buy_fwd_pct:.4f}",
+                expected_pnl_if_hold=f"{_exp_hold:.2f}",
+                expected_pnl_if_rotate=f"{_exp_rotate:.2f}",
+                expected_pnl_improvement=f"{_improvement:.2f}",
+                expected_improvement_pct=f"{_impr_pct:.4f}",
+                sell_score=f"{_sell_score:.6f}",
+                buy_score=f"{_buy_score:.6f}",
+                score_improvement=f"{_sc_impr:.6f}",
+                decision=_decision, reasons=_reasons, blockers=_blockers,
+            ))
+
+    _eligible = sorted(
+        [p for p in _all_pairs if p.decision == "ROTATE"],
+        key=lambda x: -float(x.expected_pnl_improvement),
+    )
+    _blk_pairs = [p for p in _all_pairs if p.decision == "BLOCKED"]
+    _sorted_pairs = (_eligible + _blk_pairs)[:max_rotation_pairs]
+
+    if _eligible:
+        _best = _eligible[0]
+        _act_type = "ROTATE"
+        _act_title = f"Rotate {_best.sell_ticker} into {_best.buy_ticker}"
+        _act_expl = (
+            f"Expected PnL improvement: ${float(_best.expected_pnl_improvement):.2f} "
+            f"({float(_best.expected_improvement_pct):.2f}%). "
+            f"Profile: {_profile_used}. Preview only - no signals or orders created."
+        )
+        _act_conf = _calib_confidence or "LOW"
+    elif available_slots > 0 and _top_candidates:
+        _act_type = "BUY"
+        _act_title = "Portfolio has open slots"
+        _act_expl = (
+            f"{available_slots} slot(s) available. "
+            f"Top candidate: {_top_candidates[0]['ticker']}. "
+            "Consider buying via Daily Plan or standard workflow."
+        )
+        _act_conf = _calib_confidence or "LOW"
+    elif not open_positions:
+        _act_type = "WATCH"
+        _act_title = "No open positions"
+        _act_expl = "Portfolio is empty. Consider initiating positions via the prediction workflow."
+        _act_conf = "LOW"
+    else:
+        _act_type = "HOLD"
+        _act_title = "Hold current positions"
+        _act_expl = (
+            "No qualifying rotation found. "
+            "All pairs are below the improvement threshold or blocked by risk rules. "
+            "Hold and monitor."
+        )
+        _act_conf = _calib_confidence or "LOW"
+
+    _pos_val = Decimal("0.00")
+    for _pos in open_positions:
+        _hf = _holding_features.get(_pos.ticker)
+        if _hf:
+            _pos_val += (_pos.qty * Decimal(str(round(_hf["latest_price"], 6)))).quantize(_DOLLARS)
+
+    _best_cand_ticker = _top_candidates[0]["ticker"] if _top_candidates else None
+    _weakest_holding = None
+    if _holding_features:
+        _hscores = sorted(_holding_features.values(), key=lambda x: x.get("score", 0.0))
+        if _hscores:
+            _weakest_holding = _hscores[0]["ticker"]
+
+    return CalibratedRotationResponse(
+        calibration_context=CalibratedRotationCalibrationContext(
             scoring_profile_used=_profile_used,
             calibration_recommended_profile=_calib_rec_profile,
             calibration_confidence=_calib_confidence,
             calibration_reason_summary=_calib_reason,
             calibration_warnings=_calib_warnings_dict,
-        )
+        ),
+        portfolio_context=CalibratedRotationPortfolioContext(
+            open_positions=current_count,
+            max_positions=cfg_max,
+            available_slots=available_slots,
+            cash=str(cash_val.quantize(_DOLLARS)),
+            total_value=str((cash_val + _pos_val).quantize(_DOLLARS)),
+            positions_value=str(_pos_val.quantize(_DOLLARS)),
+        ),
+        candidate_summary=CalibratedRotationCandidateSummary(
+            new_buy_candidates_count=len(_top_candidates),
+            current_holdings_count=current_count,
+            eligible_rotation_pairs=len(_eligible),
+            blocked_pairs=len(_blk_pairs) + len(_blocked_actions),
+            best_candidate_ticker=_best_cand_ticker,
+            weakest_holding_ticker=_weakest_holding,
+        ),
+        recommended_action=CalibratedRotationRecommendedAction(
+            action_type=_act_type,
+            title=_act_title,
+            explanation=_act_expl,
+            confidence=_act_conf,
+        ),
+        rotation_pairs=_sorted_pairs,
+        blocked_actions=_blocked_actions,
+        safety_counts=_safety_zero,
+    )
 
-        if _scan_date is None:
-            return CalibratedRotationResponse(
-                calibration_context=_empty_calib_ctx,
-                portfolio_context=_empty_portfolio_ctx,
-                candidate_summary=CalibratedRotationCandidateSummary(
-                    new_buy_candidates_count=0, current_holdings_count=current_count,
-                    eligible_rotation_pairs=0, blocked_pairs=0,
-                ),
-                recommended_action=CalibratedRotationRecommendedAction(
-                    action_type="WATCH",
-                    title="No market data",
-                    explanation="No price snapshots found. Add price data to enable rotation analysis.",
-                    confidence="LOW",
-                ),
-                rotation_pairs=[], blocked_actions=[], safety_counts=_safety_zero,
-            )
 
-        _lookback_cutoff = _scan_date - _timedelta(days=body.lookback_days + 10)
+@app.post(
+    "/v1/strategy/calibrated-rotation-preview",
+    response_model=CalibratedRotationResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def calibrated_rotation_preview(body: CalibratedRotationRequest) -> CalibratedRotationResponse:
+    """
+    POST /v1/strategy/calibrated-rotation-preview — Calibration-aware rotation workbench.
 
-        # Determine candidate universe
-        if body.tickers:
-            _seen_t: set[str] = set()
-            _cand_universe: list[str] = []
-            for _tu in body.tickers:
-                _tun = _tu.strip().upper()
-                if _tun and _tun not in _seen_t:
-                    _seen_t.add(_tun)
-                    _cand_universe.append(_tun)
-        else:
-            _cand_universe = _get_sp500_universe()
+    PREVIEW ONLY. No Signal, TradeDecision, Order, Position, JobRun, or any
+    other database rows are created or mutated.
 
-        # Batch-fetch prices for candidates (non-held) + held positions
-        _fetch_tickers = list(set(_cand_universe[:body.scan_top_n * 5] + list(held_tickers)))
-        _price_rows = session.execute(
-            select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
-            .where(PriceSnapshot.ticker.in_(_fetch_tickers))
-            .where(PriceSnapshot.price_type == "CLOSE")
-            .where(PriceSnapshot.session_type == "REGULAR")
-            .where(PriceSnapshot.market_date >= _lookback_cutoff)
-            .where(PriceSnapshot.market_date <= _scan_date)
-            .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
-        ).all()
+    Logic:
+    1. Resolve the scoring profile via calibration_recommended or use the explicit profile.
+    2. Scan price_snapshots for candidate tickers (SP500 universe or explicit tickers).
+    3. Score candidates and current holdings using the resolved profile's scoring function.
+    4. Compute momentum-based expected forward return (5d momentum as proxy) for each.
+    5. Build rotation pairs: estimate cash_released, expected_pnl_if_hold, expected_pnl_if_rotate.
+    6. Apply rejection filters: LOSS_REALIZATION_BLOCKED, BELOW_MIN_IMPROVEMENT_PCT,
+       BELOW_MIN_EXPECTED_PNL, MISSING_PRICE_SNAPSHOT.
+    7. Return ranked eligible pairs, blocked actions, and a recommended action.
 
-        _tpm: dict[str, list] = {}
-        for _pr in _price_rows:
-            _tpm.setdefault(_pr[0], []).append((_pr[1], float(_pr[2])))
-
-        # Score candidate tickers (non-held)
-        _cand_features: list[dict] = []
-        for _ticker in _cand_universe:
-            if _ticker in held_tickers:
-                continue
-            _feat = _ticker_features(_tpm.get(_ticker, []), body.min_price_points)
-            if _feat is None:
-                continue
-            _inp: dict[str, Any] = {
-                "prediction_confidence": 0.5, "expected_return_pct": 0.0,
-                "momentum_5d_pct": _feat["mom_5d"], "momentum_20d_pct": _feat["mom_20d"],
-                "relative_strength_vs_spy_20d": 0.0,
-                "scan_score": _feat["scan_score"], "volatility_20d_pct": 0.0,
-                "is_current_holding": False,
-            }
-            _feat["ticker"] = _ticker
-            _feat["score"] = _score_fn(_inp).total_score
-            _cand_features.append(_feat)
-
-        _cand_features.sort(key=lambda x: -x["score"])
-        _top_candidates: list[dict] = _cand_features[:body.profile_top_n]
-
-        # Score holdings
-        _holding_features: dict[str, dict] = {}
-        for _pos in open_positions:
-            _hrows = _tpm.get(_pos.ticker, [])
-            _hfeat = _ticker_features(_hrows, 1)
-            if _hfeat is None:
-                # Fallback: single latest price query
-                _sp = session.execute(
-                    select(PriceSnapshot.price)
-                    .where(PriceSnapshot.ticker == _pos.ticker)
-                    .where(PriceSnapshot.price_type == "CLOSE")
-                    .where(PriceSnapshot.session_type == "REGULAR")
-                    .order_by(PriceSnapshot.snapshot_ts.desc())
-                    .limit(1)
-                ).scalar()
-                if _sp:
-                    _hfeat = {"latest_price": float(_sp), "mom_5d": 0.0, "mom_20d": 0.0, "scan_score": 0.0}
-                else:
-                    continue
-            _hinp: dict[str, Any] = {
-                "prediction_confidence": 0.5, "expected_return_pct": 0.0,
-                "momentum_5d_pct": _hfeat.get("mom_5d", 0.0), "momentum_20d_pct": _hfeat.get("mom_20d", 0.0),
-                "relative_strength_vs_spy_20d": 0.0,
-                "scan_score": _hfeat.get("scan_score", 0.0), "volatility_20d_pct": 0.0,
-                "is_current_holding": True,
-            }
-            _hfeat["ticker"] = _pos.ticker
-            _hfeat["score"] = _score_fn(_hinp).total_score
-            _holding_features[_pos.ticker] = _hfeat
-
-        # --- Build rotation pairs ---
-        _blocked_actions: list[CalibratedRotationBlockedAction] = []
-        _all_pairs: list[CalibratedRotationPair] = []
-
-        for _pos in open_positions:
-            _hfeat = _holding_features.get(_pos.ticker)
-            if _hfeat is None:
-                _blocked_actions.append(CalibratedRotationBlockedAction(
-                    ticker=_pos.ticker,
-                    action_type="SELL",
-                    reason="MISSING_PRICE_SNAPSHOT",
-                    details="No price data found for this holding.",
-                ))
-                continue
-
-            _lp = Decimal(str(round(_hfeat["latest_price"], 6)))
-            _cash_rel = (_pos.qty * _lp).quantize(_DOLLARS)
-            _upnl = (_cash_rel - _pos.cost_basis).quantize(_DOLLARS)
-            _cb_f = float(_pos.cost_basis)
-            _pnl_pct = float(_upnl) / _cb_f * 100.0 if _cb_f > 0 else 0.0
-
-            _sell_fwd_pct = _hfeat.get("mom_5d", 0.0) * 100.0
-            _exp_hold = float(_cash_rel) * _sell_fwd_pct / 100.0
-            _sell_score = _hfeat.get("score", 0.0)
-
-            # Position-level loss realization block
-            if not body.allow_loss_realization and _pnl_pct < 0:
-                _blocked_actions.append(CalibratedRotationBlockedAction(
-                    ticker=_pos.ticker,
-                    action_type="SELL",
-                    reason="LOSS_REALIZATION_BLOCKED",
-                    details=f"Position is {_pnl_pct:.2f}% below cost; allow_loss_realization=false.",
-                ))
-                # Add BLOCKED pairs (capped at 3) so analysis is visible
-                for _bc in _top_candidates[:3]:
-                    _bfwd = _bc.get("mom_5d", 0.0) * 100.0
-                    _brot = float(_cash_rel) * _bfwd / 100.0
-                    _bimp = _brot - _exp_hold
-                    _bpct = _bimp / float(_cash_rel) * 100.0 if float(_cash_rel) > 0 else 0.0
-                    _all_pairs.append(CalibratedRotationPair(
-                        sell_ticker=_pos.ticker, buy_ticker=_bc["ticker"],
-                        sell_current_price=str(_lp),
-                        buy_current_price=str(round(_bc["latest_price"], 2)),
-                        shares_to_sell=str(_pos.qty), cash_released=str(_cash_rel),
-                        sell_unrealized_pnl_pct=f"{_pnl_pct:.4f}",
-                        sell_expected_forward_return_pct=f"{_sell_fwd_pct:.4f}",
-                        buy_expected_forward_return_pct=f"{_bfwd:.4f}",
-                        expected_pnl_if_hold=f"{_exp_hold:.2f}",
-                        expected_pnl_if_rotate=f"{_brot:.2f}",
-                        expected_pnl_improvement=f"{_bimp:.2f}",
-                        expected_improvement_pct=f"{_bpct:.4f}",
-                        sell_score=f"{_sell_score:.6f}",
-                        buy_score=f"{_bc.get('score', 0.0):.6f}",
-                        score_improvement=f"{_bc.get('score', 0.0) - _sell_score:.6f}",
-                        decision="BLOCKED", reasons=[], blockers=["LOSS_REALIZATION_BLOCKED"],
-                    ))
-                continue
-
-            for _cand in _top_candidates:
-                _buy_ticker = _cand["ticker"]
-                _buy_fwd_pct = _cand.get("mom_5d", 0.0) * 100.0
-                _exp_rotate = float(_cash_rel) * _buy_fwd_pct / 100.0
-                _improvement = _exp_rotate - _exp_hold
-                _impr_pct = _improvement / float(_cash_rel) * 100.0 if float(_cash_rel) > 0 else 0.0
-                _buy_score = _cand.get("score", 0.0)
-                _sc_impr = _buy_score - _sell_score
-
-                _blockers: list[str] = []
-                _reasons: list[str] = []
-
-                if _impr_pct < body.min_expected_improvement_pct:
-                    _blockers.append("BELOW_MIN_IMPROVEMENT_PCT")
-                if _improvement < body.min_expected_pnl_dollars:
-                    _blockers.append("BELOW_MIN_EXPECTED_PNL")
-
-                if not _blockers:
-                    _decision = "ROTATE"
-                    _reasons.append(
-                        f"{_buy_ticker} expected {_buy_fwd_pct:.2f}% vs "
-                        f"{_pos.ticker} {_sell_fwd_pct:.2f}% "
-                        f"(improvement {_impr_pct:.2f}%, ${_improvement:.2f})"
-                    )
-                else:
-                    _decision = "BLOCKED"
-
-                _all_pairs.append(CalibratedRotationPair(
-                    sell_ticker=_pos.ticker, buy_ticker=_buy_ticker,
-                    sell_current_price=str(_lp),
-                    buy_current_price=str(round(_cand["latest_price"], 2)),
-                    shares_to_sell=str(_pos.qty), cash_released=str(_cash_rel),
-                    sell_unrealized_pnl_pct=f"{_pnl_pct:.4f}",
-                    sell_expected_forward_return_pct=f"{_sell_fwd_pct:.4f}",
-                    buy_expected_forward_return_pct=f"{_buy_fwd_pct:.4f}",
-                    expected_pnl_if_hold=f"{_exp_hold:.2f}",
-                    expected_pnl_if_rotate=f"{_exp_rotate:.2f}",
-                    expected_pnl_improvement=f"{_improvement:.2f}",
-                    expected_improvement_pct=f"{_impr_pct:.4f}",
-                    sell_score=f"{_sell_score:.6f}",
-                    buy_score=f"{_buy_score:.6f}",
-                    score_improvement=f"{_sc_impr:.6f}",
-                    decision=_decision, reasons=_reasons, blockers=_blockers,
-                ))
-
-        # Sort: ROTATE pairs first (by improvement desc), then BLOCKED
-        _eligible = sorted(
-            [p for p in _all_pairs if p.decision == "ROTATE"],
-            key=lambda x: -float(x.expected_pnl_improvement),
-        )
-        _blk_pairs = [p for p in _all_pairs if p.decision == "BLOCKED"]
-        _sorted_pairs = (_eligible + _blk_pairs)[:body.max_rotation_pairs]
-
-        # Recommended action
-        if _eligible:
-            _best = _eligible[0]
-            _act_type = "ROTATE"
-            _act_title = f"Rotate {_best.sell_ticker} into {_best.buy_ticker}"
-            _act_expl = (
-                f"Expected PnL improvement: ${float(_best.expected_pnl_improvement):.2f} "
-                f"({float(_best.expected_improvement_pct):.2f}%). "
-                f"Profile: {_profile_used}. Preview only — no signals or orders created."
-            )
-            _act_conf = _calib_confidence or "LOW"
-        elif available_slots > 0 and _top_candidates:
-            _act_type = "BUY"
-            _act_title = "Portfolio has open slots"
-            _act_expl = (
-                f"{available_slots} slot(s) available. "
-                f"Top candidate: {_top_candidates[0]['ticker']}. "
-                "Consider buying via Daily Plan or standard workflow."
-            )
-            _act_conf = _calib_confidence or "LOW"
-        elif not open_positions:
-            _act_type = "WATCH"
-            _act_title = "No open positions"
-            _act_expl = "Portfolio is empty. Consider initiating positions via the prediction workflow."
-            _act_conf = "LOW"
-        else:
-            _act_type = "HOLD"
-            _act_title = "Hold current positions"
-            _act_expl = (
-                "No qualifying rotation found. "
-                "All pairs are below the improvement threshold or blocked by risk rules. "
-                "Hold and monitor."
-            )
-            _act_conf = _calib_confidence or "LOW"
-
-        # Portfolio positions value
-        _pos_val = Decimal("0.00")
-        for _pos in open_positions:
-            _hf = _holding_features.get(_pos.ticker)
-            if _hf:
-                _pos_val += (_pos.qty * Decimal(str(round(_hf["latest_price"], 6)))).quantize(_DOLLARS)
-
-        # Best candidate and weakest holding
-        _best_cand_ticker = _top_candidates[0]["ticker"] if _top_candidates else None
-        _weakest_holding = None
-        if _holding_features:
-            _hscores = sorted(_holding_features.values(), key=lambda x: x.get("score", 0.0))
-            if _hscores:
-                _weakest_holding = _hscores[0]["ticker"]
-
-        return CalibratedRotationResponse(
-            calibration_context=CalibratedRotationCalibrationContext(
-                scoring_profile_used=_profile_used,
-                calibration_recommended_profile=_calib_rec_profile,
-                calibration_confidence=_calib_confidence,
-                calibration_reason_summary=_calib_reason,
-                calibration_warnings=_calib_warnings_dict,
-            ),
-            portfolio_context=CalibratedRotationPortfolioContext(
-                open_positions=current_count,
-                max_positions=cfg_max,
-                available_slots=available_slots,
-                cash=str(cash_val.quantize(_DOLLARS)),
-                total_value=str((cash_val + _pos_val).quantize(_DOLLARS)),
-                positions_value=str(_pos_val.quantize(_DOLLARS)),
-            ),
-            candidate_summary=CalibratedRotationCandidateSummary(
-                new_buy_candidates_count=len(_top_candidates),
-                current_holdings_count=current_count,
-                eligible_rotation_pairs=len(_eligible),
-                blocked_pairs=len(_blk_pairs) + len(_blocked_actions),
-                best_candidate_ticker=_best_cand_ticker,
-                weakest_holding_ticker=_weakest_holding,
-            ),
-            recommended_action=CalibratedRotationRecommendedAction(
-                action_type=_act_type,
-                title=_act_title,
-                explanation=_act_expl,
-                confidence=_act_conf,
-            ),
-            rotation_pairs=_sorted_pairs,
-            blocked_actions=_blocked_actions,
-            safety_counts=_safety_zero,
+    Safety guarantee: signals_created=0, decisions_created=0, orders_created=0, rows_created=0.
+    No GCP calls. No DB writes of any kind.
+    """
+    with get_session() as session:
+        return _compute_calibrated_rotation(
+            session,
+            scoring_profile=body.scoring_profile,
+            calibration_as_of_dates=body.calibration_as_of_dates,
+            lookback_days=body.lookback_days,
+            forward_return_days=body.forward_return_days,
+            scan_top_n=body.scan_top_n,
+            profile_top_n=body.profile_top_n,
+            min_price_points=body.min_price_points,
+            benchmark_ticker=body.benchmark_ticker,
+            tickers=body.tickers,
+            max_rotation_pairs=body.max_rotation_pairs,
+            min_expected_improvement_pct=body.min_expected_improvement_pct,
+            min_expected_pnl_dollars=body.min_expected_pnl_dollars,
+            allow_loss_realization=body.allow_loss_realization,
+            as_of_date=body.as_of_date,
         )
 
 

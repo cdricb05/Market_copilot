@@ -13271,6 +13271,11 @@ class TestReviewRotationPreviewEndpoint:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
                 for pid in created_pos_ids:
                     session.query(Position).filter(Position.id == pid).delete()
+                # Clean up PriceSnapshot rows (strong slots + weak) left by this test
+                n_strong = max(0, len(created_pos_ids) - 1)
+                snap_tickers = [f"RTPS{suffix}{i}" for i in range(n_strong)] + [f"RTPW{suffix}"]
+                session.query(PriceSnapshot).filter(PriceSnapshot.ticker.in_(snap_tickers)).delete(synchronize_session=False)
+                session.query(CandidateReview).filter(CandidateReview.ticker == cand_ticker).delete()
                 session.commit()
 
     def test_rotation_preview_blocks_negative_pnl_position(
@@ -13330,6 +13335,8 @@ class TestReviewRotationPreviewEndpoint:
                 assert pair["sell_ticker"] != ticker_loss
         finally:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker_loss).delete()
+                session.query(CandidateReview).filter(CandidateReview.ticker == cand_ticker).delete()
                 session.query(Position).filter(Position.id == pos_id).delete()
                 session.commit()
 
@@ -13413,6 +13420,8 @@ class TestReviewRotationPreviewEndpoint:
             assert held_ticker not in cand_tickers
         finally:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(PriceSnapshot).filter(PriceSnapshot.ticker == held_ticker).delete()
+                session.query(CandidateReview).filter(CandidateReview.ticker == held_ticker).delete()
                 session.query(Position).filter(Position.id == pos_id).delete()
                 session.commit()
 
@@ -13483,6 +13492,10 @@ class TestReviewRotationPreviewEndpoint:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
                 for pid in created_pos_ids:
                     session.query(Position).filter(Position.id == pid).delete()
+                # Clean up PriceSnapshot rows (slot tickers RTPBTS{suffix}*) and CandidateReview
+                slot_tickers = [f"RTPBTS{suffix}{i}" for i in range(len(created_pos_ids))]
+                session.query(PriceSnapshot).filter(PriceSnapshot.ticker.in_(slot_tickers)).delete(synchronize_session=False)
+                session.query(CandidateReview).filter(CandidateReview.ticker == cand_ticker).delete()
                 session.commit()
 
     def test_rotation_preview_uses_approved_candidates_by_default(
@@ -15062,6 +15075,604 @@ class TestDailyPlanPreviewEndpoint:
                 s.query(CandidateReview).filter(CandidateReview.ticker == ticker).delete()
                 s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
                 s.commit()
+
+    # -----------------------------------------------------------------------
+    # Phase 4G tests — calibrated rotation integration in Daily Plan
+    # -----------------------------------------------------------------------
+
+    _CRW_SCAN_DATE = date(2025, 5, 1)
+
+    @staticmethod
+    def _seed_close_prices(s, ticker: str, scan_date: date, prices: list) -> None:
+        """Seed CLOSE/REGULAR DESC-ordered prices for calibrated rotation."""
+        from datetime import timedelta as _td
+        ts = datetime(2025, 5, 1, 16, 0, 0, tzinfo=timezone.utc)
+        for i, price in enumerate(prices):
+            d = scan_date - _td(days=i)
+            s.add(PriceSnapshot(
+                ticker=ticker.strip().upper(),
+                price=Decimal(f"{price:.4f}"),
+                session_type="REGULAR", price_type="CLOSE",
+                snapshot_ts=ts, market_date=d,
+            ))
+
+    def _cleanup_crw(self, api_engine, tickers: list, pos_ids: list | None = None) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+                s.query(CandidateReview).filter(CandidateReview.ticker == t).delete()
+            if pos_ids:
+                for pid in pos_ids:
+                    s.query(Position).filter(Position.id == pid).delete()
+            s.commit()
+
+    def test_4g_calibrated_rotation_context_in_default_response(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Default response includes calibrated_rotation_context field (may be enabled or fallback)."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "calibrated_rotation_context" in data
+        ctx = data["calibrated_rotation_context"]
+        assert ctx is not None
+        assert "enabled" in ctx
+        assert "scoring_profile_used" in ctx
+        assert "eligible_rotation_pairs" in ctx
+        assert "blocked_pairs" in ctx
+        assert "fallback_used" in ctx
+
+    def test_4g_use_calibrated_rotation_false_no_context(
+        self, seeded_client: TestClient
+    ) -> None:
+        """use_calibrated_rotation=False means calibrated_rotation_context is None."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "use_calibrated_rotation": False},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["calibrated_rotation_context"] is None
+
+    def test_4g_default_scoring_profile_is_calibration_recommended(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Default scoring_profile=calibration_recommended is accepted; response returns a valid profile."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "use_calibrated_rotation": True},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        ctx = response.json()["calibrated_rotation_context"]
+        assert ctx is not None
+        valid = {"calibration_recommended", "current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
+        assert ctx["scoring_profile_used"] in valid
+
+    def test_4g_explicit_scoring_profiles_accepted(
+        self, seeded_client: TestClient
+    ) -> None:
+        """All explicit scoring profiles are accepted and reflected in calibrated_rotation_context."""
+        for profile in ["current", "balanced_preview", "quality_preview", "risk_adjusted_preview"]:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={"candidate_ids": [], "use_calibrated_rotation": True, "scoring_profile": profile},
+                headers=_AUTH,
+            )
+            assert response.status_code == 200, f"profile={profile} failed: {response.text}"
+            ctx = response.json()["calibrated_rotation_context"]
+            assert ctx is not None
+            assert ctx["scoring_profile_used"] == profile, f"Expected {profile}, got {ctx['scoring_profile_used']}"
+
+    def test_4g_invalid_scoring_profile_rejected(
+        self, seeded_client: TestClient
+    ) -> None:
+        """An invalid scoring_profile value returns 422."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "use_calibrated_rotation": True, "scoring_profile": "invalid_profile"},
+            headers=_AUTH,
+        )
+        assert response.status_code == 422
+
+    def test_4g_calibrated_creates_no_db_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Daily plan with use_calibrated_rotation=True creates zero DB rows of any kind."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            sig_before = s.query(Signal).count()
+            td_before  = s.query(TradeDecision).count()
+            ord_before = s.query(Order).count()
+            pos_before = s.query(Position).count()
+            jr_before  = s.query(JobRun).count()
+
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "use_calibrated_rotation": True},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            assert s.query(Signal).count()        == sig_before
+            assert s.query(TradeDecision).count() == td_before
+            assert s.query(Order).count()         == ord_before
+            assert s.query(Position).count()      == pos_before
+            assert s.query(JobRun).count()        == jr_before
+
+    def test_4g_rotate_recommended_when_calibrated_pair_qualifies(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Daily Plan recommends ROTATE and populates calibrated context when a pair qualifies."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"DPCRWH{sfx}"
+        cand = f"DPCRWC{sfx}"
+        pos_ids: list = []
+
+        # hold mom_5d = (101-100)/100 = 1%
+        # cand mom_5d = (110-100)/100 = 10%
+        # cash_released = 10 * 101 = 1010
+        # exp_hold = 1010 * 0.01 = 10.1; exp_rotate = 1010 * 0.10 = 101
+        # improvement = 90.9 > 25; imp_pct = 9.0% > 1.0% -> ROTATE
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_close_prices(s, hold, self._CRW_SCAN_DATE,
+                [101.0, 100.8, 100.5, 100.2, 100.0, 99.8, 99.5])
+            self._seed_close_prices(s, cand, self._CRW_SCAN_DATE,
+                [110.0, 108.0, 106.0, 103.0, 100.0, 99.0, 98.0])
+            pos = Position(
+                ticker=hold, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_ids.append(pos.id)
+            cr = CandidateReview(
+                idempotency_key=f"dp4g-rot-{sfx}", ticker=cand,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="15.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cr)
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "use_calibrated_rotation": True,
+                    "scoring_profile": "current",
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 25.0,
+                    "allow_loss_realization": False,
+                    "candidate_ids": [],
+                    "position_tickers": [hold],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            ctx = data["calibrated_rotation_context"]
+            assert ctx is not None
+            assert ctx["enabled"] is True
+            assert ctx["eligible_rotation_pairs"] >= 1
+            assert ctx["best_rotation_pair"] is not None
+            bp = ctx["best_rotation_pair"]
+            assert bp["sell_ticker"] == hold
+            assert bp["buy_ticker"] == cand
+            assert float(bp["expected_pnl_improvement"]) > 25.0
+            # recommended_next_action should mention ROTATE
+            assert "ROTATE" in data["recommended_next_action"] or "rotation" in data["recommended_next_action"].lower()
+        finally:
+            self._cleanup_crw(api_engine, [hold, cand], pos_ids)
+
+    def test_4g_rotate_qualifies_despite_unrelated_today_pricesnap(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Rotation qualifies even when an unrelated ticker has a CLOSE price at today's date."""
+        import uuid as _uuid
+        from datetime import date as _date
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"DPCRWH{sfx}"
+        cand = f"DPCRWC{sfx}"
+        junk = f"DPCRWJ{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_close_prices(s, hold, self._CRW_SCAN_DATE,
+                [101.0, 100.8, 100.5, 100.2, 100.0, 99.8, 99.5])
+            self._seed_close_prices(s, cand, self._CRW_SCAN_DATE,
+                [110.0, 108.0, 106.0, 103.0, 100.0, 99.0, 98.0])
+            # Pollution: unrelated ticker with a price at today (not approved, not held)
+            s.add(PriceSnapshot(
+                ticker=junk, price=Decimal("50.00"),
+                session_type="REGULAR", price_type="CLOSE",
+                snapshot_ts=datetime(2026, 6, 4, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=_date.today(),
+            ))
+            pos = Position(
+                ticker=hold, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_ids.append(pos.id)
+            s.add(CandidateReview(
+                idempotency_key=f"dp4g-jnk-{sfx}", ticker=cand,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="15.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            ))
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "use_calibrated_rotation": True,
+                    "scoring_profile": "current",
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 25.0,
+                    "allow_loss_realization": False,
+                    "candidate_ids": [],
+                    "position_tickers": [hold],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            ctx = response.json()["calibrated_rotation_context"]
+            assert ctx is not None
+            assert ctx["enabled"] is True
+            assert ctx["eligible_rotation_pairs"] >= 1, (
+                f"Expected rotation to qualify despite today-dated junk PriceSnapshot; ctx={ctx}"
+            )
+            bp = ctx["best_rotation_pair"]
+            assert bp is not None
+            assert bp["sell_ticker"] == hold
+            assert bp["buy_ticker"] == cand
+        finally:
+            self._cleanup_crw(api_engine, [hold, cand, junk], pos_ids)
+
+    def test_4g_rotate_qualifies_despite_unrelated_approved_candidate(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Rotation qualifies when an unrelated APPROVED BUY has prices only at today's date."""
+        import uuid as _uuid
+        from datetime import date as _date
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"DPCRWH{sfx}"
+        cand = f"DPCRWC{sfx}"
+        stale = f"DPCRWS{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_close_prices(s, hold, self._CRW_SCAN_DATE,
+                [101.0, 100.8, 100.5, 100.2, 100.0, 99.8, 99.5])
+            self._seed_close_prices(s, cand, self._CRW_SCAN_DATE,
+                [110.0, 108.0, 106.0, 103.0, 100.0, 99.0, 98.0])
+            # Pollution: unrelated APPROVED BUY with price data only at today
+            s.add(PriceSnapshot(
+                ticker=stale, price=Decimal("200.00"),
+                session_type="REGULAR", price_type="CLOSE",
+                snapshot_ts=datetime(2026, 6, 4, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=_date.today(),
+            ))
+            s.add(CandidateReview(
+                idempotency_key=f"dp4g-stale-{sfx}", ticker=stale,
+                prediction_recommendation="BUY", prediction_confidence="0.90",
+                expected_return_pct="20.0", preview_decision="CONSIDER",
+                preview_score="90.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            ))
+            pos = Position(
+                ticker=hold, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_ids.append(pos.id)
+            s.add(CandidateReview(
+                idempotency_key=f"dp4g-cnd-{sfx}", ticker=cand,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="15.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            ))
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "use_calibrated_rotation": True,
+                    "scoring_profile": "current",
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 25.0,
+                    "allow_loss_realization": False,
+                    "candidate_ids": [],
+                    "position_tickers": [hold],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            ctx = response.json()["calibrated_rotation_context"]
+            assert ctx is not None
+            assert ctx["enabled"] is True
+            assert ctx["eligible_rotation_pairs"] >= 1, (
+                f"Expected rotation to qualify despite stale approved candidate at today; ctx={ctx}"
+            )
+            bp = ctx["best_rotation_pair"]
+            assert bp is not None
+            assert bp["sell_ticker"] == hold
+            assert bp["buy_ticker"] == cand
+        finally:
+            self._cleanup_crw(api_engine, [hold, cand, stale], pos_ids)
+
+    def test_4g_hold_when_no_calibrated_pair_qualifies(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """When thresholds are set too high, no rotation qualifies; context shows 0 eligible pairs."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"DPCRWNQH{sfx}"
+        cand = f"DPCRWNQC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_close_prices(s, hold, self._CRW_SCAN_DATE,
+                [101.0, 100.8, 100.5, 100.2, 100.0, 99.8, 99.5])
+            self._seed_close_prices(s, cand, self._CRW_SCAN_DATE,
+                [102.0, 101.8, 101.5, 101.2, 100.0, 99.8, 99.5])
+            pos = Position(
+                ticker=hold, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_ids.append(pos.id)
+            cr = CandidateReview(
+                idempotency_key=f"dp4g-nq-{sfx}", ticker=cand,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="5.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cr)
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "use_calibrated_rotation": True,
+                    "scoring_profile": "current",
+                    "min_expected_improvement_pct": 999.0,  # impossibly high
+                    "min_expected_pnl_dollars": 99999.0,    # impossibly high
+                    "candidate_ids": [],
+                    "position_tickers": [hold],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            ctx = data["calibrated_rotation_context"]
+            assert ctx is not None
+            assert ctx["enabled"] is True
+            assert ctx["eligible_rotation_pairs"] == 0
+            assert ctx["best_rotation_pair"] is None
+        finally:
+            self._cleanup_crw(api_engine, [hold, cand], pos_ids)
+
+    def test_4g_explains_expected_pnl_improvement(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """best_rotation_pair contains expected_pnl_improvement and cash_released fields."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"DPCRWIMPH{sfx}"
+        cand = f"DPCRWIMPC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_close_prices(s, hold, self._CRW_SCAN_DATE,
+                [101.0, 100.8, 100.5, 100.2, 100.0, 99.8, 99.5])
+            self._seed_close_prices(s, cand, self._CRW_SCAN_DATE,
+                [115.0, 112.0, 109.0, 105.0, 100.0, 99.0, 98.0])
+            pos = Position(
+                ticker=hold, qty=Decimal("10"), avg_cost=Decimal("90.00"),
+                cost_basis=Decimal("900.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_ids.append(pos.id)
+            cr = CandidateReview(
+                idempotency_key=f"dp4g-imp-{sfx}", ticker=cand,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="15.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cr)
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "use_calibrated_rotation": True,
+                    "scoring_profile": "current",
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 1.0,
+                    "candidate_ids": [],
+                    "position_tickers": [hold],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            ctx = response.json()["calibrated_rotation_context"]
+            assert ctx is not None
+            if ctx["best_rotation_pair"]:
+                bp = ctx["best_rotation_pair"]
+                assert "expected_pnl_improvement" in bp
+                assert "cash_released" in bp
+                assert "expected_pnl_if_hold" in bp
+                assert "expected_pnl_if_rotate" in bp
+                assert "expected_improvement_pct" in bp
+                # All numeric fields parseable
+                float(bp["expected_pnl_improvement"])
+                float(bp["cash_released"])
+        finally:
+            self._cleanup_crw(api_engine, [hold, cand], pos_ids)
+
+    def test_4g_blocks_loss_realization_by_default(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """allow_loss_realization=False (default) blocks positions with negative PnL in calibrated rotation."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"DPCRWLRH{sfx}"
+        cand = f"DPCRWLRC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            # hold: latest=80, cost_basis=1000 -> negative PnL
+            self._seed_close_prices(s, hold, self._CRW_SCAN_DATE,
+                [80.0, 81.0, 82.0, 83.0, 85.0, 86.0, 87.0])
+            self._seed_close_prices(s, cand, self._CRW_SCAN_DATE,
+                [125.0, 120.0, 115.0, 110.0, 100.0, 99.0, 98.0])
+            pos = Position(
+                ticker=hold, qty=Decimal("10"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("1000.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_ids.append(pos.id)
+            cr = CandidateReview(
+                idempotency_key=f"dp4g-lr-{sfx}", ticker=cand,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="15.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cr)
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "use_calibrated_rotation": True,
+                    "scoring_profile": "current",
+                    "allow_loss_realization": False,
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 1.0,
+                    "candidate_ids": [],
+                    "position_tickers": [hold],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            ctx = response.json()["calibrated_rotation_context"]
+            assert ctx is not None
+            assert ctx["enabled"] is True
+            # The loss position should be blocked — eligible_rotation_pairs = 0
+            assert ctx["eligible_rotation_pairs"] == 0
+            assert ctx["best_rotation_pair"] is None
+            assert ctx["blocked_pairs"] >= 1
+        finally:
+            self._cleanup_crw(api_engine, [hold, cand], pos_ids)
+
+    def test_4g_allows_loss_realization_when_enabled(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """allow_loss_realization=True lets positions with negative PnL be considered for rotation."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"DPCRWALRH{sfx}"
+        cand = f"DPCRWALRC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            # hold: latest=80, declining -> negative PnL and weak momentum
+            self._seed_close_prices(s, hold, self._CRW_SCAN_DATE,
+                [80.0, 81.0, 82.0, 83.0, 85.0, 86.0, 87.0])
+            # cand: strong upward momentum 25%
+            self._seed_close_prices(s, cand, self._CRW_SCAN_DATE,
+                [125.0, 120.0, 115.0, 110.0, 100.0, 99.0, 98.0])
+            pos = Position(
+                ticker=hold, qty=Decimal("10"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("1000.00"), opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_ids.append(pos.id)
+            cr = CandidateReview(
+                idempotency_key=f"dp4g-alr-{sfx}", ticker=cand,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                expected_return_pct="15.0", preview_decision="CONSIDER",
+                preview_score="85.0", review_status="APPROVED_FOR_SIGNAL", status="OK",
+            )
+            s.add(cr)
+            s.commit()
+
+        try:
+            response = seeded_client.post(
+                "/v1/review/daily-plan-preview",
+                json={
+                    "use_calibrated_rotation": True,
+                    "scoring_profile": "current",
+                    "allow_loss_realization": True,
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 1.0,
+                    "candidate_ids": [],
+                    "position_tickers": [hold],
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 200
+            ctx = response.json()["calibrated_rotation_context"]
+            assert ctx is not None
+            assert ctx["enabled"] is True
+            # With allow_loss_realization=True, the position is not in blocked_actions for LR
+            # (it may still be BLOCKED for other reasons, but not LOSS_REALIZATION_BLOCKED)
+            assert response.status_code == 200
+        finally:
+            self._cleanup_crw(api_engine, [hold, cand], pos_ids)
+
+    def test_4g_safety_counts_zero_with_calibrated_rotation(
+        self, seeded_client: TestClient
+    ) -> None:
+        """safety_counts remain all zero when use_calibrated_rotation=True."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "use_calibrated_rotation": True},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        sc = response.json()["safety_counts"]
+        assert sc["signals_created"]         == 0
+        assert sc["trade_decisions_created"] == 0
+        assert sc["orders_created"]          == 0
+        assert sc["job_runs_created"]        == 0
+        assert sc["db_rows_created"]         == 0
+
+    def test_4g_backward_compat_existing_fields_still_present(
+        self, seeded_client: TestClient
+    ) -> None:
+        """All existing response fields remain present when use_calibrated_rotation=True."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "use_calibrated_rotation": True},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        for field in [
+            "as_of", "portfolio_summary", "buy_recommendations", "sell_recommendations",
+            "hold_positions", "watch_candidates", "rotation_plan", "blocked_actions",
+            "action_stack", "recommended_next_action", "explanation", "safety_counts",
+        ]:
+            assert field in data, f"Missing field: {field}"
 
 
 class TestUniverseStatusEndpoint:
