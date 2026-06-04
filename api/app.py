@@ -44,7 +44,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response, Security, 
 from fastapi.responses import RedirectResponse
 from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import distinct, func, select, text
 
 from paper_trader.config import get_settings
@@ -82,6 +82,7 @@ from paper_trader.engine.reconciler import run_fill_cycle
 from paper_trader.engine.risk import evaluate_signal
 from paper_trader.engine.scoring import (
     score_candidate_v2 as _score_candidate_v2,
+    score_candidate_balanced_preview as _score_candidate_balanced_preview,
     score_holding_v2 as _score_holding_v2,
     score_rotation_v2 as _score_rotation_v2,
     explain_score_factors as _explain_score_factors,
@@ -435,6 +436,21 @@ class CandidatePreview(BaseModel):
     top_score_drivers: list[str] = Field(default_factory=list)
     skip_or_warning_reason: str | None = None
 
+    # Phase 4B classification fields
+    candidate_type: str | None = None          # "NEW_BUY_CANDIDATE" | "CURRENT_HOLDING_MONITOR"
+    is_current_holding: bool = False
+    eligible_for_review_queue: bool = False
+    review_queue_eligibility_reason: str | None = None
+
+    # Phase 4B balanced scoring fields (populated only when scoring_profile="balanced_preview")
+    current_score: str | None = None
+    balanced_preview_score: str | None = None
+    score_delta: str | None = None
+    current_rank: int | None = None
+    balanced_preview_rank: int | None = None
+    ranking_change: int | None = None
+    balanced_score_drivers: list[str] = Field(default_factory=list)
+
 
 class FetchAndRunPredictionResponse(BaseModel):
     fetched_count: int
@@ -498,6 +514,13 @@ class MarketScanPredictionCandidatesRequest(BaseModel):
         le=10,
         description="Maximum concurrent GCP prediction requests (1-10, default 4).",
     )
+    scoring_profile: str = Field(
+        default="current",
+        description=(
+            "Scoring profile: 'current' (default, production ranking) or "
+            "'balanced_preview' (alternative balanced scores shown side-by-side, preview-only)."
+        ),
+    )
     dry_run: bool = Field(
         default=True,
         description="V1: must be true. PREVIEW mode only; no database writes.",
@@ -514,6 +537,14 @@ class MarketScanPredictionCandidatesRequest(BaseModel):
         default=False,
         description="V1: must be false. No orders created.",
     )
+
+    @field_validator("scoring_profile")
+    @classmethod
+    def _validate_scoring_profile(cls, v: str) -> str:
+        allowed = {"current", "balanced_preview"}
+        if v not in allowed:
+            raise ValueError(f"scoring_profile must be one of {sorted(allowed)}")
+        return v
 
 
 class ScanSummaryOut(BaseModel):
@@ -619,6 +650,19 @@ class PredictionFailureDetail(BaseModel):
     reason: str
 
 
+class ScoringProfileComparisonOut(BaseModel):
+    """Side-by-side comparison of current vs balanced-preview scoring (Phase 4B)."""
+    active_profile: str
+    current_top_tickers: list[str]
+    balanced_top_tickers: list[str]
+    overlap_count: int
+    changed_rank_count: int
+    biggest_promotions: list[dict]   # [{ticker, current_rank, balanced_rank, rank_change}]
+    biggest_demotions: list[dict]    # [{ticker, current_rank, balanced_rank, rank_change}]
+    explanation: str
+    safety_counts: dict[str, int]
+
+
 class MarketScanPredictionCandidatesResponse(BaseModel):
     """Response from market scan + prediction candidate preview endpoint."""
     idempotency_key: str
@@ -636,6 +680,7 @@ class MarketScanPredictionCandidatesResponse(BaseModel):
     orders_created: int
     scoring_summary: ScoringDiagnosticsOut | None = None
     skipped_diagnostics: SkippedDiagnosticsOut | None = None
+    scoring_profile_comparison: ScoringProfileComparisonOut | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -661,6 +706,9 @@ class CandidateReviewCreate(BaseModel):
     preview_score: str
     preview_reasons: list[str] | None = None
     status: str = "OK"
+    # Phase 4B classification — optional; when present, backend honours eligibility
+    candidate_type: str | None = None
+    eligible_for_review_queue: bool | None = None
 
 
 class CandidateReviewSaveRequest(BaseModel):
@@ -704,6 +752,12 @@ class CandidateReviewSaveResponse(BaseModel):
     inserted_count: int
     skipped_existing_count: int
     candidates_saved: list[CandidateReviewOut]
+    # Phase 4B breakdown counts
+    saved_new_candidates: int = 0
+    skipped_current_holdings: int = 0
+    skipped_watch: int = 0
+    skipped_rejected: int = 0
+    skipped_other: int = 0
 
 
 class CandidateReviewStatusUpdate(BaseModel):
@@ -3586,6 +3640,11 @@ _FINAL_SCORE_FORMULA_LABEL = (
     "conf*return[2x-neg] + clip(0.15*mom5d+0.10*mom20d,+-0.05)"
     " + clip(0.15*rs,+-0.05) + clip(0.10*(scan_norm-0.5),+-0.05); low-conf*0.80"
 )
+_BALANCED_SCORE_FORMULA_LABEL = (
+    "conf*return[2x-neg] + clip(0.07*mom5d+0.05*mom20d,+-0.05)"
+    " + clip(0.10*rs,+-0.05) + clip(0.08*(scan_norm-0.5),+-0.05)"
+    " - vol_penalty(0.05) - holding_penalty(0.015); low-conf*0.80"
+)
 _SKIPPED_SAMPLE_LIMIT = 25
 
 
@@ -4065,6 +4124,31 @@ async def market_scan_prediction_candidates(
 
         price_history_points = candidate.price_count if candidate else None
 
+        # Phase 4B: candidate classification
+        # BOTH means ticker appeared in both top scan AND current holdings — treat as monitoring
+        _candidate_type: str = (
+            "NEW_BUY_CANDIDATE"
+            if selected_for_gcp_reason == "TOP_SCAN"
+            else "CURRENT_HOLDING_MONITOR"
+        )
+
+        # Eligibility: only NEW_BUY_CANDIDATE rows with CONSIDER decision are review-queue eligible
+        if _candidate_type == "NEW_BUY_CANDIDATE" and preview_decision == "CONSIDER":
+            _eligible_for_rq = True
+            _rq_reason: str = "NEW_BUY_CANDIDATE"
+        else:
+            _eligible_for_rq = False
+            if _candidate_type == "CURRENT_HOLDING_MONITOR":
+                _rq_reason = "CURRENT_HOLDING_MONITOR_NOT_NEW_BUY"
+            elif preview_decision == "WATCH":
+                _rq_reason = "WATCH_ONLY"
+            elif preview_decision == "REJECT":
+                _rq_reason = "REJECTED"
+            elif status != "OK":
+                _rq_reason = "MISSING_PREDICTION"
+            else:
+                _rq_reason = "OTHER"
+
         # Build preview row
         preview = CandidatePreview(
             ticker=selected_ticker,
@@ -4089,8 +4173,133 @@ async def market_scan_prediction_candidates(
             selected_for_gcp_reason=selected_for_gcp_reason,
             top_score_drivers=_top_drivers,
             skip_or_warning_reason=_skip_warn,
+            candidate_type=_candidate_type,
+            is_current_holding=is_holding,
+            eligible_for_review_queue=_eligible_for_rq,
+            review_queue_eligibility_reason=_rq_reason,
         )
         candidate_previews.append(preview)
+
+    # Phase 4B: balanced scoring post-processing (only when scoring_profile="balanced_preview")
+    scoring_profile_comparison: ScoringProfileComparisonOut | None = None
+    if body.scoring_profile == "balanced_preview" and candidate_previews:
+        def _to_score_input(p: CandidatePreview) -> dict:
+            def _f(v: str | None) -> float:
+                try:
+                    return float(v) if v is not None else 0.0
+                except (ValueError, TypeError):
+                    return 0.0
+            return {
+                "prediction_confidence": _f(p.prediction_confidence),
+                "expected_return_pct": _f(p.expected_return_pct),
+                "momentum_5d_pct": _f(p.momentum_5d_pct),
+                "momentum_20d_pct": _f(p.momentum_20d_pct),
+                "relative_strength_vs_spy_20d": _f(p.relative_strength_vs_spy_20d),
+                "scan_score": _f(p.scan_score),
+                "volatility_20d_pct": _f(
+                    selected_candidates_map[p.ticker].volatility_20d_pct
+                    if p.ticker in selected_candidates_map
+                    else None
+                ),
+                "is_current_holding": p.is_current_holding,
+            }
+
+        _score_inputs = [_to_score_input(p) for p in candidate_previews]
+        _cur_scores = [_score_candidate_v2(s).total_score for s in _score_inputs]
+        _bal_scores = [_score_candidate_balanced_preview(s).total_score for s in _score_inputs]
+
+        # Compute ranks (rank 1 = highest score)
+        _cur_order = sorted(range(len(_cur_scores)), key=lambda i: -_cur_scores[i])
+        _bal_order = sorted(range(len(_bal_scores)), key=lambda i: -_bal_scores[i])
+        _cur_rank_by_idx = {idx: rank + 1 for rank, idx in enumerate(_cur_order)}
+        _bal_rank_by_idx = {idx: rank + 1 for rank, idx in enumerate(_bal_order)}
+
+        # Balanced score drivers per candidate
+        def _bal_drivers(p: CandidatePreview, cur_f: float, bal_f: float, s_inp: dict) -> list[str]:
+            d: list[str] = []
+            if s_inp.get("is_current_holding"):
+                d.append("holding_penalty_applied")
+            vol = abs(s_inp.get("volatility_20d_pct", 0.0))
+            if vol > 0.05:
+                d.append("high_vol_penalised")
+            elif vol > 0.0:
+                d.append("low_vol_neutral")
+            if abs(bal_f - cur_f) < 0.002:
+                d.append("score_similar_to_current")
+            elif bal_f > cur_f:
+                d.append("promoted_by_balanced_formula")
+            else:
+                d.append("demoted_by_balanced_formula")
+            if not s_inp.get("prediction_confidence"):
+                d.append("missing_prediction_penalty")
+            return d
+
+        # Rebuild previews with balanced fields
+        updated_previews: list[CandidatePreview] = []
+        for i, p in enumerate(candidate_previews):
+            cur_r = _cur_rank_by_idx[i]
+            bal_r = _bal_rank_by_idx[i]
+            cur_f = _cur_scores[i]
+            bal_f = _bal_scores[i]
+            updated_previews.append(p.model_copy(update={
+                "current_score": f"{cur_f:.6f}",
+                "balanced_preview_score": f"{bal_f:.6f}",
+                "score_delta": f"{bal_f - cur_f:.6f}",
+                "current_rank": cur_r,
+                "balanced_preview_rank": bal_r,
+                "ranking_change": cur_r - bal_r,  # positive = promoted in balanced
+                "balanced_score_drivers": _bal_drivers(p, cur_f, bal_f, _score_inputs[i]),
+            }))
+        candidate_previews = updated_previews
+
+        # Build scoring_profile_comparison
+        _top_n_comp = min(10, len(candidate_previews))
+        _cur_top = [candidate_previews[i].ticker for i in _cur_order[:_top_n_comp]]
+        _bal_top = [candidate_previews[i].ticker for i in _bal_order[:_top_n_comp]]
+        _cur_top_set = set(_cur_top)
+        _bal_top_set = set(_bal_top)
+        _overlap = len(_cur_top_set & _bal_top_set)
+
+        # Rank changes for all candidates
+        _changed = sum(
+            1 for i in range(len(candidate_previews))
+            if _cur_rank_by_idx[i] != _bal_rank_by_idx[i]
+        )
+
+        # Biggest promotions/demotions (rank_change = cur_rank - bal_rank; positive = promoted)
+        _changes_list = [
+            {
+                "ticker": candidate_previews[i].ticker,
+                "current_rank": _cur_rank_by_idx[i],
+                "balanced_rank": _bal_rank_by_idx[i],
+                "rank_change": _cur_rank_by_idx[i] - _bal_rank_by_idx[i],
+            }
+            for i in range(len(candidate_previews))
+        ]
+        _promotions = sorted(
+            [c for c in _changes_list if c["rank_change"] > 0],
+            key=lambda c: -c["rank_change"],
+        )[:3]
+        _demotions = sorted(
+            [c for c in _changes_list if c["rank_change"] < 0],
+            key=lambda c: c["rank_change"],
+        )[:3]
+
+        scoring_profile_comparison = ScoringProfileComparisonOut(
+            active_profile="balanced_preview",
+            current_top_tickers=_cur_top,
+            balanced_top_tickers=_bal_top,
+            overlap_count=_overlap,
+            changed_rank_count=_changed,
+            biggest_promotions=_promotions,
+            biggest_demotions=_demotions,
+            explanation=(
+                "Balanced profile uses reduced momentum weights (0.07/0.05 vs 0.15/0.10), "
+                "adds a volatility penalty, and applies a small discount for already-held tickers. "
+                "Current profile is more momentum-heavy."
+            ),
+            safety_counts={"signals_created": 0, "decisions_created": 0, "orders_created": 0},
+        )
 
     # Build candidate funnel diagnostics
     skipped_by_reason: dict[str, int] = {}
@@ -4217,6 +4426,7 @@ async def market_scan_prediction_candidates(
         orders_created=0,
         scoring_summary=scoring_summary,
         skipped_diagnostics=skipped_diagnostics,
+        scoring_profile_comparison=scoring_profile_comparison,
     )
 
 
@@ -4246,9 +4456,27 @@ async def save_review_candidates(
     inserted = 0
     skipped = 0
     saved_rows = []
+    # Phase 4B breakdown counts
+    skipped_current_holdings = 0
+    skipped_watch = 0
+    skipped_rejected = 0
+    skipped_other = 0
 
     with get_session() as session:
         for candidate in body.candidates:
+            # Phase 4B: skip ineligible candidates when classification fields are present
+            if candidate.candidate_type == "CURRENT_HOLDING_MONITOR":
+                skipped_current_holdings += 1
+                continue
+            if candidate.eligible_for_review_queue is False:
+                if candidate.preview_decision == "WATCH":
+                    skipped_watch += 1
+                elif candidate.preview_decision == "REJECT":
+                    skipped_rejected += 1
+                else:
+                    skipped_other += 1
+                continue
+
             # Check if (idempotency_key, ticker) already exists
             existing = session.query(CandidateReview).filter(
                 CandidateReview.idempotency_key == body.idempotency_key,
@@ -4338,6 +4566,11 @@ async def save_review_candidates(
         inserted_count=inserted,
         skipped_existing_count=skipped,
         candidates_saved=saved_rows,
+        saved_new_candidates=inserted,
+        skipped_current_holdings=skipped_current_holdings,
+        skipped_watch=skipped_watch,
+        skipped_rejected=skipped_rejected,
+        skipped_other=skipped_other,
     )
 
 

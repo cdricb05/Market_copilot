@@ -49,6 +49,15 @@ _W_SCAN:    float = 0.10
 _LOW_CONF_THRESHOLD: float = 0.50
 _LOW_CONF_FACTOR:    float = 0.80   # score × 0.80 when conf < threshold
 
+# Balanced-preview scoring weights (Phase 4B) — less momentum-heavy
+_W_MOM_5D_BAL:    float = 0.07   # vs 0.15 in current
+_W_MOM_20D_BAL:   float = 0.05   # vs 0.10 in current
+_W_RS_BAL:        float = 0.10   # vs 0.15 in current
+_W_SCAN_BAL:      float = 0.08   # vs 0.10 in current
+_W_VOL_PENALTY:   float = 0.05   # penalise high-volatility tickers (new)
+_VOL_CLIP:        float = 0.10   # clip 20d volatility pct at ±10 %
+_HOLDING_PENALTY: float = 0.015  # slight discount for already-held positions
+
 
 # ---------------------------------------------------------------------------
 # Low-level helpers
@@ -339,6 +348,90 @@ def score_rotation_v2(
         blocked_reason=None,
         notes=notes,
     )
+
+
+def score_candidate_balanced_preview(candidate: dict[str, Any]) -> ScoreFactors:
+    """
+    Balanced-preview scoring for Phase 4B side-by-side comparison.
+
+    Differences vs score_candidate_v2:
+      * Reduced momentum weights (0.07 / 0.05 vs 0.15 / 0.10)
+      * Reduced relative-strength weight (0.10 vs 0.15)
+      * Volatility penalty: high-volatility tickers lose up to _CAP_AUX points
+      * Already-held penalty: _HOLDING_PENALTY subtracted for held positions
+      * Missing-prediction penalty: sets total to -0.01 instead of 0.0
+
+    Extra candidate keys consumed (all optional):
+        volatility_20d_pct   float  (e.g. 0.025 = 2.5 % daily vol)
+        is_current_holding   bool
+    """
+    conf        = safe_float(candidate.get("prediction_confidence"), 0.0)
+    exp_ret     = safe_float(candidate.get("expected_return_pct"), 0.0)
+    mom_5d_raw  = safe_float(candidate.get("momentum_5d_pct"), 0.0)
+    mom_20d_raw = safe_float(candidate.get("momentum_20d_pct"), 0.0)
+    rs_raw      = safe_float(candidate.get("relative_strength_vs_spy_20d"), 0.0)
+    scan_raw    = safe_float(candidate.get("scan_score"), 0.0)
+    vol_raw     = safe_float(candidate.get("volatility_20d_pct"), 0.0)
+    is_held     = bool(candidate.get("is_current_holding", False))
+
+    # Missing-prediction guard
+    pred_missing = (conf == 0.0 and exp_ret == 0.0
+                    and not candidate.get("prediction_confidence")
+                    and not candidate.get("expected_return_pct"))
+
+    factors = ScoreFactors(
+        confidence          = conf,
+        expected_return_pct = exp_ret,
+        momentum_5d_raw     = mom_5d_raw,
+        momentum_20d_raw    = mom_20d_raw,
+        rs_spy_raw          = rs_raw,
+        scan_score_raw      = scan_raw,
+        prediction_missing  = pred_missing,
+    )
+
+    if pred_missing:
+        factors.total_score = -0.01
+        return factors
+
+    # base score (same penalty for negative return as v2)
+    base = conf * (2.0 * exp_ret if exp_ret < 0 else exp_ret)
+    factors.base_score = base
+
+    # momentum (reduced weights)
+    mom_5d_c  = _clip(mom_5d_raw,  -_MOM_CLIP, _MOM_CLIP)
+    mom_20d_c = _clip(mom_20d_raw, -_MOM_CLIP, _MOM_CLIP)
+    factors.momentum_adj = _cap(_W_MOM_5D_BAL * mom_5d_c + _W_MOM_20D_BAL * mom_20d_c)
+
+    # relative strength (reduced weight)
+    factors.rs_adj = _cap(_W_RS_BAL * _clip(rs_raw, -_RS_CLIP, _RS_CLIP))
+
+    # scan score (reduced weight)
+    scan_norm = _detect_scan_score_scale(scan_raw)
+    factors.scan_score_normalised = scan_norm
+    factors.scan_adj = _cap(_W_SCAN_BAL * (scan_norm - 0.5))
+
+    # volatility penalty: higher vol → negative contribution
+    vol_abs = _clip(abs(vol_raw), 0.0, _VOL_CLIP)
+    vol_penalty = -_cap(_W_VOL_PENALTY * (vol_abs / max(_VOL_CLIP, 1e-9)))
+
+    # already-held penalty
+    holding_penalty = -_HOLDING_PENALTY if is_held else 0.0
+
+    total = (
+        factors.base_score
+        + factors.momentum_adj
+        + factors.rs_adj
+        + factors.scan_adj
+        + vol_penalty
+        + holding_penalty
+    )
+
+    if conf < _LOW_CONF_THRESHOLD:
+        total *= _LOW_CONF_FACTOR
+        factors.low_conf_suppressed = True
+
+    factors.total_score = total
+    return factors
 
 
 def explain_score_factors(factors: ScoreFactors) -> str:

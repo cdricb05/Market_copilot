@@ -5151,6 +5151,702 @@ class TestMarketScanPredictionCandidatesEndpoint:
         assert "mom" in ss["local_scan_formula_label"] or "5d" in ss["local_scan_formula_label"]
         assert "conf" in ss["final_score_formula_label"] or "mom" in ss["final_score_formula_label"]
 
+    # ---------------------------------------------------------------------------
+    # Phase 4B: Candidate Classification tests
+    # ---------------------------------------------------------------------------
+
+    def test_candidate_preview_includes_classification_fields(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: candidate_previews rows include candidate_type, is_current_holding, eligible_for_review_queue."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return (
+                [{
+                    "ticker": "AAPL", "current_price": "150.00",
+                    "ensemble_day5": "157.50", "d5_change_pct": "5.00",
+                    "confidence": "80.0", "recommendation": "BUY",
+                    "per_model_summary": {},
+                }],
+                [],
+            )
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-class-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        previews = resp.json()["candidate_previews"]
+        assert len(previews) >= 1
+        p = previews[0]
+        assert "candidate_type" in p
+        assert "is_current_holding" in p
+        assert "eligible_for_review_queue" in p
+        assert "review_queue_eligibility_reason" in p
+
+    def test_top_scan_candidate_is_new_buy_candidate(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: ticker selected by top scan (not held) has candidate_type NEW_BUY_CANDIDATE."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-newbuy-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        previews = resp.json()["candidate_previews"]
+        aapl = next((p for p in previews if p["ticker"] == "AAPL"), None)
+        assert aapl is not None
+        assert aapl["candidate_type"] == "NEW_BUY_CANDIDATE"
+        assert aapl["is_current_holding"] is False
+
+    def test_holding_injected_candidate_is_current_holding_monitor(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch, api_engine
+    ) -> None:
+        """Phase 4B: holding-injected ticker has candidate_type CURRENT_HOLDING_MONITOR and is_current_holding True."""
+        from paper_trader.engine.market_screener import CandidateScore
+        from paper_trader.db.models import Position
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        holding_ticker = "MSFT_4B_HOLD_TEST"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            pos = Position(
+                ticker=holding_ticker,
+                qty=Decimal("5"),
+                avg_cost=Decimal("300.00"),
+                cost_basis=Decimal("1500.00"),
+                opened_at=_NOW,
+                last_updated=_NOW,
+            )
+            session.add(pos)
+            session.commit()
+
+        try:
+            resp = market_scan_prediction_seeded_client.post(
+                "/v1/strategy/market-scan/prediction-candidates",
+                json={
+                    "idempotency_key": "test-4b-holdmon-001",
+                    "universe": "SP500", "tickers": ["AAPL"],
+                    "benchmark_ticker": "SPY", "lookback_days": 20,
+                    "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                    "dry_run": True, "submit_signals": False,
+                    "run_risk": False, "create_orders": False,
+                    "include_current_positions_for_prediction": True,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            previews = resp.json()["candidate_previews"]
+            hold_p = next((p for p in previews if p["ticker"] == holding_ticker), None)
+            assert hold_p is not None
+            assert hold_p["candidate_type"] == "CURRENT_HOLDING_MONITOR"
+            assert hold_p["is_current_holding"] is True
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                from sqlalchemy import delete
+                session.execute(delete(Position).where(Position.ticker == holding_ticker))
+                session.commit()
+
+    def test_holding_monitor_has_eligible_for_review_queue_false(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch, api_engine
+    ) -> None:
+        """Phase 4B: current holding monitor has eligible_for_review_queue False."""
+        from paper_trader.engine.market_screener import CandidateScore
+        from paper_trader.db.models import Position
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return (
+                [{
+                    "ticker": "MSFT_4B_ELIG_TEST", "current_price": "300.00",
+                    "ensemble_day5": "315.00", "d5_change_pct": "5.00",
+                    "confidence": "80.0", "recommendation": "BUY",
+                    "per_model_summary": {},
+                }],
+                [],
+            )
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        holding_ticker = "MSFT_4B_ELIG_TEST"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            pos = Position(
+                ticker=holding_ticker,
+                qty=Decimal("3"),
+                avg_cost=Decimal("300.00"),
+                cost_basis=Decimal("900.00"),
+                opened_at=_NOW,
+                last_updated=_NOW,
+            )
+            session.add(pos)
+            session.commit()
+
+        try:
+            resp = market_scan_prediction_seeded_client.post(
+                "/v1/strategy/market-scan/prediction-candidates",
+                json={
+                    "idempotency_key": "test-4b-elig-false-001",
+                    "universe": "SP500", "tickers": ["AAPL"],
+                    "benchmark_ticker": "SPY", "lookback_days": 20,
+                    "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                    "dry_run": True, "submit_signals": False,
+                    "run_risk": False, "create_orders": False,
+                    "include_current_positions_for_prediction": True,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            previews = resp.json()["candidate_previews"]
+            hold_p = next((p for p in previews if p["ticker"] == holding_ticker), None)
+            assert hold_p is not None
+            assert hold_p["eligible_for_review_queue"] is False
+            assert hold_p["review_queue_eligibility_reason"] == "CURRENT_HOLDING_MONITOR_NOT_NEW_BUY"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                from sqlalchemy import delete
+                session.execute(delete(Position).where(Position.ticker == holding_ticker))
+                session.commit()
+
+    def test_top_scan_consider_candidate_has_eligible_true(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: top-scan CONSIDER non-held candidate has eligible_for_review_queue True."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return (
+                [{
+                    "ticker": "AAPL", "current_price": "150.00",
+                    "ensemble_day5": "157.50", "d5_change_pct": "5.00",
+                    "confidence": "80.0", "recommendation": "BUY",
+                    "per_model_summary": {},
+                }],
+                [],
+            )
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-elig-true-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        previews = resp.json()["candidate_previews"]
+        aapl = next((p for p in previews if p["ticker"] == "AAPL"), None)
+        assert aapl is not None
+        # AAPL is a top-scan non-held candidate with BUY recommendation -> CONSIDER
+        if aapl["preview_decision"] == "CONSIDER":
+            assert aapl["eligible_for_review_queue"] is True
+            assert aapl["review_queue_eligibility_reason"] == "NEW_BUY_CANDIDATE"
+
+    # ---------------------------------------------------------------------------
+    # Phase 4B: Save behavior — skipping holdings
+    # ---------------------------------------------------------------------------
+
+    def test_save_does_not_save_current_holding_monitor_rows(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: save endpoint skips candidates with candidate_type=CURRENT_HOLDING_MONITOR."""
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-4b-save-skip-001",
+                "candidates": [
+                    {
+                        "ticker": "NVDA",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "70",
+                        "status": "OK",
+                        "candidate_type": "CURRENT_HOLDING_MONITOR",
+                        "eligible_for_review_queue": False,
+                    },
+                    {
+                        "ticker": "MSFT",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "65",
+                        "status": "OK",
+                        "candidate_type": "NEW_BUY_CANDIDATE",
+                        "eligible_for_review_queue": True,
+                    },
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skipped_current_holdings"] == 1
+        assert data["inserted_count"] == 1
+        saved_tickers = [c["ticker"] for c in data["candidates_saved"]]
+        assert "MSFT" in saved_tickers
+        assert "NVDA" not in saved_tickers
+
+    def test_save_returns_skipped_current_holdings_count(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: save endpoint returns skipped_current_holdings in response."""
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-4b-save-count-001",
+                "candidates": [
+                    {
+                        "ticker": "AMZN_4B_COUNT",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "60",
+                        "status": "OK",
+                        "candidate_type": "CURRENT_HOLDING_MONITOR",
+                        "eligible_for_review_queue": False,
+                    },
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "skipped_current_holdings" in data
+        assert "skipped_watch" in data
+        assert "skipped_rejected" in data
+        assert "skipped_other" in data
+        assert "saved_new_candidates" in data
+        assert data["skipped_current_holdings"] == 1
+        assert data["inserted_count"] == 0
+
+    def test_save_backward_compatible_without_classification_fields(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: save without candidate_type/eligible_for_review_queue still works (backward compat)."""
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-4b-compat-001",
+                "candidates": [
+                    {
+                        "ticker": "GOOG_4B_COMPAT",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "55",
+                        "status": "OK",
+                    },
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Should insert normally — no classification fields means no skipping
+        assert data["inserted_count"] == 1
+        assert data["skipped_current_holdings"] == 0
+
+    # ---------------------------------------------------------------------------
+    # Phase 4B: Balanced scoring
+    # ---------------------------------------------------------------------------
+
+    def test_default_scoring_profile_current_preserves_existing_behavior(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: default scoring_profile='current' returns same fields as before."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-current-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "scoring_profile": "current",
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Current profile: no scoring_profile_comparison, no balanced fields populated
+        assert data["scoring_profile_comparison"] is None
+        previews = data["candidate_previews"]
+        if previews:
+            p = previews[0]
+            # Balanced fields should be None when profile is current
+            assert p["current_score"] is None
+            assert p["balanced_preview_score"] is None
+
+    def test_balanced_preview_adds_balanced_score_fields(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: scoring_profile='balanced_preview' adds balanced score fields to candidate_previews."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+                CandidateScore(
+                    rank=2, ticker="MSFT", score="4.10", latest_price="380.00",
+                    latest_market_date="2025-01-14", price_count=22,
+                    momentum_5d_pct="1.20", momentum_20d_pct="3.00",
+                    volatility_20d_pct="1.80", relative_strength_vs_spy_20d="0.80",
+                    reason_codes=["POSITIVE_5D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return (
+                [
+                    {
+                        "ticker": "AAPL", "current_price": "150.00",
+                        "ensemble_day5": "157.50", "d5_change_pct": "5.00",
+                        "confidence": "80.0", "recommendation": "BUY",
+                        "per_model_summary": {},
+                    },
+                    {
+                        "ticker": "MSFT", "current_price": "380.00",
+                        "ensemble_day5": "395.00", "d5_change_pct": "3.90",
+                        "confidence": "70.0", "recommendation": "BUY",
+                        "per_model_summary": {},
+                    },
+                ],
+                [],
+            )
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-balanced-001",
+                "universe": "SP500", "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 3,
+                "scoring_profile": "balanced_preview",
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        previews = data["candidate_previews"]
+        assert len(previews) >= 1
+        p = previews[0]
+        assert p["current_score"] is not None
+        assert p["balanced_preview_score"] is not None
+        assert p["score_delta"] is not None
+        assert p["current_rank"] is not None
+        assert p["balanced_preview_rank"] is not None
+        assert p["ranking_change"] is not None
+        assert isinstance(p["balanced_score_drivers"], list)
+
+    def test_balanced_preview_includes_scoring_profile_comparison(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: balanced_preview includes scoring_profile_comparison in response."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-cmp-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "scoring_profile": "balanced_preview",
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        cmp = data["scoring_profile_comparison"]
+        assert cmp is not None
+        assert cmp["active_profile"] == "balanced_preview"
+        assert isinstance(cmp["current_top_tickers"], list)
+        assert isinstance(cmp["balanced_top_tickers"], list)
+        assert isinstance(cmp["overlap_count"], int)
+        assert isinstance(cmp["changed_rank_count"], int)
+        assert isinstance(cmp["biggest_promotions"], list)
+        assert isinstance(cmp["biggest_demotions"], list)
+        assert len(cmp["explanation"]) > 10
+        assert cmp["safety_counts"]["signals_created"] == 0
+        assert cmp["safety_counts"]["decisions_created"] == 0
+        assert cmp["safety_counts"]["orders_created"] == 0
+
+    def test_invalid_scoring_profile_returns_422(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: invalid scoring_profile value returns 422."""
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-invalid-profile-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "scoring_profile": "momentum_heavy",
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_balanced_preview_creates_zero_db_rows(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: balanced_preview mode creates zero signals/decisions/orders."""
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-zero-rows-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "scoring_profile": "balanced_preview",
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_submitted"] == 0
+        assert data["decisions_made"] == 0
+        assert data["orders_created"] == 0
+        safety = data["candidate_funnel"]["safety_counts"]
+        assert safety["signals_created"] == 0
+        assert safety["decisions_created"] == 0
+        assert safety["orders_created"] == 0
+
+    def test_prediction_preview_creates_zero_signals_decisions_orders(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: prediction preview with classification fields creates zero DB rows."""
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4b-zero-auto-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "scoring_profile": "current",
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["signals_submitted"] == 0
+        assert data["decisions_made"] == 0
+        assert data["orders_created"] == 0
+
+    def test_save_returns_skipped_watch_and_rejected_counts(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4B: save endpoint correctly counts skipped_watch and skipped_rejected rows."""
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-4b-skip-wrej-001",
+                "candidates": [
+                    {
+                        "ticker": "WATCH_TEST_4B",
+                        "preview_decision": "WATCH",
+                        "preview_score": "40",
+                        "status": "OK",
+                        "candidate_type": "NEW_BUY_CANDIDATE",
+                        "eligible_for_review_queue": False,
+                    },
+                    {
+                        "ticker": "REJECT_TEST_4B",
+                        "preview_decision": "REJECT",
+                        "preview_score": "20",
+                        "status": "OK",
+                        "candidate_type": "NEW_BUY_CANDIDATE",
+                        "eligible_for_review_queue": False,
+                    },
+                    {
+                        "ticker": "ELIGIBLE_TEST_4B",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "75",
+                        "status": "OK",
+                        "candidate_type": "NEW_BUY_CANDIDATE",
+                        "eligible_for_review_queue": True,
+                    },
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skipped_watch"] == 1
+        assert data["skipped_rejected"] == 1
+        assert data["inserted_count"] == 1
+        assert data["saved_new_candidates"] == 1
+
 
 class TestMarketBackfillPricesEndpoint:
     """POST /v1/market/backfill-prices endpoint tests."""

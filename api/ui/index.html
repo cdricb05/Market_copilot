@@ -1173,6 +1173,13 @@
               <label style="margin: 0;">Include Holdings</label>
               <input id="pred-preview-include-holdings" type="checkbox" checked style="width: auto; margin: 0; cursor: pointer;">
             </div>
+            <div class="input-group">
+              <label>Scoring Profile</label>
+              <select id="pred-preview-scoring-profile" class="mono">
+                <option value="current" selected>Current (Default)</option>
+                <option value="balanced_preview">Balanced Preview</option>
+              </select>
+            </div>
             <!-- Hidden inputs for Prediction Preview defaults -->
             <input id="pred-preview-lookback" type="hidden" value="45">
             <input id="pred-preview-min-points" type="hidden" value="20">
@@ -1237,7 +1244,7 @@
             <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Saves CandidateReview rows only. <strong style="color: var(--ok);">No signals, decisions, or orders are created.</strong></div>
             <div id="step2-candidate-summary" style="font-size: 11px; color: var(--text-accent); margin-bottom: 10px; padding: 6px 10px; background: rgba(0,0,0,.2); border-radius: 2px;"></div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button class="btn" style="background: var(--ok); color: white; font-weight: 600;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save CONSIDER Candidates</button>
+              <button class="btn" style="background: var(--ok); color: white; font-weight: 600;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save Eligible New BUY Candidates</button>
               <button class="btn" style="background: transparent; border: 1px solid var(--border); color: var(--text-accent);" onclick="saveCandidatesToReviewQueue('ALL', this)">Save All Candidates</button>
             </div>
           </div>
@@ -3487,6 +3494,7 @@ async function runPredictionPreview(btn) {
   const predictionTopN = parseInt(document.getElementById('pred-preview-top-n').value, 10) || 5;
   const gcpConcurrency = parseInt(document.getElementById('pred-preview-concurrency').value, 10) || 4;
   const includeHoldings = document.getElementById('pred-preview-include-holdings')?.checked !== false;
+  const scoringProfile = document.getElementById('pred-preview-scoring-profile')?.value || 'current';
 
   const resultCard = document.getElementById('prediction-preview-card');
   const resultEl = document.getElementById('prediction-preview-result');
@@ -3513,6 +3521,7 @@ async function runPredictionPreview(btn) {
       prediction_top_n: predictionTopN,
       include_current_positions_for_prediction: includeHoldings,
       max_prediction_concurrency: gcpConcurrency,
+      scoring_profile: scoringProfile,
       dry_run: true,
       submit_signals: false,
       run_risk: false,
@@ -4415,6 +4424,7 @@ function renderPredictionPreviewResult(data, resultEl) {
   const predictionTopN = parseInt(document.getElementById('pred-preview-top-n').value, 10) || 5;
   const gcpConcurrencyDisplay = parseInt(document.getElementById('pred-preview-concurrency')?.value, 10) || 4;
   const includeHoldingsDisplay = document.getElementById('pred-preview-include-holdings')?.checked !== false;
+  const scoringProfileDisplay = document.getElementById('pred-preview-scoring-profile')?.value || 'current';
   html += '<div style="background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; margin-bottom: 16px;">';
   html += '<div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); font-weight: 600; margin-bottom: 6px;">Preview Configuration</div>';
   html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; font-size: 11px;">';
@@ -4423,6 +4433,7 @@ function renderPredictionPreviewResult(data, resultEl) {
   html += `<div><span style="color: var(--label);">Prediction Top N:</span> <span style="color: var(--text-primary); font-weight: 600;">${predictionTopN}</span></div>`;
   html += `<div><span style="color: var(--label);">GCP Concurrency:</span> <span style="color: var(--text-primary); font-weight: 600;">${gcpConcurrencyDisplay}</span></div>`;
   html += `<div><span style="color: var(--label);">Include Holdings:</span> <span style="color: ${includeHoldingsDisplay ? 'var(--ok)' : 'var(--label)'}; font-weight: 600;">${includeHoldingsDisplay ? 'Yes' : 'No'}</span></div>`;
+  html += `<div><span style="color: var(--label);">Scoring Profile:</span> <span style="color: ${scoringProfileDisplay === 'balanced_preview' ? 'var(--warning)' : 'var(--ok)'}; font-weight: 600;">${escapeHtml(scoringProfileDisplay)}</span></div>`;
   html += `<div><span style="color: var(--label);">Safety Mode:</span> <span style="color: var(--ok); font-weight: 600;">Preview Only</span></div>`;
   html += '</div></div>';
 
@@ -4576,77 +4587,129 @@ function renderPredictionPreviewResult(data, resultEl) {
     html += '</div></details>';
   }
 
-  // Primary: Candidate Previews table
+  // Primary: Candidate Previews table — separated by candidate_type
   if (data.candidate_previews && data.candidate_previews.length > 0) {
-    html += '<div style="margin-bottom: 16px;">';
-    html += '<div style="font-weight: 600; margin-bottom: 8px; color: var(--text-accent);">Prediction Preview</div>';
-    html += '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
-    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
-    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
-    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Decision</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Score</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Rank</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Scan Score</th>';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Rec</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Conf</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Return %</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">RS SPY</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">5D Mom%</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">20D Mom%</th>';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">GCP Reason</th>';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Top Drivers</th>';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Status</th>';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reasons</th>';
-    html += '</tr></thead><tbody>';
+    const newBuyCandidates = data.candidate_previews.filter(p => p.candidate_type !== 'CURRENT_HOLDING_MONITOR');
+    const holdingMonitors = data.candidate_previews.filter(p => p.candidate_type === 'CURRENT_HOLDING_MONITOR');
 
-    data.candidate_previews.forEach(preview => {
-      const decisionColor = preview.preview_decision === 'CONSIDER' ? 'var(--ok)' :
-                           preview.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
-      const decisionBg = preview.preview_decision === 'CONSIDER' ? 'rgba(34,197,94,.08)' :
-                        preview.preview_decision === 'WATCH' ? 'rgba(245,158,11,.08)' : 'rgba(239,68,68,.08)';
-      const statusColor = preview.status === 'OK' ? 'var(--ok)' : 'var(--danger)';
-      const statusBg = preview.status === 'OK' ? 'rgba(34,197,94,.05)' : 'rgba(239,68,68,.05)';
+    function renderCandidateTable(previews, label, borderColor, isHoldingSection) {
+      let t = '';
+      if (!previews.length) return t;
+      t += `<div style="margin-bottom: 16px;">`;
+      t += `<div style="font-weight: 700; margin-bottom: 6px; color: ${borderColor}; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">${escapeHtml(label)}</div>`;
+      if (isHoldingSection) {
+        t += `<div style="font-size: 10px; color: var(--label); margin-bottom: 8px; padding: 5px 8px; background: rgba(245,158,11,.08); border-left: 3px solid var(--warning); border-radius: 1px;">Monitoring existing position &mdash; not saved as new buy candidate</div>`;
+      }
+      t += '<div style="overflow-x: auto; border: 1px solid ' + borderColor + '; border-radius: 2px;">';
+      t += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+      t += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+      t += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+      t += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Decision</th>';
+      t += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Score</th>';
+      t += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Rank</th>';
+      t += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Scan Score</th>';
+      t += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Rec</th>';
+      t += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Conf</th>';
+      t += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Return %</th>';
+      t += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">RS SPY</th>';
+      t += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">5D Mom%</th>';
+      t += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">20D Mom%</th>';
+      t += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Eligible</th>';
+      t += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Top Drivers</th>';
+      t += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Status</th>';
+      t += '</tr></thead><tbody>';
 
-      const recColor = preview.prediction_recommendation === 'BUY' ? 'var(--ok)' :
-                      preview.prediction_recommendation === 'SELL' ? 'var(--danger)' :
-                      preview.prediction_recommendation ? 'var(--warning)' : 'var(--label)';
+      previews.forEach(preview => {
+        const decisionColor = preview.preview_decision === 'CONSIDER' ? 'var(--ok)' :
+                             preview.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
+        const decisionBg = isHoldingSection ? 'rgba(245,158,11,.05)' : (
+          preview.preview_decision === 'CONSIDER' ? 'rgba(34,197,94,.08)' :
+          preview.preview_decision === 'WATCH' ? 'rgba(245,158,11,.08)' : 'rgba(239,68,68,.08)'
+        );
+        const recColor = preview.prediction_recommendation === 'BUY' ? 'var(--ok)' :
+                        preview.prediction_recommendation === 'SELL' ? 'var(--danger)' :
+                        preview.prediction_recommendation ? 'var(--warning)' : 'var(--label)';
+        const statusColor = preview.status === 'OK' ? 'var(--ok)' : 'var(--danger)';
+        const conf = preview.prediction_confidence ? parseFloat(preview.prediction_confidence).toFixed(2) : '-';
+        const ret = preview.expected_return_pct ? parseFloat(preview.expected_return_pct).toFixed(2) : '-';
+        const rs = preview.relative_strength_vs_spy_20d ? parseFloat(preview.relative_strength_vs_spy_20d).toFixed(2) : '-';
+        const mom5d = preview.momentum_5d_pct ? parseFloat(preview.momentum_5d_pct).toFixed(2) : '-';
+        const mom20d = preview.momentum_20d_pct ? parseFloat(preview.momentum_20d_pct).toFixed(2) : '-';
+        const topDrivers = (preview.top_score_drivers || []).join(', ') || '-';
+        const eligColor = preview.eligible_for_review_queue ? 'var(--ok)' : 'var(--label)';
+        const eligText = preview.eligible_for_review_queue ? 'YES' : (preview.review_queue_eligibility_reason || 'NO');
 
-      const conf = preview.prediction_confidence ? parseFloat(preview.prediction_confidence).toFixed(2) : '-';
-      const ret = preview.expected_return_pct ? parseFloat(preview.expected_return_pct).toFixed(2) : '-';
-      const rs = preview.relative_strength_vs_spy_20d ? parseFloat(preview.relative_strength_vs_spy_20d).toFixed(2) : '-';
-      const mom5d = preview.momentum_5d_pct ? parseFloat(preview.momentum_5d_pct).toFixed(2) : '-';
-      const mom20d = preview.momentum_20d_pct ? parseFloat(preview.momentum_20d_pct).toFixed(2) : '-';
-      const gcpReason = preview.selected_for_gcp_reason || '-';
-      const gcpReasonColor = gcpReason === 'CURRENT_HOLDING_INJECTED' ? 'var(--warning)' : gcpReason === 'BOTH' ? 'var(--info)' : 'var(--label)';
-      const topDrivers = (preview.top_score_drivers || []).join(', ') || '-';
-      const reasonsText = preview.preview_reasons ? preview.preview_reasons.join('; ') : '-';
+        t += `<tr style="border-bottom: 1px solid var(--border); background: ${decisionBg};">`;
+        t += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(preview.ticker)}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(preview.preview_decision)}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: right; font-weight: 600;">${parseFloat(preview.preview_score).toFixed(1)}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_rank || '-'}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_score ? parseFloat(preview.scan_score).toFixed(2) : '-'}</td>`;
+        t += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: ${preview.prediction_recommendation ? '600' : '400'};">${escapeHtml(preview.prediction_recommendation || '-')}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: right;">${rs}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: right;">${mom5d}</td>`;
+        t += `<td style="padding: 6px 8px; text-align: right;">${mom20d}</td>`;
+        t += `<td style="padding: 6px 8px; font-size: 10px; color: ${eligColor}; font-weight: 600;">${escapeHtml(eligText)}</td>`;
+        t += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label); max-width: 200px; word-wrap: break-word;">${escapeHtml(topDrivers)}</td>`;
+        t += `<td style="padding: 6px 8px; color: ${statusColor}; font-size: 10px; font-weight: 600;">${escapeHtml(preview.status)}</td>`;
+        t += '</tr>';
+      });
 
-      html += `<tr style="border-bottom: 1px solid var(--border); background: ${decisionBg};">`;
-      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(preview.ticker)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(preview.preview_decision)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right; font-weight: 600;">${parseFloat(preview.preview_score).toFixed(1)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_rank || '-'}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${preview.scan_score ? parseFloat(preview.scan_score).toFixed(2) : '-'}</td>`;
-      html += `<td style="padding: 6px 8px; color: ${recColor}; font-weight: ${preview.prediction_recommendation ? '600' : '400'};">${escapeHtml(preview.prediction_recommendation || '-')}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${rs}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${mom5d}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right;">${mom20d}</td>`;
-      html += `<td style="padding: 6px 8px; font-size: 10px; color: ${gcpReasonColor}; font-weight: 600;">${escapeHtml(gcpReason)}</td>`;
-      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label); max-width: 180px; word-wrap: break-word;">${escapeHtml(topDrivers)}</td>`;
-      html += `<td style="padding: 6px 8px; color: ${statusColor}; font-size: 10px; font-weight: 600;">${escapeHtml(preview.status)}</td>`;
-      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label); max-width: 220px; word-wrap: break-word;">${escapeHtml(reasonsText)}</td>`;
-      html += '</tr>';
-    });
+      t += '</tbody></table></div></div>';
+      return t;
+    }
 
-    html += '</tbody></table></div></div>';
+    if (newBuyCandidates.length > 0) {
+      html += renderCandidateTable(newBuyCandidates, 'New Buy Candidates (' + newBuyCandidates.length + ')', 'var(--ok)', false);
+    }
+    if (holdingMonitors.length > 0) {
+      html += renderCandidateTable(holdingMonitors, 'Current Holdings Monitor (' + holdingMonitors.length + ')', 'var(--warning)', true);
+    }
+
+    // Scoring comparison section (only when balanced_preview)
+    const cmp = data.scoring_profile_comparison;
+    if (cmp && cmp.active_profile === 'balanced_preview') {
+      html += '<details style="margin-bottom: 16px; border: 1px solid var(--warning); border-radius: 3px; overflow: hidden;" open>';
+      html += '<summary style="padding: 10px 14px; background: rgba(245,158,11,.08); cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); user-select: none;">Scoring Profile Comparison &mdash; Current vs Balanced Preview</summary>';
+      html += '<div style="padding: 12px 14px;">';
+      html += '<div style="font-size: 11px; color: var(--label); margin-bottom: 10px;">' + escapeHtml(cmp.explanation) + '</div>';
+      html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 12px; font-size: 11px;">';
+      html += `<div style="text-align: center; padding: 6px; background: rgba(0,0,0,.15); border-radius: 2px;"><div style="font-size: 9px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Overlap</div><div style="font-size: 16px; font-weight: 700; color: ${cmp.overlap_count > 0 ? 'var(--ok)' : 'var(--label)'};">${cmp.overlap_count}</div><div style="font-size: 9px; color: var(--label);">in both top lists</div></div>`;
+      html += `<div style="text-align: center; padding: 6px; background: rgba(0,0,0,.15); border-radius: 2px;"><div style="font-size: 9px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Rank Changes</div><div style="font-size: 16px; font-weight: 700; color: ${cmp.changed_rank_count > 0 ? 'var(--warning)' : 'var(--label)'};">${cmp.changed_rank_count}</div><div style="font-size: 9px; color: var(--label);">tickers changed rank</div></div>`;
+      html += '</div>';
+      html += '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px;">';
+      html += '<div><div style="font-size: 10px; font-weight: 600; color: var(--ok); text-transform: uppercase; margin-bottom: 4px;">Current Top</div>';
+      html += (cmp.current_top_tickers || []).map((t, i) => `<div style="padding: 2px 0; color: var(--text-primary);"><span style="color: var(--label);">${i+1}.</span> ${escapeHtml(t)}</div>`).join('') + '</div>';
+      html += '<div><div style="font-size: 10px; font-weight: 600; color: var(--warning); text-transform: uppercase; margin-bottom: 4px;">Balanced Top</div>';
+      html += (cmp.balanced_top_tickers || []).map((t, i) => `<div style="padding: 2px 0; color: var(--text-primary);"><span style="color: var(--label);">${i+1}.</span> ${escapeHtml(t)}</div>`).join('') + '</div>';
+      html += '</div>';
+      if (cmp.biggest_promotions && cmp.biggest_promotions.length > 0) {
+        html += '<div style="margin-top: 10px;"><div style="font-size: 10px; font-weight: 600; color: var(--ok); text-transform: uppercase; margin-bottom: 4px;">Biggest Promotions (balanced)</div>';
+        html += '<div style="display: flex; gap: 10px; flex-wrap: wrap;">';
+        cmp.biggest_promotions.forEach(p => {
+          html += `<span style="font-size: 10px; background: rgba(34,197,94,.1); padding: 2px 6px; border-radius: 2px;"><strong style="font-family: monospace;">${escapeHtml(p.ticker)}</strong> #${p.current_rank} &rarr; #${p.balanced_rank} <span style="color: var(--ok);">(+${p.rank_change})</span></span>`;
+        });
+        html += '</div></div>';
+      }
+      if (cmp.biggest_demotions && cmp.biggest_demotions.length > 0) {
+        html += '<div style="margin-top: 8px;"><div style="font-size: 10px; font-weight: 600; color: var(--danger); text-transform: uppercase; margin-bottom: 4px;">Biggest Demotions (balanced)</div>';
+        html += '<div style="display: flex; gap: 10px; flex-wrap: wrap;">';
+        cmp.biggest_demotions.forEach(p => {
+          html += `<span style="font-size: 10px; background: rgba(239,68,68,.1); padding: 2px 6px; border-radius: 2px;"><strong style="font-family: monospace;">${escapeHtml(p.ticker)}</strong> #${p.current_rank} &rarr; #${p.balanced_rank} <span style="color: var(--danger);">(${p.rank_change})</span></span>`;
+        });
+        html += '</div></div>';
+      }
+      html += '</div></details>';
+    }
 
     // Save to Review Queue buttons
-    html += '<div style="margin-bottom: 16px; display: flex; gap: 8px;">';
-    html += '<button onclick="saveCandidatesToReviewQueue(\'CONSIDER\', this)" style="padding: 8px 14px; background: var(--ok); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save CONSIDER to Review Queue</button>';
-    html += '<button onclick="saveCandidatesToReviewQueue(\'ALL\', this)" style="padding: 8px 14px; background: var(--text-accent); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save All to Review Queue</button>';
+    const eligibleCount = data.candidate_previews.filter(c => c.eligible_for_review_queue).length;
+    html += '<div style="margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">';
+    html += `<button onclick="saveCandidatesToReviewQueue('CONSIDER', this)" style="padding: 8px 14px; background: var(--ok); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save Eligible New BUY Candidates (${eligibleCount})</button>`;
+    html += `<button onclick="saveCandidatesToReviewQueue('ALL', this)" style="padding: 8px 14px; background: var(--text-accent); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save All to Review Queue</button>`;
+    html += '<span id="save-breakdown-result" style="font-size: 10px; color: var(--label);"></span>';
     html += '</div>';
   }
 
@@ -5022,11 +5085,11 @@ async function saveCandidatesToReviewQueue(mode, btn) {
       return;
     }
 
-    // Filter if mode is CONSIDER
+    // Filter if mode is CONSIDER — only send eligible new buy candidates
     if (mode === 'CONSIDER') {
-      candidates = candidates.filter(c => c.preview_decision === 'CONSIDER');
+      candidates = candidates.filter(c => c.eligible_for_review_queue === true || (c.eligible_for_review_queue === undefined && c.preview_decision === 'CONSIDER' && c.candidate_type !== 'CURRENT_HOLDING_MONITOR'));
       if (candidates.length === 0) {
-        toast('No CONSIDER candidates to save', 'err');
+        toast('No eligible new buy CONSIDER candidates to save', 'err');
         return;
       }
     }
@@ -5035,7 +5098,7 @@ async function saveCandidatesToReviewQueue(mode, btn) {
     const now = new Date();
     const ikey = `review-save-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
 
-    // Build request
+    // Build request — include Phase 4B classification fields so backend can validate
     const payload = {
       idempotency_key: ikey,
       candidates: candidates.map(c => ({
@@ -5056,16 +5119,29 @@ async function saveCandidatesToReviewQueue(mode, btn) {
         preview_score: c.preview_score,
         preview_reasons: c.preview_reasons,
         status: c.status,
+        candidate_type: c.candidate_type || null,
+        eligible_for_review_queue: c.eligible_for_review_queue !== undefined ? c.eligible_for_review_queue : null,
       }))
     };
 
     const r = await call('POST', '/v1/review/candidates', payload);
     const b = await parseApiResponse(r);
     if (r.ok) {
-      const msg = b.inserted_count || b.skipped_existing_count ?
-        `Saved ${b.inserted_count || 0} candidates. ${b.skipped_existing_count || 0} already existed.` :
-        'Candidates saved to Review Queue.';
+      let msg = `Saved ${b.inserted_count || 0} new candidates.`;
+      if (b.skipped_existing_count) msg += ` ${b.skipped_existing_count} already existed.`;
+      const breakdownParts = [];
+      if (b.skipped_current_holdings) breakdownParts.push(`${b.skipped_current_holdings} holding-monitor skipped`);
+      if (b.skipped_watch) breakdownParts.push(`${b.skipped_watch} WATCH skipped`);
+      if (b.skipped_rejected) breakdownParts.push(`${b.skipped_rejected} REJECT skipped`);
+      if (b.skipped_other) breakdownParts.push(`${b.skipped_other} other skipped`);
+      if (breakdownParts.length > 0) msg += ' (' + breakdownParts.join(', ') + ')';
       toast(msg, 'ok');
+
+      // Show breakdown in the result span
+      const bdEl = document.getElementById('save-breakdown-result');
+      if (bdEl) {
+        bdEl.textContent = msg;
+      }
 
       // Mark this preview batch as saved to prevent duplicate posts
       if (window._lastPredictionPreviewData) window._lastPredictionPreviewData._saved = true;
