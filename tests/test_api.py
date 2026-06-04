@@ -13359,8 +13359,12 @@ class TestUniverseStatusEndpoint:
         assert "market_data_coverage" in data
         assert "safety_counts" in data
 
-    def test_flags_stub_universe(self, seeded_client: TestClient) -> None:
-        """Current stub universe (~49 tickers) is flagged as stub."""
+    def test_flags_stub_universe(self, seeded_client: TestClient, tmp_path, monkeypatch) -> None:
+        """A stub-only universe (< 450 tickers) is flagged as stub, regardless of local data files."""
+        stub_csv = tmp_path / "sp500_universe.csv"
+        stub_csv.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(10)) + "\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
         resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
         assert resp.status_code == 200
         data = resp.json()
@@ -13368,8 +13372,12 @@ class TestUniverseStatusEndpoint:
         assert data["ticker_count"] < 450
         assert data["warning"] is not None
 
-    def test_reports_active_source_file(self, seeded_client: TestClient) -> None:
-        """Reports sp500_universe.csv as active since full file is absent."""
+    def test_reports_active_source_file(self, seeded_client: TestClient, tmp_path, monkeypatch) -> None:
+        """Reports sp500_universe.csv as active when only stub file is present in controlled dir."""
+        stub_csv = tmp_path / "sp500_universe.csv"
+        stub_csv.write_text("ticker\nAAPL\nMSFT\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
         resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
         assert resp.status_code == 200
         data = resp.json()
