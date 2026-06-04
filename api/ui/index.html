@@ -4538,6 +4538,44 @@ function renderPredictionPreviewResult(data, resultEl) {
     html += '</div></details>';
   }
 
+  // Scoring Diagnostics panel
+  const scoring = data.scoring_summary || {};
+  if (Object.keys(scoring).length > 0) {
+    html += '<details style="margin-bottom: 16px; border: 1px solid var(--border); border-radius: 3px; overflow: hidden;">';
+    html += '<summary style="padding: 10px 14px; background: rgba(0,0,0,.2); cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-accent); user-select: none;">Scoring Diagnostics &amp; Why These Candidates?</summary>';
+    html += '<div style="padding: 12px 14px;">';
+
+    html += '<div style="font-size: 11px; margin-bottom: 10px;">';
+    html += '<div style="margin-bottom: 5px;"><span style="color: var(--label); font-weight: 600;">Local Scan Formula: </span><code style="background: rgba(0,0,0,.25); padding: 2px 6px; border-radius: 2px; font-size: 10px;">' + escapeHtml(scoring.local_scan_formula_label || '-') + '</code></div>';
+    html += '<div><span style="color: var(--label); font-weight: 600;">Final Score Formula: </span><code style="background: rgba(0,0,0,.25); padding: 2px 6px; border-radius: 2px; font-size: 10px;">' + escapeHtml(scoring.final_score_formula_label || '-') + '</code></div>';
+    html += '</div>';
+
+    const thresh = scoring.threshold_summary || {};
+    html += '<div style="margin-bottom: 10px; font-size: 11px;">';
+    html += '<div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--label); margin-bottom: 5px;">Thresholds</div>';
+    html += '<div style="display: flex; gap: 16px; flex-wrap: wrap;">';
+    html += '<span>Min price pts: <strong>' + (thresh.min_price_points || '-') + '</strong></span>';
+    html += '<span>Pred top N: <strong>' + (thresh.prediction_top_n || '-') + '</strong></span>';
+    html += '<span>Scan top N: <strong>' + (thresh.scan_top_n || '-') + '</strong></span>';
+    html += '<span>GCP concurrency: <strong>' + (thresh.max_prediction_concurrency || '-') + '</strong></span>';
+    html += '<span>Include holdings: <strong>' + (thresh.include_current_positions_for_prediction ? 'Yes' : 'No') + '</strong></span>';
+    html += '</div></div>';
+
+    const drivers = scoring.top_driver_counts || {};
+    const driverKeys = Object.keys(drivers);
+    if (driverKeys.length > 0) {
+      html += '<div>';
+      html += '<div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; color: var(--label); margin-bottom: 5px;">Score Driver Counts (across all previews)</div>';
+      html += '<div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px;">';
+      driverKeys.forEach(d => {
+        html += '<span><strong style="color: var(--ok);">' + drivers[d] + '</strong> <span style="color: var(--label);">' + escapeHtml(d) + '</span></span>';
+      });
+      html += '</div></div>';
+    }
+
+    html += '</div></details>';
+  }
+
   // Primary: Candidate Previews table
   if (data.candidate_previews && data.candidate_previews.length > 0) {
     html += '<div style="margin-bottom: 16px;">';
@@ -4554,6 +4592,10 @@ function renderPredictionPreviewResult(data, resultEl) {
     html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Conf</th>';
     html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Return %</th>';
     html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">RS SPY</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">5D Mom%</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">20D Mom%</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">GCP Reason</th>';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Top Drivers</th>';
     html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Status</th>';
     html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reasons</th>';
     html += '</tr></thead><tbody>';
@@ -4572,8 +4614,12 @@ function renderPredictionPreviewResult(data, resultEl) {
 
       const conf = preview.prediction_confidence ? parseFloat(preview.prediction_confidence).toFixed(2) : '-';
       const ret = preview.expected_return_pct ? parseFloat(preview.expected_return_pct).toFixed(2) : '-';
-      const rs = preview.relative_strength_vs_spy_20d ? parseFloat(preview.relative_strength_vs_spy_20d).toFixed(2) : 'Insufficient data';
-
+      const rs = preview.relative_strength_vs_spy_20d ? parseFloat(preview.relative_strength_vs_spy_20d).toFixed(2) : '-';
+      const mom5d = preview.momentum_5d_pct ? parseFloat(preview.momentum_5d_pct).toFixed(2) : '-';
+      const mom20d = preview.momentum_20d_pct ? parseFloat(preview.momentum_20d_pct).toFixed(2) : '-';
+      const gcpReason = preview.selected_for_gcp_reason || '-';
+      const gcpReasonColor = gcpReason === 'CURRENT_HOLDING_INJECTED' ? 'var(--warning)' : gcpReason === 'BOTH' ? 'var(--info)' : 'var(--label)';
+      const topDrivers = (preview.top_score_drivers || []).join(', ') || '-';
       const reasonsText = preview.preview_reasons ? preview.preview_reasons.join('; ') : '-';
 
       html += `<tr style="border-bottom: 1px solid var(--border); background: ${decisionBg};">`;
@@ -4586,8 +4632,12 @@ function renderPredictionPreviewResult(data, resultEl) {
       html += `<td style="padding: 6px 8px; text-align: right;">${conf}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right;">${ret}</td>`;
       html += `<td style="padding: 6px 8px; text-align: right;">${rs}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${mom5d}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right;">${mom20d}</td>`;
+      html += `<td style="padding: 6px 8px; font-size: 10px; color: ${gcpReasonColor}; font-weight: 600;">${escapeHtml(gcpReason)}</td>`;
+      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label); max-width: 180px; word-wrap: break-word;">${escapeHtml(topDrivers)}</td>`;
       html += `<td style="padding: 6px 8px; color: ${statusColor}; font-size: 10px; font-weight: 600;">${escapeHtml(preview.status)}</td>`;
-      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label); max-width: 300px; word-wrap: break-word;">${escapeHtml(reasonsText)}</td>`;
+      html += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label); max-width: 220px; word-wrap: break-word;">${escapeHtml(reasonsText)}</td>`;
       html += '</tr>';
     });
 
@@ -4598,6 +4648,37 @@ function renderPredictionPreviewResult(data, resultEl) {
     html += '<button onclick="saveCandidatesToReviewQueue(\'CONSIDER\', this)" style="padding: 8px 14px; background: var(--ok); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save CONSIDER to Review Queue</button>';
     html += '<button onclick="saveCandidatesToReviewQueue(\'ALL\', this)" style="padding: 8px 14px; background: var(--text-accent); color: white; border: none; border-radius: 3px; font-weight: 600; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Save All to Review Queue</button>';
     html += '</div>';
+  }
+
+  // Skipped Sample section (collapsed by default)
+  const skippedDiag = data.skipped_diagnostics || {};
+  if ((skippedDiag.total_skipped || 0) > 0) {
+    html += '<details style="margin-bottom: 16px; border: 1px solid var(--border); border-radius: 3px; overflow: hidden;">';
+    html += '<summary style="padding: 10px 14px; background: rgba(0,0,0,.2); cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); user-select: none;">Skipped Sample (' + (skippedDiag.total_skipped || 0) + ' total, up to ' + (skippedDiag.sample_limit || 25) + ' shown)</summary>';
+    html += '<div style="padding: 12px 14px;">';
+    const skippedSamples = skippedDiag.samples || [];
+    if (skippedSamples.length > 0) {
+      html += '<div style="overflow-x: auto;">';
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;">';
+      html += '<thead><tr style="background: rgba(0,0,0,.25); border-bottom: 1px solid var(--border);">';
+      html += '<th style="padding: 4px 8px; text-align: left; color: var(--label); font-weight: 600;">Ticker</th>';
+      html += '<th style="padding: 4px 8px; text-align: left; color: var(--label); font-weight: 600;">Reason</th>';
+      html += '<th style="padding: 4px 8px; text-align: right; color: var(--label); font-weight: 600;">Price Pts</th>';
+      html += '<th style="padding: 4px 8px; text-align: right; color: var(--label); font-weight: 600;">Min Req</th>';
+      html += '</tr></thead><tbody>';
+      skippedSamples.forEach(s => {
+        html += '<tr style="border-bottom: 1px solid rgba(148,163,184,.1);">';
+        html += '<td style="padding: 3px 8px; font-family: \'Monaco\', monospace; font-weight: 600;">' + escapeHtml(s.ticker) + '</td>';
+        html += '<td style="padding: 3px 8px; color: var(--warning);">' + escapeHtml(s.reason) + '</td>';
+        html += '<td style="padding: 3px 8px; text-align: right;">' + (s.price_history_points || 0) + '</td>';
+        html += '<td style="padding: 3px 8px; text-align: right; color: var(--label);">' + (s.required_min_price_points || '-') + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div style="color: var(--label); font-size: 11px;">No skipped ticker samples.</div>';
+    }
+    html += '</div></details>';
   }
 
   // Secondary: Normalized predictions table

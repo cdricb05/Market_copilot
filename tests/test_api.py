@@ -4738,6 +4738,419 @@ class TestMarketScanPredictionCandidatesEndpoint:
         assert isinstance(funnel["prediction_elapsed_ms"], int)
         assert funnel["prediction_elapsed_ms"] >= 0
 
+    # ---------------------------------------------------------------------------
+    # Phase 4A: Candidate Scoring Diagnostics tests
+    # ---------------------------------------------------------------------------
+
+    def test_candidate_funnel_includes_new_diagnostic_fields(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4A: candidate_funnel includes new extended diagnostic fields."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4a-funnel-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        funnel = resp.json()["candidate_funnel"]
+        assert "price_history_ready_count" in funnel
+        assert "skipped_insufficient_history_count" in funnel
+        assert "local_scan_candidate_count" in funnel
+        assert "prediction_batch_count" in funnel
+        assert "gcp_success_count" in funnel
+        assert "gcp_failure_count" in funnel
+        assert "final_selected_count" in funnel
+        assert "safety_counts" in funnel
+        safety = funnel["safety_counts"]
+        assert safety["signals_created"] == 0
+        assert safety["decisions_created"] == 0
+        assert safety["orders_created"] == 0
+        assert funnel["prediction_batch_count"] == len(resp.json()["selected_tickers"])
+        assert funnel["final_selected_count"] == len(resp.json()["candidate_previews"])
+
+    def test_response_includes_scoring_summary(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4A: response includes scoring_summary with formula labels and thresholds."""
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4a-scoring-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 7, "prediction_top_n": 3,
+                "max_prediction_concurrency": 2,
+                "include_current_positions_for_prediction": False,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "scoring_summary" in data
+        ss = data["scoring_summary"]
+        assert "local_scan_formula_label" in ss
+        assert "final_score_formula_label" in ss
+        assert "top_driver_counts" in ss
+        assert "threshold_summary" in ss
+        thresh = ss["threshold_summary"]
+        assert thresh["min_price_points"] == 7
+        assert thresh["prediction_top_n"] == 3
+        assert thresh["scan_top_n"] == 5
+        assert thresh["max_prediction_concurrency"] == 2
+        assert thresh["include_current_positions_for_prediction"] is False
+        assert "mom" in ss["local_scan_formula_label"].lower() or "scan" in ss["local_scan_formula_label"].lower()
+
+    def test_candidate_preview_includes_explainability_fields(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4A: candidate_previews rows include explainability fields."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=22,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return (
+                [{
+                    "ticker": "AAPL", "current_price": "150.00",
+                    "ensemble_day5": "157.50", "d5_change_pct": "5.00",
+                    "confidence": "80.0", "recommendation": "BUY",
+                    "per_model_summary": {},
+                }],
+                [],
+            )
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4a-preview-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        previews = resp.json()["candidate_previews"]
+        assert len(previews) == 1
+        p = previews[0]
+        assert "price_history_points" in p
+        assert "prediction_status" in p
+        assert "selected_for_gcp_reason" in p
+        assert "top_score_drivers" in p
+        assert "skip_or_warning_reason" in p
+        assert p["price_history_points"] == 22
+        assert p["prediction_status"] == "OK"
+        assert isinstance(p["top_score_drivers"], list)
+
+    def test_top_scan_candidate_has_top_scan_gcp_reason(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4A: ticker selected by scan has selected_for_gcp_reason TOP_SCAN (or BOTH)."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4a-reason-top-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        previews = resp.json()["candidate_previews"]
+        aapl = next((p for p in previews if p["ticker"] == "AAPL"), None)
+        assert aapl is not None
+        assert aapl["selected_for_gcp_reason"] in ("TOP_SCAN", "BOTH")
+
+    def test_holding_injected_ticker_has_holding_gcp_reason(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch, api_engine
+    ) -> None:
+        """Phase 4A: holding injected ticker has selected_for_gcp_reason CURRENT_HOLDING_INJECTED."""
+        from paper_trader.engine.market_screener import CandidateScore
+        from paper_trader.db.models import Position
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        # Insert a position for a ticker NOT in the scan results
+        holding_ticker = "NVDA_4A_HOLD_TEST"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            pos = Position(
+                ticker=holding_ticker,
+                qty=Decimal("10"),
+                avg_cost=Decimal("400.00"),
+                cost_basis=Decimal("4000.00"),
+                opened_at=_NOW,
+                last_updated=_NOW,
+            )
+            session.add(pos)
+            session.commit()
+
+        try:
+            resp = market_scan_prediction_seeded_client.post(
+                "/v1/strategy/market-scan/prediction-candidates",
+                json={
+                    "idempotency_key": "test-4a-reason-hold-001",
+                    "universe": "SP500", "tickers": ["AAPL"],
+                    "benchmark_ticker": "SPY", "lookback_days": 20,
+                    "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                    "dry_run": True, "submit_signals": False,
+                    "run_risk": False, "create_orders": False,
+                    "include_current_positions_for_prediction": True,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            previews = resp.json()["candidate_previews"]
+            holding_preview = next((p for p in previews if p["ticker"] == holding_ticker), None)
+            assert holding_preview is not None, f"{holding_ticker} should appear in previews as injected holding"
+            assert holding_preview["selected_for_gcp_reason"] in ("CURRENT_HOLDING_INJECTED", "BOTH")
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.execute(
+                    select(Position).where(Position.ticker == holding_ticker)
+                )
+                pos_to_del = session.execute(
+                    select(Position).where(Position.ticker == holding_ticker)
+                ).scalars().first()
+                if pos_to_del:
+                    session.delete(pos_to_del)
+                    session.commit()
+
+    def test_skipped_diagnostics_capped_at_sample_limit(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4A: skipped_diagnostics.samples is capped at sample_limit (25)."""
+        from paper_trader.engine.market_screener import SkippedTicker as SkippedTickerDS
+
+        def mock_scan(session, tickers=None, **kwargs):
+            # Return 40 skipped tickers (no candidates)
+            skipped = [
+                SkippedTickerDS(ticker=f"SK{i:03d}", reason="INSUFFICIENT_PRICE_HISTORY", price_count=i)
+                for i in range(40)
+            ]
+            return [], skipped, date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4a-skip-cap-001",
+                "universe": "SP500", "tickers": [f"SK{i:03d}" for i in range(40)],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "skipped_diagnostics" in data
+        sd = data["skipped_diagnostics"]
+        assert sd["total_skipped"] == 40
+        assert sd["sample_limit"] == 25
+        assert len(sd["samples"]) == 25
+
+    def test_skipped_diagnostics_has_insufficient_history_reason(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4A: skipped_diagnostics includes INSUFFICIENT_PRICE_HISTORY reason."""
+        from paper_trader.engine.market_screener import SkippedTicker as SkippedTickerDS
+
+        def mock_scan(session, tickers=None, **kwargs):
+            skipped = [
+                SkippedTickerDS(ticker="NOHIST_4A", reason="INSUFFICIENT_PRICE_HISTORY", price_count=2),
+            ]
+            return [], skipped, date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4a-skip-hist-001",
+                "universe": "SP500", "tickers": ["NOHIST_4A"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        sd = resp.json()["skipped_diagnostics"]
+        assert sd["total_skipped"] == 1
+        assert len(sd["samples"]) == 1
+        assert sd["samples"][0]["ticker"] == "NOHIST_4A"
+        assert sd["samples"][0]["reason"] == "INSUFFICIENT_PRICE_HISTORY"
+        assert sd["samples"][0]["price_history_points"] == 2
+        assert sd["samples"][0]["required_min_price_points"] == 5
+
+    def test_diagnostics_safety_counts_all_zero(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4A: diagnostics safety_counts are always zero (preview-only)."""
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4a-safety-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        safety = data["candidate_funnel"]["safety_counts"]
+        assert safety["signals_created"] == 0
+        assert safety["decisions_created"] == 0
+        assert safety["orders_created"] == 0
+        assert data["signals_submitted"] == 0
+        assert data["decisions_made"] == 0
+        assert data["orders_created"] == 0
+
+    def test_scoring_formula_labels_present(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Phase 4A: scoring_summary.local_scan_formula_label and final_score_formula_label are non-empty."""
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4a-formula-001",
+                "universe": "SP500", "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "dry_run": True, "submit_signals": False,
+                "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        ss = resp.json()["scoring_summary"]
+        assert len(ss["local_scan_formula_label"]) > 10
+        assert len(ss["final_score_formula_label"]) > 10
+        # Both labels reference momentum
+        assert "mom" in ss["local_scan_formula_label"] or "5d" in ss["local_scan_formula_label"]
+        assert "conf" in ss["final_score_formula_label"] or "mom" in ss["final_score_formula_label"]
+
 
 class TestMarketBackfillPricesEndpoint:
     """POST /v1/market/backfill-prices endpoint tests."""

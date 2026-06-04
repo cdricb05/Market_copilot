@@ -428,6 +428,13 @@ class CandidatePreview(BaseModel):
     preview_reasons: list[str]
     status: str
 
+    # Phase 4A explainability fields
+    price_history_points: int | None = None
+    prediction_status: str | None = None
+    selected_for_gcp_reason: str | None = None
+    top_score_drivers: list[str] = Field(default_factory=list)
+    skip_or_warning_reason: str | None = None
+
 
 class FetchAndRunPredictionResponse(BaseModel):
     fetched_count: int
@@ -561,6 +568,51 @@ class CandidateFunnelOut(BaseModel):
     top_scan_not_predicted: list[TopScanNotPredicted]
     skipped_examples: list[SkippedTickerDetail]
 
+    # Phase 4A extended funnel counts
+    price_history_ready_count: int = 0
+    skipped_insufficient_history_count: int = 0
+    local_scan_candidate_count: int = 0
+    prediction_batch_count: int = 0
+    gcp_success_count: int = 0
+    gcp_failure_count: int = 0
+    final_selected_count: int = 0
+    safety_counts: dict[str, int] = Field(
+        default_factory=lambda: {"signals_created": 0, "decisions_created": 0, "orders_created": 0}
+    )
+
+
+class ThresholdSummaryOut(BaseModel):
+    """Threshold parameters used in the scan and prediction pipeline."""
+    min_price_points: int
+    prediction_top_n: int
+    scan_top_n: int
+    max_prediction_concurrency: int
+    include_current_positions_for_prediction: bool
+
+
+class ScoringDiagnosticsOut(BaseModel):
+    """Scoring formula labels and driver breakdown."""
+    local_scan_formula_label: str
+    final_score_formula_label: str
+    top_driver_counts: dict[str, int]
+    threshold_summary: ThresholdSummaryOut
+
+
+class SkippedTickerDiagnostic(BaseModel):
+    """One entry in the skipped-ticker diagnostic sample."""
+    ticker: str
+    reason: str
+    price_history_points: int
+    latest_price_date: str | None = None
+    required_min_price_points: int
+
+
+class SkippedDiagnosticsOut(BaseModel):
+    """Compact sample of skipped tickers for explainability."""
+    total_skipped: int
+    sample_limit: int
+    samples: list[SkippedTickerDiagnostic]
+
 
 class PredictionFailureDetail(BaseModel):
     ticker: str
@@ -582,6 +634,8 @@ class MarketScanPredictionCandidatesResponse(BaseModel):
     signals_submitted: int
     decisions_made: int
     orders_created: int
+    scoring_summary: ScoringDiagnosticsOut | None = None
+    skipped_diagnostics: SkippedDiagnosticsOut | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -3525,6 +3579,16 @@ def scan_market(body: MarketScanRequest) -> MarketScanResponse:
     )
 
 
+_LOCAL_SCAN_FORMULA_LABEL = (
+    "0.3*mom5d(+) + 0.4*mom20d(+) + 0.3*rs_spy(+); vol_penalty if >5%"
+)
+_FINAL_SCORE_FORMULA_LABEL = (
+    "conf*return[2x-neg] + clip(0.15*mom5d+0.10*mom20d,+-0.05)"
+    " + clip(0.15*rs,+-0.05) + clip(0.10*(scan_norm-0.5),+-0.05); low-conf*0.80"
+)
+_SKIPPED_SAMPLE_LIMIT = 25
+
+
 def _cand_to_score_dict(cand: Any) -> dict:
     """Build a score_candidate_v2 input dict from a CandidateReview ORM object.
 
@@ -3773,12 +3837,14 @@ async def market_scan_prediction_candidates(
 
     # Inject current open-position tickers into GCP batch (holdings always need fresh prediction)
     holdings_injected: list[str] = []
+    holding_tickers_set: set[str] = set()
     if body.include_current_positions_for_prediction:
         with get_dedicated_session() as _pos_session:
             open_positions = list(_pos_session.execute(select(Position)).scalars().all())
         selected_set = set(selected_tickers)
         for pos in open_positions:
             t = pos.ticker.upper()
+            holding_tickers_set.add(t)
             if t not in selected_set:
                 holdings_injected.append(t)
                 selected_set.add(t)
@@ -3931,6 +3997,74 @@ async def market_scan_prediction_candidates(
             status,
         )
 
+        # Phase 4A: explainability fields
+        is_top_scan = selected_ticker in selected_candidates_map
+        is_holding = selected_ticker in holding_tickers_set
+        if is_top_scan and is_holding:
+            selected_for_gcp_reason = "BOTH"
+        elif is_top_scan:
+            selected_for_gcp_reason = "TOP_SCAN"
+        else:
+            selected_for_gcp_reason = "CURRENT_HOLDING_INJECTED"
+
+        # Top score drivers
+        _top_drivers: list[str] = []
+        if status == "OK" and normalized:
+            try:
+                _exp = float(normalized.get("expected_return_pct", "0") or "0")
+                if _exp > 0:
+                    _top_drivers.append("prediction_return")
+            except (ValueError, TypeError):
+                pass
+            try:
+                _cf = float(normalized.get("confidence", "0") or "0")
+                if _cf >= 0.7:
+                    _top_drivers.append("prediction_confidence")
+                elif _cf >= 0.5:
+                    _top_drivers.append("moderate_confidence")
+            except (ValueError, TypeError):
+                pass
+        elif status != "OK":
+            _top_drivers.append("missing_prediction")
+
+        if relative_strength_vs_spy_20d:
+            try:
+                if float(relative_strength_vs_spy_20d) > 0:
+                    _top_drivers.append("relative_strength")
+            except (ValueError, TypeError):
+                pass
+        if momentum_5d_pct:
+            try:
+                if float(momentum_5d_pct) > 0:
+                    _top_drivers.append("momentum_5d")
+            except (ValueError, TypeError):
+                pass
+        if momentum_20d_pct:
+            try:
+                if float(momentum_20d_pct) > 0:
+                    _top_drivers.append("momentum_20d")
+            except (ValueError, TypeError):
+                pass
+        if is_holding:
+            _top_drivers.append("already_held")
+        if not is_top_scan:
+            _top_drivers.append("no_scan_data")
+
+        # Skip or warning reason
+        _skip_warn: str | None = None
+        if status != "OK":
+            _skip_warn = f"PREDICTION_{status}"
+        elif normalized and prediction_recommendation == "SELL":
+            _skip_warn = "SELL_RECOMMENDATION"
+        elif normalized:
+            try:
+                if float(normalized.get("confidence", "1") or "1") < 0.5:
+                    _skip_warn = "LOW_CONFIDENCE"
+            except (ValueError, TypeError):
+                pass
+
+        price_history_points = candidate.price_count if candidate else None
+
         # Build preview row
         preview = CandidatePreview(
             ticker=selected_ticker,
@@ -3950,6 +4084,11 @@ async def market_scan_prediction_candidates(
             preview_score=preview_score,
             preview_reasons=preview_reasons,
             status=status,
+            price_history_points=price_history_points,
+            prediction_status=status,
+            selected_for_gcp_reason=selected_for_gcp_reason,
+            top_score_drivers=_top_drivers,
+            skip_or_warning_reason=_skip_warn,
         )
         candidate_previews.append(preview)
 
@@ -3983,6 +4122,15 @@ async def market_scan_prediction_candidates(
     outcomes_failed = len(all_prediction_failures)
     outcomes_other = max(0, len(candidate_previews) - outcomes_consider - outcomes_watch - outcomes_reject)
 
+    # Phase 4A: aggregate top driver counts across all previews
+    _top_driver_counts: dict[str, int] = {}
+    for _p in candidate_previews:
+        for _drv in _p.top_score_drivers:
+            _top_driver_counts[_drv] = _top_driver_counts.get(_drv, 0) + 1
+
+    _skipped_insuf = skipped_by_reason.get("INSUFFICIENT_PRICE_HISTORY", 0)
+    _skipped_no_data = skipped_by_reason.get("NO_PRICE_DATA", 0)
+
     candidate_funnel = CandidateFunnelOut(
         universe_count=len(universe_tickers),
         evaluated_count=len(universe_tickers) - len(skipped),
@@ -4005,6 +4153,42 @@ async def market_scan_prediction_candidates(
         ),
         top_scan_not_predicted=top_scan_not_predicted,
         skipped_examples=skipped_examples,
+        price_history_ready_count=max(0, len(universe_tickers) - _skipped_insuf - _skipped_no_data),
+        skipped_insufficient_history_count=_skipped_insuf,
+        local_scan_candidate_count=len(universe_tickers) - len(skipped),
+        prediction_batch_count=len(selected_tickers),
+        gcp_success_count=len(normalized_predictions),
+        gcp_failure_count=len(all_prediction_failures),
+        final_selected_count=len(candidate_previews),
+        safety_counts={"signals_created": 0, "decisions_created": 0, "orders_created": 0},
+    )
+
+    scoring_summary = ScoringDiagnosticsOut(
+        local_scan_formula_label=_LOCAL_SCAN_FORMULA_LABEL,
+        final_score_formula_label=_FINAL_SCORE_FORMULA_LABEL,
+        top_driver_counts=_top_driver_counts,
+        threshold_summary=ThresholdSummaryOut(
+            min_price_points=body.min_price_points,
+            prediction_top_n=body.prediction_top_n,
+            scan_top_n=body.top_n,
+            max_prediction_concurrency=body.max_prediction_concurrency,
+            include_current_positions_for_prediction=body.include_current_positions_for_prediction,
+        ),
+    )
+
+    skipped_diagnostics = SkippedDiagnosticsOut(
+        total_skipped=len(skipped),
+        sample_limit=_SKIPPED_SAMPLE_LIMIT,
+        samples=[
+            SkippedTickerDiagnostic(
+                ticker=s.ticker,
+                reason=s.reason,
+                price_history_points=s.price_count,
+                latest_price_date=None,
+                required_min_price_points=body.min_price_points,
+            )
+            for s in skipped[:_SKIPPED_SAMPLE_LIMIT]
+        ],
     )
 
     # Prepare response (no database writes, no workflow execution)
@@ -4031,6 +4215,8 @@ async def market_scan_prediction_candidates(
         signals_submitted=0,
         decisions_made=0,
         orders_created=0,
+        scoring_summary=scoring_summary,
+        skipped_diagnostics=skipped_diagnostics,
     )
 
 
