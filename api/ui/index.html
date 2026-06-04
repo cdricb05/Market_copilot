@@ -1157,11 +1157,25 @@
               <label>Benchmark</label>
               <input id="market-scan-benchmark" value="SPY" placeholder="SPY" class="mono">
             </div>
+            <div class="input-group">
+              <label>Scan Top N</label>
+              <input id="pred-preview-scan-top-n" type="number" value="20" min="1" max="100" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Prediction Top N</label>
+              <input id="pred-preview-top-n" type="number" value="5" min="1" max="20" class="mono">
+            </div>
+            <div class="input-group">
+              <label>GCP Concurrency</label>
+              <input id="pred-preview-concurrency" type="number" value="4" min="1" max="10" class="mono">
+            </div>
+            <div class="input-group" style="display: flex; align-items: center; gap: 8px;">
+              <label style="margin: 0;">Include Holdings</label>
+              <input id="pred-preview-include-holdings" type="checkbox" checked style="width: auto; margin: 0; cursor: pointer;">
+            </div>
             <!-- Hidden inputs for Prediction Preview defaults -->
             <input id="pred-preview-lookback" type="hidden" value="45">
-            <input id="pred-preview-scan-top-n" type="hidden" value="20">
             <input id="pred-preview-min-points" type="hidden" value="20">
-            <input id="pred-preview-top-n" type="hidden" value="5">
           </div>
           <!-- Current Objective & Primary Action -->
           <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid var(--info); border-radius: 2px; padding: 10px 12px; margin: 10px 0; font-size: 11px;">
@@ -3415,6 +3429,8 @@ async function runPredictionPreview(btn) {
   const topN = parseInt(document.getElementById('pred-preview-scan-top-n').value, 10) || 20;
   const minPoints = parseInt(document.getElementById('pred-preview-min-points').value, 10) || 20;
   const predictionTopN = parseInt(document.getElementById('pred-preview-top-n').value, 10) || 5;
+  const gcpConcurrency = parseInt(document.getElementById('pred-preview-concurrency').value, 10) || 4;
+  const includeHoldings = document.getElementById('pred-preview-include-holdings')?.checked !== false;
 
   const resultCard = document.getElementById('prediction-preview-card');
   const resultEl = document.getElementById('prediction-preview-result');
@@ -3439,6 +3455,8 @@ async function runPredictionPreview(btn) {
       top_n: topN,
       min_price_points: minPoints,
       prediction_top_n: predictionTopN,
+      include_current_positions_for_prediction: includeHoldings,
+      max_prediction_concurrency: gcpConcurrency,
       dry_run: true,
       submit_signals: false,
       run_risk: false,
@@ -4339,15 +4357,16 @@ function renderPredictionPreviewResult(data, resultEl) {
   const topN = parseInt(document.getElementById('pred-preview-scan-top-n').value, 10) || 20;
   const minPoints = parseInt(document.getElementById('pred-preview-min-points').value, 10) || 20;
   const predictionTopN = parseInt(document.getElementById('pred-preview-top-n').value, 10) || 5;
+  const gcpConcurrencyDisplay = parseInt(document.getElementById('pred-preview-concurrency')?.value, 10) || 4;
+  const includeHoldingsDisplay = document.getElementById('pred-preview-include-holdings')?.checked !== false;
   html += '<div style="background: rgba(0,0,0,.2); border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; margin-bottom: 16px;">';
   html += '<div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); font-weight: 600; margin-bottom: 6px;">Preview Configuration</div>';
   html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; font-size: 11px;">';
   html += `<div><span style="color: var(--label);">Universe:</span> <span style="color: var(--text-primary); font-weight: 600;">SP500</span></div>`;
-  html += `<div><span style="color: var(--label);">Benchmark:</span> <span style="color: var(--text-primary); font-weight: 600;">SPY</span></div>`;
-  html += `<div><span style="color: var(--label);">Lookback Days:</span> <span style="color: var(--text-primary); font-weight: 600;">${lookbackDays}</span></div>`;
-  html += `<div><span style="color: var(--label);">Top Scan Candidates:</span> <span style="color: var(--text-primary); font-weight: 600;">${topN}</span></div>`;
-  html += `<div><span style="color: var(--label);">Min Price Points:</span> <span style="color: var(--text-primary); font-weight: 600;">${minPoints}</span></div>`;
+  html += `<div><span style="color: var(--label);">Scan Top N:</span> <span style="color: var(--text-primary); font-weight: 600;">${topN}</span></div>`;
   html += `<div><span style="color: var(--label);">Prediction Top N:</span> <span style="color: var(--text-primary); font-weight: 600;">${predictionTopN}</span></div>`;
+  html += `<div><span style="color: var(--label);">GCP Concurrency:</span> <span style="color: var(--text-primary); font-weight: 600;">${gcpConcurrencyDisplay}</span></div>`;
+  html += `<div><span style="color: var(--label);">Include Holdings:</span> <span style="color: ${includeHoldingsDisplay ? 'var(--ok)' : 'var(--label)'}; font-weight: 600;">${includeHoldingsDisplay ? 'Yes' : 'No'}</span></div>`;
   html += `<div><span style="color: var(--label);">Safety Mode:</span> <span style="color: var(--ok); font-weight: 600;">Preview Only</span></div>`;
   html += '</div></div>';
 
@@ -4368,25 +4387,38 @@ function renderPredictionPreviewResult(data, resultEl) {
     html += '<summary style="padding: 10px 14px; background: rgba(0,0,0,.2); cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-accent); user-select: none;">Candidate Funnel</summary>';
     html += '<div style="padding: 12px 14px;">';
 
+    // Design principle note
+    html += '<div style="font-size: 10px; color: var(--label); margin-bottom: 10px; padding: 7px 10px; background: rgba(59,130,246,.07); border-left: 3px solid var(--info); border-radius: 1px;">';
+    html += 'The app scans the broad universe locally, but only sends selected candidates plus current holdings to GCP. This avoids long prediction runs.';
+    html += '</div>';
+
     // Plain-English explanation
-    html += '<div style="font-size: 11px; color: var(--label); margin-bottom: 10px; line-height: 1.6; border-left: 3px solid var(--info); padding-left: 10px;">';
-    html += `Universe source currently contains <strong style="color: var(--text-primary);">${funnel.universe_count || 0} tickers</strong>. `;
+    html += '<div style="font-size: 11px; color: var(--label); margin-bottom: 10px; line-height: 1.6; border-left: 3px solid var(--border); padding-left: 10px;">';
+    html += `Universe source contains <strong style="color: var(--text-primary);">${funnel.universe_count || 0} tickers</strong>. `;
     html += `<strong style="color: var(--text-primary);">${funnel.evaluated_count || 0}</strong> had enough price history to score; <strong style="color: ${(funnel.skipped_count || 0) > 0 ? 'var(--warning)' : 'var(--text-primary)'};">${funnel.skipped_count || 0} skipped</strong>. `;
     html += `<strong style="color: var(--text-primary);">${funnel.clean_scan_count || 0}</strong> passed scan quality filters. `;
-    html += `Prediction Top N = <strong style="color: var(--info);">${funnel.prediction_top_n || 0}</strong> controls how many scan winners are sent to GCP &mdash; `;
-    html += `<strong style="color: var(--ok);">${funnel.gcp_prediction_count || 0} sent</strong>, <strong style="color: var(--label);">${funnel.not_sent_to_gcp_count || 0} not sent</strong>. `;
-    html += 'Only tickers sent to GCP receive prediction forecasts. The rest are ranked by market scan only.';
+    html += `Top N = <strong style="color: var(--info);">${funnel.prediction_top_n || 0}</strong> scan winners sent to GCP`;
+    if ((funnel.current_holdings_injected_count || 0) > 0) {
+      html += `, plus <strong style="color: var(--warning);">${funnel.current_holdings_injected_count} holdings injected</strong>`;
+    }
+    html += ` = <strong style="color: var(--ok);">${funnel.gcp_prediction_count || 0} total GCP calls</strong>`;
+    if ((funnel.prediction_elapsed_ms || 0) > 0) {
+      html += ` in <strong style="color: var(--text-primary);">${funnel.prediction_elapsed_ms}ms</strong>`;
+    }
+    html += '. <strong style="color: var(--label);">' + (funnel.not_sent_to_gcp_count || 0) + ' scan candidates not sent</strong> (below Top N cutoff).';
     html += '</div>';
 
     // Funnel flow numbers
-    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-bottom: 12px;">';
+    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-bottom: 12px;">';
     const funnelStats = [
       { label: 'Universe', value: funnel.universe_count || 0, color: 'var(--text-primary)' },
       { label: 'Evaluated', value: funnel.evaluated_count || 0, color: 'var(--text-primary)' },
       { label: 'Skipped', value: funnel.skipped_count || 0, color: (funnel.skipped_count || 0) > 0 ? 'var(--warning)' : 'var(--text-primary)' },
       { label: 'Top Scan', value: funnel.clean_scan_count || 0, color: 'var(--text-primary)' },
+      { label: 'Holdings+', value: funnel.current_holdings_injected_count || 0, color: (funnel.current_holdings_injected_count || 0) > 0 ? 'var(--warning)' : 'var(--label)' },
       { label: 'Sent to GCP', value: funnel.gcp_prediction_count || 0, color: 'var(--ok)' },
       { label: 'Not Sent', value: funnel.not_sent_to_gcp_count || 0, color: 'var(--label)' },
+      { label: 'GCP ms', value: funnel.prediction_elapsed_ms || 0, color: 'var(--text-primary)' },
     ];
     funnelStats.forEach(s => {
       html += `<div style="text-align: center; padding: 6px 4px; background: rgba(0,0,0,.15); border-radius: 2px;">`;

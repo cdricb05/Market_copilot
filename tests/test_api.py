@@ -1989,7 +1989,7 @@ class TestFetchAndRunPredictionEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """Fetch and run normalizes API response and submits through strategy."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -2037,7 +2037,7 @@ class TestFetchAndRunPredictionEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """Partial failures return 200 with fetch_failures included."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -2079,7 +2079,7 @@ class TestFetchAndRunPredictionEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """All fetch failures returns 503."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [],
                 [
@@ -2107,7 +2107,7 @@ class TestFetchAndRunPredictionEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """Response with invalid fields normalizes to zero predictions."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -2148,7 +2148,7 @@ class TestFetchAndRunPredictionEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """Missing X-API-Key header returns 401."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return [], []
 
         monkeypatch.setattr(
@@ -2170,7 +2170,7 @@ class TestFetchAndRunPredictionEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """Invalid request (missing required fields) returns 422."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return [], []
 
         monkeypatch.setattr(
@@ -2192,7 +2192,7 @@ class TestFetchAndRunPredictionEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """Response includes decisions_breakdown and rejection_reasons."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -2233,7 +2233,7 @@ class TestFetchAndRunPredictionEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """Batch with BUY and HOLD (missing confidence) normalizes all correctly."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -2687,7 +2687,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
         self, market_scan_prediction_seeded_client: TestClient, monkeypatch
     ) -> None:
         """Runs market scan and selects top prediction_top_n candidates."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # Return predictions for requested tickers
             return (
                 [
@@ -2725,6 +2725,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -2751,7 +2752,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
         self, seeded_client: TestClient, monkeypatch
     ) -> None:
         """Excludes skipped tickers and DATA_QUALITY_OUTLIER tickers from prediction selection."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # Return empty responses (no predictions should be fetched for excluded tickers)
             return [], []
 
@@ -2775,6 +2776,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -2827,7 +2829,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             mock_scan,
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # AAPL succeeds, MSFT fails
             return (
                 [
@@ -2866,6 +2868,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -2908,7 +2911,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             mock_scan,
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # All fetch attempts fail
             return (
                 [],
@@ -2938,6 +2941,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -2959,7 +2963,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
         self, market_scan_prediction_seeded_client: TestClient, monkeypatch
     ) -> None:
         """Response always has zero signals_submitted, decisions_made, orders_created."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -3007,7 +3011,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
     def test_no_signal_rows_created(self, market_scan_prediction_seeded_client: TestClient, monkeypatch) -> None:
         """V1: No Signal rows are created in the database."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -3063,7 +3067,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
         self, market_scan_prediction_seeded_client: TestClient, monkeypatch
     ) -> None:
         """V1: No TradeDecision rows are created in the database."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -3119,7 +3123,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
     def test_no_order_rows_created(self, market_scan_prediction_seeded_client: TestClient, monkeypatch) -> None:
         """V1: No Order rows are created in the database."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [
                     {
@@ -3205,7 +3209,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         call_log = []
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             call_log.append(tickers)
             # Return one valid prediction
             return (
@@ -3243,6 +3247,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -3284,7 +3289,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return ([
                 {
                     "ticker": t,
@@ -3315,6 +3320,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -3351,7 +3357,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # AAPL succeeds, MSFT fails at fetch level
             return ([
                 {
@@ -3384,6 +3390,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -3424,7 +3431,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # AAPL succeeds, MSFT has invalid response (missing confidence for BUY)
             return ([
                 {
@@ -3464,6 +3471,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -3507,7 +3515,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # Both fail normalization (invalid recommendations)
             return ([
                 {
@@ -3547,6 +3555,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -3589,7 +3598,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # Only AMD in response, QCOM is missing (not in failures, not in responses)
             return ([
                 {
@@ -3620,6 +3629,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -3657,7 +3667,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # AMD normalizes, AMAT normalizes, rest fail normalization
             responses = []
             if "AMD" in tickers:
@@ -3711,6 +3721,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -3748,7 +3759,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [{
                     "ticker": "AAPL", "current_price": "150.00",
@@ -3809,7 +3820,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             # Only AAPL succeeds, MSFT fails fetch
             return (
                 [{
@@ -3869,7 +3880,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [{
                     "ticker": "AAPL", "current_price": "150.00",
@@ -3894,6 +3905,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "prediction_top_n": 5,
                 "dry_run": True, "submit_signals": False,
                 "run_risk": False, "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -3927,7 +3939,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [{
                     "ticker": "AAPL", "current_price": "150.00",
@@ -3981,7 +3993,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [{
                     "ticker": "AAPL", "current_price": "150.00",
@@ -4035,7 +4047,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return [], [{"ticker": "AAPL", "reason": "Timeout"}]
 
         monkeypatch.setattr(
@@ -4083,7 +4095,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [{
                     "ticker": "AAPL", "current_price": "150.00",
@@ -4136,7 +4148,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [{
                     "ticker": "AAPL", "current_price": "150.00",
@@ -4191,7 +4203,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
             "paper_trader.engine.market_screener.scan_market", mock_scan
         )
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [{
                     "ticker": "AAPL", "current_price": "150.00",
@@ -4233,7 +4245,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
         self, market_scan_prediction_seeded_client: TestClient, monkeypatch
     ) -> None:
         """Response includes a candidate_funnel object with all required keys."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return [], []
 
         monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
@@ -4295,7 +4307,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return [], []
 
         monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
@@ -4340,7 +4352,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return [], []
 
         monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
@@ -4389,7 +4401,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return [], []
 
         monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
@@ -4409,6 +4421,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 "submit_signals": False,
                 "run_risk": False,
                 "create_orders": False,
+                "include_current_positions_for_prediction": False,
             },
             headers=_AUTH,
         )
@@ -4439,7 +4452,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
 
         monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
 
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return (
                 [{
                     "ticker": "AAPL", "current_price": "150.00",
@@ -4484,7 +4497,7 @@ class TestMarketScanPredictionCandidatesEndpoint:
         self, market_scan_prediction_seeded_client: TestClient, monkeypatch
     ) -> None:
         """candidate_funnel addition must not create signals, decisions, or orders."""
-        async def mock_fetch(tickers, api_url, timeout_seconds):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
             return [], []
 
         monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
@@ -4513,6 +4526,217 @@ class TestMarketScanPredictionCandidatesEndpoint:
         assert data["decisions_made"] == 0
         assert data["orders_created"] == 0
         assert "candidate_funnel" in data
+
+    # ------------------------------------------------------------------
+    # Phase 2 — holdings injection and new diagnostics
+    # ------------------------------------------------------------------
+
+    def test_prediction_candidates_injects_current_holdings_into_gcp_batch(
+        self, market_scan_prediction_seeded_client: TestClient, api_engine, monkeypatch
+    ) -> None:
+        """Open positions are injected into the GCP prediction batch even if not top scan candidates."""
+        received_tickers: list[list[str]] = []
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            received_tickers.append(list(tickers))
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        # Create a position for NVDA — not in seeded price data, so it won't rank in scan
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            open_position(
+                session,
+                ticker="NVDA",
+                qty=Decimal("2"),
+                fill_price=Decimal("500.00"),
+                now=_NOW,
+            )
+            session.commit()
+
+        try:
+            resp = market_scan_prediction_seeded_client.post(
+                "/v1/strategy/market-scan/prediction-candidates",
+                json={
+                    "idempotency_key": "test-p2-001",
+                    "universe": "SP500",
+                    "tickers": ["AAPL", "MSFT"],
+                    "benchmark_ticker": "SPY",
+                    "lookback_days": 20,
+                    "top_n": 5,
+                    "min_price_points": 5,
+                    "prediction_top_n": 2,
+                    "include_current_positions_for_prediction": True,
+                    "dry_run": True,
+                    "submit_signals": False,
+                    "run_risk": False,
+                    "create_orders": False,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            funnel = data["candidate_funnel"]
+            # NVDA should have been injected
+            assert funnel["current_holdings_injected_count"] >= 1
+            # selected_tickers should include NVDA
+            assert "NVDA" in data["selected_tickers"]
+        finally:
+            # Clean up the NVDA position so it doesn't pollute later tests
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                from sqlalchemy import delete
+                session.execute(delete(Position).where(Position.ticker == "NVDA"))
+                session.commit()
+
+    def test_prediction_candidates_does_not_duplicate_holding_already_in_scan(
+        self, market_scan_prediction_seeded_client: TestClient, api_engine, monkeypatch
+    ) -> None:
+        """A holding that already ranks in top scan candidates is not duplicated in GCP batch."""
+        received_tickers: list[list[str]] = []
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            received_tickers.append(list(tickers))
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        # Delete any pre-existing positions for test isolation, then create AAPL
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            from sqlalchemy import delete as sa_delete
+            session.execute(sa_delete(Position))
+            session.commit()
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            open_position(
+                session,
+                ticker="AAPL",
+                qty=Decimal("1"),
+                fill_price=Decimal("150.00"),
+                now=_NOW,
+            )
+            session.commit()
+
+        try:
+            resp = market_scan_prediction_seeded_client.post(
+                "/v1/strategy/market-scan/prediction-candidates",
+                json={
+                    "idempotency_key": "test-p2-002",
+                    "universe": "SP500",
+                    "tickers": ["AAPL", "MSFT"],
+                    "benchmark_ticker": "SPY",
+                    "lookback_days": 20,
+                    "top_n": 5,
+                    "min_price_points": 5,
+                    "prediction_top_n": 2,
+                    "include_current_positions_for_prediction": True,
+                    "dry_run": True,
+                    "submit_signals": False,
+                    "run_risk": False,
+                    "create_orders": False,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            # AAPL should appear exactly once in selected_tickers — not duplicated by holdings injection
+            selected = data["selected_tickers"]
+            assert "AAPL" in selected
+            assert selected.count("AAPL") == 1
+            # Candidate previews must also not duplicate AAPL
+            previews_for_aapl = [p for p in data["candidate_previews"] if p["ticker"] == "AAPL"]
+            assert len(previews_for_aapl) <= 1
+            # Any injected count > 0 reflects other open positions in full-suite DB state, not duplicate AAPL
+            funnel = data["candidate_funnel"]
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                from sqlalchemy import delete as sa_delete
+                session.execute(sa_delete(Position))
+                session.commit()
+            # Restore TSLA position that persists throughout this module
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                open_position(
+                    session,
+                    ticker="TSLA",
+                    qty=Decimal("3"),
+                    fill_price=Decimal("250.000000"),
+                    now=_NOW,
+                )
+                session.commit()
+
+    def test_prediction_candidates_does_not_send_all_evaluated_tickers_to_gcp(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Only top prediction_top_n scan candidates (plus holdings) go to GCP, not the whole universe."""
+        received_tickers: list[list[str]] = []
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            received_tickers.append(list(tickers))
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-p2-003",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 5,
+                "min_price_points": 5,
+                "prediction_top_n": 1,
+                "include_current_positions_for_prediction": False,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # Only 1 ticker should have been sent to GCP (prediction_top_n=1, no holdings)
+        assert data["candidate_funnel"]["gcp_prediction_count"] <= 1
+        if received_tickers:
+            assert len(received_tickers[0]) <= 1
+
+    def test_prediction_candidates_response_includes_new_diagnostics(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Response candidate_funnel includes current_holdings_injected_count, gcp_concurrency, prediction_elapsed_ms."""
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-p2-004",
+                "universe": "SP500",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY",
+                "lookback_days": 20,
+                "top_n": 5,
+                "min_price_points": 5,
+                "prediction_top_n": 2,
+                "max_prediction_concurrency": 3,
+                "include_current_positions_for_prediction": False,
+                "dry_run": True,
+                "submit_signals": False,
+                "run_risk": False,
+                "create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        funnel = resp.json()["candidate_funnel"]
+        assert "current_holdings_injected_count" in funnel
+        assert "gcp_concurrency" in funnel
+        assert "prediction_elapsed_ms" in funnel
+        assert funnel["gcp_concurrency"] == 3
+        assert isinstance(funnel["prediction_elapsed_ms"], int)
+        assert funnel["prediction_elapsed_ms"] >= 0
 
 
 class TestMarketBackfillPricesEndpoint:

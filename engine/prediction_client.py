@@ -9,9 +9,12 @@ Design principles:
     - No exceptions raised to callers; failures are returned as dicts with reasons.
     - Normalization is separate from fetching for testability.
     - Uses httpx for async-capable HTTP client.
+    - Bounded concurrency via asyncio.Semaphore (max_concurrency, default 4).
+    - Results are returned in original input-ticker order.
 """
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 from typing import Any
 
@@ -25,6 +28,7 @@ async def fetch_predictions_for_tickers(
     tickers: list[str],
     api_url: str,
     timeout_seconds: int = 30,
+    max_concurrency: int = 4,
 ) -> tuple[list[dict], list[dict]]:
     """
     Fetch predictions from external stock prediction API for a batch of tickers.
@@ -33,15 +37,17 @@ async def fetch_predictions_for_tickers(
         tickers: List of stock tickers (case-insensitive).
         api_url: Base URL of the prediction service (e.g., http://127.0.0.1:9000).
         timeout_seconds: HTTP request timeout in seconds.
+        max_concurrency: Maximum number of in-flight requests at once (default 4).
 
     Returns:
         (successful_predictions, failures)
-        successful_predictions: list of raw API response dicts
-        failures: list of dicts {ticker, reason} for tickers that couldn't be fetched
+        successful_predictions: list of raw API response dicts, in input ticker order.
+        failures: list of dicts {ticker, reason} for tickers that couldn't be fetched.
 
     Behavior:
         - Normalizes tickers to uppercase.
         - One failed ticker doesn't block others.
+        - Requests run concurrently up to max_concurrency via asyncio.Semaphore.
         - Returns raw responses (not normalized) — caller must call normalize_prediction_response().
         - Network errors, timeouts, and service errors are caught and returned as failures.
     """
@@ -49,41 +55,32 @@ async def fetch_predictions_for_tickers(
         return [], []
 
     if httpx is None:
-        reasons = {t.upper(): "httpx not installed" for t in tickers}
-        return [], [{"ticker": t, "reason": r} for t, r in reasons.items()]
+        return [], [{"ticker": t.upper(), "reason": "httpx not installed"} for t in tickers]
 
     if not api_url:
-        reasons = {t.upper(): "STOCK_PREDICTION_API_URL not configured" for t in tickers}
-        return [], [{"ticker": t, "reason": r} for t, r in reasons.items()]
+        return [], [{"ticker": t.upper(), "reason": "STOCK_PREDICTION_API_URL not configured"} for t in tickers]
 
-    # Normalize tickers
     normalized_tickers = [t.upper() for t in tickers]
+    endpoint = f"{api_url.rstrip('/')}/predict_all_models/"
+    semaphore = asyncio.Semaphore(max(1, max_concurrency))
 
-    successful = []
-    failed = {}
+    successful_by_ticker: dict[str, dict] = {}
+    failed: dict[str, str] = {}
 
-    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-        endpoint = f"{api_url.rstrip('/')}/predict_all_models/"
-
-        for ticker in normalized_tickers:
+    async def _fetch_one(ticker: str, client: "httpx.AsyncClient") -> None:
+        async with semaphore:
             try:
-                response = await client.post(
-                    endpoint,
-                    json={"ticker": ticker},
-                )
+                response = await client.post(endpoint, json={"ticker": ticker})
                 response.raise_for_status()
                 data = response.json()
-
-                # Ensure ticker is in response for traceability
                 if "ticker" not in data:
                     data["ticker"] = ticker
-
-                successful.append(data)
+                successful_by_ticker[ticker] = data
             except httpx.TimeoutException:
                 failed[ticker] = f"Request timeout (>{timeout_seconds}s)"
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    failed[ticker] = f"Ticker not found (404)"
+                    failed[ticker] = "Ticker not found (404)"
                 elif e.response.status_code == 503:
                     failed[ticker] = "Prediction service unavailable (503)"
                 else:
@@ -93,6 +90,11 @@ async def fetch_predictions_for_tickers(
             except Exception as e:
                 failed[ticker] = f"Failed to fetch: {str(e)[:50]}"
 
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        await asyncio.gather(*[_fetch_one(t, client) for t in normalized_tickers])
+
+    # Preserve input order
+    successful = [successful_by_ticker[t] for t in normalized_tickers if t in successful_by_ticker]
     failures = [{"ticker": t, "reason": r} for t, r in failed.items()]
     return successful, failures
 

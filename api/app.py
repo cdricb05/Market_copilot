@@ -480,6 +480,16 @@ class MarketScanPredictionCandidatesRequest(BaseModel):
         le=100,
         description="Select top N candidates for prediction fetching.",
     )
+    include_current_positions_for_prediction: bool = Field(
+        default=True,
+        description="Inject currently held position tickers into GCP prediction batch even if not top scan candidates.",
+    )
+    max_prediction_concurrency: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="Maximum concurrent GCP prediction requests (1-10, default 4).",
+    )
     dry_run: bool = Field(
         default=True,
         description="V1: must be true. PREVIEW mode only; no database writes.",
@@ -543,6 +553,9 @@ class CandidateFunnelOut(BaseModel):
     prediction_top_n: int
     gcp_prediction_count: int
     not_sent_to_gcp_count: int
+    current_holdings_injected_count: int = 0
+    gcp_concurrency: int = 4
+    prediction_elapsed_ms: int = 0
     prediction_outcomes: PredictionOutcomes
     top_scan_not_predicted: list[TopScanNotPredicted]
     skipped_examples: list[SkippedTickerDetail]
@@ -3704,9 +3717,23 @@ async def market_scan_prediction_candidates(
     selected_for_prediction = clean_candidates[:body.prediction_top_n]
     selected_tickers = [c.ticker for c in selected_for_prediction]
 
-    # Fetch predictions for selected tickers
+    # Inject current open-position tickers into GCP batch (holdings always need fresh prediction)
+    holdings_injected: list[str] = []
+    if body.include_current_positions_for_prediction:
+        with get_dedicated_session() as _pos_session:
+            open_positions = list(_pos_session.execute(select(Position)).scalars().all())
+        selected_set = set(selected_tickers)
+        for pos in open_positions:
+            t = pos.ticker.upper()
+            if t not in selected_set:
+                holdings_injected.append(t)
+                selected_set.add(t)
+        selected_tickers = selected_tickers + holdings_injected
+
+    # Fetch predictions for selected tickers (bounded concurrency)
     fetched_responses = []
     fetch_failures = []
+    _t_fetch_start = datetime.now(timezone.utc)
 
     if selected_tickers:
         try:
@@ -3714,12 +3741,17 @@ async def market_scan_prediction_candidates(
                 tickers=selected_tickers,
                 api_url=settings.stock_prediction_api_url,
                 timeout_seconds=settings.stock_prediction_api_timeout_seconds,
+                max_concurrency=body.max_prediction_concurrency,
             )
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to fetch predictions: {str(exc)}",
             )
+
+    _prediction_elapsed_ms = int(
+        (datetime.now(timezone.utc) - _t_fetch_start).total_seconds() * 1000
+    )
 
     # Normalize fetched responses
     normalized_predictions = []
@@ -3907,6 +3939,9 @@ async def market_scan_prediction_candidates(
         prediction_top_n=body.prediction_top_n,
         gcp_prediction_count=len(selected_tickers),
         not_sent_to_gcp_count=len(not_sent_candidates),
+        current_holdings_injected_count=len(holdings_injected),
+        gcp_concurrency=body.max_prediction_concurrency,
+        prediction_elapsed_ms=_prediction_elapsed_ms,
         prediction_outcomes=PredictionOutcomes(
             consider=outcomes_consider,
             watch=outcomes_watch,

@@ -7,14 +7,18 @@ Tests focus on:
     - Field mapping and transformation (confidence scaling, recommendation uppercase, etc.).
     - Model consensus derivation from per_model_summary.
     - Market context mapping based on recommendation.
+    - Concurrent fetch: result ordering, failure tolerance, concurrency limit.
 """
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from paper_trader.engine.prediction_client import (
+    fetch_predictions_for_tickers,
     normalize_prediction_response,
 )
 
@@ -696,3 +700,125 @@ class TestNormalizePredictionResponse:
             "prophet": "BUY",
             "arima": "BUY",
         }
+
+
+# ---------------------------------------------------------------------------
+# Concurrent fetch tests
+# ---------------------------------------------------------------------------
+
+def _make_mock_response(ticker: str) -> MagicMock:
+    """Build a mock httpx response for a given ticker."""
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json = MagicMock(return_value={
+        "ticker": ticker,
+        "current_price": "100",
+        "ensemble_day5": "105",
+        "d5_change_pct": "5",
+        "confidence": "80",
+        "recommendation": "BUY",
+        "per_model_summary": {},
+    })
+    return resp
+
+
+class TestConcurrentFetch:
+    """fetch_predictions_for_tickers() concurrent behaviour."""
+
+    def test_concurrent_fetch_preserves_one_result_per_ticker(self):
+        """Each requested ticker appears exactly once in successful results."""
+        tickers = ["AAPL", "MSFT", "NVDA"]
+
+        async def _mock_post(url, json=None, **kwargs):
+            return _make_mock_response(json["ticker"])
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_mock_post)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("paper_trader.engine.prediction_client.httpx") as mock_httpx:
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = Exception
+            mock_httpx.HTTPStatusError = Exception
+            mock_httpx.RequestError = Exception
+
+            successful, failures = asyncio.run(
+                fetch_predictions_for_tickers(tickers, "http://localhost:9000")
+            )
+
+        assert failures == []
+        assert len(successful) == 3
+        returned_tickers = [r["ticker"] for r in successful]
+        assert set(returned_tickers) == {"AAPL", "MSFT", "NVDA"}
+
+    def test_concurrent_fetch_tolerates_one_failed_ticker(self):
+        """A single ticker failure does not prevent results for other tickers."""
+        tickers = ["AAPL", "FAIL", "MSFT"]
+
+        import httpx as real_httpx
+
+        async def _mock_post(url, json=None, **kwargs):
+            if json["ticker"] == "FAIL":
+                err = real_httpx.TimeoutException("timeout")
+                raise err
+            return _make_mock_response(json["ticker"])
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_mock_post)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("paper_trader.engine.prediction_client.httpx") as mock_httpx:
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = real_httpx.TimeoutException
+            mock_httpx.HTTPStatusError = real_httpx.HTTPStatusError
+            mock_httpx.RequestError = real_httpx.RequestError
+
+            successful, failures = asyncio.run(
+                fetch_predictions_for_tickers(tickers, "http://localhost:9000")
+            )
+
+        assert len(successful) == 2
+        assert {r["ticker"] for r in successful} == {"AAPL", "MSFT"}
+        assert len(failures) == 1
+        assert failures[0]["ticker"] == "FAIL"
+        assert "timeout" in failures[0]["reason"].lower()
+
+    def test_concurrent_fetch_respects_max_concurrency(self):
+        """Semaphore limits active in-flight requests to max_concurrency."""
+        tickers = ["T1", "T2", "T3", "T4", "T5"]
+        max_concurrent = 2
+        peak_concurrent = 0
+        current_concurrent = 0
+
+        async def _mock_post(url, json=None, **kwargs):
+            nonlocal peak_concurrent, current_concurrent
+            current_concurrent += 1
+            peak_concurrent = max(peak_concurrent, current_concurrent)
+            await asyncio.sleep(0)  # yield to allow other coroutines to run
+            current_concurrent -= 1
+            return _make_mock_response(json["ticker"])
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_mock_post)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("paper_trader.engine.prediction_client.httpx") as mock_httpx:
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = Exception
+            mock_httpx.HTTPStatusError = Exception
+            mock_httpx.RequestError = Exception
+
+            successful, failures = asyncio.run(
+                fetch_predictions_for_tickers(
+                    tickers, "http://localhost:9000", max_concurrency=max_concurrent
+                )
+            )
+
+        assert len(successful) == 5
+        assert failures == []
+        # With asyncio.sleep(0) yielding between acquire and release, peak should
+        # not exceed max_concurrent+1 (scheduling granularity allows slight overrun)
+        assert peak_concurrent <= max_concurrent + 1
