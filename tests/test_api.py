@@ -5847,6 +5847,379 @@ class TestMarketScanPredictionCandidatesEndpoint:
         assert data["inserted_count"] == 1
         assert data["saved_new_candidates"] == 1
 
+    # -----------------------------------------------------------------------
+    # Phase 4C tests — Quality Calibration Workbench
+    # -----------------------------------------------------------------------
+
+    def _make_mock_scan_and_fetch(self):
+        """Return (mock_scan, mock_fetch) helpers used across Phase 4C tests."""
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=i + 1, ticker=t, score=f"{5-i}.00", latest_price="100.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.00", momentum_20d_pct="4.00",
+                    volatility_20d_pct="3.00", relative_strength_vs_spy_20d="0.50",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                )
+                for i, t in enumerate(["AAPL", "MSFT", "NVDA"])
+            ], [], __import__("datetime").date(2025, 1, 14)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            responses = []
+            for t in tickers:
+                responses.append({
+                    "ticker": t,
+                    "current_price": "100.00",
+                    "ensemble_day5": "108.00",
+                    "d5_change_pct": "8.00",
+                    "confidence": "75.0",
+                    "recommendation": "BUY",
+                    "per_model_summary": {},
+                })
+            return responses, []
+
+        return mock_scan, mock_fetch
+
+    def test_4c_quality_preview_returns_200_and_score_breakdown(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """quality_preview returns 200 and each candidate has score_breakdown."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-quality-001",
+                "tickers": ["AAPL", "MSFT", "NVDA"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 10, "min_price_points": 5, "prediction_top_n": 3,
+                "scoring_profile": "quality_preview",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["candidate_previews"]) > 0
+        for p in data["candidate_previews"]:
+            assert p["score_breakdown"] is not None, f"{p['ticker']} missing score_breakdown"
+            assert p["score_breakdown"]["formula_profile"] == "quality_preview"
+
+    def test_4c_risk_adjusted_preview_returns_200_and_score_breakdown(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """risk_adjusted_preview returns 200 and each candidate has score_breakdown."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-risk-001",
+                "tickers": ["AAPL", "MSFT", "NVDA"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 10, "min_price_points": 5, "prediction_top_n": 3,
+                "scoring_profile": "risk_adjusted_preview",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["candidate_previews"]) > 0
+        for p in data["candidate_previews"]:
+            assert p["score_breakdown"] is not None
+            assert p["score_breakdown"]["formula_profile"] == "risk_adjusted_preview"
+
+    def test_4c_current_profile_score_breakdown_always_populated(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """current profile also populates score_breakdown (Phase 4C always-on)."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-cur-001",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 10, "min_price_points": 5, "prediction_top_n": 2,
+                "scoring_profile": "current",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        for p in data["candidate_previews"]:
+            assert p["score_breakdown"] is not None
+            assert p["score_breakdown"]["formula_profile"] == "current"
+        # No comparison for current profile
+        assert data["scoring_profile_comparison"] is None
+
+    def test_4c_score_breakdown_has_all_required_fields(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """score_breakdown contains all required component fields."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-fields-001",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 1,
+                "scoring_profile": "quality_preview",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        previews = resp.json()["candidate_previews"]
+        assert len(previews) > 0
+        sb = previews[0]["score_breakdown"]
+        for field in (
+            "formula_profile", "prediction_return_component", "prediction_confidence_component",
+            "momentum_5d_component", "momentum_20d_component", "momentum_total_adj",
+            "relative_strength_component", "scan_adj", "volatility_penalty_component",
+            "already_held_penalty_component", "stale_or_missing_prediction_penalty",
+            "low_conf_suppression_applied", "final_score",
+        ):
+            assert field in sb, f"score_breakdown missing field: {field}"
+
+    def test_4c_profile_comparison_includes_top_tickers_by_profile(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """scoring_profile_comparison.top_tickers_by_profile present for quality_preview."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-top-001",
+                "tickers": ["AAPL", "MSFT", "NVDA"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 10, "min_price_points": 5, "prediction_top_n": 3,
+                "scoring_profile": "quality_preview",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        cmp = resp.json()["scoring_profile_comparison"]
+        assert cmp is not None
+        assert "top_tickers_by_profile" in cmp
+        assert "current" in cmp["top_tickers_by_profile"]
+        assert "quality_preview" in cmp["top_tickers_by_profile"]
+        assert isinstance(cmp["top_tickers_by_profile"]["current"], list)
+
+    def test_4c_profile_comparison_includes_overlap_matrix(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """scoring_profile_comparison.overlap_matrix present for risk_adjusted_preview."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-matrix-001",
+                "tickers": ["AAPL", "MSFT", "NVDA"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 10, "min_price_points": 5, "prediction_top_n": 3,
+                "scoring_profile": "risk_adjusted_preview",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        cmp = resp.json()["scoring_profile_comparison"]
+        assert cmp is not None
+        assert "overlap_matrix" in cmp
+        assert isinstance(cmp["overlap_matrix"], dict)
+        # At minimum, current vs risk_adjusted_preview must be in the matrix
+        assert any("risk_adjusted_preview" in k for k in cmp["overlap_matrix"])
+
+    def test_4c_profile_comparison_includes_candidates_with_high_disagreement(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """scoring_profile_comparison.candidates_with_high_disagreement is present."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-disagree-001",
+                "tickers": ["AAPL", "MSFT", "NVDA"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 10, "min_price_points": 5, "prediction_top_n": 3,
+                "scoring_profile": "quality_preview",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        cmp = resp.json()["scoring_profile_comparison"]
+        assert cmp is not None
+        assert "candidates_with_high_disagreement" in cmp
+        assert isinstance(cmp["candidates_with_high_disagreement"], list)
+
+    def test_4c_profile_comparison_includes_profiles_compared(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """scoring_profile_comparison.profiles_compared lists all 4 profiles."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-profiles-001",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "scoring_profile": "balanced_preview",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        cmp = resp.json()["scoring_profile_comparison"]
+        assert cmp is not None
+        compared = cmp["profiles_compared"]
+        assert "current" in compared
+        assert "balanced_preview" in compared
+        assert "quality_preview" in compared
+        assert "risk_adjusted_preview" in compared
+
+    def test_4c_all_preview_profiles_create_zero_signals_decisions_orders(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch, api_engine
+    ) -> None:
+        """All 4 scoring profiles create zero signals, decisions, and orders."""
+        from sqlalchemy.orm import Session as OrmSession
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        for profile in ["current", "balanced_preview", "quality_preview", "risk_adjusted_preview"]:
+            with OrmSession(api_engine, autoflush=False, expire_on_commit=False) as s:
+                sig_before = s.query(Signal).count()
+                td_before  = s.query(TradeDecision).count()
+                ord_before = s.query(Order).count()
+
+            resp = market_scan_prediction_seeded_client.post(
+                "/v1/strategy/market-scan/prediction-candidates",
+                json={
+                    "idempotency_key": f"test-4c-zero-{profile}-001",
+                    "tickers": ["AAPL", "MSFT"],
+                    "benchmark_ticker": "SPY", "lookback_days": 20,
+                    "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                    "scoring_profile": profile,
+                    "include_current_positions_for_prediction": False,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200, f"Profile {profile} failed: {resp.text}"
+            data = resp.json()
+            assert data["signals_submitted"] == 0, f"Profile {profile}: signals_submitted != 0"
+            assert data["decisions_made"] == 0, f"Profile {profile}: decisions_made != 0"
+            assert data["orders_created"] == 0, f"Profile {profile}: orders_created != 0"
+
+            with OrmSession(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(Signal).count() == sig_before, f"Profile {profile}: signals created"
+                assert s.query(TradeDecision).count() == td_before, f"Profile {profile}: decisions created"
+                assert s.query(Order).count() == ord_before, f"Profile {profile}: orders created"
+
+    def test_4c_invalid_scoring_profile_new_values_422(
+        self, market_scan_prediction_seeded_client: TestClient
+    ) -> None:
+        """Additional invalid profile names return 422 (complementing Phase 4B test)."""
+        for bad_profile in ["momentum_heavy", "aggressive", "CURRENT", "Quality_Preview"]:
+            resp = market_scan_prediction_seeded_client.post(
+                "/v1/strategy/market-scan/prediction-candidates",
+                json={
+                    "idempotency_key": f"test-4c-inv-{bad_profile}",
+                    "tickers": ["AAPL"],
+                    "benchmark_ticker": "SPY",
+                    "scoring_profile": bad_profile,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 422, f"Expected 422 for profile '{bad_profile}', got {resp.status_code}"
+
+    def test_4c_quality_preview_safety_counts_zero(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """quality_preview scoring_profile_comparison.safety_counts all zero."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-safety-001",
+                "tickers": ["AAPL", "MSFT"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                "scoring_profile": "quality_preview",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        cmp = resp.json()["scoring_profile_comparison"]
+        assert cmp is not None
+        sc = cmp["safety_counts"]
+        assert sc["signals_created"] == 0
+        assert sc["decisions_created"] == 0
+        assert sc["orders_created"] == 0
+
+    def test_4c_current_profile_backward_compat_no_comparison(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """current profile: scoring_profile_comparison is None (backward compat preserved)."""
+        mock_scan, mock_fetch = self._make_mock_scan_and_fetch()
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/strategy/market-scan/prediction-candidates",
+            json={
+                "idempotency_key": "test-4c-compat-001",
+                "tickers": ["AAPL"],
+                "benchmark_ticker": "SPY", "lookback_days": 20,
+                "top_n": 5, "min_price_points": 5, "prediction_top_n": 1,
+                "scoring_profile": "current",
+                "include_current_positions_for_prediction": False,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["scoring_profile_comparison"] is None
+        # Phase 4B fields remain None for current profile
+        for p in data["candidate_previews"]:
+            assert p["current_score"] is None
+            assert p["balanced_preview_score"] is None
+
 
 class TestMarketBackfillPricesEndpoint:
     """POST /v1/market/backfill-prices endpoint tests."""

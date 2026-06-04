@@ -1178,6 +1178,8 @@
               <select id="pred-preview-scoring-profile" class="mono">
                 <option value="current" selected>Current (Default)</option>
                 <option value="balanced_preview">Balanced Preview</option>
+                <option value="quality_preview">Quality Preview</option>
+                <option value="risk_adjusted_preview">Risk Adjusted Preview</option>
               </select>
             </div>
             <!-- Hidden inputs for Prediction Preview defaults -->
@@ -4433,7 +4435,8 @@ function renderPredictionPreviewResult(data, resultEl) {
   html += `<div><span style="color: var(--label);">Prediction Top N:</span> <span style="color: var(--text-primary); font-weight: 600;">${predictionTopN}</span></div>`;
   html += `<div><span style="color: var(--label);">GCP Concurrency:</span> <span style="color: var(--text-primary); font-weight: 600;">${gcpConcurrencyDisplay}</span></div>`;
   html += `<div><span style="color: var(--label);">Include Holdings:</span> <span style="color: ${includeHoldingsDisplay ? 'var(--ok)' : 'var(--label)'}; font-weight: 600;">${includeHoldingsDisplay ? 'Yes' : 'No'}</span></div>`;
-  html += `<div><span style="color: var(--label);">Scoring Profile:</span> <span style="color: ${scoringProfileDisplay === 'balanced_preview' ? 'var(--warning)' : 'var(--ok)'}; font-weight: 600;">${escapeHtml(scoringProfileDisplay)}</span></div>`;
+  const _profileColor = scoringProfileDisplay === 'current' ? 'var(--ok)' : scoringProfileDisplay === 'risk_adjusted_preview' ? 'var(--danger)' : 'var(--warning)';
+  html += `<div><span style="color: var(--label);">Scoring Profile:</span> <span style="color: ${_profileColor}; font-weight: 600;">${escapeHtml(scoringProfileDisplay)}</span></div>`;
   html += `<div><span style="color: var(--label);">Safety Mode:</span> <span style="color: var(--ok); font-weight: 600;">Preview Only</span></div>`;
   html += '</div></div>';
 
@@ -4655,6 +4658,32 @@ function renderPredictionPreviewResult(data, resultEl) {
         t += `<td style="padding: 6px 8px; font-size: 10px; color: var(--label); max-width: 200px; word-wrap: break-word;">${escapeHtml(topDrivers)}</td>`;
         t += `<td style="padding: 6px 8px; color: ${statusColor}; font-size: 10px; font-weight: 600;">${escapeHtml(preview.status)}</td>`;
         t += '</tr>';
+        // Score breakdown row (collapsed by default)
+        if (preview.score_breakdown) {
+          const sb = preview.score_breakdown;
+          const scoreRows = [
+            ['Return', sb.prediction_return_component],
+            ['Mom 5D', sb.momentum_5d_component],
+            ['Mom 20D', sb.momentum_20d_component],
+            ['RS Adj', sb.relative_strength_component],
+            ['Scan Adj', sb.scan_adj],
+            ['Vol Penalty', sb.volatility_penalty_component],
+            ['Held Penalty', sb.already_held_penalty_component],
+            ['Missing Pen', sb.stale_or_missing_prediction_penalty],
+          ].filter(([, v]) => v !== undefined && v !== 0).map(([lbl, v]) => {
+            const fv = typeof v === 'number' ? v.toFixed(5) : v;
+            const vc = v > 0 ? 'var(--ok)' : v < 0 ? 'var(--danger)' : 'var(--label)';
+            return `<span style="font-size: 9px; white-space: nowrap; padding: 1px 4px; background: rgba(0,0,0,.15); border-radius: 2px; margin-right: 3px;"><span style="color: var(--label);">${escapeHtml(lbl)}</span> <span style="color:${vc}; font-weight:600;">${fv}</span></span>`;
+          }).join('');
+          const profileLabel = escapeHtml(sb.formula_profile || 'current');
+          t += `<tr style="border-bottom: 1px solid rgba(148,163,184,.06); background: rgba(0,0,0,.12);">`;
+          t += `<td colspan="15" style="padding: 3px 10px 4px 24px; font-size: 9px; color: var(--label);">`;
+          t += `<span style="font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--text-accent); margin-right: 8px;">${profileLabel}</span>`;
+          t += scoreRows || '<span style="color: var(--label);">no components</span>';
+          if (sb.low_conf_suppression_applied) t += `<span style="font-size: 9px; margin-left: 6px; color: var(--warning);">[low-conf suppressed]</span>`;
+          t += `<span style="font-size: 9px; margin-left: 8px; color: var(--label); font-weight: 700;">= ${typeof sb.final_score === 'number' ? sb.final_score.toFixed(5) : sb.final_score}</span>`;
+          t += '</td></tr>';
+        }
       });
 
       t += '</tbody></table></div></div>';
@@ -4668,36 +4697,105 @@ function renderPredictionPreviewResult(data, resultEl) {
       html += renderCandidateTable(holdingMonitors, 'Current Holdings Monitor (' + holdingMonitors.length + ')', 'var(--warning)', true);
     }
 
-    // Scoring comparison section (only when balanced_preview)
+    // Scoring comparison section (all non-current profiles — Phase 4B/4C)
     const cmp = data.scoring_profile_comparison;
-    if (cmp && cmp.active_profile === 'balanced_preview') {
-      html += '<details style="margin-bottom: 16px; border: 1px solid var(--warning); border-radius: 3px; overflow: hidden;" open>';
-      html += '<summary style="padding: 10px 14px; background: rgba(245,158,11,.08); cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); user-select: none;">Scoring Profile Comparison &mdash; Current vs Balanced Preview</summary>';
+    if (cmp && cmp.active_profile && cmp.active_profile !== 'current') {
+      const _cmpColor = cmp.active_profile === 'risk_adjusted_preview' ? 'var(--danger)' : 'var(--warning)';
+      const _cmpLabel = escapeHtml(cmp.active_profile.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+      html += `<details style="margin-bottom: 16px; border: 1px solid ${_cmpColor}; border-radius: 3px; overflow: hidden;" open>`;
+      html += `<summary style="padding: 10px 14px; background: rgba(245,158,11,.08); cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: ${_cmpColor}; user-select: none;">Scoring Workbench &mdash; Current vs ${_cmpLabel} (+ all profiles)</summary>`;
       html += '<div style="padding: 12px 14px;">';
       html += '<div style="font-size: 11px; color: var(--label); margin-bottom: 10px;">' + escapeHtml(cmp.explanation) + '</div>';
+
+      // Summary counters
       html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 12px; font-size: 11px;">';
-      html += `<div style="text-align: center; padding: 6px; background: rgba(0,0,0,.15); border-radius: 2px;"><div style="font-size: 9px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Overlap</div><div style="font-size: 16px; font-weight: 700; color: ${cmp.overlap_count > 0 ? 'var(--ok)' : 'var(--label)'};">${cmp.overlap_count}</div><div style="font-size: 9px; color: var(--label);">in both top lists</div></div>`;
-      html += `<div style="text-align: center; padding: 6px; background: rgba(0,0,0,.15); border-radius: 2px;"><div style="font-size: 9px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Rank Changes</div><div style="font-size: 16px; font-weight: 700; color: ${cmp.changed_rank_count > 0 ? 'var(--warning)' : 'var(--label)'};">${cmp.changed_rank_count}</div><div style="font-size: 9px; color: var(--label);">tickers changed rank</div></div>`;
+      html += `<div style="text-align: center; padding: 6px; background: rgba(0,0,0,.15); border-radius: 2px;"><div style="font-size: 9px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Overlap (cur vs active)</div><div style="font-size: 16px; font-weight: 700; color: ${cmp.overlap_count > 0 ? 'var(--ok)' : 'var(--label)'};">${cmp.overlap_count}</div><div style="font-size: 9px; color: var(--label);">in both top lists</div></div>`;
+      html += `<div style="text-align: center; padding: 6px; background: rgba(0,0,0,.15); border-radius: 2px;"><div style="font-size: 9px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Rank Changes</div><div style="font-size: 16px; font-weight: 700; color: ${cmp.changed_rank_count > 0 ? 'var(--warning)' : 'var(--label)'};">${cmp.changed_rank_count}</div><div style="font-size: 9px; color: var(--label);">changed rank</div></div>`;
+      html += `<div style="text-align: center; padding: 6px; background: rgba(0,0,0,.15); border-radius: 2px;"><div style="font-size: 9px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Profiles Compared</div><div style="font-size: 16px; font-weight: 700; color: var(--text-primary);">${(cmp.profiles_compared || []).length}</div><div style="font-size: 9px; color: var(--label);">scoring profiles</div></div>`;
+      html += `<div style="text-align: center; padding: 6px; background: rgba(0,0,0,.15); border-radius: 2px;"><div style="font-size: 9px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">High Disagreement</div><div style="font-size: 16px; font-weight: 700; color: ${(cmp.candidates_with_high_disagreement || []).length > 0 ? 'var(--warning)' : 'var(--label)'};">${(cmp.candidates_with_high_disagreement || []).length}</div><div style="font-size: 9px; color: var(--label);">tickers</div></div>`;
       html += '</div>';
-      html += '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px;">';
-      html += '<div><div style="font-size: 10px; font-weight: 600; color: var(--ok); text-transform: uppercase; margin-bottom: 4px;">Current Top</div>';
-      html += (cmp.current_top_tickers || []).map((t, i) => `<div style="padding: 2px 0; color: var(--text-primary);"><span style="color: var(--label);">${i+1}.</span> ${escapeHtml(t)}</div>`).join('') + '</div>';
-      html += '<div><div style="font-size: 10px; font-weight: 600; color: var(--warning); text-transform: uppercase; margin-bottom: 4px;">Balanced Top</div>';
-      html += (cmp.balanced_top_tickers || []).map((t, i) => `<div style="padding: 2px 0; color: var(--text-primary);"><span style="color: var(--label);">${i+1}.</span> ${escapeHtml(t)}</div>`).join('') + '</div>';
-      html += '</div>';
-      if (cmp.biggest_promotions && cmp.biggest_promotions.length > 0) {
-        html += '<div style="margin-top: 10px;"><div style="font-size: 10px; font-weight: 600; color: var(--ok); text-transform: uppercase; margin-bottom: 4px;">Biggest Promotions (balanced)</div>';
+
+      // Top tickers per profile (Phase 4C)
+      const _topByProfile = cmp.top_tickers_by_profile || {};
+      const _profileNames = Object.keys(_topByProfile);
+      if (_profileNames.length > 0) {
+        html += `<details style="margin-bottom: 10px; border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">`;
+        html += `<summary style="padding: 7px 10px; background: rgba(0,0,0,.18); cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-accent); user-select: none;">Top Tickers by Profile</summary>`;
+        html += `<div style="padding: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">`;
+        const _pColors = {current: 'var(--ok)', balanced_preview: 'var(--warning)', quality_preview: '#a78bfa', risk_adjusted_preview: 'var(--danger)'};
+        _profileNames.forEach(pn => {
+          const pc = _pColors[pn] || 'var(--text-primary)';
+          const tickers = _topByProfile[pn] || [];
+          html += `<div><div style="font-size: 10px; font-weight: 700; color: ${pc}; text-transform: uppercase; margin-bottom: 5px;">${escapeHtml(pn.replace(/_/g, ' '))}</div>`;
+          tickers.forEach((t, i) => { html += `<div style="padding: 2px 0; font-size: 10px; color: var(--text-primary);"><span style="color: var(--label);">${i+1}.</span> <span style="font-family: monospace;">${escapeHtml(t)}</span></div>`; });
+          html += '</div>';
+        });
+        html += '</div></details>';
+      }
+
+      // Overlap matrix (Phase 4C)
+      const _overlapMatrix = cmp.overlap_matrix || {};
+      const _overlapKeys = Object.keys(_overlapMatrix);
+      if (_overlapKeys.length > 0) {
+        html += `<details style="margin-bottom: 10px; border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">`;
+        html += `<summary style="padding: 7px 10px; background: rgba(0,0,0,.18); cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--text-accent); user-select: none;">Overlap Matrix (top-10 overlap between profiles)</summary>`;
+        html += `<div style="padding: 10px; display: flex; flex-wrap: wrap; gap: 8px;">`;
+        _overlapKeys.forEach(k => {
+          const v = _overlapMatrix[k];
+          const oc = v >= 7 ? 'var(--ok)' : v >= 4 ? 'var(--warning)' : 'var(--danger)';
+          html += `<span style="font-size: 10px; padding: 3px 8px; background: rgba(0,0,0,.18); border-radius: 2px; border: 1px solid var(--border);"><span style="color: var(--label);">${escapeHtml(k.replace(/_/g,' ').replace('vs', 'vs'))}</span> <span style="font-weight: 700; color: ${oc};">${v}</span></span>`;
+        });
+        html += '</div></details>';
+      }
+
+      // High disagreement candidates (Phase 4C)
+      const _highDisagree = cmp.candidates_with_high_disagreement || [];
+      if (_highDisagree.length > 0) {
+        html += `<details style="margin-bottom: 10px; border: 1px solid var(--warning); border-radius: 2px; overflow: hidden;">`;
+        html += `<summary style="padding: 7px 10px; background: rgba(245,158,11,.06); cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--warning); user-select: none;">High Disagreement Candidates (rank spread &ge; 3)</summary>`;
+        html += `<div style="padding: 10px; overflow-x: auto;"><table style="width:100%; border-collapse:collapse; font-size:10px;">`;
+        html += `<thead><tr style="border-bottom: 1px solid var(--border); background: rgba(0,0,0,.2);">`;
+        html += `<th style="padding:4px 8px; text-align:left; color:var(--label);">Ticker</th>`;
+        html += `<th style="padding:4px 8px; text-align:right; color:var(--label);">Spread</th>`;
+        const _hdProfiles = _highDisagree.length > 0 ? Object.keys(_highDisagree[0].ranks || {}) : [];
+        _hdProfiles.forEach(p => { html += `<th style="padding:4px 8px; text-align:right; color:var(--label);">${escapeHtml(p.replace(/_/g,' '))}</th>`; });
+        html += `</tr></thead><tbody>`;
+        _highDisagree.forEach(hd => {
+          html += `<tr style="border-bottom: 1px solid rgba(148,163,184,.1);">`;
+          html += `<td style="padding:3px 8px; font-family:monospace; font-weight:700;">${escapeHtml(hd.ticker)}</td>`;
+          html += `<td style="padding:3px 8px; text-align:right; color:var(--warning); font-weight:700;">${hd.rank_spread}</td>`;
+          _hdProfiles.forEach(p => {
+            const r = (hd.ranks || {})[p] || '-';
+            const s = hd.scores && hd.scores[p] !== undefined ? hd.scores[p].toFixed(4) : '';
+            html += `<td style="padding:3px 8px; text-align:right;">#${r}<br><span style="font-size:9px; color:var(--label);">${s}</span></td>`;
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table></div></details>';
+      }
+
+      // Active profile promotions / demotions vs current
+      const _curVsAct = `current_vs_${cmp.active_profile}`;
+      const _promos = (cmp.biggest_promotions_by_profile || {})[_curVsAct] || cmp.biggest_promotions || [];
+      const _demos = (cmp.biggest_demotions_by_profile || {})[_curVsAct] || cmp.biggest_demotions || [];
+      const _actProfileLabel = escapeHtml(cmp.active_profile.replace(/_/g, ' '));
+      if (_promos.length > 0) {
+        html += `<div style="margin-top: 10px;"><div style="font-size: 10px; font-weight: 600; color: var(--ok); text-transform: uppercase; margin-bottom: 4px;">Biggest Promotions in ${_actProfileLabel}</div>`;
         html += '<div style="display: flex; gap: 10px; flex-wrap: wrap;">';
-        cmp.biggest_promotions.forEach(p => {
-          html += `<span style="font-size: 10px; background: rgba(34,197,94,.1); padding: 2px 6px; border-radius: 2px;"><strong style="font-family: monospace;">${escapeHtml(p.ticker)}</strong> #${p.current_rank} &rarr; #${p.balanced_rank} <span style="color: var(--ok);">(+${p.rank_change})</span></span>`;
+        _promos.forEach(p => {
+          const altRankKey = Object.keys(p).find(k => k !== 'ticker' && k !== 'current_rank' && k !== 'rank_change');
+          const altRank = altRankKey ? p[altRankKey] : '?';
+          html += `<span style="font-size: 10px; background: rgba(34,197,94,.1); padding: 2px 6px; border-radius: 2px;"><strong style="font-family: monospace;">${escapeHtml(p.ticker)}</strong> #${p.current_rank} &rarr; #${altRank} <span style="color: var(--ok);">(+${p.rank_change})</span></span>`;
         });
         html += '</div></div>';
       }
-      if (cmp.biggest_demotions && cmp.biggest_demotions.length > 0) {
-        html += '<div style="margin-top: 8px;"><div style="font-size: 10px; font-weight: 600; color: var(--danger); text-transform: uppercase; margin-bottom: 4px;">Biggest Demotions (balanced)</div>';
+      if (_demos.length > 0) {
+        html += `<div style="margin-top: 8px;"><div style="font-size: 10px; font-weight: 600; color: var(--danger); text-transform: uppercase; margin-bottom: 4px;">Biggest Demotions in ${_actProfileLabel}</div>`;
         html += '<div style="display: flex; gap: 10px; flex-wrap: wrap;">';
-        cmp.biggest_demotions.forEach(p => {
-          html += `<span style="font-size: 10px; background: rgba(239,68,68,.1); padding: 2px 6px; border-radius: 2px;"><strong style="font-family: monospace;">${escapeHtml(p.ticker)}</strong> #${p.current_rank} &rarr; #${p.balanced_rank} <span style="color: var(--danger);">(${p.rank_change})</span></span>`;
+        _demos.forEach(p => {
+          const altRankKey = Object.keys(p).find(k => k !== 'ticker' && k !== 'current_rank' && k !== 'rank_change');
+          const altRank = altRankKey ? p[altRankKey] : '?';
+          html += `<span style="font-size: 10px; background: rgba(239,68,68,.1); padding: 2px 6px; border-radius: 2px;"><strong style="font-family: monospace;">${escapeHtml(p.ticker)}</strong> #${p.current_rank} &rarr; #${altRank} <span style="color: var(--danger);">(${p.rank_change})</span></span>`;
         });
         html += '</div></div>';
       }

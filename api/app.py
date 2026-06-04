@@ -83,6 +83,9 @@ from paper_trader.engine.risk import evaluate_signal
 from paper_trader.engine.scoring import (
     score_candidate_v2 as _score_candidate_v2,
     score_candidate_balanced_preview as _score_candidate_balanced_preview,
+    score_candidate_quality_preview as _score_candidate_quality_preview,
+    score_candidate_risk_adjusted_preview as _score_candidate_risk_adjusted_preview,
+    build_score_breakdown as _build_score_breakdown,
     score_holding_v2 as _score_holding_v2,
     score_rotation_v2 as _score_rotation_v2,
     explain_score_factors as _explain_score_factors,
@@ -451,6 +454,9 @@ class CandidatePreview(BaseModel):
     ranking_change: int | None = None
     balanced_score_drivers: list[str] = Field(default_factory=list)
 
+    # Phase 4C per-component score breakdown (always populated)
+    score_breakdown: dict[str, Any] | None = None
+
 
 class FetchAndRunPredictionResponse(BaseModel):
     fetched_count: int
@@ -517,8 +523,11 @@ class MarketScanPredictionCandidatesRequest(BaseModel):
     scoring_profile: str = Field(
         default="current",
         description=(
-            "Scoring profile: 'current' (default, production ranking) or "
-            "'balanced_preview' (alternative balanced scores shown side-by-side, preview-only)."
+            "Scoring profile for candidate ranking. "
+            "'current' (default, production ranking); "
+            "'balanced_preview' (reduced momentum, volatility + holding penalties, preview-only); "
+            "'quality_preview' (sustained RS, spike penalty, preview-only); "
+            "'risk_adjusted_preview' (most conservative, aggressive vol penalty, preview-only)."
         ),
     )
     dry_run: bool = Field(
@@ -541,7 +550,7 @@ class MarketScanPredictionCandidatesRequest(BaseModel):
     @field_validator("scoring_profile")
     @classmethod
     def _validate_scoring_profile(cls, v: str) -> str:
-        allowed = {"current", "balanced_preview"}
+        allowed = {"current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
         if v not in allowed:
             raise ValueError(f"scoring_profile must be one of {sorted(allowed)}")
         return v
@@ -651,14 +660,22 @@ class PredictionFailureDetail(BaseModel):
 
 
 class ScoringProfileComparisonOut(BaseModel):
-    """Side-by-side comparison of current vs balanced-preview scoring (Phase 4B)."""
+    """Multi-profile scoring comparison (Phase 4B/4C)."""
     active_profile: str
-    current_top_tickers: list[str]
-    balanced_top_tickers: list[str]
-    overlap_count: int
-    changed_rank_count: int
-    biggest_promotions: list[dict]   # [{ticker, current_rank, balanced_rank, rank_change}]
-    biggest_demotions: list[dict]    # [{ticker, current_rank, balanced_rank, rank_change}]
+    # Phase 4B compat fields — kept for backward compatibility
+    current_top_tickers: list[str] = Field(default_factory=list)
+    balanced_top_tickers: list[str] = Field(default_factory=list)
+    overlap_count: int = 0
+    changed_rank_count: int = 0
+    biggest_promotions: list[dict] = Field(default_factory=list)
+    biggest_demotions: list[dict] = Field(default_factory=list)
+    # Phase 4C multi-profile fields
+    profiles_compared: list[str] = Field(default_factory=list)
+    top_tickers_by_profile: dict[str, list[str]] = Field(default_factory=dict)
+    overlap_matrix: dict[str, int] = Field(default_factory=dict)
+    biggest_promotions_by_profile: dict[str, list[dict]] = Field(default_factory=dict)
+    biggest_demotions_by_profile: dict[str, list[dict]] = Field(default_factory=dict)
+    candidates_with_high_disagreement: list[dict] = Field(default_factory=list)
     explanation: str
     safety_counts: dict[str, int]
 
@@ -3645,6 +3662,41 @@ _BALANCED_SCORE_FORMULA_LABEL = (
     " + clip(0.10*rs,+-0.05) + clip(0.08*(scan_norm-0.5),+-0.05)"
     " - vol_penalty(0.05) - holding_penalty(0.015); low-conf*0.80"
 )
+_QUALITY_SCORE_FORMULA_LABEL = (
+    "conf*return[2x-neg] + clip(spike_safe(0.05*mom5d)+0.07*mom20d,+-0.05)"
+    " + clip(0.20*rs,+-0.05) + clip(0.08*(scan_norm-0.5),+-0.05)"
+    " - vol_penalty(0.04); spike_penalty(0.03) if |5D|>8%; low-conf*0.80"
+)
+_RISK_ADJUSTED_SCORE_FORMULA_LABEL = (
+    "conf*(0.8*return[pos] or 2.5*return[neg])"
+    " + clip(0.04*mom5d+0.04*mom20d,+-0.05)"
+    " + clip(0.08*rs,+-0.05) + clip(0.06*(scan_norm-0.5),+-0.05)"
+    " - vol_penalty(0.10) - holding_penalty(0.025); missing:-0.02; low-conf*0.80"
+)
+_PROFILE_FORMULA_LABELS: dict[str, str] = {
+    "current": _FINAL_SCORE_FORMULA_LABEL,
+    "balanced_preview": _BALANCED_SCORE_FORMULA_LABEL,
+    "quality_preview": _QUALITY_SCORE_FORMULA_LABEL,
+    "risk_adjusted_preview": _RISK_ADJUSTED_SCORE_FORMULA_LABEL,
+}
+_PROFILE_EXPLANATIONS: dict[str, str] = {
+    "balanced_preview": (
+        "Balanced profile uses reduced momentum weights (0.07/0.05 vs 0.15/0.10), "
+        "adds a volatility penalty (0.05), and applies a small discount for already-held tickers (0.015). "
+        "Current profile is more momentum-heavy."
+    ),
+    "quality_preview": (
+        "Quality profile favours sustained relative strength (RS weight 0.20 vs 0.15) and prediction quality. "
+        "Penalises extreme 5-day momentum spikes (|5D|>8% → -0.03 penalty) to avoid buying exhausted moves. "
+        "Applies a mild volatility penalty (0.04). Less weight on short-term momentum (0.05/0.07 vs 0.15/0.10)."
+    ),
+    "risk_adjusted_preview": (
+        "Risk-adjusted profile is the most conservative. Discounts positive expected returns (×0.80) and "
+        "applies a harsher penalty for negative returns (×2.50). Very aggressive volatility penalty (0.10 vs 0.05). "
+        "Stronger holding penalty (0.025) and stronger missing-prediction penalty (-0.02). "
+        "Minimal momentum sensitivity (0.04/0.04). Rewards smooth, low-volatility candidates."
+    ),
+}
 _SKIPPED_SAMPLE_LIMIT = 25
 
 
@@ -4180,9 +4232,17 @@ async def market_scan_prediction_candidates(
         )
         candidate_previews.append(preview)
 
-    # Phase 4B: balanced scoring post-processing (only when scoring_profile="balanced_preview")
+    # Phase 4B/4C: score_breakdown + multi-profile comparison post-processing
     scoring_profile_comparison: ScoringProfileComparisonOut | None = None
-    if body.scoring_profile == "balanced_preview" and candidate_previews:
+    if candidate_previews:
+        # Scoring function map — all preview profiles
+        _all_funcs: dict[str, Any] = {
+            "current": _score_candidate_v2,
+            "balanced_preview": _score_candidate_balanced_preview,
+            "quality_preview": _score_candidate_quality_preview,
+            "risk_adjusted_preview": _score_candidate_risk_adjusted_preview,
+        }
+
         def _to_score_input(p: CandidatePreview) -> dict:
             def _f(v: str | None) -> float:
                 try:
@@ -4205,101 +4265,180 @@ async def market_scan_prediction_candidates(
             }
 
         _score_inputs = [_to_score_input(p) for p in candidate_previews]
-        _cur_scores = [_score_candidate_v2(s).total_score for s in _score_inputs]
-        _bal_scores = [_score_candidate_balanced_preview(s).total_score for s in _score_inputs]
 
-        # Compute ranks (rank 1 = highest score)
-        _cur_order = sorted(range(len(_cur_scores)), key=lambda i: -_cur_scores[i])
-        _bal_order = sorted(range(len(_bal_scores)), key=lambda i: -_bal_scores[i])
-        _cur_rank_by_idx = {idx: rank + 1 for rank, idx in enumerate(_cur_order)}
-        _bal_rank_by_idx = {idx: rank + 1 for rank, idx in enumerate(_bal_order)}
+        # Compute active-profile factors (always needed for score_breakdown)
+        _active_factors = [_all_funcs[body.scoring_profile](s) for s in _score_inputs]
 
-        # Balanced score drivers per candidate
-        def _bal_drivers(p: CandidatePreview, cur_f: float, bal_f: float, s_inp: dict) -> list[str]:
-            d: list[str] = []
-            if s_inp.get("is_current_holding"):
-                d.append("holding_penalty_applied")
-            vol = abs(s_inp.get("volatility_20d_pct", 0.0))
-            if vol > 0.05:
-                d.append("high_vol_penalised")
-            elif vol > 0.0:
-                d.append("low_vol_neutral")
-            if abs(bal_f - cur_f) < 0.002:
-                d.append("score_similar_to_current")
-            elif bal_f > cur_f:
-                d.append("promoted_by_balanced_formula")
-            else:
-                d.append("demoted_by_balanced_formula")
-            if not s_inp.get("prediction_confidence"):
-                d.append("missing_prediction_penalty")
-            return d
-
-        # Rebuild previews with balanced fields
+        # Add score_breakdown to each candidate (Phase 4C — always populated)
         updated_previews: list[CandidatePreview] = []
         for i, p in enumerate(candidate_previews):
-            cur_r = _cur_rank_by_idx[i]
-            bal_r = _bal_rank_by_idx[i]
-            cur_f = _cur_scores[i]
-            bal_f = _bal_scores[i]
             updated_previews.append(p.model_copy(update={
-                "current_score": f"{cur_f:.6f}",
-                "balanced_preview_score": f"{bal_f:.6f}",
-                "score_delta": f"{bal_f - cur_f:.6f}",
-                "current_rank": cur_r,
-                "balanced_preview_rank": bal_r,
-                "ranking_change": cur_r - bal_r,  # positive = promoted in balanced
-                "balanced_score_drivers": _bal_drivers(p, cur_f, bal_f, _score_inputs[i]),
+                "score_breakdown": _build_score_breakdown(_active_factors[i]),
             }))
         candidate_previews = updated_previews
 
-        # Build scoring_profile_comparison
-        _top_n_comp = min(10, len(candidate_previews))
-        _cur_top = [candidate_previews[i].ticker for i in _cur_order[:_top_n_comp]]
-        _bal_top = [candidate_previews[i].ticker for i in _bal_order[:_top_n_comp]]
-        _cur_top_set = set(_cur_top)
-        _bal_top_set = set(_bal_top)
-        _overlap = len(_cur_top_set & _bal_top_set)
+        # Non-current profiles: compute all profiles for comparison (Phase 4B/4C)
+        if body.scoring_profile != "current":
+            _cur_factors_cmp = [_score_candidate_v2(s) for s in _score_inputs]
+            _cur_scores_cmp: list[float] = [f.total_score for f in _cur_factors_cmp]
+            _act_scores_cmp: list[float] = [f.total_score for f in _active_factors]
 
-        # Rank changes for all candidates
-        _changed = sum(
-            1 for i in range(len(candidate_previews))
-            if _cur_rank_by_idx[i] != _bal_rank_by_idx[i]
-        )
+            # Compute all 4 profile scores (for overlap_matrix + high-disagreement)
+            _all_profile_scores: dict[str, list[float]] = {"current": _cur_scores_cmp}
+            for _pname, _pfunc in _all_funcs.items():
+                if _pname == "current":
+                    continue
+                if _pname == body.scoring_profile:
+                    _all_profile_scores[_pname] = _act_scores_cmp
+                else:
+                    _all_profile_scores[_pname] = [
+                        _pfunc(s).total_score for s in _score_inputs
+                    ]
 
-        # Biggest promotions/demotions (rank_change = cur_rank - bal_rank; positive = promoted)
-        _changes_list = [
-            {
-                "ticker": candidate_previews[i].ticker,
-                "current_rank": _cur_rank_by_idx[i],
-                "balanced_rank": _bal_rank_by_idx[i],
-                "rank_change": _cur_rank_by_idx[i] - _bal_rank_by_idx[i],
+            # Per-profile rankings (rank 1 = highest score)
+            _profile_orders: dict[str, list[int]] = {}
+            _profile_ranks: dict[str, dict[int, int]] = {}
+            for _pn, _ps in _all_profile_scores.items():
+                _ord = sorted(range(len(_ps)), key=lambda i, s=_ps: -s[i])
+                _profile_orders[_pn] = _ord
+                _profile_ranks[_pn] = {idx: rk + 1 for rk, idx in enumerate(_ord)}
+
+            _cur_rank_by_idx = _profile_ranks["current"]
+            _act_rank_by_idx = _profile_ranks[body.scoring_profile]
+            _cur_order_cmp = _profile_orders["current"]
+            _act_order_cmp = _profile_orders[body.scoring_profile]
+
+            # Phase 4B compat: populate balanced_preview fields when that profile is active
+            if body.scoring_profile == "balanced_preview":
+                def _bal_drivers(p: CandidatePreview, cur_f: float, bal_f: float, s_inp: dict) -> list[str]:
+                    d: list[str] = []
+                    if s_inp.get("is_current_holding"):
+                        d.append("holding_penalty_applied")
+                    vol = abs(s_inp.get("volatility_20d_pct", 0.0))
+                    if vol > 0.05:
+                        d.append("high_vol_penalised")
+                    elif vol > 0.0:
+                        d.append("low_vol_neutral")
+                    if abs(bal_f - cur_f) < 0.002:
+                        d.append("score_similar_to_current")
+                    elif bal_f > cur_f:
+                        d.append("promoted_by_balanced_formula")
+                    else:
+                        d.append("demoted_by_balanced_formula")
+                    if not s_inp.get("prediction_confidence"):
+                        d.append("missing_prediction_penalty")
+                    return d
+
+                bal_previews: list[CandidatePreview] = []
+                for i, p in enumerate(candidate_previews):
+                    cf = _cur_scores_cmp[i]
+                    af = _act_scores_cmp[i]
+                    bal_previews.append(p.model_copy(update={
+                        "current_score": f"{cf:.6f}",
+                        "balanced_preview_score": f"{af:.6f}",
+                        "score_delta": f"{af - cf:.6f}",
+                        "current_rank": _cur_rank_by_idx[i],
+                        "balanced_preview_rank": _act_rank_by_idx[i],
+                        "ranking_change": _cur_rank_by_idx[i] - _act_rank_by_idx[i],
+                        "balanced_score_drivers": _bal_drivers(p, cf, af, _score_inputs[i]),
+                    }))
+                candidate_previews = bal_previews
+
+            # Top tickers per profile (Phase 4C)
+            _top_n_cmp = min(10, len(candidate_previews))
+            _top_tickers_by_profile: dict[str, list[str]] = {
+                pn: [candidate_previews[i].ticker for i in _profile_orders[pn][:_top_n_cmp]]
+                for pn in _all_profile_scores
             }
-            for i in range(len(candidate_previews))
-        ]
-        _promotions = sorted(
-            [c for c in _changes_list if c["rank_change"] > 0],
-            key=lambda c: -c["rank_change"],
-        )[:3]
-        _demotions = sorted(
-            [c for c in _changes_list if c["rank_change"] < 0],
-            key=lambda c: c["rank_change"],
-        )[:3]
 
-        scoring_profile_comparison = ScoringProfileComparisonOut(
-            active_profile="balanced_preview",
-            current_top_tickers=_cur_top,
-            balanced_top_tickers=_bal_top,
-            overlap_count=_overlap,
-            changed_rank_count=_changed,
-            biggest_promotions=_promotions,
-            biggest_demotions=_demotions,
-            explanation=(
-                "Balanced profile uses reduced momentum weights (0.07/0.05 vs 0.15/0.10), "
-                "adds a volatility penalty, and applies a small discount for already-held tickers. "
-                "Current profile is more momentum-heavy."
-            ),
-            safety_counts={"signals_created": 0, "decisions_created": 0, "orders_created": 0},
-        )
+            # Overlap matrix between all profile pairs
+            _overlap_matrix: dict[str, int] = {}
+            _pnames_list = list(_all_profile_scores.keys())
+            for _ai in range(len(_pnames_list)):
+                for _bi in range(_ai + 1, len(_pnames_list)):
+                    _a, _b = _pnames_list[_ai], _pnames_list[_bi]
+                    _key = f"{_a}_vs_{_b}"
+                    _overlap_matrix[_key] = len(
+                        set(_top_tickers_by_profile[_a]) & set(_top_tickers_by_profile[_b])
+                    )
+
+            # Promotions / demotions per profile pair (current vs each other)
+            _promo_by_profile: dict[str, list[dict]] = {}
+            _demo_by_profile: dict[str, list[dict]] = {}
+            for _pn in _all_funcs:
+                if _pn == "current":
+                    continue
+                _pair_key = f"current_vs_{_pn}"
+                _changes: list[dict] = []
+                for ci in range(len(candidate_previews)):
+                    cur_r = _cur_rank_by_idx[ci]
+                    p_r = _profile_ranks[_pn][ci]
+                    rc = cur_r - p_r  # positive = promoted in this profile vs current
+                    if rc != 0:
+                        _changes.append({
+                            "ticker": candidate_previews[ci].ticker,
+                            "current_rank": cur_r,
+                            f"{_pn}_rank": p_r,
+                            "rank_change": rc,
+                        })
+                _promo_by_profile[_pair_key] = sorted(
+                    [c for c in _changes if c["rank_change"] > 0], key=lambda c: -c["rank_change"]
+                )[:3]
+                _demo_by_profile[_pair_key] = sorted(
+                    [c for c in _changes if c["rank_change"] < 0], key=lambda c: c["rank_change"]
+                )[:3]
+
+            # Candidates with high disagreement across all profiles
+            _high_disagree: list[dict] = []
+            for ci in range(len(candidate_previews)):
+                _ticker = candidate_previews[ci].ticker
+                _all_ranks = {pn: _profile_ranks[pn][ci] for pn in _all_profile_scores}
+                _spread = max(_all_ranks.values()) - min(_all_ranks.values())
+                _all_sc = {pn: round(_all_profile_scores[pn][ci], 6) for pn in _all_profile_scores}
+                if _spread >= 3:
+                    _high_disagree.append({
+                        "ticker": _ticker,
+                        "rank_spread": _spread,
+                        "ranks": _all_ranks,
+                        "scores": _all_sc,
+                    })
+            _high_disagree.sort(key=lambda x: -x["rank_spread"])
+            _high_disagree = _high_disagree[:5]
+
+            # Phase 4B compat values
+            _cur_vs_act_key = f"current_vs_{body.scoring_profile}"
+            _cur_top_compat = _top_tickers_by_profile.get("current", [])
+            _act_top_compat = _top_tickers_by_profile.get(body.scoring_profile, [])
+            _overlap_compat = _overlap_matrix.get(_cur_vs_act_key, 0)
+            _changed_compat = sum(
+                1 for ci in range(len(candidate_previews))
+                if _cur_rank_by_idx[ci] != _act_rank_by_idx[ci]
+            )
+
+            scoring_profile_comparison = ScoringProfileComparisonOut(
+                active_profile=body.scoring_profile,
+                # Phase 4B compat
+                current_top_tickers=_cur_top_compat,
+                balanced_top_tickers=(
+                    _act_top_compat if body.scoring_profile == "balanced_preview"
+                    else _cur_top_compat
+                ),
+                overlap_count=_overlap_compat,
+                changed_rank_count=_changed_compat,
+                biggest_promotions=_promo_by_profile.get(_cur_vs_act_key, []),
+                biggest_demotions=_demo_by_profile.get(_cur_vs_act_key, []),
+                # Phase 4C multi-profile
+                profiles_compared=list(_all_profile_scores.keys()),
+                top_tickers_by_profile=_top_tickers_by_profile,
+                overlap_matrix=_overlap_matrix,
+                biggest_promotions_by_profile=_promo_by_profile,
+                biggest_demotions_by_profile=_demo_by_profile,
+                candidates_with_high_disagreement=_high_disagree,
+                explanation=_PROFILE_EXPLANATIONS.get(
+                    body.scoring_profile, "Alternative scoring profile."
+                ),
+                safety_counts={"signals_created": 0, "decisions_created": 0, "orders_created": 0},
+            )
 
     # Build candidate funnel diagnostics
     skipped_by_reason: dict[str, int] = {}

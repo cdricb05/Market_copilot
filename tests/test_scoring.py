@@ -33,6 +33,10 @@ from paper_trader.engine.scoring import (
     normalize_score,
     safe_float,
     score_candidate_v2,
+    score_candidate_balanced_preview,
+    score_candidate_quality_preview,
+    score_candidate_risk_adjusted_preview,
+    build_score_breakdown,
     score_holding_v2,
     score_rotation_v2,
     explain_score_factors,
@@ -434,3 +438,173 @@ def test_rotation_result_as_dict_keys():
     for key in ("candidate_score", "holding_score", "improvement_score",
                 "eligible", "blocked_reason", "notes"):
         assert key in d, f"Missing key: {key}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4C — quality_preview
+# ---------------------------------------------------------------------------
+
+def _qcand(**kwargs) -> dict:
+    """Helper for quality_preview inputs — adds volatility."""
+    base = {
+        "prediction_confidence": 0.80,
+        "expected_return_pct": 0.10,
+        "momentum_5d_pct": 0.0,
+        "momentum_20d_pct": 0.0,
+        "relative_strength_vs_spy_20d": 0.0,
+        "scan_score": 0.0,
+        "volatility_20d_pct": 0.0,
+        "is_current_holding": False,
+    }
+    base.update(kwargs)
+    return base
+
+
+def test_quality_preview_positive_return_positive_score():
+    f = score_candidate_quality_preview(_qcand(prediction_confidence=0.80, expected_return_pct=0.10))
+    assert f.total_score > 0.0
+    assert f.formula_profile == "quality_preview"
+
+
+def test_quality_preview_missing_prediction_returns_minus_0_01():
+    f = score_candidate_quality_preview({})
+    assert f.prediction_missing is True
+    assert abs(f.total_score - (-0.01)) < 1e-9
+    assert f.formula_profile == "quality_preview"
+
+
+def test_quality_preview_spike_penalty_applied():
+    normal = score_candidate_quality_preview(_qcand(momentum_5d_pct=0.05))
+    spike  = score_candidate_quality_preview(_qcand(momentum_5d_pct=0.10))  # 10% > 8% threshold
+    assert spike.total_score < normal.total_score
+
+
+def test_quality_preview_high_rs_weight():
+    low_rs  = score_candidate_quality_preview(_qcand(relative_strength_vs_spy_20d=0.0))
+    high_rs = score_candidate_quality_preview(_qcand(relative_strength_vs_spy_20d=0.30))
+    assert high_rs.total_score > low_rs.total_score
+
+
+def test_quality_preview_volatility_penalty():
+    low_vol  = score_candidate_quality_preview(_qcand(volatility_20d_pct=0.01))
+    high_vol = score_candidate_quality_preview(_qcand(volatility_20d_pct=0.15))
+    assert high_vol.total_score < low_vol.total_score
+
+
+def test_quality_preview_formula_profile_field():
+    f = score_candidate_quality_preview(_qcand())
+    assert f.formula_profile == "quality_preview"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4C — risk_adjusted_preview
+# ---------------------------------------------------------------------------
+
+def test_risk_adjusted_preview_positive_return_positive_score():
+    f = score_candidate_risk_adjusted_preview(_qcand(prediction_confidence=0.80, expected_return_pct=0.10))
+    assert f.total_score > 0.0
+    assert f.formula_profile == "risk_adjusted_preview"
+
+
+def test_risk_adjusted_preview_missing_prediction_returns_minus_0_02():
+    f = score_candidate_risk_adjusted_preview({})
+    assert f.prediction_missing is True
+    assert abs(f.total_score - (-0.02)) < 1e-9
+
+
+def test_risk_adjusted_preview_discounts_positive_return():
+    current = score_candidate_v2(_qcand(prediction_confidence=0.80, expected_return_pct=0.10))
+    risk    = score_candidate_risk_adjusted_preview(_qcand(prediction_confidence=0.80, expected_return_pct=0.10))
+    # Risk profile discounts positive return (×0.8) — base will be lower
+    assert risk.base_score < current.base_score
+
+
+def test_risk_adjusted_preview_aggressive_vol_penalty():
+    # Use 5% vol where balanced hasn't hit _CAP_AUX yet (penalty=-0.025)
+    # but risk_adjusted does hit it (penalty=-0.05), confirming larger penalty.
+    balanced = score_candidate_balanced_preview(_qcand(volatility_20d_pct=0.05))
+    risk     = score_candidate_risk_adjusted_preview(_qcand(volatility_20d_pct=0.05))
+    assert risk.volatility_penalty < balanced.volatility_penalty
+
+
+def test_risk_adjusted_preview_holding_penalty_applied():
+    not_held = score_candidate_risk_adjusted_preview(_qcand(is_current_holding=False))
+    held     = score_candidate_risk_adjusted_preview(_qcand(is_current_holding=True))
+    assert held.holding_penalty < 0.0
+    assert not_held.holding_penalty == 0.0
+    assert held.total_score < not_held.total_score
+
+
+def test_risk_adjusted_preview_formula_profile_field():
+    f = score_candidate_risk_adjusted_preview(_qcand())
+    assert f.formula_profile == "risk_adjusted_preview"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4C — build_score_breakdown
+# ---------------------------------------------------------------------------
+
+def test_build_score_breakdown_required_keys():
+    f = score_candidate_v2(_cand(confidence=0.80, expected_return_pct=0.10))
+    bd = build_score_breakdown(f)
+    for key in (
+        "formula_profile",
+        "prediction_return_component",
+        "prediction_confidence_component",
+        "momentum_5d_component",
+        "momentum_20d_component",
+        "momentum_total_adj",
+        "relative_strength_component",
+        "scan_adj",
+        "volatility_penalty_component",
+        "already_held_penalty_component",
+        "stale_or_missing_prediction_penalty",
+        "low_conf_suppression_applied",
+        "final_score",
+    ):
+        assert key in bd, f"Missing key in score_breakdown: {key}"
+
+
+def test_build_score_breakdown_final_score_matches_factors():
+    f = score_candidate_v2(_cand(confidence=0.80, expected_return_pct=0.12, momentum_5d_pct=0.02))
+    bd = build_score_breakdown(f)
+    assert abs(bd["final_score"] - round(f.total_score, 6)) < 1e-9
+
+
+def test_build_score_breakdown_formula_profile_matches():
+    f = score_candidate_quality_preview(_qcand())
+    bd = build_score_breakdown(f)
+    assert bd["formula_profile"] == "quality_preview"
+
+
+def test_build_score_breakdown_risk_profile_volatility_nonzero():
+    f = score_candidate_risk_adjusted_preview(_qcand(volatility_20d_pct=0.08))
+    bd = build_score_breakdown(f)
+    assert bd["volatility_penalty_component"] < 0.0
+
+
+def test_build_score_breakdown_current_profile_vol_zero():
+    """Current profile has no volatility penalty."""
+    f = score_candidate_v2(_cand())
+    bd = build_score_breakdown(f)
+    assert bd["volatility_penalty_component"] == 0.0
+    assert bd["already_held_penalty_component"] == 0.0
+
+
+def test_build_score_breakdown_low_conf_flag():
+    f = score_candidate_v2(_cand(confidence=0.30, expected_return_pct=0.10))
+    bd = build_score_breakdown(f)
+    assert bd["low_conf_suppression_applied"] is True
+
+
+def test_score_factors_as_dict_includes_phase4c_fields():
+    f = score_candidate_balanced_preview(
+        _qcand(volatility_20d_pct=0.05, is_current_holding=True)
+    )
+    d = f.as_dict()
+    assert "volatility_penalty" in d
+    assert "holding_penalty" in d
+    assert "momentum_5d_weighted" in d
+    assert "momentum_20d_weighted" in d
+    assert "formula_profile" in d
+    assert d["formula_profile"] == "balanced_preview"

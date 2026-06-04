@@ -21,6 +21,13 @@ Rotation eligibility rules
 2. candidate_forward_score > holding_forward_score + min_improvement_score
 3. Both scores must be based on fresh/valid data (caller is responsible for
    staleness; functions accept the data as-is and flag prediction_missing).
+
+Scoring profiles (Phase 4B/4C)
+-------------------------------
+* current            — production formula, unchanged
+* balanced_preview   — reduced momentum weights, volatility + holding penalties
+* quality_preview    — favours sustained RS and prediction quality; spike penalty
+* risk_adjusted_preview — most conservative; aggressive vol + holding penalties
 """
 from __future__ import annotations
 
@@ -57,6 +64,26 @@ _W_SCAN_BAL:      float = 0.08   # vs 0.10 in current
 _W_VOL_PENALTY:   float = 0.05   # penalise high-volatility tickers (new)
 _VOL_CLIP:        float = 0.10   # clip 20d volatility pct at ±10 %
 _HOLDING_PENALTY: float = 0.015  # slight discount for already-held positions
+
+# Quality-preview scoring weights (Phase 4C) — favour sustained RS over short spikes
+_W_MOM_5D_QUAL:        float = 0.05   # less short-term chasing vs current 0.15
+_W_MOM_20D_QUAL:       float = 0.07   # slightly lower vs current 0.10
+_W_RS_QUAL:            float = 0.20   # higher weight — sustained market leadership
+_W_SCAN_QUAL:          float = 0.08
+_W_VOL_QUAL:           float = 0.04   # mild volatility penalty
+_SPIKE_THRESHOLD_QUAL: float = 0.08   # ±8% 5D move signals exhausted spike
+_SPIKE_PENALTY_QUAL:   float = 0.03   # penalty subtracted when spike detected
+
+# Risk-adjusted-preview scoring weights (Phase 4C) — most conservative
+_W_MOM_5D_RISK:          float = 0.04
+_W_MOM_20D_RISK:         float = 0.04
+_W_RS_RISK:              float = 0.08
+_W_SCAN_RISK:            float = 0.06
+_W_VOL_RISK:             float = 0.10   # aggressive volatility penalty (2× balanced)
+_HOLDING_PENALTY_RISK:   float = 0.025  # stronger holding penalty vs 0.015 balanced
+_MISSING_PENALTY_RISK:   float = -0.02  # stronger missing-prediction penalty
+_RETURN_FACTOR_POS_RISK: float = 0.80   # discount positive expected return
+_RETURN_FACTOR_NEG_RISK: float = 2.50   # more punishing for negative return
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +147,13 @@ class ScoreFactors:
     scan_adj:         float = 0.0
     total_score:      float = 0.0
 
+    # Phase 4C component tracking
+    volatility_penalty:      float = 0.0   # vol penalty applied (negative or 0)
+    holding_penalty:         float = 0.0   # holding discount (negative or 0)
+    momentum_5d_weighted:    float = 0.0   # pre-cap weighted 5D contribution
+    momentum_20d_weighted:   float = 0.0   # pre-cap weighted 20D contribution
+    formula_profile:         str   = "current"
+
     # Metadata
     confidence:              float = 0.0
     expected_return_pct:     float = 0.0
@@ -138,6 +172,11 @@ class ScoreFactors:
             "rs_adj":                 round(self.rs_adj, 6),
             "scan_adj":               round(self.scan_adj, 6),
             "total_score":            round(self.total_score, 6),
+            "volatility_penalty":     round(self.volatility_penalty, 6),
+            "holding_penalty":        round(self.holding_penalty, 6),
+            "momentum_5d_weighted":   round(self.momentum_5d_weighted, 6),
+            "momentum_20d_weighted":  round(self.momentum_20d_weighted, 6),
+            "formula_profile":        self.formula_profile,
             "confidence":             round(self.confidence, 4),
             "expected_return_pct":    round(self.expected_return_pct, 4),
             "momentum_5d_raw":        round(self.momentum_5d_raw, 4),
@@ -214,7 +253,9 @@ def score_candidate_v2(candidate: dict[str, Any]) -> ScoreFactors:
     # --- momentum adjustment ---
     mom_5d_c  = _clip(mom_5d_raw,  -_MOM_CLIP, _MOM_CLIP)
     mom_20d_c = _clip(mom_20d_raw, -_MOM_CLIP, _MOM_CLIP)
-    raw_mom_adj = _W_MOM_5D * mom_5d_c + _W_MOM_20D * mom_20d_c
+    factors.momentum_5d_weighted  = _W_MOM_5D  * mom_5d_c
+    factors.momentum_20d_weighted = _W_MOM_20D * mom_20d_c
+    raw_mom_adj = factors.momentum_5d_weighted + factors.momentum_20d_weighted
     factors.momentum_adj = _cap(raw_mom_adj)
 
     # --- relative-strength adjustment ---
@@ -241,6 +282,7 @@ def score_candidate_v2(candidate: dict[str, Any]) -> ScoreFactors:
         factors.low_conf_suppressed = True
 
     factors.total_score = total
+    factors.formula_profile = "current"
     return factors
 
 
@@ -391,6 +433,7 @@ def score_candidate_balanced_preview(candidate: dict[str, Any]) -> ScoreFactors:
 
     if pred_missing:
         factors.total_score = -0.01
+        factors.formula_profile = "balanced_preview"
         return factors
 
     # base score (same penalty for negative return as v2)
@@ -400,7 +443,9 @@ def score_candidate_balanced_preview(candidate: dict[str, Any]) -> ScoreFactors:
     # momentum (reduced weights)
     mom_5d_c  = _clip(mom_5d_raw,  -_MOM_CLIP, _MOM_CLIP)
     mom_20d_c = _clip(mom_20d_raw, -_MOM_CLIP, _MOM_CLIP)
-    factors.momentum_adj = _cap(_W_MOM_5D_BAL * mom_5d_c + _W_MOM_20D_BAL * mom_20d_c)
+    factors.momentum_5d_weighted  = _W_MOM_5D_BAL  * mom_5d_c
+    factors.momentum_20d_weighted = _W_MOM_20D_BAL * mom_20d_c
+    factors.momentum_adj = _cap(factors.momentum_5d_weighted + factors.momentum_20d_weighted)
 
     # relative strength (reduced weight)
     factors.rs_adj = _cap(_W_RS_BAL * _clip(rs_raw, -_RS_CLIP, _RS_CLIP))
@@ -412,18 +457,18 @@ def score_candidate_balanced_preview(candidate: dict[str, Any]) -> ScoreFactors:
 
     # volatility penalty: higher vol → negative contribution
     vol_abs = _clip(abs(vol_raw), 0.0, _VOL_CLIP)
-    vol_penalty = -_cap(_W_VOL_PENALTY * (vol_abs / max(_VOL_CLIP, 1e-9)))
+    factors.volatility_penalty = -_cap(_W_VOL_PENALTY * (vol_abs / max(_VOL_CLIP, 1e-9)))
 
     # already-held penalty
-    holding_penalty = -_HOLDING_PENALTY if is_held else 0.0
+    factors.holding_penalty = -_HOLDING_PENALTY if is_held else 0.0
 
     total = (
         factors.base_score
         + factors.momentum_adj
         + factors.rs_adj
         + factors.scan_adj
-        + vol_penalty
-        + holding_penalty
+        + factors.volatility_penalty
+        + factors.holding_penalty
     )
 
     if conf < _LOW_CONF_THRESHOLD:
@@ -431,7 +476,215 @@ def score_candidate_balanced_preview(candidate: dict[str, Any]) -> ScoreFactors:
         factors.low_conf_suppressed = True
 
     factors.total_score = total
+    factors.formula_profile = "balanced_preview"
     return factors
+
+
+def score_candidate_quality_preview(candidate: dict[str, Any]) -> ScoreFactors:
+    """
+    Quality-preview scoring for Phase 4C calibration workbench.
+
+    Design intent: favour sustained outperformance and prediction quality over
+    short-term momentum.  Penalises extreme 5-day spikes (exhausted momentum)
+    and high volatility.
+
+    Differences vs score_candidate_v2:
+      * Very low 5D momentum weight (0.05 vs 0.15) — avoids chasing spikes
+      * Higher RS weight (0.20 vs 0.15) — rewards sustained market leadership
+      * Spike penalty: |5D mom| > 8% subtracts flat penalty instead of adding
+      * Mild volatility penalty (0.04)
+      * No holding penalty (focus on fundamental quality, not position status)
+      * Missing-prediction penalty: -0.01
+
+    Extra candidate keys consumed (all optional):
+        volatility_20d_pct   float
+    """
+    conf        = safe_float(candidate.get("prediction_confidence"), 0.0)
+    exp_ret     = safe_float(candidate.get("expected_return_pct"), 0.0)
+    mom_5d_raw  = safe_float(candidate.get("momentum_5d_pct"), 0.0)
+    mom_20d_raw = safe_float(candidate.get("momentum_20d_pct"), 0.0)
+    rs_raw      = safe_float(candidate.get("relative_strength_vs_spy_20d"), 0.0)
+    scan_raw    = safe_float(candidate.get("scan_score"), 0.0)
+    vol_raw     = safe_float(candidate.get("volatility_20d_pct"), 0.0)
+
+    pred_missing = (conf == 0.0 and exp_ret == 0.0
+                    and not candidate.get("prediction_confidence")
+                    and not candidate.get("expected_return_pct"))
+
+    factors = ScoreFactors(
+        confidence          = conf,
+        expected_return_pct = exp_ret,
+        momentum_5d_raw     = mom_5d_raw,
+        momentum_20d_raw    = mom_20d_raw,
+        rs_spy_raw          = rs_raw,
+        scan_score_raw      = scan_raw,
+        prediction_missing  = pred_missing,
+    )
+
+    if pred_missing:
+        factors.total_score  = -0.01
+        factors.formula_profile = "quality_preview"
+        return factors
+
+    base = conf * (2.0 * exp_ret if exp_ret < 0 else exp_ret)
+    factors.base_score = base
+
+    # momentum: low weight; spike penalty replaces bonus for extreme moves
+    mom_5d_c  = _clip(mom_5d_raw,  -_MOM_CLIP, _MOM_CLIP)
+    mom_20d_c = _clip(mom_20d_raw, -_MOM_CLIP, _MOM_CLIP)
+    if abs(mom_5d_raw) > _SPIKE_THRESHOLD_QUAL:
+        # Extreme 5D spike — subtract penalty rather than add momentum bonus
+        factors.momentum_5d_weighted = -_SPIKE_PENALTY_QUAL
+    else:
+        factors.momentum_5d_weighted = _W_MOM_5D_QUAL * mom_5d_c
+    factors.momentum_20d_weighted = _W_MOM_20D_QUAL * mom_20d_c
+    factors.momentum_adj = _cap(factors.momentum_5d_weighted + factors.momentum_20d_weighted)
+
+    # relative strength — higher weight than current
+    factors.rs_adj = _cap(_W_RS_QUAL * _clip(rs_raw, -_RS_CLIP, _RS_CLIP))
+
+    # scan score
+    scan_norm = _detect_scan_score_scale(scan_raw)
+    factors.scan_score_normalised = scan_norm
+    factors.scan_adj = _cap(_W_SCAN_QUAL * (scan_norm - 0.5))
+
+    # volatility penalty
+    vol_abs = _clip(abs(vol_raw), 0.0, _VOL_CLIP)
+    factors.volatility_penalty = -_cap(_W_VOL_QUAL * (vol_abs / max(_VOL_CLIP, 1e-9)))
+
+    total = (
+        factors.base_score
+        + factors.momentum_adj
+        + factors.rs_adj
+        + factors.scan_adj
+        + factors.volatility_penalty
+    )
+
+    if conf < _LOW_CONF_THRESHOLD:
+        total *= _LOW_CONF_FACTOR
+        factors.low_conf_suppressed = True
+
+    factors.total_score  = total
+    factors.formula_profile = "quality_preview"
+    return factors
+
+
+def score_candidate_risk_adjusted_preview(candidate: dict[str, Any]) -> ScoreFactors:
+    """
+    Risk-adjusted-preview scoring for Phase 4C calibration workbench.
+
+    Design intent: most conservative profile.  Discounts positive returns,
+    applies an aggressive volatility penalty, and strongly penalises held
+    positions and missing predictions.
+
+    Differences vs score_candidate_v2:
+      * Positive return weighted at 0.8× (conservative realism)
+      * Negative return weighted at 2.5× (more punishing than v2's 2×)
+      * Aggressive volatility penalty (0.10 vs 0.05 balanced)
+      * Stronger holding penalty (0.025 vs 0.015 balanced)
+      * Stronger missing-prediction penalty: -0.02
+      * Minimal momentum sensitivity (0.04/0.04)
+
+    Extra candidate keys consumed (all optional):
+        volatility_20d_pct   float
+        is_current_holding   bool
+    """
+    conf        = safe_float(candidate.get("prediction_confidence"), 0.0)
+    exp_ret     = safe_float(candidate.get("expected_return_pct"), 0.0)
+    mom_5d_raw  = safe_float(candidate.get("momentum_5d_pct"), 0.0)
+    mom_20d_raw = safe_float(candidate.get("momentum_20d_pct"), 0.0)
+    rs_raw      = safe_float(candidate.get("relative_strength_vs_spy_20d"), 0.0)
+    scan_raw    = safe_float(candidate.get("scan_score"), 0.0)
+    vol_raw     = safe_float(candidate.get("volatility_20d_pct"), 0.0)
+    is_held     = bool(candidate.get("is_current_holding", False))
+
+    pred_missing = (conf == 0.0 and exp_ret == 0.0
+                    and not candidate.get("prediction_confidence")
+                    and not candidate.get("expected_return_pct"))
+
+    factors = ScoreFactors(
+        confidence          = conf,
+        expected_return_pct = exp_ret,
+        momentum_5d_raw     = mom_5d_raw,
+        momentum_20d_raw    = mom_20d_raw,
+        rs_spy_raw          = rs_raw,
+        scan_score_raw      = scan_raw,
+        prediction_missing  = pred_missing,
+    )
+
+    if pred_missing:
+        factors.total_score  = _MISSING_PENALTY_RISK
+        factors.formula_profile = "risk_adjusted_preview"
+        return factors
+
+    # Conservative return weighting
+    if exp_ret >= 0:
+        base = conf * _RETURN_FACTOR_POS_RISK * exp_ret
+    else:
+        base = conf * _RETURN_FACTOR_NEG_RISK * exp_ret
+    factors.base_score = base
+
+    # Minimal momentum sensitivity
+    mom_5d_c  = _clip(mom_5d_raw,  -_MOM_CLIP, _MOM_CLIP)
+    mom_20d_c = _clip(mom_20d_raw, -_MOM_CLIP, _MOM_CLIP)
+    factors.momentum_5d_weighted  = _W_MOM_5D_RISK  * mom_5d_c
+    factors.momentum_20d_weighted = _W_MOM_20D_RISK * mom_20d_c
+    factors.momentum_adj = _cap(factors.momentum_5d_weighted + factors.momentum_20d_weighted)
+
+    factors.rs_adj = _cap(_W_RS_RISK * _clip(rs_raw, -_RS_CLIP, _RS_CLIP))
+
+    scan_norm = _detect_scan_score_scale(scan_raw)
+    factors.scan_score_normalised = scan_norm
+    factors.scan_adj = _cap(_W_SCAN_RISK * (scan_norm - 0.5))
+
+    # Aggressive volatility penalty
+    vol_abs = _clip(abs(vol_raw), 0.0, _VOL_CLIP)
+    factors.volatility_penalty = -_cap(_W_VOL_RISK * (vol_abs / max(_VOL_CLIP, 1e-9)))
+
+    # Stronger holding penalty
+    factors.holding_penalty = -_HOLDING_PENALTY_RISK if is_held else 0.0
+
+    total = (
+        factors.base_score
+        + factors.momentum_adj
+        + factors.rs_adj
+        + factors.scan_adj
+        + factors.volatility_penalty
+        + factors.holding_penalty
+    )
+
+    if conf < _LOW_CONF_THRESHOLD:
+        total *= _LOW_CONF_FACTOR
+        factors.low_conf_suppressed = True
+
+    factors.total_score  = total
+    factors.formula_profile = "risk_adjusted_preview"
+    return factors
+
+
+def build_score_breakdown(factors: ScoreFactors) -> dict[str, Any]:
+    """
+    Return a structured per-component score breakdown dict from ScoreFactors.
+
+    Intended for the Phase 4C score_breakdown field on CandidatePreview.
+    """
+    return {
+        "formula_profile": factors.formula_profile,
+        "prediction_return_component":  round(factors.base_score, 6),
+        "prediction_confidence_component": round(factors.confidence, 4),
+        "momentum_5d_component":        round(factors.momentum_5d_weighted, 6),
+        "momentum_20d_component":       round(factors.momentum_20d_weighted, 6),
+        "momentum_total_adj":           round(factors.momentum_adj, 6),
+        "relative_strength_component":  round(factors.rs_adj, 6),
+        "scan_adj":                     round(factors.scan_adj, 6),
+        "volatility_penalty_component": round(factors.volatility_penalty, 6),
+        "already_held_penalty_component": round(factors.holding_penalty, 6),
+        "stale_or_missing_prediction_penalty": round(
+            factors.total_score if factors.prediction_missing else 0.0, 6
+        ),
+        "low_conf_suppression_applied": factors.low_conf_suppressed,
+        "final_score": round(factors.total_score, 6),
+    }
 
 
 def explain_score_factors(factors: ScoreFactors) -> str:
