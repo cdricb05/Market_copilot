@@ -15249,3 +15249,612 @@ class TestUniverseStatusEndpoint:
         assert resp.status_code == 200
         cov = resp.json()["market_data_coverage"]
         assert cov["benchmark_available"] is True
+
+
+class TestScoringProfileCalibrationPreviewEndpoint:
+    """POST /v1/strategy/scoring-profile-calibration-preview — read-only historical calibration."""
+
+    _ENDPOINT = "/v1/strategy/scoring-profile-calibration-preview"
+    _AS_OF = date(2025, 4, 15)
+    _FWD_DATE = date(2025, 4, 22)  # +5 trading days (approximate) after _AS_OF
+
+    @staticmethod
+    def _seed_ticker_prices(
+        s,
+        ticker: str,
+        as_of_date: date,
+        lookback: int = 25,
+        latest_price: float = 100.0,
+        fwd_price: float | None = None,
+        fwd_days: int = 7,
+    ) -> None:
+        """Seed monotonically increasing prices from (as_of_date - lookback) to as_of_date,
+        plus an optional forward price at as_of_date + fwd_days."""
+        ticker = ticker.strip().upper()
+        from datetime import timedelta as _td
+        base_ts = datetime(2025, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
+        step = (latest_price * 0.005)
+        for i in range(lookback):
+            d = as_of_date - _td(days=lookback - 1 - i)
+            price = latest_price - step * (lookback - 1 - i)
+            s.add(PriceSnapshot(
+                ticker=ticker,
+                price=Decimal(f"{max(1.0, price):.4f}"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=base_ts,
+                market_date=d,
+            ))
+        if fwd_price is not None:
+            fwd_d = as_of_date + _td(days=fwd_days)
+            s.add(PriceSnapshot(
+                ticker=ticker,
+                price=Decimal(f"{fwd_price:.4f}"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=base_ts,
+                market_date=fwd_d,
+            ))
+
+    def test_requires_auth(self, client: TestClient) -> None:
+        """Returns 401 when API key is missing."""
+        resp = client.post(self._ENDPOINT, json={})
+        assert resp.status_code == 401
+
+    def test_returns_200_with_seeded_prices(self, seeded_client: TestClient, api_engine) -> None:
+        """Returns 200 with correct top-level structure when prices are seeded."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        tickers = [f"CALIB{suffix}{i}".upper() for i in range(3)]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=104.0, fwd_days=7)
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "lookback_days": 20,
+                    "forward_return_days": 5,
+                    "scan_top_n": 10,
+                    "profile_top_n": 3,
+                    "min_price_points": 5,
+                    "profiles": ["current", "balanced_preview"],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "calibration_summary" in data
+            assert "profile_results" in data
+            assert "profile_comparison" in data
+            assert "skipped_diagnostics" in data
+            assert data["calibration_summary"]["as_of_date"] == str(self._AS_OF)
+            assert len(data["profile_results"]) == 2
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                for t in tickers:
+                    s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+                s.commit()
+
+    def test_creates_zero_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """Endpoint creates no DB rows of any kind."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        tickers = [f"CALIBZR{suffix}{i}".upper() for i in range(2)]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=80.0)
+            s.commit()
+
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                sig_b = s.query(Signal).count()
+                td_b  = s.query(TradeDecision).count()
+                ord_b = s.query(Order).count()
+                cand_b = s.query(CandidateReview).count()
+
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_date": str(self._AS_OF), "min_price_points": 5, "profile_top_n": 2},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(Signal).count()          == sig_b
+                assert s.query(TradeDecision).count()   == td_b
+                assert s.query(Order).count()           == ord_b
+                assert s.query(CandidateReview).count() == cand_b
+
+            sc = resp.json()["calibration_summary"]["safety_counts"]
+            assert sc["signals_created"]   == 0
+            assert sc["decisions_created"] == 0
+            assert sc["orders_created"]    == 0
+            assert sc["rows_created"]      == 0
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                for t in tickers:
+                    s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+                s.commit()
+
+    def test_forward_return_pct_computed_correctly(self, seeded_client: TestClient, api_engine) -> None:
+        """forward_return_pct equals (fwd_price - as_of_price) / as_of_price * 100."""
+        import uuid as _uuid
+        from datetime import timedelta as _td
+        suffix = _uuid.uuid4().hex[:6]
+        ticker = f"CALIBFR{suffix}".upper()
+        as_of = date(2025, 4, 10)
+        fwd_date = as_of + _td(days=5)
+        as_of_price = 100.0
+        fwd_price = 105.0
+        expected_ret = round((fwd_price - as_of_price) / as_of_price * 100.0, 4)  # 5.0
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(
+                s, ticker, as_of, lookback=22, latest_price=as_of_price, fwd_price=fwd_price, fwd_days=5
+            )
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(as_of),
+                    "forward_return_days": 5,
+                    "scan_top_n": 50,
+                    "profile_top_n": 50,
+                    "min_price_points": 5,
+                    "profiles": ["current"],
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            pr = data["profile_results"][0]
+            cand = next((c for c in pr["top_candidates"] if c["ticker"] == ticker), None)
+            assert cand is not None, f"{ticker} not found in top_candidates"
+            assert cand["forward_return_pct"] == expected_ret, (
+                f"Expected {expected_ret}, got {cand['forward_return_pct']}"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_benchmark_missing_handled_gracefully(self, seeded_client: TestClient, api_engine) -> None:
+        """When no benchmark prices exist, benchmark_available=False and no crash."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        ticker = f"CALIBNB{suffix}".upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=50.0)
+            s.query(BenchmarkPrice).filter(BenchmarkPrice.ticker == "SPY").delete()
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profile_top_n": 3,
+                    "profiles": ["current"],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["calibration_summary"]["benchmark_available"] is False
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_profile_results_includes_all_requested_profiles(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """profile_results contains one entry per requested profile."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        tickers = [f"CALIBPR{suffix}{i}".upper() for i in range(2)]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=60.0)
+            s.commit()
+
+        try:
+            profiles = ["current", "balanced_preview", "quality_preview", "risk_adjusted_preview"]
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profile_top_n": 5,
+                    "profiles": profiles,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            returned_profiles = [pr["profile_name"] for pr in data["profile_results"]]
+            for p in profiles:
+                assert p in returned_profiles, f"Profile {p!r} missing from profile_results"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                for t in tickers:
+                    s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+                s.commit()
+
+    def test_excess_return_vs_spy_computed_when_benchmark_exists(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """excess_return_vs_spy_pct is populated when SPY benchmark prices exist."""
+        import uuid as _uuid
+        from datetime import timedelta as _td
+        suffix = _uuid.uuid4().hex[:6]
+        ticker = f"CALIBEX{suffix}".upper()
+        as_of = date(2025, 4, 8)
+        fwd_days = 5
+        base_ts = datetime(2025, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(
+                s, ticker, as_of, lookback=22, latest_price=100.0, fwd_price=103.0, fwd_days=fwd_days
+            )
+            # Seed SPY benchmark lookback prices
+            spy_price = 500.0
+            for i in range(22):
+                d = as_of - _td(days=21 - i)
+                s.add(BenchmarkPrice(
+                    ticker="SPY",
+                    price=Decimal(f"{spy_price + i * 0.5:.2f}"),
+                    session_type="REGULAR",
+                    snapshot_ts=base_ts,
+                    market_date=d,
+                ))
+            # Seed SPY forward price
+            s.add(BenchmarkPrice(
+                ticker="SPY",
+                price=Decimal("511.00"),
+                session_type="REGULAR",
+                snapshot_ts=base_ts,
+                market_date=as_of + _td(days=fwd_days),
+            ))
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(as_of),
+                    "forward_return_days": fwd_days,
+                    "scan_top_n": 50,
+                    "profile_top_n": 50,
+                    "min_price_points": 5,
+                    "profiles": ["current"],
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["calibration_summary"]["benchmark_available"] is True
+            pr = data["profile_results"][0]
+            cand = next((c for c in pr["top_candidates"] if c["ticker"] == ticker), None)
+            assert cand is not None, f"{ticker} not in top_candidates"
+            assert cand["excess_return_vs_spy_pct"] is not None, "excess_return_vs_spy_pct should be populated"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.query(BenchmarkPrice).filter(BenchmarkPrice.ticker == "SPY").delete()
+                s.commit()
+
+    def test_no_forward_data_sets_warning_and_null_return(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """When no forward price exists, warning_reason=NO_FORWARD_PRICE and forward_return_pct=null."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        ticker = f"CALIBNF{suffix}".upper()
+        # Use a far-future as_of_date so no forward price will exist
+        as_of = date(2099, 1, 10)
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            from datetime import timedelta as _td
+            base_ts = datetime(2099, 1, 1, 16, 0, 0, tzinfo=timezone.utc)
+            for i in range(22):
+                d = as_of - _td(days=21 - i)
+                s.add(PriceSnapshot(
+                    ticker=ticker,
+                    price=Decimal("50.00"),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=base_ts,
+                    market_date=d,
+                ))
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(as_of),
+                    "forward_return_days": 5,
+                    "scan_top_n": 50,
+                    "profile_top_n": 50,
+                    "min_price_points": 5,
+                    "profiles": ["current"],
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            pr = data["profile_results"][0]
+            cand = next((c for c in pr["top_candidates"] if c["ticker"] == ticker), None)
+            assert cand is not None, f"{ticker} not in top_candidates"
+            assert cand["forward_return_pct"] is None
+            assert cand["warning_reason"] == "NO_FORWARD_PRICE"
+            assert "No forward return data" in data["profile_comparison"]["explanation"] or \
+                   "may not exist yet" in data["profile_comparison"]["explanation"]
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_skipped_diagnostics_capped_at_25_samples(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """skipped_diagnostics.samples is capped at 25 even when many tickers are skipped."""
+        import uuid as _uuid
+        from unittest.mock import patch
+        suffix = _uuid.uuid4().hex[:6]
+
+        # Patch get_sp500_universe to return 30 tickers with no price data → all skipped
+        fake_tickers = [f"CALIBSK{suffix}{i:02d}" for i in range(30)]
+
+        with patch("paper_trader.engine.universe.get_sp500_universe", return_value=fake_tickers):
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profile_top_n": 5,
+                    "profiles": ["current"],
+                },
+                headers=_AUTH,
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        diag = data["skipped_diagnostics"]
+        assert diag["total_skipped"] == 30
+        assert len(diag["samples"]) <= 25
+
+    def test_safety_counts_all_zero(self, seeded_client: TestClient, api_engine) -> None:
+        """safety_counts in calibration_summary are all zero."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        ticker = f"CALIBSC{suffix}".upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=75.0)
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_date": str(self._AS_OF), "min_price_points": 5, "profile_top_n": 3},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            sc = resp.json()["calibration_summary"]["safety_counts"]
+            for key in ("signals_created", "decisions_created", "orders_created", "rows_created"):
+                assert sc[key] == 0, f"safety_counts.{key} should be 0, got {sc[key]}"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_invalid_profile_returns_422(self, seeded_client: TestClient) -> None:
+        """An unrecognised profile name returns 422."""
+        resp = seeded_client.post(
+            self._ENDPOINT,
+            json={"profiles": ["invalid_scoring_profile_xyz"]},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 422
+
+    def test_overlap_matrix_present(self, seeded_client: TestClient, api_engine) -> None:
+        """profile_comparison.overlap_matrix is present and keyed correctly."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        tickers = [f"CALIBOM{suffix}{i}".upper() for i in range(3)]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=90.0)
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profile_top_n": 5,
+                    "profiles": ["current", "balanced_preview"],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            matrix = resp.json()["profile_comparison"]["overlap_matrix"]
+            assert isinstance(matrix, dict)
+            assert "current_vs_balanced_preview" in matrix
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                for t in tickers:
+                    s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+                s.commit()
+
+    def test_score_breakdown_present_on_each_candidate(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Each top_candidates row has a non-null score_breakdown with required keys."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        ticker = f"CALIBSB{suffix}".upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=120.0)
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profile_top_n": 10,
+                    "profiles": ["current"],
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            pr = data["profile_results"][0]
+            cand = next((c for c in pr["top_candidates"] if c["ticker"] == ticker), None)
+            assert cand is not None, f"{ticker} not found in top_candidates"
+            sb = cand["score_breakdown"]
+            assert sb is not None
+            for key in ("formula_profile", "final_score", "momentum_total_adj", "relative_strength_component"):
+                assert key in sb, f"score_breakdown missing key {key!r}"
+            assert sb["formula_profile"] == "current"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_no_price_data_returns_200_empty_results(self, seeded_client: TestClient) -> None:
+        """Returns 200 with empty profile_results when no price data exists for the universe."""
+        from unittest.mock import patch
+        with patch("paper_trader.engine.universe.get_sp500_universe", return_value=["ZZZNODATA1", "ZZZNODATA2"]):
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 20,
+                    "profiles": ["current"],
+                },
+                headers=_AUTH,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["calibration_summary"]["evaluated_count"] == 0
+        assert data["calibration_summary"]["skipped_count"] == 2
+        assert data["profile_results"][0]["top_candidates"] == []
+
+    def test_targeted_tickers_only_evaluates_those_tickers(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """When tickers is provided, universe_count equals the targeted set and only those tickers appear."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        ticker = f"CALIBTGT{suffix}".upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=110.0)
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profile_top_n": 50,
+                    "profiles": ["current"],
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            summary = data["calibration_summary"]
+            assert summary["universe_count"] == 1
+            assert summary["evaluated_count"] == 1
+            assert summary["skipped_count"] == 0
+            pr = data["profile_results"][0]
+            assert len(pr["top_candidates"]) == 1
+            assert pr["top_candidates"][0]["ticker"] == ticker
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_tickers_normalized_and_deduplicated(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Blank, lowercase, and duplicate entries in tickers are normalized and collapsed to one."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6]
+        ticker = f"CALIBND{suffix}".upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=90.0)
+            s.commit()
+
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profile_top_n": 50,
+                    "profiles": ["current"],
+                    # lowercase, extra spaces, blank, and duplicate — all collapse to 1 unique ticker
+                    "tickers": [ticker.lower(), "  ", ticker, ticker.lower()],
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["calibration_summary"]["universe_count"] == 1
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_empty_tickers_falls_back_to_universe(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Passing tickers=[] is treated the same as omitting tickers: uses full universe."""
+        from unittest.mock import patch
+        with patch(
+            "paper_trader.engine.universe.get_sp500_universe",
+            return_value=["ZZZFB1", "ZZZFB2"],
+        ):
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profiles": ["current"],
+                    "tickers": [],
+                },
+                headers=_AUTH,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # No price data for ZZZFB tickers → all skipped; universe_count reflects the patched universe
+        assert data["calibration_summary"]["universe_count"] == 2
+        assert data["calibration_summary"]["evaluated_count"] == 0

@@ -1864,6 +1864,34 @@
           </details>
         </div>
 
+        <!-- Scoring Profile Calibration Preview -->
+        <div class="card">
+          <div class="card-title">Scoring Profile Calibration Preview</div>
+          <p style="font-size:11px;color:var(--ok);margin:0 0 10px;padding:6px 8px;background:rgba(0,128,0,0.08);border-left:3px solid var(--ok);">
+            Calibration is read-only. It uses existing historical prices only. No signals, decisions, or orders are created.
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px;">
+            <div class="input-group">
+              <label>As-of Date (optional)</label>
+              <input type="date" id="calib-as-of-date" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Lookback Days</label>
+              <input type="number" id="calib-lookback-days" value="20" min="5" max="60" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Forward Return Days</label>
+              <input type="number" id="calib-forward-days" value="5" min="1" max="30" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Profile Top N</label>
+              <input type="number" id="calib-profile-top-n" value="10" min="1" max="50" class="mono">
+            </div>
+          </div>
+          <button class="btn-action" id="calib-run-btn" onclick="runCalibrationPreview(this)">Run Calibration Preview</button>
+          <div id="calib-result" style="margin-top:12px;font-size:12px;"></div>
+        </div>
+
       </div><!-- end tab-audit-advanced -->
 
     </div><!-- end main-content-area -->
@@ -6839,6 +6867,109 @@ async function runBenchmarkBackfill(btn) {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Scoring Profile Calibration Preview
+// ---------------------------------------------------------------------------
+
+async function runCalibrationPreview(btn) {
+  if (!window._appState || !window._appState.connected) {
+    toast('Connect first to run calibration.', 'warn');
+    return;
+  }
+  const resultEl = document.getElementById('calib-result');
+  if (btn) btn.disabled = true;
+  resultEl.textContent = 'Running calibration preview...';
+  const body = {
+    lookback_days: parseInt(document.getElementById('calib-lookback-days').value, 10) || 20,
+    forward_return_days: parseInt(document.getElementById('calib-forward-days').value, 10) || 5,
+    profile_top_n: parseInt(document.getElementById('calib-profile-top-n').value, 10) || 10,
+  };
+  const asOf = document.getElementById('calib-as-of-date').value;
+  if (asOf) body.as_of_date = asOf;
+  try {
+    const r = await call('POST', '/v1/strategy/scoring-profile-calibration-preview', body);
+    if (!r.ok) {
+      const e = await r.json();
+      resultEl.textContent = 'Error: ' + (e.detail || String(r.status));
+      return;
+    }
+    const data = await r.json();
+    resultEl.innerHTML = _renderCalibrationResult(data);
+  } catch (ex) {
+    resultEl.textContent = 'Error: ' + ex.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _renderCalibrationResult(data) {
+  const s = data.calibration_summary;
+  let h = '';
+  h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">';
+  h += '<span style="font-size:11px;background:rgba(255,255,255,0.08);padding:2px 8px;border-radius:10px;">As-of: ' + escapeHtml(s.as_of_date) + '</span>';
+  h += '<span style="font-size:11px;background:rgba(255,255,255,0.08);padding:2px 8px;border-radius:10px;">Universe: ' + s.universe_count + '</span>';
+  h += '<span style="font-size:11px;background:rgba(255,255,255,0.08);padding:2px 8px;border-radius:10px;">Evaluated: ' + s.evaluated_count + '</span>';
+  h += '<span style="font-size:11px;background:rgba(255,255,255,0.08);padding:2px 8px;border-radius:10px;">Skipped: ' + s.skipped_count + '</span>';
+  const bmColor = s.benchmark_available ? 'var(--ok)' : 'var(--warning)';
+  h += '<span style="font-size:11px;padding:2px 8px;border-radius:10px;color:' + bmColor + ';">Benchmark: ' + (s.benchmark_available ? 'Available' : 'Missing') + '</span>';
+  h += '<span style="font-size:11px;color:var(--ok);padding:2px 8px;border-radius:10px;">Safety: 0 rows created</span>';
+  h += '</div>';
+  const cmp = data.profile_comparison;
+  h += '<div style="font-size:11px;color:var(--label);padding:6px 8px;background:rgba(0,0,0,0.2);margin-bottom:8px;">';
+  if (cmp.best_average_return_profile) { h += 'Best avg return: <strong style="color:var(--ok);">' + escapeHtml(cmp.best_average_return_profile) + '</strong> &nbsp; '; }
+  if (cmp.best_win_rate_profile) { h += 'Best win rate: <strong style="color:var(--ok);">' + escapeHtml(cmp.best_win_rate_profile) + '</strong> &nbsp; '; }
+  if (cmp.best_excess_return_profile) { h += 'Best vs SPY: <strong style="color:var(--ok);">' + escapeHtml(cmp.best_excess_return_profile) + '</strong>'; }
+  h += '<div style="margin-top:4px;">' + escapeHtml(cmp.explanation) + '</div>';
+  h += '</div>';
+  for (let i = 0; i < data.profile_results.length; i++) {
+    const pr = data.profile_results[i];
+    const hasFwd = pr.average_forward_return_pct !== null;
+    h += '<details style="margin-bottom:5px;"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--text-accent);padding:3px 0;user-select:none;">';
+    h += escapeHtml(pr.profile_name) + ' &mdash; ';
+    if (hasFwd) {
+      const ac = pr.average_forward_return_pct >= 0 ? 'var(--ok)' : 'var(--danger)';
+      h += '<span style="color:' + ac + ';">avg ' + pr.average_forward_return_pct.toFixed(2) + '%</span>';
+      h += ' &nbsp; win ' + (pr.win_rate_pct !== null ? pr.win_rate_pct.toFixed(0) + '%' : 'N/A');
+      h += ' &nbsp; vs SPY ' + (pr.average_excess_return_vs_spy_pct !== null ? pr.average_excess_return_vs_spy_pct.toFixed(2) + '%' : 'N/A');
+    } else {
+      h += 'No forward return data';
+    }
+    h += '</summary>';
+    h += '<table style="width:100%;font-size:11px;border-collapse:collapse;margin-top:4px;">';
+    h += '<thead><tr style="color:var(--label);border-bottom:1px solid rgba(255,255,255,0.1);">';
+    h += '<th style="text-align:left;padding:2px 5px;">Rank</th>';
+    h += '<th style="text-align:left;padding:2px 5px;">Ticker</th>';
+    h += '<th style="text-align:right;padding:2px 5px;">Score</th>';
+    h += '<th style="text-align:right;padding:2px 5px;">Fwd Ret</th>';
+    h += '<th style="text-align:right;padding:2px 5px;">vs SPY</th>';
+    h += '<th style="text-align:left;padding:2px 5px;">Note</th>';
+    h += '</tr></thead><tbody>';
+    for (let j = 0; j < pr.top_candidates.length; j++) {
+      const c = pr.top_candidates[j];
+      const rc = c.forward_return_pct !== null ? (c.forward_return_pct >= 0 ? 'var(--ok)' : 'var(--danger)') : 'var(--label)';
+      const ec = c.excess_return_vs_spy_pct !== null ? (c.excess_return_vs_spy_pct >= 0 ? 'var(--ok)' : 'var(--danger)') : 'var(--label)';
+      h += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">';
+      h += '<td style="padding:2px 5px;">' + c.rank + '</td>';
+      h += '<td style="padding:2px 5px;font-weight:600;">' + escapeHtml(c.ticker) + '</td>';
+      h += '<td style="text-align:right;padding:2px 5px;">' + c.score.toFixed(4) + '</td>';
+      h += '<td style="text-align:right;padding:2px 5px;color:' + rc + ';">' + (c.forward_return_pct !== null ? c.forward_return_pct.toFixed(2) + '%' : '--') + '</td>';
+      h += '<td style="text-align:right;padding:2px 5px;color:' + ec + ';">' + (c.excess_return_vs_spy_pct !== null ? c.excess_return_vs_spy_pct.toFixed(2) + '%' : '--') + '</td>';
+      h += '<td style="padding:2px 5px;font-size:10px;color:var(--warning);">' + (c.warning_reason ? escapeHtml(c.warning_reason) : '') + '</td>';
+      h += '</tr>';
+    }
+    h += '</tbody></table></details>';
+  }
+  if (data.skipped_diagnostics.total_skipped > 0) {
+    h += '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:11px;color:var(--label);user-select:none;">Skipped (' + data.skipped_diagnostics.total_skipped + ')</summary>';
+    h += '<div style="font-size:10px;color:var(--label);max-height:80px;overflow-y:auto;margin-top:4px;">';
+    for (let k = 0; k < data.skipped_diagnostics.samples.length; k++) {
+      h += '<span style="margin-right:8px;">' + escapeHtml(data.skipped_diagnostics.samples[k].ticker) + '</span>';
+    }
+    h += '</div></details>';
+  }
+  return h;
 }
 
 // Mark main script execution complete
