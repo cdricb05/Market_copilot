@@ -13433,3 +13433,92 @@ class TestUniverseStatusEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["expected_full_sp500_min_count"] == 450
+
+    def test_market_data_coverage_counts_correctly(
+        self, seeded_client: TestClient, api_engine, tmp_path, monkeypatch
+    ) -> None:
+        """tickers_with_enough/tickers_missing counts reflect actual DB state."""
+        tickers_enough = ["COVTEST1", "COVTEST2", "COVTEST3"]
+        tickers_missing = ["COVTEST4", "COVTEST5"]
+
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text(
+            "ticker\n" + "\n".join(tickers_enough + tickers_missing) + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        now_ts = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            rows_to_add = []
+            for ticker in tickers_enough:
+                for day in range(5):
+                    rows_to_add.append(PriceSnapshot(
+                        ticker=ticker,
+                        price=Decimal("100.00"),
+                        session_type="REGULAR",
+                        price_type="CLOSE",
+                        snapshot_ts=now_ts,
+                        market_date=date(2026, 6, day + 1),
+                    ))
+            for ticker in tickers_missing:
+                for day in range(2):
+                    rows_to_add.append(PriceSnapshot(
+                        ticker=ticker,
+                        price=Decimal("50.00"),
+                        session_type="REGULAR",
+                        price_type="CLOSE",
+                        snapshot_ts=now_ts,
+                        market_date=date(2026, 6, day + 1),
+                    ))
+            s.add_all(rows_to_add)
+            s.commit()
+
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        cov = data["market_data_coverage"]
+        assert cov["tickers_with_enough_price_history"] == 3
+        assert cov["tickers_missing_price_history"] == 2
+        assert data["ticker_count"] == 5
+
+    def test_market_data_coverage_benchmark_false_when_no_spy(
+        self, seeded_client: TestClient, api_engine, tmp_path, monkeypatch
+    ) -> None:
+        """benchmark_available is False when no SPY BenchmarkPrice rows exist."""
+        stub_csv = tmp_path / "sp500_universe.csv"
+        stub_csv.write_text("ticker\nCOVTEST1\nCOVTEST2\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.query(BenchmarkPrice).filter(BenchmarkPrice.ticker == "SPY").delete()
+            s.commit()
+
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+        cov = resp.json()["market_data_coverage"]
+        assert cov["benchmark_available"] is False
+
+    def test_market_data_coverage_benchmark_true_when_spy_present(
+        self, seeded_client: TestClient, api_engine, tmp_path, monkeypatch
+    ) -> None:
+        """benchmark_available is True when at least one SPY BenchmarkPrice row exists."""
+        stub_csv = tmp_path / "sp500_universe.csv"
+        stub_csv.write_text("ticker\nCOVTEST1\n", encoding="utf-8")
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        now_ts = datetime(2026, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.add(BenchmarkPrice(
+                ticker="SPY",
+                price=Decimal("520.00"),
+                session_type="REGULAR",
+                snapshot_ts=now_ts,
+                market_date=date(2026, 6, 15),
+            ))
+            s.commit()
+
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+        cov = resp.json()["market_data_coverage"]
+        assert cov["benchmark_available"] is True

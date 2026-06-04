@@ -1809,6 +1809,46 @@
           <button class="btn-action" style="margin-top:10px;" onclick="loadUniverseStatus(this)">Refresh Universe Status</button>
         </div>
 
+        <!-- Universe Price Coverage -->
+        <div class="card">
+          <div class="card-title">Universe Price Coverage</div>
+          <div id="coverage-status-result" style="font-size:13px;color:var(--label);">Click Refresh to load coverage.</div>
+          <button class="btn-action" style="margin-top:8px;" onclick="loadCoverageStatus(this)">Refresh Coverage</button>
+          <details style="margin-top:12px;">
+            <summary style="cursor:pointer;font-size:12px;color:var(--label);font-weight:600;user-select:none;">Price Backfill Controls</summary>
+            <p style="font-size:11px;color:var(--warning);margin:8px 0;">
+              Backfill writes market data only. It does not create signals, decisions, orders, or automation.
+            </p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:8px;">
+              <div class="input-group">
+                <label>Start Date</label>
+                <input type="date" id="backfill-start-date" class="mono">
+              </div>
+              <div class="input-group">
+                <label>End Date</label>
+                <input type="date" id="backfill-end-date" class="mono">
+              </div>
+              <div class="input-group">
+                <label>Max Tickers (max 50)</label>
+                <input type="number" id="backfill-max-tickers" value="50" min="1" max="50" class="mono">
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+              <input type="checkbox" id="backfill-dry-run" checked>
+              <label for="backfill-dry-run" style="font-size:12px;color:var(--text-primary);cursor:pointer;">Dry Run (preview, no writes)</label>
+            </div>
+            <div id="backfill-result" style="font-size:12px;min-height:18px;margin-bottom:8px;"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn-action" onclick="runUniverseBackfill(this)">Universe Backfill</button>
+              <button class="btn-action" style="background:var(--info);" onclick="runBenchmarkBackfill(this)">Backfill SPY Benchmark</button>
+            </div>
+            <p style="font-size:11px;color:var(--label);margin:8px 0 0;">
+              Universe: writes price_snapshots only, first max_tickers per run (no auto-loop yet).<br>
+              Benchmark: writes benchmark_prices only.
+            </p>
+          </details>
+        </div>
+
       </div><!-- end tab-audit-advanced -->
 
     </div><!-- end main-content-area -->
@@ -6340,6 +6380,119 @@ async function loadUniverseStatus(btn) {
     resultEl.innerHTML = html;
   } catch (e) {
     resultEl.innerHTML = '<span style="color:var(--danger);">Failed: ' + escapeHtml(String(e)) + '</span>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadCoverageStatus(btn) {
+  const resultEl = document.getElementById('coverage-status-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<span style="color:var(--warning);">Loading coverage...</span>';
+  try {
+    const r = await call('GET', '/v1/strategy/universe/status');
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      resultEl.innerHTML = '<span style="color:var(--danger);">Error: ' + escapeHtml((err.detail || r.status).toString()) + '</span>';
+      return;
+    }
+    const d = await r.json();
+    const cov = d.market_data_coverage || {};
+    const total = d.ticker_count || 0;
+    const withHist = cov.tickers_with_enough_price_history || 0;
+    const missing = cov.tickers_missing_price_history !== undefined ? cov.tickers_missing_price_history : (total - withHist);
+    const bmAvail = !!cov.benchmark_available;
+    let action = '';
+    if (!bmAvail) {
+      action = '<span style="color:var(--warning);">Backfill SPY benchmark first.</span>';
+    } else if (missing > 0) {
+      action = '<span style="color:var(--warning);">Run universe price backfill (' + missing + ' tickers missing).</span>';
+    } else {
+      action = '<span style="color:var(--ok);">Ready for broad market scan.</span>';
+    }
+    let html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px;">';
+    html += '<div><span style="font-size:11px;color:var(--label);text-transform:uppercase;">Universe</span><br><strong style="color:var(--text-primary);">' + total + '</strong></div>';
+    html += '<div><span style="font-size:11px;color:var(--label);text-transform:uppercase;">With History</span><br><strong style="color:var(--ok);">' + withHist + '</strong></div>';
+    html += '<div><span style="font-size:11px;color:var(--label);text-transform:uppercase;">Missing</span><br><strong style="color:' + (missing > 0 ? 'var(--warning)' : 'var(--ok)') + ';">' + missing + '</strong></div>';
+    html += '<div><span style="font-size:11px;color:var(--label);text-transform:uppercase;">SPY</span><br><strong style="color:' + (bmAvail ? 'var(--ok)' : 'var(--warning)') + ';">' + (bmAvail ? 'Available' : 'No data') + '</strong></div>';
+    html += '</div>';
+    html += '<div style="font-size:12px;">' + action + '</div>';
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.innerHTML = '<span style="color:var(--danger);">Failed: ' + escapeHtml(String(e)) + '</span>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runUniverseBackfill(btn) {
+  const startDate  = (document.getElementById('backfill-start-date') || {}).value || '';
+  const endDate    = (document.getElementById('backfill-end-date')   || {}).value || '';
+  const maxInput   = document.getElementById('backfill-max-tickers');
+  const maxTickers = Math.min(parseInt((maxInput || {}).value || '50', 10), 50);
+  const dryRun     = !!(document.getElementById('backfill-dry-run') || {}).checked;
+  const resultEl   = document.getElementById('backfill-result');
+  if (!startDate || !endDate) { toast('Enter start and end dates.', 'err'); return; }
+  if (btn) btn.disabled = true;
+  if (resultEl) resultEl.innerHTML = '<span style="color:var(--warning);">Running' + (dryRun ? ' dry run' : '') + '...</span>';
+  try {
+    const r = await call('POST', '/v1/market/backfill-prices', {
+      universe: 'SP500',
+      start_date: startDate,
+      end_date: endDate,
+      max_tickers: maxTickers,
+      dry_run: dryRun,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:var(--danger);">Error ' + r.status + ': ' + escapeHtml((data.detail || '').toString()) + '</span>';
+      return;
+    }
+    const label = dryRun ? '[DRY RUN] ' : '';
+    if (resultEl) resultEl.innerHTML =
+      '<span style="color:var(--ok);">' + label + 'Processed: ' + (data.processed_count || 0) +
+      ' | Inserted: ' + (data.inserted_count || 0) +
+      ' | Skipped: ' + (data.skipped_existing_count || 0) +
+      ' | Failed: ' + (data.failed_count || 0) + '</span>';
+    loadCoverageStatus(null);
+  } catch (e) {
+    if (resultEl) resultEl.innerHTML = '<span style="color:var(--danger);">Failed: ' + escapeHtml(String(e)) + '</span>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runBenchmarkBackfill(btn) {
+  const startDate = (document.getElementById('backfill-start-date') || {}).value || '';
+  const endDate   = (document.getElementById('backfill-end-date')   || {}).value || '';
+  const dryRun    = !!(document.getElementById('backfill-dry-run') || {}).checked;
+  const resultEl  = document.getElementById('backfill-result');
+  if (!startDate || !endDate) { toast('Enter start and end dates.', 'err'); return; }
+  if (btn) btn.disabled = true;
+  if (resultEl) resultEl.innerHTML = '<span style="color:var(--warning);">Running SPY benchmark backfill' + (dryRun ? ' (dry run)' : '') + '...</span>';
+  try {
+    const r = await call('POST', '/v1/market/backfill-benchmark-prices', {
+      benchmark_tickers: ['SPY'],
+      start_date: startDate,
+      end_date: endDate,
+      max_benchmarks: 1,
+      dry_run: dryRun,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:var(--danger);">Error ' + r.status + ': ' + escapeHtml((data.detail || '').toString()) + '</span>';
+      return;
+    }
+    const label = dryRun ? '[DRY RUN] ' : '';
+    if (resultEl) resultEl.innerHTML =
+      '<span style="color:var(--ok);">' + label + 'SPY: Processed: ' + (data.processed_count || 0) +
+      ' | Inserted: ' + (data.inserted_count || 0) +
+      ' | Skipped: ' + (data.skipped_existing_count || 0) +
+      ' | Failed: ' + (data.failed_count || 0) + '</span>';
+    loadCoverageStatus(null);
+  } catch (e) {
+    if (resultEl) resultEl.innerHTML = '<span style="color:var(--danger);">Failed: ' + escapeHtml(String(e)) + '</span>';
   } finally {
     if (btn) btn.disabled = false;
   }
