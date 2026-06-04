@@ -730,6 +730,14 @@ class CalibrationRequest(BaseModel):
             "(stripped, uppercased) and deduplicated preserving order."
         ),
     )
+    as_of_dates: list[date] | None = Field(
+        default=None,
+        description=(
+            "Multiple historical dates for multi-date calibration. "
+            "When provided, overrides as_of_date and runs calibration for each date. "
+            "Results are aggregated to produce a profile_recommendation."
+        ),
+    )
 
     @field_validator("profiles")
     @classmethod
@@ -788,6 +796,40 @@ class CalibrationSkippedDiagnostics(BaseModel):
     samples: list[CalibrationSkippedDiagnosticItem] = Field(default_factory=list)
 
 
+class CalibrationRecommendationWarnings(BaseModel):
+    """Warnings that reduce confidence in the profile recommendation."""
+    insufficient_dates: bool = False
+    missing_benchmark: bool = False
+    too_few_evaluated_tickers: bool = False
+    inconsistent_profile_winners: bool = False
+
+
+class CalibrationProfileRanking(BaseModel):
+    """Aggregate ranking for one profile across all calibrated dates."""
+    profile_name: str
+    average_forward_return_pct: float | None = None
+    median_forward_return_pct: float | None = None
+    win_rate_pct: float | None = None
+    average_excess_return_vs_spy_pct: float | None = None
+    consistency_score: float | None = None
+    recommendation_rank: int
+    explanation: str
+
+
+class CalibrationProfileRecommendation(BaseModel):
+    """Cross-date profile recommendation derived from aggregated calibration results."""
+    recommended_profile: str | None = None
+    confidence_level: str
+    reason_summary: str
+    best_average_return_profile: str | None = None
+    best_median_return_profile: str | None = None
+    best_win_rate_profile: str | None = None
+    best_excess_return_profile: str | None = None
+    consistency_score_by_profile: dict[str, float]
+    profile_rankings: list[CalibrationProfileRanking]
+    warnings: CalibrationRecommendationWarnings
+
+
 class CalibrationSummary(BaseModel):
     """Top-level calibration run summary."""
     as_of_date: str
@@ -798,6 +840,7 @@ class CalibrationSummary(BaseModel):
     skipped_count: int
     benchmark_available: bool
     safety_counts: dict[str, int]
+    dates_evaluated: list[str] | None = None
 
 
 class CalibrationResponse(BaseModel):
@@ -806,6 +849,7 @@ class CalibrationResponse(BaseModel):
     profile_results: list[CalibrationProfileResult]
     profile_comparison: CalibrationProfileComparison
     skipped_diagnostics: CalibrationSkippedDiagnostics
+    profile_recommendation: CalibrationProfileRecommendation | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -7435,6 +7479,159 @@ def get_universe_status_endpoint() -> UniverseStatusResponse:
     )
 
 
+def _build_calibration_recommendation(
+    profiles: list[str],
+    date_runs: list[dict],
+) -> CalibrationProfileRecommendation:
+    """Aggregate per-date calibration results into a cross-date profile recommendation."""
+    import statistics as _statistics
+
+    n_dates = len(date_runs)
+
+    _agg: dict[str, dict] = {
+        p: {"avg_rets": [], "med_rets": [], "win_rates": [], "exc_rets": []}
+        for p in profiles
+    }
+    for run in date_runs:
+        for pr in run["profile_results"]:
+            pn = pr.profile_name
+            if pn not in _agg:
+                continue
+            if pr.average_forward_return_pct is not None:
+                _agg[pn]["avg_rets"].append(pr.average_forward_return_pct)
+            if pr.median_forward_return_pct is not None:
+                _agg[pn]["med_rets"].append(pr.median_forward_return_pct)
+            if pr.win_rate_pct is not None:
+                _agg[pn]["win_rates"].append(pr.win_rate_pct)
+            if pr.average_excess_return_vs_spy_pct is not None:
+                _agg[pn]["exc_rets"].append(pr.average_excess_return_vs_spy_pct)
+
+    _date_winners: list[Any] = []
+    for run in date_runs:
+        _dc: dict[str, float] = {}
+        for pr in run["profile_results"]:
+            pn = pr.profile_name
+            _c = 0.0
+            if pr.average_excess_return_vs_spy_pct is not None:
+                _c += pr.average_excess_return_vs_spy_pct / 100.0 * 0.4
+            if pr.win_rate_pct is not None:
+                _c += pr.win_rate_pct / 100.0 * 0.3
+            if pr.average_forward_return_pct is not None:
+                _c += pr.average_forward_return_pct / 100.0 * 0.3
+            _dc[pn] = _c
+        _date_winners.append(max(_dc, key=lambda k: _dc[k]) if _dc else None)
+
+    _valid_winners = [w for w in _date_winners if w is not None]
+    _consistency: dict[str, float] = {
+        p: round(sum(1 for w in _valid_winners if w == p) / len(_valid_winners), 4)
+        if _valid_winners else 0.0
+        for p in profiles
+    }
+
+    _agg_composites: dict[str, float] = {}
+    for p in profiles:
+        _c = 0.0
+        ag = _agg[p]
+        if ag["exc_rets"]:
+            _c += (_statistics.mean(ag["exc_rets"]) / 100.0) * 0.4
+        if ag["win_rates"]:
+            _c += (_statistics.mean(ag["win_rates"]) / 100.0) * 0.3
+        if ag["avg_rets"]:
+            _c += (_statistics.mean(ag["avg_rets"]) / 100.0) * 0.3
+        _agg_composites[p] = _c
+
+    _ranked = sorted(profiles, key=lambda p: (-_agg_composites[p], p))
+
+    _rankings: list[CalibrationProfileRanking] = []
+    for _rank, pn in enumerate(_ranked, 1):
+        ag = _agg[pn]
+        avg_fwd = round(_statistics.mean(ag["avg_rets"]), 4) if ag["avg_rets"] else None
+        med_fwd = round(_statistics.mean(ag["med_rets"]), 4) if ag["med_rets"] else None
+        win_r = round(_statistics.mean(ag["win_rates"]), 2) if ag["win_rates"] else None
+        avg_exc = round(_statistics.mean(ag["exc_rets"]), 4) if ag["exc_rets"] else None
+        cs = _consistency.get(pn)
+        _expl_r: list[str] = []
+        if avg_fwd is not None:
+            _expl_r.append(f"avg return {avg_fwd:.2f}%")
+        if win_r is not None:
+            _expl_r.append(f"win rate {win_r:.0f}%")
+        if avg_exc is not None:
+            _expl_r.append(f"excess return {avg_exc:.2f}%")
+        if cs is not None:
+            _expl_r.append(f"consistency {cs * 100:.0f}%")
+        _rankings.append(CalibrationProfileRanking(
+            profile_name=pn,
+            average_forward_return_pct=avg_fwd,
+            median_forward_return_pct=med_fwd,
+            win_rate_pct=win_r,
+            average_excess_return_vs_spy_pct=avg_exc,
+            consistency_score=cs,
+            recommendation_rank=_rank,
+            explanation=f"Rank {_rank}: " + (", ".join(_expl_r) if _expl_r else "no forward data"),
+        ))
+
+    _avg_vals = [(p, _statistics.mean(_agg[p]["avg_rets"])) for p in profiles if _agg[p]["avg_rets"]]
+    _best_avg_p = max(_avg_vals, key=lambda x: x[1])[0] if _avg_vals else None
+    _med_vals = [(p, _statistics.mean(_agg[p]["med_rets"])) for p in profiles if _agg[p]["med_rets"]]
+    _best_med_p = max(_med_vals, key=lambda x: x[1])[0] if _med_vals else None
+    _win_vals = [(p, _statistics.mean(_agg[p]["win_rates"])) for p in profiles if _agg[p]["win_rates"]]
+    _best_win_p = max(_win_vals, key=lambda x: x[1])[0] if _win_vals else None
+    _exc_vals = [(p, _statistics.mean(_agg[p]["exc_rets"])) for p in profiles if _agg[p]["exc_rets"]]
+    _best_exc_p = max(_exc_vals, key=lambda x: x[1])[0] if _exc_vals else None
+
+    _has_data = any(
+        _agg[p]["avg_rets"] or _agg[p]["exc_rets"] or _agg[p]["win_rates"]
+        for p in profiles
+    )
+    _recommended: str | None = _ranked[0] if (_ranked and _has_data) else None
+
+    _warn_insufficient = n_dates < 2
+    _warn_missing_bm = any(not r["benchmark_available"] for r in date_runs)
+    _warn_few_tickers = any(r["evaluated_count"] < 5 for r in date_runs)
+    _winner_set: set[str] = set(filter(None, [_best_avg_p, _best_win_p, _best_exc_p]))
+    _top_consistency = _consistency.get(_recommended, 0.0) if _recommended else 0.0
+    _warn_inconsistent = len(_winner_set) > 1 and (_recommended is None or _top_consistency < 0.5)
+
+    if not _has_data or n_dates == 0:
+        _confidence = "LOW"
+    elif n_dates < 2 or _warn_few_tickers:
+        _confidence = "LOW"
+    elif n_dates >= 3 and _top_consistency >= 0.67 and not _warn_inconsistent:
+        _confidence = "HIGH"
+    elif _top_consistency >= 0.5 and not _warn_few_tickers:
+        _confidence = "MEDIUM"
+    else:
+        _confidence = "LOW"
+
+    _reason_parts: list[str] = []
+    if _recommended:
+        _reason_parts.append(f"{_recommended} ranks #1 across {n_dates} calibration date(s)")
+    if _warn_insufficient:
+        _reason_parts.append("add more dates for higher confidence")
+    if _warn_missing_bm:
+        _reason_parts.append("benchmark data missing on some dates")
+    if not _recommended:
+        _reason_parts.append("no forward return data available")
+
+    return CalibrationProfileRecommendation(
+        recommended_profile=_recommended,
+        confidence_level=_confidence,
+        reason_summary="; ".join(_reason_parts) if _reason_parts else "insufficient data",
+        best_average_return_profile=_best_avg_p,
+        best_median_return_profile=_best_med_p,
+        best_win_rate_profile=_best_win_p,
+        best_excess_return_profile=_best_exc_p,
+        consistency_score_by_profile=_consistency,
+        profile_rankings=_rankings,
+        warnings=CalibrationRecommendationWarnings(
+            insufficient_dates=_warn_insufficient,
+            missing_benchmark=_warn_missing_bm,
+            too_few_evaluated_tickers=_warn_few_tickers,
+            inconsistent_profile_winners=_warn_inconsistent,
+        ),
+    )
+
+
 @app.post(
     "/v1/strategy/scoring-profile-calibration-preview",
     response_model=CalibrationResponse,
@@ -7491,9 +7688,11 @@ def scoring_profile_calibration_preview(body: CalibrationRequest) -> Calibration
             universe_tickers = _raw_universe
         universe_count = len(universe_tickers)
 
-        # Resolve as_of_date
-        if body.as_of_date is not None:
-            effective_date: date = body.as_of_date
+        # Determine dates to evaluate
+        if body.as_of_dates:
+            _resolved_dates: list[Any] = sorted(set(body.as_of_dates))
+        elif body.as_of_date is not None:
+            _resolved_dates = [body.as_of_date]
         else:
             _latest = session.execute(
                 select(func.max(PriceSnapshot.market_date))
@@ -7520,314 +7719,338 @@ def scoring_profile_calibration_preview(body: CalibrationRequest) -> Calibration
                         overlap_matrix={},
                     ),
                     skipped_diagnostics=CalibrationSkippedDiagnostics(total_skipped=universe_count),
+                    profile_recommendation=_build_calibration_recommendation(body.profiles, []),
                 )
-            effective_date = _latest
+            _resolved_dates = [_latest]
 
-        cutoff_date = effective_date - _timedelta(days=body.lookback_days + 10)
+        _date_runs: list[dict] = []
 
-        # Fetch benchmark prices in lookback window
-        _bm_rows = session.execute(
-            select(BenchmarkPrice.market_date, BenchmarkPrice.price)
-            .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
-            .where(BenchmarkPrice.session_type == "REGULAR")
-            .where(BenchmarkPrice.market_date >= cutoff_date)
-            .where(BenchmarkPrice.market_date <= effective_date)
-            .order_by(BenchmarkPrice.market_date.desc())
-        ).all()
-        _spy_prices: dict = {row[0]: float(row[1]) for row in _bm_rows}
-        benchmark_available = len(_spy_prices) >= 5
+        for effective_date in _resolved_dates:
+            cutoff_date = effective_date - _timedelta(days=body.lookback_days + 10)
 
-        # SPY as-of price: most recent at or before effective_date
-        _spy_as_of: float | None = None
-        if _spy_prices:
-            _spy_aod_dates = [d for d in _spy_prices if d <= effective_date]
-            if _spy_aod_dates:
-                _spy_as_of = _spy_prices[max(_spy_aod_dates)]
+            # Fetch benchmark prices in lookback window
+            _bm_rows = session.execute(
+                select(BenchmarkPrice.market_date, BenchmarkPrice.price)
+                .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
+                .where(BenchmarkPrice.session_type == "REGULAR")
+                .where(BenchmarkPrice.market_date >= cutoff_date)
+                .where(BenchmarkPrice.market_date <= effective_date)
+                .order_by(BenchmarkPrice.market_date.desc())
+            ).all()
+            _spy_prices: dict = {row[0]: float(row[1]) for row in _bm_rows}
+            benchmark_available = len(_spy_prices) >= 5
 
-        # SPY forward price: earliest CLOSE at or after effective_date + forward_return_days
-        _spy_fwd_cutoff = effective_date + _timedelta(days=body.forward_return_days)
-        _spy_fwd_max = effective_date + _timedelta(days=body.forward_return_days + 10)
-        _spy_fwd_row = session.execute(
-            select(BenchmarkPrice.price)
-            .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
-            .where(BenchmarkPrice.session_type == "REGULAR")
-            .where(BenchmarkPrice.market_date >= _spy_fwd_cutoff)
-            .where(BenchmarkPrice.market_date <= _spy_fwd_max)
-            .order_by(BenchmarkPrice.market_date.asc())
-            .limit(1)
-        ).scalar()
-        _spy_fwd: float | None = float(_spy_fwd_row) if _spy_fwd_row is not None else None
-        _spy_fwd_ret: float | None = None
-        if _spy_fwd and _spy_as_of and _spy_as_of > 0:
-            _spy_fwd_ret = (_spy_fwd - _spy_as_of) / _spy_as_of
+            # SPY as-of price: most recent at or before effective_date
+            _spy_as_of: float | None = None
+            if _spy_prices:
+                _spy_aod_dates = [d for d in _spy_prices if d <= effective_date]
+                if _spy_aod_dates:
+                    _spy_as_of = _spy_prices[max(_spy_aod_dates)]
 
-        # Batch-fetch price history for all universe tickers up to effective_date
-        _price_rows = session.execute(
-            select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
-            .where(PriceSnapshot.ticker.in_(universe_tickers))
-            .where(PriceSnapshot.price_type == "CLOSE")
-            .where(PriceSnapshot.session_type == "REGULAR")
-            .where(PriceSnapshot.market_date >= cutoff_date)
-            .where(PriceSnapshot.market_date <= effective_date)
-            .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
-        ).all()
+            # SPY forward price: earliest CLOSE at or after effective_date + forward_return_days
+            _spy_fwd_cutoff = effective_date + _timedelta(days=body.forward_return_days)
+            _spy_fwd_max = effective_date + _timedelta(days=body.forward_return_days + 10)
+            _spy_fwd_row = session.execute(
+                select(BenchmarkPrice.price)
+                .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
+                .where(BenchmarkPrice.session_type == "REGULAR")
+                .where(BenchmarkPrice.market_date >= _spy_fwd_cutoff)
+                .where(BenchmarkPrice.market_date <= _spy_fwd_max)
+                .order_by(BenchmarkPrice.market_date.asc())
+                .limit(1)
+            ).scalar()
+            _spy_fwd: float | None = float(_spy_fwd_row) if _spy_fwd_row is not None else None
+            _spy_fwd_ret: float | None = None
+            if _spy_fwd and _spy_as_of and _spy_as_of > 0:
+                _spy_fwd_ret = (_spy_fwd - _spy_as_of) / _spy_as_of
 
-        # Group by ticker (rows are DESC-ordered per ticker)
-        _ticker_price_map: dict[str, list] = {}
-        for _pr in _price_rows:
-            _ticker_price_map.setdefault(_pr[0], []).append((_pr[1], float(_pr[2])))
-
-        # Evaluate each ticker
-        _evaluated: list[dict] = []
-        _skipped: list[dict] = []
-
-        for _ticker in universe_tickers:
-            _rows = _ticker_price_map.get(_ticker, [])
-            if len(_rows) < body.min_price_points:
-                _skipped.append({"ticker": _ticker, "reason": "INSUFFICIENT_PRICE_HISTORY"})
-                continue
-
-            # _rows: list of (market_date, price), DESC ordered — newest first
-            _prices = [r[1] for r in _rows]
-            _dates = [r[0] for r in _rows]
-            _latest_price = _prices[0]
-
-            # momentum_5d (fraction)
-            _mom_5d = 0.0
-            if len(_prices) >= 5 and _prices[4] > 0:
-                _mom_5d = (_latest_price - _prices[4]) / _prices[4]
-
-            # momentum_20d (fraction)
-            _mom_20d = 0.0
-            if len(_prices) >= 20 and _prices[19] > 0:
-                _mom_20d = (_latest_price - _prices[19]) / _prices[19]
-
-            # volatility_20d (fraction, sample std dev of daily returns)
-            _vol_20d = 0.0
-            if len(_prices) >= 2:
-                _n = min(20, len(_prices) - 1)
-                _drets = [
-                    (_prices[i] - _prices[i + 1]) / _prices[i + 1]
-                    for i in range(_n)
-                    if _prices[i + 1] > 0
-                ]
-                if len(_drets) >= 2:
-                    try:
-                        _vol_20d = _statistics.stdev(_drets)
-                    except Exception:
-                        _vol_20d = 0.0
-
-            # RS vs benchmark (fraction): ticker 20d momentum minus SPY 20d momentum
-            _rs_spy = 0.0
-            if benchmark_available and len(_prices) >= 5:
-                _spy_in_w = {d: _spy_prices[d] for d in _dates if d in _spy_prices}
-                _spy_sorted = sorted(_spy_in_w.keys(), reverse=True)
-                if len(_spy_sorted) >= 5:
-                    _spy_latest = _spy_in_w[_spy_sorted[0]]
-                    _spy_oldest = _spy_in_w[_spy_sorted[min(19, len(_spy_sorted) - 1)]]
-                    if _spy_oldest > 0:
-                        _spy_mom = (_spy_latest - _spy_oldest) / _spy_oldest
-                        _rs_spy = _mom_20d - _spy_mom
-
-            # scan_score proxy (0-100): mirrors market_screener formula
-            _scan_raw = 0.0
-            if _mom_5d > 0:
-                _scan_raw += _mom_5d * 100.0 * 0.3
-            if _mom_20d > 0:
-                _scan_raw += _mom_20d * 100.0 * 0.4
-            if _rs_spy > 0:
-                _scan_raw += _rs_spy * 100.0 * 0.3
-            if _vol_20d * 100.0 > 5.0:
-                _scan_raw *= max(0.0, 1.0 - _vol_20d)
-            _scan_score = max(0.0, min(100.0, _scan_raw))
-
-            _evaluated.append({
-                "ticker": _ticker,
-                "scan_score": _scan_score,
-                "mom_5d": _mom_5d,
-                "mom_20d": _mom_20d,
-                "vol_20d": _vol_20d,
-                "rs_spy": _rs_spy,
-                "latest_price": _latest_price,
-            })
-
-        # Sort by scan_score descending, take top scan_top_n pool
-        _evaluated.sort(key=lambda x: -x["scan_score"])
-        _top_pool = _evaluated[:body.scan_top_n]
-
-        # Batch-fetch forward prices for pool tickers
-        _pool_tickers = [c["ticker"] for c in _top_pool]
-        _fwd_cutoff = effective_date + _timedelta(days=body.forward_return_days)
-        _fwd_max = effective_date + _timedelta(days=body.forward_return_days + 10)
-        _fwd_price_map: dict[str, float] = {}
-        if _pool_tickers:
-            _fwd_rows = session.execute(
+            # Batch-fetch price history for all universe tickers up to effective_date
+            _price_rows = session.execute(
                 select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
-                .where(PriceSnapshot.ticker.in_(_pool_tickers))
+                .where(PriceSnapshot.ticker.in_(universe_tickers))
                 .where(PriceSnapshot.price_type == "CLOSE")
                 .where(PriceSnapshot.session_type == "REGULAR")
-                .where(PriceSnapshot.market_date >= _fwd_cutoff)
-                .where(PriceSnapshot.market_date <= _fwd_max)
-                .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.asc())
+                .where(PriceSnapshot.market_date >= cutoff_date)
+                .where(PriceSnapshot.market_date <= effective_date)
+                .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
             ).all()
-            for _fr in _fwd_rows:
-                if _fr[0] not in _fwd_price_map:
-                    _fwd_price_map[_fr[0]] = float(_fr[2])
 
-        # Build profile results
-        _profile_results: list[CalibrationProfileResult] = []
-        _all_profile_top_n: dict[str, list[str]] = {}
+            # Group by ticker (rows are DESC-ordered per ticker)
+            _ticker_price_map: dict[str, list] = {}
+            for _pr in _price_rows:
+                _ticker_price_map.setdefault(_pr[0], []).append((_pr[1], float(_pr[2])))
 
-        for _profile in body.profiles:
-            _score_fn = _all_score_funcs[_profile]
-            _scored: list[dict] = []
+            # Evaluate each ticker
+            _evaluated: list[dict] = []
+            _skipped: list[dict] = []
 
-            for _cand in _top_pool:
-                # Use neutral proxy confidence (0.5) to bypass pred_missing guard;
-                # expected_return=0.0 so base_score=0 and only local features differentiate.
-                _inp: dict[str, Any] = {
-                    "prediction_confidence": 0.5,
-                    "expected_return_pct": 0.0,
-                    "momentum_5d_pct": _cand["mom_5d"],
-                    "momentum_20d_pct": _cand["mom_20d"],
-                    "relative_strength_vs_spy_20d": _cand["rs_spy"],
-                    "scan_score": _cand["scan_score"],
-                    "volatility_20d_pct": _cand["vol_20d"],
-                    "is_current_holding": False,
-                }
-                _factors = _score_fn(_inp)
-                _breakdown = _build_score_breakdown(_factors)
+            for _ticker in universe_tickers:
+                _rows = _ticker_price_map.get(_ticker, [])
+                if len(_rows) < body.min_price_points:
+                    _skipped.append({"ticker": _ticker, "reason": "INSUFFICIENT_PRICE_HISTORY"})
+                    continue
 
-                _fwd_price = _fwd_price_map.get(_cand["ticker"])
-                _fwd_ret: float | None = None
-                if _fwd_price is not None and _cand["latest_price"] > 0:
-                    _fwd_ret = (_fwd_price - _cand["latest_price"]) / _cand["latest_price"]
+                # _rows: list of (market_date, price), DESC ordered — newest first
+                _prices = [r[1] for r in _rows]
+                _dates = [r[0] for r in _rows]
+                _latest_price = _prices[0]
 
-                _excess: float | None = None
-                if _fwd_ret is not None and _spy_fwd_ret is not None:
-                    _excess = _fwd_ret - _spy_fwd_ret
+                # momentum_5d (fraction)
+                _mom_5d = 0.0
+                if len(_prices) >= 5 and _prices[4] > 0:
+                    _mom_5d = (_latest_price - _prices[4]) / _prices[4]
 
-                _scored.append({
-                    "ticker": _cand["ticker"],
-                    "score": _factors.total_score,
-                    "breakdown": _breakdown,
-                    "fwd_ret": _fwd_ret,
-                    "excess": _excess,
-                    "warning": "NO_FORWARD_PRICE" if _fwd_price is None else None,
+                # momentum_20d (fraction)
+                _mom_20d = 0.0
+                if len(_prices) >= 20 and _prices[19] > 0:
+                    _mom_20d = (_latest_price - _prices[19]) / _prices[19]
+
+                # volatility_20d (fraction, sample std dev of daily returns)
+                _vol_20d = 0.0
+                if len(_prices) >= 2:
+                    _n = min(20, len(_prices) - 1)
+                    _drets = [
+                        (_prices[i] - _prices[i + 1]) / _prices[i + 1]
+                        for i in range(_n)
+                        if _prices[i + 1] > 0
+                    ]
+                    if len(_drets) >= 2:
+                        try:
+                            _vol_20d = _statistics.stdev(_drets)
+                        except Exception:
+                            _vol_20d = 0.0
+
+                # RS vs benchmark (fraction): ticker 20d momentum minus SPY 20d momentum
+                _rs_spy = 0.0
+                if benchmark_available and len(_prices) >= 5:
+                    _spy_in_w = {d: _spy_prices[d] for d in _dates if d in _spy_prices}
+                    _spy_sorted = sorted(_spy_in_w.keys(), reverse=True)
+                    if len(_spy_sorted) >= 5:
+                        _spy_latest = _spy_in_w[_spy_sorted[0]]
+                        _spy_oldest = _spy_in_w[_spy_sorted[min(19, len(_spy_sorted) - 1)]]
+                        if _spy_oldest > 0:
+                            _spy_mom = (_spy_latest - _spy_oldest) / _spy_oldest
+                            _rs_spy = _mom_20d - _spy_mom
+
+                # scan_score proxy (0-100): mirrors market_screener formula
+                _scan_raw = 0.0
+                if _mom_5d > 0:
+                    _scan_raw += _mom_5d * 100.0 * 0.3
+                if _mom_20d > 0:
+                    _scan_raw += _mom_20d * 100.0 * 0.4
+                if _rs_spy > 0:
+                    _scan_raw += _rs_spy * 100.0 * 0.3
+                if _vol_20d * 100.0 > 5.0:
+                    _scan_raw *= max(0.0, 1.0 - _vol_20d)
+                _scan_score = max(0.0, min(100.0, _scan_raw))
+
+                _evaluated.append({
+                    "ticker": _ticker,
+                    "scan_score": _scan_score,
+                    "mom_5d": _mom_5d,
+                    "mom_20d": _mom_20d,
+                    "vol_20d": _vol_20d,
+                    "rs_spy": _rs_spy,
+                    "latest_price": _latest_price,
                 })
 
-            _scored.sort(key=lambda x: -x["score"])
-            _top_scored = _scored[:body.profile_top_n]
+            # Sort by scan_score descending, take top scan_top_n pool
+            _evaluated.sort(key=lambda x: -x["scan_score"])
+            _top_pool = _evaluated[:body.scan_top_n]
 
-            _rows_out: list[CalibrationCandidateRow] = [
-                CalibrationCandidateRow(
-                    ticker=s["ticker"],
-                    rank=i + 1,
-                    score=round(s["score"], 6),
-                    forward_return_pct=round(s["fwd_ret"] * 100.0, 4) if s["fwd_ret"] is not None else None,
-                    excess_return_vs_spy_pct=round(s["excess"] * 100.0, 4) if s["excess"] is not None else None,
-                    score_breakdown=s["breakdown"],
-                    warning_reason=s["warning"],
+            # Batch-fetch forward prices for pool tickers
+            _pool_tickers = [c["ticker"] for c in _top_pool]
+            _fwd_cutoff = effective_date + _timedelta(days=body.forward_return_days)
+            _fwd_max = effective_date + _timedelta(days=body.forward_return_days + 10)
+            _fwd_price_map: dict[str, float] = {}
+            if _pool_tickers:
+                _fwd_rows = session.execute(
+                    select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+                    .where(PriceSnapshot.ticker.in_(_pool_tickers))
+                    .where(PriceSnapshot.price_type == "CLOSE")
+                    .where(PriceSnapshot.session_type == "REGULAR")
+                    .where(PriceSnapshot.market_date >= _fwd_cutoff)
+                    .where(PriceSnapshot.market_date <= _fwd_max)
+                    .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.asc())
+                ).all()
+                for _fr in _fwd_rows:
+                    if _fr[0] not in _fwd_price_map:
+                        _fwd_price_map[_fr[0]] = float(_fr[2])
+
+            # Build profile results
+            _profile_results: list[CalibrationProfileResult] = []
+            _all_profile_top_n: dict[str, list[str]] = {}
+
+            for _profile in body.profiles:
+                _score_fn = _all_score_funcs[_profile]
+                _scored: list[dict] = []
+
+                for _cand in _top_pool:
+                    # Use neutral proxy confidence (0.5) to bypass pred_missing guard;
+                    # expected_return=0.0 so base_score=0 and only local features differentiate.
+                    _inp: dict[str, Any] = {
+                        "prediction_confidence": 0.5,
+                        "expected_return_pct": 0.0,
+                        "momentum_5d_pct": _cand["mom_5d"],
+                        "momentum_20d_pct": _cand["mom_20d"],
+                        "relative_strength_vs_spy_20d": _cand["rs_spy"],
+                        "scan_score": _cand["scan_score"],
+                        "volatility_20d_pct": _cand["vol_20d"],
+                        "is_current_holding": False,
+                    }
+                    _factors = _score_fn(_inp)
+                    _breakdown = _build_score_breakdown(_factors)
+
+                    _fwd_price = _fwd_price_map.get(_cand["ticker"])
+                    _fwd_ret: float | None = None
+                    if _fwd_price is not None and _cand["latest_price"] > 0:
+                        _fwd_ret = (_fwd_price - _cand["latest_price"]) / _cand["latest_price"]
+
+                    _excess: float | None = None
+                    if _fwd_ret is not None and _spy_fwd_ret is not None:
+                        _excess = _fwd_ret - _spy_fwd_ret
+
+                    _scored.append({
+                        "ticker": _cand["ticker"],
+                        "score": _factors.total_score,
+                        "breakdown": _breakdown,
+                        "fwd_ret": _fwd_ret,
+                        "excess": _excess,
+                        "warning": "NO_FORWARD_PRICE" if _fwd_price is None else None,
+                    })
+
+                _scored.sort(key=lambda x: -x["score"])
+                _top_scored = _scored[:body.profile_top_n]
+
+                _rows_out: list[CalibrationCandidateRow] = [
+                    CalibrationCandidateRow(
+                        ticker=s["ticker"],
+                        rank=i + 1,
+                        score=round(s["score"], 6),
+                        forward_return_pct=round(s["fwd_ret"] * 100.0, 4) if s["fwd_ret"] is not None else None,
+                        excess_return_vs_spy_pct=round(s["excess"] * 100.0, 4) if s["excess"] is not None else None,
+                        score_breakdown=s["breakdown"],
+                        warning_reason=s["warning"],
+                    )
+                    for i, s in enumerate(_top_scored)
+                ]
+
+                _rets = [s["fwd_ret"] * 100.0 for s in _top_scored if s["fwd_ret"] is not None]
+                _exc = [s["excess"] * 100.0 for s in _top_scored if s["excess"] is not None]
+
+                _avg_ret: float | None = round(_statistics.mean(_rets), 4) if _rets else None
+                _med_ret: float | None = round(_statistics.median(_rets), 4) if _rets else None
+                _win_rate: float | None = round(sum(1 for r in _rets if r > 0) / len(_rets) * 100.0, 2) if _rets else None
+                _avg_exc: float | None = round(_statistics.mean(_exc), 4) if _exc else None
+
+                _best_ticker: str | None = None
+                _worst_ticker: str | None = None
+                if _rets:
+                    _best_s = max(_top_scored, key=lambda s: s["fwd_ret"] if s["fwd_ret"] is not None else -1e9)
+                    _worst_s = min(_top_scored, key=lambda s: s["fwd_ret"] if s["fwd_ret"] is not None else 1e9)
+                    if _best_s["fwd_ret"] is not None:
+                        _best_ticker = _best_s["ticker"]
+                    if _worst_s["fwd_ret"] is not None:
+                        _worst_ticker = _worst_s["ticker"]
+
+                _all_profile_top_n[_profile] = [r.ticker for r in _rows_out]
+                _profile_results.append(CalibrationProfileResult(
+                    profile_name=_profile,
+                    top_n=len(_rows_out),
+                    average_forward_return_pct=_avg_ret,
+                    median_forward_return_pct=_med_ret,
+                    win_rate_pct=_win_rate,
+                    average_excess_return_vs_spy_pct=_avg_exc,
+                    best_ticker=_best_ticker,
+                    worst_ticker=_worst_ticker,
+                    top_candidates=_rows_out,
+                ))
+
+            # Overlap matrix
+            _overlap: dict[str, int] = {}
+            _pnames = list(_all_profile_top_n.keys())
+            for _ai in range(len(_pnames)):
+                for _bi in range(_ai + 1, len(_pnames)):
+                    _a, _b = _pnames[_ai], _pnames[_bi]
+                    _overlap[f"{_a}_vs_{_b}"] = len(
+                        set(_all_profile_top_n[_a]) & set(_all_profile_top_n[_b])
+                    )
+
+            # Best-per-metric across profiles
+            _best_avg: str | None = None
+            _best_win: str | None = None
+            _best_exc: str | None = None
+            _pr_avg = [(p.profile_name, p.average_forward_return_pct) for p in _profile_results if p.average_forward_return_pct is not None]
+            if _pr_avg:
+                _best_avg = max(_pr_avg, key=lambda x: x[1])[0]
+            _pr_win = [(p.profile_name, p.win_rate_pct) for p in _profile_results if p.win_rate_pct is not None]
+            if _pr_win:
+                _best_win = max(_pr_win, key=lambda x: x[1])[0]
+            _pr_exc = [(p.profile_name, p.average_excess_return_vs_spy_pct) for p in _profile_results if p.average_excess_return_vs_spy_pct is not None]
+            if _pr_exc:
+                _best_exc = max(_pr_exc, key=lambda x: x[1])[0]
+
+            _expl_parts: list[str] = []
+            if _best_avg:
+                _expl_parts.append(f"Best average forward return: {_best_avg}")
+            if _best_win:
+                _expl_parts.append(f"Highest win rate: {_best_win}")
+            if _best_exc:
+                _expl_parts.append(f"Best excess return vs {body.benchmark_ticker}: {_best_exc}")
+            if not _expl_parts:
+                _expl_parts.append(
+                    "No forward return data available. "
+                    f"Forward prices for {effective_date} + {body.forward_return_days}d may not exist yet. "
+                    "Backfill more price data or use an earlier as_of_date."
                 )
-                for i, s in enumerate(_top_scored)
-            ]
+            _explanation = ". ".join(_expl_parts) + "."
 
-            _rets = [s["fwd_ret"] * 100.0 for s in _top_scored if s["fwd_ret"] is not None]
-            _exc = [s["excess"] * 100.0 for s in _top_scored if s["excess"] is not None]
+            _date_runs.append({
+                "effective_date": effective_date,
+                "profile_results": _profile_results,
+                "overlap": _overlap,
+                "best_avg": _best_avg,
+                "best_win": _best_win,
+                "best_exc": _best_exc,
+                "explanation": _explanation,
+                "evaluated_count": len(_evaluated),
+                "skipped_count": len(_skipped),
+                "benchmark_available": benchmark_available,
+                "skipped_list": _skipped,
+            })
 
-            _avg_ret: float | None = round(_statistics.mean(_rets), 4) if _rets else None
-            _med_ret: float | None = round(_statistics.median(_rets), 4) if _rets else None
-            _win_rate: float | None = round(sum(1 for r in _rets if r > 0) / len(_rets) * 100.0, 2) if _rets else None
-            _avg_exc: float | None = round(_statistics.mean(_exc), 4) if _exc else None
-
-            _best_ticker: str | None = None
-            _worst_ticker: str | None = None
-            if _rets:
-                _best_s = max(_top_scored, key=lambda s: s["fwd_ret"] if s["fwd_ret"] is not None else -1e9)
-                _worst_s = min(_top_scored, key=lambda s: s["fwd_ret"] if s["fwd_ret"] is not None else 1e9)
-                if _best_s["fwd_ret"] is not None:
-                    _best_ticker = _best_s["ticker"]
-                if _worst_s["fwd_ret"] is not None:
-                    _worst_ticker = _worst_s["ticker"]
-
-            _all_profile_top_n[_profile] = [r.ticker for r in _rows_out]
-            _profile_results.append(CalibrationProfileResult(
-                profile_name=_profile,
-                top_n=len(_rows_out),
-                average_forward_return_pct=_avg_ret,
-                median_forward_return_pct=_med_ret,
-                win_rate_pct=_win_rate,
-                average_excess_return_vs_spy_pct=_avg_exc,
-                best_ticker=_best_ticker,
-                worst_ticker=_worst_ticker,
-                top_candidates=_rows_out,
-            ))
-
-        # Overlap matrix
-        _overlap: dict[str, int] = {}
-        _pnames = list(_all_profile_top_n.keys())
-        for _ai in range(len(_pnames)):
-            for _bi in range(_ai + 1, len(_pnames)):
-                _a, _b = _pnames[_ai], _pnames[_bi]
-                _overlap[f"{_a}_vs_{_b}"] = len(
-                    set(_all_profile_top_n[_a]) & set(_all_profile_top_n[_b])
-                )
-
-        # Best-per-metric across profiles
-        _best_avg: str | None = None
-        _best_win: str | None = None
-        _best_exc: str | None = None
-        _pr_avg = [(p.profile_name, p.average_forward_return_pct) for p in _profile_results if p.average_forward_return_pct is not None]
-        if _pr_avg:
-            _best_avg = max(_pr_avg, key=lambda x: x[1])[0]
-        _pr_win = [(p.profile_name, p.win_rate_pct) for p in _profile_results if p.win_rate_pct is not None]
-        if _pr_win:
-            _best_win = max(_pr_win, key=lambda x: x[1])[0]
-        _pr_exc = [(p.profile_name, p.average_excess_return_vs_spy_pct) for p in _profile_results if p.average_excess_return_vs_spy_pct is not None]
-        if _pr_exc:
-            _best_exc = max(_pr_exc, key=lambda x: x[1])[0]
-
-        _expl_parts: list[str] = []
-        if _best_avg:
-            _expl_parts.append(f"Best average forward return: {_best_avg}")
-        if _best_win:
-            _expl_parts.append(f"Highest win rate: {_best_win}")
-        if _best_exc:
-            _expl_parts.append(f"Best excess return vs {body.benchmark_ticker}: {_best_exc}")
-        if not _expl_parts:
-            _expl_parts.append(
-                "No forward return data available. "
-                f"Forward prices for {effective_date} + {body.forward_return_days}d may not exist yet. "
-                "Backfill more price data or use an earlier as_of_date."
-            )
-        _explanation = ". ".join(_expl_parts) + "."
+        # Primary result: last evaluated date (preserves backward compat for single-date)
+        _primary = _date_runs[-1]
+        _dates_str = [str(r["effective_date"]) for r in _date_runs]
 
         return CalibrationResponse(
             calibration_summary=CalibrationSummary(
-                as_of_date=str(effective_date),
+                as_of_date=str(_primary["effective_date"]),
                 lookback_days=body.lookback_days,
                 forward_return_days=body.forward_return_days,
                 universe_count=universe_count,
-                evaluated_count=len(_evaluated),
-                skipped_count=len(_skipped),
-                benchmark_available=benchmark_available,
+                evaluated_count=_primary["evaluated_count"],
+                skipped_count=_primary["skipped_count"],
+                benchmark_available=_primary["benchmark_available"],
                 safety_counts=_safety,
+                dates_evaluated=_dates_str if len(_date_runs) > 1 else None,
             ),
-            profile_results=_profile_results,
+            profile_results=_primary["profile_results"],
             profile_comparison=CalibrationProfileComparison(
-                best_average_return_profile=_best_avg,
-                best_win_rate_profile=_best_win,
-                best_excess_return_profile=_best_exc,
-                overlap_matrix=_overlap,
-                explanation=_explanation,
+                best_average_return_profile=_primary["best_avg"],
+                best_win_rate_profile=_primary["best_win"],
+                best_excess_return_profile=_primary["best_exc"],
+                overlap_matrix=_primary["overlap"],
+                explanation=_primary["explanation"],
             ),
             skipped_diagnostics=CalibrationSkippedDiagnostics(
-                total_skipped=len(_skipped),
+                total_skipped=_primary["skipped_count"],
                 samples=[
                     CalibrationSkippedDiagnosticItem(ticker=s["ticker"], reason=s["reason"])
-                    for s in _skipped[:25]
+                    for s in _primary["skipped_list"][:25]
                 ],
             ),
+            profile_recommendation=_build_calibration_recommendation(body.profiles, _date_runs),
         )
 
 

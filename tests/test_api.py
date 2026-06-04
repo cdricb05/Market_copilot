@@ -15256,6 +15256,7 @@ class TestScoringProfileCalibrationPreviewEndpoint:
 
     _ENDPOINT = "/v1/strategy/scoring-profile-calibration-preview"
     _AS_OF = date(2025, 4, 15)
+    _AS_OF2 = date(2025, 2, 1)   # second calibration date for multi-date tests (non-overlapping range)
     _FWD_DATE = date(2025, 4, 22)  # +5 trading days (approximate) after _AS_OF
 
     @staticmethod
@@ -15858,3 +15859,277 @@ class TestScoringProfileCalibrationPreviewEndpoint:
         # No price data for ZZZFB tickers → all skipped; universe_count reflects the patched universe
         assert data["calibration_summary"]["universe_count"] == 2
         assert data["calibration_summary"]["evaluated_count"] == 0
+
+    # ------------------------------------------------------------------
+    # Phase 4E — Multi-date calibration and profile recommendation
+    # ------------------------------------------------------------------
+
+    def test_single_date_profile_recommendation_present(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """profile_recommendation is returned even for single-date requests."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CALIBRD{suffix}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0, fwd_days=7)
+            s.commit()
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profiles": ["current", "balanced_preview"],
+                    "tickers": [ticker],
+                    "scan_top_n": 5,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "profile_recommendation" in data
+            rec = data["profile_recommendation"]
+            assert rec["confidence_level"] in {"LOW", "MEDIUM", "HIGH"}
+            assert rec["warnings"]["insufficient_dates"] is True
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_as_of_dates_list_works(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """as_of_dates list triggers multi-date calibration and returns 200 with dates_evaluated."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CALIBMD{suffix}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0, fwd_days=7)
+            self._seed_ticker_prices(s, ticker, self._AS_OF2, lookback=25, latest_price=95.0, fwd_price=97.0, fwd_days=7)
+            s.commit()
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF2), str(self._AS_OF)],
+                    "min_price_points": 5,
+                    "profiles": ["current", "balanced_preview"],
+                    "tickers": [ticker],
+                    "scan_top_n": 5,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "calibration_summary" in data
+            assert "profile_recommendation" in data
+            assert data["calibration_summary"]["dates_evaluated"] is not None
+            assert len(data["calibration_summary"]["dates_evaluated"]) == 2
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_profile_recommendation_exists_for_multi_date(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """profile_recommendation contains all required fields for a multi-date request."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CALIBPRE{suffix}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=104.0, fwd_days=7)
+            self._seed_ticker_prices(s, ticker, self._AS_OF2, lookback=25, latest_price=96.0, fwd_price=98.0, fwd_days=7)
+            s.commit()
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF2), str(self._AS_OF)],
+                    "min_price_points": 5,
+                    "profiles": ["current", "balanced_preview"],
+                    "tickers": [ticker],
+                    "scan_top_n": 5,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            rec = data["profile_recommendation"]
+            assert "recommended_profile" in rec
+            assert "confidence_level" in rec
+            assert "reason_summary" in rec
+            assert "consistency_score_by_profile" in rec
+            assert "profile_rankings" in rec
+            assert "warnings" in rec
+            assert "best_average_return_profile" in rec
+            assert "best_excess_return_profile" in rec
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_recommended_profile_is_one_of_requested_profiles(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """recommended_profile (when set) is always one of the requested profiles."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CALIBRP{suffix}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=105.0, fwd_days=7)
+            self._seed_ticker_prices(s, ticker, self._AS_OF2, lookback=25, latest_price=97.0, fwd_price=100.0, fwd_days=7)
+            s.commit()
+        try:
+            requested_profiles = ["current", "balanced_preview"]
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF2), str(self._AS_OF)],
+                    "min_price_points": 5,
+                    "profiles": requested_profiles,
+                    "tickers": [ticker],
+                    "scan_top_n": 5,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            rec = data["profile_recommendation"]
+            if rec["recommended_profile"] is not None:
+                assert rec["recommended_profile"] in requested_profiles
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_confidence_level_is_valid(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """confidence_level is always one of LOW, MEDIUM, HIGH."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CALIBCL{suffix}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0, fwd_days=7)
+            s.commit()
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profiles": ["current"],
+                    "tickers": [ticker],
+                    "scan_top_n": 5,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["profile_recommendation"]["confidence_level"] in {"LOW", "MEDIUM", "HIGH"}
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_consistency_score_by_profile_is_returned(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """consistency_score_by_profile contains a float entry for each requested profile."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CALIBCS2{suffix}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0, fwd_days=7)
+            self._seed_ticker_prices(s, ticker, self._AS_OF2, lookback=25, latest_price=95.0, fwd_price=97.0, fwd_days=7)
+            s.commit()
+        try:
+            requested_profiles = ["current", "balanced_preview"]
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF2), str(self._AS_OF)],
+                    "min_price_points": 5,
+                    "profiles": requested_profiles,
+                    "tickers": [ticker],
+                    "scan_top_n": 5,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            csbp = data["profile_recommendation"]["consistency_score_by_profile"]
+            for p in requested_profiles:
+                assert p in csbp, f"profile {p!r} missing from consistency_score_by_profile"
+                assert isinstance(csbp[p], float)
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_insufficient_dates_warning_when_one_date(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """warnings.insufficient_dates is True when only a single date is calibrated."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CALIBID{suffix}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0, fwd_days=7)
+            s.commit()
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._AS_OF),
+                    "min_price_points": 5,
+                    "profiles": ["current"],
+                    "tickers": [ticker],
+                    "scan_top_n": 5,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["profile_recommendation"]["warnings"]["insufficient_dates"] is True
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
+
+    def test_multi_date_safety_counts_zero(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Multi-date calibration creates no DB rows of any kind."""
+        import uuid as _uuid
+        suffix = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CALIBMSC{suffix}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0, fwd_days=7)
+            self._seed_ticker_prices(s, ticker, self._AS_OF2, lookback=25, latest_price=95.0, fwd_price=97.0, fwd_days=7)
+            s.commit()
+        try:
+            resp = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF2), str(self._AS_OF)],
+                    "min_price_points": 5,
+                    "profiles": ["current"],
+                    "tickers": [ticker],
+                    "scan_top_n": 5,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            sc = data["calibration_summary"]["safety_counts"]
+            assert sc["rows_created"] == 0
+            assert sc["signals_created"] == 0
+            assert sc["decisions_created"] == 0
+            assert sc["orders_created"] == 0
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
+                s.commit()
