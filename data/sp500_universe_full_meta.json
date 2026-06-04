@@ -1,0 +1,30 @@
+{
+  "source_type": "url",
+  "source_value": "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv",
+  "generated_at_utc": "2026-06-04T02:01:38.931460+00:00",
+  "ticker_count": 503,
+  "first_10_tickers": [
+    "MMM",
+    "AOS",
+    "ABT",
+    "ABBV",
+    "ACN",
+    "ADBE",
+    "AMD",
+    "AES",
+    "AFL",
+    "A"
+  ],
+  "last_10_tickers": [
+    "WMB",
+    "WTW",
+    "WDAY",
+    "WYNN",
+    "XEL",
+    "XYL",
+    "YUM",
+    "ZBRA",
+    "ZBH",
+    "ZTS"
+  ]
+}
