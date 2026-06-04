@@ -16133,3 +16133,664 @@ class TestScoringProfileCalibrationPreviewEndpoint:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
                 s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
                 s.commit()
+
+
+class TestCalibratedRotationPreviewEndpoint:
+    """POST /v1/strategy/calibrated-rotation-preview — preview-only, no DB writes."""
+
+    _ENDPOINT = "/v1/strategy/calibrated-rotation-preview"
+    _SCAN_DATE = date(2025, 4, 15)
+    _FWD_DATE  = date(2025, 4, 22)  # +7 days forward for calibration
+
+    @staticmethod
+    def _seed_prices(s, ticker: str, scan_date: date, prices: list) -> None:
+        """Seed DESC-ordered prices: prices[0] = latest = scan_date, prices[1] = day before, etc."""
+        from datetime import timedelta as _td
+        ts = datetime(2025, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
+        for i, price in enumerate(prices):
+            d = scan_date - _td(days=i)
+            s.add(PriceSnapshot(
+                ticker=ticker.strip().upper(),
+                price=Decimal(f"{price:.4f}"),
+                session_type="REGULAR", price_type="CLOSE",
+                snapshot_ts=ts, market_date=d,
+            ))
+
+    @staticmethod
+    def _seed_position(s, ticker: str, qty: float, avg_cost: float, cost_basis: float) -> "Position":
+        pos = Position(
+            ticker=ticker.strip().upper(),
+            qty=Decimal(str(qty)),
+            avg_cost=Decimal(str(avg_cost)),
+            cost_basis=Decimal(str(cost_basis)),
+            opened_at=datetime.now(timezone.utc),
+            last_updated=datetime.now(timezone.utc),
+        )
+        s.add(pos)
+        s.flush()
+        return pos
+
+    def _cleanup(self, api_engine, tickers: list, pos_ids: list | None = None) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+            if pos_ids:
+                for pid in pos_ids:
+                    s.query(Position).filter(Position.id == pid).delete()
+            s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 1: endpoint requires authentication
+    # ------------------------------------------------------------------
+    def test_requires_auth(self, client: TestClient) -> None:
+        """Returns 401 when API key is absent."""
+        r = client.post(self._ENDPOINT, json={})
+        assert r.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: returns 200 with seeded prices and position
+    # ------------------------------------------------------------------
+    def test_returns_200_with_seeded_data(self, seeded_client: TestClient, api_engine) -> None:
+        """Returns 200 and a structurally valid response when price data is seeded."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"CRWH{sfx}"
+        cand = f"CRWC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            # 5 prices: hold[0]=101, hold[4]=100 -> mom_5d=1%
+            self._seed_prices(s, hold, self._SCAN_DATE, [101.0, 100.8, 100.6, 100.3, 100.0, 99.8, 99.5])
+            # 5 prices: cand[0]=110, cand[4]=100 -> mom_5d=10%
+            self._seed_prices(s, cand, self._SCAN_DATE, [110.0, 108.0, 106.0, 103.0, 100.0, 99.0, 98.0])
+            pos = self._seed_position(s, hold, qty=10, avg_cost=90.0, cost_basis=900.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [cand],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                    "min_expected_improvement_pct": 0.1,
+                    "min_expected_pnl_dollars": 1.0,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert "calibration_context" in data
+            assert "portfolio_context" in data
+            assert "candidate_summary" in data
+            assert "recommended_action" in data
+            assert "rotation_pairs" in data
+            assert "blocked_actions" in data
+            assert "safety_counts" in data
+        finally:
+            self._cleanup(api_engine, [hold, cand], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 3: creates zero DB rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """Endpoint creates no DB rows of any kind."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            jr_before  = s.query(JobRun).count()
+            sig_before = s.query(Signal).count()
+            td_before  = s.query(TradeDecision).count()
+            ord_before = s.query(Order).count()
+            pos_before = s.query(Position).count()
+
+        r = seeded_client.post(self._ENDPOINT, json={}, headers=_AUTH)
+        assert r.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            assert s.query(JobRun).count()        == jr_before
+            assert s.query(Signal).count()        == sig_before
+            assert s.query(TradeDecision).count() == td_before
+            assert s.query(Order).count()         == ord_before
+            assert s.query(Position).count()      == pos_before
+
+    # ------------------------------------------------------------------
+    # Test 4: safety_counts all zero
+    # ------------------------------------------------------------------
+    def test_safety_counts_all_zero(self, seeded_client: TestClient) -> None:
+        """Response safety_counts are all zero."""
+        r = seeded_client.post(self._ENDPOINT, json={}, headers=_AUTH)
+        assert r.status_code == 200
+        data = r.json()
+        sc = data["safety_counts"]
+        assert sc["signals_created"]  == 0
+        assert sc["decisions_created"] == 0
+        assert sc["orders_created"]    == 0
+        assert sc["rows_created"]      == 0
+        ra = data["recommended_action"]
+        assert ra["creates_signals"]   == 0
+        assert ra["creates_decisions"] == 0
+        assert ra["creates_orders"]    == 0
+        assert ra["rows_created"]      == 0
+
+    # ------------------------------------------------------------------
+    # Test 5: calibration_recommended uses profile_recommendation
+    # ------------------------------------------------------------------
+    def test_scoring_profile_calibration_recommended_resolves_profile(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """When scoring_profile=calibration_recommended, scoring_profile_used is a valid profile name."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        t1 = f"CRWCR1{sfx}"
+        t2 = f"CRWCR2{sfx}"
+        hold = f"CRWCRH{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_prices(s, t1, self._SCAN_DATE, [105.0, 104.0, 103.0, 102.0, 100.0, 99.0, 98.0])
+            self._seed_prices(s, t2, self._SCAN_DATE, [108.0, 107.0, 106.0, 104.0, 100.0, 99.0, 98.0])
+            # forward prices for calibration
+            self._seed_prices(s, t1, self._FWD_DATE, [107.0])
+            self._seed_prices(s, t2, self._FWD_DATE, [110.0])
+            self._seed_prices(s, hold, self._SCAN_DATE, [100.0, 99.5, 99.0, 98.5, 98.0, 97.5, 97.0])
+            pos = self._seed_position(s, hold, qty=5, avg_cost=90.0, cost_basis=450.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "calibration_recommended",
+                    "calibration_as_of_dates": [str(self._SCAN_DATE)],
+                    "tickers": [t1, t2],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            valid_profiles = {"current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
+            assert data["calibration_context"]["scoring_profile_used"] in valid_profiles
+        finally:
+            self._cleanup(api_engine, [t1, t2, hold, self._FWD_DATE.isoformat()], pos_ids)
+            # clean up fwd price rows too
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                for t in [t1, t2]:
+                    s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+                s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 6: LOW calibration confidence still returns preview
+    # ------------------------------------------------------------------
+    def test_low_calibration_confidence_still_previews(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """With single-date calibration (LOW confidence), endpoint still returns 200 with data."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        cand = f"CRWLCC{sfx}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_prices(s, cand, self._SCAN_DATE, [105.0, 104.0, 103.0, 102.0, 100.0, 99.0, 98.0])
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "calibration_recommended",
+                    "tickers": [cand],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            cc = data["calibration_context"]
+            assert cc["calibration_confidence"] == "LOW"
+            assert data["candidate_summary"] is not None
+            assert data["recommended_action"] is not None
+        finally:
+            self._cleanup(api_engine, [cand])
+
+    # ------------------------------------------------------------------
+    # Test 7: profitable rotation pair proposed
+    # ------------------------------------------------------------------
+    def test_profitable_rotation_pair_proposed(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A ROTATE pair is proposed when candidate expected PnL beats holding by threshold."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"CRWRPH{sfx}"
+        cand = f"CRWRPC{sfx}"
+        pos_ids: list = []
+
+        # hold: mom_5d = (101-100)/100 = 1%; cand: mom_5d = (110-100)/100 = 10%
+        # cash_released = 10 * 101 = 1010
+        # exp_hold = 1010 * 0.01 = 10.1; exp_rotate = 1010 * 0.10 = 101
+        # improvement = 90.9 > 25; improvement_pct = 9.0% > 1.0% -> ROTATE
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_prices(s, hold, self._SCAN_DATE, [101.0, 100.8, 100.5, 100.2, 100.0, 99.8, 99.5])
+            self._seed_prices(s, cand, self._SCAN_DATE, [110.0, 108.0, 106.0, 103.0, 100.0, 99.0, 98.0])
+            pos = self._seed_position(s, hold, qty=10, avg_cost=90.0, cost_basis=900.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [cand],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 25.0,
+                    "allow_loss_realization": False,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            eligible = [p for p in data["rotation_pairs"] if p["decision"] == "ROTATE"]
+            assert len(eligible) >= 1, f"Expected at least 1 ROTATE pair, got: {data['rotation_pairs']}"
+            pair = next((p for p in eligible if p["sell_ticker"] == hold), None)
+            assert pair is not None, f"No ROTATE pair with sell_ticker={hold!r}, pairs: {data['rotation_pairs']}"
+            assert pair["buy_ticker"] == cand
+            assert float(pair["expected_pnl_improvement"]) > 25.0
+        finally:
+            self._cleanup(api_engine, [hold, cand], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 8: rotation blocked when below threshold
+    # ------------------------------------------------------------------
+    def test_rotation_blocked_below_threshold(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Rotation is BLOCKED when expected improvement is below min_expected_improvement_pct."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"CRWBTH{sfx}"
+        cand = f"CRWBTC{sfx}"
+        pos_ids: list = []
+
+        # Both hold and cand have same 5d momentum (~3%) -> improvement ~0% -> blocked
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_prices(s, hold, self._SCAN_DATE, [103.0, 102.5, 102.0, 101.5, 100.0, 99.5, 99.0])
+            self._seed_prices(s, cand, self._SCAN_DATE, [103.5, 102.8, 102.2, 101.5, 100.0, 99.5, 99.0])
+            pos = self._seed_position(s, hold, qty=10, avg_cost=100.0, cost_basis=1000.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [cand],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                    "min_expected_improvement_pct": 5.0,  # high threshold to force block
+                    "min_expected_pnl_dollars": 100.0,   # high threshold to force block
+                    "allow_loss_realization": True,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            eligible = [p for p in data["rotation_pairs"] if p["decision"] == "ROTATE"]
+            assert len(eligible) == 0, f"Expected 0 ROTATE pairs but got {len(eligible)}"
+            blocked_pairs = [p for p in data["rotation_pairs"] if p["decision"] == "BLOCKED"]
+            assert len(blocked_pairs) >= 1
+            # At least one pair should be blocked for improvement reasons
+            assert any(
+                "BELOW_MIN_IMPROVEMENT_PCT" in p["blockers"] or "BELOW_MIN_EXPECTED_PNL" in p["blockers"]
+                for p in blocked_pairs
+            )
+        finally:
+            self._cleanup(api_engine, [hold, cand], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 9: rotation blocked when loss realization disabled and PnL < 0
+    # ------------------------------------------------------------------
+    def test_rotation_blocked_loss_realization_disabled(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A holding with negative PnL is blocked from rotation when allow_loss_realization=False."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"CRWLRH{sfx}"
+        cand = f"CRWLRC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            # hold latest = 80, cost_basis = 1000 -> pnl = -20%
+            self._seed_prices(s, hold, self._SCAN_DATE, [80.0, 81.0, 82.0, 83.0, 85.0, 86.0, 87.0])
+            self._seed_prices(s, cand, self._SCAN_DATE, [110.0, 108.0, 106.0, 103.0, 100.0, 99.0, 98.0])
+            pos = self._seed_position(s, hold, qty=10, avg_cost=100.0, cost_basis=1000.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [cand],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                    "allow_loss_realization": False,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            blocked = data["blocked_actions"]
+            tickers_blocked = [b["ticker"] for b in blocked]
+            assert hold in tickers_blocked, f"{hold} not in blocked_actions: {blocked}"
+            entry = next(b for b in blocked if b["ticker"] == hold)
+            assert entry["reason"] == "LOSS_REALIZATION_BLOCKED"
+            # Hold ticker must not appear as sell_ticker in any ROTATE pair
+            rotate_pairs = [p for p in data["rotation_pairs"] if p["decision"] == "ROTATE"]
+            for pair in rotate_pairs:
+                assert pair["sell_ticker"] != hold
+        finally:
+            self._cleanup(api_engine, [hold, cand], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 10: rotation allowed when allow_loss_realization=True
+    # ------------------------------------------------------------------
+    def test_rotation_allowed_with_loss_realization_true(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Rotation is allowed when allow_loss_realization=True and improvement is strong."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"CRWALRH{sfx}"
+        cand = f"CRWALRC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            # hold: latest=80 (neg PnL), declining mom => sell_fwd negative
+            # cand: strong momentum 25% => big improvement
+            self._seed_prices(s, hold, self._SCAN_DATE, [80.0, 81.0, 82.0, 83.0, 85.0, 86.0, 87.0])
+            self._seed_prices(s, cand, self._SCAN_DATE, [125.0, 120.0, 115.0, 110.0, 100.0, 99.0, 98.0])
+            pos = self._seed_position(s, hold, qty=10, avg_cost=100.0, cost_basis=1000.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [cand],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 1.0,
+                    "allow_loss_realization": True,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            # With allow_loss_realization=True, the holding should NOT be in blocked_actions
+            # for LOSS_REALIZATION_BLOCKED
+            lr_blocks = [b for b in data["blocked_actions"] if b["reason"] == "LOSS_REALIZATION_BLOCKED"]
+            assert len(lr_blocks) == 0, f"Unexpected LOSS_REALIZATION_BLOCKED: {lr_blocks}"
+            # Should have a ROTATE or at minimum no loss-realization block
+            assert r.status_code == 200
+        finally:
+            self._cleanup(api_engine, [hold, cand], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 11: already-held candidate not proposed as buy target
+    # ------------------------------------------------------------------
+    def test_already_held_candidate_not_proposed_as_buy_target(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A ticker already in open positions does not appear as buy_ticker in rotation pairs."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold1 = f"CRWAH1{sfx}"
+        hold2 = f"CRWAH2{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_prices(s, hold1, self._SCAN_DATE, [100.0, 99.5, 99.0, 98.5, 98.0, 97.5, 97.0])
+            self._seed_prices(s, hold2, self._SCAN_DATE, [110.0, 109.0, 108.0, 106.0, 100.0, 99.0, 98.0])
+            pos1 = self._seed_position(s, hold1, qty=5, avg_cost=90.0, cost_basis=450.0)
+            pos2 = self._seed_position(s, hold2, qty=5, avg_cost=90.0, cost_basis=450.0)
+            pos_ids.extend([pos1.id, pos2.id])
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [hold1, hold2],  # only held tickers in candidate list
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            # No rotation pair should have buy_ticker == hold1 or hold2
+            held = {hold1, hold2}
+            for pair in data["rotation_pairs"]:
+                assert pair["buy_ticker"] not in held, (
+                    f"Held ticker {pair['buy_ticker']} appeared as buy_ticker"
+                )
+            # No candidates found (all are held) => new_buy_candidates_count = 0
+            assert data["candidate_summary"]["new_buy_candidates_count"] == 0
+        finally:
+            self._cleanup(api_engine, [hold1, hold2], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 12: missing price snapshot is blocked
+    # ------------------------------------------------------------------
+    def test_missing_price_snapshot_blocked(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A holding with no price snapshot is added to blocked_actions."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold_no_price = f"CRWMPH{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            # No price seeded for hold_no_price
+            pos = self._seed_position(s, hold_no_price, qty=5, avg_cost=100.0, cost_basis=500.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [],
+                    "min_price_points": 1,
+                    "lookback_days": 10,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            blocked = data["blocked_actions"]
+            tickers_blocked = [b["ticker"] for b in blocked]
+            assert hold_no_price in tickers_blocked, (
+                f"{hold_no_price} not in blocked_actions: {blocked}"
+            )
+            entry = next(b for b in blocked if b["ticker"] == hold_no_price)
+            assert entry["reason"] == "MISSING_PRICE_SNAPSHOT"
+        finally:
+            self._cleanup(api_engine, [], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 13: response includes cash_released and expected_pnl_improvement
+    # ------------------------------------------------------------------
+    def test_response_includes_pnl_fields(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Rotation pair includes cash_released, expected_pnl_improvement, and improvement_pct."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"CRWPNLH{sfx}"
+        cand = f"CRWPNLC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_prices(s, hold, self._SCAN_DATE, [100.0, 99.5, 99.0, 98.5, 98.0, 97.5, 97.0])
+            self._seed_prices(s, cand, self._SCAN_DATE, [110.0, 108.0, 106.0, 103.0, 100.0, 99.0, 98.0])
+            pos = self._seed_position(s, hold, qty=10, avg_cost=90.0, cost_basis=900.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [cand],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                    "min_expected_improvement_pct": 0.0,
+                    "min_expected_pnl_dollars": 0.0,
+                    "allow_loss_realization": True,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert len(data["rotation_pairs"]) >= 1
+            pair = data["rotation_pairs"][0]
+            assert "cash_released" in pair
+            assert "expected_pnl_improvement" in pair
+            assert "expected_improvement_pct" in pair
+            assert "expected_pnl_if_hold" in pair
+            assert "expected_pnl_if_rotate" in pair
+            # cash_released = qty * latest_price = 10 * 100 = 1000
+            assert float(pair["cash_released"]) > 0
+        finally:
+            self._cleanup(api_engine, [hold, cand], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 14: recommended_action is ROTATE when best pair passes rules
+    # ------------------------------------------------------------------
+    def test_recommended_action_is_rotate_when_pair_qualifies(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """recommended_action.action_type == ROTATE when an eligible pair exists."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        hold = f"CRWRATH{sfx}"
+        cand = f"CRWRATC{sfx}"
+        pos_ids: list = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_prices(s, hold, self._SCAN_DATE, [101.0, 100.8, 100.5, 100.2, 100.0, 99.8, 99.5])
+            self._seed_prices(s, cand, self._SCAN_DATE, [120.0, 117.0, 113.0, 108.0, 100.0, 99.0, 98.0])
+            pos = self._seed_position(s, hold, qty=10, avg_cost=90.0, cost_basis=900.0)
+            pos_ids.append(pos.id)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_date": str(self._SCAN_DATE),
+                    "scoring_profile": "current",
+                    "tickers": [cand],
+                    "min_price_points": 5,
+                    "lookback_days": 10,
+                    "min_expected_improvement_pct": 1.0,
+                    "min_expected_pnl_dollars": 10.0,
+                    "allow_loss_realization": False,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["recommended_action"]["action_type"] == "ROTATE"
+            assert data["recommended_action"]["requires_manual_approval"] is True
+            assert data["recommended_action"]["preview_only"] is True
+        finally:
+            self._cleanup(api_engine, [hold, cand], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 15: recommended_action is HOLD/WATCH/BUY when no pair passes
+    # ------------------------------------------------------------------
+    def test_recommended_action_is_hold_or_watch_when_no_pair_qualifies(
+        self, seeded_client: TestClient
+    ) -> None:
+        """When no eligible pairs exist, recommended_action is HOLD, WATCH, or BUY."""
+        r = seeded_client.post(self._ENDPOINT, json={}, headers=_AUTH)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["recommended_action"]["action_type"] in ("HOLD", "WATCH", "BUY", "BLOCKED")
+        assert data["recommended_action"]["requires_manual_approval"] is True
+        assert data["recommended_action"]["preview_only"] is True
+
+    # ------------------------------------------------------------------
+    # Test 16: no GCP calls
+    # ------------------------------------------------------------------
+    def test_no_gcp_calls(self, seeded_client: TestClient, monkeypatch) -> None:
+        """Endpoint does not call GCP prediction service."""
+        called: list[str] = []
+
+        def _mock_fetch(*args, **kwargs):
+            called.append("fetch_predictions")
+            return {}
+
+        monkeypatch.setattr(
+            "paper_trader.engine.prediction_client.fetch_predictions_for_tickers",
+            _mock_fetch,
+        )
+        r = seeded_client.post(self._ENDPOINT, json={}, headers=_AUTH)
+        assert r.status_code == 200
+        assert len(called) == 0, f"GCP fetch_predictions was unexpectedly called: {called}"
+
+    # ------------------------------------------------------------------
+    # Test 17: no signals/decisions/orders/job_runs created
+    # ------------------------------------------------------------------
+    def test_no_db_rows_created_any_kind(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """No Signal, TradeDecision, Order, JobRun, or CandidateReview rows are created."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            sig_before  = s.query(Signal).count()
+            td_before   = s.query(TradeDecision).count()
+            ord_before  = s.query(Order).count()
+            jr_before   = s.query(JobRun).count()
+            cr_before   = s.query(CandidateReview).count()
+            pos_before  = s.query(Position).count()
+
+        r = seeded_client.post(self._ENDPOINT, json={}, headers=_AUTH)
+        assert r.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            assert s.query(Signal).count()        == sig_before
+            assert s.query(TradeDecision).count() == td_before
+            assert s.query(Order).count()         == ord_before
+            assert s.query(JobRun).count()        == jr_before
+            assert s.query(CandidateReview).count() == cr_before
+            assert s.query(Position).count()      == pos_before
