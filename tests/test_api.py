@@ -13335,3 +13335,93 @@ class TestDailyPlanPreviewEndpoint:
                 s.query(CandidateReview).filter(CandidateReview.ticker == ticker).delete()
                 s.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete()
                 s.commit()
+
+
+class TestUniverseStatusEndpoint:
+    """GET /v1/strategy/universe/status -- read-only universe diagnostics."""
+
+    def test_requires_auth(self, client: TestClient) -> None:
+        """Returns 401 when API key is missing."""
+        resp = client.get("/v1/strategy/universe/status")
+        assert resp.status_code == 401
+
+    def test_returns_200_with_valid_auth(self, seeded_client: TestClient) -> None:
+        """Returns 200 OK with correct top-level structure."""
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "universe_name" in data
+        assert "active_source_file" in data
+        assert "ticker_count" in data
+        assert "first_10_tickers" in data
+        assert "last_10_tickers" in data
+        assert "is_stub_universe" in data
+        assert "market_data_coverage" in data
+        assert "safety_counts" in data
+
+    def test_flags_stub_universe(self, seeded_client: TestClient) -> None:
+        """Current stub universe (~49 tickers) is flagged as stub."""
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["is_stub_universe"] is True
+        assert data["ticker_count"] < 450
+        assert data["warning"] is not None
+
+    def test_reports_active_source_file(self, seeded_client: TestClient) -> None:
+        """Reports sp500_universe.csv as active since full file is absent."""
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["full_universe_file_exists"] is False
+        assert data["stub_universe_file_exists"] is True
+        assert data["fallback_used"] is True
+        assert data["active_source_file"] == "sp500_universe.csv"
+
+    def test_market_data_coverage_structure(self, seeded_client: TestClient) -> None:
+        """market_data_coverage contains all required fields."""
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        cov = data["market_data_coverage"]
+        assert "tickers_with_enough_price_history" in cov
+        assert "tickers_missing_price_history" in cov
+        assert "benchmark_available" in cov
+        assert "benchmark_ticker" in cov
+        assert "min_price_points_used" in cov
+        assert cov["benchmark_ticker"] == "SPY"
+        assert cov["min_price_points_used"] == 5
+        total = cov["tickers_with_enough_price_history"] + cov["tickers_missing_price_history"]
+        assert total == data["ticker_count"]
+
+    def test_creates_zero_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """Endpoint creates no DB rows of any kind."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            sig_before  = s.query(Signal).count()
+            td_before   = s.query(TradeDecision).count()
+            ord_before  = s.query(Order).count()
+            pos_before  = s.query(Position).count()
+            cand_before = s.query(CandidateReview).count()
+
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            assert s.query(Signal).count()          == sig_before
+            assert s.query(TradeDecision).count()   == td_before
+            assert s.query(Order).count()           == ord_before
+            assert s.query(Position).count()        == pos_before
+            assert s.query(CandidateReview).count() == cand_before
+
+        sc = resp.json()["safety_counts"]
+        assert sc["rows_created"] == 0
+        assert sc["signals_created"] == 0
+        assert sc["decisions_created"] == 0
+        assert sc["orders_created"] == 0
+
+    def test_expected_full_sp500_min_count(self, seeded_client: TestClient) -> None:
+        """Reports expected_full_sp500_min_count of 450."""
+        resp = seeded_client.get("/v1/strategy/universe/status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["expected_full_sp500_min_count"] == 450

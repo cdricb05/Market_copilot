@@ -22,6 +22,7 @@ Endpoints:
     POST /v1/strategy/market-scan/prediction-candidates — market scan + prediction preview (V1 PREVIEW ONLY)
     POST /v1/review/rotation-preview — preview portfolio rotations when at max positions (read-only)
     POST /v1/review/daily-plan-preview — consolidated daily plan: BUY/SELL/HOLD/ROTATION/BLOCKED (read-only)
+    GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -1555,6 +1556,41 @@ class StrategyReadinessOut(BaseModel):
     long_window: int
     overall_status: str
     tickers_status: list[TickerReadinessOut]
+
+
+# ---------------------------------------------------------------------------
+# Universe Status schemas
+# ---------------------------------------------------------------------------
+
+class UniverseMarketDataCoverage(BaseModel):
+    tickers_with_enough_price_history: int
+    tickers_missing_price_history: int
+    benchmark_available: bool
+    benchmark_ticker: str
+    min_price_points_used: int
+
+
+class UniverseSafetyCounts(BaseModel):
+    rows_created: int = 0
+    signals_created: int = 0
+    decisions_created: int = 0
+    orders_created: int = 0
+
+
+class UniverseStatusResponse(BaseModel):
+    universe_name: str
+    active_source_file: str
+    ticker_count: int
+    first_10_tickers: list[str]
+    last_10_tickers: list[str]
+    is_stub_universe: bool
+    expected_full_sp500_min_count: int
+    warning: str | None
+    fallback_used: bool
+    full_universe_file_exists: bool
+    stub_universe_file_exists: bool
+    market_data_coverage: UniverseMarketDataCoverage
+    safety_counts: UniverseSafetyCounts
 
 
 # ---------------------------------------------------------------------------
@@ -6632,6 +6668,86 @@ async def daily_plan_preview(
             db_rows_created=0,
         ),
         capital_allocation=capital_allocation,
+    )
+
+
+@app.get(
+    "/v1/strategy/universe/status",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_universe_status_endpoint() -> UniverseStatusResponse:
+    """
+    GET /v1/strategy/universe/status — Read-only universe diagnostics.
+
+    Returns metadata about the active universe file, ticker count, market data
+    coverage, and safety counts. No DB writes.
+    """
+    from paper_trader.engine.universe import get_universe_status as _get_universe_status
+
+    universe_info = _get_universe_status()
+    universe_tickers: list[str] = universe_info.get("tickers", [])
+
+    benchmark_ticker = "SPY"
+    min_price_points = 5
+
+    tickers_with_enough = 0
+    tickers_missing = len(universe_tickers)
+    benchmark_available = False
+
+    with get_session() as session:
+        if universe_tickers:
+            rows = session.execute(
+                select(
+                    PriceSnapshot.ticker,
+                    func.count(distinct(PriceSnapshot.market_date)).label("date_count"),
+                )
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .where(PriceSnapshot.ticker.in_(universe_tickers))
+                .group_by(PriceSnapshot.ticker)
+            ).all()
+
+            counted: dict[str, int] = {row[0]: row[1] for row in rows}
+            tickers_with_enough = sum(
+                1 for t in universe_tickers
+                if counted.get(t, 0) >= min_price_points
+            )
+            tickers_missing = len(universe_tickers) - tickers_with_enough
+
+        bm_count = session.execute(
+            select(func.count())
+            .select_from(BenchmarkPrice)
+            .where(BenchmarkPrice.ticker == benchmark_ticker)
+            .where(BenchmarkPrice.session_type == "REGULAR")
+        ).scalar() or 0
+        benchmark_available = bm_count > 0
+
+    return UniverseStatusResponse(
+        universe_name=universe_info["universe_name"],
+        active_source_file=universe_info["active_source_file"],
+        ticker_count=universe_info["ticker_count"],
+        first_10_tickers=universe_info["first_10_tickers"],
+        last_10_tickers=universe_info["last_10_tickers"],
+        is_stub_universe=universe_info["is_stub_universe"],
+        expected_full_sp500_min_count=universe_info["expected_full_sp500_min_count"],
+        warning=universe_info["warning"],
+        fallback_used=universe_info["fallback_used"],
+        full_universe_file_exists=universe_info["full_universe_file_exists"],
+        stub_universe_file_exists=universe_info["stub_universe_file_exists"],
+        market_data_coverage=UniverseMarketDataCoverage(
+            tickers_with_enough_price_history=tickers_with_enough,
+            tickers_missing_price_history=tickers_missing,
+            benchmark_available=benchmark_available,
+            benchmark_ticker=benchmark_ticker,
+            min_price_points_used=min_price_points,
+        ),
+        safety_counts=UniverseSafetyCounts(
+            rows_created=0,
+            signals_created=0,
+            decisions_created=0,
+            orders_created=0,
+        ),
     )
 
 

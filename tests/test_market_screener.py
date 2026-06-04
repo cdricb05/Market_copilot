@@ -608,3 +608,108 @@ class TestScanMarket:
         assert candidates[0].relative_strength_vs_spy_20d is not None
         # Should be outperforming (AAPL 20% > SPY 5%)
         assert "OUTPERFORMING_SPY" in candidates[0].reason_codes
+
+
+class TestUniverseLoader:
+    """Universe file loading: full file preference, fallback, column names, normalization."""
+
+    def test_load_from_full_file_when_present(self, tmp_path, monkeypatch):
+        """Uses full file when sp500_universe_full.csv exists and has tickers."""
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\nAAPL\nMSFT\n", encoding="utf-8")
+        stub_csv = tmp_path / "sp500_universe.csv"
+        stub_csv.write_text("ticker\nGOOGL\nAMZN\n", encoding="utf-8")
+
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        from paper_trader.engine.universe import get_sp500_universe
+        result = get_sp500_universe()
+        assert result == ["AAPL", "MSFT"]
+
+    def test_fallback_to_stub_when_full_missing(self, tmp_path, monkeypatch):
+        """Falls back to stub file when full file is absent."""
+        stub_csv = tmp_path / "sp500_universe.csv"
+        stub_csv.write_text("ticker\nGOOGL\nAMZN\n", encoding="utf-8")
+
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        from paper_trader.engine.universe import get_sp500_universe
+        result = get_sp500_universe()
+        assert result == ["GOOGL", "AMZN"]
+
+    def test_accepts_symbol_column_header(self, tmp_path, monkeypatch):
+        """Accepts 'symbol' as column name."""
+        csv_file = tmp_path / "sp500_universe_full.csv"
+        csv_file.write_text("symbol\nNVDA\nMETA\n", encoding="utf-8")
+
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        from paper_trader.engine.universe import get_sp500_universe
+        result = get_sp500_universe()
+        assert result == ["NVDA", "META"]
+
+    def test_accepts_title_case_ticker_column(self, tmp_path, monkeypatch):
+        """Accepts 'Ticker' and 'Symbol' headers (case-insensitive detection)."""
+        csv_file = tmp_path / "sp500_universe_full.csv"
+        csv_file.write_text("Ticker\nJPM\nV\n", encoding="utf-8")
+
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        from paper_trader.engine.universe import get_sp500_universe
+        result = get_sp500_universe()
+        assert result == ["JPM", "V"]
+
+    def test_deduplicates_and_normalizes(self, tmp_path, monkeypatch):
+        """Deduplicates tickers and normalizes to uppercase, trimming whitespace."""
+        csv_file = tmp_path / "sp500_universe_full.csv"
+        csv_file.write_text("ticker\naapl\nAAPL\n  msft  \n\n", encoding="utf-8")
+
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        from paper_trader.engine.universe import get_sp500_universe
+        result = get_sp500_universe()
+        assert result == ["AAPL", "MSFT"]
+
+    def test_dot_ticker_preserved_matching_market_data_canonical(self, tmp_path, monkeypatch):
+        """BRK.B is preserved as-is: market_data.py uses dot format as canonical ticker."""
+        csv_file = tmp_path / "sp500_universe_full.csv"
+        csv_file.write_text("ticker\nBRK.B\nAAPL\n", encoding="utf-8")
+
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        from paper_trader.engine.universe import get_sp500_universe
+        result = get_sp500_universe()
+        # Canonical format in this codebase is BRK.B (market_data handles the
+        # dot->hyphen translation internally when calling yfinance)
+        assert "BRK.B" in result
+        assert "BRK-B" not in result
+
+    def test_get_universe_status_flags_stub(self, tmp_path, monkeypatch):
+        """get_universe_status flags is_stub_universe when ticker_count < 450."""
+        stub_csv = tmp_path / "sp500_universe.csv"
+        stub_csv.write_text("ticker\nAAPL\nMSFT\n", encoding="utf-8")
+
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        from paper_trader.engine.universe import get_universe_status
+        info = get_universe_status()
+        assert info["is_stub_universe"] is True
+        assert info["warning"] is not None
+        assert info["fallback_used"] is True
+        assert info["ticker_count"] == 2
+
+    def test_get_universe_status_reports_active_source(self, tmp_path, monkeypatch):
+        """get_universe_status reports the active source file name."""
+        full_csv = tmp_path / "sp500_universe_full.csv"
+        full_csv.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(500)) + "\n", encoding="utf-8")
+
+        monkeypatch.setattr("paper_trader.engine.universe._DATA_DIR", tmp_path)
+
+        from paper_trader.engine.universe import get_universe_status
+        info = get_universe_status()
+        assert info["active_source_file"] == "sp500_universe_full.csv"
+        assert info["full_universe_file_exists"] is True
+        assert info["fallback_used"] is False
+        assert info["ticker_count"] == 500
+        assert info["is_stub_universe"] is False
+        assert info["warning"] is None

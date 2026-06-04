@@ -1799,6 +1799,16 @@
           </details>
         </div>
 
+        <!-- Universe Status -->
+        <div class="card">
+          <div class="card-title">Universe Status</div>
+          <p style="font-size:12px;color:var(--label);margin:0 0 10px;">
+            The app does not automatically fetch S&amp;P500 constituents. To use a full universe, provide <code>data/sp500_universe_full.csv</code>.
+          </p>
+          <div id="universe-status-result" style="font-size:13px;color:var(--label);">Click Refresh to load universe status.</div>
+          <button class="btn-action" style="margin-top:10px;" onclick="loadUniverseStatus(this)">Refresh Universe Status</button>
+        </div>
+
       </div><!-- end tab-audit-advanced -->
 
     </div><!-- end main-content-area -->
@@ -6294,6 +6304,44 @@ if (window.paperTraderPostAuthLoadPending || window.paperTraderConnected || loca
         });
       }
     }, 500);
+  }
+}
+
+async function loadUniverseStatus(btn) {
+  const resultEl = document.getElementById('universe-status-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<span style="color:var(--warning);">Loading universe status...</span>';
+  try {
+    const r = await call('GET', '/v1/strategy/universe/status');
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      resultEl.innerHTML = '<span style="color:var(--danger);">Error: ' + escapeHtml((err.detail || r.status).toString()) + '</span>';
+      return;
+    }
+    const d = await r.json();
+    const cov = d.market_data_coverage || {};
+    const warn = d.warning ? '<div style="color:var(--warning);margin-bottom:6px;">' + escapeHtml(d.warning) + '</div>' : '';
+    const stubBadge = d.is_stub_universe
+      ? '<span style="background:var(--warning);color:#000;border-radius:3px;padding:1px 5px;font-size:11px;font-weight:700;">STUB</span>'
+      : '<span style="background:var(--ok);color:#000;border-radius:3px;padding:1px 5px;font-size:11px;font-weight:700;">FULL</span>';
+    let html = warn;
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">';
+    html += '<div><span style="color:var(--label);font-size:11px;text-transform:uppercase;">Source File</span><br><strong style="color:var(--text-primary);">' + escapeHtml(d.active_source_file || '-') + '</strong></div>';
+    html += '<div><span style="color:var(--label);font-size:11px;text-transform:uppercase;">Tickers</span><br><strong style="color:var(--text-primary);">' + (d.ticker_count || 0) + '</strong></div>';
+    html += '<div><span style="color:var(--label);font-size:11px;text-transform:uppercase;">Type</span><br>' + stubBadge + '</div>';
+    html += '<div><span style="color:var(--label);font-size:11px;text-transform:uppercase;">Full File</span><br><strong style="color:' + (d.full_universe_file_exists ? 'var(--ok)' : 'var(--danger)') + ';">' + (d.full_universe_file_exists ? 'Exists' : 'Missing') + '</strong></div>';
+    html += '<div><span style="color:var(--label);font-size:11px;text-transform:uppercase;">With Price Data</span><br><strong style="color:var(--text-primary);">' + (cov.tickers_with_enough_price_history || 0) + '</strong></div>';
+    html += '<div><span style="color:var(--label);font-size:11px;text-transform:uppercase;">Benchmark (' + escapeHtml(cov.benchmark_ticker || 'SPY') + ')</span><br><strong style="color:' + (cov.benchmark_available ? 'var(--ok)' : 'var(--warning)') + ';">' + (cov.benchmark_available ? 'Available' : 'No data') + '</strong></div>';
+    html += '</div>';
+    if (d.first_10_tickers && d.first_10_tickers.length > 0) {
+      html += '<div style="font-size:11px;color:var(--label);margin-bottom:2px;">First tickers: <span style="color:var(--text-primary);">' + escapeHtml(d.first_10_tickers.join(', ')) + '</span></div>';
+    }
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.innerHTML = '<span style="color:var(--danger);">Failed: ' + escapeHtml(String(e)) + '</span>';
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
