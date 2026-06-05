@@ -4622,6 +4622,10 @@ async function createSignalsFromDailyPlan(btn) {
     html += '<button class="btn-sm" onclick="previewDecisionsFromDailyPlanSignals(this)" style="background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.4);">Preview Decisions From Daily Plan Signals</button>';
     html += '</div>';
     html += '<div id="daily-plan-decision-preview-result" style="margin-top: 8px;"></div>';
+    html += '<div style="margin-top: 8px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 8px;">';
+    html += '<button class="btn-sm" onclick="createDecisionsFromDailyPlanSignals(this)" style="background: rgba(239,68,68,.15); color: var(--danger); border: 1px solid rgba(239,68,68,.4);">Create Trade Decisions From Daily Plan Signals</button>';
+    html += '</div>';
+    html += '<div id="daily-plan-create-decisions-result" style="margin-top: 8px;"></div>';
     resultEl.innerHTML = html;
   } catch (e) {
     resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
@@ -4721,6 +4725,124 @@ async function previewDecisionsFromDailyPlanSignals(btn) {
       html += '</table>';
     } else {
       html += '<div style="font-size: 11px; color: var(--text-secondary); padding: 4px 0;">No decision previews available. Ensure Daily Plan signals have been created and have status RECEIVED.</div>';
+    }
+
+    // Skipped
+    if (data.skipped && data.skipped.length > 0) {
+      html += '<div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px; margin-bottom: 2px;">Skipped:</div>';
+      for (const sk of data.skipped) {
+        html += `<div style="font-size: 10px; color: var(--danger); margin-bottom: 2px;">${escapeHtml(sk.ticker)}: ${escapeHtml(sk.reason || '')}</div>`;
+      }
+    }
+
+    // Safety note
+    if (data.safety_note) {
+      html += `<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">${escapeHtml(data.safety_note)}</div>`;
+    }
+
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function createDecisionsFromDailyPlanSignals(btn) {
+  const resultEl = document.getElementById('daily-plan-create-decisions-result');
+  if (!resultEl) return;
+
+  // First click: show styled confirmation panel
+  if (!btn._dpcdConfirming) {
+    btn._dpcdConfirming = true;
+    resultEl.innerHTML = [
+      '<div style="background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.4); border-radius: 4px; padding: 10px 12px; font-size: 11px;">',
+      '<div style="font-weight: 700; color: var(--danger); margin-bottom: 6px;">Confirm: Create Trade Decisions</div>',
+      '<div style="color: var(--text-secondary); margin-bottom: 8px;">This creates TradeDecision rows only. It does not create orders. Automation remains off.</div>',
+      '<div style="display: flex; gap: 8px;">',
+      '<button class="btn-sm" onclick="createDecisionsFromDailyPlanSignals(window._dpcdBtn)" style="background: rgba(239,68,68,.2); color: var(--danger); border: 1px solid rgba(239,68,68,.5);">Confirm</button>',
+      '<button class="btn-sm" onclick="document.getElementById(\'daily-plan-create-decisions-result\').innerHTML=\'\'; window._dpcdBtn._dpcdConfirming=false;" style="background: rgba(255,255,255,.07); color: var(--text-secondary);">Cancel</button>',
+      '</div></div>',
+    ].join('');
+    window._dpcdBtn = btn;
+    return;
+  }
+
+  // Second click (confirmed): proceed
+  btn._dpcdConfirming = false;
+  window._dpcdBtn = null;
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<div style="color: var(--warning); font-size: 11px; padding: 6px 0;">Creating trade decisions...</div>';
+  try {
+    const r = await call('POST', '/v1/review/daily-plan-create-decisions', {
+      confirm_create_decisions: true,
+      received_only: true,
+      limit: 50,
+    });
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : `HTTP ${r.status}`);
+
+    let html = '';
+
+    // Safety badges
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 3px; font-size: 10px;">';
+    html += '<span style="background: rgba(59,130,246,.12); color: var(--info); padding: 1px 6px; border-radius: 2px; font-weight: 700;">CREATES TRADE DECISIONS ONLY</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">NO ORDERS</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">AUTOMATION OFF</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">MANUAL REVIEW</span>';
+    html += '</div>';
+
+    // Stats chips
+    const dc = data.decision_counts || {};
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.evaluated_count || 0))}</span>`;
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Created: ${escapeHtml(String(data.created_count || 0))}</span>`;
+    if ((dc['BUY'] || 0) > 0) {
+      html += `<span style="background: rgba(34,197,94,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok); font-weight: 600;">BUY: ${dc['BUY']}</span>`;
+    }
+    if ((dc['SELL'] || 0) > 0) {
+      html += `<span style="background: rgba(251,191,36,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--warning); font-weight: 600;">SELL: ${dc['SELL']}</span>`;
+    }
+    if ((dc['HOLD'] || 0) > 0) {
+      html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">HOLD: ${dc['HOLD']}</span>`;
+    }
+    if ((dc['REJECTED'] || 0) > 0) {
+      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger); font-weight: 600;">REJECTED: ${dc['REJECTED']}</span>`;
+    }
+    if ((data.skipped_count || 0) > 0) {
+      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ${escapeHtml(String(data.skipped_count))}</span>`;
+    }
+    html += '</div>';
+
+    // Created decisions table
+    if (data.created_decisions && data.created_decisions.length > 0) {
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 6px;">';
+      html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Ticker</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Side</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Decision</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Qty</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Notional</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Reason</th>';
+      html += '</tr></thead><tbody>';
+      for (const d of data.created_decisions) {
+        const sideColor = d.side === 'BUY' ? 'var(--ok)' : d.side === 'SELL' ? 'var(--warning)' : 'var(--label)';
+        const decColor = d.decision === 'BUY' ? 'var(--ok)' : d.decision === 'SELL' ? 'var(--warning)' : d.decision === 'REJECTED' ? 'var(--danger)' : 'var(--text-secondary)';
+        const rowBg = d.decision === 'REJECTED' ? 'rgba(239,68,68,.05)' : d.decision === 'SELL' ? 'rgba(251,191,36,.03)' : d.decision === 'BUY' ? 'rgba(34,197,94,.04)' : '';
+        const notional = parseFloat(d.approved_notional);
+        const notionalStr = isNaN(notional) || notional <= 0 ? '-' : '$' + notional.toFixed(0);
+        html += `<tr style="border-bottom: 1px solid rgba(255,255,255,.04); background: ${rowBg};">`;
+        html += `<td style="padding: 4px 5px; font-weight: 600; color: var(--ok);">${escapeHtml(d.ticker)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${sideColor}; font-weight: 600;">${escapeHtml(d.side)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${decColor}; font-weight: 600; font-size: 9px;">${escapeHtml(d.decision)}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(String(d.approved_qty))}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(notionalStr)}</td>`;
+        html += `<td style="padding: 4px 5px; font-size: 9px; color: var(--text-secondary);">${escapeHtml(d.reason_code || '')}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    } else if ((data.created_count || 0) === 0) {
+      html += '<div style="font-size: 11px; color: var(--text-secondary); padding: 4px 0;">No trade decisions created. All signals may already have decisions or no eligible RECEIVED signals were found.</div>';
     }
 
     // Skipped

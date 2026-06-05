@@ -27,6 +27,7 @@ Endpoints:
     POST /v1/review/daily-plan-signal-preview — preview Signal rows from Daily Plan actions (PREVIEW ONLY, no DB writes)
     POST /v1/review/daily-plan-create-signals — create Signal rows from approved Daily Plan actions (confirmation required)
     POST /v1/review/daily-plan-decision-preview — preview trade decisions from Daily Plan-created Signal rows (PREVIEW ONLY, no DB writes)
+    POST /v1/review/daily-plan-create-decisions — create TradeDecision rows from Daily Plan-created Signal rows (confirmation required)
     POST /v1/review/daily-plan-replay-preview — historical daily plan replay/backtest preview (read-only)
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
 
@@ -1922,6 +1923,65 @@ class DailyPlanDecisionPreviewResponse(BaseModel):
     skipped: list[DailyPlanDecisionPreviewSkipped]
     safety_counts: dict[str, int]
     next_step: str
+    safety_note: str
+
+
+# ---------------------------------------------------------------------------
+# Daily Plan Create Decisions schemas (Phase 4N)
+# ---------------------------------------------------------------------------
+
+class DailyPlanCreateDecisionsRequest(BaseModel):
+    """Request to create TradeDecision rows from Daily Plan-created Signal rows."""
+    signal_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of signal IDs (UUIDs). If provided, only these signals are evaluated.",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of signals to process (default 50, max 100).",
+    )
+    received_only: bool = Field(
+        default=True,
+        description="If true, only process Signals with status='RECEIVED'.",
+    )
+    confirm_create_decisions: bool = Field(
+        default=False,
+        description="Must be true to create TradeDecision rows, else returns 422.",
+    )
+
+
+class DailyPlanCreatedDecisionDetail(BaseModel):
+    """A TradeDecision created from a Daily Plan Signal."""
+    signal_id: str
+    trade_decision_id: str
+    ticker: str
+    side: str
+    decision: str
+    reason_code: str | None
+    requested_notional: str
+    approved_notional: str
+    requested_qty: str
+    approved_qty: str
+
+
+class DailyPlanCreateDecisionsSkipped(BaseModel):
+    """A signal skipped during Daily Plan create-decisions."""
+    signal_id: str
+    ticker: str
+    reason: str
+
+
+class DailyPlanCreateDecisionsResponse(BaseModel):
+    """Response from POST /v1/review/daily-plan-create-decisions."""
+    evaluated_count: int
+    created_count: int
+    skipped_count: int
+    decision_counts: dict[str, int]
+    created_decisions: list[DailyPlanCreatedDecisionDetail]
+    skipped: list[DailyPlanCreateDecisionsSkipped]
+    safety_counts: dict[str, Any]
     safety_note: str
 
 
@@ -8676,6 +8736,223 @@ async def daily_plan_decision_preview(
         skipped=skipped_list,
         safety_counts=_safety_counts,
         next_step=_next_step,
+        safety_note=_safety_note,
+    )
+
+
+@app.post(
+    "/v1/review/daily-plan-create-decisions",
+    response_model=DailyPlanCreateDecisionsResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def daily_plan_create_decisions(
+    body: DailyPlanCreateDecisionsRequest,
+) -> DailyPlanCreateDecisionsResponse:
+    """
+    Create TradeDecision rows from Daily Plan-created Signal rows.
+
+    Creates real TradeDecision rows and a JobRun. Does NOT create Orders.
+    Automation remains off. Signal.status is updated to DECISION_MADE for each
+    successfully processed signal.
+
+    Idempotent: if a TradeDecision already exists for a signal, that signal is
+    skipped without modification.
+
+    Daily Plan signals are identified by source_run prefix 'daily_plan_review_v1:'.
+    Non-Daily-Plan signals are rejected even if their IDs are provided.
+
+    confirm_create_decisions must be true to proceed; returns 422 otherwise.
+    """
+    import uuid as _uuid_mod
+
+    if not body.confirm_create_decisions:
+        raise HTTPException(
+            status_code=422,
+            detail="confirm_create_decisions must be true to create TradeDecisions",
+        )
+
+    _DP_PREFIX = "daily_plan_review_v1:"
+
+    _empty_safety: dict[str, Any] = {
+        "signals_created": 0,
+        "trade_decisions_created": 0,
+        "orders_created": 0,
+        "automation_triggered": False,
+    }
+    _safety_note = "CREATES TRADE DECISIONS ONLY — no orders created, automation off."
+
+    evaluated = 0
+    created = 0
+    skipped_list: list[DailyPlanCreateDecisionsSkipped] = []
+    created_decisions_list: list[DailyPlanCreatedDecisionDetail] = []
+
+    with get_session() as session:
+        eastern_now = datetime.now(_EASTERN)
+        market_date = eastern_now.date()
+        now = datetime.now(timezone.utc)
+
+        portfolio = get_portfolio(session)
+
+        # Build Signal rows to evaluate
+        if body.signal_ids:
+            try:
+                signal_uuids = [_uuid_mod.UUID(sid) for sid in body.signal_ids]
+            except (ValueError, AttributeError):
+                return DailyPlanCreateDecisionsResponse(
+                    evaluated_count=0,
+                    created_count=0,
+                    skipped_count=0,
+                    decision_counts={},
+                    created_decisions=[],
+                    skipped=[],
+                    safety_counts=_empty_safety,
+                    safety_note=_safety_note,
+                )
+            rows = session.query(Signal).filter(
+                Signal.id.in_(signal_uuids)
+            ).limit(body.limit).all()
+        else:
+            query = session.query(Signal).filter(
+                Signal.source_run.startswith(_DP_PREFIX)
+            )
+            if body.received_only:
+                query = query.filter(Signal.status == "RECEIVED")
+            rows = query.order_by(Signal.signal_ts.desc()).limit(body.limit).all()
+
+        # First pass: validate and collect signals eligible for decision creation
+        decisions_to_create = []
+        for signal in rows:
+            evaluated += 1
+            signal_id_str = str(signal.id)
+
+            # Reject non-Daily-Plan signals
+            if not signal.source_run.startswith(_DP_PREFIX):
+                skipped_list.append(DailyPlanCreateDecisionsSkipped(
+                    signal_id=signal_id_str,
+                    ticker=signal.ticker,
+                    reason=f"Not a Daily Plan signal: source_run='{signal.source_run}'",
+                ))
+                continue
+
+            # Apply received_only check on the signal_ids path (SQL path already filtered)
+            if body.signal_ids and body.received_only and signal.status != "RECEIVED":
+                skipped_list.append(DailyPlanCreateDecisionsSkipped(
+                    signal_id=signal_id_str,
+                    ticker=signal.ticker,
+                    reason=f"Signal status is {signal.status}, expected RECEIVED",
+                ))
+                continue
+
+            # Idempotency: skip if TradeDecision already exists for this signal
+            existing = session.query(TradeDecision).filter(
+                TradeDecision.signal_id == signal.id
+            ).first()
+            if existing:
+                skipped_list.append(DailyPlanCreateDecisionsSkipped(
+                    signal_id=signal_id_str,
+                    ticker=signal.ticker,
+                    reason="TradeDecision already exists for signal",
+                ))
+                continue
+
+            decisions_to_create.append(signal)
+
+        # Only create a JobRun (required by TradeDecision.job_run_id FK) when there is work to do
+        job_run = None
+        if decisions_to_create:
+            ikey = str(_uuid_mod.uuid4())
+            job_run = JobRun(
+                idempotency_key=ikey,
+                workflow_type="DAILY_PLAN_CREATE_DECISIONS",
+                market_date=market_date,
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+                result_summary={},
+            )
+            session.add(job_run)
+            session.flush()
+
+            # Second pass: evaluate and create TradeDecisions
+            for signal in decisions_to_create:
+                signal_id_str = str(signal.id)
+                snapshot_price = _latest_price(session, signal.ticker)
+
+                rd = evaluate_signal(
+                    session,
+                    portfolio=portfolio,
+                    direction=signal.direction,
+                    ticker=signal.ticker,
+                    confidence=signal.confidence,
+                    snapshot_price=snapshot_price,
+                    market_date=market_date,
+                    now=now,
+                )
+
+                trade_decision = TradeDecision(
+                    signal_id=signal.id,
+                    job_run_id=job_run.id,
+                    ticker=signal.ticker,
+                    signal_direction=signal.direction,
+                    decision=rd.decision,
+                    reason_code=rd.reason_code,
+                    requested_notional=rd.requested_notional if rd.requested_notional > Decimal("0") else None,
+                    approved_notional=rd.approved_notional if rd.approved_notional > Decimal("0") else None,
+                    requested_qty=rd.requested_qty if rd.requested_qty > Decimal("0") else None,
+                    approved_qty=rd.approved_qty if rd.approved_qty > Decimal("0") else None,
+                    risk_snapshot=rd.risk_snapshot,
+                    sizing_adjustments=rd.sizing_adjustments,
+                    decided_at=datetime.now(timezone.utc),
+                    market_date=market_date,
+                )
+                session.add(trade_decision)
+                session.flush()
+
+                # Update Signal.status to DECISION_MADE
+                signal.status = "DECISION_MADE"
+                session.add(signal)
+                session.flush()
+
+                created_decisions_list.append(DailyPlanCreatedDecisionDetail(
+                    signal_id=signal_id_str,
+                    trade_decision_id=str(trade_decision.id),
+                    ticker=signal.ticker,
+                    side=signal.direction,
+                    decision=rd.decision,
+                    reason_code=rd.reason_code,
+                    requested_notional=str(rd.requested_notional),
+                    approved_notional=str(rd.approved_notional),
+                    requested_qty=str(rd.requested_qty),
+                    approved_qty=str(rd.approved_qty),
+                ))
+                created += 1
+
+            job_run.result_summary = {
+                "evaluated_count": evaluated,
+                "created_count": created,
+                "skipped_count": len(skipped_list),
+            }
+            session.add(job_run)
+            session.flush()
+
+    # Compute decision counts from created decisions
+    _decision_counts: dict[str, int] = {}
+    for _d in created_decisions_list:
+        _decision_counts[_d.decision] = _decision_counts.get(_d.decision, 0) + 1
+
+    return DailyPlanCreateDecisionsResponse(
+        evaluated_count=evaluated,
+        created_count=created,
+        skipped_count=len(skipped_list),
+        decision_counts=_decision_counts,
+        created_decisions=created_decisions_list,
+        skipped=skipped_list,
+        safety_counts={
+            "signals_created": 0,
+            "trade_decisions_created": created,
+            "orders_created": 0,
+            "automation_triggered": False,
+        },
         safety_note=_safety_note,
     )
 
