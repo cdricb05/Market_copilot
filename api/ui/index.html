@@ -3843,6 +3843,8 @@ async function runDailyPlan(btn) {
       min_expected_pnl_dollars: _dpMinPnl ? parseFloat(_dpMinPnl.value) || 25.0 : 25.0,
       allow_loss_realization: _dpAllowLoss ? _dpAllowLoss.checked : false,
     };
+    window._lastDailyPlanBody = _dpBody;
+    window._lastDailyPlanSavedFlag = false;
     const r = await call('POST', '/v1/review/daily-plan-preview', _dpBody);
     const b = await parseApiResponse(r);
 
@@ -4075,46 +4077,43 @@ function renderDailyPlanResult(data, el) {
 
   // Plan Approval Preview
   {
-    const _actionable = (data.action_stack || []).filter(
-      item => (item.action_type === 'BUY' || item.action_type === 'SELL') && item.candidate_review_id
+    const _buySell = (data.action_stack || []).filter(
+      item => (item.action_type === 'BUY' || item.action_type === 'SELL')
     );
-    const _rotateWithId = (data.action_stack || []).filter(
-      item => item.action_type === 'ROTATE' && item.candidate_review_id
-    );
-    window._dailyPlanActionableIds = _actionable.map(item => item.candidate_review_id);
+    const _rotate = (data.action_stack || []).filter(item => item.action_type === 'ROTATE');
+    const _allActionable = [..._buySell, ..._rotate];
+    const _disabledAttr = _allActionable.length === 0 ? 'disabled' : '';
     html += '<div style="border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 10px 12px; margin-bottom: 14px; background: rgba(0,0,0,.12);">';
     html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 8px;">Plan Approval Preview</div>';
-    if (_actionable.length > 0) {
-      html += '<div style="font-size: 11px; color: var(--text-accent); margin-bottom: 6px;">Actionable items to send to signal preview:</div>';
+    if (_allActionable.length > 0) {
+      html += '<div style="font-size: 11px; color: var(--text-accent); margin-bottom: 6px;">Actionable items in this plan:</div>';
       html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
-      for (const _item of _actionable) {
-        const _tagColor = _item.action_type === 'BUY' ? 'var(--ok)' : 'var(--label)';
-        html += `<span style="background: rgba(255,255,255,.07); border-radius: 3px; padding: 3px 7px; font-size: 10px;"><span style="color: ${_tagColor}; font-weight: 700;">${escapeHtml(_item.action_type)}</span> ${escapeHtml(_item.ticker)}</span>`;
+      for (const _item of _allActionable) {
+        const _tagColor = _item.action_type === 'BUY' || _item.action_type === 'ROTATE' ? 'var(--ok)' : 'var(--label)';
+        const _label = _item.action_type === 'ROTATE'
+          ? `ROTATE ${escapeHtml(_item.ticker)} &rarr; ${escapeHtml(_item.secondary_ticker || '?')}`
+          : `${escapeHtml(_item.action_type)} ${escapeHtml(_item.ticker)}`;
+        html += `<span style="background: rgba(255,255,255,.07); border-radius: 3px; padding: 3px 7px; font-size: 10px; color: ${_tagColor}; font-weight: 600;">${_label}</span>`;
       }
       html += '</div>';
     } else {
-      html += '<div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">No actionable BUY/SELL items with signal candidates in this plan.</div>';
+      html += '<div style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">No actionable BUY/SELL/ROTATE items in this plan. Approve candidates in the Review Queue first.</div>';
     }
-    if (_rotateWithId.length > 0) {
-      html += '<div style="background: rgba(251,191,36,.06); border: 1px solid rgba(251,191,36,.2); border-radius: 3px; padding: 6px 8px; margin-bottom: 8px; font-size: 10px; color: var(--warning);">Rotation approval is not enabled yet because the SELL leg needs explicit signal mapping.</div>';
-    }
-    const _disabledAttr = _actionable.length === 0 ? 'disabled' : '';
     html += `<button class="btn-sm" onclick="previewSignalsFromDailyPlan(this)" style="background: rgba(34,197,94,.15); color: var(--ok); border: 1px solid rgba(34,197,94,.4);" ${_disabledAttr}>Preview Signals From Daily Plan</button>`;
     html += '<div id="daily-plan-signal-preview-result" style="margin-top: 8px;"></div>';
     html += '<div id="daily-plan-approve-section" style="display: none; margin-top: 10px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 10px;">';
     html += '<div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 6px;">Approve Daily Plan Signals</div>';
-    html += '<div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 8px;">This creates Signal rows only. It does not create trade decisions or orders.</div>';
     html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 3px; font-size: 10px;">';
-    html += '<span style="color: var(--text-secondary);">Signals may be created</span>';
-    html += '<span style="color: var(--text-secondary); opacity: .5; margin: 0 2px;">|</span>';
-    html += '<span>Trade decisions: <span style="color: var(--ok);">0</span></span>';
-    html += '<span style="color: var(--text-secondary); opacity: .5; margin: 0 2px;">|</span>';
-    html += '<span>Orders: <span style="color: var(--ok);">0</span></span>';
-    html += '<span style="color: var(--text-secondary); opacity: .5; margin: 0 2px;">|</span>';
-    html += '<span>Automation: <span style="color: var(--ok);">off</span></span>';
-    html += '<span style="color: var(--text-secondary); opacity: .5; margin: 0 2px;">|</span>';
-    html += '<span style="color: var(--ok);">Orders disabled</span>';
+    html += '<span style="background: rgba(34,197,94,.12); color: var(--ok); padding: 1px 6px; border-radius: 2px; font-weight: 700;">CREATES SIGNALS ONLY</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">NO TRADE DECISIONS</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">NO ORDERS</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">AUTOMATION OFF</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">MANUAL REVIEW</span>';
     html += '</div>';
+    html += '<label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); margin-bottom: 8px; cursor: pointer;">';
+    html += '<input type="checkbox" id="daily-plan-confirm-checkbox" onchange="document.getElementById(\'daily-plan-create-signals-btn\').disabled = !this.checked;" style="cursor: pointer;">';
+    html += 'I understand this creates Signal rows only. No decisions or orders will be created.';
+    html += '</label>';
     html += '<button id="daily-plan-create-signals-btn" class="btn-sm" onclick="createSignalsFromDailyPlan(this)" disabled style="background: rgba(99,102,241,.15); color: var(--accent); border: 1px solid rgba(99,102,241,.4);">Create Signals From Daily Plan</button>';
     html += '<div id="daily-plan-create-signals-result" style="margin-top: 8px;"></div>';
     html += '</div>';
@@ -4453,27 +4452,21 @@ function renderDailyPlanResult(data, el) {
 async function previewSignalsFromDailyPlan(btn) {
   const resultEl = document.getElementById('daily-plan-signal-preview-result');
   if (!resultEl) return;
-  const candidateIds = window._dailyPlanActionableIds || [];
-  if (candidateIds.length === 0) {
-    toast('No actionable BUY/SELL candidates with signal candidates in this plan.', 'info');
+  if (!window._lastDailyPlanBody) {
+    toast('Run the Daily Plan first, then preview signals.', 'info');
     return;
   }
   if (btn) btn.disabled = true;
   resultEl.innerHTML = '<div style="color: var(--warning); font-size: 11px; padding: 6px 0;">Fetching signal preview...</div>';
   try {
-    const r = await call('POST', '/v1/review/signal-preview', {
-      idempotency_key: `plan-preview-${Date.now()}`,
-      candidate_ids: candidateIds,
-      review_status: 'APPROVED_FOR_SIGNAL',
-      limit: 50,
-    });
+    const r = await call('POST', '/v1/review/daily-plan-signal-preview', window._lastDailyPlanBody);
     const data = await parseApiResponse(r);
     if (!r.ok) throw new Error((data && data.detail) ? data.detail : `HTTP ${r.status}`);
 
     let html = '';
 
     html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
-    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.candidates_evaluated))}</span>`;
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.evaluated_actions_count))}</span>`;
     html += `<span style="background: rgba(34,197,94,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok);">Previewed: ${escapeHtml(String(data.signal_previews_generated))}</span>`;
     if ((data.skipped_count || 0) > 0) {
       html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ${escapeHtml(String(data.skipped_count))}</span>`;
@@ -4484,24 +4477,22 @@ async function previewSignalsFromDailyPlan(btn) {
       html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 6px;">';
       html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
       html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Ticker</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Type</th>';
       html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Side</th>';
       html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Conf</th>';
-      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Return%</th>';
-      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Decision</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Reason</th>';
       html += '</tr></thead><tbody>';
       for (const sp of data.signal_previews) {
         const sideColor = sp.side === 'BUY' ? 'var(--ok)' : 'var(--label)';
+        const typeColor = sp.action_type === 'BUY' ? 'var(--ok)' : sp.action_type === 'ROTATE_BUY' ? 'var(--info)' : sp.action_type === 'ROTATE_SELL' ? 'var(--warning)' : 'var(--label)';
         const confVal = parseFloat(sp.confidence);
         const confStr = isNaN(confVal) ? '-' : (confVal * 100).toFixed(0) + '%';
-        const retVal = sp.expected_return_pct ? parseFloat(sp.expected_return_pct) : null;
-        const retStr = retVal !== null ? retVal.toFixed(1) + '%' : '-';
-        const decColor = sp.preview_decision === 'CONSIDER' ? 'var(--ok)' : sp.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--label)';
         html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
         html += `<td style="padding: 4px 5px; font-weight: 600;">${escapeHtml(sp.ticker)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${typeColor}; font-weight: 600; font-size: 9px;">${escapeHtml(sp.action_type)}</td>`;
         html += `<td style="padding: 4px 5px; color: ${sideColor}; font-weight: 600;">${escapeHtml(sp.side)}</td>`;
         html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(confStr)}</td>`;
-        html += `<td style="padding: 4px 5px; text-align: right; color: var(--ok);">${escapeHtml(retStr)}</td>`;
-        html += `<td style="padding: 4px 5px; color: ${decColor}; font-weight: 600;">${escapeHtml(sp.preview_decision)}</td>`;
+        html += `<td style="padding: 4px 5px; color: var(--text-secondary); font-size: 9px;">${escapeHtml((sp.reason || '').substring(0, 60))}</td>`;
         html += '</tr>';
       }
       html += '</tbody></table>';
@@ -4543,37 +4534,45 @@ async function previewSignalsFromDailyPlan(btn) {
 async function createSignalsFromDailyPlan(btn) {
   const resultEl = document.getElementById('daily-plan-create-signals-result');
   if (!resultEl) return;
-  const candidateIds = window._dailyPlanActionableIds || [];
-  if (candidateIds.length === 0) {
-    toast('No actionable BUY/SELL candidates to create signals for.', 'info');
+  const _confirmCb = document.getElementById('daily-plan-confirm-checkbox');
+  if (!_confirmCb || !_confirmCb.checked) {
+    toast('Check the confirmation box before creating signals.', 'info');
+    return;
+  }
+  if (!window._lastDailyPlanBody) {
+    toast('Run the Daily Plan first, then create signals.', 'info');
+    return;
+  }
+  if (window._lastDailyPlanSavedFlag) {
+    toast('Signals already created for this plan. Re-run Daily Plan to reset.', 'info');
     return;
   }
   if (btn) btn.disabled = true;
+  if (_confirmCb) _confirmCb.disabled = true;
   resultEl.innerHTML = '<div style="color: var(--warning); font-size: 11px; padding: 6px 0;">Creating signals...</div>';
   try {
-    const r = await call('POST', '/v1/review/create-signals', {
-      idempotency_key: `plan-approve-${new Date().toISOString().slice(0,10)}-${Date.now()}`,
-      candidate_ids: candidateIds,
-      review_status: 'APPROVED_FOR_SIGNAL',
+    const r = await call('POST', '/v1/review/daily-plan-create-signals', {
+      ...window._lastDailyPlanBody,
       confirm_create_signals: true,
-      limit: 50,
     });
     const data = await parseApiResponse(r);
     if (!r.ok) throw new Error((data && data.detail) ? data.detail : `HTTP ${r.status}`);
 
+    window._lastDailyPlanSavedFlag = true;
+
     let html = '';
     html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
-    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.candidates_evaluated))}</span>`;
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.evaluated_actions_count))}</span>`;
     const _createdColor = (data.signals_created || 0) > 0 ? 'rgba(34,197,94,.1)' : 'rgba(255,255,255,.07)';
     const _createdText = (data.signals_created || 0) > 0 ? 'color: var(--ok);' : '';
     html += `<span style="background: ${_createdColor}; padding: 2px 7px; border-radius: 3px; font-size: 10px; ${_createdText}font-weight: 600;">Signals created: ${escapeHtml(String(data.signals_created))}</span>`;
+    if ((data.already_existed || 0) > 0) {
+      html += `<span style="background: rgba(251,191,36,.08); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--warning);">Already existed: ${escapeHtml(String(data.already_existed))}</span>`;
+    }
     if ((data.skipped_count || 0) > 0) {
       html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ${escapeHtml(String(data.skipped_count))}</span>`;
     }
-    if ((data.skipped_existing_count || 0) > 0) {
-      html += `<span style="background: rgba(251,191,36,.08); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--warning);">Already existed: ${escapeHtml(String(data.skipped_existing_count))}</span>`;
-    }
-    html += `<span style="background: rgba(34,197,94,.06); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok);">Decisions: ${escapeHtml(String(data.trade_decisions_created || 0))}</span>`;
+    html += `<span style="background: rgba(34,197,94,.06); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok);">Decisions: ${escapeHtml(String(data.decisions_created || 0))}</span>`;
     html += `<span style="background: rgba(34,197,94,.06); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok);">Orders: ${escapeHtml(String(data.orders_created || 0))}</span>`;
     html += '</div>';
 
@@ -4581,15 +4580,18 @@ async function createSignalsFromDailyPlan(btn) {
       html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 6px;">';
       html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
       html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Ticker</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Type</th>';
       html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Side</th>';
       html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Conf</th>';
       html += '</tr></thead><tbody>';
       for (const sig of data.created_signals) {
         const sideColor = sig.side === 'BUY' ? 'var(--ok)' : 'var(--label)';
+        const typeColor = sig.action_type === 'BUY' ? 'var(--ok)' : sig.action_type === 'ROTATE_BUY' ? 'var(--info)' : sig.action_type === 'ROTATE_SELL' ? 'var(--warning)' : 'var(--label)';
         const confVal = parseFloat(sig.confidence);
         const confStr = isNaN(confVal) ? '-' : (confVal * 100).toFixed(0) + '%';
         html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
         html += `<td style="padding: 4px 5px; font-weight: 600; color: var(--ok);">${escapeHtml(sig.ticker)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${typeColor}; font-size: 9px;">${escapeHtml(sig.action_type || '-')}</td>`;
         html += `<td style="padding: 4px 5px; color: ${sideColor}; font-weight: 600;">${escapeHtml(sig.side)}</td>`;
         html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(confStr)}</td>`;
         html += '</tr>';
@@ -4600,13 +4602,13 @@ async function createSignalsFromDailyPlan(btn) {
     if (data.skipped && data.skipped.length > 0) {
       html += '<div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 2px;">Skipped:</div>';
       for (const sk of data.skipped) {
-        html += `<div style="font-size: 10px; color: var(--danger); margin-bottom: 2px;">${escapeHtml(sk.ticker)}: ${escapeHtml(sk.reason)}</div>`;
+        html += `<div style="font-size: 10px; color: var(--danger); margin-bottom: 2px;">${escapeHtml(sk.ticker)}: ${escapeHtml(sk.reason_code || '')} ${escapeHtml(sk.reason || '')}</div>`;
       }
     }
 
     if ((data.signals_created || 0) > 0) {
       const nextActionEl = document.getElementById('cockpit-next-action');
-      if (nextActionEl) nextActionEl.textContent = 'Signals created. Next: run Decision Preview.';
+      if (nextActionEl) nextActionEl.textContent = `${data.signals_created} signal(s) created from Daily Plan. Next: run Decision Preview manually.`;
       const actionStatusEl = document.getElementById('right-action-status');
       if (actionStatusEl) {
         actionStatusEl.textContent = new Date().toLocaleTimeString();
@@ -4614,12 +4616,18 @@ async function createSignalsFromDailyPlan(btn) {
       }
     }
 
-    html += `<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">Signals created: ${escapeHtml(String(data.signals_created))} | Trade decisions: 0 | Orders: 0 | Automation: off</div>`;
+    const _safetyNote = data.safety_note || 'Signal rows created. No decisions or orders.';
+    html += `<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">Signals: ${escapeHtml(String(data.signals_created))} created, ${escapeHtml(String(data.already_existed || 0))} existed | Decisions: 0 | Orders: 0 | Automation: off</div>`;
+    if ((data.signals_created || 0) > 0) {
+      html += '<div style="margin-top: 6px; padding: 6px 8px; background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.2); border-radius: 3px; font-size: 10px; color: var(--info);">Next step: Run Decision Preview manually to evaluate the created signals.</div>';
+    }
     resultEl.innerHTML = html;
   } catch (e) {
     resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
   } finally {
     if (btn) btn.disabled = false;
+    const _cb = document.getElementById('daily-plan-confirm-checkbox');
+    if (_cb) _cb.disabled = false;
   }
 }
 

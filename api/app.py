@@ -24,6 +24,8 @@ Endpoints:
     POST /v1/strategy/calibrated-rotation-preview — calibration-aware rotation workbench (PREVIEW ONLY, read-only)
     POST /v1/review/rotation-preview — preview portfolio rotations when at max positions (read-only)
     POST /v1/review/daily-plan-preview — consolidated daily plan: BUY/SELL/HOLD/ROTATION/BLOCKED (read-only)
+    POST /v1/review/daily-plan-signal-preview — preview Signal rows from Daily Plan actions (PREVIEW ONLY, no DB writes)
+    POST /v1/review/daily-plan-create-signals — create Signal rows from approved Daily Plan actions (confirmation required)
     POST /v1/review/daily-plan-replay-preview — historical daily plan replay/backtest preview (read-only)
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
 
@@ -1705,6 +1707,155 @@ class DailyPlanPreviewResponse(BaseModel):
     capital_allocation: CapitalAllocationAnalysis | None = None
     calibrated_rotation_context: DailyPlanCalibratedRotationContext | None = None
     profile_decision_context: DailyPlanProfileDecisionContext | None = None
+
+
+# ---------------------------------------------------------------------------
+# Daily Plan Signal Preview / Create Signals schemas (Phase 4K)
+# ---------------------------------------------------------------------------
+
+class DailyPlanSignalPreviewRequest(BaseModel):
+    """Request to preview Signal rows that would be created from Daily Plan actions (PREVIEW ONLY)."""
+    # Daily Plan filters (forwarded to internal daily_plan_preview call)
+    approved_only: bool = True
+    min_confidence: float = Field(default=0.65, ge=0.0, le=1.0)
+    max_price_age_days: int = Field(default=5, ge=1, le=30)
+    block_loss_realization: bool = True
+    include_rotation: bool = True
+    limit_candidates: int = Field(default=25, ge=1, le=100)
+    min_rotation_improvement_pct: float = 0.02
+    candidate_ids: list[str] | None = None
+    position_tickers: list[str] | None = None
+    use_calibrated_rotation: bool = True
+    scoring_profile: str = "calibration_recommended"
+    min_expected_improvement_pct: float = 1.0
+    min_expected_pnl_dollars: float = 25.0
+    allow_loss_realization: bool = False
+    # Signal filter flags
+    include_buy: bool = True
+    include_sell: bool = True
+    include_rotate: bool = True
+    action_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of action_ids to include (e.g. 'BUY:AAPL', 'ROTATE_SELL:TSLA'). If None, all actionable items are included.",
+    )
+    candidate_review_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of candidate_review_id UUIDs to restrict signal generation.",
+    )
+
+    @field_validator("scoring_profile")
+    @classmethod
+    def _validate_sp(cls, v: str) -> str:
+        _allowed = {"calibration_recommended", "current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
+        if v not in _allowed:
+            raise ValueError(f"scoring_profile must be one of {sorted(_allowed)}")
+        return v
+
+
+class DailyPlanSignalPreviewItem(BaseModel):
+    """A preview of a Signal that would be created from a Daily Plan action (no DB write)."""
+    action_id: str
+    action_type: str  # BUY | SELL | ROTATE_BUY | ROTATE_SELL
+    ticker: str
+    side: str  # BUY | SELL
+    confidence: str | None
+    source: str
+    candidate_review_id: str | None = None
+    position_ticker: str | None = None
+    reason: str
+    safety_note: str
+
+
+class DailyPlanSignalPreviewSkipped(BaseModel):
+    """An action skipped during signal preview generation."""
+    action_id: str
+    ticker: str
+    reason_code: str
+    reason: str
+
+
+class DailyPlanSignalPreviewResponse(BaseModel):
+    """Response from POST /v1/review/daily-plan-signal-preview (PREVIEW ONLY, no DB writes)."""
+    evaluated_actions_count: int
+    signal_previews_generated: int
+    skipped_count: int
+    signal_previews: list[DailyPlanSignalPreviewItem]
+    skipped: list[DailyPlanSignalPreviewSkipped]
+    safety_counts: dict[str, int]
+
+
+class DailyPlanCreateSignalsRequest(BaseModel):
+    """Request to create Signal rows from Daily Plan actions (requires explicit confirmation)."""
+    confirm_create_signals: bool = Field(
+        default=False,
+        description="Must be true to actually create Signal rows, else returns 422.",
+    )
+    idempotency_key: str | None = Field(
+        default=None,
+        description="Optional idempotency key for the JobRun. Auto-generated if None.",
+    )
+    # Daily Plan filters (same as preview)
+    approved_only: bool = True
+    min_confidence: float = Field(default=0.65, ge=0.0, le=1.0)
+    max_price_age_days: int = Field(default=5, ge=1, le=30)
+    block_loss_realization: bool = True
+    include_rotation: bool = True
+    limit_candidates: int = Field(default=25, ge=1, le=100)
+    min_rotation_improvement_pct: float = 0.02
+    candidate_ids: list[str] | None = None
+    position_tickers: list[str] | None = None
+    use_calibrated_rotation: bool = True
+    scoring_profile: str = "calibration_recommended"
+    min_expected_improvement_pct: float = 1.0
+    min_expected_pnl_dollars: float = 25.0
+    allow_loss_realization: bool = False
+    # Signal filter flags
+    include_buy: bool = True
+    include_sell: bool = True
+    include_rotate: bool = True
+    action_ids: list[str] | None = None
+    candidate_review_ids: list[str] | None = None
+
+    @field_validator("scoring_profile")
+    @classmethod
+    def _validate_cs_sp(cls, v: str) -> str:
+        _allowed = {"calibration_recommended", "current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
+        if v not in _allowed:
+            raise ValueError(f"scoring_profile must be one of {sorted(_allowed)}")
+        return v
+
+
+class DailyPlanCreatedSignalItem(BaseModel):
+    """A Signal row created by the daily-plan-create-signals endpoint."""
+    action_id: str
+    signal_id: str
+    ticker: str
+    side: str
+    confidence: str
+    source_run: str
+    action_type: str
+
+
+class DailyPlanCreateSignalsSkipped(BaseModel):
+    """An action skipped during Signal creation."""
+    action_id: str
+    ticker: str
+    reason_code: str
+    reason: str
+
+
+class DailyPlanCreateSignalsResponse(BaseModel):
+    """Response from POST /v1/review/daily-plan-create-signals."""
+    evaluated_actions_count: int
+    signals_created: int
+    already_existed: int
+    skipped_count: int
+    decisions_created: int = 0
+    orders_created: int = 0
+    automation_triggered: bool = False
+    created_signals: list[DailyPlanCreatedSignalItem]
+    skipped: list[DailyPlanCreateSignalsSkipped]
+    safety_note: str
 
 
 # ---------------------------------------------------------------------------
@@ -7808,6 +7959,482 @@ async def daily_plan_preview(
         capital_allocation=capital_allocation,
         calibrated_rotation_context=_crw_ctx,
         profile_decision_context=_profile_decision_context,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helper: extract actionable signal items from a DailyPlanPreviewResponse
+# ---------------------------------------------------------------------------
+
+def _extract_signal_items_from_plan(
+    dp_result: "DailyPlanPreviewResponse",
+    cand_map: dict,
+    include_buy: bool,
+    include_sell: bool,
+    include_rotate: bool,
+    action_ids: list[str] | None,
+    candidate_review_ids: list[str] | None,
+) -> tuple[int, list, list]:
+    """
+    Convert a DailyPlanPreviewResponse action_stack into a list of
+    (action_id, action_type, ticker, side, confidence_str, candidate_review_id, position_ticker, reason)
+    tuples.
+
+    Returns: (evaluated_count, items_list, skipped_list)
+    Each item is a dict with keys: action_id, action_type, ticker, side, confidence, candidate_review_id,
+    position_ticker, reason.
+    Skipped items: dicts with action_id, ticker, reason_code, reason.
+    HOLD / WATCH / BLOCKED / NO_ACTION are silently excluded (not counted as skipped).
+    """
+    _SKIP_TYPES = {"HOLD", "WATCH", "BLOCKED", "NO_ACTION"}
+    _crev_filter: set[str] | None = set(candidate_review_ids) if candidate_review_ids else None
+
+    evaluated = 0
+    items: list[dict] = []
+    skipped: list[dict] = []
+
+    for action in dp_result.action_stack:
+        at = action.action_type
+        if at in _SKIP_TYPES:
+            continue
+
+        if at == "BUY":
+            if not include_buy:
+                continue
+            action_id = f"BUY:{action.ticker}"
+            evaluated += 1
+
+            if action_ids is not None and action_id not in action_ids:
+                continue
+
+            crev_id = action.candidate_review_id
+            if _crev_filter is not None and crev_id not in _crev_filter:
+                skipped.append({"action_id": action_id, "ticker": action.ticker,
+                                "reason_code": "NOT_IN_CANDIDATE_REVIEW_IDS",
+                                "reason": "Excluded by candidate_review_ids filter."})
+                continue
+
+            conf = action.confidence
+            if conf is None and crev_id and crev_id in cand_map:
+                conf = cand_map[crev_id].prediction_confidence
+            if conf is None:
+                conf = "0.80"
+
+            items.append({
+                "action_id": action_id, "action_type": "BUY",
+                "ticker": action.ticker, "side": "BUY",
+                "confidence": conf, "candidate_review_id": crev_id,
+                "position_ticker": None, "reason": action.reason,
+            })
+
+        elif at == "SELL":
+            if not include_sell:
+                continue
+            action_id = f"SELL:{action.ticker}"
+            evaluated += 1
+
+            if action_ids is not None and action_id not in action_ids:
+                continue
+
+            crev_id = action.candidate_review_id
+            if _crev_filter is not None and crev_id not in _crev_filter:
+                skipped.append({"action_id": action_id, "ticker": action.ticker,
+                                "reason_code": "NOT_IN_CANDIDATE_REVIEW_IDS",
+                                "reason": "Excluded by candidate_review_ids filter."})
+                continue
+
+            conf = action.confidence
+            if conf is None and crev_id and crev_id in cand_map:
+                conf = cand_map[crev_id].prediction_confidence
+            if conf is None:
+                conf = "0.80"
+
+            items.append({
+                "action_id": action_id, "action_type": "SELL",
+                "ticker": action.ticker, "side": "SELL",
+                "confidence": conf, "candidate_review_id": crev_id,
+                "position_ticker": None, "reason": action.reason,
+            })
+
+        elif at == "ROTATE":
+            if not include_rotate:
+                continue
+            sell_ticker = action.ticker
+            buy_ticker = action.secondary_ticker
+            evaluated += 1
+
+            sell_id = f"ROTATE_SELL:{sell_ticker}"
+            buy_id = f"ROTATE_BUY:{buy_ticker}" if buy_ticker else None
+
+            # ROTATE_SELL leg
+            if action_ids is None or sell_id in action_ids:
+                items.append({
+                    "action_id": sell_id, "action_type": "ROTATE_SELL",
+                    "ticker": sell_ticker, "side": "SELL",
+                    "confidence": "0.80", "candidate_review_id": None,
+                    "position_ticker": sell_ticker,
+                    "reason": f"Rotation sell: {sell_ticker} to make room for {buy_ticker}.",
+                })
+
+            # ROTATE_BUY leg
+            if buy_ticker and buy_id:
+                crev_id = action.candidate_review_id
+                if _crev_filter is None or (crev_id and crev_id in _crev_filter):
+                    if action_ids is None or buy_id in action_ids:
+                        buy_conf = action.confidence
+                        if buy_conf is None and crev_id and crev_id in cand_map:
+                            buy_conf = cand_map[crev_id].prediction_confidence
+                        if buy_conf is None:
+                            buy_conf = "0.80"
+                        items.append({
+                            "action_id": buy_id, "action_type": "ROTATE_BUY",
+                            "ticker": buy_ticker, "side": "BUY",
+                            "confidence": buy_conf, "candidate_review_id": crev_id,
+                            "position_ticker": sell_ticker,
+                            "reason": f"Rotation buy: {buy_ticker} replacing {sell_ticker}.",
+                        })
+
+    return evaluated, items, skipped
+
+
+@app.post(
+    "/v1/review/daily-plan-signal-preview",
+    response_model=DailyPlanSignalPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def daily_plan_signal_preview(
+    body: DailyPlanSignalPreviewRequest,
+) -> DailyPlanSignalPreviewResponse:
+    """
+    Preview Signal rows that would be created from Daily Plan actions.
+
+    PREVIEW ONLY. No Signal, TradeDecision, Order, or JobRun rows are created.
+
+    Logic:
+    1. Internally runs Daily Plan Preview using the same parameters.
+    2. Extracts actionable BUY, SELL, ROTATE items from the action_stack.
+    3. Maps each to a DailyPlanSignalPreviewItem (one per BUY/SELL, two per ROTATE).
+    4. HOLD, WATCH, BLOCKED, and NO_ACTION items are excluded.
+    5. Returns previews with zero safety counts.
+    """
+    import uuid as _uuid_mod
+
+    # Run the daily plan internally
+    dp_body = DailyPlanPreviewRequest(
+        approved_only=body.approved_only,
+        min_confidence=body.min_confidence,
+        max_price_age_days=body.max_price_age_days,
+        block_loss_realization=body.block_loss_realization,
+        include_rotation=body.include_rotation,
+        limit_candidates=body.limit_candidates,
+        min_rotation_improvement_pct=body.min_rotation_improvement_pct,
+        candidate_ids=body.candidate_ids,
+        position_tickers=body.position_tickers,
+        use_calibrated_rotation=body.use_calibrated_rotation,
+        scoring_profile=body.scoring_profile,
+        min_expected_improvement_pct=body.min_expected_improvement_pct,
+        min_expected_pnl_dollars=body.min_expected_pnl_dollars,
+        allow_loss_realization=body.allow_loss_realization,
+    )
+    dp_result = await daily_plan_preview(dp_body)
+
+    # Load CandidateReview rows for confidence cross-reference
+    all_cand_ids: set[str] = set()
+    for item in dp_result.action_stack:
+        if item.candidate_review_id:
+            all_cand_ids.add(item.candidate_review_id)
+
+    cand_map: dict = {}
+    if all_cand_ids:
+        with get_session() as session:
+            uuids = []
+            for cid in all_cand_ids:
+                try:
+                    uuids.append(_uuid_mod.UUID(cid))
+                except (ValueError, AttributeError):
+                    pass
+            if uuids:
+                rows = session.query(CandidateReview).filter(
+                    CandidateReview.id.in_(uuids)
+                ).all()
+                for row in rows:
+                    cand_map[str(row.id)] = row
+
+    evaluated, items, skipped_raw = _extract_signal_items_from_plan(
+        dp_result=dp_result,
+        cand_map=cand_map,
+        include_buy=body.include_buy,
+        include_sell=body.include_sell,
+        include_rotate=body.include_rotate,
+        action_ids=body.action_ids,
+        candidate_review_ids=body.candidate_review_ids,
+    )
+
+    _safety_note = (
+        "PREVIEW ONLY — no Signal, TradeDecision, Order, or JobRun rows created. "
+        "Use /v1/review/daily-plan-create-signals with confirm_create_signals=true to create Signal rows."
+    )
+
+    previews = [
+        DailyPlanSignalPreviewItem(
+            action_id=it["action_id"],
+            action_type=it["action_type"],
+            ticker=it["ticker"],
+            side=it["side"],
+            confidence=it["confidence"],
+            source="daily_plan_review_v1",
+            candidate_review_id=it["candidate_review_id"],
+            position_ticker=it["position_ticker"],
+            reason=it["reason"],
+            safety_note=_safety_note,
+        )
+        for it in items
+    ]
+
+    skipped_out = [
+        DailyPlanSignalPreviewSkipped(
+            action_id=s["action_id"],
+            ticker=s["ticker"],
+            reason_code=s["reason_code"],
+            reason=s["reason"],
+        )
+        for s in skipped_raw
+    ]
+
+    return DailyPlanSignalPreviewResponse(
+        evaluated_actions_count=evaluated,
+        signal_previews_generated=len(previews),
+        skipped_count=len(skipped_out),
+        signal_previews=previews,
+        skipped=skipped_out,
+        safety_counts={
+            "signals_created": 0,
+            "decisions_created": 0,
+            "orders_created": 0,
+            "job_runs_created": 0,
+            "rows_created": 0,
+        },
+    )
+
+
+@app.post(
+    "/v1/review/daily-plan-create-signals",
+    response_model=DailyPlanCreateSignalsResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def daily_plan_create_signals(
+    body: DailyPlanCreateSignalsRequest,
+) -> DailyPlanCreateSignalsResponse:
+    """
+    Create Signal rows from approved Daily Plan actions.
+
+    Requires confirm_create_signals=true. Creates Signal rows only.
+    Does NOT create TradeDecision, Order, or trigger automation.
+
+    Idempotency: source_run = 'daily_plan_review_v1:{ticker}:{side}:{date}'
+    A repeated call on the same day with the same tickers returns already_existed > 0
+    and signals_created = 0 for those entries.
+
+    Logic:
+    1. Internally runs Daily Plan Preview using the same parameters.
+    2. Extracts actionable BUY, SELL, ROTATE items.
+    3. Creates one Signal row per item (idempotency check first).
+    4. Creates one JobRun only when at least one new Signal is created.
+    """
+    import uuid as _uuid_mod
+
+    if not body.confirm_create_signals:
+        raise HTTPException(
+            status_code=422,
+            detail="confirm_create_signals must be true to create Signal rows.",
+        )
+
+    # Run the daily plan internally
+    dp_body = DailyPlanPreviewRequest(
+        approved_only=body.approved_only,
+        min_confidence=body.min_confidence,
+        max_price_age_days=body.max_price_age_days,
+        block_loss_realization=body.block_loss_realization,
+        include_rotation=body.include_rotation,
+        limit_candidates=body.limit_candidates,
+        min_rotation_improvement_pct=body.min_rotation_improvement_pct,
+        candidate_ids=body.candidate_ids,
+        position_tickers=body.position_tickers,
+        use_calibrated_rotation=body.use_calibrated_rotation,
+        scoring_profile=body.scoring_profile,
+        min_expected_improvement_pct=body.min_expected_improvement_pct,
+        min_expected_pnl_dollars=body.min_expected_pnl_dollars,
+        allow_loss_realization=body.allow_loss_realization,
+    )
+    dp_result = await daily_plan_preview(dp_body)
+
+    # Load CandidateReview rows for confidence cross-reference
+    all_cand_ids: set[str] = set()
+    for item in dp_result.action_stack:
+        if item.candidate_review_id:
+            all_cand_ids.add(item.candidate_review_id)
+
+    cand_map: dict = {}
+    if all_cand_ids:
+        with get_session() as session:
+            uuids = []
+            for cid in all_cand_ids:
+                try:
+                    uuids.append(_uuid_mod.UUID(cid))
+                except (ValueError, AttributeError):
+                    pass
+            if uuids:
+                rows = session.query(CandidateReview).filter(
+                    CandidateReview.id.in_(uuids)
+                ).all()
+                for row in rows:
+                    cand_map[str(row.id)] = row
+
+    evaluated, items, skipped_raw = _extract_signal_items_from_plan(
+        dp_result=dp_result,
+        cand_map=cand_map,
+        include_buy=body.include_buy,
+        include_sell=body.include_sell,
+        include_rotate=body.include_rotate,
+        action_ids=body.action_ids,
+        candidate_review_ids=body.candidate_review_ids,
+    )
+
+    eastern_now = datetime.now(_EASTERN)
+    market_date = eastern_now.date()
+    date_str = str(market_date)
+    ikey = body.idempotency_key or f"daily_plan_create_signals:{date_str}:{_uuid_mod.uuid4().hex[:8]}"
+
+    created_count = 0
+    already_existed_count = 0
+    skipped_out: list[DailyPlanCreateSignalsSkipped] = [
+        DailyPlanCreateSignalsSkipped(
+            action_id=s["action_id"], ticker=s["ticker"],
+            reason_code=s["reason_code"], reason=s["reason"],
+        )
+        for s in skipped_raw
+    ]
+    created_list: list[DailyPlanCreatedSignalItem] = []
+
+    # Signals to create: (item_dict, source_run, confidence_decimal)
+    signals_to_create: list[tuple] = []
+
+    with get_session() as session:
+        for it in items:
+            ticker = it["ticker"]
+            side = it["side"]
+            crev_id = it["candidate_review_id"]
+            action_id = it["action_id"]
+            action_type = it["action_type"]
+
+            # Parse confidence
+            try:
+                conf_decimal = Decimal(str(it["confidence"] or "0.80"))
+                if not (Decimal("0") <= conf_decimal <= Decimal("1")):
+                    raise ValueError("out of range")
+            except (ValueError, Exception):
+                skipped_out.append(DailyPlanCreateSignalsSkipped(
+                    action_id=action_id, ticker=ticker,
+                    reason_code="INVALID_CONFIDENCE",
+                    reason=f"Confidence '{it['confidence']}' is not a valid decimal in [0, 1].",
+                ))
+                continue
+
+            source_run = f"daily_plan_review_v1:{ticker}:{side.lower()}:{date_str}"
+
+            # Idempotency check
+            existing = session.query(Signal).filter(
+                Signal.source_run == source_run,
+                Signal.ticker == ticker,
+                Signal.direction == side,
+            ).first()
+            if existing:
+                already_existed_count += 1
+                continue
+
+            signals_to_create.append((it, conf_decimal, source_run))
+
+        # Create JobRun only if there are new signals to create
+        job_run = None
+        if signals_to_create:
+            job_run = JobRun(
+                idempotency_key=ikey,
+                workflow_type="DAILY_PLAN_CREATE_SIGNALS",
+                market_date=market_date,
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+                result_summary={},
+            )
+            session.add(job_run)
+            session.flush()
+
+            for it, conf_decimal, source_run in signals_to_create:
+                ticker = it["ticker"]
+                side = it["side"]
+                crev_id = it["candidate_review_id"]
+                action_id = it["action_id"]
+                action_type = it["action_type"]
+
+                raw_payload = {
+                    "source": "daily_plan_review_v1",
+                    "action_id": action_id,
+                    "action_type": action_type,
+                    "candidate_review_id": crev_id,
+                    "position_ticker": it["position_ticker"],
+                    "request_idempotency_key": ikey,
+                }
+
+                signal = Signal(
+                    job_run_id=job_run.id,
+                    ticker=ticker,
+                    direction=side,
+                    confidence=conf_decimal,
+                    signal_ts=datetime.now(timezone.utc),
+                    market_date=market_date,
+                    source_run=source_run,
+                    status="RECEIVED",
+                    raw_payload=raw_payload,
+                )
+                session.add(signal)
+                session.flush()
+
+                created_list.append(DailyPlanCreatedSignalItem(
+                    action_id=action_id,
+                    signal_id=str(signal.id),
+                    ticker=ticker,
+                    side=side,
+                    confidence=str(conf_decimal),
+                    source_run=source_run,
+                    action_type=action_type,
+                ))
+                created_count += 1
+
+            if job_run is not None:
+                job_run.result_summary = {
+                    "signals_created": created_count,
+                    "already_existed": already_existed_count,
+                    "skipped_count": len(skipped_out),
+                }
+                session.add(job_run)
+                session.flush()
+
+    return DailyPlanCreateSignalsResponse(
+        evaluated_actions_count=evaluated,
+        signals_created=created_count,
+        already_existed=already_existed_count,
+        skipped_count=len(skipped_out),
+        decisions_created=0,
+        orders_created=0,
+        automation_triggered=False,
+        created_signals=created_list,
+        skipped=skipped_out,
+        safety_note=(
+            "Signal rows created for approved Daily Plan actions. "
+            "No TradeDecision, Order, or automation triggered. "
+            "Next step: run Decision Preview manually to evaluate created signals."
+        ),
     )
 
 
