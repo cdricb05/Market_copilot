@@ -29,6 +29,7 @@ Endpoints:
     POST /v1/review/daily-plan-decision-preview — preview trade decisions from Daily Plan-created Signal rows (PREVIEW ONLY, no DB writes)
     POST /v1/review/daily-plan-create-decisions — create TradeDecision rows from Daily Plan-created Signal rows (confirmation required)
     POST /v1/review/daily-plan-order-preview — preview Orders from Daily Plan TradeDecision rows (PREVIEW ONLY, no DB writes)
+    GET  /v1/review/daily-plan-execution-status — consolidated Daily Plan execution state (read-only, no DB writes)
     POST /v1/review/daily-plan-replay-preview — historical daily plan replay/backtest preview (read-only)
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
 
@@ -2009,6 +2010,19 @@ class DailyPlanOrderPreviewResponse(BaseModel):
     side_counts: dict[str, int]
     safety_counts: dict[str, Any]
     safety_note: str
+
+
+class DailyPlanExecutionStatusResponse(BaseModel):
+    """Response from GET /v1/review/daily-plan-execution-status (read-only, no DB writes)."""
+    latest_daily_plan_source_run: str | None = None
+    candidate_review_counts: dict[str, int]
+    daily_plan_signal_counts: dict[str, int]
+    daily_plan_trade_decision_counts: dict[str, int]
+    daily_plan_order_preview_available_count: int
+    existing_order_count: int
+    safety_state: dict[str, Any]
+    next_recommended_step: str
+    warnings: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -9144,6 +9158,178 @@ async def daily_plan_order_preview(
         side_counts=side_counts,
         safety_counts=_empty_safety,
         safety_note=_safety_note,
+    )
+
+
+@app.get(
+    "/v1/review/daily-plan-execution-status",
+    response_model=DailyPlanExecutionStatusResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def daily_plan_execution_status() -> DailyPlanExecutionStatusResponse:
+    """
+    GET /v1/review/daily-plan-execution-status — Consolidated Daily Plan execution state.
+
+    Read-only: zero rows created, zero rows mutated. Safe to call repeatedly.
+
+    Returns workflow-chain counts (candidate reviews, DP signals, DP decisions, DP orders),
+    a fixed safety_state (orders_enabled=false, automation_enabled=false), the next
+    recommended workflow step, and a warnings list.
+
+    Daily Plan rows are identified by Signal.source_run prefix 'daily_plan_review_v1:'.
+    """
+    _DP_PREFIX = "daily_plan_review_v1:"
+    _safety_state: dict[str, Any] = {
+        "orders_enabled": False,
+        "automation_enabled": False,
+        "manual_review_required": True,
+        "create_orders_available": False,
+    }
+
+    with get_session() as session:
+        # --- Candidate review counts ---
+        cr_total = session.query(CandidateReview).count()
+        cr_approved = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "APPROVED_FOR_SIGNAL"
+        ).count()
+        cr_watching = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "WATCHING"
+        ).count()
+        cr_rejected = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "REJECTED"
+        ).count()
+        cr_new = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "NEW"
+        ).count()
+
+        candidate_review_counts = {
+            "total": cr_total,
+            "approved_for_signal": cr_approved,
+            "watching": cr_watching,
+            "rejected": cr_rejected,
+            "new": cr_new,
+        }
+
+        # --- Daily Plan signal counts ---
+        dp_sig_base = session.query(Signal).filter(
+            Signal.source_run.startswith(_DP_PREFIX)
+        )
+        dp_sig_total = dp_sig_base.count()
+        dp_sig_received = dp_sig_base.filter(Signal.status == "RECEIVED").count()
+        dp_sig_decision_made = dp_sig_base.filter(Signal.status == "DECISION_MADE").count()
+        dp_sig_expired = dp_sig_base.filter(Signal.status == "EXPIRED").count()
+        dp_sig_error = dp_sig_base.filter(Signal.status == "ERROR").count()
+
+        daily_plan_signal_counts = {
+            "total": dp_sig_total,
+            "received": dp_sig_received,
+            "decision_made": dp_sig_decision_made,
+            "expired": dp_sig_expired,
+            "error": dp_sig_error,
+        }
+
+        # Latest DP source_run (most recently created signal)
+        latest_source_run_row = session.execute(
+            select(Signal.source_run)
+            .where(Signal.source_run.startswith(_DP_PREFIX))
+            .order_by(Signal.created_at.desc())
+        ).first()
+        latest_dp_source_run: str | None = latest_source_run_row[0] if latest_source_run_row else None
+
+        # --- Daily Plan trade decision counts ---
+        dp_td_base = session.query(TradeDecision).join(
+            Signal, Signal.id == TradeDecision.signal_id
+        ).filter(Signal.source_run.startswith(_DP_PREFIX))
+
+        dp_td_total = dp_td_base.count()
+        dp_td_buy = dp_td_base.filter(TradeDecision.decision == "BUY").count()
+        dp_td_sell = dp_td_base.filter(TradeDecision.decision == "SELL").count()
+        dp_td_hold = dp_td_base.filter(TradeDecision.decision == "HOLD").count()
+        dp_td_rejected = dp_td_base.filter(TradeDecision.decision == "REJECTED").count()
+
+        daily_plan_trade_decision_counts = {
+            "total": dp_td_total,
+            "buy": dp_td_buy,
+            "sell": dp_td_sell,
+            "hold": dp_td_hold,
+            "rejected": dp_td_rejected,
+        }
+
+        # --- DP order preview available count (no rows created) ---
+        eligible_td_ids = [
+            row[0]
+            for row in session.execute(
+                select(TradeDecision.id)
+                .join(Signal, Signal.id == TradeDecision.signal_id)
+                .where(Signal.source_run.startswith(_DP_PREFIX))
+                .where(TradeDecision.decision.in_(["BUY", "SELL"]))
+                .where(TradeDecision.approved_qty > Decimal("0"))
+            ).all()
+        ]
+
+        if eligible_td_ids:
+            already_ordered = session.query(Order).filter(
+                Order.trade_decision_id.in_(eligible_td_ids)
+            ).count()
+            dp_order_preview_available = len(eligible_td_ids) - already_ordered
+        else:
+            dp_order_preview_available = 0
+            already_ordered = 0
+
+        # --- Existing orders linked to any DP decision ---
+        existing_order_count = 0
+        if dp_td_total > 0:
+            all_dp_td_ids = [
+                row[0]
+                for row in session.execute(
+                    select(TradeDecision.id)
+                    .join(Signal, Signal.id == TradeDecision.signal_id)
+                    .where(Signal.source_run.startswith(_DP_PREFIX))
+                ).all()
+            ]
+            if all_dp_td_ids:
+                existing_order_count = session.query(Order).filter(
+                    Order.trade_decision_id.in_(all_dp_td_ids)
+                ).count()
+
+    # --- Warnings ---
+    warnings: list[str] = ["order_creation_disabled"]
+    if cr_new > 0:
+        warnings.append("pending_review_items")
+    if dp_order_preview_available > 0:
+        warnings.append("pending_trade_decisions")
+
+    # --- next_recommended_step ---
+    # DP artifacts represent deeper pipeline state; check them first so
+    # a clean-DB test that seeds only signals/decisions gets the correct step.
+    if dp_order_preview_available > 0:
+        next_step = "preview_orders"
+    elif dp_td_total > 0:
+        next_step = "stop_before_orders"
+    elif dp_sig_received > 0:
+        next_step = "preview_decisions"
+    elif dp_sig_total > 0:
+        next_step = "create_decisions"
+    elif cr_approved > 0:
+        next_step = "generate_daily_plan"
+    elif cr_total == 0:
+        next_step = "generate_candidate_preview"
+    elif cr_new > 0:
+        next_step = "review_queue"
+    else:
+        next_step = "save_candidates"
+
+    return DailyPlanExecutionStatusResponse(
+        latest_daily_plan_source_run=latest_dp_source_run,
+        candidate_review_counts=candidate_review_counts,
+        daily_plan_signal_counts=daily_plan_signal_counts,
+        daily_plan_trade_decision_counts=daily_plan_trade_decision_counts,
+        daily_plan_order_preview_available_count=dp_order_preview_available,
+        existing_order_count=existing_order_count,
+        safety_state=_safety_state,
+        next_recommended_step=next_step,
+        warnings=warnings,
     )
 
 

@@ -21489,3 +21489,533 @@ class TestDailyPlanOrderPreviewBridgeEndpoint:
             assert d1["skipped_count"] == d2["skipped_count"]
         finally:
             self._cleanup(api_engine, [ticker])
+
+
+# ===========================================================================
+# Phase 4P — Daily Plan Execution Status Endpoint
+# ===========================================================================
+
+class TestDailyPlanExecutionStatusEndpoint:
+    """Tests for GET /v1/review/daily-plan-execution-status."""
+
+    _ENDPOINT = "/v1/review/daily-plan-execution-status"
+    _DP_PREFIX = "daily_plan_review_v1:"
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _seed_candidate_review(
+        session: Session,
+        suffix: str,
+        review_status: str = "NEW",
+    ) -> tuple:
+        """Create a CandidateReview row. Returns (row, ticker)."""
+        ticker = f"DPES{suffix}"
+        snap = PriceSnapshot(
+            ticker=ticker,
+            price=Decimal("50.00"),
+            snapshot_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            session_type="REGULAR",
+            price_type="CLOSE",
+        )
+        session.add(snap)
+        cand = CandidateReview(
+            idempotency_key=f"dpes-cr-{suffix}",
+            ticker=ticker,
+            prediction_recommendation="BUY",
+            prediction_confidence="0.80",
+            expected_return_pct="12.0",
+            preview_decision="CONSIDER",
+            preview_score="80.0",
+            review_status=review_status,
+            status="OK",
+        )
+        session.add(cand)
+        session.flush()
+        return cand, ticker
+
+    @staticmethod
+    def _seed_dp_signal(
+        session: Session,
+        suffix: str,
+        signal_status: str = "RECEIVED",
+    ) -> tuple:
+        """Create a DP-prefixed Signal row. Returns (signal, ticker)."""
+        ticker = f"DPES{suffix}"
+        snap = PriceSnapshot(
+            ticker=ticker,
+            price=Decimal("60.00"),
+            snapshot_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            session_type="REGULAR",
+            price_type="CLOSE",
+        )
+        session.add(snap)
+        jr = JobRun(
+            idempotency_key=f"dpes-sig-jr-{suffix}",
+            workflow_type="DAILY_PLAN_CREATE_SIGNALS",
+            market_date=date.today(),
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr)
+        session.flush()
+        sig = Signal(
+            job_run_id=jr.id,
+            ticker=ticker,
+            direction="BUY",
+            confidence=Decimal("0.80"),
+            signal_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            source_run=f"daily_plan_review_v1:{ticker}:{suffix}",
+            status=signal_status,
+            raw_payload={},
+        )
+        session.add(sig)
+        session.flush()
+        return sig, ticker
+
+    @staticmethod
+    def _seed_dp_trade_decision(
+        session: Session,
+        suffix: str,
+        decision: str = "BUY",
+        approved_qty: "Decimal" = Decimal("5.00"),
+    ) -> tuple:
+        """Create a DP Signal (DECISION_MADE) + TradeDecision. Returns (sig, td, ticker)."""
+        ticker = f"DPES{suffix}"
+        snap = PriceSnapshot(
+            ticker=ticker,
+            price=Decimal("70.00"),
+            snapshot_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            session_type="REGULAR",
+            price_type="CLOSE",
+        )
+        session.add(snap)
+        jr_sig = JobRun(
+            idempotency_key=f"dpes-td-sig-jr-{suffix}",
+            workflow_type="DAILY_PLAN_CREATE_SIGNALS",
+            market_date=date.today(),
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_sig)
+        session.flush()
+        sig = Signal(
+            job_run_id=jr_sig.id,
+            ticker=ticker,
+            direction="BUY",
+            confidence=Decimal("0.80"),
+            signal_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            source_run=f"daily_plan_review_v1:{ticker}:{suffix}",
+            status="DECISION_MADE",
+            raw_payload={},
+        )
+        session.add(sig)
+        session.flush()
+        jr_td = JobRun(
+            idempotency_key=f"dpes-td-td-jr-{suffix}",
+            workflow_type="DAILY_PLAN_CREATE_DECISIONS",
+            market_date=date.today(),
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_td)
+        session.flush()
+        eff_qty = approved_qty if decision in ("BUY", "SELL") else Decimal("0")
+        eff_notional = eff_qty * Decimal("70") if eff_qty > Decimal("0") else Decimal("0")
+        td = TradeDecision(
+            signal_id=sig.id,
+            job_run_id=jr_td.id,
+            ticker=ticker,
+            signal_direction="BUY",
+            decision=decision,
+            reason_code="TEST",
+            approved_qty=eff_qty if eff_qty > Decimal("0") else None,
+            approved_notional=eff_notional if eff_notional > Decimal("0") else None,
+            requested_qty=approved_qty if approved_qty > Decimal("0") else None,
+            requested_notional=approved_qty * Decimal("70") if approved_qty > Decimal("0") else None,
+            decided_at=datetime.now(timezone.utc),
+            market_date=date.today(),
+        )
+        session.add(td)
+        session.flush()
+        return sig, td, ticker
+
+    @staticmethod
+    def _cleanup(api_engine, tickers: list) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                sigs = s.query(Signal).filter(Signal.ticker == t).all()
+                for sig in sigs:
+                    s.query(Order).filter(
+                        Order.trade_decision_id.in_(
+                            s.query(TradeDecision.id).filter(TradeDecision.signal_id == sig.id)
+                        )
+                    ).delete(synchronize_session=False)
+                    s.query(TradeDecision).filter(TradeDecision.signal_id == sig.id).delete()
+                s.query(Signal).filter(Signal.ticker == t).delete()
+                s.query(CandidateReview).filter(CandidateReview.ticker == t).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+            s.query(JobRun).filter(JobRun.idempotency_key.like("dpes-%")).delete(
+                synchronize_session=False
+            )
+            s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 1: requires auth
+    # ------------------------------------------------------------------
+    def test_requires_auth(self, seeded_client: TestClient) -> None:
+        r = seeded_client.get(self._ENDPOINT)
+        assert r.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: empty DB returns safe default status
+    # ------------------------------------------------------------------
+    def test_empty_db_safe_defaults(self, seeded_client: TestClient) -> None:
+        """Safety state is always correct; order_creation_disabled warning always present."""
+        r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert r.status_code == 200
+        data = r.json()
+        ss = data.get("safety_state", {})
+        assert ss.get("orders_enabled") is False
+        assert ss.get("automation_enabled") is False
+        assert ss.get("manual_review_required") is True
+        assert ss.get("create_orders_available") is False
+        assert "order_creation_disabled" in data.get("warnings", [])
+        assert "next_recommended_step" in data
+        assert "candidate_review_counts" in data
+
+    # ------------------------------------------------------------------
+    # Test 3: candidate review counts are correct
+    # ------------------------------------------------------------------
+    def test_candidate_review_counts_correct(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Seeds 2 CandidateReview rows (1 NEW, 1 APPROVED_FOR_SIGNAL); verifies counts."""
+        import uuid as _uuid
+        sfx1 = _uuid.uuid4().hex[:6].upper()
+        sfx2 = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, t1 = TestDailyPlanExecutionStatusEndpoint._seed_candidate_review(s, sfx1, "NEW")
+            _, t2 = TestDailyPlanExecutionStatusEndpoint._seed_candidate_review(
+                s, sfx2, "APPROVED_FOR_SIGNAL"
+            )
+            s.commit()
+
+        try:
+            r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert r.status_code == 200
+            cr = r.json()["candidate_review_counts"]
+            assert cr["new"] >= 1
+            assert cr["approved_for_signal"] >= 1
+            assert cr["total"] >= 2
+        finally:
+            TestDailyPlanExecutionStatusEndpoint._cleanup(api_engine, [t1, t2])
+
+    # ------------------------------------------------------------------
+    # Test 4: daily plan signal counts are correct
+    # ------------------------------------------------------------------
+    def test_daily_plan_signal_counts_correct(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Seeds 2 DP signals (1 RECEIVED, 1 DECISION_MADE); verifies counts."""
+        import uuid as _uuid
+        sfx1 = _uuid.uuid4().hex[:6].upper()
+        sfx2 = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, t1 = TestDailyPlanExecutionStatusEndpoint._seed_dp_signal(s, sfx1, "RECEIVED")
+            _, t2 = TestDailyPlanExecutionStatusEndpoint._seed_dp_signal(s, sfx2, "DECISION_MADE")
+            s.commit()
+
+        try:
+            r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert r.status_code == 200
+            sigs = r.json()["daily_plan_signal_counts"]
+            assert sigs["total"] >= 2
+            assert sigs["received"] >= 1
+            assert sigs["decision_made"] >= 1
+        finally:
+            TestDailyPlanExecutionStatusEndpoint._cleanup(api_engine, [t1, t2])
+
+    # ------------------------------------------------------------------
+    # Test 5: daily plan trade decision counts are correct
+    # ------------------------------------------------------------------
+    def test_daily_plan_trade_decision_counts_correct(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Seeds 1 DP BUY TradeDecision; verifies counts include it."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, _, ticker = TestDailyPlanExecutionStatusEndpoint._seed_dp_trade_decision(
+                s, sfx, decision="BUY", approved_qty=Decimal("3")
+            )
+            s.commit()
+
+        try:
+            r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert r.status_code == 200
+            tds = r.json()["daily_plan_trade_decision_counts"]
+            assert tds["total"] >= 1
+            assert tds["buy"] >= 1
+        finally:
+            TestDailyPlanExecutionStatusEndpoint._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 6: existing orders linked to DP decisions are counted (not created)
+    # ------------------------------------------------------------------
+    def test_existing_orders_counted_not_created(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Pre-existing Order linked to DP decision is reflected in existing_order_count."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            sig, td, ticker = TestDailyPlanExecutionStatusEndpoint._seed_dp_trade_decision(
+                s, sfx, decision="BUY", approved_qty=Decimal("2")
+            )
+            # Manually create an Order linked to this TD (simulates prior order creation)
+            order = Order(
+                trade_decision_id=td.id,
+                job_run_id=td.job_run_id,
+                ticker=ticker,
+                side="BUY",
+                order_type="MARKET",
+                requested_qty=Decimal("2"),
+                status="PENDING",
+                market_date=date.today(),
+            )
+            s.add(order)
+            s.commit()
+            order_id = order.id
+
+        order_count_before = 0
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_count_before = s.query(Order).count()
+
+        try:
+            r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert r.status_code == 200
+            data = r.json()
+            assert data["existing_order_count"] >= 1
+
+            # Endpoint must NOT create new Order rows
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                order_count_after = s.query(Order).count()
+            assert order_count_after == order_count_before
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(Order.id == order_id).delete()
+                s.commit()
+            TestDailyPlanExecutionStatusEndpoint._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 7: safety state always has orders_enabled=false, automation_enabled=false
+    # ------------------------------------------------------------------
+    def test_safety_state_always_disabled(self, seeded_client: TestClient) -> None:
+        """safety_state fields are hardcoded-off regardless of DB state."""
+        r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert r.status_code == 200
+        ss = r.json()["safety_state"]
+        assert ss["orders_enabled"] is False
+        assert ss["automation_enabled"] is False
+        assert ss["manual_review_required"] is True
+        assert ss["create_orders_available"] is False
+
+    # ------------------------------------------------------------------
+    # Test 8: creates zero Signal rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_signal_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """GET endpoint never creates Signal rows."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            before = s.query(Signal).count()
+        seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            after = s.query(Signal).count()
+        assert after == before
+
+    # ------------------------------------------------------------------
+    # Test 9: creates zero TradeDecision rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_trade_decision_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """GET endpoint never creates TradeDecision rows."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            before = s.query(TradeDecision).count()
+        seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            after = s.query(TradeDecision).count()
+        assert after == before
+
+    # ------------------------------------------------------------------
+    # Test 10: creates zero Order rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_order_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """GET endpoint never creates Order rows."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            before = s.query(Order).count()
+        seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            after = s.query(Order).count()
+        assert after == before
+
+    # ------------------------------------------------------------------
+    # Test 11: creates zero JobRun rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_job_run_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """GET endpoint never creates JobRun rows."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            before = s.query(JobRun).count()
+        seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            after = s.query(JobRun).count()
+        assert after == before
+
+    # ------------------------------------------------------------------
+    # Test 12: next_recommended_step is deterministic (same result on repeat call)
+    # ------------------------------------------------------------------
+    def test_next_step_deterministic(self, seeded_client: TestClient) -> None:
+        """Calling the endpoint twice returns the same next_recommended_step."""
+        r1 = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        r2 = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert r1.status_code == 200
+        assert r2.status_code == 200
+        assert r1.json()["next_recommended_step"] == r2.json()["next_recommended_step"]
+
+    # ------------------------------------------------------------------
+    # Test 13: next_recommended_step moves forward after DP signals exist
+    # ------------------------------------------------------------------
+    def test_next_step_forward_after_signals(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """After seeding a RECEIVED DP signal, next_step reflects that signals exist."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, ticker = TestDailyPlanExecutionStatusEndpoint._seed_dp_signal(s, sfx, "RECEIVED")
+            s.commit()
+
+        try:
+            r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert r.status_code == 200
+            data = r.json()
+            assert data["daily_plan_signal_counts"]["received"] >= 1
+            # With RECEIVED signals, step must not be "before signals" stage
+            assert data["next_recommended_step"] not in (
+                "generate_candidate_preview", "save_candidates", "generate_daily_plan"
+            )
+        finally:
+            TestDailyPlanExecutionStatusEndpoint._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 14: next_recommended_step moves forward after DP decisions exist
+    # ------------------------------------------------------------------
+    def test_next_step_forward_after_decisions(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """After seeding a DP BUY TradeDecision, next_step is preview_orders or later."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, _, ticker = TestDailyPlanExecutionStatusEndpoint._seed_dp_trade_decision(
+                s, sfx, decision="BUY", approved_qty=Decimal("4")
+            )
+            s.commit()
+
+        try:
+            r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert r.status_code == 200
+            data = r.json()
+            assert data["daily_plan_trade_decision_counts"]["buy"] >= 1
+            assert data["daily_plan_order_preview_available_count"] >= 1
+            # With orderable decisions and no orders, step is preview_orders
+            assert data["next_recommended_step"] in ("preview_orders", "stop_before_orders")
+        finally:
+            TestDailyPlanExecutionStatusEndpoint._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 15: warnings include pending_review_items when applicable
+    # ------------------------------------------------------------------
+    def test_warnings_include_pending_review_items(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """When NEW CandidateReview rows exist, pending_review_items appears in warnings."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, ticker = TestDailyPlanExecutionStatusEndpoint._seed_candidate_review(
+                s, sfx, "NEW"
+            )
+            s.commit()
+
+        try:
+            r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert r.status_code == 200
+            assert "pending_review_items" in r.json()["warnings"]
+        finally:
+            TestDailyPlanExecutionStatusEndpoint._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 16: response shape is stable for UI
+    # ------------------------------------------------------------------
+    def test_response_shape_stable(self, seeded_client: TestClient) -> None:
+        """All required fields are present with correct types for UI consumption."""
+        r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert r.status_code == 200
+        data = r.json()
+
+        # Top-level required fields
+        assert "latest_daily_plan_source_run" in data
+        assert "candidate_review_counts" in data
+        assert "daily_plan_signal_counts" in data
+        assert "daily_plan_trade_decision_counts" in data
+        assert "daily_plan_order_preview_available_count" in data
+        assert "existing_order_count" in data
+        assert "safety_state" in data
+        assert "next_recommended_step" in data
+        assert "warnings" in data
+
+        # candidate_review_counts sub-keys
+        cr = data["candidate_review_counts"]
+        for k in ("total", "approved_for_signal", "watching", "rejected", "new"):
+            assert k in cr, f"Missing cr key: {k}"
+            assert isinstance(cr[k], int)
+
+        # daily_plan_signal_counts sub-keys
+        sigs = data["daily_plan_signal_counts"]
+        for k in ("total", "received", "decision_made", "expired", "error"):
+            assert k in sigs, f"Missing sigs key: {k}"
+            assert isinstance(sigs[k], int)
+
+        # daily_plan_trade_decision_counts sub-keys
+        tds = data["daily_plan_trade_decision_counts"]
+        for k in ("total", "buy", "sell", "hold", "rejected"):
+            assert k in tds, f"Missing tds key: {k}"
+            assert isinstance(tds[k], int)
+
+        # safety_state sub-keys
+        ss = data["safety_state"]
+        assert ss["orders_enabled"] is False
+        assert ss["automation_enabled"] is False
+        assert isinstance(ss["manual_review_required"], bool)
+        assert isinstance(ss["create_orders_available"], bool)
+
+        # scalar types
+        assert isinstance(data["daily_plan_order_preview_available_count"], int)
+        assert isinstance(data["existing_order_count"], int)
+        assert isinstance(data["next_recommended_step"], str)
+        assert isinstance(data["warnings"], list)

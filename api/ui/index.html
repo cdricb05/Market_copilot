@@ -1333,6 +1333,21 @@
           </div>
         </div>
 
+        <!-- Daily Plan Execution Cockpit (Phase 4P) -->
+        <div class="command-section" style="border-color: var(--accent); margin-top: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="font-weight: 600; color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Daily Plan Execution Cockpit</div>
+            <button class="btn-sm" onclick="refreshDailyPlanExecutionStatus(this)">Refresh Execution Status</button>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; font-size: 10px;">
+            <span style="background: rgba(34,197,94,.12); color: var(--ok); padding: 1px 7px; border-radius: 2px; font-weight: 700;">MANUAL REVIEW</span>
+            <span style="background: rgba(239,68,68,.12); color: var(--danger); padding: 1px 7px; border-radius: 2px; font-weight: 700;">ORDERS DISABLED</span>
+            <span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 7px; border-radius: 2px;">AUTOMATION OFF</span>
+            <span style="background: rgba(239,68,68,.06); color: var(--danger); padding: 1px 7px; border-radius: 2px;">NO ORDER CREATION</span>
+          </div>
+          <div id="dp-execution-status-result" style="font-size: 11px; color: var(--text-secondary);">Click "Refresh Execution Status" to load.</div>
+        </div>
+
         <!-- Calibrated Rotation Workbench (Phase 4F) -->
         <div id="calib-rotation-section">
           <div class="command-section" style="border-color: var(--info);">
@@ -4865,6 +4880,139 @@ async function createDecisionsFromDailyPlanSignals(btn) {
     resultEl.innerHTML = html;
   } catch (e) {
     resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function refreshDailyPlanExecutionStatus(btn) {
+  const resultEl = document.getElementById('dp-execution-status-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<span style="color: var(--text-secondary); font-size: 11px;">Loading...</span>';
+  try {
+    const r = await call('GET', '/v1/review/daily-plan-execution-status');
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : 'HTTP ' + r.status);
+
+    const cr = data.candidate_review_counts || {};
+    const sigs = data.daily_plan_signal_counts || {};
+    const tds = data.daily_plan_trade_decision_counts || {};
+    const previewAvail = data.daily_plan_order_preview_available_count || 0;
+    const existingOrders = data.existing_order_count || 0;
+    const nextStep = data.next_recommended_step || '';
+    const warnings = data.warnings || [];
+
+    const STEPS = [
+      { label: 'Candidate Preview', key: 'generate_candidate_preview' },
+      { label: 'Review Queue',      key: 'review_queue' },
+      { label: 'Daily Plan',        key: 'generate_daily_plan' },
+      { label: 'Signals Preview',   key: 'preview_signals' },
+      { label: 'Signals Created',   key: 'create_signals' },
+      { label: 'Decisions Preview', key: 'preview_decisions' },
+      { label: 'Decisions Created', key: 'create_decisions' },
+      { label: 'Orders Preview',    key: 'preview_orders' },
+      { label: 'Orders Disabled',   key: 'stop_before_orders' },
+    ];
+
+    function _stepSt(idx) {
+      switch (idx) {
+        case 0: return cr.total > 0 ? 'done' : 'pending';
+        case 1:
+          if (!cr.total) return 'blocked';
+          return cr.approved_for_signal > 0 ? 'done' : 'pending';
+        case 2:
+          if (!cr.approved_for_signal) return 'blocked';
+          return sigs.total > 0 ? 'done' : 'pending';
+        case 3:
+          if (!sigs.total) return 'blocked';
+          return 'done';
+        case 4:
+          if (!cr.approved_for_signal) return 'blocked';
+          return sigs.total > 0 ? 'done' : 'pending';
+        case 5:
+          if (!sigs.total) return 'blocked';
+          return tds.total > 0 ? 'done' : 'pending';
+        case 6:
+          if (!sigs.total) return 'blocked';
+          return tds.total > 0 ? 'done' : 'pending';
+        case 7:
+          if (!tds.total) return 'blocked';
+          return previewAvail > 0 ? 'preview_only' : (existingOrders > 0 ? 'done' : 'blocked');
+        case 8: return 'disabled';
+        default: return 'blocked';
+      }
+    }
+
+    const _stColor = { done: 'var(--ok)', pending: 'var(--warning)', preview_only: 'var(--info)', blocked: 'var(--text-secondary)', disabled: 'var(--danger)' };
+    const _stLabel = { done: 'Done', pending: 'Pending', preview_only: 'Preview Only', blocked: 'Blocked', disabled: 'Disabled' };
+
+    let html = '';
+
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px;">';
+    for (let i = 0; i < STEPS.length; i++) {
+      const st = _stepSt(i);
+      const col = _stColor[st] || 'var(--text-secondary)';
+      const lbl = _stLabel[st] || st;
+      const isNext = STEPS[i].key === nextStep;
+      html += '<div style="display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 7px;'
+            + ' background: rgba(255,255,255,.04); border: 1px solid ' + (isNext ? col : 'rgba(255,255,255,.1)') + ';'
+            + ' border-radius: 3px; min-width: 72px;">';
+      html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary);">'
+            + escapeHtml(String(i + 1)) + '. ' + escapeHtml(STEPS[i].label) + '</div>';
+      html += '<div style="font-size: 10px; font-weight: 600; color: ' + col + ';">' + escapeHtml(lbl) + '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; font-size: 10px;">';
+    html += '<span style="background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 2px; color: var(--text-accent);">Candidates: <strong>'
+          + escapeHtml(String(cr.total || 0)) + '</strong> (' + escapeHtml(String(cr.approved_for_signal || 0)) + ' approved)</span>';
+    html += '<span style="background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 2px; color: var(--text-accent);">DP Signals: <strong>'
+          + escapeHtml(String(sigs.total || 0)) + '</strong> (' + escapeHtml(String(sigs.received || 0)) + ' pending)</span>';
+    html += '<span style="background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 2px; color: var(--text-accent);">DP Decisions: <strong>'
+          + escapeHtml(String(tds.total || 0)) + '</strong> (BUY: ' + escapeHtml(String(tds.buy || 0)) + ', SELL: ' + escapeHtml(String(tds.sell || 0)) + ')</span>';
+    html += '<span style="background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 2px; color: var(--text-accent);">Preview: <strong>'
+          + escapeHtml(String(previewAvail)) + '</strong> | Existing orders: <strong>' + escapeHtml(String(existingOrders)) + '</strong></span>';
+    html += '</div>';
+
+    const _nextLabels = {
+      generate_candidate_preview: 'Run candidate preview (market scan + prediction)',
+      save_candidates:            'Save candidates to review queue',
+      review_queue:               'Review and approve candidates in review queue',
+      generate_daily_plan:        'Generate Daily Plan',
+      preview_signals:            'Preview signals from Daily Plan',
+      create_signals:             'Create signals from Daily Plan',
+      preview_decisions:          'Preview trade decisions from DP signals',
+      create_decisions:           'Create trade decisions from DP signals',
+      preview_orders:             'Preview orders from DP decisions',
+      stop_before_orders:         'Order creation is disabled -- review complete',
+    };
+    const nextLabel = _nextLabels[nextStep] || nextStep;
+    html += '<div style="padding: 6px 8px; background: rgba(99,102,241,.08); border-left: 3px solid var(--accent); border-radius: 0 3px 3px 0; font-size: 11px; margin-bottom: 6px;">';
+    html += '<span style="color: var(--text-secondary); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;">Next: </span>';
+    html += '<span style="color: var(--text-primary);">' + escapeHtml(nextLabel) + '</span>';
+    html += '</div>';
+
+    if (warnings.length > 0) {
+      const _warnLabels = {
+        order_creation_disabled: 'Order creation disabled',
+        pending_review_items:    'Items pending review',
+        pending_trade_decisions: 'Decisions pending orders',
+        stale_candidates:        'Stale candidates',
+      };
+      html += '<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">';
+      for (let i = 0; i < warnings.length; i++) {
+        const wl = _warnLabels[warnings[i]] || warnings[i];
+        html += '<span style="background: rgba(245,158,11,.1); color: var(--warning); padding: 1px 6px; border-radius: 2px; font-size: 10px;">'
+              + escapeHtml(wl) + '</span>';
+      }
+      html += '</div>';
+    }
+
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.innerHTML = '<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ' + escapeHtml(e.message) + '</div>';
   } finally {
     if (btn) btn.disabled = false;
   }
