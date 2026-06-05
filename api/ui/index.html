@@ -2042,6 +2042,49 @@
           <div id="replay-result" style="margin-top:12px;font-size:12px;"></div>
         </div>
 
+        <!-- Replay Profile Comparison -->
+        <div class="card">
+          <div class="card-title">Replay Profile Comparison</div>
+          <p style="font-size:11px;color:var(--ok);margin:0 0 10px;padding:6px 8px;background:rgba(0,128,0,0.08);border-left:3px solid var(--ok);">
+            <strong>PREVIEW ONLY &mdash; NO SIGNALS &mdash; NO DECISIONS &mdash; NO ORDERS &mdash; NO GCP.</strong> Compares all scoring profiles on the same historical dates to determine which is most reliable.
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px;">
+            <div class="input-group">
+              <label>Start Date</label>
+              <input type="date" id="cmp-start-date" class="mono">
+            </div>
+            <div class="input-group">
+              <label>End Date</label>
+              <input type="date" id="cmp-end-date" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Lookback Days</label>
+              <input type="number" id="cmp-lookback-days" value="20" min="1" max="60" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Forward Return Days</label>
+              <input type="number" id="cmp-forward-days" value="5" min="1" max="30" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Top N</label>
+              <input type="number" id="cmp-top-n" value="10" min="1" max="50" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Max Dates</label>
+              <input type="number" id="cmp-max-dates" value="20" min="1" max="30" class="mono">
+            </div>
+          </div>
+          <div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <span style="font-size:10px;color:var(--label);">Presets:</span>
+            <button class="btn-sm" onclick="setComparisonPreset('monthly3')">3 Monthly</button>
+            <button class="btn-sm" onclick="setComparisonPreset('weekly5')">5 Weekly</button>
+            <button class="btn-sm" onclick="setComparisonPreset('weekly10')">10 Weekly</button>
+            <button class="btn-sm" onclick="setComparisonPreset('clear')" style="background:rgba(255,255,255,0.1);">Clear</button>
+          </div>
+          <button class="btn-action" id="cmp-run-btn" onclick="runReplayProfileComparison(this)">Run Profile Comparison</button>
+          <div id="cmp-result" style="margin-top:12px;font-size:12px;"></div>
+        </div>
+
       </div><!-- end tab-audit-advanced -->
 
     </div><!-- end main-content-area -->
@@ -7451,6 +7494,206 @@ function setReplayPreset(preset) {
 
   if (preset === 'monthly3') {
     // 15th of each of the last 3 months
+    const end = new Date(today.getFullYear(), today.getMonth() - 1, 15);
+    const start = new Date(today.getFullYear(), today.getMonth() - 3, 15);
+    if (startEl) startEl.value = fmt(start);
+    if (endEl) endEl.value = fmt(end);
+    if (maxDatesEl) maxDatesEl.value = '3';
+  } else if (preset === 'weekly5') {
+    const end = new Date(today); end.setDate(end.getDate() - 7);
+    const start = new Date(today); start.setDate(start.getDate() - 35);
+    if (startEl) startEl.value = fmt(start);
+    if (endEl) endEl.value = fmt(end);
+    if (maxDatesEl) maxDatesEl.value = '5';
+  } else if (preset === 'weekly10') {
+    const end = new Date(today); end.setDate(end.getDate() - 7);
+    const start = new Date(today); start.setDate(start.getDate() - 70);
+    if (startEl) startEl.value = fmt(start);
+    if (endEl) endEl.value = fmt(end);
+    if (maxDatesEl) maxDatesEl.value = '10';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Replay Profile Comparison
+// ---------------------------------------------------------------------------
+
+async function runReplayProfileComparison(btn) {
+  if (!window._appState?.connected) { toast('Connect first to run profile comparison.', 'warn'); return; }
+  const resultEl = document.getElementById('cmp-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.textContent = 'Running profile comparison...';
+
+  const startDate = document.getElementById('cmp-start-date')?.value || null;
+  const endDate = document.getElementById('cmp-end-date')?.value || null;
+  const lookbackDays = parseInt(document.getElementById('cmp-lookback-days')?.value || '20', 10);
+  const forwardDays = parseInt(document.getElementById('cmp-forward-days')?.value || '5', 10);
+  const topN = parseInt(document.getElementById('cmp-top-n')?.value || '10', 10);
+  const maxDates = parseInt(document.getElementById('cmp-max-dates')?.value || '20', 10);
+
+  const body = { lookback_days: lookbackDays, forward_return_days: forwardDays, top_n: topN, max_dates: maxDates };
+  if (startDate) body.start_date = startDate;
+  if (endDate) body.end_date = endDate;
+
+  try {
+    const r = await call('POST', '/v1/review/daily-plan-replay-profile-comparison-preview', body);
+    if (!r.ok) {
+      const errText = await r.text();
+      resultEl.innerHTML = `<span style="color:var(--danger);">Error ${r.status}: ${escapeHtml(errText)}</span>`;
+      return;
+    }
+    const data = await r.json();
+    resultEl.innerHTML = _renderReplayProfileComparison(data);
+  } catch (e) {
+    resultEl.innerHTML = `<span style="color:var(--danger);">Request failed: ${escapeHtml(String(e))}</span>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _renderReplayProfileComparison(data) {
+  const cs = data.comparison_summary;
+  const gate = data.decision_gate;
+  const profiles = data.profile_results || [];
+  const dateResults = data.date_results || [];
+  const safety = data.safety_counts || {};
+
+  let h = '';
+
+  // Safety badges
+  h += '<div style="display:inline-flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(34,197,94,.15);color:var(--ok);border:1px solid rgba(34,197,94,.4);">PREVIEW ONLY</span>';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);">NO SIGNALS</span>';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);">NO DECISIONS</span>';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);">NO ORDERS</span>';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(100,100,255,.12);color:#a5b4fc;border:1px solid rgba(100,100,255,.3);">NO GCP</span>';
+  h += '</div>';
+
+  // Decision gate card
+  const _gcMap = {
+    'USE_PROFILE':     {bg: 'rgba(34,197,94,.1)',   border: 'rgba(34,197,94,.4)',   text: 'var(--ok)'},
+    'KEEP_CURRENT':    {bg: 'rgba(250,204,21,.08)',  border: 'rgba(250,204,21,.35)', text: '#fbbf24'},
+    'NO_CLEAR_WINNER': {bg: 'rgba(148,163,184,.08)', border: 'rgba(148,163,184,.25)', text: 'var(--text-secondary)'},
+    'NEED_MORE_DATA':  {bg: 'rgba(239,68,68,.07)',   border: 'rgba(239,68,68,.25)',  text: 'var(--danger)'},
+  };
+  const gc = _gcMap[gate.recommendation] || _gcMap['NO_CLEAR_WINNER'];
+  const confColor = cs.confidence_level === 'HIGH' ? 'var(--ok)' : cs.confidence_level === 'MEDIUM' ? '#fbbf24' : 'var(--danger)';
+
+  h += `<div style="background:${gc.bg};border:1px solid ${gc.border};border-radius:4px;padding:12px;margin-bottom:12px;">`;
+  h += `<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">`;
+  h += `<div><div style="font-size:10px;color:var(--label);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;">Decision Gate</div>`;
+  h += `<div style="font-size:16px;font-weight:800;color:${gc.text};">${escapeHtml(gate.recommendation)}</div>`;
+  if (gate.recommended_profile) {
+    h += `<div style="font-size:11px;color:var(--text-primary);margin-top:3px;">Use profile: <strong>${escapeHtml(gate.recommended_profile)}</strong></div>`;
+  }
+  h += `</div><div style="text-align:right;min-width:80px;">`;
+  h += `<div style="font-size:10px;color:var(--label);">Confidence</div>`;
+  h += `<div style="font-size:13px;font-weight:700;color:${confColor};">${escapeHtml(cs.confidence_level)}</div>`;
+  h += `<div style="font-size:10px;color:var(--label);margin-top:2px;">${cs.dates_evaluated} date(s)</div>`;
+  h += `</div></div>`;
+  h += `<div style="font-size:11px;color:var(--text-secondary);margin-top:8px;line-height:1.5;">${escapeHtml(gate.reason)}</div>`;
+  if (gate.blockers && gate.blockers.length > 0) {
+    h += `<div style="margin-top:6px;">`;
+    for (const bl of gate.blockers) {
+      h += `<div style="font-size:10px;color:var(--danger);padding:2px 0;">&#x26A0; ${escapeHtml(bl)}</div>`;
+    }
+    h += `</div>`;
+  }
+  for (const w of (cs.warnings || [])) {
+    h += `<div style="font-size:10px;color:#fbbf24;margin-top:4px;">&#x2139; ${escapeHtml(w)}</div>`;
+  }
+  h += `</div>`;
+
+  // Profile ranking table
+  if (profiles.length > 0) {
+    h += '<div style="overflow-x:auto;margin-bottom:12px;">';
+    h += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    h += '<caption style="font-size:10px;color:var(--label);text-align:left;padding:4px 0;caption-side:top;">Profile Rankings (sorted by Avg vs SPY descending)</caption>';
+    h += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,.12);">';
+    for (const col of ['Rank', 'Profile', 'Avg Fwd%', 'Median%', 'Win Rate', 'Avg vs SPY', 'Consistency', 'Explanation']) {
+      h += `<th style="text-align:left;padding:4px 6px;font-size:10px;color:var(--label);white-space:nowrap;">${col}</th>`;
+    }
+    h += '</tr></thead><tbody>';
+    for (const ps of profiles) {
+      const isRec = gate.recommended_profile === ps.profile_name;
+      const rowBg = isRec ? 'rgba(34,197,94,.05)' : 'transparent';
+      const avgFC = ps.avg_forward_return_pct > 0 ? 'var(--ok)' : ps.avg_forward_return_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)';
+      const avgVC = ps.avg_vs_spy_pct > 0 ? 'var(--ok)' : ps.avg_vs_spy_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)';
+      const wrC = ps.win_rate_pct !== null && ps.win_rate_pct >= 55 ? 'var(--ok)' : 'var(--text-secondary)';
+      h += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);background:${rowBg};">`;
+      h += `<td style="padding:4px 6px;font-weight:700;color:var(--accent);">${ps.rank}</td>`;
+      h += `<td style="padding:4px 6px;font-family:monospace;">${escapeHtml(ps.profile_name)}${isRec ? ' <span style="color:var(--ok);">&#x2713;</span>' : ''}</td>`;
+      h += `<td style="padding:4px 6px;color:${avgFC};">${ps.avg_forward_return_pct !== null && ps.avg_forward_return_pct !== undefined ? ps.avg_forward_return_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;">${ps.median_forward_return_pct !== null && ps.median_forward_return_pct !== undefined ? ps.median_forward_return_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;color:${wrC};">${ps.win_rate_pct !== null && ps.win_rate_pct !== undefined ? ps.win_rate_pct.toFixed(1) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;color:${avgVC};font-weight:600;">${ps.avg_vs_spy_pct !== null && ps.avg_vs_spy_pct !== undefined ? ps.avg_vs_spy_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;">${ps.consistency_score !== null && ps.consistency_score !== undefined ? (ps.consistency_score * 100).toFixed(0) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;font-size:10px;color:var(--label);">${escapeHtml(ps.explanation)}</td>`;
+      h += `</tr>`;
+    }
+    h += '</tbody></table></div>';
+  }
+
+  // Best-per-dimension summary cards
+  const mkSmCard = (lbl, val, col) =>
+    `<div style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:3px;padding:8px 10px;">` +
+    `<div style="font-size:9px;color:var(--label);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">${lbl}</div>` +
+    `<div style="font-size:12px;font-weight:700;color:${col || 'var(--text-primary)'};">${val || '-'}</div></div>`;
+
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px;">';
+  h += mkSmCard('Best Avg Return', cs.best_profile_by_avg_return ? escapeHtml(cs.best_profile_by_avg_return) : null, 'var(--ok)');
+  h += mkSmCard('Best Median', cs.best_profile_by_median_return ? escapeHtml(cs.best_profile_by_median_return) : null, 'var(--ok)');
+  h += mkSmCard('Best Win Rate', cs.best_profile_by_win_rate ? escapeHtml(cs.best_profile_by_win_rate) : null, '#fbbf24');
+  h += mkSmCard('Best vs SPY', cs.best_profile_by_vs_spy ? escapeHtml(cs.best_profile_by_vs_spy) : null, 'var(--ok)');
+  h += '</div>';
+
+  // Per-date results (collapsible)
+  if (dateResults.length > 0) {
+    h += `<details style="margin-top:8px;"><summary style="font-size:10px;color:var(--label);cursor:pointer;">Per-date details (${dateResults.length} rows)</summary>`;
+    h += '<div style="overflow-x:auto;margin-top:6px;">';
+    h += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    h += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,.12);">';
+    for (const col of ['Date', 'Profile', 'Best Ticker', 'Score', 'Fwd%', 'vs SPY%', 'Win', 'Beat SPY']) {
+      h += `<th style="text-align:left;padding:3px 5px;font-size:10px;color:var(--label);white-space:nowrap;">${col}</th>`;
+    }
+    h += '</tr></thead><tbody>';
+    for (const dr of dateResults) {
+      const isRecP = gate.recommended_profile === dr.profile_name;
+      const fwdC = dr.forward_return_pct !== null ? (dr.forward_return_pct > 0 ? 'var(--ok)' : 'var(--danger)') : 'var(--label)';
+      const vsC = dr.vs_spy_pct !== null ? (dr.vs_spy_pct > 0 ? 'var(--ok)' : 'var(--danger)') : 'var(--label)';
+      h += `<tr style="border-bottom:1px solid rgba(255,255,255,.03);background:${isRecP ? 'rgba(34,197,94,.04)' : 'transparent'};">`;
+      h += `<td style="padding:3px 5px;font-family:monospace;">${escapeHtml(dr.as_of_date)}</td>`;
+      h += `<td style="padding:3px 5px;font-family:monospace;">${escapeHtml(dr.profile_name)}</td>`;
+      h += `<td style="padding:3px 5px;">${dr.best_ticker ? escapeHtml(dr.best_ticker) : '-'}</td>`;
+      h += `<td style="padding:3px 5px;">${dr.score !== null ? dr.score.toFixed(2) : '-'}</td>`;
+      h += `<td style="padding:3px 5px;color:${fwdC};font-weight:600;">${dr.forward_return_pct !== null ? dr.forward_return_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:3px 5px;color:${vsC};">${dr.vs_spy_pct !== null ? dr.vs_spy_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:3px 5px;">${dr.win === true ? '<span style="color:var(--ok);">W</span>' : dr.win === false ? '<span style="color:var(--danger);">L</span>' : '-'}</td>`;
+      h += `<td style="padding:3px 5px;">${dr.beat_spy === true ? '<span style="color:var(--ok);">Y</span>' : dr.beat_spy === false ? '<span style="color:var(--danger);">N</span>' : '-'}</td>`;
+      h += `</tr>`;
+    }
+    h += '</tbody></table></div></details>';
+  } else {
+    h += '<div style="color:var(--label);font-size:11px;padding:8px 0;">No per-date results. Try adjusting the date range or ensure price data exists.</div>';
+  }
+
+  h += `<div style="font-size:10px;color:var(--label);font-style:italic;margin-top:6px;">Profile comparison replay only &mdash; not a trading recommendation. Safety: signals=${safety.signals_created ?? 0}, decisions=${safety.decisions_created ?? 0}, orders=${safety.orders_created ?? 0}, rows=${safety.db_rows_created ?? 0}</div>`;
+  return h;
+}
+
+function setComparisonPreset(preset) {
+  const fmt = d => d.toISOString().slice(0, 10);
+  const today = new Date();
+  const startEl = document.getElementById('cmp-start-date');
+  const endEl = document.getElementById('cmp-end-date');
+  const maxDatesEl = document.getElementById('cmp-max-dates');
+  if (preset === 'clear') {
+    if (startEl) startEl.value = '';
+    if (endEl) endEl.value = '';
+    return;
+  }
+  if (preset === 'monthly3') {
     const end = new Date(today.getFullYear(), today.getMonth() - 1, 15);
     const start = new Date(today.getFullYear(), today.getMonth() - 3, 15);
     if (startEl) startEl.value = fmt(start);

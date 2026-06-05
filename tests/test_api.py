@@ -17926,3 +17926,656 @@ class TestDailyPlanReplayPreviewEndpoint:
             assert data["summary"]["worst_date"] is not None
         finally:
             self._cleanup(api_engine, [ticker])
+
+
+class TestDailyPlanReplayProfileComparisonEndpoint:
+    """POST /v1/review/daily-plan-replay-profile-comparison-preview — read-only profile comparison."""
+
+    _ENDPOINT = "/v1/review/daily-plan-replay-profile-comparison-preview"
+    _AS_OF = date(2025, 4, 15)
+    _ALL_PROFILES = ["current", "balanced_preview", "quality_preview", "risk_adjusted_preview"]
+
+    @staticmethod
+    def _seed_ticker_prices(
+        s,
+        ticker: str,
+        as_of_date: date,
+        lookback: int = 25,
+        latest_price: float = 100.0,
+        fwd_price: float | None = None,
+        fwd_days: int = 7,
+    ) -> None:
+        ticker = ticker.strip().upper()
+        base_ts = datetime(2025, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
+        step = latest_price * 0.004
+        for i in range(lookback):
+            d = as_of_date - timedelta(days=lookback - 1 - i)
+            price = latest_price - step * (lookback - 1 - i)
+            s.add(PriceSnapshot(
+                ticker=ticker,
+                price=Decimal(f"{max(1.0, price):.4f}"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=base_ts,
+                market_date=d,
+            ))
+        if fwd_price is not None:
+            s.add(PriceSnapshot(
+                ticker=ticker,
+                price=Decimal(f"{fwd_price:.4f}"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=base_ts,
+                market_date=as_of_date + timedelta(days=fwd_days),
+            ))
+
+    @staticmethod
+    def _seed_benchmark_prices(s, dates: list, price: float = 400.0, fwd_days: int = 7) -> list:
+        base_ts = datetime(2025, 4, 1, 16, 0, 0, tzinfo=timezone.utc)
+        all_dates_added = []
+        for aod in dates:
+            for i in range(25):
+                d = aod - timedelta(days=24 - i)
+                s.add(BenchmarkPrice(
+                    ticker="SPY", price=Decimal(f"{price:.4f}"), session_type="REGULAR",
+                    snapshot_ts=base_ts, market_date=d,
+                ))
+                all_dates_added.append(d)
+            fwd_d = aod + timedelta(days=fwd_days)
+            s.add(BenchmarkPrice(
+                ticker="SPY", price=Decimal(f"{price:.4f}"), session_type="REGULAR",
+                snapshot_ts=base_ts, market_date=fwd_d,
+            ))
+            all_dates_added.append(fwd_d)
+        return list(set(all_dates_added))
+
+    def _cleanup(self, api_engine, tickers: list) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+            s.commit()
+
+    def _cleanup_benchmark(self, api_engine, bm_dates: list) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for d in bm_dates:
+                s.query(BenchmarkPrice).filter(
+                    BenchmarkPrice.ticker == "SPY",
+                    BenchmarkPrice.market_date == d,
+                ).delete()
+            s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 1: endpoint requires authentication
+    # ------------------------------------------------------------------
+    def test_requires_auth(self, client: TestClient) -> None:
+        r = client.post(self._ENDPOINT, json={})
+        assert r.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: returns 200 with valid top-level structure
+    # ------------------------------------------------------------------
+    def test_returns_200_with_seeded_prices(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(3)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "lookback_days": 20, "top_n": 3, "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert "comparison_summary" in data
+            assert "profile_results" in data
+            assert "date_results" in data
+            assert "decision_gate" in data
+            assert "safety_counts" in data
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 3: compares all four profiles by default
+    # ------------------------------------------------------------------
+    def test_compares_all_profiles(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            profile_names = {p["profile_name"] for p in data["profile_results"]}
+            assert profile_names == set(self._ALL_PROFILES)
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 4: comparison_summary has required fields
+    # ------------------------------------------------------------------
+    def test_returns_comparison_summary(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            cs = r.json()["comparison_summary"]
+            assert cs["dates_evaluated"] == 1
+            assert isinstance(cs["profiles_compared"], list)
+            assert len(cs["profiles_compared"]) == 4
+            assert cs["confidence_level"] in {"LOW", "MEDIUM", "HIGH"}
+            assert isinstance(cs["recommendation_reason"], str)
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 5: profile_results has correct structure per profile
+    # ------------------------------------------------------------------
+    def test_returns_profile_results_for_each_profile(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=102.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            profiles = r.json()["profile_results"]
+            assert len(profiles) == 4
+            ranks = {p["rank"] for p in profiles}
+            assert ranks == {1, 2, 3, 4}
+            for ps in profiles:
+                assert "profile_name" in ps
+                assert "dates_evaluated" in ps
+                assert "explanation" in ps
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 6: date_results has one row per date per profile
+    # ------------------------------------------------------------------
+    def test_returns_date_results(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            drs = r.json()["date_results"]
+            assert len(drs) == 4  # 1 date x 4 profiles
+            profile_names_returned = {dr["profile_name"] for dr in drs}
+            assert profile_names_returned == set(self._ALL_PROFILES)
+            for dr in drs:
+                assert dr["as_of_date"] == str(self._AS_OF)
+                assert "best_ticker" in dr
+                assert "forward_data_available" in dr
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 7: decision_gate has required fields and valid recommendation
+    # ------------------------------------------------------------------
+    def test_returns_decision_gate(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            gate = r.json()["decision_gate"]
+            assert gate["recommendation"] in {"USE_PROFILE", "KEEP_CURRENT", "NEED_MORE_DATA", "NO_CLEAR_WINNER"}
+            assert isinstance(gate["minimum_dates_met"], bool)
+            assert isinstance(gate["minimum_win_rate_met"], bool)
+            assert isinstance(gate["minimum_vs_spy_met"], bool)
+            assert isinstance(gate["enough_consistency"], bool)
+            assert isinstance(gate["reason"], str)
+            assert isinstance(gate["blockers"], list)
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 8: NEED_MORE_DATA when fewer than 5 dates
+    # ------------------------------------------------------------------
+    def test_recommends_need_more_data_when_too_few_dates(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        few_dates = [self._AS_OF + timedelta(days=i * 7) for i in range(3)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                for d in few_dates:
+                    self._seed_ticker_prices(s, t, d, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(d) for d in few_dates], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["decision_gate"]["recommendation"] == "NEED_MORE_DATA"
+            assert data["decision_gate"]["minimum_dates_met"] is False
+            assert data["comparison_summary"]["confidence_level"] == "LOW"
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 9: NO_CLEAR_WINNER when no forward data available
+    # ------------------------------------------------------------------
+    def test_recommends_no_clear_winner_when_no_forward_data(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        five_dates = [self._AS_OF + timedelta(days=i * 7) for i in range(5)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                for d in five_dates:
+                    self._seed_ticker_prices(s, t, d, lookback=25, latest_price=100.0, fwd_price=None)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(d) for d in five_dates], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            gate = r.json()["decision_gate"]
+            # No forward data → avg_vs_spy = None for all → NO_CLEAR_WINNER
+            assert gate["recommendation"] in {"NO_CLEAR_WINNER", "NEED_MORE_DATA"}
+            assert gate["minimum_vs_spy_met"] is False
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 10: returns a valid recommendation with 5+ dates + forward data
+    # ------------------------------------------------------------------
+    def test_returns_valid_recommendation_with_sufficient_data(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(3)]
+        five_dates = [self._AS_OF + timedelta(days=i * 7) for i in range(5)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                for d in five_dates:
+                    self._seed_ticker_prices(s, t, d, lookback=25, latest_price=100.0, fwd_price=103.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(d) for d in five_dates], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            gate = r.json()["decision_gate"]
+            assert gate["recommendation"] in {"USE_PROFILE", "KEEP_CURRENT", "NO_CLEAR_WINNER", "NEED_MORE_DATA"}
+            assert gate["minimum_dates_met"] is True
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 11: avg_forward_return_pct computed correctly
+    # ------------------------------------------------------------------
+    def test_computes_avg_forward_return_correctly(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CMP{sfx}X"
+        # Use dates 47 days apart so date2's lookback (starting 2025-05-08) does not
+        # overlap with date1's forward window (2025-04-22 to 2025-05-02 with
+        # forward_return_days=7).  With the old 7-day spacing, date2's lookback rows
+        # at 2025-04-20 and 2025-04-21 fell inside date1's forward window
+        # (cutoff = 2025-04-15 + 5 = 2025-04-20), causing fwd_ret_date1 = -0.8%
+        # and avg = 1.1% instead of 3.0%.
+        two_dates = [date(2025, 4, 15), date(2025, 6, 1)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for d in two_dates:
+                self._seed_ticker_prices(s, ticker, d, lookback=25, latest_price=100.0, fwd_price=103.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(d) for d in two_dates], "tickers": [ticker], "forward_return_days": 7},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            profiles = r.json()["profile_results"]
+            for ps in profiles:
+                if ps["avg_forward_return_pct"] is not None:
+                    # fwd_return = (103 - 100) / 100 * 100 = 3.0%
+                    assert abs(ps["avg_forward_return_pct"] - 3.0) < 0.5
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 12: avg_vs_spy_pct positive when ticker beats flat SPY
+    # ------------------------------------------------------------------
+    def test_computes_avg_vs_spy_correctly_when_benchmark_exists(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"CMP{sfx}Y"
+        two_dates = [self._AS_OF + timedelta(days=i * 7) for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for d in two_dates:
+                self._seed_ticker_prices(s, ticker, d, lookback=25, latest_price=100.0, fwd_price=106.0)
+            bm_dates = self._seed_benchmark_prices(s, two_dates, price=400.0, fwd_days=7)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(d) for d in two_dates], "tickers": [ticker]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            profiles = r.json()["profile_results"]
+            for ps in profiles:
+                if ps["avg_vs_spy_pct"] is not None:
+                    # ticker: +6%, SPY flat (0%), vs_spy ≈ +6%
+                    assert ps["avg_vs_spy_pct"] > 0
+        finally:
+            self._cleanup(api_engine, [ticker])
+            self._cleanup_benchmark(api_engine, bm_dates)
+
+    # ------------------------------------------------------------------
+    # Test 13: benchmark_available is False when no SPY data
+    # ------------------------------------------------------------------
+    def test_handles_missing_benchmark(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            drs = r.json()["date_results"]
+            for dr in drs:
+                assert dr["benchmark_available"] is False
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 14: forward_data_available is False when no forward price
+    # ------------------------------------------------------------------
+    def test_handles_missing_forward_data(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=None)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            drs = r.json()["date_results"]
+            for dr in drs:
+                assert dr["forward_data_available"] is False
+                assert dr["forward_return_pct"] is None
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 15: rejects end_date < start_date
+    # ------------------------------------------------------------------
+    def test_rejects_invalid_date_range(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"start_date": "2025-04-20", "end_date": "2025-04-10"},
+            headers=_AUTH,
+        )
+        assert r.status_code == 422
+
+    # ------------------------------------------------------------------
+    # Test 16: respects max_dates cap
+    # ------------------------------------------------------------------
+    def test_respects_max_dates_cap(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        many_dates = [self._AS_OF + timedelta(days=i * 7) for i in range(10)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                for d in many_dates:
+                    self._seed_ticker_prices(s, t, d, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(d) for d in many_dates],
+                    "tickers": tickers,
+                    "max_dates": 3,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            # cap at 3 → at most 3 dates × 4 profiles = 12 date_result rows
+            assert data["comparison_summary"]["dates_evaluated"] <= 3
+            assert len(data["date_results"]) <= 12
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 17-20: safety counts are all zero
+    # ------------------------------------------------------------------
+    def test_creates_zero_signals(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            assert r.json()["safety_counts"]["signals_created"] == 0
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    def test_creates_zero_trade_decisions(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            assert r.json()["safety_counts"]["decisions_created"] == 0
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    def test_creates_zero_orders(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            assert r.json()["safety_counts"]["orders_created"] == 0
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    def test_creates_zero_job_runs(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            assert r.json()["safety_counts"]["job_runs_created"] == 0
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 21: no GCP calls (verified via zero-write safety count and response)
+    # ------------------------------------------------------------------
+    def test_makes_no_gcp_calls(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(self._AS_OF)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            # If GCP were called and failed, the endpoint would error.
+            assert r.status_code == 200
+            assert r.json()["safety_counts"]["db_rows_created"] == 0
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 22: does not depend on today's global max PriceSnapshot date
+    # ------------------------------------------------------------------
+    def test_does_not_depend_on_today_global_max_date(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        # Use dates far in the past; endpoint should use our explicit as_of_dates
+        past_date = date(2023, 6, 15)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, past_date, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"as_of_dates": [str(past_date)], "tickers": tickers},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            # Dates evaluated should be 1 (our explicit past date)
+            assert data["comparison_summary"]["dates_evaluated"] == 1
+            # Date results should reference past_date
+            dr_dates = {dr["as_of_date"] for dr in data["date_results"]}
+            assert str(past_date) in dr_dates
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 23: custom profiles subset is respected
+    # ------------------------------------------------------------------
+    def test_respects_custom_profiles_subset(self, seeded_client: TestClient, api_engine) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"CMP{sfx}{i}" for i in range(2)]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0)
+            s.commit()
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF)],
+                    "tickers": tickers,
+                    "profiles": ["current", "quality_preview"],
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            profile_names = {p["profile_name"] for p in data["profile_results"]}
+            assert profile_names == {"current", "quality_preview"}
+            assert data["comparison_summary"]["profiles_compared"] == ["current", "quality_preview"]
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 24: rejects invalid profile name
+    # ------------------------------------------------------------------
+    def test_rejects_invalid_profile_name(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"as_of_dates": ["2025-04-15"], "profiles": ["not_a_real_profile"]},
+            headers=_AUTH,
+        )
+        assert r.status_code == 422

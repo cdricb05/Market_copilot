@@ -1792,6 +1792,109 @@ class DailyPlanReplayPreviewResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Daily Plan Replay Profile Comparison Preview schemas
+# ---------------------------------------------------------------------------
+
+class DailyPlanReplayProfileComparisonRequest(BaseModel):
+    """Request for a read-only multi-profile replay comparison preview."""
+    as_of_dates: list[date] | None = Field(
+        default=None,
+        description="Explicit list of historical dates to evaluate. Overrides start_date/end_date.",
+    )
+    start_date: date | None = Field(default=None)
+    end_date: date | None = Field(default=None)
+    lookback_days: int = Field(default=20, ge=1, le=60)
+    forward_return_days: int = Field(default=5, ge=1, le=30)
+    top_n: int = Field(default=10, ge=1, le=50)
+    profiles: list[str] | None = Field(
+        default=None,
+        description="Profiles to compare. Default: all four (current, balanced_preview, quality_preview, risk_adjusted_preview).",
+    )
+    benchmark_ticker: str = Field(default="SPY")
+    min_price_points: int = Field(default=5, ge=1)
+    max_dates: int = Field(default=20, ge=1, le=30)
+    tickers: list[str] | None = Field(default=None)
+
+    @field_validator("profiles")
+    @classmethod
+    def _validate_comparison_profiles(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        _allowed = {"current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
+        for _cp in v:
+            if _cp not in _allowed:
+                raise ValueError(f"profile '{_cp}' not in {sorted(_allowed)}")
+        return v
+
+
+class DailyPlanReplayProfileSummary(BaseModel):
+    """Per-profile aggregate summary from a profile comparison replay."""
+    profile_name: str
+    dates_evaluated: int
+    avg_forward_return_pct: float | None = None
+    median_forward_return_pct: float | None = None
+    win_rate_pct: float | None = None
+    avg_vs_spy_pct: float | None = None
+    best_date: str | None = None
+    worst_date: str | None = None
+    best_candidate_count: int = 0
+    missing_forward_data_count: int = 0
+    benchmark_available_count: int = 0
+    consistency_score: float | None = None
+    rank: int = 0
+    explanation: str = ""
+
+
+class DailyPlanReplayProfileDateResult(BaseModel):
+    """Per-date per-profile result from a profile comparison replay."""
+    as_of_date: str
+    profile_name: str
+    best_ticker: str | None = None
+    score: float | None = None
+    forward_return_pct: float | None = None
+    vs_spy_pct: float | None = None
+    beat_spy: bool | None = None
+    win: bool | None = None
+    benchmark_available: bool = False
+    forward_data_available: bool = False
+
+
+class DailyPlanReplayComparisonSummary(BaseModel):
+    """Overall cross-profile comparison summary."""
+    dates_evaluated: int
+    profiles_compared: list[str]
+    best_profile_by_avg_return: str | None = None
+    best_profile_by_median_return: str | None = None
+    best_profile_by_win_rate: str | None = None
+    best_profile_by_vs_spy: str | None = None
+    recommended_profile: str | None = None
+    confidence_level: str = "LOW"
+    recommendation_reason: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DailyPlanReplayDecisionGate(BaseModel):
+    """Decision gate recommendation from a profile comparison replay."""
+    recommendation: str
+    recommended_profile: str | None = None
+    minimum_dates_met: bool = False
+    minimum_win_rate_met: bool = False
+    minimum_vs_spy_met: bool = False
+    enough_consistency: bool = False
+    reason: str = ""
+    blockers: list[str] = Field(default_factory=list)
+
+
+class DailyPlanReplayProfileComparisonResponse(BaseModel):
+    """Response from POST /v1/review/daily-plan-replay-profile-comparison-preview (PREVIEW ONLY)."""
+    comparison_summary: DailyPlanReplayComparisonSummary
+    profile_results: list[DailyPlanReplayProfileSummary]
+    date_results: list[DailyPlanReplayProfileDateResult]
+    decision_gate: DailyPlanReplayDecisionGate
+    safety_counts: dict[str, int]
+
+
+# ---------------------------------------------------------------------------
 
 class BackfillRequest(BaseModel):
     universe: str = Field(
@@ -9495,6 +9598,462 @@ def daily_plan_replay_preview(body: DailyPlanReplayPreviewRequest) -> DailyPlanR
                     f"Profile used: {_resolved_profile}.",
                 ],
             ),
+        )
+
+
+@app.post(
+    "/v1/review/daily-plan-replay-profile-comparison-preview",
+    response_model=DailyPlanReplayProfileComparisonResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def daily_plan_replay_profile_comparison_preview(
+    body: DailyPlanReplayProfileComparisonRequest,
+) -> DailyPlanReplayProfileComparisonResponse:
+    """
+    POST /v1/review/daily-plan-replay-profile-comparison-preview
+
+    PREVIEW ONLY. No Signal, TradeDecision, Order, Position, JobRun, or any other database rows
+    created or mutated. No GCP calls. No external API calls.
+
+    Runs each requested scoring profile over the same historical as_of_dates and returns
+    ranked per-profile metrics plus a decision gate recommendation.
+    """
+    import statistics as _statistics
+    from datetime import timedelta as _timedelta
+    from paper_trader.engine.universe import get_sp500_universe as _get_sp500_universe
+
+    _safety: dict[str, int] = {
+        "signals_created": 0,
+        "decisions_created": 0,
+        "orders_created": 0,
+        "job_runs_created": 0,
+        "db_rows_created": 0,
+    }
+
+    _cmp_score_funcs: dict[str, Any] = {
+        "current": _score_candidate_v2,
+        "balanced_preview": _score_candidate_balanced_preview,
+        "quality_preview": _score_candidate_quality_preview,
+        "risk_adjusted_preview": _score_candidate_risk_adjusted_preview,
+    }
+
+    _cmp_profiles: list[str] = body.profiles if body.profiles else list(_cmp_score_funcs.keys())
+
+    with get_dedicated_session() as session:
+        # Resolve universe
+        _cmp_raw = _get_sp500_universe()
+        if body.tickers:
+            _cmp_seen: set[str] = set()
+            _cmp_targeted: list[str] = []
+            for _t in body.tickers:
+                _t_norm = _t.strip().upper()
+                if _t_norm and _t_norm not in _cmp_seen:
+                    _cmp_seen.add(_t_norm)
+                    _cmp_targeted.append(_t_norm)
+            _cmp_universe: list[str] = _cmp_targeted if _cmp_targeted else _cmp_raw
+        else:
+            _cmp_universe = _cmp_raw
+
+        # Resolve dates
+        if body.as_of_dates:
+            _cmp_dates: list[date] = sorted(set(body.as_of_dates))
+        elif body.start_date is not None and body.end_date is not None:
+            if body.end_date < body.start_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="end_date must be >= start_date",
+                )
+            _cmp_db_dates = session.execute(
+                select(func.distinct(PriceSnapshot.market_date))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .where(PriceSnapshot.market_date >= body.start_date)
+                .where(PriceSnapshot.market_date <= body.end_date)
+                .order_by(PriceSnapshot.market_date)
+            ).scalars().all()
+            _cmp_dates = list(_cmp_db_dates)
+        else:
+            _cmp_db_dates = session.execute(
+                select(func.distinct(PriceSnapshot.market_date))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .order_by(PriceSnapshot.market_date.desc())
+                .limit(body.max_dates)
+            ).scalars().all()
+            _cmp_dates = sorted(_cmp_db_dates)
+
+        if len(_cmp_dates) > body.max_dates:
+            _cmp_dates = _cmp_dates[-body.max_dates:]
+
+        _cmp_ndates = len(_cmp_dates)
+
+        if not _cmp_dates:
+            _cmp_empty = [
+                DailyPlanReplayProfileSummary(profile_name=_p, dates_evaluated=0, rank=_i + 1)
+                for _i, _p in enumerate(_cmp_profiles)
+            ]
+            return DailyPlanReplayProfileComparisonResponse(
+                comparison_summary=DailyPlanReplayComparisonSummary(
+                    dates_evaluated=0,
+                    profiles_compared=_cmp_profiles,
+                    confidence_level="LOW",
+                    recommendation_reason="No price data found for the specified date range.",
+                    warnings=["No price data found."],
+                ),
+                profile_results=_cmp_empty,
+                date_results=[],
+                decision_gate=DailyPlanReplayDecisionGate(
+                    recommendation="NEED_MORE_DATA",
+                    reason="No price data found for the specified date range.",
+                    blockers=["No price data found."],
+                ),
+                safety_counts=_safety,
+            )
+
+        # Per-profile accumulators
+        _cmp_fwd: dict[str, list[float]] = {_p: [] for _p in _cmp_profiles}
+        _cmp_vs_spy: dict[str, list[float]] = {_p: [] for _p in _cmp_profiles}
+        _cmp_wins: dict[str, list[bool]] = {_p: [] for _p in _cmp_profiles}
+        _cmp_miss_fwd: dict[str, int] = {_p: 0 for _p in _cmp_profiles}
+        _cmp_bm_avail: dict[str, int] = {_p: 0 for _p in _cmp_profiles}
+        _cmp_dated: dict[str, list[tuple[str, float]]] = {_p: [] for _p in _cmp_profiles}
+        _cmp_best_cnt: dict[str, int] = {_p: 0 for _p in _cmp_profiles}
+        _cmp_leaders: list[str | None] = []
+        _cmp_date_results: list[DailyPlanReplayProfileDateResult] = []
+
+        for _caod in _cmp_dates:
+            _ccutoff = _caod - _timedelta(days=body.lookback_days + 10)
+            _cfwd_cut = _caod + _timedelta(days=body.forward_return_days)
+            _cfwd_max = _caod + _timedelta(days=body.forward_return_days + 10)
+
+            # SPY prices for this date (once)
+            _cmp_bm_rows = session.execute(
+                select(BenchmarkPrice.market_date, BenchmarkPrice.price)
+                .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
+                .where(BenchmarkPrice.session_type == "REGULAR")
+                .where(BenchmarkPrice.market_date >= _ccutoff)
+                .where(BenchmarkPrice.market_date <= _caod)
+                .order_by(BenchmarkPrice.market_date.desc())
+            ).all()
+            _cmp_spy_prices: dict = {_row[0]: float(_row[1]) for _row in _cmp_bm_rows}
+            _cmp_bm_ok = len(_cmp_spy_prices) >= 5
+
+            _cmp_spy_as_of: float | None = None
+            if _cmp_spy_prices:
+                _cmp_spy_aod_ds = [_d for _d in _cmp_spy_prices if _d <= _caod]
+                if _cmp_spy_aod_ds:
+                    _cmp_spy_as_of = _cmp_spy_prices[max(_cmp_spy_aod_ds)]
+
+            _cmp_spy_fwd_sc = session.execute(
+                select(BenchmarkPrice.price)
+                .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
+                .where(BenchmarkPrice.session_type == "REGULAR")
+                .where(BenchmarkPrice.market_date >= _cfwd_cut)
+                .where(BenchmarkPrice.market_date <= _cfwd_max)
+                .order_by(BenchmarkPrice.market_date.asc())
+                .limit(1)
+            ).scalar()
+            _cmp_spy_fwd_ret: float | None = None
+            if _cmp_spy_fwd_sc is not None and _cmp_spy_as_of and _cmp_spy_as_of > 0:
+                _cmp_spy_fwd_ret = (float(_cmp_spy_fwd_sc) - _cmp_spy_as_of) / _cmp_spy_as_of
+
+            # Batch-fetch all ticker prices (once per date)
+            _cmp_price_rows = session.execute(
+                select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+                .where(PriceSnapshot.ticker.in_(_cmp_universe))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .where(PriceSnapshot.market_date >= _ccutoff)
+                .where(PriceSnapshot.market_date <= _caod)
+                .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
+            ).all()
+            _cmp_tpmap: dict[str, list] = {}
+            for _pr in _cmp_price_rows:
+                _cmp_tpmap.setdefault(_pr[0], []).append((_pr[1], float(_pr[2])))
+
+            # Compute features for all eligible tickers (once per date)
+            _cmp_features: dict[str, dict] = {}
+            for _ctk in _cmp_universe:
+                _ctrows = _cmp_tpmap.get(_ctk, [])
+                if len(_ctrows) < body.min_price_points:
+                    continue
+                _ctprices = [_r[1] for _r in _ctrows]
+                _ctdates = [_r[0] for _r in _ctrows]
+                _ct_latest = _ctprices[0]
+                _ct_mom5 = (_ct_latest - _ctprices[4]) / _ctprices[4] if len(_ctprices) >= 5 and _ctprices[4] > 0 else 0.0
+                _ct_mom20 = (_ct_latest - _ctprices[19]) / _ctprices[19] if len(_ctprices) >= 20 and _ctprices[19] > 0 else 0.0
+                _ct_vol = 0.0
+                if len(_ctprices) >= 2:
+                    _ctn = min(20, len(_ctprices) - 1)
+                    _ctdrs = [(_ctprices[_i] - _ctprices[_i + 1]) / _ctprices[_i + 1] for _i in range(_ctn) if _ctprices[_i + 1] > 0]
+                    if len(_ctdrs) >= 2:
+                        try:
+                            _ct_vol = _statistics.stdev(_ctdrs)
+                        except Exception:
+                            pass
+                _ct_rs = 0.0
+                if _cmp_bm_ok and len(_ctprices) >= 5:
+                    _ct_spy_w = {_d: _cmp_spy_prices[_d] for _d in _ctdates if _d in _cmp_spy_prices}
+                    _ct_spy_sd = sorted(_ct_spy_w.keys(), reverse=True)
+                    if len(_ct_spy_sd) >= 5:
+                        _ct_spy_l = _ct_spy_w[_ct_spy_sd[0]]
+                        _ct_spy_o = _ct_spy_w[_ct_spy_sd[min(19, len(_ct_spy_sd) - 1)]]
+                        if _ct_spy_o > 0:
+                            _ct_rs = _ct_mom20 - (_ct_spy_l - _ct_spy_o) / _ct_spy_o
+                _ct_scan = max(0.0, min(100.0, (_ct_mom5 * 100.0 * 0.3 if _ct_mom5 > 0 else 0.0) + (_ct_mom20 * 100.0 * 0.4 if _ct_mom20 > 0 else 0.0)))
+                _cmp_features[_ctk] = {
+                    "latest_price": _ct_latest,
+                    "mom5": _ct_mom5, "mom20": _ct_mom20,
+                    "vol20": _ct_vol, "rs_spy": _ct_rs, "scan_raw": _ct_scan,
+                }
+
+            # Score with each profile, pick top-1 best candidate
+            _cmp_prof_best: dict[str, dict | None] = {}
+            for _cpn in _cmp_profiles:
+                _cpfunc = _cmp_score_funcs[_cpn]
+                _cpscored: list[dict] = []
+                for _ctk2, _cfeat in _cmp_features.items():
+                    _csr = _cpfunc({
+                        "prediction_confidence": 0.5,
+                        "expected_return_pct": 0.0,
+                        "momentum_5d_pct": _cfeat["mom5"],
+                        "momentum_20d_pct": _cfeat["mom20"],
+                        "volatility_20d_pct": _cfeat["vol20"],
+                        "relative_strength_vs_spy_20d": _cfeat["rs_spy"],
+                        "scan_score": _cfeat["scan_raw"],
+                    })
+                    _cpscored.append({"ticker": _ctk2, "score": _csr.total_score, "latest_price": _cfeat["latest_price"]})
+                _cpscored.sort(key=lambda x: -x["score"])
+                _cmp_prof_best[_cpn] = _cpscored[0] if _cpscored else None
+
+            # Batch-fetch forward prices for union of best tickers (one query per date)
+            _cmp_all_best_tks = list({_c["ticker"] for _c in _cmp_prof_best.values() if _c is not None})
+            _cmp_fwd_map: dict[str, float] = {}
+            if _cmp_all_best_tks:
+                _cmp_fwd_rows = session.execute(
+                    select(PriceSnapshot.ticker, PriceSnapshot.price)
+                    .where(PriceSnapshot.ticker.in_(_cmp_all_best_tks))
+                    .where(PriceSnapshot.price_type == "CLOSE")
+                    .where(PriceSnapshot.session_type == "REGULAR")
+                    .where(PriceSnapshot.market_date >= _cfwd_cut)
+                    .where(PriceSnapshot.market_date <= _cfwd_max)
+                    .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.asc())
+                ).all()
+                for _cfr in _cmp_fwd_rows:
+                    if _cfr[0] not in _cmp_fwd_map:
+                        _cmp_fwd_map[_cfr[0]] = float(_cfr[1])
+
+            # Build per-date per-profile results
+            _cmp_date_vs_spy: dict[str, float | None] = {}
+            for _cpn in _cmp_profiles:
+                _cpbest = _cmp_prof_best[_cpn]
+                _cp_fwd_ret: float | None = None
+                _cp_fwd_vs_spy: float | None = None
+                _cp_fwd_avail = False
+                _cp_beat_spy: bool | None = None
+                _cp_win: bool | None = None
+
+                if _cpbest:
+                    _cmp_best_cnt[_cpn] += 1
+                    _cp_fwd_price = _cmp_fwd_map.get(_cpbest["ticker"])
+                    if _cp_fwd_price is not None and _cpbest["latest_price"] > 0:
+                        _cp_fwd_ret = round((_cp_fwd_price - _cpbest["latest_price"]) / _cpbest["latest_price"] * 100.0, 4)
+                        _cp_fwd_avail = True
+                        _cp_win = _cp_fwd_ret > 0
+                        _cmp_fwd[_cpn].append(_cp_fwd_ret)
+                        _cmp_dated[_cpn].append((str(_caod), _cp_fwd_ret))
+                        if _cp_win is not None:
+                            _cmp_wins[_cpn].append(_cp_win)
+                        if _cmp_spy_fwd_ret is not None:
+                            _cp_fwd_vs_spy = round(_cp_fwd_ret - _cmp_spy_fwd_ret * 100.0, 4)
+                            _cp_beat_spy = _cp_fwd_vs_spy > 0
+                            _cmp_vs_spy[_cpn].append(_cp_fwd_vs_spy)
+                    else:
+                        _cmp_miss_fwd[_cpn] += 1
+
+                if _cmp_bm_ok:
+                    _cmp_bm_avail[_cpn] += 1
+
+                _cmp_date_vs_spy[_cpn] = _cp_fwd_vs_spy
+
+                _cmp_date_results.append(DailyPlanReplayProfileDateResult(
+                    as_of_date=str(_caod),
+                    profile_name=_cpn,
+                    best_ticker=_cpbest["ticker"] if _cpbest else None,
+                    score=round(_cpbest["score"], 4) if _cpbest else None,
+                    forward_return_pct=_cp_fwd_ret,
+                    vs_spy_pct=_cp_fwd_vs_spy,
+                    beat_spy=_cp_beat_spy,
+                    win=_cp_win,
+                    benchmark_available=_cmp_bm_ok,
+                    forward_data_available=_cp_fwd_avail,
+                ))
+
+            # Track which profile led this date by vs_spy
+            _cmp_leaders_td = [
+                (_cpn, _cmp_date_vs_spy[_cpn])
+                for _cpn in _cmp_profiles
+                if _cmp_date_vs_spy.get(_cpn) is not None
+            ]
+            if _cmp_leaders_td:
+                _cmp_leaders.append(max(_cmp_leaders_td, key=lambda x: x[1])[0])
+            else:
+                _cmp_leaders.append(None)
+
+        # Build per-profile summary objects
+        _cmp_summaries: list[DailyPlanReplayProfileSummary] = []
+        for _cpn in _cmp_profiles:
+            _cpf = _cmp_fwd[_cpn]
+            _cpv = _cmp_vs_spy[_cpn]
+            _cpw = _cmp_wins[_cpn]
+            _cpd = _cmp_dated[_cpn]
+
+            _cp_avg_f = round(sum(_cpf) / len(_cpf), 4) if _cpf else None
+            _cp_med_f: float | None = None
+            if _cpf:
+                _cpsrt = sorted(_cpf)
+                _cpnf = len(_cpsrt)
+                _cp_med_f = round(_cpsrt[_cpnf // 2] if _cpnf % 2 else (_cpsrt[_cpnf // 2 - 1] + _cpsrt[_cpnf // 2]) / 2, 4)
+            _cp_wr = round(sum(1 for _w in _cpw if _w) / len(_cpw) * 100.0, 1) if _cpw else None
+            _cp_avg_v = round(sum(_cpv) / len(_cpv), 4) if _cpv else None
+            _cp_best_d = max(_cpd, key=lambda x: x[1])[0] if _cpd else None
+            _cp_worst_d = min(_cpd, key=lambda x: x[1])[0] if _cpd else None
+            _cp_lead_cnt = sum(1 for _ldr in _cmp_leaders if _ldr == _cpn)
+            _cp_consistency = round(_cp_lead_cnt / len(_cmp_leaders), 4) if _cmp_leaders else None
+
+            _cmp_summaries.append(DailyPlanReplayProfileSummary(
+                profile_name=_cpn,
+                dates_evaluated=_cmp_ndates,
+                avg_forward_return_pct=_cp_avg_f,
+                median_forward_return_pct=_cp_med_f,
+                win_rate_pct=_cp_wr,
+                avg_vs_spy_pct=_cp_avg_v,
+                best_date=_cp_best_d,
+                worst_date=_cp_worst_d,
+                best_candidate_count=_cmp_best_cnt[_cpn],
+                missing_forward_data_count=_cmp_miss_fwd[_cpn],
+                benchmark_available_count=_cmp_bm_avail[_cpn],
+                consistency_score=_cp_consistency,
+                rank=0,
+                explanation="",
+            ))
+
+        # Rank profiles by (avg_vs_spy DESC, win_rate DESC, avg_fwd_return DESC)
+        _cmp_summaries.sort(key=lambda _ps: (
+            -(_ps.avg_vs_spy_pct if _ps.avg_vs_spy_pct is not None else -999.0),
+            -(_ps.win_rate_pct if _ps.win_rate_pct is not None else 0.0),
+            -(_ps.avg_forward_return_pct if _ps.avg_forward_return_pct is not None else -999.0),
+        ))
+        for _ri, _ps in enumerate(_cmp_summaries, start=1):
+            _ps.rank = _ri
+            _cmp_exp_parts = []
+            if _ps.avg_vs_spy_pct is not None:
+                _cmp_exp_parts.append(f"avg vs SPY {_ps.avg_vs_spy_pct:.2f}%")
+            if _ps.win_rate_pct is not None:
+                _cmp_exp_parts.append(f"win rate {_ps.win_rate_pct:.1f}%")
+            if _ps.consistency_score is not None:
+                _cmp_exp_parts.append(f"led {_ps.consistency_score * 100:.0f}% of dates")
+            _ps.explanation = f"Rank {_ri}: " + ("; ".join(_cmp_exp_parts) if _cmp_exp_parts else "insufficient data")
+
+        # Decision gate
+        _cmp_best = _cmp_summaries[0] if _cmp_summaries else None
+        _cmp_second = _cmp_summaries[1] if len(_cmp_summaries) > 1 else None
+
+        _cmp_min_dates = _cmp_ndates >= 5
+        _cmp_min_wr = (_cmp_best is not None and _cmp_best.win_rate_pct is not None and _cmp_best.win_rate_pct >= 55.0)
+        _cmp_min_spy = (_cmp_best is not None and _cmp_best.avg_vs_spy_pct is not None and _cmp_best.avg_vs_spy_pct > 0)
+        _cmp_consistency_ok = (_cmp_best is not None and _cmp_best.consistency_score is not None and _cmp_best.consistency_score >= 0.4)
+
+        _cmp_blockers: list[str] = []
+        if not _cmp_min_dates:
+            _cmp_blockers.append(f"Only {_cmp_ndates} date(s) evaluated; minimum is 5.")
+        if _cmp_best and not _cmp_min_wr:
+            _cmp_wr_str = f"{_cmp_best.win_rate_pct:.1f}%" if _cmp_best.win_rate_pct is not None else "N/A"
+            _cmp_blockers.append(f"Best profile win rate ({_cmp_wr_str}) is below 55%.")
+        if _cmp_best and not _cmp_min_spy:
+            _cmp_vs_str = f"{_cmp_best.avg_vs_spy_pct:.2f}%" if _cmp_best.avg_vs_spy_pct is not None else "N/A"
+            _cmp_blockers.append(f"Best profile avg vs SPY ({_cmp_vs_str}) is not positive.")
+
+        _cmp_spy_margin = 0.0
+        _cmp_wr_margin = 0.0
+        _cmp_too_close = False
+        if _cmp_best and _cmp_second:
+            _cmp_spy_margin = (_cmp_best.avg_vs_spy_pct or 0.0) - (_cmp_second.avg_vs_spy_pct or 0.0)
+            _cmp_wr_margin = (_cmp_best.win_rate_pct or 0.0) - (_cmp_second.win_rate_pct or 0.0)
+            _cmp_too_close = _cmp_spy_margin < 0.5 and _cmp_wr_margin < 5.0
+
+        _cmp_confidence = "LOW" if _cmp_ndates < 5 else ("MEDIUM" if _cmp_ndates < 10 else "HIGH")
+
+        if not _cmp_min_dates:
+            _cmp_gate_rec = "NEED_MORE_DATA"
+            _cmp_gate_reason = f"Insufficient data: {_cmp_ndates} date(s) evaluated; need at least 5."
+        elif _cmp_best is None:
+            _cmp_gate_rec = "NEED_MORE_DATA"
+            _cmp_gate_reason = "No profile results available."
+        elif _cmp_best.profile_name == "current" and _cmp_min_wr and _cmp_min_spy:
+            _cmp_gate_rec = "KEEP_CURRENT"
+            _cmp_gate_reason = (
+                f"'current' profile already ranks best with win rate {_cmp_best.win_rate_pct:.1f}% "
+                f"and avg vs SPY {_cmp_best.avg_vs_spy_pct:.2f}%."
+            )
+        elif _cmp_too_close:
+            _cmp_gate_rec = "NO_CLEAR_WINNER"
+            _cmp_sn = _cmp_second.profile_name if _cmp_second else "N/A"
+            _cmp_gate_reason = (
+                f"'{_cmp_best.profile_name}' and '{_cmp_sn}' are too close to distinguish "
+                f"(vs-SPY margin: {_cmp_spy_margin:.2f}%, win-rate margin: {_cmp_wr_margin:.1f}%)."
+            )
+        elif _cmp_min_dates and _cmp_min_wr and _cmp_min_spy and _cmp_consistency_ok:
+            _cmp_gate_rec = "USE_PROFILE"
+            _cmp_gate_reason = (
+                f"Profile '{_cmp_best.profile_name}' leads: avg vs SPY "
+                f"{_cmp_best.avg_vs_spy_pct:.2f}%, win rate {_cmp_best.win_rate_pct:.1f}%, "
+                f"consistency {_cmp_best.consistency_score * 100:.0f}% of dates."
+            )
+        else:
+            _cmp_gate_rec = "NO_CLEAR_WINNER"
+            _cmp_gate_reason = (
+                ("No profile meets all criteria. " + " ".join(_cmp_blockers))
+                if _cmp_blockers else "No profile meets all criteria."
+            )
+
+        def _cmp_best_by(attr_name: str) -> str | None:
+            _fil = [_ps for _ps in _cmp_summaries if getattr(_ps, attr_name) is not None]
+            return max(_fil, key=lambda x: getattr(x, attr_name)).profile_name if _fil else None
+
+        _cmp_warnings: list[str] = []
+        if _cmp_ndates < 10:
+            _cmp_warnings.append(f"Only {_cmp_ndates} date(s) evaluated — increase range for more reliable results.")
+        if not any(_ps.avg_vs_spy_pct is not None for _ps in _cmp_summaries):
+            _cmp_warnings.append("No benchmark data available — vs-SPY comparison not possible.")
+
+        return DailyPlanReplayProfileComparisonResponse(
+            comparison_summary=DailyPlanReplayComparisonSummary(
+                dates_evaluated=_cmp_ndates,
+                profiles_compared=_cmp_profiles,
+                best_profile_by_avg_return=_cmp_best_by("avg_forward_return_pct"),
+                best_profile_by_median_return=_cmp_best_by("median_forward_return_pct"),
+                best_profile_by_win_rate=_cmp_best_by("win_rate_pct"),
+                best_profile_by_vs_spy=_cmp_best_by("avg_vs_spy_pct"),
+                recommended_profile=_cmp_best.profile_name if _cmp_best else None,
+                confidence_level=_cmp_confidence,
+                recommendation_reason=_cmp_gate_reason,
+                warnings=_cmp_warnings,
+            ),
+            profile_results=_cmp_summaries,
+            date_results=_cmp_date_results,
+            decision_gate=DailyPlanReplayDecisionGate(
+                recommendation=_cmp_gate_rec,
+                recommended_profile=_cmp_best.profile_name if _cmp_gate_rec in {"USE_PROFILE", "KEEP_CURRENT"} else None,
+                minimum_dates_met=_cmp_min_dates,
+                minimum_win_rate_met=_cmp_min_wr,
+                minimum_vs_spy_met=_cmp_min_spy,
+                enough_consistency=_cmp_consistency_ok,
+                reason=_cmp_gate_reason,
+                blockers=_cmp_blockers,
+            ),
+            safety_counts=_safety,
         )
 
 
