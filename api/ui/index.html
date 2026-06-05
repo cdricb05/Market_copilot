@@ -4657,22 +4657,32 @@ async function previewDecisionsFromDailyPlanSignals(btn) {
     html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">MANUAL REVIEW</span>';
     html += '</div>';
 
-    // Stats row
+    // Stats row — use decision_counts from backend, fall back to client-side tally
+    const _decCounts = {};
+    if (data.decision_counts && typeof data.decision_counts === 'object') {
+      Object.assign(_decCounts, data.decision_counts);
+    } else {
+      for (const p of (data.decision_previews || [])) {
+        _decCounts[p.decision] = (_decCounts[p.decision] || 0) + 1;
+      }
+    }
     html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
     html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.evaluated_signals || 0))}</span>`;
-    const _prvColor = (data.previews_generated || 0) > 0 ? 'rgba(34,197,94,.1)' : 'rgba(255,255,255,.07)';
-    const _prvStyle = (data.previews_generated || 0) > 0 ? 'color: var(--ok); font-weight: 600;' : '';
-    html += `<span style="background: ${_prvColor}; padding: 2px 7px; border-radius: 3px; font-size: 10px; ${_prvStyle}">Previews: ${escapeHtml(String(data.previews_generated || 0))}</span>`;
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Decision previews: ${escapeHtml(String(data.previews_generated || 0))}</span>`;
+    if ((_decCounts['BUY'] || 0) > 0) {
+      html += `<span style="background: rgba(34,197,94,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok); font-weight: 600;">BUY: ${_decCounts['BUY']}</span>`;
+    }
+    if ((_decCounts['SELL'] || 0) > 0) {
+      html += `<span style="background: rgba(251,191,36,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--warning); font-weight: 600;">SELL: ${_decCounts['SELL']}</span>`;
+    }
+    if ((_decCounts['HOLD'] || 0) > 0) {
+      html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">HOLD: ${_decCounts['HOLD']}</span>`;
+    }
+    if ((_decCounts['REJECTED'] || 0) > 0) {
+      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger); font-weight: 600;">REJECTED: ${_decCounts['REJECTED']}</span>`;
+    }
     if ((data.skipped_count || 0) > 0) {
       html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ${escapeHtml(String(data.skipped_count))}</span>`;
-    }
-    const _approvedCount = (data.decision_previews || []).filter(p => p.decision === 'APPROVE').length;
-    const _rejectedCount = (data.decision_previews || []).filter(p => p.decision !== 'APPROVE').length;
-    if (_approvedCount > 0) {
-      html += `<span style="background: rgba(34,197,94,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok); font-weight: 600;">Approved by risk: ${_approvedCount}</span>`;
-    }
-    if (_rejectedCount > 0) {
-      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Rejected by risk: ${_rejectedCount}</span>`;
     }
     html += '</div>';
 
@@ -4689,13 +4699,14 @@ async function previewDecisionsFromDailyPlanSignals(btn) {
       html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Reason</th>';
       html += '</tr></thead><tbody>';
       for (const p of data.decision_previews) {
-        const sideColor = p.side === 'BUY' ? 'var(--ok)' : 'var(--label)';
-        const decColor = p.decision === 'APPROVE' ? 'var(--ok)' : p.decision === 'REJECT' ? 'var(--danger)' : 'var(--warning)';
+        const sideColor = p.side === 'BUY' ? 'var(--ok)' : p.side === 'SELL' ? 'var(--warning)' : 'var(--label)';
+        const decColor = p.decision === 'BUY' ? 'var(--ok)' : p.decision === 'SELL' ? 'var(--warning)' : p.decision === 'REJECTED' ? 'var(--danger)' : 'var(--text-secondary)';
+        const rowBg = p.decision === 'REJECTED' ? 'rgba(239,68,68,.05)' : p.decision === 'SELL' ? 'rgba(251,191,36,.03)' : p.decision === 'BUY' ? 'rgba(34,197,94,.04)' : '';
         const confVal = parseFloat(p.confidence);
         const confStr = isNaN(confVal) ? '-' : (confVal * 100).toFixed(0) + '%';
         const notional = parseFloat(p.approved_notional);
         const notionalStr = isNaN(notional) ? '-' : '$' + notional.toFixed(0);
-        html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+        html += `<tr style="border-bottom: 1px solid rgba(255,255,255,.04); background: ${rowBg};">`;
         html += `<td style="padding: 4px 5px; font-weight: 600; color: var(--ok);">${escapeHtml(p.ticker)}</td>`;
         html += `<td style="padding: 4px 5px; color: ${sideColor}; font-weight: 600;">${escapeHtml(p.side)}</td>`;
         html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(confStr)}</td>`;
@@ -4705,7 +4716,9 @@ async function previewDecisionsFromDailyPlanSignals(btn) {
         html += `<td style="padding: 4px 5px; font-size: 9px; color: var(--text-secondary);">${escapeHtml(p.reason || '')}</td>`;
         html += '</tr>';
       }
-      html += '</tbody></table>';
+      html += '</tbody>';
+      html += '<tfoot><tr><td colspan="7" style="padding: 4px 5px; font-size: 9px; color: var(--text-secondary); font-style: italic; border-top: 1px solid var(--border);">PREVIEW ONLY - no TradeDecision, Order, Signal, or JobRun rows created by this preview.</td></tr></tfoot>';
+      html += '</table>';
     } else {
       html += '<div style="font-size: 11px; color: var(--text-secondary); padding: 4px 0;">No decision previews available. Ensure Daily Plan signals have been created and have status RECEIVED.</div>';
     }

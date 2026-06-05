@@ -1914,7 +1914,10 @@ class DailyPlanDecisionPreviewResponse(BaseModel):
     """Response from POST /v1/review/daily-plan-decision-preview (PREVIEW ONLY, no DB writes)."""
     evaluated_signals: int
     previews_generated: int
+    approved_count: int
+    rejected_count: int
     skipped_count: int
+    decision_counts: dict[str, int]
     decision_previews: list[DailyPlanDecisionPreviewItem]
     skipped: list[DailyPlanDecisionPreviewSkipped]
     safety_counts: dict[str, int]
@@ -8542,6 +8545,7 @@ async def daily_plan_decision_preview(
         "orders_created": 0,
         "job_runs_created": 0,
         "rows_created": 0,
+        "db_rows_created": 0,
     }
     _next_step = "Create trade decisions manually from approved signal previews."
     _safety_note = (
@@ -8565,7 +8569,10 @@ async def daily_plan_decision_preview(
                 return DailyPlanDecisionPreviewResponse(
                     evaluated_signals=0,
                     previews_generated=0,
+                    approved_count=0,
+                    rejected_count=0,
                     skipped_count=0,
+                    decision_counts={},
                     decision_previews=[],
                     skipped=[],
                     safety_counts=_safety_counts,
@@ -8651,10 +8658,20 @@ async def daily_plan_decision_preview(
             ))
             generated += 1
 
+    # Compute decision counts and approval/rejection tallies
+    _decision_counts: dict[str, int] = {}
+    for _p in decision_previews:
+        _decision_counts[_p.decision] = _decision_counts.get(_p.decision, 0) + 1
+    _approved_count = sum(1 for _p in decision_previews if _p.decision in ("BUY", "SELL"))
+    _rejected_count = sum(1 for _p in decision_previews if _p.decision == "REJECTED")
+
     return DailyPlanDecisionPreviewResponse(
         evaluated_signals=evaluated,
         previews_generated=generated,
+        approved_count=_approved_count,
+        rejected_count=_rejected_count,
         skipped_count=len(skipped_list),
+        decision_counts=_decision_counts,
         decision_previews=decision_previews,
         skipped=skipped_list,
         safety_counts=_safety_counts,

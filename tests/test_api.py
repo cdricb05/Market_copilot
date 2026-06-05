@@ -20067,3 +20067,167 @@ class TestDailyPlanDecisionPreviewBridgeEndpoint:
                 assert p1 == p2
         finally:
             self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 15: decision_counts / approved_count / rejected_count fields present
+    # ------------------------------------------------------------------
+    def test_decision_counts_and_approval_fields_present(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """decision_counts, approved_count, rejected_count are present and internally consistent."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        try:
+            r_cs = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            created = r_cs.json().get("created_signals", [])
+            sig_id = created[0]["signal_id"] if created else None
+
+            if sig_id:
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [sig_id]},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+
+                # New fields must exist
+                assert "decision_counts" in data
+                assert isinstance(data["decision_counts"], dict)
+                assert "approved_count" in data
+                assert "rejected_count" in data
+
+                # decision_counts sum must equal previews_generated
+                total_from_counts = sum(data["decision_counts"].values())
+                assert total_from_counts == data["previews_generated"]
+
+                # approved + rejected must not exceed previews_generated
+                assert data["approved_count"] + data["rejected_count"] <= data["previews_generated"]
+
+                # Each key in decision_counts is a valid DecisionType value
+                valid_decisions = {"BUY", "SELL", "HOLD", "REJECTED"}
+                for key in data["decision_counts"]:
+                    assert key in valid_decisions, f"Unexpected decision key: {key}"
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 16: mixed signals produce correct decision_counts
+    # ------------------------------------------------------------------
+    def test_mixed_signals_produce_correct_decision_counts(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Two DP BUY signals: decision_counts sums to previews_generated; counts are consistent."""
+        import uuid as _uuid
+        sfx1 = _uuid.uuid4().hex[:6].upper()
+        sfx2 = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand1, ticker1 = self._seed_buy_candidate(s, sfx1)
+            cand2, ticker2 = self._seed_buy_candidate(s, sfx2)
+            cand_id1 = str(cand1.id)
+            cand_id2 = str(cand2.id)
+            s.commit()
+
+        try:
+            r1 = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id1], "position_tickers": []},
+                headers=_AUTH,
+            )
+            r2 = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id2], "position_tickers": []},
+                headers=_AUTH,
+            )
+            sig_id1 = (r1.json().get("created_signals") or [{}])[0].get("signal_id")
+            sig_id2 = (r2.json().get("created_signals") or [{}])[0].get("signal_id")
+
+            if sig_id1 and sig_id2:
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [sig_id1, sig_id2]},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+
+                # decision_counts sum == previews_generated
+                total = sum(data["decision_counts"].values())
+                assert total == data["previews_generated"]
+
+                # approved_count + rejected_count does not exceed previews_generated
+                assert data["approved_count"] + data["rejected_count"] <= data["previews_generated"]
+
+                # skipped_count matches len(skipped)
+                assert data["skipped_count"] == len(data["skipped"])
+
+                # safety_counts all zero (including new db_rows_created)
+                sc = data["safety_counts"]
+                assert sc.get("signals_created", 0) == 0
+                assert sc.get("trade_decisions_created", 0) == 0
+                assert sc.get("orders_created", 0) == 0
+                assert sc.get("job_runs_created", 0) == 0
+                assert sc.get("db_rows_created", 0) == 0
+        finally:
+            self._cleanup(api_engine, [ticker1, ticker2])
+
+    # ------------------------------------------------------------------
+    # Test 17: existing Signal statuses are not modified by preview
+    # ------------------------------------------------------------------
+    def test_signal_statuses_unchanged_after_preview(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Preview endpoint does not update Signal.status on any evaluated signal."""
+        import uuid as _uuid, uuid as _uuid_inner
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        try:
+            r_cs = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            created = r_cs.json().get("created_signals", [])
+            sig_id = created[0]["signal_id"] if created else None
+
+            if sig_id:
+                # Confirm initial status is RECEIVED
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    sig_before = s.query(Signal).filter(
+                        Signal.id == _uuid_inner.UUID(sig_id)
+                    ).first()
+                    assert sig_before is not None
+                    status_before = sig_before.status
+
+                # Call preview endpoint
+                seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [sig_id]},
+                    headers=_AUTH,
+                )
+
+                # Status must be unchanged
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    sig_after = s.query(Signal).filter(
+                        Signal.id == _uuid_inner.UUID(sig_id)
+                    ).first()
+                    assert sig_after is not None
+                    assert sig_after.status == status_before
+        finally:
+            self._cleanup(api_engine, [ticker])
