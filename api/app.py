@@ -26,6 +26,7 @@ Endpoints:
     POST /v1/review/daily-plan-preview — consolidated daily plan: BUY/SELL/HOLD/ROTATION/BLOCKED (read-only)
     POST /v1/review/daily-plan-signal-preview — preview Signal rows from Daily Plan actions (PREVIEW ONLY, no DB writes)
     POST /v1/review/daily-plan-create-signals — create Signal rows from approved Daily Plan actions (confirmation required)
+    POST /v1/review/daily-plan-decision-preview — preview trade decisions from Daily Plan-created Signal rows (PREVIEW ONLY, no DB writes)
     POST /v1/review/daily-plan-replay-preview — historical daily plan replay/backtest preview (read-only)
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
 
@@ -1855,6 +1856,69 @@ class DailyPlanCreateSignalsResponse(BaseModel):
     automation_triggered: bool = False
     created_signals: list[DailyPlanCreatedSignalItem]
     skipped: list[DailyPlanCreateSignalsSkipped]
+    safety_note: str
+
+
+# ---------------------------------------------------------------------------
+# Daily Plan Decision Preview schemas (Phase 4L)
+# ---------------------------------------------------------------------------
+
+class DailyPlanDecisionPreviewRequest(BaseModel):
+    """Request to preview trade decisions from Daily Plan-created Signal rows."""
+    signal_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of signal IDs (UUIDs). If provided, only these signals are evaluated; non-Daily-Plan signals are skipped.",
+    )
+    latest_daily_plan_only: bool = Field(
+        default=True,
+        description="If true and signal_ids is not provided, evaluate only the most recent Daily Plan signal batch (by date in source_run).",
+    )
+    received_only: bool = Field(
+        default=True,
+        description="If true, only evaluate Signals with status='RECEIVED'.",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of signals to evaluate (default 50, max 100).",
+    )
+    dry_run: bool = Field(
+        default=True,
+        description="Always true — accepted for forward compatibility. This endpoint never writes to the database.",
+    )
+
+
+class DailyPlanDecisionPreviewItem(BaseModel):
+    """A decision preview item for a Daily Plan-created Signal."""
+    signal_id: str
+    ticker: str
+    side: str
+    confidence: str
+    decision: str
+    approved_qty: str
+    approved_notional: str
+    reason: str
+    risk_snapshot: dict[str, Any]
+    source_run: str
+
+
+class DailyPlanDecisionPreviewSkipped(BaseModel):
+    """A signal skipped during Daily Plan Decision Preview evaluation."""
+    signal_id: str
+    ticker: str
+    reason: str
+
+
+class DailyPlanDecisionPreviewResponse(BaseModel):
+    """Response from POST /v1/review/daily-plan-decision-preview (PREVIEW ONLY, no DB writes)."""
+    evaluated_signals: int
+    previews_generated: int
+    skipped_count: int
+    decision_previews: list[DailyPlanDecisionPreviewItem]
+    skipped: list[DailyPlanDecisionPreviewSkipped]
+    safety_counts: dict[str, int]
+    next_step: str
     safety_note: str
 
 
@@ -8435,6 +8499,167 @@ async def daily_plan_create_signals(
             "No TradeDecision, Order, or automation triggered. "
             "Next step: run Decision Preview manually to evaluate created signals."
         ),
+    )
+
+
+@app.post(
+    "/v1/review/daily-plan-decision-preview",
+    response_model=DailyPlanDecisionPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def daily_plan_decision_preview(
+    body: DailyPlanDecisionPreviewRequest,
+) -> DailyPlanDecisionPreviewResponse:
+    """
+    Preview trade decisions from Daily Plan-created Signal rows.
+
+    PREVIEW ONLY — no TradeDecision, Order, Signal, or JobRun rows are created.
+    Signal.status is NOT updated.
+
+    Daily Plan signals are identified by source_run prefix 'daily_plan_review_v1:'.
+    Non-Daily-Plan signals are rejected (skipped) even if their IDs are provided
+    via signal_ids.
+
+    When latest_daily_plan_only=True (default) and signal_ids is not provided,
+    evaluates only the most recent Daily Plan batch. The batch date is extracted
+    from the source_run format: 'daily_plan_review_v1:{ticker}:{side}:{date}'.
+
+    Returns safety_counts with all zeros as proof of no persistence.
+    """
+    import uuid as _uuid_mod
+
+    _DP_PREFIX = "daily_plan_review_v1:"
+
+    evaluated = 0
+    generated = 0
+    skipped_list: list[DailyPlanDecisionPreviewSkipped] = []
+    decision_previews: list[DailyPlanDecisionPreviewItem] = []
+
+    _safety_counts: dict[str, int] = {
+        "signals_created": 0,
+        "trade_decisions_created": 0,
+        "orders_created": 0,
+        "job_runs_created": 0,
+        "rows_created": 0,
+    }
+    _next_step = "Create trade decisions manually from approved signal previews."
+    _safety_note = (
+        "PREVIEW ONLY — no TradeDecision, Order, Signal, or JobRun rows created. "
+        "Evaluated only Daily Plan signals (source_run prefix: daily_plan_review_v1:)."
+    )
+
+    with get_session() as session:
+        eastern_now = datetime.now(_EASTERN)
+        market_date = eastern_now.date()
+        now = datetime.now(timezone.utc)
+
+        portfolio = get_portfolio(session)
+
+        # Build the Signal rows to evaluate
+        if body.signal_ids:
+            # Query by explicit signal IDs (UUIDs)
+            try:
+                signal_uuids = [_uuid_mod.UUID(sid) for sid in body.signal_ids]
+            except (ValueError, AttributeError):
+                return DailyPlanDecisionPreviewResponse(
+                    evaluated_signals=0,
+                    previews_generated=0,
+                    skipped_count=0,
+                    decision_previews=[],
+                    skipped=[],
+                    safety_counts=_safety_counts,
+                    next_step=_next_step,
+                    safety_note=_safety_note,
+                )
+            rows = session.query(Signal).filter(
+                Signal.id.in_(signal_uuids)
+            ).limit(body.limit).all()
+        else:
+            # Query all Daily Plan signals ordered newest first
+            query = session.query(Signal).filter(
+                Signal.source_run.startswith(_DP_PREFIX)
+            )
+            if body.received_only:
+                query = query.filter(Signal.status == "RECEIVED")
+            rows = query.order_by(Signal.signal_ts.desc()).limit(body.limit).all()
+
+            # latest_daily_plan_only: keep only signals from the most recent date
+            if body.latest_daily_plan_only and rows:
+                date_strs: set[str] = set()
+                for sig in rows:
+                    parts = sig.source_run.split(":")
+                    if len(parts) >= 4:
+                        date_strs.add(parts[-1])
+                if date_strs:
+                    latest_date_str = max(date_strs)
+                    rows = [
+                        s for s in rows
+                        if len(s.source_run.split(":")) >= 4
+                        and s.source_run.split(":")[-1] == latest_date_str
+                    ]
+
+        # Evaluate each signal
+        for signal in rows:
+            evaluated += 1
+            signal_id_str = str(signal.id)
+
+            # Reject non-Daily-Plan signals (even when explicitly listed via signal_ids)
+            if not signal.source_run.startswith(_DP_PREFIX):
+                skipped_list.append(DailyPlanDecisionPreviewSkipped(
+                    signal_id=signal_id_str,
+                    ticker=signal.ticker,
+                    reason=f"Not a Daily Plan signal: source_run='{signal.source_run}'",
+                ))
+                continue
+
+            # Apply received_only check on the signal_ids path (SQL path already filtered)
+            if body.signal_ids and body.received_only and signal.status != "RECEIVED":
+                skipped_list.append(DailyPlanDecisionPreviewSkipped(
+                    signal_id=signal_id_str,
+                    ticker=signal.ticker,
+                    reason=f"Signal status is {signal.status}, expected RECEIVED",
+                ))
+                continue
+
+            # Fetch latest price for risk evaluation (no DB write)
+            snapshot_price = _latest_price(session, signal.ticker)
+
+            # Evaluate via risk engine — pure function, no DB writes
+            rd = evaluate_signal(
+                session,
+                portfolio=portfolio,
+                direction=signal.direction,
+                ticker=signal.ticker,
+                confidence=signal.confidence,
+                snapshot_price=snapshot_price,
+                market_date=market_date,
+                now=now,
+            )
+
+            decision_previews.append(DailyPlanDecisionPreviewItem(
+                signal_id=signal_id_str,
+                ticker=signal.ticker,
+                side=signal.direction,
+                confidence=str(signal.confidence),
+                decision=rd.decision,
+                approved_qty=str(rd.approved_qty),
+                approved_notional=str(rd.approved_notional),
+                reason=f"Preview only: would create {rd.decision} decision from Daily Plan signal.",
+                risk_snapshot=rd.risk_snapshot,
+                source_run=signal.source_run,
+            ))
+            generated += 1
+
+    return DailyPlanDecisionPreviewResponse(
+        evaluated_signals=evaluated,
+        previews_generated=generated,
+        skipped_count=len(skipped_list),
+        decision_previews=decision_previews,
+        skipped=skipped_list,
+        safety_counts=_safety_counts,
+        next_step=_next_step,
+        safety_note=_safety_note,
     )
 
 

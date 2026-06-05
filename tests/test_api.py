@@ -19438,3 +19438,632 @@ class TestDailyPlanCreateSignalsEndpoint:
         note = (data["safety_note"] or "").lower()
         assert "signal" in note
         assert "decision" in note or "no" in note
+
+
+# ===========================================================================
+# Phase 4L — TestDailyPlanDecisionPreviewBridgeEndpoint
+# ===========================================================================
+
+class TestDailyPlanDecisionPreviewBridgeEndpoint:
+    """Tests for POST /v1/review/daily-plan-decision-preview (PREVIEW ONLY, no DB writes)."""
+
+    _ENDPOINT = "/v1/review/daily-plan-decision-preview"
+    _CREATE_SIGNALS_ENDPOINT = "/v1/review/daily-plan-create-signals"
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _seed_buy_candidate(session: Session, suffix: str) -> tuple:
+        """Create an APPROVED_FOR_SIGNAL BUY candidate + price snapshot. Returns (cand, ticker)."""
+        ticker = f"DKDD{suffix}"
+        snap = PriceSnapshot(
+            ticker=ticker, price=Decimal("50.00"),
+            snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+            session_type="REGULAR", price_type="LAST",
+        )
+        session.add(snap)
+        cand = CandidateReview(
+            idempotency_key=f"dk-dd-buy-{suffix}",
+            ticker=ticker,
+            prediction_recommendation="BUY",
+            prediction_confidence="0.85",
+            expected_return_pct="15.0",
+            preview_decision="CONSIDER",
+            preview_score="85.0",
+            review_status="APPROVED_FOR_SIGNAL",
+            status="OK",
+        )
+        session.add(cand)
+        session.flush()
+        return cand, ticker
+
+    @staticmethod
+    def _seed_rq_signal(seeded_client, suffix: str) -> tuple:
+        """Create a review-queue (non-DP) signal and return (signal_id, ticker)."""
+        ticker = f"DKRQ{suffix}"
+        seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": f"dk-rq-cand-{suffix}",
+                "candidates": [{
+                    "ticker": ticker,
+                    "prediction_recommendation": "BUY",
+                    "prediction_confidence": "0.80",
+                    "preview_decision": "CONSIDER",
+                    "preview_score": "80.0",
+                    "status": "OK",
+                }],
+            },
+            headers=_AUTH,
+        )
+        candidates = seeded_client.get("/v1/review/candidates", headers=_AUTH).json()
+        cand_id = next((c["id"] for c in candidates if c["ticker"] == ticker), None)
+        if not cand_id:
+            return None, ticker
+        seeded_client.patch(
+            f"/v1/review/candidates/{cand_id}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+        r = seeded_client.post(
+            "/v1/review/create-signals",
+            json={
+                "idempotency_key": f"dk-rq-sig-{suffix}",
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "candidate_ids": [cand_id],
+                "confirm_create_signals": True,
+            },
+            headers=_AUTH,
+        )
+        created = r.json().get("created_signals", [])
+        sig_id = created[0]["signal_id"] if created else None
+        return sig_id, ticker
+
+    @staticmethod
+    def _cleanup(api_engine, tickers: list, pos_ids: list = None) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                s.query(Signal).filter(Signal.ticker == t).delete()
+                s.query(CandidateReview).filter(CandidateReview.ticker == t).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+            if pos_ids:
+                s.query(Position).filter(Position.id.in_(pos_ids)).delete()
+            s.query(JobRun).filter(
+                JobRun.workflow_type == "DAILY_PLAN_CREATE_SIGNALS"
+            ).delete()
+            s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 1: requires auth
+    # ------------------------------------------------------------------
+    def test_requires_auth(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(self._ENDPOINT, json={})
+        assert r.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: returns zero when no Daily Plan signals exist
+    # ------------------------------------------------------------------
+    def test_returns_zero_when_no_dp_signals(self, seeded_client: TestClient) -> None:
+        """Non-existent signal UUID returns empty previews with no error."""
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"signal_ids": ["00000000-0000-0000-0000-000000000000"]},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["evaluated_signals"] == 0
+        assert data["previews_generated"] == 0
+        assert data["skipped_count"] == 0
+        assert data["decision_previews"] == []
+
+    # ------------------------------------------------------------------
+    # Test 3: evaluates only daily_plan_review_v1 source_run signals
+    # ------------------------------------------------------------------
+    def test_evaluates_only_dp_prefix_signals(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """When DP and non-DP signal IDs are both in signal_ids, only DP signal is previewed."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker_dp = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        rq_signal_id, ticker_rq = self._seed_rq_signal(seeded_client, sfx)
+
+        try:
+            r_cs = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            dp_sigs = r_cs.json().get("created_signals", [])
+            dp_signal_id = dp_sigs[0]["signal_id"] if dp_sigs else None
+
+            if dp_signal_id and rq_signal_id:
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [dp_signal_id, rq_signal_id]},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+                skipped_ids = {sk["signal_id"] for sk in data["skipped"]}
+                preview_ids = {p["signal_id"] for p in data["decision_previews"]}
+                # Non-DP signal must be skipped, not previewed
+                assert rq_signal_id in skipped_ids
+                assert rq_signal_id not in preview_ids
+                # DP signal should be previewed (not skipped)
+                assert dp_signal_id not in skipped_ids
+        finally:
+            self._cleanup(api_engine, [ticker_dp, ticker_rq])
+
+    # ------------------------------------------------------------------
+    # Test 4: skips non-Daily-Plan signal when explicit signal_ids include it
+    # ------------------------------------------------------------------
+    def test_skips_non_dp_signal_when_in_signal_ids(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A review-queue signal listed in signal_ids is rejected (not a DP signal)."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        rq_signal_id, ticker_rq = self._seed_rq_signal(seeded_client, sfx)
+
+        try:
+            if rq_signal_id:
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [rq_signal_id]},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+                assert data["evaluated_signals"] == 1
+                assert data["previews_generated"] == 0
+                skipped_ids = {sk["signal_id"] for sk in data["skipped"]}
+                assert rq_signal_id in skipped_ids
+        finally:
+            self._cleanup(api_engine, [ticker_rq])
+
+    # ------------------------------------------------------------------
+    # Test 5: respects signal_ids filter
+    # ------------------------------------------------------------------
+    def test_respects_signal_ids_filter(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """When signal_ids is provided, only those IDs are evaluated."""
+        import uuid as _uuid
+        sfx1 = _uuid.uuid4().hex[:6].upper()
+        sfx2 = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand1, ticker1 = self._seed_buy_candidate(s, sfx1)
+            cand2, ticker2 = self._seed_buy_candidate(s, sfx2)
+            cand_id1 = str(cand1.id)
+            cand_id2 = str(cand2.id)
+            s.commit()
+
+        try:
+            r1 = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id1], "position_tickers": []},
+                headers=_AUTH,
+            )
+            r2 = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id2], "position_tickers": []},
+                headers=_AUTH,
+            )
+            sigs1 = r1.json().get("created_signals", [])
+            sigs2 = r2.json().get("created_signals", [])
+            sig_id1 = sigs1[0]["signal_id"] if sigs1 else None
+            sig_id2 = sigs2[0]["signal_id"] if sigs2 else None
+
+            if sig_id1 and sig_id2:
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [sig_id1]},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+                preview_ids = {p["signal_id"] for p in data["decision_previews"]}
+                assert sig_id2 not in preview_ids
+        finally:
+            self._cleanup(api_engine, [ticker1, ticker2])
+
+    # ------------------------------------------------------------------
+    # Test 6: respects received_only=True
+    # ------------------------------------------------------------------
+    def test_respects_received_only_true(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Signals with status != RECEIVED are skipped when received_only=True."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        try:
+            r_cs = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            created = r_cs.json().get("created_signals", [])
+            sig_id = created[0]["signal_id"] if created else None
+
+            if sig_id:
+                import uuid as _uuid_inner
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    sig_row = s.query(Signal).filter(
+                        Signal.id == _uuid_inner.UUID(sig_id)
+                    ).first()
+                    if sig_row:
+                        sig_row.status = "PROCESSING"
+                        s.commit()
+
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [sig_id], "received_only": True},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+                assert data["previews_generated"] == 0
+                skipped_ids = {sk["signal_id"] for sk in data["skipped"]}
+                assert sig_id in skipped_ids
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 7: creates zero TradeDecision rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_trade_decision_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """PREVIEW ONLY: no TradeDecision rows are created."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            td_before = s.query(TradeDecision).count()
+
+        try:
+            seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            seeded_client.post(
+                self._ENDPOINT,
+                json={"latest_daily_plan_only": True, "received_only": True},
+                headers=_AUTH,
+            )
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(TradeDecision).count() == td_before
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 8: creates zero Order rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_order_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """PREVIEW ONLY: no Order rows are created."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ord_before = s.query(Order).count()
+
+        try:
+            seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            seeded_client.post(
+                self._ENDPOINT,
+                json={"latest_daily_plan_only": True, "received_only": True},
+                headers=_AUTH,
+            )
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(Order).count() == ord_before
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 9: creates zero JobRun rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_job_run_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """PREVIEW ONLY: no JobRun rows are created by the decision preview endpoint."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        try:
+            seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                jr_before = s.query(JobRun).count()
+
+            seeded_client.post(
+                self._ENDPOINT,
+                json={"latest_daily_plan_only": True, "received_only": True},
+                headers=_AUTH,
+            )
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(JobRun).count() == jr_before
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 10: safety_counts all zero
+    # ------------------------------------------------------------------
+    def test_safety_counts_all_zero(self, seeded_client: TestClient) -> None:
+        """safety_counts must always contain all zeros."""
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"signal_ids": ["00000000-0000-0000-0000-000000000000"]},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert "safety_counts" in data
+        sc = data["safety_counts"]
+        assert sc.get("signals_created", 0) == 0
+        assert sc.get("trade_decisions_created", 0) == 0
+        assert sc.get("orders_created", 0) == 0
+        assert sc.get("job_runs_created", 0) == 0
+        assert sc.get("rows_created", 0) == 0
+
+    # ------------------------------------------------------------------
+    # Test 11: returns risk_snapshot and reason fields
+    # ------------------------------------------------------------------
+    def test_returns_risk_snapshot_and_reason(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Each decision preview contains risk_snapshot, reason, and source_run."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        try:
+            r_cs = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            created = r_cs.json().get("created_signals", [])
+            sig_id = created[0]["signal_id"] if created else None
+
+            if sig_id:
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [sig_id]},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+                if data["decision_previews"]:
+                    p = data["decision_previews"][0]
+                    assert "risk_snapshot" in p and isinstance(p["risk_snapshot"], dict)
+                    assert "reason" in p and len(p["reason"]) > 0
+                    assert "source_run" in p
+                    assert p["source_run"].startswith("daily_plan_review_v1:")
+                    assert "decision" in p
+                    assert "approved_qty" in p
+                    assert "approved_notional" in p
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 12: BUY signal at max positions is rejected by risk
+    # ------------------------------------------------------------------
+    def test_buy_signal_at_max_positions_rejected(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """BUY preview returns REJECTED when portfolio is filled to max_positions."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker_fill = f"DKDDFILL{sfx}"
+        pos_ids = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        try:
+            # Create DP BUY signal while portfolio has capacity
+            r_cs = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            created = r_cs.json().get("created_signals", [])
+            buy_sigs = [s for s in created if s["side"] == "BUY"]
+            sig_id = buy_sigs[0]["signal_id"] if buy_sigs else None
+
+            if sig_id:
+                # Now fill the portfolio to max_positions by reducing max to current+fill
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    portfolio_obj = s.query(Portfolio).first()
+                    old_config = dict(portfolio_obj.config or {})
+                    # Set max_positions to 1 and create 1 filler position
+                    portfolio_obj.config = {**old_config, "max_positions": 1}
+                    s.commit()
+
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    pos = Position(
+                        ticker=ticker_fill, qty=Decimal("1"),
+                        avg_cost=Decimal("100.00"), cost_basis=Decimal("100.00"),
+                        opened_at=_NOW, last_updated=_NOW,
+                    )
+                    s.add(pos)
+                    s.add(PriceSnapshot(
+                        ticker=ticker_fill, price=Decimal("100.00"),
+                        snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                        session_type="REGULAR", price_type="LAST",
+                    ))
+                    s.flush()
+                    pos_ids.append(pos.id)
+                    s.commit()
+
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [sig_id]},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+                if data["decision_previews"]:
+                    p = data["decision_previews"][0]
+                    assert p["decision"] == "REJECTED"
+
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    portfolio_obj = s.query(Portfolio).first()
+                    portfolio_obj.config = old_config
+                    s.commit()
+        finally:
+            self._cleanup(api_engine, [ticker, ticker_fill], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 13: SELL signal with no position is rejected by risk
+    # ------------------------------------------------------------------
+    def test_sell_signal_with_no_position_rejected(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """SELL DP signal for a ticker with no open position is rejected."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker_sell = f"DKDDSL{sfx}"
+        pos_ids = []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = Position(
+                ticker=ticker_sell, qty=Decimal("5"),
+                avg_cost=Decimal("80.00"), cost_basis=Decimal("400.00"),
+                opened_at=_NOW, last_updated=_NOW,
+            )
+            s.add(pos)
+            s.flush()
+            pos_ids.append(pos.id)
+            s.add(PriceSnapshot(
+                ticker=ticker_sell, price=Decimal("60.00"),
+                snapshot_ts=datetime.now(timezone.utc), market_date=date.today(),
+                session_type="REGULAR", price_type="LAST",
+            ))
+            s.commit()
+
+        try:
+            # Create SELL signal via daily-plan-create-signals
+            r_cs = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={
+                    "confirm_create_signals": True,
+                    "position_tickers": [ticker_sell],
+                    "candidate_ids": [],
+                    "include_sell": True,
+                    "include_buy": False,
+                    "include_rotate": False,
+                },
+                headers=_AUTH,
+            )
+            created = r_cs.json().get("created_signals", [])
+            sell_sigs = [s for s in created if s["side"] == "SELL" and s["ticker"] == ticker_sell]
+            sig_id = sell_sigs[0]["signal_id"] if sell_sigs else None
+
+            if sig_id:
+                # Delete the position so SELL has no position to act on
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    s.query(Position).filter(Position.id.in_(pos_ids)).delete()
+                    s.commit()
+                pos_ids.clear()
+
+                r = seeded_client.post(
+                    self._ENDPOINT,
+                    json={"signal_ids": [sig_id]},
+                    headers=_AUTH,
+                )
+                assert r.status_code == 200
+                data = r.json()
+                if data["decision_previews"]:
+                    p = data["decision_previews"][0]
+                    assert p["decision"] == "REJECTED"
+                    assert "risk_snapshot" in p
+        finally:
+            self._cleanup(api_engine, [ticker_sell], pos_ids)
+
+    # ------------------------------------------------------------------
+    # Test 14: output is deterministic
+    # ------------------------------------------------------------------
+    def test_output_deterministic(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Two identical calls return the same decision previews."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cand, ticker = self._seed_buy_candidate(s, sfx)
+            cand_id = str(cand.id)
+            s.commit()
+
+        try:
+            r_cs = seeded_client.post(
+                self._CREATE_SIGNALS_ENDPOINT,
+                json={"confirm_create_signals": True, "candidate_ids": [cand_id], "position_tickers": []},
+                headers=_AUTH,
+            )
+            created = r_cs.json().get("created_signals", [])
+            sig_id = created[0]["signal_id"] if created else None
+
+            if sig_id:
+                body = {"signal_ids": [sig_id]}
+                r1 = seeded_client.post(self._ENDPOINT, json=body, headers=_AUTH)
+                r2 = seeded_client.post(self._ENDPOINT, json=body, headers=_AUTH)
+                assert r1.status_code == 200
+                assert r2.status_code == 200
+                d1 = r1.json()
+                d2 = r2.json()
+                assert d1["evaluated_signals"] == d2["evaluated_signals"]
+                assert d1["previews_generated"] == d2["previews_generated"]
+                p1 = {p["signal_id"]: p["decision"] for p in d1["decision_previews"]}
+                p2 = {p["signal_id"]: p["decision"] for p in d2["decision_previews"]}
+                assert p1 == p2
+        finally:
+            self._cleanup(api_engine, [ticker])

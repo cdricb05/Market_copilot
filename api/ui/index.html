@@ -4618,9 +4618,10 @@ async function createSignalsFromDailyPlan(btn) {
 
     const _safetyNote = data.safety_note || 'Signal rows created. No decisions or orders.';
     html += `<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">Signals: ${escapeHtml(String(data.signals_created))} created, ${escapeHtml(String(data.already_existed || 0))} existed | Decisions: 0 | Orders: 0 | Automation: off</div>`;
-    if ((data.signals_created || 0) > 0) {
-      html += '<div style="margin-top: 6px; padding: 6px 8px; background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.2); border-radius: 3px; font-size: 10px; color: var(--info);">Next step: Run Decision Preview manually to evaluate the created signals.</div>';
-    }
+    html += '<div style="margin-top: 8px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 8px;">';
+    html += '<button class="btn-sm" onclick="previewDecisionsFromDailyPlanSignals(this)" style="background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.4);">Preview Decisions From Daily Plan Signals</button>';
+    html += '</div>';
+    html += '<div id="daily-plan-decision-preview-result" style="margin-top: 8px;"></div>';
     resultEl.innerHTML = html;
   } catch (e) {
     resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
@@ -4628,6 +4629,105 @@ async function createSignalsFromDailyPlan(btn) {
     if (btn) btn.disabled = false;
     const _cb = document.getElementById('daily-plan-confirm-checkbox');
     if (_cb) _cb.disabled = false;
+  }
+}
+
+async function previewDecisionsFromDailyPlanSignals(btn) {
+  const resultEl = document.getElementById('daily-plan-decision-preview-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<div style="color: var(--warning); font-size: 11px; padding: 6px 0;">Loading decision previews...</div>';
+  try {
+    const r = await call('POST', '/v1/review/daily-plan-decision-preview', {
+      latest_daily_plan_only: true,
+      received_only: true,
+      limit: 50,
+    });
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : `HTTP ${r.status}`);
+
+    let html = '';
+
+    // Safety badges
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 3px; font-size: 10px;">';
+    html += '<span style="background: rgba(34,197,94,.12); color: var(--ok); padding: 1px 6px; border-radius: 2px; font-weight: 700;">PREVIEW ONLY</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">NO TRADE DECISIONS CREATED</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">NO ORDERS</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">AUTOMATION OFF</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">MANUAL REVIEW</span>';
+    html += '</div>';
+
+    // Stats row
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.evaluated_signals || 0))}</span>`;
+    const _prvColor = (data.previews_generated || 0) > 0 ? 'rgba(34,197,94,.1)' : 'rgba(255,255,255,.07)';
+    const _prvStyle = (data.previews_generated || 0) > 0 ? 'color: var(--ok); font-weight: 600;' : '';
+    html += `<span style="background: ${_prvColor}; padding: 2px 7px; border-radius: 3px; font-size: 10px; ${_prvStyle}">Previews: ${escapeHtml(String(data.previews_generated || 0))}</span>`;
+    if ((data.skipped_count || 0) > 0) {
+      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ${escapeHtml(String(data.skipped_count))}</span>`;
+    }
+    const _approvedCount = (data.decision_previews || []).filter(p => p.decision === 'APPROVE').length;
+    const _rejectedCount = (data.decision_previews || []).filter(p => p.decision !== 'APPROVE').length;
+    if (_approvedCount > 0) {
+      html += `<span style="background: rgba(34,197,94,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok); font-weight: 600;">Approved by risk: ${_approvedCount}</span>`;
+    }
+    if (_rejectedCount > 0) {
+      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Rejected by risk: ${_rejectedCount}</span>`;
+    }
+    html += '</div>';
+
+    // Decision preview table
+    if (data.decision_previews && data.decision_previews.length > 0) {
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 6px;">';
+      html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Ticker</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Side</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Conf</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Decision</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Qty</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Notional</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Reason</th>';
+      html += '</tr></thead><tbody>';
+      for (const p of data.decision_previews) {
+        const sideColor = p.side === 'BUY' ? 'var(--ok)' : 'var(--label)';
+        const decColor = p.decision === 'APPROVE' ? 'var(--ok)' : p.decision === 'REJECT' ? 'var(--danger)' : 'var(--warning)';
+        const confVal = parseFloat(p.confidence);
+        const confStr = isNaN(confVal) ? '-' : (confVal * 100).toFixed(0) + '%';
+        const notional = parseFloat(p.approved_notional);
+        const notionalStr = isNaN(notional) ? '-' : '$' + notional.toFixed(0);
+        html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+        html += `<td style="padding: 4px 5px; font-weight: 600; color: var(--ok);">${escapeHtml(p.ticker)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${sideColor}; font-weight: 600;">${escapeHtml(p.side)}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(confStr)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${decColor}; font-weight: 600; font-size: 9px;">${escapeHtml(p.decision)}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(String(p.approved_qty))}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(notionalStr)}</td>`;
+        html += `<td style="padding: 4px 5px; font-size: 9px; color: var(--text-secondary);">${escapeHtml(p.reason || '')}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    } else {
+      html += '<div style="font-size: 11px; color: var(--text-secondary); padding: 4px 0;">No decision previews available. Ensure Daily Plan signals have been created and have status RECEIVED.</div>';
+    }
+
+    // Skipped
+    if (data.skipped && data.skipped.length > 0) {
+      html += '<div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px; margin-bottom: 2px;">Skipped:</div>';
+      for (const sk of data.skipped) {
+        html += `<div style="font-size: 10px; color: var(--danger); margin-bottom: 2px;">${escapeHtml(sk.ticker)}: ${escapeHtml(sk.reason || '')}</div>`;
+      }
+    }
+
+    // Safety note
+    if (data.safety_note) {
+      html += `<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">${escapeHtml(data.safety_note)}</div>`;
+    }
+
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
