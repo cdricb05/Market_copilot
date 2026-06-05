@@ -1673,6 +1673,21 @@ class DailyPlanCalibratedRotationContext(BaseModel):
     fallback_reason: str | None = None
 
 
+class DailyPlanProfileDecisionContext(BaseModel):
+    """Scoring profile decision context embedded in Daily Plan (PREVIEW ONLY, no DB writes)."""
+    requested_scoring_profile: str
+    resolved_scoring_profile: str
+    profile_source: str  # "explicit_request" or "calibration_recommended"
+    replay_supported: bool
+    replay_recommendation: str | None = None
+    replay_confidence_level: str | None = None
+    replay_dates_evaluated: int | None = None
+    replay_avg_vs_spy_pct: float | None = None
+    replay_win_rate_pct: float | None = None
+    replay_blockers: list[str] = Field(default_factory=list)
+    safety_note: str
+
+
 class DailyPlanPreviewResponse(BaseModel):
     """Response from daily plan preview endpoint (PREVIEW ONLY, no database writes)."""
     as_of: datetime
@@ -1689,6 +1704,7 @@ class DailyPlanPreviewResponse(BaseModel):
     safety_counts: DailyPlanSafetyCounts
     capital_allocation: CapitalAllocationAnalysis | None = None
     calibrated_rotation_context: DailyPlanCalibratedRotationContext | None = None
+    profile_decision_context: DailyPlanProfileDecisionContext | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -7333,6 +7349,56 @@ async def daily_plan_preview(
                     fallback_reason=f"Calibrated rotation unavailable: {_crw_exc}",
                 )
 
+        # 5c. Build profile decision context (advisory summary, PREVIEW ONLY, no DB writes)
+        _pdc_blockers: list[str] = []
+        if _crw_ctx is None:
+            _pdc_replay_supported = False
+            _pdc_resolved = body.scoring_profile if body.scoring_profile != "calibration_recommended" else "current"
+            _pdc_rec_profile: str | None = None
+            _pdc_confidence: str | None = None
+            _pdc_blockers.append("CALIBRATED_ROTATION_DISABLED")
+        elif not _crw_ctx.enabled or _crw_ctx.fallback_used:
+            _pdc_replay_supported = False
+            _pdc_resolved = _crw_ctx.scoring_profile_used
+            _pdc_rec_profile = _crw_ctx.calibration_recommended_profile
+            _pdc_confidence = _crw_ctx.calibration_confidence
+            _pdc_blockers.append(
+                _crw_ctx.fallback_reason if _crw_ctx.fallback_reason else "CALIBRATION_UNAVAILABLE"
+            )
+        else:
+            _pdc_replay_supported = True
+            _pdc_resolved = _crw_ctx.scoring_profile_used
+            _pdc_rec_profile = _crw_ctx.calibration_recommended_profile
+            _pdc_confidence = _crw_ctx.calibration_confidence
+            if _crw_ctx.calibration_warning_count > 0:
+                _pdc_blockers.append("CALIBRATION_WARNINGS_PRESENT")
+            if _crw_ctx.calibration_confidence == "LOW":
+                _pdc_blockers.append("LOW_CALIBRATION_CONFIDENCE")
+        _pdc_blockers.append(
+            "REPLAY_METRICS_NOT_COMPUTED_IN_DAILY_PLAN: use Profile Comparison panel for win rate and vs-SPY data"
+        )
+        _pdc_profile_source = (
+            "calibration_recommended" if body.scoring_profile == "calibration_recommended"
+            else "explicit_request"
+        )
+        _profile_decision_context = DailyPlanProfileDecisionContext(
+            requested_scoring_profile=body.scoring_profile,
+            resolved_scoring_profile=_pdc_resolved,
+            profile_source=_pdc_profile_source,
+            replay_supported=_pdc_replay_supported,
+            replay_recommendation=_pdc_rec_profile,
+            replay_confidence_level=_pdc_confidence,
+            replay_dates_evaluated=None,
+            replay_avg_vs_spy_pct=None,
+            replay_win_rate_pct=None,
+            replay_blockers=_pdc_blockers,
+            safety_note=(
+                "PREVIEW ONLY — no signals, decisions, or orders created. "
+                "Profile selection is advisory. Use the Replay Profile Comparison panel "
+                "for detailed win-rate and vs-SPY evidence before trading."
+            ),
+        )
+
         # 6. Recommended next action
         good_rotations = [r for r in rotation_plan if r.meets_threshold]
         cap_blocked_count = sum(1 for a in blocked_actions if a.action == "BUY" and a.blocked_reason == "MAX_POSITIONS_REACHED")
@@ -7741,6 +7807,7 @@ async def daily_plan_preview(
         ),
         capital_allocation=capital_allocation,
         calibrated_rotation_context=_crw_ctx,
+        profile_decision_context=_profile_decision_context,
     )
 
 

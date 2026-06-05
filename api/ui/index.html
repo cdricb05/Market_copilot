@@ -3988,6 +3988,42 @@ function renderDailyPlanResult(data, el) {
     html += '</div>';
   }
 
+  // Scoring Profile Decision card
+  const pdc = data.profile_decision_context;
+  if (pdc) {
+    const pdcSrc = pdc.profile_source === 'calibration_recommended' ? 'Calibration Recommended' : 'Explicit Request';
+    const pdcConfColor = pdc.replay_confidence_level === 'HIGH' ? 'var(--ok)' : pdc.replay_confidence_level === 'MEDIUM' ? 'var(--warning)' : 'var(--text-secondary)';
+    const pdcBg = pdc.replay_supported ? 'rgba(59,130,246,.05)' : 'rgba(255,255,255,.02)';
+    const pdcBorder = pdc.replay_supported ? 'rgba(59,130,246,.3)' : 'rgba(255,255,255,.1)';
+    html += `<div style="background:${pdcBg}; border:1px solid ${pdcBorder}; border-radius:3px; padding:10px 14px; margin-bottom:12px;">`;
+    html += '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">';
+    html += '<div style="font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-secondary);">Scoring Profile Decision</div>';
+    html += '<div style="font-size:9px; color:var(--text-secondary); background:rgba(239,68,68,.12); border:1px solid rgba(239,68,68,.3); padding:1px 6px; border-radius:2px; font-weight:700; letter-spacing:0.06em;">PREVIEW ONLY &mdash; NO SIGNALS &mdash; NO ORDERS</div>';
+    html += '</div>';
+    html += '<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;">';
+    html += `<span style="font-size:10px; background:rgba(255,255,255,.07); padding:2px 7px; border-radius:2px;">Requested: <strong>${escapeHtml(pdc.requested_scoring_profile)}</strong></span>`;
+    html += `<span style="font-size:10px; background:rgba(255,255,255,.07); padding:2px 7px; border-radius:2px;">Resolved: <strong style="color:var(--ok);">${escapeHtml(pdc.resolved_scoring_profile)}</strong></span>`;
+    html += `<span style="font-size:10px; background:rgba(255,255,255,.07); padding:2px 7px; border-radius:2px;">Source: <strong>${escapeHtml(pdcSrc)}</strong></span>`;
+    if (pdc.replay_confidence_level) {
+      html += `<span style="font-size:10px; background:rgba(255,255,255,.07); padding:2px 7px; border-radius:2px;">Confidence: <strong style="color:${pdcConfColor};">${escapeHtml(pdc.replay_confidence_level)}</strong></span>`;
+    }
+    if (pdc.replay_recommendation) {
+      html += `<span style="font-size:10px; background:rgba(59,130,246,.1); padding:2px 7px; border-radius:2px; color:var(--info);">Recommended: <strong>${escapeHtml(pdc.replay_recommendation)}</strong></span>`;
+    }
+    html += '</div>';
+    if (pdc.replay_blockers && pdc.replay_blockers.length > 0) {
+      const visibleBlockers = pdc.replay_blockers.filter(b => !b.startsWith('REPLAY_METRICS_NOT_COMPUTED'));
+      if (visibleBlockers.length > 0) {
+        html += '<div style="font-size:10px; color:var(--warning); margin-bottom:4px;">';
+        html += visibleBlockers.map(b => `<span style="background:rgba(251,191,36,.08); padding:1px 5px; border-radius:2px; margin-right:4px;">${escapeHtml(b)}</span>`).join('');
+        html += '</div>';
+      }
+    }
+    html += `<div style="font-size:9px; color:var(--text-secondary); margin-top:4px; opacity:0.8;">${escapeHtml(pdc.safety_note)}</div>`;
+    html += '<div style="font-size:9px; color:var(--text-secondary); margin-top:2px; opacity:0.65;">For win rate and vs-SPY evidence, use the Replay Profile Comparison panel.</div>';
+    html += '</div>';
+  }
+
   // Action stack
   if (data.action_stack && data.action_stack.length > 0) {
     const ACTION_COLORS = {

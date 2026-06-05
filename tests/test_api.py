@@ -15674,6 +15674,147 @@ class TestDailyPlanPreviewEndpoint:
         ]:
             assert field in data, f"Missing field: {field}"
 
+    # ------------------------------------------------------------------
+    # Phase 4J: profile_decision_context tests
+    # ------------------------------------------------------------------
+
+    def test_4j_profile_decision_context_present(self, seeded_client: TestClient) -> None:
+        """profile_decision_context is present in the Daily Plan response."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "profile_decision_context" in data, "profile_decision_context missing from response"
+        pdc = data["profile_decision_context"]
+        assert pdc is not None
+        for key in [
+            "requested_scoring_profile", "resolved_scoring_profile", "profile_source",
+            "replay_supported", "replay_blockers", "safety_note",
+        ]:
+            assert key in pdc, f"profile_decision_context missing key: {key}"
+
+    def test_4j_profile_source_explicit_request(self, seeded_client: TestClient) -> None:
+        """When scoring_profile='current', profile_source is 'explicit_request'."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "scoring_profile": "current"},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        pdc = response.json()["profile_decision_context"]
+        assert pdc["requested_scoring_profile"] == "current"
+        assert pdc["profile_source"] == "explicit_request"
+        assert pdc["resolved_scoring_profile"] == "current"
+
+    def test_4j_profile_source_calibration_recommended(self, seeded_client: TestClient) -> None:
+        """When scoring_profile='calibration_recommended', profile_source is 'calibration_recommended'."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "scoring_profile": "calibration_recommended"},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        pdc = response.json()["profile_decision_context"]
+        assert pdc["requested_scoring_profile"] == "calibration_recommended"
+        assert pdc["profile_source"] == "calibration_recommended"
+        # resolved_scoring_profile must be one of the concrete profiles
+        _valid = {"current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
+        assert pdc["resolved_scoring_profile"] in _valid, (
+            f"resolved_scoring_profile not a concrete profile: {pdc['resolved_scoring_profile']!r}"
+        )
+
+    def test_4j_invalid_scoring_profile_rejected(self, seeded_client: TestClient) -> None:
+        """An invalid scoring_profile value is rejected with 422."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "scoring_profile": "invalid_profile_xyz"},
+            headers=_AUTH,
+        )
+        assert response.status_code == 422
+
+    def test_4j_zero_safety_counts(self, seeded_client: TestClient) -> None:
+        """profile_decision_context is present and safety_counts are still all zero."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["profile_decision_context"] is not None
+        sc = data["safety_counts"]
+        assert sc["signals_created"]         == 0
+        assert sc["trade_decisions_created"] == 0
+        assert sc["orders_created"]          == 0
+        assert sc["job_runs_created"]        == 0
+        assert sc["db_rows_created"]         == 0
+
+    def test_4j_context_present_when_no_candidates(self, seeded_client: TestClient) -> None:
+        """profile_decision_context is still populated when candidate_ids=[] (no approved candidates)."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "position_tickers": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["profile_decision_context"] is not None
+        pdc = data["profile_decision_context"]
+        assert pdc["requested_scoring_profile"] is not None
+        assert pdc["resolved_scoring_profile"] is not None
+
+    def test_4j_safety_note_mentions_preview_and_no_orders(self, seeded_client: TestClient) -> None:
+        """safety_note in profile_decision_context must mention preview and no orders."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        pdc = response.json()["profile_decision_context"]
+        note = pdc["safety_note"].lower()
+        assert "preview" in note, f"safety_note lacks 'preview': {pdc['safety_note']!r}"
+        assert "no signals" in note or "no orders" in note, (
+            f"safety_note lacks 'no signals'/'no orders': {pdc['safety_note']!r}"
+        )
+
+    def test_4j_backward_compat_existing_fields_unchanged(self, seeded_client: TestClient) -> None:
+        """Adding profile_decision_context does not remove any existing response field."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": []},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        for field in [
+            "as_of", "portfolio_summary", "buy_recommendations", "sell_recommendations",
+            "hold_positions", "watch_candidates", "rotation_plan", "blocked_actions",
+            "action_stack", "recommended_next_action", "explanation", "safety_counts",
+            "profile_decision_context",
+        ]:
+            assert field in data, f"Backward-compat field missing: {field}"
+
+    def test_4j_calibration_disabled_sets_replay_supported_false(
+        self, seeded_client: TestClient
+    ) -> None:
+        """When use_calibrated_rotation=False, replay_supported is False and blocker is set."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "use_calibrated_rotation": False},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        pdc = response.json()["profile_decision_context"]
+        assert pdc["replay_supported"] is False
+        blockers_joined = " ".join(pdc["replay_blockers"])
+        assert "CALIBRATED_ROTATION_DISABLED" in blockers_joined, (
+            f"Expected CALIBRATED_ROTATION_DISABLED in blockers, got: {pdc['replay_blockers']}"
+        )
+
 
 class TestUniverseStatusEndpoint:
     """GET /v1/strategy/universe/status -- read-only universe diagnostics."""
