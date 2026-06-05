@@ -2031,6 +2031,13 @@
               </select>
             </div>
           </div>
+          <div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <span style="font-size:10px;color:var(--label);">Presets:</span>
+            <button class="btn-sm" onclick="setReplayPreset('monthly3')">3 Monthly</button>
+            <button class="btn-sm" onclick="setReplayPreset('weekly5')">5 Weekly</button>
+            <button class="btn-sm" onclick="setReplayPreset('weekly10')">10 Weekly</button>
+            <button class="btn-sm" onclick="setReplayPreset('clear')" style="background:rgba(255,255,255,0.1);">Clear</button>
+          </div>
           <button class="btn-action" id="replay-run-btn" onclick="runDailyPlanReplay(this)">Run Replay Preview</button>
           <div id="replay-result" style="margin-top:12px;font-size:12px;"></div>
         </div>
@@ -7306,73 +7313,162 @@ function _renderReplayResult(data) {
   const results = data.date_results || [];
 
   let h = '';
-  // Safety badge
+
+  // Safety badges
   h += '<div style="display:inline-flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">';
   h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(34,197,94,.15);color:var(--ok);border:1px solid rgba(34,197,94,.4);">PREVIEW ONLY</span>';
   h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);">NO SIGNALS</span>';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);">NO DECISIONS</span>';
   h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);">NO ORDERS</span>';
   h += '</div>';
 
   // Summary cards
-  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px;">';
-  const mkCard = (label, val, color) => `<div style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:3px;padding:8px 10px;"><div style="font-size:9px;color:var(--label);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">${label}</div><div style="font-size:14px;font-weight:700;color:${color || 'var(--text-primary)'};">${val !== null && val !== undefined ? val : '-'}</div></div>`;
+  const mkCard = (label, val, color) =>
+    `<div style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:3px;padding:8px 10px;">` +
+    `<div style="font-size:9px;color:var(--label);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">${label}</div>` +
+    `<div style="font-size:14px;font-weight:700;color:${color || 'var(--text-primary)'};">${val !== null && val !== undefined ? val : '-'}</div>` +
+    `</div>`;
+
+  const avgFwd = s.avg_forward_return_pct;
+  const medFwd = s.median_forward_return_pct;
+  const wr = s.win_rate_pct;
+  const avspy = s.avg_vs_spy_pct;
+
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:12px;">';
   h += mkCard('Dates Evaluated', s.dates_evaluated, 'var(--text-primary)');
-  h += mkCard('Avg Best Fwd Return', s.avg_forward_return_pct !== null ? s.avg_forward_return_pct.toFixed(2) + '%' : '-', s.avg_forward_return_pct > 0 ? 'var(--ok)' : s.avg_forward_return_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)');
-  h += mkCard('Median Fwd Return', s.median_forward_return_pct !== null ? s.median_forward_return_pct.toFixed(2) + '%' : '-', s.median_forward_return_pct > 0 ? 'var(--ok)' : s.median_forward_return_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)');
-  h += mkCard('Win Rate', s.win_rate_pct !== null ? s.win_rate_pct.toFixed(1) + '%' : '-', s.win_rate_pct >= 50 ? 'var(--ok)' : 'var(--danger)');
-  h += mkCard('Avg vs SPY', s.avg_vs_spy_pct !== null ? s.avg_vs_spy_pct.toFixed(2) + '%' : '-', s.avg_vs_spy_pct > 0 ? 'var(--ok)' : s.avg_vs_spy_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)');
+  h += mkCard('Avg Fwd Return', avgFwd !== null && avgFwd !== undefined ? avgFwd.toFixed(2) + '%' : '-', avgFwd > 0 ? 'var(--ok)' : avgFwd < 0 ? 'var(--danger)' : 'var(--text-secondary)');
+  h += mkCard('Median Fwd Return', medFwd !== null && medFwd !== undefined ? medFwd.toFixed(2) + '%' : '-', medFwd > 0 ? 'var(--ok)' : medFwd < 0 ? 'var(--danger)' : 'var(--text-secondary)');
+  h += mkCard('Win Rate', wr !== null && wr !== undefined ? wr.toFixed(1) + '%' : '-', wr !== null && wr >= 50 ? 'var(--ok)' : 'var(--danger)');
+  h += mkCard('Avg vs SPY', avspy !== null && avspy !== undefined ? avspy.toFixed(2) + '%' : '-', avspy > 0 ? 'var(--ok)' : avspy < 0 ? 'var(--danger)' : 'var(--text-secondary)');
+  h += mkCard('Best Date', s.best_date ? escapeHtml(s.best_date) : '-', 'var(--ok)');
+  h += mkCard('Worst Date', s.worst_date ? escapeHtml(s.worst_date) : '-', 'var(--danger)');
   h += mkCard('Profile Used', escapeHtml(s.profile_used || '-'), 'var(--accent)');
   h += '</div>';
-
-  if (s.best_date || s.worst_date) {
-    h += '<div style="font-size:11px;color:var(--label);margin-bottom:8px;">';
-    if (s.best_date) h += `Best date: <strong style="color:var(--ok);">${escapeHtml(s.best_date)}</strong>  `;
-    if (s.worst_date) h += `Worst date: <strong style="color:var(--danger);">${escapeHtml(s.worst_date)}</strong>`;
-    h += '</div>';
-  }
 
   // Per-date table
   if (results.length > 0) {
     h += '<div style="overflow-x:auto;margin-bottom:10px;">';
     h += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
     h += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,.12);">';
-    for (const col of ['Date', 'Evaluated', 'Skipped', 'Best Ticker', 'Score', 'Mom5d%', 'Fwd Return%', 'vs SPY%', 'SPY Fwd%', 'Win', 'Benchmark']) {
+    for (const col of ['Date', 'Evl/Skp', 'Best Ticker', 'Score', 'Mom5d%', 'Mom20d%', 'Fwd%', 'vs SPY%', 'SPY%', 'Win', 'Beat SPY', 'Guidance']) {
       h += `<th style="text-align:left;padding:4px 6px;font-size:10px;color:var(--label);white-space:nowrap;">${col}</th>`;
     }
     h += '</tr></thead><tbody>';
+
     for (const dr of results) {
       const bc = dr.best_candidate;
+      const fwdAvail = !bc || bc.forward_data_available !== false;
+      const hasFwd = dr.forward_return_pct !== null && dr.forward_return_pct !== undefined;
       const winColor = dr.win === true ? 'var(--ok)' : dr.win === false ? 'var(--danger)' : 'var(--text-secondary)';
-      const fwdColor = dr.forward_return_pct > 0 ? 'var(--ok)' : dr.forward_return_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)';
-      h += '<tr style="border-bottom:1px solid rgba(255,255,255,.05);">';
+      const fwdColor = hasFwd ? (dr.forward_return_pct > 0 ? 'var(--ok)' : dr.forward_return_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)') : 'var(--label)';
+      const vsSPYColor = dr.forward_return_vs_spy_pct > 0 ? 'var(--ok)' : dr.forward_return_vs_spy_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)';
+
+      // Plain-English guidance
+      let guidance, guidanceColor;
+      if (!bc) {
+        guidance = 'No candidates';
+        guidanceColor = 'var(--label)';
+      } else if (!fwdAvail || !hasFwd) {
+        guidance = 'Missing fwd data';
+        guidanceColor = 'var(--label)';
+      } else if (dr.win === true && dr.beat_spy === true) {
+        guidance = 'Won + beat SPY';
+        guidanceColor = 'var(--ok)';
+      } else if (dr.win === true && dr.beat_spy === false) {
+        guidance = 'Won, below SPY';
+        guidanceColor = '#86efac';
+      } else if (dr.win === true) {
+        guidance = 'Positive result';
+        guidanceColor = 'var(--ok)';
+      } else if (dr.win === false && dr.beat_spy === true) {
+        guidance = 'Lost, beat SPY';
+        guidanceColor = '#fbbf24';
+      } else if (dr.win === false) {
+        guidance = 'Underperformed';
+        guidanceColor = 'var(--danger)';
+      } else {
+        guidance = 'No fwd data';
+        guidanceColor = 'var(--label)';
+      }
+
+      const benchmarkNote = !dr.benchmark_available ? ' [no bmark]' : '';
+      const notes = dr.notes || [];
+
+      h += '<tr style="border-bottom:1px solid rgba(255,255,255,.04);">';
       h += `<td style="padding:4px 6px;font-family:monospace;">${escapeHtml(dr.as_of_date)}</td>`;
-      h += `<td style="padding:4px 6px;">${dr.evaluated_count}</td>`;
-      h += `<td style="padding:4px 6px;color:var(--label);">${dr.skipped_count}</td>`;
-      h += `<td style="padding:4px 6px;font-family:monospace;">${bc ? escapeHtml(bc.ticker) : '-'}</td>`;
+      h += `<td style="padding:4px 6px;">${dr.evaluated_count}<span style="color:var(--label);">/${dr.skipped_count}</span></td>`;
+      h += `<td style="padding:4px 6px;font-family:monospace;">${bc ? escapeHtml(bc.ticker) : '<span style="color:var(--label);">-</span>'}</td>`;
       h += `<td style="padding:4px 6px;">${bc ? bc.score.toFixed(2) : '-'}</td>`;
-      h += `<td style="padding:4px 6px;">${bc && bc.momentum_5d_pct !== null ? bc.momentum_5d_pct.toFixed(2) : '-'}</td>`;
-      h += `<td style="padding:4px 6px;color:${fwdColor};font-weight:600;">${dr.forward_return_pct !== null && dr.forward_return_pct !== undefined ? dr.forward_return_pct.toFixed(2) + '%' : '-'}</td>`;
-      h += `<td style="padding:4px 6px;color:${dr.forward_return_vs_spy_pct > 0 ? 'var(--ok)' : 'var(--danger)'};">${dr.forward_return_vs_spy_pct !== null && dr.forward_return_vs_spy_pct !== undefined ? dr.forward_return_vs_spy_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;">${bc && bc.momentum_5d_pct !== null && bc.momentum_5d_pct !== undefined ? bc.momentum_5d_pct.toFixed(2) : '-'}</td>`;
+      h += `<td style="padding:4px 6px;">${bc && bc.momentum_20d_pct !== null && bc.momentum_20d_pct !== undefined ? bc.momentum_20d_pct.toFixed(2) : '-'}</td>`;
+      h += `<td style="padding:4px 6px;color:${fwdColor};font-weight:600;">${hasFwd ? dr.forward_return_pct.toFixed(2) + '%' : '<span style="color:var(--label);">-</span>'}</td>`;
+      h += `<td style="padding:4px 6px;color:${vsSPYColor};">${dr.forward_return_vs_spy_pct !== null && dr.forward_return_vs_spy_pct !== undefined ? dr.forward_return_vs_spy_pct.toFixed(2) + '%' : '<span style="color:var(--label);">-</span>'}</td>`;
       h += `<td style="padding:4px 6px;color:var(--label);">${dr.spy_forward_return_pct !== null && dr.spy_forward_return_pct !== undefined ? dr.spy_forward_return_pct.toFixed(2) + '%' : '-'}</td>`;
       h += `<td style="padding:4px 6px;color:${winColor};font-weight:700;">${dr.win === true ? 'W' : dr.win === false ? 'L' : '-'}</td>`;
-      h += `<td style="padding:4px 6px;color:${dr.benchmark_available ? 'var(--ok)' : 'var(--label)'};">${dr.benchmark_available ? 'Y' : 'N'}</td>`;
+      h += `<td style="padding:4px 6px;color:${dr.beat_spy === true ? 'var(--ok)' : dr.beat_spy === false ? 'var(--danger)' : 'var(--label)'};">${dr.beat_spy === true ? 'Y' : dr.beat_spy === false ? 'N' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;font-size:10px;color:${guidanceColor};">${escapeHtml(guidance)}${benchmarkNote ? `<span style="color:var(--label);"> ${escapeHtml(benchmarkNote)}</span>` : ''}</td>`;
       h += '</tr>';
+
+      if (notes.length > 0) {
+        h += `<tr><td colspan="12" style="padding:1px 6px 5px 6px;font-size:9px;color:var(--label);font-style:italic;">${notes.map(n => escapeHtml(n)).join(' | ')}</td></tr>`;
+      }
     }
     h += '</tbody></table></div>';
   } else {
-    h += '<div style="color:var(--label);font-size:11px;">No date results returned.</div>';
+    h += '<div style="color:var(--label);font-size:11px;padding:8px 0;">No date results returned. Try adjusting the date range or ensure price data exists for the selected period.</div>';
   }
+
+  // Footer note
+  h += '<div style="font-size:10px;color:var(--label);font-style:italic;margin-top:4px;">Replay only &mdash; not a trading recommendation.</div>';
 
   // Diagnostics
   h += '<details style="margin-top:8px;"><summary style="font-size:10px;color:var(--label);cursor:pointer;">Diagnostics</summary>';
   h += '<div style="padding:6px 0;font-size:10px;color:var(--label);line-height:1.6;">';
   h += `Insufficient history: ${diag.insufficient_history_count} | Missing forward data: ${diag.missing_forward_data_count} | Benchmark available for: ${diag.benchmark_available_count} date(s)<br>`;
+  if (diag.skipped_by_reason && Object.keys(diag.skipped_by_reason).length > 0) {
+    h += 'Skipped by reason: ' + Object.entries(diag.skipped_by_reason).map(([k, v]) => `${escapeHtml(k)}: ${v}`).join(', ') + '<br>';
+  }
   for (const note of (diag.notes || [])) { h += `<em>${escapeHtml(note)}</em><br>`; }
   const safety = data.summary?.safety_counts || {};
   h += `Safety: signals=${safety.signals_created ?? 0}, decisions=${safety.decisions_created ?? 0}, orders=${safety.orders_created ?? 0}, job_runs=${safety.job_runs_created ?? 0}, rows=${safety.db_rows_created ?? 0}`;
   h += '</div></details>';
 
   return h;
+}
+
+function setReplayPreset(preset) {
+  const fmt = d => d.toISOString().slice(0, 10);
+  const today = new Date();
+  const startEl = document.getElementById('replay-start-date');
+  const endEl = document.getElementById('replay-end-date');
+  const maxDatesEl = document.getElementById('replay-max-dates');
+
+  if (preset === 'clear') {
+    if (startEl) startEl.value = '';
+    if (endEl) endEl.value = '';
+    return;
+  }
+
+  if (preset === 'monthly3') {
+    // 15th of each of the last 3 months
+    const end = new Date(today.getFullYear(), today.getMonth() - 1, 15);
+    const start = new Date(today.getFullYear(), today.getMonth() - 3, 15);
+    if (startEl) startEl.value = fmt(start);
+    if (endEl) endEl.value = fmt(end);
+    if (maxDatesEl) maxDatesEl.value = '3';
+  } else if (preset === 'weekly5') {
+    const end = new Date(today); end.setDate(end.getDate() - 7);
+    const start = new Date(today); start.setDate(start.getDate() - 35);
+    if (startEl) startEl.value = fmt(start);
+    if (endEl) endEl.value = fmt(end);
+    if (maxDatesEl) maxDatesEl.value = '5';
+  } else if (preset === 'weekly10') {
+    const end = new Date(today); end.setDate(end.getDate() - 7);
+    const start = new Date(today); start.setDate(start.getDate() - 70);
+    if (startEl) startEl.value = fmt(start);
+    if (endEl) endEl.value = fmt(end);
+    if (maxDatesEl) maxDatesEl.value = '10';
+  }
 }
 
 // ---------------------------------------------------------------------------
