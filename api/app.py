@@ -28,6 +28,7 @@ Endpoints:
     POST /v1/review/daily-plan-create-signals — create Signal rows from approved Daily Plan actions (confirmation required)
     POST /v1/review/daily-plan-decision-preview — preview trade decisions from Daily Plan-created Signal rows (PREVIEW ONLY, no DB writes)
     POST /v1/review/daily-plan-create-decisions — create TradeDecision rows from Daily Plan-created Signal rows (confirmation required)
+    POST /v1/review/daily-plan-order-preview — preview Orders from Daily Plan TradeDecision rows (PREVIEW ONLY, no DB writes)
     POST /v1/review/daily-plan-replay-preview — historical daily plan replay/backtest preview (read-only)
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
 
@@ -1981,6 +1982,31 @@ class DailyPlanCreateDecisionsResponse(BaseModel):
     decision_counts: dict[str, int]
     created_decisions: list[DailyPlanCreatedDecisionDetail]
     skipped: list[DailyPlanCreateDecisionsSkipped]
+    safety_counts: dict[str, Any]
+    safety_note: str
+
+
+class DailyPlanOrderPreviewRequest(BaseModel):
+    """Request to preview Orders from Daily Plan TradeDecision rows (PREVIEW ONLY)."""
+    trade_decision_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of TradeDecision IDs to preview. If provided, validates DP prefix in Python.",
+    )
+    limit: int = Field(default=50, ge=1, le=100)
+    approved_only: bool = Field(
+        default=True,
+        description="If true, only preview TradeDecisions with decision=BUY or SELL and approved_qty > 0.",
+    )
+
+
+class DailyPlanOrderPreviewResponse(BaseModel):
+    """Response from POST /v1/review/daily-plan-order-preview (PREVIEW ONLY, no DB writes)."""
+    evaluated_count: int
+    preview_count: int
+    skipped_count: int
+    order_previews: list[OrderPreviewItem]
+    skipped: list[SkippedTradeDecisionDetail]
+    side_counts: dict[str, int]
     safety_counts: dict[str, Any]
     safety_note: str
 
@@ -8953,6 +8979,170 @@ async def daily_plan_create_decisions(
             "orders_created": 0,
             "automation_triggered": False,
         },
+        safety_note=_safety_note,
+    )
+
+
+@app.post(
+    "/v1/review/daily-plan-order-preview",
+    response_model=DailyPlanOrderPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def daily_plan_order_preview(
+    body: DailyPlanOrderPreviewRequest,
+) -> DailyPlanOrderPreviewResponse:
+    """
+    Preview which Daily Plan TradeDecision rows would become Orders, without creating any rows.
+
+    PREVIEW ONLY: no Order rows created, no JobRun rows created,
+    no TradeDecision or Signal rows modified. Safe to call repeatedly.
+
+    Daily Plan TradeDecisions are identified by their linked Signal's source_run
+    prefix 'daily_plan_review_v1:'. Non-Daily-Plan TradeDecisions are skipped.
+
+    Filtering:
+    - If trade_decision_ids provided: query those exact IDs, validate DP prefix in Python.
+    - Otherwise: join Signal table and filter by source_run prefix.
+
+    approved_only (default true): only previews BUY/SELL decisions with approved_qty > 0.
+    If false: evaluates all but skips non-orderable decisions with clear reasons.
+    """
+    import uuid as _uuid_mod
+
+    _DP_PREFIX = "daily_plan_review_v1:"
+    _safety_note = "PREVIEW ONLY — no orders created, no automation triggered."
+    _empty_safety: dict[str, Any] = {
+        "signals_created": 0,
+        "trade_decisions_created": 0,
+        "orders_created": 0,
+        "job_runs_created": 0,
+        "automation_triggered": False,
+    }
+
+    evaluated = 0
+    preview_list: list[OrderPreviewItem] = []
+    skipped_list: list[SkippedTradeDecisionDetail] = []
+
+    with get_session() as session:
+        if body.trade_decision_ids:
+            try:
+                decision_uuids = [_uuid_mod.UUID(did) for did in body.trade_decision_ids]
+            except (ValueError, AttributeError):
+                return DailyPlanOrderPreviewResponse(
+                    evaluated_count=0,
+                    preview_count=0,
+                    skipped_count=0,
+                    order_previews=[],
+                    skipped=[],
+                    side_counts={},
+                    safety_counts=_empty_safety,
+                    safety_note=_safety_note,
+                )
+            rows = session.query(TradeDecision).filter(
+                TradeDecision.id.in_(decision_uuids)
+            ).limit(body.limit).all()
+        else:
+            rows = (
+                session.query(TradeDecision)
+                .join(Signal, Signal.id == TradeDecision.signal_id)
+                .filter(Signal.source_run.startswith(_DP_PREFIX))
+                .limit(body.limit)
+                .all()
+            )
+
+        for td in rows:
+            evaluated += 1
+            decision_id_str = str(td.id)
+            signal_id_str = str(td.signal_id)
+
+            signal = session.query(Signal).filter(Signal.id == td.signal_id).first()
+            if not signal:
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=decision_id_str,
+                    ticker=td.ticker,
+                    reason="Signal not found",
+                ))
+                continue
+
+            # Validate DP prefix (enforced for both query paths)
+            if not signal.source_run.startswith(_DP_PREFIX):
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=decision_id_str,
+                    ticker=td.ticker,
+                    reason="TradeDecision source signal is not a Daily Plan signal",
+                ))
+                continue
+
+            # Duplicate: check if Order already exists for this TradeDecision
+            existing_order = session.query(Order).filter(
+                Order.trade_decision_id == td.id
+            ).first()
+            if existing_order:
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=decision_id_str,
+                    ticker=td.ticker,
+                    reason="Order already exists for TradeDecision",
+                ))
+                continue
+
+            # Approval check
+            if td.decision not in ("BUY", "SELL"):
+                if body.approved_only:
+                    skipped_list.append(SkippedTradeDecisionDetail(
+                        trade_decision_id=decision_id_str,
+                        ticker=td.ticker,
+                        reason="TradeDecision is not approved for order creation",
+                    ))
+                else:
+                    skipped_list.append(SkippedTradeDecisionDetail(
+                        trade_decision_id=decision_id_str,
+                        ticker=td.ticker,
+                        reason=f"TradeDecision decision is {td.decision}, not BUY/SELL",
+                    ))
+                continue
+
+            # Qty check
+            if not td.approved_qty or td.approved_qty <= Decimal("0"):
+                reason = (
+                    "TradeDecision is not approved for order creation"
+                    if body.approved_only
+                    else "TradeDecision has zero approved_qty"
+                )
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=decision_id_str,
+                    ticker=td.ticker,
+                    reason=reason,
+                ))
+                continue
+
+            preview_list.append(OrderPreviewItem(
+                trade_decision_id=decision_id_str,
+                signal_id=signal_id_str,
+                ticker=td.ticker,
+                side=td.signal_direction,
+                order_type="MARKET",
+                status="PREVIEW_ONLY",
+                qty=str(td.approved_qty),
+                notional=str(td.approved_notional) if td.approved_notional else "0.00",
+                decision=td.decision,
+                reason_code=td.reason_code,
+                source_run=signal.source_run,
+                reason="Preview only: this Daily Plan TradeDecision would create an order.",
+            ))
+
+    side_counts: dict[str, int] = {}
+    for p in preview_list:
+        side_counts[p.side] = side_counts.get(p.side, 0) + 1
+
+    return DailyPlanOrderPreviewResponse(
+        evaluated_count=evaluated,
+        preview_count=len(preview_list),
+        skipped_count=len(skipped_list),
+        order_previews=preview_list,
+        skipped=skipped_list,
+        side_counts=side_counts,
+        safety_counts=_empty_safety,
         safety_note=_safety_note,
     )
 

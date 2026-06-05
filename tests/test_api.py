@@ -20721,3 +20721,771 @@ class TestDailyPlanCreateDecisionsBridgeEndpoint:
                 )
         finally:
             self._cleanup(api_engine, [ticker])
+
+
+# ===========================================================================
+# Phase 4O: Daily Plan Order Preview Bridge
+# ===========================================================================
+
+class TestDailyPlanOrderPreviewBridgeEndpoint:
+    """Tests for POST /v1/review/daily-plan-order-preview."""
+
+    _ENDPOINT = "/v1/review/daily-plan-order-preview"
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _seed_dp_trade_decision(
+        session: Session,
+        suffix: str,
+        direction: str = "BUY",
+        decision: str = "BUY",
+        approved_qty: "Decimal" = Decimal("5.00"),
+        price: "Decimal" = Decimal("100.00"),
+        has_position: bool = False,
+    ) -> tuple:
+        """
+        Create a DP Signal + TradeDecision directly in the DB.
+        Returns (signal, trade_decision, ticker).
+        """
+        ticker = f"DOPV{suffix}"
+
+        snap = PriceSnapshot(
+            ticker=ticker,
+            price=price,
+            snapshot_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            session_type="REGULAR",
+            price_type="CLOSE",
+        )
+        session.add(snap)
+
+        if has_position:
+            pos = Position(
+                ticker=ticker,
+                qty=Decimal("50"),
+                avg_cost=price,
+                cost_basis=price * Decimal("50"),
+                opened_at=datetime.now(timezone.utc),
+                last_updated=datetime.now(timezone.utc),
+            )
+            session.add(pos)
+
+        jr_sig = JobRun(
+            idempotency_key=f"dp-op-sig-jr-{suffix}",
+            workflow_type="DAILY_PLAN_CREATE_SIGNALS",
+            market_date=date.today(),
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_sig)
+        session.flush()
+
+        sig = Signal(
+            job_run_id=jr_sig.id,
+            ticker=ticker,
+            direction=direction,
+            confidence=Decimal("0.80"),
+            signal_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            source_run=f"daily_plan_review_v1:{ticker}:{suffix}",
+            status="DECISION_MADE",
+            raw_payload={},
+        )
+        session.add(sig)
+        session.flush()
+
+        jr_td = JobRun(
+            idempotency_key=f"dp-op-td-jr-{suffix}",
+            workflow_type="DAILY_PLAN_CREATE_DECISIONS",
+            market_date=date.today(),
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_td)
+        session.flush()
+
+        eff_qty = approved_qty if decision in ("BUY", "SELL") else Decimal("0")
+        eff_notional = eff_qty * price if eff_qty > Decimal("0") else Decimal("0")
+
+        td = TradeDecision(
+            signal_id=sig.id,
+            job_run_id=jr_td.id,
+            ticker=ticker,
+            signal_direction=direction,
+            decision=decision,
+            reason_code="TEST_REASON" if decision in ("BUY", "SELL") else "RISK_REJECTED",
+            approved_qty=eff_qty if eff_qty > Decimal("0") else None,
+            approved_notional=eff_notional if eff_notional > Decimal("0") else None,
+            requested_qty=approved_qty if approved_qty > Decimal("0") else None,
+            requested_notional=approved_qty * price if approved_qty > Decimal("0") else None,
+            decided_at=datetime.now(timezone.utc),
+            market_date=date.today(),
+        )
+        session.add(td)
+        session.flush()
+
+        return sig, td, ticker
+
+    @staticmethod
+    def _seed_rq_trade_decision(session: Session, suffix: str) -> tuple:
+        """
+        Create a non-DP (review-queue) Signal + TradeDecision directly in the DB.
+        Returns (trade_decision, ticker).
+        """
+        ticker = f"DOPRQ{suffix}"
+
+        snap = PriceSnapshot(
+            ticker=ticker,
+            price=Decimal("80.00"),
+            snapshot_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            session_type="REGULAR",
+            price_type="CLOSE",
+        )
+        session.add(snap)
+
+        jr_sig = JobRun(
+            idempotency_key=f"rq-op-sig-jr-{suffix}",
+            workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+            market_date=date.today(),
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_sig)
+        session.flush()
+
+        sig = Signal(
+            job_run_id=jr_sig.id,
+            ticker=ticker,
+            direction="BUY",
+            confidence=Decimal("0.75"),
+            signal_ts=datetime.now(timezone.utc),
+            market_date=date.today(),
+            source_run=f"review_queue_create_signals_v1:{ticker}:{suffix}",
+            status="DECISION_MADE",
+            raw_payload={},
+        )
+        session.add(sig)
+        session.flush()
+
+        jr_td = JobRun(
+            idempotency_key=f"rq-op-td-jr-{suffix}",
+            workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+            market_date=date.today(),
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_td)
+        session.flush()
+
+        td = TradeDecision(
+            signal_id=sig.id,
+            job_run_id=jr_td.id,
+            ticker=ticker,
+            signal_direction="BUY",
+            decision="BUY",
+            reason_code="TEST_REASON",
+            approved_qty=Decimal("5"),
+            approved_notional=Decimal("400.00"),
+            requested_qty=Decimal("5"),
+            requested_notional=Decimal("400.00"),
+            decided_at=datetime.now(timezone.utc),
+            market_date=date.today(),
+        )
+        session.add(td)
+        session.flush()
+
+        return td, ticker
+
+    @staticmethod
+    def _cleanup(api_engine, tickers: list) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                sigs = s.query(Signal).filter(Signal.ticker == t).all()
+                for sig in sigs:
+                    s.query(Order).filter(
+                        Order.trade_decision_id.in_(
+                            s.query(TradeDecision.id).filter(TradeDecision.signal_id == sig.id)
+                        )
+                    ).delete(synchronize_session=False)
+                    s.query(TradeDecision).filter(TradeDecision.signal_id == sig.id).delete()
+                s.query(Signal).filter(Signal.ticker == t).delete()
+                s.query(Position).filter(Position.ticker == t).delete()
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+            s.query(JobRun).filter(JobRun.workflow_type.in_(
+                ["DAILY_PLAN_CREATE_SIGNALS", "DAILY_PLAN_CREATE_DECISIONS",
+                 "REVIEW_QUEUE_CREATE_SIGNALS"]
+            )).filter(JobRun.idempotency_key.like("dp-op-%")).delete(synchronize_session=False)
+            s.query(JobRun).filter(JobRun.workflow_type.in_(
+                ["DAILY_PLAN_CREATE_SIGNALS", "DAILY_PLAN_CREATE_DECISIONS",
+                 "REVIEW_QUEUE_CREATE_SIGNALS"]
+            )).filter(JobRun.idempotency_key.like("rq-op-%")).delete(synchronize_session=False)
+            s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 1: requires auth
+    # ------------------------------------------------------------------
+    def test_requires_auth(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(self._ENDPOINT, json={})
+        assert r.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: returns zero when no DP TradeDecision rows exist
+    # ------------------------------------------------------------------
+    def test_returns_zero_with_no_dp_decisions(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"trade_decision_ids": []},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["evaluated_count"] == 0
+        assert data["preview_count"] == 0
+        assert data["skipped_count"] == 0
+        assert data["order_previews"] == []
+
+    # ------------------------------------------------------------------
+    # Test 3: evaluates only DP TradeDecision rows (SQL-filtered path)
+    # ------------------------------------------------------------------
+    def test_evaluates_only_dp_decisions(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Without trade_decision_ids filter, only DP-sourced TDs are evaluated."""
+        import uuid as _uuid
+        sfx_dp = _uuid.uuid4().hex[:6].upper()
+        sfx_rq = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            sig_dp, td_dp, ticker_dp = self._seed_dp_trade_decision(s, sfx_dp)
+            _, ticker_rq = self._seed_rq_trade_decision(s, sfx_rq)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [str(td_dp.id)]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            tickers_in_previews = [p["ticker"] for p in data.get("order_previews", [])]
+            tickers_in_skipped = [p["ticker"] for p in data.get("skipped", [])]
+            all_tickers = tickers_in_previews + tickers_in_skipped
+            assert ticker_rq not in all_tickers
+        finally:
+            self._cleanup(api_engine, [ticker_dp, ticker_rq])
+
+    # ------------------------------------------------------------------
+    # Test 4: skips non-DP TradeDecision rows when passed via trade_decision_ids
+    # ------------------------------------------------------------------
+    def test_skips_non_dp_decisions_by_default(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A non-DP TradeDecision passed in trade_decision_ids is skipped with reason."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            td_rq, ticker_rq = self._seed_rq_trade_decision(s, sfx)
+            s.commit()
+            td_id = str(td_rq.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["evaluated_count"] == 1
+            assert data["preview_count"] == 0
+            assert data["skipped_count"] == 1
+            assert len(data["skipped"]) == 1
+            assert "not a Daily Plan signal" in data["skipped"][0]["reason"]
+        finally:
+            self._cleanup(api_engine, [ticker_rq])
+
+    # ------------------------------------------------------------------
+    # Test 5: trade_decision_ids filter works
+    # ------------------------------------------------------------------
+    def test_trade_decision_ids_filter_works(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Only the specified TradeDecision IDs are evaluated."""
+        import uuid as _uuid
+        sfx1 = _uuid.uuid4().hex[:6].upper()
+        sfx2 = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            sig1, td1, ticker1 = self._seed_dp_trade_decision(s, sfx1)
+            sig2, td2, ticker2 = self._seed_dp_trade_decision(s, sfx2)
+            s.commit()
+            td1_id = str(td1.id)
+            td2_id = str(td2.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td1_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["evaluated_count"] == 1
+            all_td_ids = (
+                [p["trade_decision_id"] for p in data.get("order_previews", [])]
+                + [sk["trade_decision_id"] for sk in data.get("skipped", [])]
+            )
+            assert td1_id in all_td_ids
+            assert td2_id not in all_td_ids
+        finally:
+            self._cleanup(api_engine, [ticker1, ticker2])
+
+    # ------------------------------------------------------------------
+    # Test 6: approved_only=true skips REJECTED TradeDecision rows
+    # ------------------------------------------------------------------
+    def test_approved_only_true_skips_rejected(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """With approved_only=true (default), REJECTED TDs are skipped."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_rej, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="REJECTED", approved_qty=Decimal("0")
+            )
+            s.commit()
+            td_id = str(td_rej.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id], "approved_only": True},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["preview_count"] == 0
+            assert data["skipped_count"] == 1
+            assert "not approved" in data["skipped"][0]["reason"].lower()
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 7: approved_only=false evaluates but still skips non-orderable rows
+    # ------------------------------------------------------------------
+    def test_approved_only_false_still_skips_non_orderable(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """With approved_only=false, REJECTED is evaluated but still skipped (not BUY/SELL)."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_rej, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="REJECTED", approved_qty=Decimal("0")
+            )
+            s.commit()
+            td_id = str(td_rej.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id], "approved_only": False},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["evaluated_count"] == 1
+            assert data["preview_count"] == 0
+            assert data["skipped_count"] == 1
+            assert "REJECTED" in data["skipped"][0]["reason"]
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 8: BUY TradeDecision produces an order preview
+    # ------------------------------------------------------------------
+    def test_buy_decision_produces_preview(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A DP BUY TradeDecision with approved_qty > 0 produces one order preview."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY", approved_qty=Decimal("5")
+            )
+            s.commit()
+            td_id = str(td_buy.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["evaluated_count"] == 1
+            assert data["preview_count"] == 1
+            assert len(data["order_previews"]) == 1
+            preview = data["order_previews"][0]
+            assert preview["ticker"] == ticker
+            assert preview["side"] == "BUY"
+            assert preview["order_type"] == "MARKET"
+            assert preview["status"] == "PREVIEW_ONLY"
+            assert preview["decision"] == "BUY"
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 9: SELL TradeDecision with position produces an order preview
+    # ------------------------------------------------------------------
+    def test_sell_decision_with_position_produces_preview(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A DP SELL TradeDecision with a position + approved_qty > 0 produces a preview."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_sell, ticker = self._seed_dp_trade_decision(
+                s, sfx,
+                direction="SELL",
+                decision="SELL",
+                approved_qty=Decimal("10"),
+                has_position=True,
+            )
+            s.commit()
+            td_id = str(td_sell.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["preview_count"] == 1
+            preview = data["order_previews"][0]
+            assert preview["side"] == "SELL"
+            assert preview["ticker"] == ticker
+            assert preview["status"] == "PREVIEW_ONLY"
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 10: SELL TradeDecision without position is handled safely
+    # ------------------------------------------------------------------
+    def test_sell_decision_without_position_handled_safely(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A SELL TD for a ticker with no position and zero approved_qty is skipped safely."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_sell, ticker = self._seed_dp_trade_decision(
+                s, sfx,
+                direction="SELL",
+                decision="HOLD",
+                approved_qty=Decimal("0"),
+                has_position=False,
+            )
+            s.commit()
+            td_id = str(td_sell.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["preview_count"] == 0
+            assert data["safety_counts"]["orders_created"] == 0
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 11: existing Order for a TradeDecision is skipped as duplicate
+    # ------------------------------------------------------------------
+    def test_existing_order_skipped_as_duplicate(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """If an Order already exists for a TradeDecision, it is skipped with reason."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY", approved_qty=Decimal("5")
+            )
+            s.flush()
+
+            order = Order(
+                trade_decision_id=td_buy.id,
+                job_run_id=td_buy.job_run_id,
+                ticker=ticker,
+                side="BUY",
+                order_type="MARKET",
+                status="PENDING",
+                market_date=date.today(),
+                requested_qty=Decimal("5"),
+                requested_at=datetime.now(timezone.utc),
+            )
+            s.add(order)
+            s.commit()
+            td_id = str(td_buy.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["preview_count"] == 0
+            assert data["skipped_count"] == 1
+            assert "Order already exists" in data["skipped"][0]["reason"]
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 12: creates zero Order rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_order_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """The endpoint must not create any Order rows."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY", approved_qty=Decimal("5")
+            )
+            s.commit()
+            td_id = str(td_buy.id)
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ord_before = s.query(Order).count()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["safety_counts"]["orders_created"] == 0
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(Order).count() == ord_before
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 13: creates zero JobRun rows
+    # ------------------------------------------------------------------
+    def test_creates_zero_job_run_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """The endpoint must not create any JobRun rows."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY", approved_qty=Decimal("5")
+            )
+            s.commit()
+            td_id = str(td_buy.id)
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            jr_before = s.query(JobRun).count()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["safety_counts"]["job_runs_created"] == 0
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(JobRun).count() == jr_before
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 14: does not mutate TradeDecision rows
+    # ------------------------------------------------------------------
+    def test_does_not_mutate_trade_decision_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """TradeDecision fields must be unchanged after the preview call."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY", approved_qty=Decimal("5")
+            )
+            s.commit()
+            td_id = str(td_buy.id)
+            snap_decision = td_buy.decision
+            snap_approved_qty = td_buy.approved_qty
+
+        seeded_client.post(
+            self._ENDPOINT,
+            json={"trade_decision_ids": [td_id]},
+            headers=_AUTH,
+        )
+
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                td_after = s.query(TradeDecision).filter(
+                    TradeDecision.id == uuid.UUID(td_id)
+                ).first()
+                assert td_after is not None
+                assert td_after.decision == snap_decision
+                assert td_after.approved_qty == snap_approved_qty
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 15: does not mutate Signal rows
+    # ------------------------------------------------------------------
+    def test_does_not_mutate_signal_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Signal fields must be unchanged after the preview call."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            sig, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY", approved_qty=Decimal("5")
+            )
+            s.commit()
+            td_id = str(td_buy.id)
+            sig_id = str(sig.id)
+            snap_status = sig.status
+            snap_source_run = sig.source_run
+
+        seeded_client.post(
+            self._ENDPOINT,
+            json={"trade_decision_ids": [td_id]},
+            headers=_AUTH,
+        )
+
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                sig_after = s.query(Signal).filter(
+                    Signal.id == uuid.UUID(sig_id)
+                ).first()
+                assert sig_after is not None
+                assert sig_after.status == snap_status
+                assert sig_after.source_run == snap_source_run
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 16: response includes safety_counts and safety_note
+    # ------------------------------------------------------------------
+    def test_response_includes_safety_counts_and_note(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Response always includes safety_counts with all required keys and safety_note."""
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"trade_decision_ids": []},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        sc = data.get("safety_counts", {})
+        assert sc.get("signals_created") == 0
+        assert sc.get("trade_decisions_created") == 0
+        assert sc.get("orders_created") == 0
+        assert sc.get("job_runs_created") == 0
+        assert sc.get("automation_triggered") is False
+        assert "safety_note" in data
+        assert "PREVIEW ONLY" in data["safety_note"]
+        assert "no orders" in data["safety_note"].lower()
+
+    # ------------------------------------------------------------------
+    # Test 17: side_counts are accurate
+    # ------------------------------------------------------------------
+    def test_side_counts_accurate(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """side_counts keys sum to preview_count."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY", approved_qty=Decimal("5")
+            )
+            s.commit()
+            td_id = str(td_buy.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            sc = data.get("side_counts", {})
+            assert sum(sc.values()) == data["preview_count"]
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 18: output is deterministic (same result on repeat call)
+    # ------------------------------------------------------------------
+    def test_deterministic_output(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Calling the endpoint twice with the same data returns the same counts."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY", approved_qty=Decimal("5")
+            )
+            s.commit()
+            td_id = str(td_buy.id)
+
+        try:
+            payload = {"trade_decision_ids": [td_id]}
+            r1 = seeded_client.post(self._ENDPOINT, json=payload, headers=_AUTH)
+            r2 = seeded_client.post(self._ENDPOINT, json=payload, headers=_AUTH)
+            assert r1.status_code == 200
+            assert r2.status_code == 200
+            d1 = r1.json()
+            d2 = r2.json()
+            assert d1["evaluated_count"] == d2["evaluated_count"]
+            assert d1["preview_count"] == d2["preview_count"]
+            assert d1["skipped_count"] == d2["skipped_count"]
+        finally:
+            self._cleanup(api_engine, [ticker])

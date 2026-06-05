@@ -4626,6 +4626,10 @@ async function createSignalsFromDailyPlan(btn) {
     html += '<button class="btn-sm" onclick="createDecisionsFromDailyPlanSignals(this)" style="background: rgba(239,68,68,.15); color: var(--danger); border: 1px solid rgba(239,68,68,.4);">Create Trade Decisions From Daily Plan Signals</button>';
     html += '</div>';
     html += '<div id="daily-plan-create-decisions-result" style="margin-top: 8px;"></div>';
+    html += '<div style="margin-top: 8px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 8px;">';
+    html += '<button class="btn-sm" onclick="previewOrdersFromDailyPlanDecisions()" style="background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.4);">Preview Orders From Daily Plan Decisions</button>';
+    html += '</div>';
+    html += '<div id="daily-plan-order-preview-result" style="margin-top: 8px;"></div>';
     resultEl.innerHTML = html;
   } catch (e) {
     resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
@@ -4863,6 +4867,94 @@ async function createDecisionsFromDailyPlanSignals(btn) {
     resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function previewOrdersFromDailyPlanDecisions() {
+  const resultEl = document.getElementById('daily-plan-order-preview-result');
+  if (!resultEl) return;
+
+  resultEl.innerHTML = '<div style="color: var(--label); font-size: 11px; padding: 6px 0;">Loading order preview...</div>';
+  try {
+    const r = await call('POST', '/v1/review/daily-plan-order-preview', {
+      approved_only: true,
+      limit: 50,
+    });
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : `HTTP ${r.status}`);
+
+    let html = '';
+
+    // Safety badges
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 3px; font-size: 10px;">';
+    html += '<span style="background: rgba(59,130,246,.12); color: var(--info); padding: 1px 6px; border-radius: 2px; font-weight: 700;">PREVIEW ONLY</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">NO ORDERS CREATED</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">AUTOMATION OFF</span>';
+    html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">MANUAL REVIEW</span>';
+    html += '</div>';
+
+    // Stats chips
+    const sc = data.side_counts || {};
+    html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
+    html += `<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ${escapeHtml(String(data.evaluated_count || 0))}</span>`;
+    html += `<span style="background: rgba(59,130,246,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--info);">Order previews: ${escapeHtml(String(data.preview_count || 0))}</span>`;
+    if ((data.skipped_count || 0) > 0) {
+      html += `<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ${escapeHtml(String(data.skipped_count))}</span>`;
+    }
+    if ((sc['BUY'] || 0) > 0) {
+      html += `<span style="background: rgba(34,197,94,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok); font-weight: 600;">BUY: ${sc['BUY']}</span>`;
+    }
+    if ((sc['SELL'] || 0) > 0) {
+      html += `<span style="background: rgba(251,191,36,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--warning); font-weight: 600;">SELL: ${sc['SELL']}</span>`;
+    }
+    html += '</div>';
+
+    // Order preview table
+    if (data.order_previews && data.order_previews.length > 0) {
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 6px;">';
+      html += '<thead><tr style="border-bottom: 1px solid var(--border);">';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Ticker</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Side</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Qty</th>';
+      html += '<th style="text-align: right; padding: 3px 5px; color: var(--label);">Notional</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Decision ID</th>';
+      html += '<th style="text-align: left; padding: 3px 5px; color: var(--label);">Reason</th>';
+      html += '</tr></thead><tbody>';
+      for (const o of data.order_previews) {
+        const sideColor = o.side === 'BUY' ? 'var(--ok)' : o.side === 'SELL' ? 'var(--warning)' : 'var(--label)';
+        const rowBg = o.side === 'SELL' ? 'rgba(251,191,36,.03)' : 'rgba(34,197,94,.04)';
+        const notional = parseFloat(o.notional);
+        const notionalStr = isNaN(notional) || notional <= 0 ? '-' : '$' + notional.toFixed(0);
+        html += `<tr style="border-bottom: 1px solid rgba(255,255,255,.04); background: ${rowBg};">`;
+        html += `<td style="padding: 4px 5px; font-weight: 600; color: var(--ok);">${escapeHtml(o.ticker)}</td>`;
+        html += `<td style="padding: 4px 5px; color: ${sideColor}; font-weight: 600;">${escapeHtml(o.side)}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(String(o.qty))}</td>`;
+        html += `<td style="padding: 4px 5px; text-align: right;">${escapeHtml(notionalStr)}</td>`;
+        html += `<td style="padding: 4px 5px; font-size: 9px; color: var(--text-secondary); font-family: monospace;">${escapeHtml((o.trade_decision_id || '').substring(0, 8))}...</td>`;
+        html += `<td style="padding: 4px 5px; font-size: 9px; color: var(--text-secondary);">${escapeHtml(o.reason_code || '')}</td>`;
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    } else if ((data.preview_count || 0) === 0) {
+      html += '<div style="font-size: 11px; color: var(--text-secondary); padding: 4px 0;">No orders are previewable from Daily Plan decisions. This may mean: no Daily Plan TradeDecisions with approved BUY or SELL outcomes exist, or all decisions have already been ordered.</div>';
+    }
+
+    // Skipped
+    if (data.skipped && data.skipped.length > 0) {
+      html += '<div style="font-size: 10px; color: var(--text-secondary); margin-top: 4px; margin-bottom: 2px;">Skipped:</div>';
+      for (const sk of data.skipped) {
+        html += `<div style="font-size: 10px; color: var(--danger); margin-bottom: 2px;">${escapeHtml(sk.ticker)}: ${escapeHtml(sk.reason || '')}</div>`;
+      }
+    }
+
+    // Safety note
+    if (data.safety_note) {
+      html += `<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">${escapeHtml(data.safety_note)}</div>`;
+    }
+
+    resultEl.innerHTML = html;
+  } catch (e) {
+    resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
   }
 }
 
