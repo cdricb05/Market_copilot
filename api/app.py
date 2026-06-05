@@ -24,6 +24,7 @@ Endpoints:
     POST /v1/strategy/calibrated-rotation-preview — calibration-aware rotation workbench (PREVIEW ONLY, read-only)
     POST /v1/review/rotation-preview — preview portfolio rotations when at max positions (read-only)
     POST /v1/review/daily-plan-preview — consolidated daily plan: BUY/SELL/HOLD/ROTATION/BLOCKED (read-only)
+    POST /v1/review/daily-plan-replay-preview — historical daily plan replay/backtest preview (read-only)
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
@@ -1688,6 +1689,106 @@ class DailyPlanPreviewResponse(BaseModel):
     safety_counts: DailyPlanSafetyCounts
     capital_allocation: CapitalAllocationAnalysis | None = None
     calibrated_rotation_context: DailyPlanCalibratedRotationContext | None = None
+
+
+# ---------------------------------------------------------------------------
+# Daily Plan Replay / Backtest Preview schemas
+# ---------------------------------------------------------------------------
+
+class DailyPlanReplayPreviewRequest(BaseModel):
+    """Request for a read-only historical replay/backtest preview of the Daily Plan signal."""
+    as_of_dates: list[date] | None = Field(
+        default=None,
+        description="Explicit list of historical dates to evaluate. Overrides start_date/end_date.",
+    )
+    start_date: date | None = Field(
+        default=None,
+        description="Start date (inclusive) when using a date range. Requires end_date.",
+    )
+    end_date: date | None = Field(
+        default=None,
+        description="End date (inclusive) when using a date range. Requires start_date.",
+    )
+    lookback_days: int = Field(default=20, ge=1, le=60, description="Days of price history per evaluation date.")
+    forward_return_days: int = Field(default=5, ge=1, le=30, description="Days ahead to compute realized return.")
+    top_n: int = Field(default=10, ge=1, le=50, description="Top N candidates per date.")
+    scoring_profile: str = Field(
+        default="calibration_recommended",
+        description="Scoring profile: calibration_recommended, current, balanced_preview, quality_preview, risk_adjusted_preview.",
+    )
+    benchmark_ticker: str = Field(default="SPY", description="Benchmark ticker for excess return calculation.")
+    min_price_points: int = Field(default=5, ge=1, description="Minimum price points required per ticker.")
+    max_dates: int = Field(default=20, ge=1, le=30, description="Maximum number of dates to evaluate.")
+    tickers: list[str] | None = Field(
+        default=None,
+        description="Explicit ticker list. When non-empty, restricts universe to these tickers only.",
+    )
+
+    @field_validator("scoring_profile")
+    @classmethod
+    def _validate_replay_profile(cls, v: str) -> str:
+        _allowed = {"calibration_recommended", "current", "balanced_preview", "quality_preview", "risk_adjusted_preview"}
+        if v not in _allowed:
+            raise ValueError(f"scoring_profile must be one of {sorted(_allowed)}")
+        return v
+
+
+class DailyPlanReplayCandidate(BaseModel):
+    """One scored candidate in a single replay date result."""
+    ticker: str
+    score: float
+    momentum_5d_pct: float | None = None
+    momentum_20d_pct: float | None = None
+    forward_return_pct: float | None = None
+    forward_return_vs_spy_pct: float | None = None
+    forward_data_available: bool = True
+
+
+class DailyPlanReplayDateResult(BaseModel):
+    """Per-date result from a Daily Plan Replay preview."""
+    as_of_date: str
+    evaluated_count: int
+    skipped_count: int
+    recommended_profile: str
+    top_candidates: list[DailyPlanReplayCandidate]
+    best_candidate: DailyPlanReplayCandidate | None = None
+    avg_top_n_forward_return_pct: float | None = None
+    forward_return_pct: float | None = None
+    forward_return_vs_spy_pct: float | None = None
+    spy_forward_return_pct: float | None = None
+    win: bool | None = None
+    beat_spy: bool | None = None
+    benchmark_available: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+
+class DailyPlanReplaySummary(BaseModel):
+    """Aggregate summary across all replay dates."""
+    dates_evaluated: int
+    avg_forward_return_pct: float | None = None
+    median_forward_return_pct: float | None = None
+    win_rate_pct: float | None = None
+    avg_vs_spy_pct: float | None = None
+    best_date: str | None = None
+    worst_date: str | None = None
+    profile_used: str
+    safety_counts: dict[str, int]
+
+
+class DailyPlanReplayDiagnostics(BaseModel):
+    """Diagnostic information about the replay run."""
+    skipped_by_reason: dict[str, int] = Field(default_factory=dict)
+    insufficient_history_count: int = 0
+    missing_forward_data_count: int = 0
+    benchmark_available_count: int = 0
+    notes: list[str] = Field(default_factory=list)
+
+
+class DailyPlanReplayPreviewResponse(BaseModel):
+    """Response from POST /v1/review/daily-plan-replay-preview (PREVIEW ONLY, no DB writes)."""
+    date_results: list[DailyPlanReplayDateResult]
+    summary: DailyPlanReplaySummary
+    diagnostics: DailyPlanReplayDiagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -8954,6 +9055,446 @@ def calibrated_rotation_preview(body: CalibratedRotationRequest) -> CalibratedRo
             min_expected_pnl_dollars=body.min_expected_pnl_dollars,
             allow_loss_realization=body.allow_loss_realization,
             as_of_date=body.as_of_date,
+        )
+
+
+@app.post(
+    "/v1/review/daily-plan-replay-preview",
+    response_model=DailyPlanReplayPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def daily_plan_replay_preview(body: DailyPlanReplayPreviewRequest) -> DailyPlanReplayPreviewResponse:
+    """
+    POST /v1/review/daily-plan-replay-preview — Historical daily plan replay/backtest preview.
+
+    PREVIEW ONLY. No Signal, TradeDecision, Order, Position, JobRun, CandidateReview, or
+    any other database rows are created or mutated. No GCP calls. No external API calls.
+
+    For each as_of_date, uses existing historical PriceSnapshot data only to:
+    1. Compute local momentum features for each ticker in the universe.
+    2. Score tickers with the selected profile and identify the top_n candidates.
+    3. Look up realized forward return from existing future PriceSnapshot rows.
+    4. Compute excess return vs SPY when BenchmarkPrice rows exist.
+
+    Date resolution (priority order):
+    - as_of_dates: explicit list
+    - start_date + end_date: distinct market_dates from PriceSnapshot in that range
+    - Neither: last max_dates distinct market_dates from PriceSnapshot
+    All lists are capped at max_dates.
+
+    Safety: signals_created=0, decisions_created=0, orders_created=0,
+    job_runs_created=0, db_rows_created=0.
+    """
+    import statistics as _statistics
+    from datetime import timedelta as _timedelta
+    from paper_trader.engine.universe import get_sp500_universe as _get_sp500_universe
+
+    _safety: dict[str, int] = {
+        "signals_created": 0,
+        "decisions_created": 0,
+        "orders_created": 0,
+        "job_runs_created": 0,
+        "db_rows_created": 0,
+    }
+
+    _all_score_funcs: dict[str, Any] = {
+        "current": _score_candidate_v2,
+        "balanced_preview": _score_candidate_balanced_preview,
+        "quality_preview": _score_candidate_quality_preview,
+        "risk_adjusted_preview": _score_candidate_risk_adjusted_preview,
+    }
+
+    with get_dedicated_session() as session:
+        # --- Resolve universe ---
+        _raw_universe: list[str] = _get_sp500_universe()
+        if body.tickers:
+            _seen_t: set[str] = set()
+            _targeted: list[str] = []
+            for _t in body.tickers:
+                _t_norm = _t.strip().upper()
+                if _t_norm and _t_norm not in _seen_t:
+                    _seen_t.add(_t_norm)
+                    _targeted.append(_t_norm)
+            universe_tickers: list[str] = _targeted if _targeted else _raw_universe
+        else:
+            universe_tickers = _raw_universe
+
+        # --- Resolve dates ---
+        if body.as_of_dates:
+            _candidate_dates: list[date] = sorted(set(body.as_of_dates))
+        elif body.start_date is not None and body.end_date is not None:
+            if body.end_date < body.start_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="end_date must be >= start_date",
+                )
+            _db_dates = session.execute(
+                select(func.distinct(PriceSnapshot.market_date))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .where(PriceSnapshot.market_date >= body.start_date)
+                .where(PriceSnapshot.market_date <= body.end_date)
+                .order_by(PriceSnapshot.market_date)
+            ).scalars().all()
+            _candidate_dates = list(_db_dates)
+        else:
+            _db_dates = session.execute(
+                select(func.distinct(PriceSnapshot.market_date))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .order_by(PriceSnapshot.market_date.desc())
+                .limit(body.max_dates)
+            ).scalars().all()
+            _candidate_dates = sorted(_db_dates)
+
+        # Cap at max_dates, keeping the most-recent dates when over limit
+        if len(_candidate_dates) > body.max_dates:
+            _candidate_dates = _candidate_dates[-body.max_dates:]
+
+        if not _candidate_dates:
+            return DailyPlanReplayPreviewResponse(
+                date_results=[],
+                summary=DailyPlanReplaySummary(
+                    dates_evaluated=0,
+                    profile_used="none",
+                    safety_counts=_safety,
+                ),
+                diagnostics=DailyPlanReplayDiagnostics(
+                    notes=["No price data found for the specified date range."],
+                ),
+            )
+
+        # --- Resolve scoring profile ---
+        # When calibration_recommended: quick single-date calibration to select best profile.
+        _resolved_profile = body.scoring_profile
+        if _resolved_profile == "calibration_recommended":
+            _calib_date = _candidate_dates[-1]  # use most-recent date for calibration
+            _ccutoff = _calib_date - _timedelta(days=body.lookback_days + 10)
+            _cfwd_cut = _calib_date + _timedelta(days=body.forward_return_days)
+            _cfwd_max = _calib_date + _timedelta(days=body.forward_return_days + 10)
+            _calib_universe = universe_tickers[:150]
+
+            _cp_rows = session.execute(
+                select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+                .where(PriceSnapshot.ticker.in_(_calib_universe))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .where(PriceSnapshot.market_date >= _ccutoff)
+                .where(PriceSnapshot.market_date <= _calib_date)
+                .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
+            ).all()
+            _cp_map: dict[str, list] = {}
+            for _cpr in _cp_rows:
+                _cp_map.setdefault(_cpr[0], []).append((_cpr[1], float(_cpr[2])))
+
+            _cpfwd_rows = session.execute(
+                select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+                .where(PriceSnapshot.ticker.in_(_calib_universe))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .where(PriceSnapshot.market_date >= _cfwd_cut)
+                .where(PriceSnapshot.market_date <= _cfwd_max)
+                .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.asc())
+            ).all()
+            _cpfwd_map: dict[str, float] = {}
+            for _cfr in _cpfwd_rows:
+                if _cfr[0] not in _cpfwd_map:
+                    _cpfwd_map[_cfr[0]] = float(_cfr[2])
+
+            # For each profile, score top quartile and measure average forward return
+            _profile_avgs: dict[str, float] = {}
+            for _pn, _pf in _all_score_funcs.items():
+                _scored: list[tuple[float, float]] = []
+                for _ct in _calib_universe:
+                    _crows = _cp_map.get(_ct, [])
+                    if len(_crows) < body.min_price_points:
+                        continue
+                    _cprices = [r[1] for r in _crows]
+                    _cm5 = (_cprices[0] - _cprices[4]) / _cprices[4] if len(_cprices) >= 5 and _cprices[4] > 0 else 0.0
+                    _cm20 = (_cprices[0] - _cprices[19]) / _cprices[19] if len(_cprices) >= 20 and _cprices[19] > 0 else 0.0
+                    _cvol = 0.0
+                    if len(_cprices) >= 2:
+                        _cdn = min(20, len(_cprices) - 1)
+                        _cdrs = [(_cprices[i] - _cprices[i + 1]) / _cprices[i + 1] for i in range(_cdn) if _cprices[i + 1] > 0]
+                        if len(_cdrs) >= 2:
+                            try:
+                                _cvol = _statistics.stdev(_cdrs)
+                            except Exception:
+                                pass
+                    _cscraw = max(0.0, min(100.0, (_cm5 * 100.0 * 0.3 if _cm5 > 0 else 0.0) + (_cm20 * 100.0 * 0.4 if _cm20 > 0 else 0.0)))
+                    _pscore = _pf({
+                        "prediction_confidence": 0.5,
+                        "expected_return_pct": 0.0,
+                        "momentum_5d_pct": _cm5,
+                        "momentum_20d_pct": _cm20,
+                        "volatility_20d_pct": _cvol,
+                        "relative_strength_vs_spy_20d": 0.0,
+                        "scan_score": _cscraw,
+                    })
+                    _fwd_p = _cpfwd_map.get(_ct)
+                    if _fwd_p and _cprices[0] > 0:
+                        _scored.append((_pscore.total_score, (_fwd_p - _cprices[0]) / _cprices[0]))
+                if len(_scored) >= 3:
+                    _sc_sorted = sorted(_scored, key=lambda x: -x[0])
+                    _top_q = max(1, len(_sc_sorted) // 4)
+                    _profile_avgs[_pn] = sum(r[1] for r in _sc_sorted[:_top_q]) / _top_q
+            if _profile_avgs:
+                _resolved_profile = max(_profile_avgs, key=lambda p: _profile_avgs[p])
+            else:
+                _resolved_profile = "current"
+
+        _score_func = _all_score_funcs.get(_resolved_profile, _score_candidate_v2)
+
+        # --- Per-date evaluation ---
+        _date_results: list[DailyPlanReplayDateResult] = []
+        _diag_skipped: dict[str, int] = {}
+        _total_insuff = 0
+        _total_missing_fwd = 0
+        _bm_available_count = 0
+        _all_best_fwd: list[float] = []
+        _all_vs_spy: list[float] = []
+        _wins: list[bool] = []
+
+        for _aod in _candidate_dates:
+            _cutoff = _aod - _timedelta(days=body.lookback_days + 10)
+            _fwd_cut = _aod + _timedelta(days=body.forward_return_days)
+            _fwd_max = _aod + _timedelta(days=body.forward_return_days + 10)
+
+            # Benchmark prices in lookback window
+            _bm_rows = session.execute(
+                select(BenchmarkPrice.market_date, BenchmarkPrice.price)
+                .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
+                .where(BenchmarkPrice.session_type == "REGULAR")
+                .where(BenchmarkPrice.market_date >= _cutoff)
+                .where(BenchmarkPrice.market_date <= _aod)
+                .order_by(BenchmarkPrice.market_date.desc())
+            ).all()
+            _spy_prices: dict = {row[0]: float(row[1]) for row in _bm_rows}
+            _benchmark_available = len(_spy_prices) >= 5
+            if _benchmark_available:
+                _bm_available_count += 1
+
+            _spy_as_of: float | None = None
+            if _spy_prices:
+                _spy_aod_dates = [d for d in _spy_prices if d <= _aod]
+                if _spy_aod_dates:
+                    _spy_as_of = _spy_prices[max(_spy_aod_dates)]
+
+            _spy_fwd_row = session.execute(
+                select(BenchmarkPrice.price)
+                .where(BenchmarkPrice.ticker == body.benchmark_ticker.upper())
+                .where(BenchmarkPrice.session_type == "REGULAR")
+                .where(BenchmarkPrice.market_date >= _fwd_cut)
+                .where(BenchmarkPrice.market_date <= _fwd_max)
+                .order_by(BenchmarkPrice.market_date.asc())
+                .limit(1)
+            ).scalar()
+            _spy_fwd: float | None = float(_spy_fwd_row) if _spy_fwd_row is not None else None
+            _spy_fwd_ret: float | None = None
+            if _spy_fwd and _spy_as_of and _spy_as_of > 0:
+                _spy_fwd_ret = (_spy_fwd - _spy_as_of) / _spy_as_of
+
+            # Batch-fetch price history for all universe tickers up to as_of_date
+            _price_rows = session.execute(
+                select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+                .where(PriceSnapshot.ticker.in_(universe_tickers))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .where(PriceSnapshot.market_date >= _cutoff)
+                .where(PriceSnapshot.market_date <= _aod)
+                .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.desc())
+            ).all()
+
+            _ticker_price_map: dict[str, list] = {}
+            for _pr in _price_rows:
+                _ticker_price_map.setdefault(_pr[0], []).append((_pr[1], float(_pr[2])))
+
+            # Score each ticker
+            _evaluated: list[dict] = []
+            _skipped_count = 0
+
+            for _ticker in universe_tickers:
+                _rows = _ticker_price_map.get(_ticker, [])
+                if len(_rows) < body.min_price_points:
+                    _skipped_count += 1
+                    _diag_skipped["INSUFFICIENT_PRICE_HISTORY"] = _diag_skipped.get("INSUFFICIENT_PRICE_HISTORY", 0) + 1
+                    _total_insuff += 1
+                    continue
+
+                _prices = [r[1] for r in _rows]
+                _dates_t = [r[0] for r in _rows]
+                _latest = _prices[0]
+
+                _mom5 = (_latest - _prices[4]) / _prices[4] if len(_prices) >= 5 and _prices[4] > 0 else 0.0
+                _mom20 = (_latest - _prices[19]) / _prices[19] if len(_prices) >= 20 and _prices[19] > 0 else 0.0
+
+                _vol20 = 0.0
+                if len(_prices) >= 2:
+                    _n = min(20, len(_prices) - 1)
+                    _drets = [
+                        (_prices[i] - _prices[i + 1]) / _prices[i + 1]
+                        for i in range(_n) if _prices[i + 1] > 0
+                    ]
+                    if len(_drets) >= 2:
+                        try:
+                            _vol20 = _statistics.stdev(_drets)
+                        except Exception:
+                            pass
+
+                _rs_spy = 0.0
+                if _benchmark_available and len(_prices) >= 5:
+                    _spy_in_w = {d: _spy_prices[d] for d in _dates_t if d in _spy_prices}
+                    _spy_sorted_d = sorted(_spy_in_w.keys(), reverse=True)
+                    if len(_spy_sorted_d) >= 5:
+                        _spy_lat = _spy_in_w[_spy_sorted_d[0]]
+                        _spy_old = _spy_in_w[_spy_sorted_d[min(19, len(_spy_sorted_d) - 1)]]
+                        if _spy_old > 0:
+                            _rs_spy = _mom20 - (_spy_lat - _spy_old) / _spy_old
+
+                _scan_raw = max(0.0, min(100.0, (_mom5 * 100.0 * 0.3 if _mom5 > 0 else 0.0) + (_mom20 * 100.0 * 0.4 if _mom20 > 0 else 0.0)))
+                _sresult = _score_func({
+                    "prediction_confidence": 0.5,
+                    "expected_return_pct": 0.0,
+                    "momentum_5d_pct": _mom5,
+                    "momentum_20d_pct": _mom20,
+                    "volatility_20d_pct": _vol20,
+                    "relative_strength_vs_spy_20d": _rs_spy,
+                    "scan_score": _scan_raw,
+                })
+                _evaluated.append({
+                    "ticker": _ticker,
+                    "score": _sresult.total_score,
+                    "mom_5d": _mom5,
+                    "mom_20d": _mom20,
+                    "latest_price": _latest,
+                })
+
+            # Sort by score desc, take top_n
+            _evaluated.sort(key=lambda x: -x["score"])
+            _top_candidates = _evaluated[:body.top_n]
+
+            # Look up forward prices for top candidates
+            _top_tickers = [c["ticker"] for c in _top_candidates]
+            _fwd_map: dict[str, float] = {}
+            if _top_tickers:
+                _fwd_rows = session.execute(
+                    select(PriceSnapshot.ticker, PriceSnapshot.market_date, PriceSnapshot.price)
+                    .where(PriceSnapshot.ticker.in_(_top_tickers))
+                    .where(PriceSnapshot.price_type == "CLOSE")
+                    .where(PriceSnapshot.session_type == "REGULAR")
+                    .where(PriceSnapshot.market_date >= _fwd_cut)
+                    .where(PriceSnapshot.market_date <= _fwd_max)
+                    .order_by(PriceSnapshot.ticker, PriceSnapshot.market_date.asc())
+                ).all()
+                for _fr in _fwd_rows:
+                    if _fr[0] not in _fwd_map:
+                        _fwd_map[_fr[0]] = float(_fr[2])
+
+            # Build candidate objects
+            _cand_objs: list[DailyPlanReplayCandidate] = []
+            for _c in _top_candidates:
+                _fwd_price = _fwd_map.get(_c["ticker"])
+                _fwd_ret: float | None = None
+                _fwd_vs_spy: float | None = None
+                _fwd_avail = False
+                if _fwd_price and _c["latest_price"] > 0:
+                    _fwd_ret = round((_fwd_price - _c["latest_price"]) / _c["latest_price"] * 100.0, 4)
+                    _fwd_avail = True
+                    if _spy_fwd_ret is not None:
+                        _fwd_vs_spy = round(_fwd_ret - _spy_fwd_ret * 100.0, 4)
+                else:
+                    _total_missing_fwd += 1
+                    _diag_skipped["MISSING_FORWARD_DATA"] = _diag_skipped.get("MISSING_FORWARD_DATA", 0) + 1
+                _cand_objs.append(DailyPlanReplayCandidate(
+                    ticker=_c["ticker"],
+                    score=round(_c["score"], 4),
+                    momentum_5d_pct=round(_c["mom_5d"] * 100.0, 4),
+                    momentum_20d_pct=round(_c["mom_20d"] * 100.0, 4),
+                    forward_return_pct=_fwd_ret,
+                    forward_return_vs_spy_pct=_fwd_vs_spy,
+                    forward_data_available=_fwd_avail,
+                ))
+
+            _best = _cand_objs[0] if _cand_objs else None
+
+            _top_fwd_rets = [c.forward_return_pct for c in _cand_objs if c.forward_return_pct is not None]
+            _avg_top_n_fwd = round(sum(_top_fwd_rets) / len(_top_fwd_rets), 4) if _top_fwd_rets else None
+
+            _win: bool | None = None
+            _beat_spy: bool | None = None
+            if _best and _best.forward_return_pct is not None:
+                _win = _best.forward_return_pct > 0
+                _all_best_fwd.append(_best.forward_return_pct)
+                _wins.append(_win)
+            if _best and _best.forward_return_vs_spy_pct is not None:
+                _beat_spy = _best.forward_return_vs_spy_pct > 0
+                _all_vs_spy.append(_best.forward_return_vs_spy_pct)
+
+            _notes: list[str] = []
+            if not _benchmark_available:
+                _notes.append("No SPY benchmark data for this date.")
+            if not _top_candidates:
+                _notes.append("No candidates evaluated (insufficient price history).")
+
+            _date_results.append(DailyPlanReplayDateResult(
+                as_of_date=str(_aod),
+                evaluated_count=len(_evaluated),
+                skipped_count=_skipped_count,
+                recommended_profile=_resolved_profile,
+                top_candidates=_cand_objs,
+                best_candidate=_best,
+                avg_top_n_forward_return_pct=_avg_top_n_fwd,
+                forward_return_pct=_best.forward_return_pct if _best else None,
+                forward_return_vs_spy_pct=_best.forward_return_vs_spy_pct if _best else None,
+                spy_forward_return_pct=round(_spy_fwd_ret * 100.0, 4) if _spy_fwd_ret is not None else None,
+                win=_win,
+                beat_spy=_beat_spy,
+                benchmark_available=_benchmark_available,
+                notes=_notes,
+            ))
+
+        # --- Aggregate summary ---
+        _avg_fwd = round(sum(_all_best_fwd) / len(_all_best_fwd), 4) if _all_best_fwd else None
+        _median_fwd: float | None = None
+        if _all_best_fwd:
+            _srt = sorted(_all_best_fwd)
+            _nn = len(_srt)
+            _median_fwd = round(_srt[_nn // 2] if _nn % 2 else (_srt[_nn // 2 - 1] + _srt[_nn // 2]) / 2, 4)
+        _win_rate = round(sum(1 for w in _wins if w) / len(_wins) * 100.0, 1) if _wins else None
+        _avg_vs_spy = round(sum(_all_vs_spy) / len(_all_vs_spy), 4) if _all_vs_spy else None
+
+        _best_date: str | None = None
+        _worst_date: str | None = None
+        _dated_rets = [(dr.as_of_date, dr.forward_return_pct) for dr in _date_results if dr.forward_return_pct is not None]
+        if _dated_rets:
+            _best_date = max(_dated_rets, key=lambda x: x[1])[0]
+            _worst_date = min(_dated_rets, key=lambda x: x[1])[0]
+
+        return DailyPlanReplayPreviewResponse(
+            date_results=_date_results,
+            summary=DailyPlanReplaySummary(
+                dates_evaluated=len(_date_results),
+                avg_forward_return_pct=_avg_fwd,
+                median_forward_return_pct=_median_fwd,
+                win_rate_pct=_win_rate,
+                avg_vs_spy_pct=_avg_vs_spy,
+                best_date=_best_date,
+                worst_date=_worst_date,
+                profile_used=_resolved_profile,
+                safety_counts=_safety,
+            ),
+            diagnostics=DailyPlanReplayDiagnostics(
+                skipped_by_reason=_diag_skipped,
+                insufficient_history_count=_total_insuff,
+                missing_forward_data_count=_total_missing_fwd,
+                benchmark_available_count=_bm_available_count,
+                notes=[
+                    "Historical replay only. Uses existing PriceSnapshot data only. No GCP calls.",
+                    "No signals, decisions, orders, or job_runs are created.",
+                    f"Profile used: {_resolved_profile}.",
+                ],
+            ),
         )
 
 

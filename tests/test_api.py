@@ -17405,3 +17405,524 @@ class TestCalibratedRotationPreviewEndpoint:
             assert s.query(JobRun).count()        == jr_before
             assert s.query(CandidateReview).count() == cr_before
             assert s.query(Position).count()      == pos_before
+
+
+class TestDailyPlanReplayPreviewEndpoint:
+    """POST /v1/review/daily-plan-replay-preview — read-only historical replay/backtest."""
+
+    _ENDPOINT = "/v1/review/daily-plan-replay-preview"
+    _AS_OF = date(2025, 3, 15)
+    _FWD_DATE = date(2025, 3, 22)  # +7 calendar days forward
+
+    @staticmethod
+    def _seed_ticker_prices(
+        s,
+        ticker: str,
+        as_of_date: date,
+        lookback: int = 25,
+        latest_price: float = 100.0,
+        fwd_price: float | None = None,
+        fwd_days: int = 7,
+    ) -> None:
+        """Seed DESC prices from (as_of_date - lookback + 1) to as_of_date, plus optional forward price."""
+        ticker = ticker.strip().upper()
+        from datetime import timedelta as _td
+        base_ts = datetime(2025, 3, 1, 16, 0, 0, tzinfo=timezone.utc)
+        step = latest_price * 0.004
+        for i in range(lookback):
+            d = as_of_date - _td(days=lookback - 1 - i)
+            price = latest_price - step * (lookback - 1 - i)
+            s.add(PriceSnapshot(
+                ticker=ticker,
+                price=Decimal(f"{max(1.0, price):.4f}"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=base_ts,
+                market_date=d,
+            ))
+        if fwd_price is not None:
+            fwd_d = as_of_date + _td(days=fwd_days)
+            s.add(PriceSnapshot(
+                ticker=ticker,
+                price=Decimal(f"{fwd_price:.4f}"),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=base_ts,
+                market_date=fwd_d,
+            ))
+
+    def _cleanup(self, api_engine, tickers: list) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker == t).delete()
+            s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 1: endpoint requires authentication
+    # ------------------------------------------------------------------
+    def test_requires_auth(self, client: TestClient) -> None:
+        """Returns 401 when API key is missing."""
+        r = client.post(self._ENDPOINT, json={})
+        assert r.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: returns 200 with correct top-level structure
+    # ------------------------------------------------------------------
+    def test_returns_200_with_seeded_prices(self, seeded_client: TestClient, api_engine) -> None:
+        """Returns 200 with structurally valid response when price data is seeded."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"RPLY{sfx}{i}" for i in range(3)]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=103.0, fwd_days=7)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF)],
+                    "lookback_days": 20,
+                    "forward_return_days": 5,
+                    "top_n": 3,
+                    "min_price_points": 5,
+                    "scoring_profile": "current",
+                    "tickers": tickers,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert "date_results" in data
+            assert "summary" in data
+            assert "diagnostics" in data
+            assert data["summary"]["dates_evaluated"] == 1
+            assert len(data["date_results"]) == 1
+            dr = data["date_results"][0]
+            assert dr["as_of_date"] == str(self._AS_OF)
+            assert dr["evaluated_count"] >= 1
+            assert dr["recommended_profile"] == "current"
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 3: creates zero signals, decisions, orders, job_runs
+    # ------------------------------------------------------------------
+    def test_creates_zero_db_rows(self, seeded_client: TestClient, api_engine) -> None:
+        """Endpoint creates no DB rows of any kind."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"RPLYZ{sfx}{i}" for i in range(2)]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=80.0)
+            s.commit()
+
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                sig_b = s.query(Signal).count()
+                td_b  = s.query(TradeDecision).count()
+                ord_b = s.query(Order).count()
+                jr_b  = s.query(JobRun).count()
+                cr_b  = s.query(CandidateReview).count()
+                pos_b = s.query(Position).count()
+
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF)],
+                    "scoring_profile": "current",
+                    "tickers": tickers,
+                    "min_price_points": 5,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            safety = data["summary"]["safety_counts"]
+            assert safety["signals_created"] == 0
+            assert safety["decisions_created"] == 0
+            assert safety["orders_created"] == 0
+            assert safety["job_runs_created"] == 0
+            assert safety["db_rows_created"] == 0
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                assert s.query(Signal).count()          == sig_b
+                assert s.query(TradeDecision).count()   == td_b
+                assert s.query(Order).count()           == ord_b
+                assert s.query(JobRun).count()          == jr_b
+                assert s.query(CandidateReview).count() == cr_b
+                assert s.query(Position).count()        == pos_b
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 4: computes forward return correctly
+    # ------------------------------------------------------------------
+    def test_computes_forward_return_correctly(self, seeded_client: TestClient, api_engine) -> None:
+        """Forward return pct matches (fwd_price - as_of_price) / as_of_price * 100."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"RPLYFWD{sfx}"
+        # as_of_price = 100.0; fwd_price = 105.0 (seeded at as_of + 5 days)
+        # expected forward return = 5.0%
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            from datetime import timedelta as _td
+            ts = datetime(2025, 3, 1, 16, 0, 0, tzinfo=timezone.utc)
+            for i in range(10):
+                d = self._AS_OF - _td(days=9 - i)
+                s.add(PriceSnapshot(
+                    ticker=ticker, price=Decimal("100.0000"),
+                    session_type="REGULAR", price_type="CLOSE",
+                    snapshot_ts=ts, market_date=d,
+                ))
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("105.0000"),
+                session_type="REGULAR", price_type="CLOSE",
+                snapshot_ts=ts, market_date=self._AS_OF + _td(days=5),
+            ))
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF)],
+                    "forward_return_days": 5,
+                    "lookback_days": 20,
+                    "top_n": 5,
+                    "min_price_points": 5,
+                    "scoring_profile": "current",
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            dr = data["date_results"][0]
+            assert dr["best_candidate"] is not None
+            assert dr["best_candidate"]["ticker"] == ticker
+            assert dr["forward_return_pct"] is not None
+            assert abs(dr["forward_return_pct"] - 5.0) < 0.02, f"Expected ~5.0%, got {dr['forward_return_pct']}"
+            assert dr["win"] is True
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 5: handles missing forward data gracefully
+    # ------------------------------------------------------------------
+    def test_handles_missing_forward_data(self, seeded_client: TestClient, api_engine) -> None:
+        """When no forward price exists, forward_return_pct is None and forward_data_available is False."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"RPLYNF{sfx}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=10, latest_price=50.0, fwd_price=None)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF)],
+                    "forward_return_days": 5,
+                    "top_n": 5,
+                    "min_price_points": 5,
+                    "scoring_profile": "current",
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            dr = data["date_results"][0]
+            if dr["best_candidate"] is not None:
+                assert dr["best_candidate"]["forward_data_available"] is False
+                assert dr["best_candidate"]["forward_return_pct"] is None
+            assert dr["win"] is None
+            assert data["diagnostics"]["missing_forward_data_count"] >= 1
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 6: handles missing benchmark gracefully
+    # ------------------------------------------------------------------
+    def test_handles_missing_benchmark(self, seeded_client: TestClient, api_engine) -> None:
+        """When no BenchmarkPrice rows exist for the date, benchmark_available=False and no crash."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"RPLYNB{sfx}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=10, latest_price=75.0, fwd_price=77.0, fwd_days=6)
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF)],
+                    "forward_return_days": 5,
+                    "top_n": 3,
+                    "min_price_points": 5,
+                    "scoring_profile": "current",
+                    "benchmark_ticker": "NOEXIST",
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            dr = data["date_results"][0]
+            assert dr["benchmark_available"] is False
+            assert dr["forward_return_vs_spy_pct"] is None
+            assert dr["spy_forward_return_pct"] is None
+            assert data["diagnostics"]["benchmark_available_count"] == 0
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 7: rejects end_date < start_date
+    # ------------------------------------------------------------------
+    def test_rejects_invalid_date_range(self, seeded_client: TestClient) -> None:
+        """Returns 422 when end_date is before start_date."""
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={
+                "start_date": "2025-03-15",
+                "end_date": "2025-03-01",
+                "scoring_profile": "current",
+            },
+            headers=_AUTH,
+        )
+        assert r.status_code == 422
+
+    # ------------------------------------------------------------------
+    # Test 8: rejects invalid scoring_profile
+    # ------------------------------------------------------------------
+    def test_rejects_invalid_scoring_profile(self, seeded_client: TestClient) -> None:
+        """Returns 422 when scoring_profile is not an allowed value."""
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"scoring_profile": "nonexistent_profile"},
+            headers=_AUTH,
+        )
+        assert r.status_code == 422
+
+    # ------------------------------------------------------------------
+    # Test 9: respects max_dates cap
+    # ------------------------------------------------------------------
+    def test_respects_max_dates_cap(self, seeded_client: TestClient, api_engine) -> None:
+        """Returns at most max_dates date results even when more dates are provided."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"RPLYCAP{sfx}"
+
+        from datetime import timedelta as _td
+        ts = datetime(2025, 3, 1, 16, 0, 0, tzinfo=timezone.utc)
+        # Seed 15 daily prices: as_of_date at day 10, forward at day 15
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for i in range(15):
+                d = self._AS_OF - _td(days=14 - i)
+                s.add(PriceSnapshot(
+                    ticker=ticker, price=Decimal(f"{100.0 + i:.4f}"),
+                    session_type="REGULAR", price_type="CLOSE",
+                    snapshot_ts=ts, market_date=d,
+                ))
+            s.commit()
+
+        # Request 10 explicit dates but cap max_dates at 3
+        _dates = [str(self._AS_OF - _td(days=i)) for i in range(10)]
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": _dates,
+                    "max_dates": 3,
+                    "scoring_profile": "current",
+                    "tickers": [ticker],
+                    "min_price_points": 5,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert len(data["date_results"]) <= 3
+            assert data["summary"]["dates_evaluated"] <= 3
+        finally:
+            self._cleanup(api_engine, [ticker])
+
+    # ------------------------------------------------------------------
+    # Test 10: output is deterministic for the same inputs
+    # ------------------------------------------------------------------
+    def test_output_is_deterministic(self, seeded_client: TestClient, api_engine) -> None:
+        """Two identical requests return identical forward_return_pct values."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+        tickers = [f"RPLYDET{sfx}{i}" for i in range(3)]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for t in tickers:
+                self._seed_ticker_prices(s, t, self._AS_OF, lookback=25, latest_price=100.0, fwd_price=102.0, fwd_days=7)
+            s.commit()
+
+        req_body = {
+            "as_of_dates": [str(self._AS_OF)],
+            "lookback_days": 20,
+            "forward_return_days": 5,
+            "top_n": 3,
+            "min_price_points": 5,
+            "scoring_profile": "current",
+            "tickers": tickers,
+        }
+
+        try:
+            r1 = seeded_client.post(self._ENDPOINT, json=req_body, headers=_AUTH)
+            r2 = seeded_client.post(self._ENDPOINT, json=req_body, headers=_AUTH)
+            assert r1.status_code == 200
+            assert r2.status_code == 200
+            d1 = r1.json()
+            d2 = r2.json()
+            assert d1["date_results"][0]["forward_return_pct"] == d2["date_results"][0]["forward_return_pct"]
+            assert d1["date_results"][0]["evaluated_count"] == d2["date_results"][0]["evaluated_count"]
+        finally:
+            self._cleanup(api_engine, tickers)
+
+    # ------------------------------------------------------------------
+    # Test 11: does not use global max PriceSnapshot date
+    # ------------------------------------------------------------------
+    def test_does_not_use_global_max_date(self, seeded_client: TestClient, api_engine) -> None:
+        """Replay for as_of_date uses only prices up to that date (explicit), not today's global max."""
+        import uuid as _uuid
+        from datetime import timedelta as _td
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"RPLYISO{sfx}"
+        junk = f"RPLYJNK{sfx}"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_ticker_prices(s, ticker, self._AS_OF, lookback=10, latest_price=100.0, fwd_price=106.0, fwd_days=7)
+            # Junk ticker with price only at today (unrelated)
+            s.add(PriceSnapshot(
+                ticker=junk, price=Decimal("999.00"),
+                session_type="REGULAR", price_type="CLOSE",
+                snapshot_ts=datetime(2026, 6, 4, 16, 0, 0, tzinfo=timezone.utc),
+                market_date=date(2026, 6, 4),
+            ))
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(self._AS_OF)],
+                    "forward_return_days": 5,
+                    "top_n": 5,
+                    "min_price_points": 5,
+                    "scoring_profile": "current",
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            dr = data["date_results"][0]
+            assert dr["evaluated_count"] >= 1, "Ticker should still be evaluated when as_of_date is explicit"
+            assert dr["best_candidate"] is not None
+            assert dr["best_candidate"]["ticker"] == ticker
+        finally:
+            self._cleanup(api_engine, [ticker, junk])
+
+    # ------------------------------------------------------------------
+    # Test 12: returns empty results for date range with no price data
+    # ------------------------------------------------------------------
+    def test_empty_for_no_price_data(self, seeded_client: TestClient) -> None:
+        """Returns 200 with empty date_results when no price data exists for the range."""
+        from datetime import timedelta as _td
+        # Use a far-future date range guaranteed to have no price data
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={
+                "start_date": "2099-01-01",
+                "end_date": "2099-01-31",
+                "scoring_profile": "current",
+                "tickers": ["FAKETICKERXYZ"],
+            },
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["date_results"] == []
+        assert data["summary"]["dates_evaluated"] == 0
+        assert data["summary"]["safety_counts"]["signals_created"] == 0
+        assert data["summary"]["safety_counts"]["orders_created"] == 0
+
+    # ------------------------------------------------------------------
+    # Test 13: multi-date results aggregate correctly
+    # ------------------------------------------------------------------
+    def test_multi_date_aggregation(self, seeded_client: TestClient, api_engine) -> None:
+        """Multiple as_of_dates produce per-date results and aggregate summary."""
+        import uuid as _uuid
+        from datetime import timedelta as _td
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"RPLYMUL{sfx}"
+        ts = datetime(2025, 3, 1, 16, 0, 0, tzinfo=timezone.utc)
+
+        # Seed 30 daily prices for two dates: AS_OF and AS_OF - 5
+        _date1 = self._AS_OF - _td(days=5)
+        _date2 = self._AS_OF
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            # 30 prices ending at _date2
+            for i in range(30):
+                d = _date2 - _td(days=29 - i)
+                s.add(PriceSnapshot(
+                    ticker=ticker, price=Decimal(f"{100.0 + i * 0.5:.4f}"),
+                    session_type="REGULAR", price_type="CLOSE",
+                    snapshot_ts=ts, market_date=d,
+                ))
+            # Forward prices for both dates
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("108.00"),
+                session_type="REGULAR", price_type="CLOSE",
+                snapshot_ts=ts, market_date=_date1 + _td(days=6),
+            ))
+            s.add(PriceSnapshot(
+                ticker=ticker, price=Decimal("112.00"),
+                session_type="REGULAR", price_type="CLOSE",
+                snapshot_ts=ts, market_date=_date2 + _td(days=6),
+            ))
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={
+                    "as_of_dates": [str(_date1), str(_date2)],
+                    "forward_return_days": 5,
+                    "lookback_days": 20,
+                    "top_n": 5,
+                    "min_price_points": 5,
+                    "scoring_profile": "current",
+                    "tickers": [ticker],
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["summary"]["dates_evaluated"] == 2
+            assert len(data["date_results"]) == 2
+            # Both dates should have the ticker evaluated
+            for dr in data["date_results"]:
+                assert dr["evaluated_count"] >= 1
+            # Summary should have avg forward return
+            assert data["summary"]["avg_forward_return_pct"] is not None
+            assert data["summary"]["best_date"] is not None
+            assert data["summary"]["worst_date"] is not None
+        finally:
+            self._cleanup(api_engine, [ticker])

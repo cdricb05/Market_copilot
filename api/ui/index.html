@@ -1987,6 +1987,54 @@
           <div id="calib-result" style="margin-top:12px;font-size:12px;"></div>
         </div>
 
+        <!-- Daily Plan Replay / Backtest Preview -->
+        <div class="card">
+          <div class="card-title">Daily Plan Replay / Backtest Preview</div>
+          <p style="font-size:11px;color:var(--ok);margin:0 0 10px;padding:6px 8px;background:rgba(0,128,0,0.08);border-left:3px solid var(--ok);">
+            <strong>PREVIEW ONLY &mdash; NO SIGNALS &mdash; NO DECISIONS &mdash; NO ORDERS.</strong> Uses existing historical price data only. No GCP calls.
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px;">
+            <div class="input-group">
+              <label>Start Date</label>
+              <input type="date" id="replay-start-date" class="mono">
+            </div>
+            <div class="input-group">
+              <label>End Date</label>
+              <input type="date" id="replay-end-date" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Lookback Days</label>
+              <input type="number" id="replay-lookback-days" value="20" min="1" max="60" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Forward Return Days</label>
+              <input type="number" id="replay-forward-days" value="5" min="1" max="30" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Top N</label>
+              <input type="number" id="replay-top-n" value="10" min="1" max="50" class="mono">
+            </div>
+            <div class="input-group">
+              <label>Max Dates</label>
+              <input type="number" id="replay-max-dates" value="20" min="1" max="30" class="mono">
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div class="input-group">
+              <label>Scoring Profile</label>
+              <select id="replay-scoring-profile" class="mono">
+                <option value="calibration_recommended">Calibration Recommended</option>
+                <option value="current">Current</option>
+                <option value="balanced_preview">Balanced Preview</option>
+                <option value="quality_preview">Quality Preview</option>
+                <option value="risk_adjusted_preview">Risk Adjusted Preview</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn-action" id="replay-run-btn" onclick="runDailyPlanReplay(this)">Run Replay Preview</button>
+          <div id="replay-result" style="margin-top:12px;font-size:12px;"></div>
+        </div>
+
       </div><!-- end tab-audit-advanced -->
 
     </div><!-- end main-content-area -->
@@ -7204,6 +7252,126 @@ function _renderCalibrationResult(data) {
     }
     h += '</div></details>';
   }
+  return h;
+}
+
+// ---------------------------------------------------------------------------
+// Daily Plan Replay / Backtest Preview
+// ---------------------------------------------------------------------------
+
+async function runDailyPlanReplay(btn) {
+  if (!window._appState?.connected) { toast('Connect first to run replay.', 'warn'); return; }
+  const resultEl = document.getElementById('replay-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.textContent = 'Running replay preview...';
+
+  const startDate = document.getElementById('replay-start-date')?.value || null;
+  const endDate = document.getElementById('replay-end-date')?.value || null;
+  const lookbackDays = parseInt(document.getElementById('replay-lookback-days')?.value || '20', 10);
+  const forwardDays = parseInt(document.getElementById('replay-forward-days')?.value || '5', 10);
+  const topN = parseInt(document.getElementById('replay-top-n')?.value || '10', 10);
+  const maxDates = parseInt(document.getElementById('replay-max-dates')?.value || '20', 10);
+  const scoringProfile = document.getElementById('replay-scoring-profile')?.value || 'calibration_recommended';
+
+  const body = {
+    lookback_days: lookbackDays,
+    forward_return_days: forwardDays,
+    top_n: topN,
+    max_dates: maxDates,
+    scoring_profile: scoringProfile,
+  };
+  if (startDate) body.start_date = startDate;
+  if (endDate) body.end_date = endDate;
+
+  try {
+    const r = await call('POST', '/v1/review/daily-plan-replay-preview', body);
+    if (!r.ok) {
+      const errText = await r.text();
+      resultEl.innerHTML = `<span style="color:var(--danger);">Error ${r.status}: ${escapeHtml(errText)}</span>`;
+      return;
+    }
+    const data = await r.json();
+    resultEl.innerHTML = _renderReplayResult(data);
+  } catch (e) {
+    resultEl.innerHTML = `<span style="color:var(--danger);">Request failed: ${escapeHtml(String(e))}</span>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _renderReplayResult(data) {
+  const s = data.summary;
+  const diag = data.diagnostics;
+  const results = data.date_results || [];
+
+  let h = '';
+  // Safety badge
+  h += '<div style="display:inline-flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(34,197,94,.15);color:var(--ok);border:1px solid rgba(34,197,94,.4);">PREVIEW ONLY</span>';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);">NO SIGNALS</span>';
+  h += '<span style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.3);">NO ORDERS</span>';
+  h += '</div>';
+
+  // Summary cards
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px;">';
+  const mkCard = (label, val, color) => `<div style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.08);border-radius:3px;padding:8px 10px;"><div style="font-size:9px;color:var(--label);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;">${label}</div><div style="font-size:14px;font-weight:700;color:${color || 'var(--text-primary)'};">${val !== null && val !== undefined ? val : '-'}</div></div>`;
+  h += mkCard('Dates Evaluated', s.dates_evaluated, 'var(--text-primary)');
+  h += mkCard('Avg Best Fwd Return', s.avg_forward_return_pct !== null ? s.avg_forward_return_pct.toFixed(2) + '%' : '-', s.avg_forward_return_pct > 0 ? 'var(--ok)' : s.avg_forward_return_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)');
+  h += mkCard('Median Fwd Return', s.median_forward_return_pct !== null ? s.median_forward_return_pct.toFixed(2) + '%' : '-', s.median_forward_return_pct > 0 ? 'var(--ok)' : s.median_forward_return_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)');
+  h += mkCard('Win Rate', s.win_rate_pct !== null ? s.win_rate_pct.toFixed(1) + '%' : '-', s.win_rate_pct >= 50 ? 'var(--ok)' : 'var(--danger)');
+  h += mkCard('Avg vs SPY', s.avg_vs_spy_pct !== null ? s.avg_vs_spy_pct.toFixed(2) + '%' : '-', s.avg_vs_spy_pct > 0 ? 'var(--ok)' : s.avg_vs_spy_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)');
+  h += mkCard('Profile Used', escapeHtml(s.profile_used || '-'), 'var(--accent)');
+  h += '</div>';
+
+  if (s.best_date || s.worst_date) {
+    h += '<div style="font-size:11px;color:var(--label);margin-bottom:8px;">';
+    if (s.best_date) h += `Best date: <strong style="color:var(--ok);">${escapeHtml(s.best_date)}</strong>  `;
+    if (s.worst_date) h += `Worst date: <strong style="color:var(--danger);">${escapeHtml(s.worst_date)}</strong>`;
+    h += '</div>';
+  }
+
+  // Per-date table
+  if (results.length > 0) {
+    h += '<div style="overflow-x:auto;margin-bottom:10px;">';
+    h += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    h += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,.12);">';
+    for (const col of ['Date', 'Evaluated', 'Skipped', 'Best Ticker', 'Score', 'Mom5d%', 'Fwd Return%', 'vs SPY%', 'SPY Fwd%', 'Win', 'Benchmark']) {
+      h += `<th style="text-align:left;padding:4px 6px;font-size:10px;color:var(--label);white-space:nowrap;">${col}</th>`;
+    }
+    h += '</tr></thead><tbody>';
+    for (const dr of results) {
+      const bc = dr.best_candidate;
+      const winColor = dr.win === true ? 'var(--ok)' : dr.win === false ? 'var(--danger)' : 'var(--text-secondary)';
+      const fwdColor = dr.forward_return_pct > 0 ? 'var(--ok)' : dr.forward_return_pct < 0 ? 'var(--danger)' : 'var(--text-secondary)';
+      h += '<tr style="border-bottom:1px solid rgba(255,255,255,.05);">';
+      h += `<td style="padding:4px 6px;font-family:monospace;">${escapeHtml(dr.as_of_date)}</td>`;
+      h += `<td style="padding:4px 6px;">${dr.evaluated_count}</td>`;
+      h += `<td style="padding:4px 6px;color:var(--label);">${dr.skipped_count}</td>`;
+      h += `<td style="padding:4px 6px;font-family:monospace;">${bc ? escapeHtml(bc.ticker) : '-'}</td>`;
+      h += `<td style="padding:4px 6px;">${bc ? bc.score.toFixed(2) : '-'}</td>`;
+      h += `<td style="padding:4px 6px;">${bc && bc.momentum_5d_pct !== null ? bc.momentum_5d_pct.toFixed(2) : '-'}</td>`;
+      h += `<td style="padding:4px 6px;color:${fwdColor};font-weight:600;">${dr.forward_return_pct !== null && dr.forward_return_pct !== undefined ? dr.forward_return_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;color:${dr.forward_return_vs_spy_pct > 0 ? 'var(--ok)' : 'var(--danger)'};">${dr.forward_return_vs_spy_pct !== null && dr.forward_return_vs_spy_pct !== undefined ? dr.forward_return_vs_spy_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;color:var(--label);">${dr.spy_forward_return_pct !== null && dr.spy_forward_return_pct !== undefined ? dr.spy_forward_return_pct.toFixed(2) + '%' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;color:${winColor};font-weight:700;">${dr.win === true ? 'W' : dr.win === false ? 'L' : '-'}</td>`;
+      h += `<td style="padding:4px 6px;color:${dr.benchmark_available ? 'var(--ok)' : 'var(--label)'};">${dr.benchmark_available ? 'Y' : 'N'}</td>`;
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+  } else {
+    h += '<div style="color:var(--label);font-size:11px;">No date results returned.</div>';
+  }
+
+  // Diagnostics
+  h += '<details style="margin-top:8px;"><summary style="font-size:10px;color:var(--label);cursor:pointer;">Diagnostics</summary>';
+  h += '<div style="padding:6px 0;font-size:10px;color:var(--label);line-height:1.6;">';
+  h += `Insufficient history: ${diag.insufficient_history_count} | Missing forward data: ${diag.missing_forward_data_count} | Benchmark available for: ${diag.benchmark_available_count} date(s)<br>`;
+  for (const note of (diag.notes || [])) { h += `<em>${escapeHtml(note)}</em><br>`; }
+  const safety = data.summary?.safety_counts || {};
+  h += `Safety: signals=${safety.signals_created ?? 0}, decisions=${safety.decisions_created ?? 0}, orders=${safety.orders_created ?? 0}, job_runs=${safety.job_runs_created ?? 0}, rows=${safety.db_rows_created ?? 0}`;
+  h += '</div></details>';
+
   return h;
 }
 
