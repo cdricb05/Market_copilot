@@ -1380,6 +1380,7 @@
             <div class="stage-card" id="stage-execute" style="border-color: rgba(239,68,68,.4);">
               <div class="stage-title" style="color: var(--danger);">4 &mdash; EXECUTE PREVIEW</div>
               <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 5px;">STOP: ORDERS DISABLED</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="ov-execute-summary">Approve candidates &rarr; create signals &rarr; create decisions</div>
 
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; margin-bottom: 4px;">
                 <div>
@@ -1860,6 +1861,7 @@
               Latest per ticker
             </label>
           </div>
+          <div id="rq-filter-info" style="font-size: 9px; color: var(--label); margin-bottom: 6px; padding: 4px 8px; background: rgba(0,0,0,.15); border-radius: 2px; display: none;"></div>
           <div class="table-wrap scroll-table">
             <table>
               <thead>
@@ -4164,7 +4166,7 @@ async function runPredictionPreview(btn) {
       renderPredictionPreviewResult(b, resultEl);
       toast('Prediction preview complete', 'ok');
       const _ovScanEl = document.getElementById('ov-scan-summary');
-      if (_ovScanEl && b.candidate_previews) _ovScanEl.textContent = b.candidate_previews.length + ' candidates found — save eligible to queue';
+      if (_ovScanEl && b.candidate_previews) _ovScanEl.textContent = b.candidate_previews.length + ' candidates found -- save eligible to queue';
       const _naEl = document.getElementById('cockpit-next-action');
       if (_naEl) _naEl.textContent = 'Preview complete - review candidates and click Save to Review Queue';
       const _asEl = document.getElementById('right-action-status');
@@ -4259,7 +4261,7 @@ async function runDailyPlan(btn) {
       renderDailyPlanResult(b, resultEl);
       toast('Daily plan preview generated', 'ok');
       const _ovPlanEl = document.getElementById('ov-plan-summary');
-      if (_ovPlanEl) _ovPlanEl.textContent = b.recommended_next_action ? b.recommended_next_action.substring(0, 70) : 'Plan ready — review then proceed to Execution';
+      if (_ovPlanEl) _ovPlanEl.textContent = b.recommended_next_action ? b.recommended_next_action.substring(0, 70) : 'Plan ready -- review then proceed to Execution';
       const _naEl = document.getElementById('cockpit-next-action');
       if (_naEl) _naEl.textContent = b.recommended_next_action || 'Review daily plan above';
       const _asEl = document.getElementById('right-action-status');
@@ -6551,6 +6553,8 @@ function filterReviewQueue() {
     return statusMatch && tickerMatch;
   });
 
+  const beforeLatestCount = filtered.length;
+
   // If latest per ticker is checked, keep only the most recent entry per ticker
   if (latestOnly) {
     const latestMap = {};
@@ -6564,6 +6568,20 @@ function filterReviewQueue() {
 
   renderReviewQueue(filtered);
   updateCockpitReviewSummary();
+
+  const infoEl = document.getElementById('rq-filter-info');
+  if (infoEl) {
+    const hiddenByLatest = latestOnly ? (beforeLatestCount - filtered.length) : 0;
+    if (hiddenByLatest > 0) {
+      infoEl.textContent = 'Showing ' + filtered.length + ' of ' + beforeLatestCount + ' entries (latest per ticker). ' + hiddenByLatest + ' older row(s) hidden -- uncheck "Latest per ticker" to see all.';
+      infoEl.style.display = 'block';
+    } else if (latestOnly && filtered.length > 0) {
+      infoEl.textContent = 'Latest row per ticker shown (' + filtered.length + ' unique ticker' + (filtered.length !== 1 ? 's' : '') + '). Uncheck to see full history.';
+      infoEl.style.display = 'block';
+    } else {
+      infoEl.style.display = 'none';
+    }
+  }
 }
 
 async function generateSignalPreview() {
@@ -6812,6 +6830,8 @@ function renderCreateSignalsResponse(data) {
 
   // Show toast confirmation
   toast(`Created ${signalsCreated} signal(s)`, 'ok');
+  const _oesCreateSig = document.getElementById('ov-execute-summary');
+  if (_oesCreateSig) _oesCreateSig.textContent = signalsCreated + ' signal(s) created';
 }
 
 function updateDecisionOutcomeSummary(items, sourceLabel) {
@@ -6938,7 +6958,10 @@ function renderDecisionPreviewResponse(data) {
     window._riskMaxPositions = _maxPos;
     window._riskOpenPositions = _openPos;
     updatePortfolioCapacityDisplay();
+    _updateOvBlockedGridMaxPos(_maxPosRejected.length, _openPos, _maxPos);
   }
+  const _oesDecPrev = document.getElementById('ov-execute-summary');
+  if (_oesDecPrev) _oesDecPrev.textContent = previewsGenerated + ' previewed' + (_maxPosRejected.length > 0 ? ', ' + _maxPosRejected.length + ' rejected (MAX_POSITIONS)' : '');
 
   // Decision previews table
   if (decisionPreviews.length > 0) {
@@ -7163,6 +7186,11 @@ function renderCreateDecisionsResponse(data) {
   // Show toast confirmation
   toast(`Created ${decisionsCreated} decision(s)`, 'ok');
   updateDecisionOutcomeSummary(createdDecisions, 'Last updated: Create Decisions (Step D)');
+  if (_maxPosCreated.length > 0) {
+    _updateOvBlockedGridMaxPos(_maxPosCreated.length, window._riskOpenPositions, window._riskMaxPositions);
+  }
+  const _oesCreateDec = document.getElementById('ov-execute-summary');
+  if (_oesCreateDec) _oesCreateDec.textContent = decisionsCreated + ' decision(s) created' + (_maxPosCreated.length > 0 ? ', ' + _maxPosCreated.length + ' rejected (MAX_POSITIONS)' : '');
 }
 
 async function previewOrdersFromDecisions() {
@@ -7678,6 +7706,18 @@ function getWorkflowStepStatus(stepId) {
   }
 }
 
+function _updateOvBlockedGridMaxPos(count, openPos, maxPos) {
+  const el = document.getElementById('ov-blocked-grid');
+  if (!el) return;
+  const _op = openPos !== undefined ? openPos : '?';
+  const _mp = maxPos !== undefined ? maxPos : '?';
+  el.innerHTML = '<div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.3);border-radius:2px;padding:6px 8px;font-size:9px;line-height:1.4;">' +
+    '<div style="font-weight:700;color:var(--info);margin-bottom:3px;">MAX_POSITIONS_REACHED (' + count + ' BUY rejected)</div>' +
+    '<div style="color:var(--text-accent);margin-bottom:2px;">Portfolio full: ' + _op + ' open / ' + _mp + ' max. New BUYs blocked by risk controls.</div>' +
+    '<div style="color:var(--label);">Expected behavior -- not a model failure. Free a slot to buy new candidates.</div>' +
+    '</div>';
+}
+
 function updateCockpitReviewSummary() {
   const all = window._lastReviewQueueData || [];
   const latestMap = {};
@@ -7715,6 +7755,11 @@ function updateCockpitReviewSummary() {
   if (rqWatching) rqWatching.textContent = watching;
   if (rqRejected) rqRejected.textContent = rejected;
   if (rqPending) rqPending.textContent = pending;
+
+  const _srcEl = document.getElementById('stage-review-count');
+  if (_srcEl && total > 0) {
+    _srcEl.textContent = approved + ' approved / ' + total + ' in queue (latest per ticker)';
+  }
 }
 
 async function refreshReviewQueue() {
