@@ -213,10 +213,8 @@
 
     .main-content-area {
       flex: 1;
-      display: grid;
-      gap: 12px;
-      overflow-y: auto;
-      padding: 12px 16px;
+      overflow: hidden;
+      min-height: 0;
     }
 
     .tab-content {
@@ -224,9 +222,13 @@
     }
 
     .tab-content.active {
-      display: grid;
-      gap: 12px;
-      grid-auto-flow: row;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow-y: auto;
+      padding: 12px 16px;
+      gap: 10px;
+      box-sizing: border-box;
     }
 
     .right-panel {
@@ -817,6 +819,225 @@
     table.compact-table { font-size: 10px; }
     table.compact-table th { padding: 5px 6px; font-size: 8px; }
     table.compact-table td { padding: 5px 6px; font-size: 10px; }
+
+    /* --- Cockpit layout additions --- */
+
+    /* Scroll tables: tables with internal max-height scroll */
+    .scroll-table { max-height: 300px; overflow-y: auto; }
+    .scroll-table-sm { max-height: 180px; overflow-y: auto; }
+
+    /* Daily Plan 2-column cockpit */
+    .daily-plan-grid {
+      display: grid;
+      grid-template-columns: 3fr 2fr;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .daily-plan-left {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+    .daily-plan-right {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+
+    /* Overview layout */
+    .overview-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .overview-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    /* Command strip for Daily Plan steps */
+    .cmd-strip {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      align-items: flex-start;
+      padding-bottom: 4px;
+    }
+    .cmd-step {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      background: rgba(0,0,0,.2);
+      min-width: 100px;
+      flex-shrink: 0;
+      text-align: center;
+    }
+    .cmd-step-label {
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--label);
+      font-weight: 600;
+    }
+    .cmd-step-name {
+      font-size: 9px;
+      color: var(--text-accent);
+      margin-bottom: 2px;
+    }
+    .cmd-arrow {
+      color: var(--label);
+      font-size: 18px;
+      align-self: center;
+      flex-shrink: 0;
+      padding: 0 2px;
+    }
+    .compact-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 10px 12px;
+    }
+
+    /* --- Phase 5B Cockpit Layout --- */
+    .cockpit-kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(80px, 1fr));
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .cockpit-main-grid {
+      display: grid;
+      grid-template-columns: 28% 44% 28%;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .cockpit-left-col, .cockpit-center-col, .cockpit-right-col {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+    .stage-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 8px 10px;
+      flex-shrink: 0;
+    }
+    .stage-card.stage-active { border-color: var(--info); }
+    .stage-card.stage-done { border-color: var(--ok); }
+    .stage-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-accent);
+      margin-bottom: 4px;
+    }
+    .main-recommendation-card {
+      background: rgba(59,130,246,.08);
+      border: 1px solid rgba(59,130,246,.4);
+      border-radius: 3px;
+      padding: 10px 12px;
+      flex-shrink: 0;
+    }
+    .portfolio-visual-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 10px 12px;
+      flex-shrink: 0;
+    }
+    .allocation-bar-outer {
+      background: rgba(0,0,0,.2);
+      border-radius: 2px;
+      height: 8px;
+      overflow: hidden;
+      margin: 3px 0 6px;
+    }
+    .allocation-bar {
+      height: 100%;
+      background: var(--info);
+      border-radius: 2px;
+      transition: width .3s;
+    }
+    .capacity-bar-outer {
+      background: rgba(0,0,0,.2);
+      border-radius: 2px;
+      height: 8px;
+      overflow: hidden;
+      margin: 3px 0 2px;
+    }
+    .capacity-bar {
+      height: 100%;
+      background: var(--ok);
+      border-radius: 2px;
+      transition: width .3s;
+    }
+    .daily-plan-command-bar {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      overflow-x: auto;
+      flex-shrink: 0;
+      padding: 6px 10px;
+      background: rgba(0,0,0,.2);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+    }
+    .daily-plan-cockpit-grid {
+      display: grid;
+      grid-template-columns: 28% 1fr 26%;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .daily-plan-main-panel, .daily-plan-side-panel {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+    }
+    .bottom-drawer-tabs {
+      flex-shrink: 0;
+      border-top: 1px solid var(--border);
+      max-height: 210px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: rgba(0,0,0,.1);
+    }
+    .drawer-tab-bar {
+      display: flex;
+      gap: 2px;
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .compact-scroll-region {
+      max-height: 165px;
+      overflow-y: auto;
+      padding: 6px 8px;
+      font-size: 10px;
+    }
+    .blocked-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 6px;
+    }
+    .cockpit-stage-control {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -828,8 +1049,9 @@
     <span class="status-text" id="health-status">Connecting...</span>
     <span class="status-debug" id="health-debug"></span>
   </div>
-  <span style="font-size: 11px; color: var(--label); margin-right: 24px;">Safety: Manual Review</span>
-  <span style="font-size: 11px; color: var(--label);">Automation: Off</span>
+  <span class="badge warning" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">MANUAL REVIEW</span>
+  <span class="badge err" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">ORDERS DISABLED</span>
+  <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">AUTOMATION OFF</span>
   <div style="flex: 1;"></div>
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
          onkeydown="if(event.key==='Enter')window.paperTraderConnect(event)">
@@ -1031,20 +1253,16 @@
   <div class="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-label">Views</div>
-      <a class="sidebar-link" onclick="window._switchTab('prediction-cockpit');">Dashboard</a>
+      <a class="sidebar-link" onclick="window._switchTab('overview');">Overview</a>
+      <a class="sidebar-link" onclick="window._switchTab('prediction-cockpit');">Daily Plan</a>
       <a class="sidebar-link" onclick="window._switchTab('review-queue');">Review Queue</a>
+      <a class="sidebar-link" onclick="window._switchTab('signals-decisions');">Execution</a>
+      <a class="sidebar-link" onclick="window._switchTab('portfolio');">Portfolio</a>
+      <a class="sidebar-link" onclick="window._switchTab('audit-advanced');">Audit / Advanced</a>
     </div>
     <div class="sidebar-section">
-      <div class="sidebar-label">Workflow</div>
+      <div class="sidebar-label">Actions</div>
       <a class="sidebar-link" onclick="window.runUiAction('Refresh Workflow Status', () => refreshWorkflowStatus(), this);">Refresh Status</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Data</div>
-      <a class="sidebar-link" onclick="window.runUiAction('Load Orders', () => loadOrders(), this)">Orders</a>
-      <a class="sidebar-link" onclick="window.runUiAction('Load History', () => loadHistory(), this)">History</a>
-    </div>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Tools</div>
       <a class="sidebar-link" onclick="refresh();">Full Refresh</a>
     </div>
   </div>
@@ -1052,455 +1270,461 @@
   <main id="main-content">
     <!-- TAB BAR -->
     <div class="tab-bar">
-      <button class="tab-button active" onclick="window._switchTab('prediction-cockpit')">Prediction Cockpit</button>
+      <button class="tab-button active" onclick="window._switchTab('overview')">Overview</button>
+      <button class="tab-button" onclick="window._switchTab('prediction-cockpit')">Daily Plan</button>
       <button class="tab-button" onclick="window._switchTab('review-queue')">Review Queue</button>
-      <button class="tab-button" onclick="window._switchTab('signals-decisions')">Signals & Decisions</button>
+      <button class="tab-button" onclick="window._switchTab('signals-decisions')">Execution</button>
       <button class="tab-button" onclick="window._switchTab('portfolio')">Portfolio</button>
       <button class="tab-button" onclick="window._switchTab('audit-advanced')">Audit / Advanced</button>
     </div>
 
     <div class="main-content-area">
-      <!-- TAB 1: PREDICTION COCKPIT (DEFAULT) -->
-      <div id="tab-prediction-cockpit" class="tab-content active">
+      <!-- TAB 0: OVERVIEW (DEFAULT) -->
+      <div id="tab-overview" class="tab-content active">
 
-        <!-- KPI Grid -->
-        <div class="card">
-          <div class="kpi-grid">
-            <div class="kpi-item">
-              <span class="kpi-label">Total Value</span>
-              <span class="kpi-value" id="pf-total">-</span>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Cash</span>
-              <span class="kpi-value" id="pf-cash">-</span>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Positions Value</span>
-              <span class="kpi-value" id="pf-positions">-</span>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Return %</span>
-              <span class="kpi-value" id="perf-pct">-</span>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Pending Orders</span>
-              <span class="kpi-value" id="kpi-pending">-</span>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Open Positions</span>
-              <span class="kpi-value" id="kpi-positions">-</span>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Snapshots</span>
-              <span class="kpi-value" id="kpi-snapshots">-</span>
-            </div>
-            <div class="kpi-item">
-              <span class="kpi-label">Strategy</span>
-              <span class="kpi-value" id="pf-strategy">-</span>
-            </div>
-          </div>
+        <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); margin-bottom: 4px; flex-shrink: 0;">Trading Cockpit Overview</div>
+
+        <!-- KPI strip (8 cards) -->
+        <div class="cockpit-kpi-strip">
+          <div class="kpi-item"><span class="kpi-label">Total Value</span><span class="kpi-value" id="pf-total">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Cash</span><span class="kpi-value" id="pf-cash">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Positions Value</span><span class="kpi-value" id="pf-positions">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Return %</span><span class="kpi-value" id="perf-pct">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Open Positions</span><span class="kpi-value" id="kpi-positions">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Available Slots</span><span class="kpi-value" id="kpi-avail-slots">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Pending Orders</span><span class="kpi-value" id="kpi-pending">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Orders</span><span class="kpi-value danger" id="kpi-orders-status">DISABLED</span></div>
         </div>
 
-        <!-- Prediction Command Center -->
-        <div class="command-section">
-          <div class="section-title">Prediction Command Center</div>
-          <div class="inputs-grid">
-            <div class="input-group">
-              <label>Ticker</label>
-              <input id="dtr-ticker" placeholder="AAPL" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Price</label>
-              <input id="dtr-price" placeholder="150.00" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Direction</label>
-              <select id="dtr-direction" class="mono">
-                <option>BUY</option><option>SELL</option><option>HOLD</option>
-              </select>
-            </div>
-            <div class="input-group">
-              <label>Confidence (0-1)</label>
-              <input id="dtr-confidence" placeholder="0.80" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Short Window</label>
-              <input id="dtr-short-window" type="number" value="3" min="1" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Long Window</label>
-              <input id="dtr-long-window" type="number" value="5" min="1" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Strategy Tickers</label>
-              <input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Scan Universe</label>
-              <select id="market-scan-universe" class="mono">
-                <option>SP500</option>
-              </select>
-            </div>
-            <div class="input-group">
-              <label>Top N</label>
-              <input id="market-scan-top-n" type="number" value="10" min="1" max="100" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Lookback Days</label>
-              <input id="market-scan-lookback" type="number" value="20" min="1" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Min Price Points</label>
-              <input id="market-scan-min-points" type="number" value="5" min="1" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Benchmark</label>
-              <input id="market-scan-benchmark" value="SPY" placeholder="SPY" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Scan Top N</label>
-              <input id="pred-preview-scan-top-n" type="number" value="20" min="1" max="100" class="mono">
-            </div>
-            <div class="input-group">
-              <label>Prediction Top N</label>
-              <input id="pred-preview-top-n" type="number" value="5" min="1" max="20" class="mono">
-            </div>
-            <div class="input-group">
-              <label>GCP Concurrency</label>
-              <input id="pred-preview-concurrency" type="number" value="4" min="1" max="10" class="mono">
-            </div>
-            <div class="input-group" style="display: flex; align-items: center; gap: 8px;">
-              <label style="margin: 0;">Include Holdings</label>
-              <input id="pred-preview-include-holdings" type="checkbox" checked style="width: auto; margin: 0; cursor: pointer;">
-            </div>
-            <div class="input-group">
-              <label>Scoring Profile</label>
-              <select id="pred-preview-scoring-profile" class="mono">
-                <option value="current" selected>Current (Default)</option>
-                <option value="balanced_preview">Balanced Preview</option>
-                <option value="quality_preview">Quality Preview</option>
-                <option value="risk_adjusted_preview">Risk Adjusted Preview</option>
-              </select>
-            </div>
-            <!-- Hidden inputs for Prediction Preview defaults -->
-            <input id="pred-preview-lookback" type="hidden" value="45">
-            <input id="pred-preview-min-points" type="hidden" value="20">
-          </div>
-          <!-- Current Objective & Primary Action -->
-          <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid var(--info); border-radius: 2px; padding: 10px 12px; margin: 10px 0; font-size: 11px;">
-            <div style="font-weight: 600; color: var(--info); margin-bottom: 4px;">Step 1 of 4 &mdash; Generate Candidate Preview</div>
-            <div style="color: var(--text-accent); line-height: 1.4; margin-bottom: 4px;">Scan the market and preview candidates ranked by model prediction, score, and relative strength. <strong style="color: var(--ok);">Creates nothing.</strong> Safe to run multiple times.</div>
-            <div style="font-size: 10px; color: var(--label);">After preview: Step 2 (Save) &rarr; Step 3 (Review Queue) &rarr; Step 4 (Signals &amp; Decisions)</div>
-          </div>
+        <!-- Main cockpit grid: 3 columns -->
+        <div class="cockpit-main-grid">
 
-          <div class="button-group" style="padding: 12px 0; border: none; margin: 0;">
-            <button class="btn" style="background: var(--info); color: white; padding: 10px 16px; font-weight: 600; width: 100%;" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">Generate Candidate Preview</button>
-          </div>
+          <!-- LEFT COL: 4-stage workflow progress -->
+          <div class="cockpit-left-col">
+            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Workflow Progress</div>
 
-          <!-- Advanced Manual Actions (collapsed) -->
-          <details style="margin-top: 12px; border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">
-            <summary style="padding: 8px 12px; background: rgba(0,0,0,0.2); cursor: pointer; font-size: 11px; font-weight: 600; user-select: none;">Advanced Manual Actions</summary>
-            <div style="padding: 12px;">
-              <div class="button-group">
-                <span class="button-group-label">Market Data</span>
-                <button class="btn" onclick="window.runUiAction('Fetch Latest Prices', () => fetchLatestPrices(this), this)">Fetch Latest Prices</button>
-                <button class="btn" onclick="window.runUiAction('Check Readiness', () => checkStrategyReadiness(), this)">Check Readiness</button>
+            <div class="stage-card" id="stage-scan">
+              <div class="stage-title">1 &mdash; SCAN</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="stage-scan-status">Not Started</div>
+              <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;" id="stage-scan-count">Generate candidate preview to begin</div>
+              <button class="btn-sm" style="width: 100%;" onclick="window._switchTab('prediction-cockpit')">Go to Daily Plan &rarr;</button>
+            </div>
+
+            <div class="stage-card" id="stage-review">
+              <div class="stage-title">2 &mdash; REVIEW</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="stage-review-status">Not Started</div>
+              <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;" id="stage-review-count">Approve candidates in Review Queue</div>
+              <button class="btn-sm" style="width: 100%;" onclick="window._switchTab('review-queue')">Open Review Queue &rarr;</button>
+            </div>
+
+            <div class="stage-card" id="stage-plan">
+              <div class="stage-title">3 &mdash; PLAN</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="stage-plan-status">Not Started</div>
+              <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;" id="stage-plan-count">Generate Daily Plan after review</div>
+              <button class="btn-sm" style="width: 100%;" onclick="window._switchTab('prediction-cockpit')">Generate Plan &rarr;</button>
+            </div>
+
+            <div class="stage-card" id="stage-execute" style="border-color: rgba(239,68,68,.4);">
+              <div class="stage-title" style="color: var(--danger);">4 &mdash; EXECUTE PREVIEW</div>
+              <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 3px;">STOP: ORDERS DISABLED</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 6px;">Preview signals &amp; decisions only</div>
+              <button class="btn-sm" style="width: 100%;" onclick="window._switchTab('signals-decisions')">Execution Tab &rarr;</button>
+            </div>
+
+            <!-- Hidden JS placeholder divs (used by updateWorkbench/loadWorkflow) -->
+            <div id="workflow-status-summary" style="display:none;"></div>
+            <div id="workflow-status-content" style="display:none;font-size:10px;color:var(--text-accent);"></div>
+            <div id="workflow-steps-container" style="display:none;"></div>
+            <div id="review-queue-card" style="display:none;"></div>
+            <div id="signal-preview-card" style="display:none;"></div>
+            <div id="create-signals-card" style="display:none;"></div>
+            <div id="decision-preview-card" style="display:none;"></div>
+            <div id="create-decisions-card" style="display:none;"></div>
+            <div id="order-preview-card" style="display:none;"></div>
+
+          </div><!-- end cockpit-left-col -->
+
+          <!-- CENTER COL: Primary recommendation + portfolio visual + daily plan summary -->
+          <div class="cockpit-center-col">
+
+            <!-- Primary Recommendation block -->
+            <div class="main-recommendation-card" id="actionPanel">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--info); margin-bottom: 6px; border-bottom: 1px solid rgba(59,130,246,.3); padding-bottom: 4px;">Primary Recommendation</div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--info); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;" id="action-title">Next Action</div>
+              <div style="font-size: 11px; color: var(--text-primary); margin-bottom: 8px; line-height: 1.5;" id="cockpit-next-action">Connect and load portfolio data to see recommended action</div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;" id="action-links"></div>
+            </div>
+
+            <!-- Portfolio Allocation visual -->
+            <div class="portfolio-visual-card">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Portfolio Allocation</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; font-size: 10px;">
+                <div><span style="color: var(--label); display: block; font-size: 8px; text-transform: uppercase; margin-bottom: 2px;">Total Value</span><span id="ov-pf-total" class="panel-value" style="font-size: 12px;">Load portfolio data to populate this view.</span></div>
+                <div><span style="color: var(--label); display: block; font-size: 8px; text-transform: uppercase; margin-bottom: 2px;">Cash</span><span id="ov-pf-cash" class="panel-value" style="font-size: 12px;">-</span></div>
+                <div><span style="color: var(--label); display: block; font-size: 8px; text-transform: uppercase; margin-bottom: 2px;">Open Positions</span><span id="ov-pf-pos" class="panel-value" style="font-size: 12px;">-</span></div>
+                <div><span style="color: var(--label); display: block; font-size: 8px; text-transform: uppercase; margin-bottom: 2px;">Return %</span><span id="ov-pf-ret" class="panel-value" style="font-size: 12px;">-</span></div>
               </div>
-              <div class="button-group">
-                <span class="button-group-label">Market Scan</span>
-                <button class="btn" onclick="window.runUiAction('Run Market Scan', () => runMarketScan(this), this)">Run Market Scan</button>
-                <button class="btn" onclick="window.runUiAction('Use Top Candidates', () => useTopMarketCandidates(this), this)">Use Top Candidates</button>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.08em;">Cash vs Positions</div>
+              <div class="allocation-bar-outer"><div class="allocation-bar" id="ov-alloc-bar" style="width: 50%;"></div></div>
+              <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--label); margin-bottom: 10px;">
+                <span id="ov-alloc-cash-pct">Cash: -</span>
+                <span id="ov-alloc-pos-pct">Positions: -</span>
               </div>
-              <div class="button-group">
-                <span class="button-group-label">Strategy</span>
-                <button class="btn btn-ok" onclick="window.runUiAction('Run SMA Strategy', () => dtrRunStrategy(this), this)">Run SMA Strategy</button>
-                <button class="btn btn-ok" onclick="window.runUiAction('Run Prediction Strategy', () => dtrRunPredictionStrategy(this), this)">Run Prediction Strategy</button>
-                <span class="service-label">Uses GCP model predictions via local tunnel</span>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.08em;">Capacity</div>
+              <div class="capacity-bar-outer"><div class="capacity-bar" id="ov-capacity-bar" style="width: 0%;"></div></div>
+              <div style="font-size: 9px; color: var(--label); margin-top: 3px;" id="ov-capacity-label">Load portfolio data to see capacity</div>
+            </div>
+
+            <!-- Daily Plan Summary -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Daily Plan Summary</div>
+              <div id="ov-daily-plan-summary" style="font-size: 10px; color: var(--label); font-style: italic;">Generate Daily Plan to see summary</div>
+              <button class="btn-sm" style="margin-top: 8px; width: 100%;" onclick="window._switchTab('prediction-cockpit')">Open Daily Plan &rarr;</button>
+            </div>
+
+          </div><!-- end cockpit-center-col -->
+
+          <!-- RIGHT COL: Safety + blocked summary + quick nav -->
+          <div class="cockpit-right-col">
+
+            <!-- Action / Safety Panel -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Action / Safety Panel</div>
+              <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
+                <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
+                <span class="badge err" style="font-size: 8px; padding: 2px 5px;">ORDERS DISABLED</span>
+                <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
+                <span class="badge err" style="font-size: 8px; padding: 2px 5px;">NO ORDER CREATION</span>
               </div>
-              <div class="button-group">
-                <span class="button-group-label">Manual Override</span>
-                <button class="btn btn-danger" onclick="window.runUiAction('Submit Manual Signal', () => dtrSubmitSignal(this), this)">Submit Manual Signal</button>
-              </div>
-              <div class="button-group" style="border-bottom: none; padding-bottom: 0; margin-bottom: 0;">
-                <span class="button-group-label">Execution</span>
-                <button class="btn" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
-                <button class="btn" onclick="window.runUiAction('Run Snapshot', () => dtrRunSnapshot(this), this)">Run Snapshot</button>
-                <button class="btn" onclick="window.runUiAction('Refresh Dashboard', () => dtrRefreshReview(this), this)">Refresh Dashboard</button>
+              <div style="font-size: 9px; color: var(--label); line-height: 1.4;">All actions require manual approval. Orders creation is disabled. No automation.</div>
+            </div>
+
+            <!-- Blocked Summary -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Blocked Summary</div>
+              <div class="blocked-summary-grid" id="ov-blocked-grid" style="font-size: 10px; color: var(--label);">Generate Daily Plan to see blocked actions</div>
+            </div>
+
+            <!-- Quick Navigation -->
+            <div class="compact-card">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Quick Navigation</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                <button class="btn-sm" onclick="window._switchTab('prediction-cockpit')">Daily Plan &rarr;</button>
+                <button class="btn-sm" onclick="window._switchTab('review-queue')">Review Queue &rarr;</button>
+                <button class="btn-sm" onclick="window._switchTab('signals-decisions')">Execution &rarr;</button>
+                <button class="btn-sm" onclick="window._switchTab('portfolio')">Portfolio &rarr;</button>
+                <button class="btn-sm" onclick="window._switchTab('audit-advanced')">Audit / Advanced &rarr;</button>
+                <button class="btn-sm" onclick="refresh()">Full Refresh</button>
               </div>
             </div>
-          </details>
+
+          </div><!-- end cockpit-right-col -->
+
+        </div><!-- end cockpit-main-grid -->
+
+      </div><!-- end tab-overview -->
+
+      <!-- TAB 1: DAILY PLAN -->
+      <div id="tab-prediction-cockpit" class="tab-content">
+
+        <!-- Command bar: 4 stages + STOP -->
+        <div class="daily-plan-command-bar">
+          <span style="font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--label); flex-shrink: 0;">Stage:</span>
+          <button class="btn-sm" style="background: rgba(59,130,246,.15); color: var(--info); border-color: var(--info); font-size: 9px;" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">SCAN</button>
+          <span style="color: var(--label);">&rarr;</span>
+          <button class="btn-sm" style="background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); font-size: 9px;" onclick="window._switchTab('review-queue')">REVIEW</button>
+          <span style="color: var(--label);">&rarr;</span>
+          <button class="btn-sm" style="background: rgba(34,197,94,.15); color: var(--ok); border-color: var(--ok); font-size: 9px;" onclick="runDailyPlan(this)">PLAN</button>
+          <span style="color: var(--label);">&rarr;</span>
+          <button class="btn-sm" style="font-size: 9px;" onclick="window._switchTab('signals-decisions')">EXECUTE PREVIEW</button>
+          <span style="color: var(--label);">&rarr;</span>
+          <span class="badge err" style="font-size: 8px; padding: 2px 6px; flex-shrink: 0;">STOP: ORDERS DISABLED</span>
         </div>
 
-        <!-- Prediction Preview -->
-        <div id="prediction-preview-card" style="display: none;">
-          <div class="command-section">
-            <div class="section-title">Prediction Preview</div>
-            <div id="prediction-preview-result"></div>
-          </div>
-        </div>
+        <!-- 3-column cockpit grid -->
+        <div class="daily-plan-cockpit-grid">
 
-        <!-- Step 2: Save Candidates (shown after preview runs) -->
-        <div id="step2-save-candidates" style="display:none;">
-          <div class="command-section" style="border-color: var(--ok);">
-            <div style="font-weight: 600; color: var(--ok); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Step 2 of 4 &mdash; Save Candidates to Review Queue</div>
-            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Saves CandidateReview rows only. <strong style="color: var(--ok);">No signals, decisions, or orders are created.</strong></div>
-            <div id="step2-candidate-summary" style="font-size: 11px; color: var(--text-accent); margin-bottom: 10px; padding: 6px 10px; background: rgba(0,0,0,.2); border-radius: 2px;"></div>
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button class="btn" style="background: var(--ok); color: white; font-weight: 600;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save Eligible New BUY Candidates</button>
-              <button class="btn" style="background: transparent; border: 1px solid var(--border); color: var(--text-accent);" onclick="saveCandidatesToReviewQueue('ALL', this)">Save All Candidates</button>
+          <!-- LEFT PANEL (28%): controls + step buttons -->
+          <div class="daily-plan-main-panel">
+
+            <!-- Advanced Settings (collapsed) -->
+            <details>
+              <summary>Advanced Settings (Scan &amp; Prediction Config)</summary>
+              <div style="padding: 8px 4px;">
+                <div class="inputs-grid">
+                  <div class="input-group"><label>Ticker</label><input id="dtr-ticker" placeholder="AAPL" class="mono"></div>
+                  <div class="input-group"><label>Price</label><input id="dtr-price" placeholder="150.00" class="mono"></div>
+                  <div class="input-group"><label>Direction</label><select id="dtr-direction" class="mono"><option>BUY</option><option>SELL</option><option>HOLD</option></select></div>
+                  <div class="input-group"><label>Confidence (0-1)</label><input id="dtr-confidence" placeholder="0.80" class="mono"></div>
+                  <div class="input-group"><label>Short Window</label><input id="dtr-short-window" type="number" value="3" min="1" class="mono"></div>
+                  <div class="input-group"><label>Long Window</label><input id="dtr-long-window" type="number" value="5" min="1" class="mono"></div>
+                  <div class="input-group"><label>Strategy Tickers</label><input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA" class="mono"></div>
+                  <div class="input-group"><label>Scan Universe</label><select id="market-scan-universe" class="mono"><option>SP500</option></select></div>
+                  <div class="input-group"><label>Top N</label><input id="market-scan-top-n" type="number" value="10" min="1" max="100" class="mono"></div>
+                  <div class="input-group"><label>Lookback Days</label><input id="market-scan-lookback" type="number" value="20" min="1" class="mono"></div>
+                  <div class="input-group"><label>Min Price Points</label><input id="market-scan-min-points" type="number" value="5" min="1" class="mono"></div>
+                  <div class="input-group"><label>Benchmark</label><input id="market-scan-benchmark" value="SPY" placeholder="SPY" class="mono"></div>
+                  <div class="input-group"><label>Scan Top N</label><input id="pred-preview-scan-top-n" type="number" value="20" min="1" max="100" class="mono"></div>
+                  <div class="input-group"><label>Prediction Top N</label><input id="pred-preview-top-n" type="number" value="5" min="1" max="20" class="mono"></div>
+                  <div class="input-group"><label>GCP Concurrency</label><input id="pred-preview-concurrency" type="number" value="4" min="1" max="10" class="mono"></div>
+                  <div class="input-group" style="display: flex; align-items: center; gap: 8px;"><label style="margin: 0;">Include Holdings</label><input id="pred-preview-include-holdings" type="checkbox" checked style="width: auto; margin: 0; cursor: pointer;"></div>
+                  <div class="input-group"><label>Scoring Profile</label><select id="pred-preview-scoring-profile" class="mono"><option value="current" selected>Current (Default)</option><option value="balanced_preview">Balanced Preview</option><option value="quality_preview">Quality Preview</option><option value="risk_adjusted_preview">Risk Adjusted Preview</option></select></div>
+                  <input id="pred-preview-lookback" type="hidden" value="45">
+                  <input id="pred-preview-min-points" type="hidden" value="20">
+                </div>
+              </div>
+            </details>
+
+            <!-- Step 1: Generate Candidate Preview -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="background: rgba(59,130,246,.1); border: 1px solid var(--info); border-radius: 2px; padding: 6px 8px; margin-bottom: 6px; font-size: 10px;">
+                <div style="font-weight: 600; color: var(--info); margin-bottom: 2px;">SCAN &mdash; Generate Candidate Preview</div>
+                <div style="color: var(--text-accent); font-size: 9px;"><strong style="color: var(--ok);">Creates nothing.</strong> Safe to run multiple times.</div>
+              </div>
+              <button class="btn" style="background: var(--info); color: white; font-weight: 600; width: 100%; padding: 7px 12px;" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">Generate Candidate Preview</button>
             </div>
-          </div>
-        </div>
 
-        <!-- Step 3: Review Queue Summary (shown after saving) -->
-        <div id="step3-review-queue" style="display:none;">
-          <div class="command-section" style="border-color: var(--info);">
-            <div style="font-weight: 600; color: var(--info); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Step 3 of 4 &mdash; Review Queue</div>
-            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Approve candidates to make them eligible for signal creation. Rejecting or watching does not create signals or orders.</div>
-            <div id="step3-rq-summary" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px;"></div>
-            <button class="btn" style="background: var(--info); color: white; font-weight: 600;" onclick="window._switchTab('review-queue')">Open Review Queue &rarr;</button>
-          </div>
-        </div>
-
-        <!-- Rotation Preview (optional  --  when portfolio is at max positions) -->
-        <div id="step3b-rotation-preview">
-          <div class="command-section" style="border-color: var(--warning);">
-            <div style="font-weight: 600; color: var(--warning); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Rotation Preview &mdash; Optional</div>
-            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">When the portfolio is already at max positions, new BUY candidates are rejected unless we free capacity. Rotation Preview compares approved BUY candidates against existing profitable holdings and shows whether replacing one position makes sense. <strong style="color: var(--ok);">This is preview-only and creates no signals, decisions, or orders.</strong></div>
-            <button class="btn" style="background: var(--warning); color: white; font-weight: 600;" onclick="runRotationPreview(this)">Preview Rotation</button>
-          </div>
-        </div>
-
-        <!-- Rotation Preview Result Card -->
-        <div id="rotation-preview-card" style="display:none;">
-          <div class="command-section">
-            <div class="section-title">Rotation Preview</div>
-            <div id="rotation-preview-result"></div>
-          </div>
-        </div>
-
-        <!-- Daily Plan Preview -->
-        <div id="step3c-daily-plan">
-          <div class="command-section" style="border-color: var(--ok);">
-            <div style="font-weight: 600; color: var(--ok); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Daily Plan Preview &mdash; Recommended</div>
-            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Generate a single consolidated recommendation: what to buy, sell, hold, watch, and rotate. Uses approved candidates + live risk evaluation. <strong style="color: var(--ok);">Preview only &mdash; no signals, decisions, or orders created.</strong></div>
-            <div style="margin-bottom: 10px; padding: 8px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px;">
-              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 5px;">Refresh Plan Prices</div>
-              <div style="font-size: 10px; color: var(--text-secondary); margin-bottom: 6px;">Fetches latest prices for approved candidates + open positions. Required before Daily Plan if prices are stale (&gt;5 days).</div>
-              <button class="btn-sm" onclick="refreshPlanPrices(this)" style="background: rgba(59,130,246,.15); color: var(--accent); border: 1px solid rgba(59,130,246,.4);">Refresh Plan Prices</button>
-              <div id="plan-prices-refresh-result" style="margin-top: 6px; font-size: 10px;"></div>
+            <!-- Step 2: Save Candidates (hidden until preview runs) -->
+            <div id="step2-save-candidates" style="display:none;">
+              <div class="compact-card" style="border-color: var(--ok); flex-shrink: 0;">
+                <div style="font-weight: 600; color: var(--ok); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">SCAN &mdash; Save Candidates</div>
+                <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px; line-height: 1.4;"><strong style="color: var(--ok);">No signals, decisions, or orders created.</strong></div>
+                <div id="step2-candidate-summary" style="font-size: 10px; color: var(--text-accent); margin-bottom: 8px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 2px;"></div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button class="btn" style="background: var(--ok); color: white; font-weight: 600; font-size: 10px;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save Eligible Candidates</button>
+                  <button class="btn" style="background: transparent; border: 1px solid var(--border); color: var(--text-accent); font-size: 10px;" onclick="saveCandidatesToReviewQueue('ALL', this)">Save All</button>
+                </div>
+              </div>
             </div>
-            <div style="margin-top: 10px; padding: 8px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px;">
-              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 6px;">Calibrated Rotation Options</div>
-              <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 6px;">
-                <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; cursor: pointer;">
+
+            <!-- Step 3: Review Queue Summary -->
+            <div id="step3-review-queue" style="display:none;">
+              <div class="compact-card" style="border-color: var(--info); flex-shrink: 0;">
+                <div style="font-weight: 600; color: var(--info); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">REVIEW &mdash; Review Queue</div>
+                <div id="step3-rq-summary" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px;"></div>
+                <button class="btn" style="background: var(--info); color: white; font-weight: 600; width: 100%;" onclick="window._switchTab('review-queue')">Open Review Queue &rarr;</button>
+              </div>
+            </div>
+
+            <!-- Daily Plan settings + generate button -->
+            <div id="step3c-daily-plan" class="compact-card" style="flex-shrink: 0; border-color: var(--ok);">
+              <div style="font-weight: 600; color: var(--ok); margin-bottom: 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">PLAN &mdash; Generate Daily Plan</div>
+              <div style="margin-bottom: 8px;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; cursor: pointer; margin-bottom: 4px;">
                   <input type="checkbox" id="dp-use-calibrated-rotation" checked style="cursor: pointer;"> Use calibrated rotation
                 </label>
-                <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; cursor: pointer;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; cursor: pointer; margin-bottom: 6px;">
                   <input type="checkbox" id="dp-allow-loss-realization" style="cursor: pointer;"> Allow loss realization
                 </label>
-              </div>
-              <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-                <div style="display: flex; flex-direction: column; gap: 2px;">
-                  <label style="font-size: 10px; color: var(--text-secondary);">Scoring Profile</label>
-                  <select id="dp-scoring-profile" style="background: var(--surface); color: var(--text-primary); border: 1px solid rgba(255,255,255,.15); border-radius: 3px; padding: 3px 6px; font-size: 11px;">
-                    <option value="calibration_recommended">Calibration Recommended</option>
-                    <option value="current">Current</option>
-                    <option value="balanced_preview">Balanced Preview</option>
-                    <option value="quality_preview">Quality Preview</option>
-                    <option value="risk_adjusted_preview">Risk Adjusted Preview</option>
-                  </select>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                  <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <label style="font-size: 9px; color: var(--label);">Profile</label>
+                    <select id="dp-scoring-profile" style="background: rgba(0,0,0,.2); color: var(--text-primary); border: 1px solid var(--border); border-radius: 2px; padding: 3px 5px; font-size: 10px;">
+                      <option value="calibration_recommended">Calibration Recommended</option>
+                      <option value="current">Current</option>
+                      <option value="balanced_preview">Balanced Preview</option>
+                      <option value="quality_preview">Quality Preview</option>
+                      <option value="risk_adjusted_preview">Risk Adjusted Preview</option>
+                    </select>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <label style="font-size: 9px; color: var(--label);">Min Improvement %</label>
+                    <input type="number" id="dp-min-improvement-pct" value="1.0" min="0" step="0.1" style="width: 65px; background: rgba(0,0,0,.2); color: var(--text-primary); border: 1px solid var(--border); border-radius: 2px; padding: 3px 5px; font-size: 10px;">
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <label style="font-size: 9px; color: var(--label);">Min PnL $</label>
+                    <input type="number" id="dp-min-pnl-dollars" value="25" min="0" step="5" style="width: 65px; background: rgba(0,0,0,.2); color: var(--text-primary); border: 1px solid var(--border); border-radius: 2px; padding: 3px 5px; font-size: 10px;">
+                  </div>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 2px;">
-                  <label style="font-size: 10px; color: var(--text-secondary);">Min Improvement %</label>
-                  <input type="number" id="dp-min-improvement-pct" value="1.0" min="0" step="0.1" style="width: 70px; background: var(--surface); color: var(--text-primary); border: 1px solid rgba(255,255,255,.15); border-radius: 3px; padding: 3px 6px; font-size: 11px;">
+              </div>
+              <div style="margin-bottom: 8px; padding: 6px 8px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 2px;">
+                <div style="font-size: 9px; font-weight: 600; color: var(--text-accent); margin-bottom: 4px;">Refresh Plan Prices</div>
+                <button class="btn-sm" onclick="refreshPlanPrices(this)" style="background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.4); font-size: 9px;">Refresh Prices</button>
+                <div id="plan-prices-refresh-result" style="margin-top: 4px; font-size: 10px;"></div>
+              </div>
+              <button class="btn" style="background: var(--ok); color: white; font-weight: 600; width: 100%;" onclick="runDailyPlan(this)">Generate Daily Plan</button>
+            </div>
+
+            <!-- Step 4: Signals & Decisions -->
+            <div id="step4-signal-decisions" style="display:none;">
+              <div class="compact-card" style="border-color: var(--border); flex-shrink: 0;">
+                <div style="font-weight: 600; color: var(--text-accent); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">EXECUTE PREVIEW &mdash; Signals &amp; Decisions</div>
+                <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;"><strong style="color: var(--warning);">Orders are disabled. No trades will be executed.</strong></div>
+                <button class="btn" style="background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-accent); font-weight: 600; width: 100%;" onclick="window._switchTab('signals-decisions')">Go to Signals &amp; Decisions &rarr;</button>
+              </div>
+            </div>
+
+            <!-- Rotation Preview (collapsed) -->
+            <details>
+              <summary>Rotation Preview (when portfolio at max positions)</summary>
+              <div style="padding: 4px 0;">
+                <div id="step3b-rotation-preview">
+                  <div class="compact-card" style="border-color: var(--warning);">
+                    <div style="font-weight: 600; color: var(--warning); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">Rotation Preview &mdash; Optional</div>
+                    <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px; line-height: 1.4;"><strong style="color: var(--ok);">Preview only.</strong></div>
+                    <button class="btn" style="background: var(--warning); color: white; font-weight: 600;" onclick="runRotationPreview(this)">Preview Rotation</button>
+                  </div>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 2px;">
-                  <label style="font-size: 10px; color: var(--text-secondary);">Min PnL $</label>
-                  <input type="number" id="dp-min-pnl-dollars" value="25" min="0" step="5" style="width: 70px; background: var(--surface); color: var(--text-primary); border: 1px solid rgba(255,255,255,.15); border-radius: 3px; padding: 3px 6px; font-size: 11px;">
+                <div id="rotation-preview-card" style="display:none;">
+                  <div class="compact-card"><div class="section-title">Rotation Preview</div><div id="rotation-preview-result"></div></div>
                 </div>
               </div>
-            </div>
-            <button class="btn" style="background: var(--ok); color: white; font-weight: 600; margin-top: 10px;" onclick="runDailyPlan(this)">Generate Daily Plan</button>
-          </div>
-        </div>
+            </details>
 
-        <!-- Daily Plan Result Card -->
-        <div id="daily-plan-card" style="display:none;">
-          <div class="command-section">
-            <div class="section-title">Daily Plan Preview</div>
-            <div id="daily-plan-result"></div>
-          </div>
-        </div>
-
-        <!-- Daily Plan Execution Cockpit (Phase 4P) -->
-        <div class="command-section" style="border-color: var(--accent); margin-top: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <div style="font-weight: 600; color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Daily Plan Execution Cockpit</div>
-            <button class="btn-sm" onclick="refreshDailyPlanExecutionStatus(this)">Refresh Execution Status</button>
-          </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; font-size: 10px;">
-            <span style="background: rgba(34,197,94,.12); color: var(--ok); padding: 1px 7px; border-radius: 2px; font-weight: 700;">MANUAL REVIEW</span>
-            <span style="background: rgba(239,68,68,.12); color: var(--danger); padding: 1px 7px; border-radius: 2px; font-weight: 700;">ORDERS DISABLED</span>
-            <span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 7px; border-radius: 2px;">AUTOMATION OFF</span>
-            <span style="background: rgba(239,68,68,.06); color: var(--danger); padding: 1px 7px; border-radius: 2px;">NO ORDER CREATION</span>
-          </div>
-          <div id="dp-execution-status-result" style="font-size: 11px; color: var(--text-secondary);">Click "Refresh Execution Status" to load.</div>
-        </div>
-
-        <!-- Calibrated Rotation Workbench (Phase 4F) -->
-        <div id="calib-rotation-section">
-          <div class="command-section" style="border-color: var(--info);">
-            <div style="font-weight: 600; color: var(--info); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">Calibrated Rotation Workbench</div>
-            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">Scores candidates and holdings using calibration-recommended profile. Estimates PnL improvement. <strong style="color: var(--ok);">Preview only &mdash; no signals, decisions, or orders created.</strong></div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:10px;">
-              <div class="input-group">
-                <label>Scoring Profile</label>
-                <select id="crw-scoring-profile" class="mono">
-                  <option value="calibration_recommended">Calibration Recommended</option>
-                  <option value="current">Current</option>
-                  <option value="balanced_preview">Balanced Preview</option>
-                  <option value="quality_preview">Quality Preview</option>
-                  <option value="risk_adjusted_preview">Risk Adjusted Preview</option>
-                </select>
+            <!-- Calibrated Rotation Workbench (collapsed) -->
+            <details>
+              <summary>Calibrated Rotation Workbench (Advanced)</summary>
+              <div style="padding: 4px 0;">
+                <div id="calib-rotation-section">
+                  <div class="compact-card" style="border-color: var(--info);">
+                    <div style="font-weight: 600; color: var(--info); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">Calibrated Rotation Workbench</div>
+                    <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;"><strong style="color: var(--ok);">Preview only &mdash; no signals, decisions, or orders created.</strong></div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:8px;">
+                      <div class="input-group"><label>Scoring Profile</label><select id="crw-scoring-profile" class="mono"><option value="calibration_recommended">Calibration Recommended</option><option value="current">Current</option><option value="balanced_preview">Balanced Preview</option><option value="quality_preview">Quality Preview</option><option value="risk_adjusted_preview">Risk Adjusted Preview</option></select></div>
+                      <div class="input-group"><label>Min Improvement %</label><input type="number" id="crw-min-improvement-pct" value="1.0" step="0.5" min="0" class="mono"></div>
+                      <div class="input-group"><label>Min Expected PnL $</label><input type="number" id="crw-min-pnl-dollars" value="25.0" step="5" min="0" class="mono"></div>
+                    </div>
+                    <div style="margin-bottom:8px;">
+                      <div style="font-size:10px;color:var(--label);margin-bottom:4px;">Calibration Preset:</div>
+                      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <button class="btn-sm" onclick="setCrwCalibPreset('monthly3', this)">Last 3 Monthly</button>
+                        <button class="btn-sm" onclick="setCrwCalibPreset('weekly5', this)">Last 5 Weekly</button>
+                        <button class="btn-sm" onclick="setCrwCalibPreset('clear', this)" style="background:rgba(255,255,255,0.1);">Single Date</button>
+                      </div>
+                      <div id="crw-calib-dates-preview" style="display:none;margin-top:4px;font-size:10px;color:var(--ok);font-family:monospace;"></div>
+                    </div>
+                    <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+                      <input type="checkbox" id="crw-allow-loss" style="cursor:pointer;">
+                      <label for="crw-allow-loss" style="font-size:10px;color:var(--text-accent);cursor:pointer;">Allow loss realization</label>
+                    </div>
+                    <button class="btn" style="background:var(--info);color:white;font-weight:600;" onclick="runCalibratedRotationPreview(this)">Run Calibrated Rotation Preview</button>
+                  </div>
+                </div>
+                <div id="calib-rotation-card" style="display:none;">
+                  <div class="compact-card">
+                    <div class="section-title">Calibrated Rotation Workbench</div>
+                    <div style="padding:6px 10px;background:rgba(59,130,246,.08);border-left:3px solid var(--info);font-size:10px;color:var(--label);margin-bottom:10px;">Preview only. No signals, decisions, or orders are created.</div>
+                    <div id="calib-rotation-result"></div>
+                  </div>
+                </div>
               </div>
-              <div class="input-group">
-                <label>Min Improvement %</label>
-                <input type="number" id="crw-min-improvement-pct" value="1.0" step="0.5" min="0" class="mono">
+            </details>
+
+            <!-- Glossary (collapsed) -->
+            <details>
+              <summary>Signal &amp; Decision Glossary</summary>
+              <div style="padding: 8px 4px; font-size: 10px; line-height: 1.6;">
+                <div style="margin-bottom: 5px;"><strong style="color: var(--ok);">BUY</strong> &mdash; Candidate for long position. Requires approval, signal, decision. No orders automatically.</div>
+                <div style="margin-bottom: 5px;"><strong style="color: var(--warning);">HOLD / WATCH</strong> &mdash; Not recommended for new long entry. Tracked only.</div>
+                <div style="margin-bottom: 5px;"><strong style="color: var(--danger);">REJECTED</strong> &mdash; Risk rules blocked. Most common: MAX_POSITIONS_REACHED.</div>
+                <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 9px; color: var(--label);">Decision = app recommendation | Rec = model rec | Conf = confidence | Return % = expected 5-day | RS SPY = relative strength vs SPY 20d</div>
               </div>
-              <div class="input-group">
-                <label>Min Expected PnL $</label>
-                <input type="number" id="crw-min-pnl-dollars" value="25.0" step="5" min="0" class="mono">
+            </details>
+
+            <!-- Advanced result cards (hidden until used) -->
+            <div id="fetch-prices-card" style="display:none;"><div class="compact-card"><div class="section-title">Fetch Prices Result</div><div id="fetch-prices-result" class="step-result"></div></div></div>
+            <div id="market-scan-card" style="display:none;"><div class="compact-card"><div class="section-title">Market Scan Result</div><div id="market-scan-result" class="step-result"></div></div></div>
+            <div id="prediction-strategy-card" style="display:none;"><div class="compact-card"><div class="section-title">Prediction Strategy Result</div><div id="prediction-strategy-result" class="step-result"></div></div></div>
+            <div id="strategy-readiness" style="display:none;"><div class="compact-card"><div class="section-title">Strategy Readiness</div><div id="readiness-context" style="font-size:10px;color:var(--label);margin-bottom:8px;"></div><div id="readiness-result" class="step-result"></div></div></div>
+
+          </div><!-- end daily-plan-main-panel -->
+
+          <!-- CENTER PANEL (1fr): Recommendation + preview results -->
+          <div class="cockpit-center-col">
+
+            <!-- Primary recommendation for daily plan (updated after plan runs) -->
+            <div class="main-recommendation-card" id="dp-rec-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--info); margin-bottom: 4px; border-bottom: 1px solid rgba(59,130,246,.3); padding-bottom: 3px;">Recommended Next Action</div>
+              <div style="font-size: 11px; color: var(--text-primary); line-height: 1.5;" id="dp-primary-recommendation">Generate Candidate Preview (SCAN) to begin the daily workflow</div>
+            </div>
+
+            <!-- Prediction Preview Result (hidden until run) -->
+            <div id="prediction-preview-card" style="display: none;">
+              <div class="compact-card"><div class="section-title">Prediction Preview</div><div id="prediction-preview-result"></div></div>
+            </div>
+
+            <!-- Daily Plan Result Card (hidden until run) -->
+            <div id="daily-plan-card" style="display:none;">
+              <div class="compact-card"><div class="section-title">Daily Plan Preview</div><div id="daily-plan-result"></div></div>
+            </div>
+
+          </div><!-- end cockpit-center-col -->
+
+          <!-- RIGHT PANEL (26%): Safety + execution status + advanced -->
+          <div class="daily-plan-side-panel">
+
+            <!-- Execution Safety Summary -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Execution Safety Summary</div>
+              <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">
+                <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
+                <span class="badge err" style="font-size: 8px; padding: 2px 5px;">ORDERS DISABLED</span>
+                <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
+                <span class="badge err" style="font-size: 8px; padding: 2px 5px;">NO ORDER CREATION</span>
               </div>
+              <div style="font-size: 9px; color: var(--label); line-height: 1.4;">Preview steps create no trades. Signals and decisions require explicit manual action.</div>
             </div>
-            <div style="margin-bottom:10px;">
-              <div style="font-size:11px;color:var(--label);margin-bottom:4px;">Calibration Preset (for profile recommendation):</div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                <button class="btn-sm" onclick="setCrwCalibPreset('monthly3', this)">Last 3 Monthly</button>
-                <button class="btn-sm" onclick="setCrwCalibPreset('weekly5', this)">Last 5 Weekly</button>
-                <button class="btn-sm" onclick="setCrwCalibPreset('clear', this)" style="background:rgba(255,255,255,0.1);">Single Date</button>
+
+            <!-- Execution Status -->
+            <div class="compact-card" style="border-color: rgba(59,130,246,.3);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Execution Status</div>
+                <button class="btn-sm" style="font-size: 9px; padding: 3px 8px;" onclick="refreshDailyPlanExecutionStatus(this)">Refresh</button>
               </div>
-              <div id="crw-calib-dates-preview" style="display:none;margin-top:4px;font-size:10px;color:var(--ok);font-family:monospace;"></div>
+              <div id="dp-execution-status-result" style="font-size: 10px; color: var(--text-accent);">Click Refresh to load execution status.</div>
             </div>
-            <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;">
-              <input type="checkbox" id="crw-allow-loss" style="cursor:pointer;">
-              <label for="crw-allow-loss" style="font-size:11px;color:var(--text-accent);cursor:pointer;">Allow loss realization (permit rotating out of negative-PnL positions)</label>
-            </div>
-            <button class="btn" style="background:var(--info);color:white;font-weight:600;" onclick="runCalibratedRotationPreview(this)">Run Calibrated Rotation Preview</button>
-          </div>
-        </div>
-        <!-- Calibrated Rotation Result Card -->
-        <div id="calib-rotation-card" style="display:none;">
-          <div class="command-section">
-            <div class="section-title">Calibrated Rotation Workbench</div>
-            <div style="padding:6px 10px;background:rgba(59,130,246,.08);border-left:3px solid var(--info);font-size:10px;color:var(--label);margin-bottom:10px;">
-              Preview only. No signals, decisions, or orders are created.
-            </div>
-            <div id="calib-rotation-result"></div>
-          </div>
-        </div>
 
-        <!-- Step 4: Signals & Decisions (shown after review queue visited) -->
-        <div id="step4-signal-decisions" style="display:none;">
-          <div class="command-section" style="border-color: var(--border);">
-            <div style="font-weight: 600; color: var(--text-accent); margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;">Step 4 of 4 &mdash; Signals &amp; Decisions</div>
-            <div style="font-size: 11px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;">After approving candidates, create signals and trade decisions. <strong style="color: var(--warning);">Orders are disabled. No trades will be executed.</strong></div>
-            <button class="btn" style="background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-accent); font-weight: 600;" onclick="window._switchTab('signals-decisions')">Go to Signals &amp; Decisions &rarr;</button>
-          </div>
-        </div>
+            <!-- Advanced Manual Actions (collapsed) -->
+            <details>
+              <summary>Advanced Manual Actions</summary>
+              <div style="padding: 4px 0;">
+                <div class="button-group">
+                  <span class="button-group-label">Market Data</span>
+                  <button class="btn" onclick="window.runUiAction('Fetch Latest Prices', () => fetchLatestPrices(this), this)">Fetch Latest Prices</button>
+                  <button class="btn" onclick="window.runUiAction('Check Readiness', () => checkStrategyReadiness(), this)">Check Readiness</button>
+                </div>
+                <div class="button-group">
+                  <span class="button-group-label">Market Scan</span>
+                  <button class="btn" onclick="window.runUiAction('Run Market Scan', () => runMarketScan(this), this)">Run Market Scan</button>
+                  <button class="btn" onclick="window.runUiAction('Use Top Candidates', () => useTopMarketCandidates(this), this)">Use Top Candidates</button>
+                </div>
+                <div class="button-group">
+                  <span class="button-group-label">Strategy</span>
+                  <button class="btn btn-ok" onclick="window.runUiAction('Run SMA Strategy', () => dtrRunStrategy(this), this)">Run SMA Strategy</button>
+                  <button class="btn btn-ok" onclick="window.runUiAction('Run Prediction Strategy', () => dtrRunPredictionStrategy(this), this)">Run Prediction Strategy</button>
+                  <span class="service-label">Uses GCP model predictions via local tunnel</span>
+                </div>
+                <div class="button-group">
+                  <span class="button-group-label">Manual Override</span>
+                  <button class="btn btn-danger" onclick="window.runUiAction('Submit Manual Signal', () => dtrSubmitSignal(this), this)">Submit Manual Signal</button>
+                </div>
+                <div class="button-group" style="border-bottom: none; padding-bottom: 0; margin-bottom: 0;">
+                  <span class="button-group-label">Execution</span>
+                  <button class="btn" onclick="window.runUiAction('Run Fill', () => dtrRunFill(this), this)">Run Fill</button>
+                  <button class="btn" onclick="window.runUiAction('Run Snapshot', () => dtrRunSnapshot(this), this)">Run Snapshot</button>
+                  <button class="btn" onclick="window.runUiAction('Refresh Dashboard', () => dtrRefreshReview(this), this)">Refresh Dashboard</button>
+                </div>
+              </div>
+            </details>
 
-        <!-- Result cards for Advanced Manual Actions (hidden until used) -->
-        <div id="fetch-prices-card" style="display:none;">
-          <div class="command-section">
-            <div class="section-title">Fetch Prices Result</div>
-            <div id="fetch-prices-result" class="step-result"></div>
-          </div>
-        </div>
-        <div id="market-scan-card" style="display:none;">
-          <div class="command-section">
-            <div class="section-title">Market Scan Result</div>
-            <div id="market-scan-result" class="step-result"></div>
-          </div>
-        </div>
-        <div id="prediction-strategy-card" style="display:none;">
-          <div class="command-section">
-            <div class="section-title">Prediction Strategy Result</div>
-            <div id="prediction-strategy-result" class="step-result"></div>
-          </div>
-        </div>
-        <div id="strategy-readiness" style="display:none;">
-          <div class="command-section">
-            <div class="section-title">Strategy Readiness</div>
-            <div id="readiness-context" style="font-size:10px;color:var(--label);margin-bottom:8px;"></div>
-            <div id="readiness-result" class="step-result"></div>
-          </div>
-        </div>
+          </div><!-- end daily-plan-side-panel -->
 
-        <!-- Workflow Status Strip (Compact) -->
-        <div class="card">
-          <div class="section-title">Workflow Status</div>
-          <div class="workflow-rail">
-            <div class="workflow-step">
-              <div class="workflow-step-name">Preview</div>
-              <div class="workflow-step-status not-started" id="ws-preview">-</div>
-            </div>
-            <div class="workflow-step">
-              <div class="workflow-step-name">Candidates</div>
-              <div class="workflow-step-status not-started" id="ws-candidates">-</div>
-            </div>
-            <div class="workflow-step">
-              <div class="workflow-step-name">Queue</div>
-              <div class="workflow-step-status not-started" id="ws-queue">-</div>
-            </div>
-            <div class="workflow-step">
-              <div class="workflow-step-name">Signals</div>
-              <div class="workflow-step-status not-started" id="ws-signals">-</div>
-            </div>
-            <div class="workflow-step">
-              <div class="workflow-step-name">Decisions</div>
-              <div class="workflow-step-status not-started" id="ws-decisions">-</div>
-            </div>
-            <div class="workflow-step">
-              <div class="workflow-step-name">Orders</div>
-              <div class="workflow-step-status not-started" id="ws-orders">-</div>
-            </div>
-            <div class="workflow-step">
-              <div class="workflow-step-name">Create</div>
-              <div class="workflow-step-status not-started" id="ws-create">-</div>
-            </div>
+        </div><!-- end daily-plan-cockpit-grid -->
+
+        <!-- Bottom drawer: Candidates | Blocked | Diagnostics -->
+        <div class="bottom-drawer-tabs">
+          <div class="drawer-tab-bar">
+            <span style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); align-self: center; margin-right: 4px;">Detail:</span>
+            <button class="btn-sm" style="font-size: 9px; padding: 3px 8px;" onclick="showDrawerTab('drawer-candidates')">Candidates</button>
+            <button class="btn-sm" style="font-size: 9px; padding: 3px 8px;" onclick="showDrawerTab('drawer-blocked')">Blocked</button>
+            <button class="btn-sm" style="font-size: 9px; padding: 3px 8px;" onclick="showDrawerTab('drawer-diagnostics')">Diagnostics</button>
+          </div>
+          <div style="flex: 1; overflow: hidden; position: relative;">
+            <div id="drawer-candidates" class="compact-scroll-region" style="color: var(--label); font-style: italic;">Run Candidate Preview to see candidates here</div>
+            <div id="drawer-blocked" class="compact-scroll-region" style="display:none; color: var(--label); font-style: italic;">Generate Daily Plan to see blocked actions</div>
+            <div id="drawer-diagnostics" class="compact-scroll-region" style="display:none; color: var(--label);">Diagnostics and advanced tools are available in the <strong>Audit / Advanced</strong> tab.</div>
           </div>
         </div>
-
-        <!-- Next Action Card -->
-        <div class="action-panel" id="actionPanel">
-          <div class="action-title" id="action-title">Next Action</div>
-          <div class="action-text" id="cockpit-next-action">Run Prediction Strategy to generate signals</div>
-          <div id="action-links"></div>
-        </div>
-
-        <!-- Signal & Decision Glossary (collapsed) -->
-        <details style="border: 1px solid var(--border); border-radius: 2px; overflow: hidden;">
-          <summary style="padding: 8px 12px; background: rgba(0,0,0,.2); cursor: pointer; font-size: 11px; font-weight: 600; user-select: none; color: var(--text-accent);">Signal &amp; Decision Glossary</summary>
-          <div style="padding: 12px; font-size: 11px; line-height: 1.6;">
-            <div style="margin-bottom: 6px;"><strong style="color: var(--ok);">BUY</strong> &mdash; Candidate may be considered for a long position. Requires manual approval, signal creation, and decision creation. Does not create orders automatically.</div>
-            <div style="margin-bottom: 6px;"><strong style="color: var(--warning);">HOLD / WATCH</strong> &mdash; Model does not recommend a new long entry at this time. Candidate is tracked but no signal is created.</div>
-            <div style="margin-bottom: 6px;"><strong style="color: var(--danger);">REJECTED</strong> &mdash; Risk rules blocked the trade decision. Most common reason: MAX_POSITIONS_REACHED (portfolio is at the position limit). This is expected behavior, not a technical error.</div>
-            <div style="margin-bottom: 6px;"><strong style="color: var(--label);">SELL</strong> &mdash; Not generated in this candidate-entry workflow. A dedicated position-exit workflow based on open positions handles SELL decisions separately. Short selling is not implemented.</div>
-            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10px; color: var(--label);">Decision = what the app recommends doing with a candidate | Rec = model recommendation | Conf = model confidence (0-1) | Return % = expected 5-day return | RS SPY = relative strength vs SPY over 20 days</div>
-          </div>
-        </details>
-
-        <!-- Hidden: workflow status elements for JS rendering -->
-        <div id="workflow-status-summary" style="display:none;"></div>
-        <div id="workflow-status-content" style="display:none;font-size:10px;color:var(--text-accent);"></div>
-        <div id="workflow-steps-container" style="display:none;"></div>
-        <!-- Hidden: card visibility markers (used by saveCandidatesToReviewQueue and getWorkflowStepStatus) -->
-        <div id="review-queue-card" style="display:none;"></div>
-        <div id="signal-preview-card" style="display:none;"></div>
-        <div id="create-signals-card" style="display:none;"></div>
-        <div id="decision-preview-card" style="display:none;"></div>
-        <div id="create-decisions-card" style="display:none;"></div>
-        <div id="order-preview-card" style="display:none;"></div>
 
       </div><!-- end tab-prediction-cockpit -->
 
@@ -1561,7 +1785,7 @@
               Latest per ticker
             </label>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap scroll-table">
             <table>
               <thead>
                 <tr>
@@ -1585,10 +1809,16 @@
       <!-- TAB 3: SIGNALS & DECISIONS -->
       <div id="tab-signals-decisions" class="tab-content">
 
-        <!-- Procedure header -->
-        <div style="padding: 10px 14px; background: rgba(59,130,246,.06); border: 1px solid rgba(59,130,246,.2); border-radius: 2px; font-size: 11px; color: var(--text-accent); line-height: 1.5;">
-          <strong style="color: var(--info);">Pipeline order:</strong> Preview Signals &rarr; Create Signals &rarr; Preview Decisions &rarr; Create Decisions &rarr; Preview Orders (orders disabled).
-          Each step creates the indicated rows only. No step creates orders automatically.
+        <!-- Execution Safety Summary -->
+        <div class="compact-card" style="flex-shrink: 0;">
+          <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Execution Safety Summary</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">
+            <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
+            <span class="badge err" style="font-size: 8px; padding: 2px 5px;">ORDERS DISABLED</span>
+            <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
+            <span class="badge err" style="font-size: 8px; padding: 2px 5px;">NO ORDER CREATION</span>
+          </div>
+          <div style="font-size: 9px; color: var(--label);">Pipeline: Preview Signals &rarr; Create Signals &rarr; Preview Decisions &rarr; Create Decisions &rarr; Preview Orders (orders disabled). No step creates orders automatically.</div>
         </div>
 
         <!-- Decision Outcome Summary (populated after Step C/D run) -->
@@ -1609,7 +1839,7 @@
           </div>
           <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write Signal rows. Reads APPROVED_FOR_SIGNAL candidates from Review Queue.</div>
           <input type="hidden" id="signal-preview-limit" value="50">
-          <div id="signal-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No signal preview yet. Approve candidates in Review Queue first, then click Preview Signals.</div>
+          <div id="signal-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No signal preview yet. Approve candidates in Review Queue first, then click Preview Signals.</div>
         </div>
 
         <!-- Step B: Create Signals -->
@@ -1638,7 +1868,7 @@
           <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write TradeDecision rows. Shows which signals pass risk rules and at what qty/notional. REJECTED = risk rule blocked (e.g. MAX_POSITIONS_REACHED).</div>
           <input type="hidden" id="decision-preview-limit" value="50">
           <input type="checkbox" id="decision-preview-received-only" style="display:none;">
-          <div id="decision-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No decision preview yet. Create signals first, then click Preview Decisions.</div>
+          <div id="decision-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No decision preview yet. Create signals first, then click Preview Decisions.</div>
         </div>
 
         <!-- Step D: Create Decisions -->
@@ -1668,7 +1898,7 @@
           <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. <strong style="color: var(--danger);">Orders are disabled.</strong> No orders will be created. For information only.</div>
           <input type="hidden" id="order-preview-limit" value="50">
           <input type="checkbox" id="order-preview-approved-only" style="display:none;" checked>
-          <div id="order-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0;">No order preview yet. Create decisions first, then click Preview Orders.</div>
+          <div id="order-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No order preview yet. Create decisions first, then click Preview Orders.</div>
         </div>
 
       </div><!-- end tab-signals-decisions -->
@@ -1679,7 +1909,7 @@
         <!-- Open Positions -->
         <div class="card">
           <div class="card-title">Open Positions</div>
-          <div class="table-wrap">
+          <div class="table-wrap scroll-table">
             <table>
               <thead>
                 <tr>
@@ -1708,7 +1938,7 @@
             <input type="date" id="ordDate" onchange="loadOrders()">
             <button class="btn-sm" onclick="setOrdToday()">Today</button>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap scroll-table">
             <table>
               <thead>
                 <tr>
@@ -1735,7 +1965,7 @@
             <button class="btn-sm" onclick="clearHistFilters()">Clear</button>
             <a class="link-btn" href="#" onclick="downloadCsv(event)">CSV</a>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap scroll-table">
             <table>
               <thead>
                 <tr>
@@ -2106,8 +2336,17 @@
 
   </main>
 
-  <!-- Right Panel: Safety & Status -->
+  <!-- Right Panel: Action / Safety Panel -->
   <div class="right-panel">
+    <div class="panel-section" style="border-color: var(--info); padding-bottom: 10px; margin-bottom: 10px;">
+      <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-primary); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">Action / Safety Panel</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
+        <span class="badge warning" style="font-size: 9px; padding: 2px 6px;">MANUAL REVIEW</span>
+        <span class="badge err" style="font-size: 9px; padding: 2px 6px;">ORDERS DISABLED</span>
+        <span class="badge neutral" style="font-size: 9px; padding: 2px 6px;">AUTOMATION OFF</span>
+        <span class="badge err" style="font-size: 9px; padding: 2px 6px;">NO ORDER CREATION</span>
+      </div>
+    </div>
     <div class="panel-section" style="border-color: var(--info);">
       <div class="panel-section-title" style="color: var(--info);">Next Step</div>
       <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px;" id="right-next-step">-</div>
@@ -2873,6 +3112,40 @@ function populatePortfolio(b) {
   setEl('pf-total', usd(b.cached_total_value));
   setEl('pf-strategy', flag(b.strategy_enabled), true);
   setEl('pf-positions', usd((b.cached_total_value || 0) - (b.cached_cash || 0)));
+  // Mirror to Overview Portfolio Snapshot
+  const _ovTotal = document.getElementById('ov-pf-total'); if (_ovTotal) _ovTotal.textContent = document.getElementById('pf-total').textContent;
+  const _ovCash = document.getElementById('ov-pf-cash'); if (_ovCash) _ovCash.textContent = document.getElementById('pf-cash').textContent;
+  // Update allocation bar
+  _updateOverviewAllocationBars(b.cached_cash, b.cached_total_value);
+}
+
+function _updateOverviewAllocationBars(cash, total) {
+  try {
+    const c = parseFloat(cash) || 0;
+    const t = parseFloat(total) || 0;
+    const posVal = Math.max(0, t - c);
+    const allocBar = document.getElementById('ov-alloc-bar');
+    const cashPctEl = document.getElementById('ov-alloc-cash-pct');
+    const posPctEl = document.getElementById('ov-alloc-pos-pct');
+    if (t > 0) {
+      const cashPct = Math.round((c / t) * 100);
+      const posPct = 100 - cashPct;
+      if (allocBar) allocBar.style.width = cashPct + '%';
+      if (cashPctEl) cashPctEl.textContent = 'Cash: ' + cashPct + '%';
+      if (posPctEl) posPctEl.textContent = 'Positions: ' + posPct + '%';
+    } else {
+      if (allocBar) allocBar.style.width = '50%';
+      if (cashPctEl) cashPctEl.textContent = 'Cash: -';
+      if (posPctEl) posPctEl.textContent = 'Positions: -';
+    }
+  } catch(e) {}
+}
+
+function showDrawerTab(tabId) {
+  ['drawer-candidates', 'drawer-blocked', 'drawer-diagnostics'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = id === tabId ? 'block' : 'none';
+  });
 }
 
 function updateKpi() {
@@ -2900,6 +3173,7 @@ async function loadPerformance() {
   }
   const b = await r.json();
   setEl('perf-pct', signHtml(b.return_pct, pct), true);
+  const _ovRet = document.getElementById('ov-pf-ret'); if (_ovRet) _ovRet.textContent = document.getElementById('perf-pct').textContent;
 }
 
 function updatePortfolioCapacityDisplay() {
@@ -2916,11 +3190,29 @@ function updatePortfolioCapacityDisplay() {
     slotsEl.textContent = slots;
     slotsEl.style.color = slots === 0 ? 'var(--danger)' : slots === 1 ? 'var(--warning)' : 'var(--ok)';
   }
+  const kpiSlotsEl = document.getElementById('kpi-avail-slots');
+  if (kpiSlotsEl && openCount !== null) {
+    const slots = Math.max(0, maxPos - openCount);
+    kpiSlotsEl.textContent = slots;
+    kpiSlotsEl.style.color = slots === 0 ? 'var(--danger)' : slots === 1 ? 'var(--warning)' : 'var(--ok)';
+  }
   if (noteEl) {
     const slots = openCount !== null ? Math.max(0, maxPos - openCount) : null;
     noteEl.textContent = slots === 0 ? 'No new BUY capacity' : 'Max enforced by risk engine';
     noteEl.style.color = slots === 0 ? 'var(--danger)' : 'var(--label)';
   }
+  // Mirror open positions count to Overview Portfolio Snapshot
+  const _ovPos = document.getElementById('ov-pf-pos'); if (_ovPos && openCount !== null) _ovPos.textContent = openCount;
+  // Update capacity bar
+  try {
+    const capBar = document.getElementById('ov-capacity-bar');
+    const capLabel = document.getElementById('ov-capacity-label');
+    if (openCount !== null) {
+      const pct = Math.min(100, Math.round((openCount / maxPos) * 100));
+      if (capBar) { capBar.style.width = pct + '%'; capBar.style.background = openCount >= maxPos ? 'var(--danger)' : openCount >= maxPos - 1 ? 'var(--warning)' : 'var(--ok)'; }
+      if (capLabel) capLabel.textContent = openCount + ' / ' + maxPos + ' positions used';
+    }
+  } catch(e) {}
 }
 
 async function loadPositions() {
@@ -4680,7 +4972,7 @@ async function previewDecisionsFromDailyPlanSignals(btn) {
     html += '<span style="background: rgba(34,197,94,.06); color: var(--ok); padding: 1px 6px; border-radius: 2px;">MANUAL REVIEW</span>';
     html += '</div>';
 
-    // Stats row — use decision_counts from backend, fall back to client-side tally
+    // Stats row - use decision_counts from backend, fall back to client-side tally
     const _decCounts = {};
     if (data.decision_counts && typeof data.decision_counts === 'object') {
       Object.assign(_decCounts, data.decision_counts);

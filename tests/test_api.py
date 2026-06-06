@@ -22019,3 +22019,84 @@ class TestDailyPlanExecutionStatusEndpoint:
         assert isinstance(data["existing_order_count"], int)
         assert isinstance(data["next_recommended_step"], str)
         assert isinstance(data["warnings"], list)
+
+
+# ---------------------------------------------------------------------------
+# Static UI content assertions — reads index.html directly (no HTTP needed)
+# ---------------------------------------------------------------------------
+
+class TestUiStaticContent:
+    """Verify key static strings are present in the UI HTML file."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_trading_cockpit_overview_present(self) -> None:
+        assert "Trading Cockpit Overview" in self._read_html()
+
+    def test_action_safety_panel_present(self) -> None:
+        assert "Action / Safety Panel" in self._read_html()
+
+    def test_orders_disabled_badge_present(self) -> None:
+        assert "ORDERS DISABLED" in self._read_html()
+
+    def test_no_order_creation_badge_present(self) -> None:
+        assert "NO ORDER CREATION" in self._read_html()
+
+    def test_automation_off_present(self) -> None:
+        assert "AUTOMATION OFF" in self._read_html()
+
+    def test_manual_review_present(self) -> None:
+        assert "MANUAL REVIEW" in self._read_html()
+
+    def test_scan_stage_present(self) -> None:
+        assert "SCAN" in self._read_html()
+
+    def test_review_stage_present(self) -> None:
+        assert "REVIEW" in self._read_html()
+
+    def test_plan_stage_present(self) -> None:
+        assert "PLAN" in self._read_html()
+
+    def test_execute_preview_stage_present(self) -> None:
+        assert "EXECUTE PREVIEW" in self._read_html()
+
+    def test_stop_orders_disabled_present(self) -> None:
+        assert "STOP: ORDERS DISABLED" in self._read_html()
+
+    def test_portfolio_allocation_present(self) -> None:
+        assert "Portfolio Allocation" in self._read_html()
+
+    def test_capacity_present(self) -> None:
+        assert "Capacity" in self._read_html()
+
+    def test_primary_recommendation_present(self) -> None:
+        assert "Primary Recommendation" in self._read_html()
+
+    def test_daily_plan_summary_present(self) -> None:
+        assert "Daily Plan Summary" in self._read_html()
+
+    def test_blocked_summary_present(self) -> None:
+        assert "Blocked Summary" in self._read_html()
+
+    def test_audit_advanced_present(self) -> None:
+        assert "Audit / Advanced" in self._read_html()
+
+    def test_execution_safety_summary_present(self) -> None:
+        assert "Execution Safety Summary" in self._read_html()
+
+    def test_recommended_next_action_present(self) -> None:
+        assert "Recommended Next Action" in self._read_html()
+
+    def test_no_forbidden_create_orders_endpoint(self) -> None:
+        html = self._read_html()
+        assert "/v1/review/create-orders" not in html
+        assert "/v1/orders/create" not in html
+
+    def test_no_forbidden_create_orders_js(self) -> None:
+        html = self._read_html()
+        assert "createOrders" not in html
+        assert "createOrder" not in html
