@@ -4203,6 +4203,7 @@ async function runPredictionPreview(btn) {
       if (_naEl) _naEl.textContent = 'Preview complete - review candidates and click Save to Review Queue';
       const _asEl = document.getElementById('right-action-status');
       if (_asEl) { _asEl.textContent = new Date().toLocaleTimeString(); _asEl.style.color = 'var(--ok)'; }
+      refreshCockpitAfterAction('Prediction Preview');
     } else if (r.status === 422) {
       throw new Error(b.detail ?? 'Validation error (422)');
     } else if (r.status === 401) {
@@ -4298,6 +4299,7 @@ async function runDailyPlan(btn) {
       if (_naEl) _naEl.textContent = b.recommended_next_action || 'Review daily plan above';
       const _asEl = document.getElementById('right-action-status');
       if (_asEl) { _asEl.textContent = new Date().toLocaleTimeString(); _asEl.style.color = 'var(--ok)'; }
+      refreshCockpitAfterAction('Daily Plan');
     } else if (r.status === 401) {
       throw new Error('Not authorized (401)');
     } else {
@@ -4953,6 +4955,9 @@ async function previewSignalsFromDailyPlan(btn) {
     html += '<div style="margin-top: 6px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--ok); font-weight: 600; text-align: center;">Preview only -- no signals, decisions, or orders created.</div>';
 
     resultEl.innerHTML = html;
+    const _dpspNextEl = document.getElementById('cockpit-next-action');
+    if (_dpspNextEl) _dpspNextEl.textContent = 'Signal preview complete. Review signals above, then preview decisions or create signals (no DB writes in this step).';
+    refreshCockpitAfterAction('DP Signal Preview');
 
     // Show/enable approve section only when there are previewable signals
     const _approveSection = document.getElementById('daily-plan-approve-section');
@@ -5188,6 +5193,9 @@ async function previewDecisionsFromDailyPlanSignals(btn) {
     }
 
     resultEl.innerHTML = html;
+    const _dpdpNextEl = document.getElementById('cockpit-next-action');
+    if (_dpdpNextEl) _dpdpNextEl.textContent = 'Decision preview complete -- PREVIEW ONLY, no decisions created. Review above, then create decisions if ready.';
+    refreshCockpitAfterAction('DP Decision Preview');
   } catch (e) {
     resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
   } finally {
@@ -5529,6 +5537,9 @@ async function previewOrdersFromDailyPlanDecisions() {
     }
 
     resultEl.innerHTML = html;
+    const _dpopNextEl = document.getElementById('cockpit-next-action');
+    if (_dpopNextEl) _dpopNextEl.textContent = 'Order preview complete -- PREVIEW ONLY, no orders created. Orders remain disabled.';
+    refreshCockpitAfterAction('DP Order Preview');
   } catch (e) {
     resultEl.innerHTML = `<div style="font-size: 11px; color: var(--danger); padding: 4px 0;">Error: ${escapeHtml(e.message)}</div>`;
   }
@@ -6481,6 +6492,7 @@ async function saveCandidatesToReviewQueue(mode, btn) {
             const _s4 = document.getElementById('step4-signal-decisions');
             if (_s4) _s4.style.display = 'block';
             updateCockpitReviewSummary();
+            await refreshWorkflowStatus();
             const _rnStep = document.getElementById('right-next-step');
             if (_rnStep) _rnStep.textContent = 'Open Review Queue';
             const _rnDetail = document.getElementById('right-next-step-detail');
@@ -6748,6 +6760,7 @@ async function createSignalsFromCandidates() {
           }
           const data = await r.json();
           renderCreateSignalsResponse(data);
+          refreshCockpitAfterAction('Create Signals');
           resolve();
         } catch (e) {
           container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
@@ -6936,6 +6949,7 @@ async function previewDecisionsFromSignals() {
     }
     const data = await r.json();
     renderDecisionPreviewResponse(data);
+    refreshCockpitAfterAction('Decision Preview');
   } catch (e) {
     container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
   }
@@ -7001,6 +7015,14 @@ function renderDecisionPreviewResponse(data) {
   }
   const _oesDecPrev = document.getElementById('ov-execute-summary');
   if (_oesDecPrev) _oesDecPrev.textContent = previewsGenerated + ' previewed' + (_maxPosRejected.length > 0 ? ', ' + _maxPosRejected.length + ' rejected (MAX_POSITIONS)' : '');
+  const _decPrevNextEl = document.getElementById('cockpit-next-action');
+  if (_decPrevNextEl) {
+    if (_maxPosRejected.length > 0) {
+      _decPrevNextEl.textContent = 'MAX_POSITIONS_REACHED: no BUY slots available. Preview only -- create decisions to record, no orders will be placed.';
+    } else {
+      _decPrevNextEl.textContent = 'Decision preview complete. Review above, then Create Decisions to record in DB (no orders will be placed).';
+    }
+  }
 
   // Decision previews table
   if (decisionPreviews.length > 0) {
@@ -7093,6 +7115,7 @@ async function createDecisionsFromSignals() {
           }
           const data = await r.json();
           renderCreateDecisionsResponse(data);
+          refreshCockpitAfterAction('Create Decisions');
           resolve();
         } catch (e) {
           container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
@@ -7266,6 +7289,7 @@ async function previewOrdersFromDecisions() {
     }
     const data = await r.json();
     renderOrderPreviewResponse(data);
+    refreshCockpitAfterAction('Order Preview');
   } catch (e) {
     container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(e)}</div>`;
   }
@@ -7376,6 +7400,8 @@ function renderOrderPreviewResponse(data) {
 
   const _oesOrderPrev = document.getElementById('ov-execute-summary');
   if (_oesOrderPrev) _oesOrderPrev.textContent = previewsGenerated + ' order preview(s)' + (skippedExistingCount > 0 ? ', ' + skippedExistingCount + ' skipped (existing order)' : '');
+  const _ordPrevNextEl = document.getElementById('cockpit-next-action');
+  if (_ordPrevNextEl) _ordPrevNextEl.textContent = 'Order preview complete -- ORDERS DISABLED, no orders created. Preview is for reference only.';
 }
 
 function getDtrStepStatus(step) {
@@ -7821,6 +7847,21 @@ async function refreshReviewQueue() {
   const tb = document.getElementById('rq-tbody');
   if (tb) tb.innerHTML = '<tr><td colspan="9" class="empty">Loading review queue...</td></tr>';
   await loadReviewQueue();
+}
+
+async function refreshCockpitAfterAction(reason) {
+  if (!_appState.connected) return;
+  try {
+    const _tsNow = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    const _rasEl = document.getElementById('right-action-status');
+    if (_rasEl) { _rasEl.textContent = _tsNow; _rasEl.style.color = 'var(--ok)'; }
+    updateCockpitReviewSummary();
+    updatePortfolioCapacityDisplay();
+    updateKpi();
+    await refreshWorkflowStatus();
+  } catch (e) {
+    console.warn('refreshCockpitAfterAction:', reason, e);
+  }
 }
 
 // Health check runs immediately and independently
