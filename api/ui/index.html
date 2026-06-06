@@ -1902,7 +1902,7 @@
             <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
             <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">NO BROKER EXECUTION</span>
           </div>
-          <div style="font-size: 9px; color: var(--label);">Pipeline: Preview Signals &rarr; Create Signals &rarr; Preview Decisions &rarr; Create Decisions &rarr; Preview Orders &rarr; Create Paper Orders. No broker execution. No fills. No automation.</div>
+          <div style="font-size: 9px; color: var(--label);">Pipeline: Preview Signals &rarr; Create Signals &rarr; Preview Decisions &rarr; Create Decisions &rarr; Preview Orders &rarr; Create Paper Orders &rarr; Fill Pending Paper Orders. No broker execution. No automation. Paper fills only.</div>
         </div>
 
         <!-- Decision Outcome Summary (populated after Step C/D run) -->
@@ -2014,6 +2014,24 @@
               <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
             </div>
             <div id="create-orders-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready. Complete Step E (Preview Orders) first to confirm eligibility, then click Create Paper Orders.</div>
+          </div>
+        </details>
+
+        <!-- Step G: Fill Pending Paper Orders -->
+        <details class="exec-step-e">
+          <summary>
+            <span style="font-size: 9px; color: var(--label);">&#9656;</span>
+            <span>Step G &mdash; Fill Pending Paper Orders</span>
+            <span class="badge ok" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">PAPER FILLS ONLY</span>
+            <span class="badge warn" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+            <span class="badge err" style="font-size: 7px; padding: 1px 5px;">NO LIVE TRADES</span>
+          </summary>
+          <div class="command-section step-e-disabled">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="font-size: 10px; color: var(--label);">Fills PENDING paper Order rows in the local DB only. <strong style="color: var(--warning);">PAPER FILLS ONLY.</strong> No broker. No live trades. Updates paper portfolio positions and cash. Automation off. Manual review required.</div>
+              <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
+            </div>
+            <div id="fill-orders-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready. Complete Step F (Create Paper Orders) first, then click Fill Pending Paper Orders to simulate fills in the paper portfolio.</div>
           </div>
         </details>
 
@@ -2550,6 +2568,13 @@
       <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 4px;">PAPER ORDERS ONLY</div>
       <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Creates PENDING order tickets. No broker. No fills. Automation off.</div>
       <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Fill Orders</div>
+      <div style="font-size: 9px; color: var(--warning); font-weight: 600; margin-bottom: 4px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
+      <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.</div>
+      <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
     </div>
 
     <div class="panel-section">
@@ -7535,6 +7560,98 @@ function renderCreateOrdersResponse(data) {
   if (_navEl) _navEl.textContent = ordersCreated > 0
     ? `${ordersCreated} paper order ticket(s) created with PENDING status. NO broker execution. NO fills. Manual review only.`
     : 'No new orders created (all decisions already have orders or were skipped). PAPER ORDERS ONLY - no broker execution.';
+}
+
+async function fillPendingPaperOrders() {
+  const container = document.getElementById('fill-orders-content');
+
+  return new Promise(resolve => {
+    window._showWriteConfirm({
+      title: 'Confirm: Fill Pending Paper Orders',
+      writes: ['Marks PENDING paper Order rows as FILLED', 'Opens/updates/closes positions in paper portfolio', 'Appends CashLedger debit/credit entries'],
+      doesNotDo: [
+        'fills PENDING paper Order rows only',
+        'does not execute live trades',
+        'does not submit to broker',
+        'does not enable automation',
+        'updates paper portfolio records only',
+      ],
+      confirmLabel: 'Fill Pending Paper Orders',
+      onConfirm: async () => {
+        if (container) container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Filling pending paper orders...</div>';
+
+        try {
+          const r = await call('POST', '/v1/review/fill-pending-orders', {
+            confirm_paper_fill: true,
+          });
+          if (!r.ok) {
+            const errData = await parseApiResponse(r);
+            const errMsg = formatApiError(errData);
+            if (container) container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${escapeHtml(errMsg)}</div>`;
+            resolve();
+            return;
+          }
+          const data = await r.json();
+          renderFillOrdersResponse(data);
+          refreshCockpitAfterAction('Fill Orders');
+          resolve();
+        } catch (e) {
+          if (container) container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(String(e))}</div>`;
+          resolve();
+        }
+      },
+      onCancel: () => resolve(),
+    });
+  });
+}
+
+function renderFillOrdersResponse(data) {
+  const container = document.getElementById('fill-orders-content');
+  if (!container) return;
+  let html = '';
+
+  const filled = data.orders_filled ?? 0;
+  const evaluated = data.orders_evaluated ?? 0;
+  const expired = data.orders_expired ?? 0;
+  const skippedNoPrice = data.skipped_no_price ?? 0;
+  const skippedInvalid = data.skipped_invalid ?? 0;
+  const cashDelta = data.cash_delta ?? '0.00';
+  const posChanged = Array.isArray(data.positions_changed) ? data.positions_changed : [];
+  const safetyMsg = data.safety_message || '';
+
+  // Safety banner
+  html += '<div style="padding: 6px 10px; background: rgba(245,158,11,.07); border: 1px solid rgba(245,158,11,.3); border-radius: 2px; margin-bottom: 10px; font-size: 9px; color: var(--warning); font-weight: 600;">';
+  html += escapeHtml(safetyMsg);
+  html += '</div>';
+
+  // Summary cards
+  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px;">';
+  html += `<div style="background: rgba(34,197,94,.1); padding: 8px; border: 1px solid var(--ok); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Filled</div><div style="font-size: 18px; font-weight: 700; color: var(--ok);">${filled}</div></div>`;
+  html += `<div style="background: rgba(34,197,94,.05); padding: 8px; border: 1px solid var(--border); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Evaluated</div><div style="font-size: 18px; font-weight: 700; color: var(--text-accent);">${evaluated}</div></div>`;
+  html += `<div style="background: rgba(239,68,68,.1); padding: 8px; border: 1px solid var(--danger); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Expired</div><div style="font-size: 18px; font-weight: 700; color: var(--danger);">${expired}</div></div>`;
+  html += `<div style="background: rgba(239,68,68,.1); padding: 8px; border: 1px solid var(--danger); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">No Price</div><div style="font-size: 18px; font-weight: 700; color: var(--danger);">${skippedNoPrice}</div></div>`;
+  html += `<div style="background: rgba(239,68,68,.1); padding: 8px; border: 1px solid var(--danger); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Failed</div><div style="font-size: 18px; font-weight: 700; color: var(--danger);">${skippedInvalid}</div></div>`;
+  const cashColor = parseFloat(cashDelta) >= 0 ? 'var(--ok)' : 'var(--danger)';
+  html += `<div style="padding: 8px; border: 1px solid var(--border); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Cash Delta</div><div style="font-size: 14px; font-weight: 700; color: ${cashColor}; font-family: 'Monaco', monospace;">$${escapeHtml(cashDelta)}</div></div>`;
+  html += '</div>';
+
+  if (posChanged.length > 0) {
+    html += '<div style="margin-bottom: 10px; font-size: 10px;"><span style="color: var(--label); font-weight: 600;">Positions Changed: </span>';
+    html += posChanged.map(t => `<span style="font-family: 'Monaco', monospace; color: var(--text-accent); margin-right: 6px;">${escapeHtml(t)}</span>`).join('');
+    html += '</div>';
+  }
+
+  // Safety footer
+  html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--warning); font-weight: 600;">';
+  html += `PAPER FILLS ONLY &mdash; NO BROKER EXECUTION &mdash; NO LIVE TRADES &mdash; Automation off`;
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  const _navEl = document.getElementById('cockpit-next-action');
+  if (_navEl) _navEl.textContent = filled > 0
+    ? `${filled} paper order(s) filled. Cash delta: $${cashDelta}. PAPER FILLS ONLY - no broker execution, no live trades.`
+    : 'No PENDING orders to fill. PAPER FILLS ONLY - no broker execution, no live trades.';
 }
 
 function getDtrStepStatus(step) {

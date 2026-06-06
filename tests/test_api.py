@@ -22714,3 +22714,460 @@ class TestUiStaticContent:
     def test_create_orders_js_present(self) -> None:
         html = self._read_html()
         assert "createOrdersFromDecisions" in html
+
+    def test_fill_pending_orders_endpoint_present(self) -> None:
+        html = self._read_html()
+        assert "/v1/review/fill-pending-orders" in html
+
+    def test_fill_pending_orders_js_present(self) -> None:
+        html = self._read_html()
+        assert "fillPendingPaperOrders" in html
+
+    def test_paper_fills_only_badge_present(self) -> None:
+        html = self._read_html()
+        assert "PAPER FILLS ONLY" in html
+
+    def test_no_live_trades_badge_present(self) -> None:
+        html = self._read_html()
+        assert "NO LIVE TRADES" in html
+
+
+# ===========================================================================
+# TestManualPaperFillEndpoint
+# ===========================================================================
+
+class TestManualPaperFillEndpoint:
+    """Tests for POST /v1/review/fill-pending-orders (PAPER FILLS ONLY, no broker)."""
+
+    _ENDPOINT = "/v1/review/fill-pending-orders"
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_fill_artifacts(self, api_engine):
+        """Delete paper order ticket rows and any stray PENDING orders for today's
+        market_date before and after each test.
+
+        Two-clause deletion ensures isolation even when other test classes leave
+        PENDING orders without a 'Paper order ticket' notes marker (e.g. the QCOM
+        order created in TestOrderPreviewEndpoint with no cleanup).
+        """
+        def _purge():
+            today = date.today()
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                # Delete all paper-ticket orders regardless of status
+                s.query(Order).filter(
+                    Order.notes.like("Paper order ticket%"),
+                ).delete(synchronize_session=False)
+                # Also delete any stray PENDING orders for today from other test classes
+                s.query(Order).filter(
+                    Order.status == "PENDING",
+                    Order.market_date == today,
+                ).delete(synchronize_session=False)
+                s.commit()
+
+        _purge()
+        yield
+        _purge()
+
+    # ------------------------------------------------------------------
+    # Helper: seed a complete Signal→TradeDecision→PriceSnapshot→Order chain
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _seed_pending_order(
+        session,
+        suffix: str,
+        *,
+        side: str = "BUY",
+        qty: Decimal = Decimal("5.00000000"),
+        price: Decimal = Decimal("100.00"),
+        market_date: date | None = None,
+    ) -> tuple:
+        """
+        Create a PENDING paper Order row with all required FKs.
+        Returns (order_id, ticker, td_id).
+        """
+        import uuid as _uuid
+
+        md = market_date or date.today()
+        ticker = f"FILL{suffix[:5]}".upper()
+
+        jr_sig = JobRun(
+            idempotency_key=f"fill-sig-jr-{suffix}",
+            workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+            market_date=md,
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_sig)
+        session.flush()
+
+        sig = Signal(
+            job_run_id=jr_sig.id,
+            ticker=ticker,
+            direction=side,
+            confidence=Decimal("0.85"),
+            signal_ts=datetime.now(timezone.utc),
+            market_date=md,
+            source_run=f"review_queue_create_signals_v1:fill:{suffix}",
+            status="RECEIVED",
+            raw_payload={},
+        )
+        session.add(sig)
+        session.flush()
+
+        snap = PriceSnapshot(
+            ticker=ticker,
+            price=price,
+            session_type="REGULAR",
+            price_type="CLOSE",
+            market_date=md,
+            snapshot_ts=datetime.now(timezone.utc),
+        )
+        session.add(snap)
+        session.flush()
+
+        jr_td = JobRun(
+            idempotency_key=f"fill-td-jr-{suffix}",
+            workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+            market_date=md,
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_td)
+        session.flush()
+
+        td = TradeDecision(
+            signal_id=sig.id,
+            job_run_id=jr_td.id,
+            ticker=ticker,
+            signal_direction=side,
+            decision=side,
+            reason_code=None,
+            approved_qty=qty,
+            approved_notional=(qty * price).quantize(Decimal("0.01")),
+            requested_qty=qty,
+            requested_notional=(qty * price).quantize(Decimal("0.01")),
+            decided_at=datetime.now(timezone.utc),
+            market_date=md,
+        )
+        session.add(td)
+        session.flush()
+
+        jr_ord = JobRun(
+            idempotency_key=f"fill-ord-jr-{suffix}",
+            workflow_type="REVIEW_QUEUE_CREATE_ORDERS",
+            market_date=md,
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_ord)
+        session.flush()
+
+        order = Order(
+            trade_decision_id=td.id,
+            job_run_id=jr_ord.id,
+            ticker=ticker,
+            side=side,
+            order_type="MARKET",
+            status="PENDING",
+            market_date=md,
+            requested_qty=qty,
+            requested_at=datetime.now(timezone.utc),
+            notes="Paper order ticket — review workflow. No broker execution.",
+        )
+        session.add(order)
+        session.flush()
+
+        return order.id, ticker, td.id
+
+    # ------------------------------------------------------------------
+    # Test 1: unauthorized
+    # ------------------------------------------------------------------
+
+    def test_unauthorized_returns_401(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(self._ENDPOINT, json={"confirm_paper_fill": True})
+        assert r.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: confirm_paper_fill=False returns 422
+    # ------------------------------------------------------------------
+
+    def test_confirm_false_returns_422(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_paper_fill": False},
+            headers=_AUTH,
+        )
+        assert r.status_code == 422
+
+    # ------------------------------------------------------------------
+    # Test 3: confirm_paper_fill missing returns 422 (default=False)
+    # ------------------------------------------------------------------
+
+    def test_confirm_missing_returns_422(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(self._ENDPOINT, json={}, headers=_AUTH)
+        assert r.status_code == 422
+
+    # ------------------------------------------------------------------
+    # Test 4: no PENDING orders returns zero fills
+    # ------------------------------------------------------------------
+
+    def test_no_pending_orders_returns_zero(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_paper_fill": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["execution_mode"] == "PAPER_FILLS_ONLY"
+        assert data["orders_evaluated"] == 0
+        assert data["orders_filled"] == 0
+        assert "safety_message" in data
+        assert "PAPER FILLS ONLY" in data["safety_message"]
+
+    # ------------------------------------------------------------------
+    # Test 5: PENDING BUY order with price snapshot gets filled
+    # ------------------------------------------------------------------
+
+    def test_pending_buy_order_fills(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, td_id = self._seed_pending_order(
+                s, sfx, side="BUY", qty=Decimal("3.00000000"), price=Decimal("200.00")
+            )
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["execution_mode"] == "PAPER_FILLS_ONLY"
+            assert data["orders_filled"] >= 1
+            assert "PAPER FILLS ONLY" in data["safety_message"]
+
+            # Verify order is now FILLED in DB
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                order = s.query(Order).filter(Order.id == order_id).first()
+                assert order is not None
+                assert order.status == "FILLED"
+                assert order.filled_qty is not None
+                assert order.filled_at is not None
+                assert order.fill_price is not None
+                assert order.commission is not None
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                from paper_trader.db.models import Trade, CashLedger
+                from sqlalchemy import select as _select
+                s.query(CashLedger).filter(CashLedger.order_id == order_id).delete(synchronize_session=False)
+                s.query(Trade).filter(Trade.order_id == order_id).delete(synchronize_session=False)
+                s.query(Order).filter(Order.id == order_id).delete(synchronize_session=False)
+                s.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
+                s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 6: missing price snapshot causes skipped_no_price
+    # ------------------------------------------------------------------
+
+    def test_missing_price_skips_order(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            md = date.today()
+            ticker = f"NOPRC{sfx[:4]}".upper()
+
+            jr_sig = JobRun(
+                idempotency_key=f"fill-noprc-sig-{sfx}",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=md,
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            s.add(jr_sig)
+            s.flush()
+
+            sig = Signal(
+                job_run_id=jr_sig.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=md,
+                source_run=f"review_queue_create_signals_v1:noprc:{sfx}",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            s.add(sig)
+            s.flush()
+
+            jr_td = JobRun(
+                idempotency_key=f"fill-noprc-td-{sfx}",
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=md,
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            s.add(jr_td)
+            s.flush()
+
+            td = TradeDecision(
+                signal_id=sig.id,
+                job_run_id=jr_td.id,
+                ticker=ticker,
+                signal_direction="BUY",
+                decision="BUY",
+                reason_code=None,
+                approved_qty=Decimal("2.00000000"),
+                approved_notional=Decimal("300.00"),
+                requested_qty=Decimal("2.00000000"),
+                requested_notional=Decimal("300.00"),
+                decided_at=datetime.now(timezone.utc),
+                market_date=md,
+            )
+            s.add(td)
+            s.flush()
+
+            jr_ord = JobRun(
+                idempotency_key=f"fill-noprc-ord-{sfx}",
+                workflow_type="REVIEW_QUEUE_CREATE_ORDERS",
+                market_date=md,
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            s.add(jr_ord)
+            s.flush()
+
+            order = Order(
+                trade_decision_id=td.id,
+                job_run_id=jr_ord.id,
+                ticker=ticker,
+                side="BUY",
+                order_type="MARKET",
+                status="PENDING",
+                market_date=md,
+                requested_qty=Decimal("2.00000000"),
+                requested_at=datetime.now(timezone.utc),
+                notes="Paper order ticket — review workflow. No broker execution.",
+            )
+            s.add(order)
+            s.commit()
+            order_id = order.id
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["skipped_no_price"] >= 1
+
+            # Order must still be PENDING (not filled, not failed)
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                order = s.query(Order).filter(Order.id == order_id).first()
+                assert order.status == "PENDING"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(Order.id == order_id).delete(synchronize_session=False)
+                s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 7: already FILLED order is skipped on repeat call
+    # ------------------------------------------------------------------
+
+    def test_repeated_call_skips_filled_order(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+        order_id = None
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, td_id = self._seed_pending_order(
+                s, sfx, side="BUY", qty=Decimal("2.00000000"), price=Decimal("150.00")
+            )
+            s.commit()
+
+        try:
+            # First call — fills the order
+            r1 = seeded_client.post(
+                self._ENDPOINT,
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert r1.status_code == 200
+            d1 = r1.json()
+            assert d1["orders_filled"] >= 1
+
+            # Second call — no more PENDING orders, returns zero
+            r2 = seeded_client.post(
+                self._ENDPOINT,
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert r2.status_code == 200
+            d2 = r2.json()
+            assert d2["orders_filled"] == 0
+            assert d2["orders_evaluated"] == 0
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                from paper_trader.db.models import Trade, CashLedger
+                s.query(CashLedger).filter(CashLedger.order_id == order_id).delete(synchronize_session=False)
+                s.query(Trade).filter(Trade.order_id == order_id).delete(synchronize_session=False)
+                s.query(Order).filter(Order.id == order_id).delete(synchronize_session=False)
+                s.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
+                s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 8: response shape is correct and includes required safety fields
+    # ------------------------------------------------------------------
+
+    def test_response_shape_and_safety_message(
+        self, seeded_client: TestClient
+    ) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_paper_fill": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+
+        required_keys = [
+            "execution_mode", "orders_evaluated", "orders_filled",
+            "orders_expired", "skipped_not_pending", "skipped_invalid",
+            "skipped_no_price", "cash_delta", "positions_changed",
+            "safety_message",
+        ]
+        for key in required_keys:
+            assert key in data, f"Missing response key: {key}"
+
+        assert data["execution_mode"] == "PAPER_FILLS_ONLY"
+        assert isinstance(data["orders_evaluated"], int)
+        assert isinstance(data["orders_filled"], int)
+        assert isinstance(data["orders_expired"], int)
+        assert isinstance(data["skipped_not_pending"], int)
+        assert isinstance(data["skipped_invalid"], int)
+        assert isinstance(data["skipped_no_price"], int)
+        assert isinstance(data["cash_delta"], str)
+        assert isinstance(data["positions_changed"], list)
+        assert isinstance(data["safety_message"], str)
+
+        safety = data["safety_message"]
+        assert "PAPER FILLS ONLY" in safety
+        assert "NO BROKER EXECUTION" in safety
+        assert "NO LIVE TRADES" in safety
+        assert "AUTOMATION OFF" in safety
+        assert "MANUAL REVIEW" in safety

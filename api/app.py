@@ -32,6 +32,7 @@ Endpoints:
     GET  /v1/review/daily-plan-execution-status — consolidated Daily Plan execution state (read-only, no DB writes)
     POST /v1/review/daily-plan-replay-preview — historical daily plan replay/backtest preview (read-only)
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
+    POST /v1/review/fill-pending-orders — manually fill PENDING paper Order rows (PAPER FILLS ONLY, no broker execution)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -80,7 +81,7 @@ from paper_trader.db.models import (
 from paper_trader.db.session import get_dedicated_session, get_session
 from paper_trader.engine.market_data import fetch_latest_prices, fetch_historical_prices
 from paper_trader.engine.market_hours import is_weekday
-from paper_trader.engine.portfolio import get_portfolio
+from paper_trader.engine.portfolio import compute_cash, get_open_positions, get_portfolio
 from paper_trader.engine.prediction_client import (
     fetch_predictions_for_tickers,
     normalize_prediction_response,
@@ -1286,6 +1287,28 @@ class ReviewCreateOrdersResponse(BaseModel):
     created_orders: list[CreatedOrderDetail]
     skipped: list[SkippedTradeDecisionDetail]
     job_runs_created: int
+    safety_message: str
+
+
+class ManualPaperFillRequest(BaseModel):
+    """Request for POST /v1/review/fill-pending-orders (PAPER FILLS ONLY, no broker execution)."""
+    confirm_paper_fill: bool = Field(
+        default=False,
+        description="Must be true to execute paper fills. Safety gate.",
+    )
+
+
+class ManualPaperFillResponse(BaseModel):
+    """Response from POST /v1/review/fill-pending-orders (PAPER FILLS ONLY, no broker execution)."""
+    execution_mode: str
+    orders_evaluated: int
+    orders_filled: int
+    orders_expired: int
+    skipped_not_pending: int
+    skipped_invalid: int
+    skipped_no_price: int
+    cash_delta: str
+    positions_changed: list[str]
     safety_message: str
 
 
@@ -11911,6 +11934,178 @@ def daily_plan_replay_profile_comparison_preview(
             ),
             safety_counts=_safety,
         )
+
+
+# ---------------------------------------------------------------------------
+# Manual paper fill
+# ---------------------------------------------------------------------------
+
+_FILL_SAFETY_MSG = (
+    "PAPER FILLS ONLY. NO BROKER EXECUTION. NO LIVE TRADES. "
+    "AUTOMATION OFF. MANUAL REVIEW."
+)
+
+_MANUAL_FILL_DOLLARS = Decimal("0.01")
+
+
+@app.post(
+    "/v1/review/fill-pending-orders",
+    response_model=ManualPaperFillResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def fill_pending_paper_orders(
+    body: ManualPaperFillRequest,
+) -> ManualPaperFillResponse:
+    """
+    Manually fill all PENDING paper Order rows for today's market date.
+
+    PAPER FILLS ONLY. No broker execution. No live trades. No automation.
+    Manual user confirmation required (confirm_paper_fill must be true).
+
+    Fill logic:
+    - Processes all PENDING orders whose market_date equals today's US-Eastern date.
+    - Prices come from the latest price_snapshots entry per ticker.
+    - Orders with no price snapshot are skipped (skipped_no_price).
+    - Orders whose TTL has elapsed are expired (orders_expired).
+    - BUY fills: open/WAC-average position, debit cash + commission.
+    - SELL fills: reduce/close position, credit cash minus commission.
+    - Position and cash changes are fully recorded in the DB.
+
+    Response includes cash_delta (negative for net BUY, positive for net SELL)
+    and positions_changed (tickers opened or closed during the fill cycle).
+    """
+    import uuid as uuid_module
+
+    if not body.confirm_paper_fill:
+        raise HTTPException(
+            status_code=422,
+            detail="confirm_paper_fill must be true to execute paper fills.",
+        )
+
+    now = datetime.now(timezone.utc)
+    market_date = now.astimezone(_EASTERN).date()
+
+    with get_dedicated_session() as session:
+        job_run: JobRun | None = None
+        try:
+            # Count PENDING orders for today before starting
+            pending_before = list(
+                session.execute(
+                    select(Order)
+                    .where(
+                        Order.status == "PENDING",
+                        Order.market_date == market_date,
+                    )
+                    .order_by(Order.requested_at)
+                ).scalars().all()
+            )
+            orders_evaluated = len(pending_before)
+
+            # Record pre-fill state
+            cash_before = compute_cash(session)
+            positions_before = {p.ticker for p in get_open_positions(session)}
+
+            if orders_evaluated == 0:
+                return ManualPaperFillResponse(
+                    execution_mode="PAPER_FILLS_ONLY",
+                    orders_evaluated=0,
+                    orders_filled=0,
+                    orders_expired=0,
+                    skipped_not_pending=0,
+                    skipped_invalid=0,
+                    skipped_no_price=0,
+                    cash_delta="0.00",
+                    positions_changed=[],
+                    safety_message=_FILL_SAFETY_MSG,
+                )
+
+            # Create a JobRun for audit trail
+            job_run = JobRun(
+                idempotency_key=f"manual-paper-fill-{uuid_module.uuid4()}",
+                workflow_type="MANUAL_PAPER_FILL",
+                market_date=market_date,
+                status=JobRunStatus.RUNNING,
+                started_at=now,
+            )
+            session.add(job_run)
+            session.commit()
+
+            # Acquire portfolio advisory lock
+            acquired = session.execute(
+                text("SELECT pg_try_advisory_lock(:key)"),
+                {"key": PORTFOLIO_ADVISORY_LOCK_KEY},
+            ).scalar()
+            if not acquired:
+                raise RuntimeError(
+                    "Could not acquire portfolio advisory lock. "
+                    "Another workflow is currently running."
+                )
+
+            try:
+                portfolio = get_portfolio(session)
+                counts = run_fill_cycle(
+                    session,
+                    portfolio=portfolio,
+                    job_run_id=job_run.id,
+                    now=now,
+                    market_date=market_date,
+                )
+
+                # Record post-fill state (session has committed internally)
+                cash_after = compute_cash(session)
+                positions_after = {p.ticker for p in get_open_positions(session)}
+
+                job_run.status = JobRunStatus.COMPLETED
+                job_run.completed_at = now
+                job_run.result_summary = dict(counts)
+                session.commit()
+
+            finally:
+                try:
+                    session.execute(
+                        text("SELECT pg_advisory_unlock(:key)"),
+                        {"key": PORTFOLIO_ADVISORY_LOCK_KEY},
+                    )
+                    session.commit()
+                except Exception:
+                    session.rollback()
+
+            # Compute deltas
+            cash_delta = (cash_after - cash_before).quantize(_MANUAL_FILL_DOLLARS)
+            positions_changed = sorted(
+                (positions_before | positions_after)
+                - (positions_before & positions_after)
+            )
+
+            return ManualPaperFillResponse(
+                execution_mode="PAPER_FILLS_ONLY",
+                orders_evaluated=orders_evaluated,
+                orders_filled=counts["filled"],
+                orders_expired=counts["expired"],
+                skipped_not_pending=0,
+                skipped_invalid=counts["failed"],
+                skipped_no_price=counts["skipped"],
+                cash_delta=str(cash_delta),
+                positions_changed=positions_changed,
+                safety_message=_FILL_SAFETY_MSG,
+            )
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            if job_run is not None:
+                try:
+                    job_run.status = JobRunStatus.FAILED
+                    job_run.error_detail = str(exc)[:2000]
+                    job_run.completed_at = now
+                    session.commit()
+                except Exception:
+                    session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(exc),
+            )
 
 
 # ---------------------------------------------------------------------------
