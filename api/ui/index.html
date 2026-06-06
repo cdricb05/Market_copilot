@@ -1038,6 +1038,51 @@
       gap: 8px;
       flex-shrink: 0;
     }
+
+    /* --- Visual Redesign v2 --- */
+    .execution-cockpit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      flex-shrink: 0;
+      align-items: stretch;
+    }
+    .portfolio-cockpit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      flex-shrink: 0;
+      align-items: start;
+    }
+    .step-e-disabled {
+      opacity: 0.65;
+    }
+    /* --- Visual Redesign v3 --- */
+    .overview-cmd-section {
+      border-top: 1px solid var(--border);
+      padding-top: 5px;
+      margin-top: 5px;
+    }
+    details.exec-step-e > summary {
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--label);
+      padding: 6px 10px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    details.exec-step-e > summary::-webkit-details-marker { display: none; }
+    details.exec-step-e[open] > summary { border-radius: 3px 3px 0 0; border-bottom: none; }
+    details.exec-step-e > .command-section { border-radius: 0 0 3px 3px; border-top: none; margin-top: 0; }
   </style>
 </head>
 <body>
@@ -1299,36 +1344,66 @@
         <!-- Main cockpit grid: 3 columns -->
         <div class="cockpit-main-grid">
 
-          <!-- LEFT COL: 4-stage workflow progress -->
+          <!-- LEFT COL: Today's Trading Run command center -->
           <div class="cockpit-left-col">
-            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Workflow Progress</div>
+            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Today's Trading Run</div>
 
+            <!-- 1 - SCAN: generate candidate preview -->
             <div class="stage-card" id="stage-scan">
               <div class="stage-title">1 &mdash; SCAN</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="stage-scan-status">Not Started</div>
-              <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;" id="stage-scan-count">Generate candidate preview to begin</div>
-              <button class="btn-sm" style="width: 100%;" onclick="window._switchTab('prediction-cockpit')">Go to Daily Plan &rarr;</button>
+              <div style="font-size: 8px; color: var(--info); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 3px;">PREVIEW ONLY &mdash; creates nothing</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px;" id="ov-scan-summary">Run to see results</div>
+              <button class="btn-sm" style="width: 100%; margin-bottom: 2px;" onclick="runPredictionPreview(this)">Generate Candidate Preview</button>
             </div>
 
+            <!-- 2 - REVIEW: save candidates + open queue -->
             <div class="stage-card" id="stage-review">
               <div class="stage-title">2 &mdash; REVIEW</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="stage-review-status">Not Started</div>
-              <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;" id="stage-review-count">Approve candidates in Review Queue</div>
-              <button class="btn-sm" style="width: 100%;" onclick="window._switchTab('review-queue')">Open Review Queue &rarr;</button>
+              <div style="font-size: 8px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 3px;">SAVES REVIEW CANDIDATES ONLY</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px;" id="stage-review-count">Save after preview, then approve in queue</div>
+              <div style="display: flex; gap: 4px; margin-bottom: 2px;">
+                <button class="btn-sm" style="flex: 1; background: var(--ok); color: white; font-size: 9px;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save Eligible</button>
+                <button class="btn-sm" style="flex: 0 0 auto; font-size: 9px; background: transparent; border: 1px solid var(--border); color: var(--text-accent);" onclick="saveCandidatesToReviewQueue('ALL', this)">All</button>
+              </div>
+              <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="window._switchTab('review-queue')">Open Review Queue &rarr;</button>
             </div>
 
+            <!-- 3 - PLAN: generate daily plan -->
             <div class="stage-card" id="stage-plan">
               <div class="stage-title">3 &mdash; PLAN</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="stage-plan-status">Not Started</div>
-              <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;" id="stage-plan-count">Generate Daily Plan after review</div>
-              <button class="btn-sm" style="width: 100%;" onclick="window._switchTab('prediction-cockpit')">Generate Plan &rarr;</button>
+              <div style="font-size: 8px; color: var(--info); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 3px;">PREVIEW ONLY &mdash; creates nothing</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px;" id="ov-plan-summary">Generate after review</div>
+              <button class="btn-sm" style="width: 100%;" onclick="runDailyPlan(this)">Generate Daily Plan</button>
             </div>
 
+            <!-- 4 - EXECUTE PREVIEW: signals, decisions, order preview -->
             <div class="stage-card" id="stage-execute" style="border-color: rgba(239,68,68,.4);">
               <div class="stage-title" style="color: var(--danger);">4 &mdash; EXECUTE PREVIEW</div>
-              <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 3px;">STOP: ORDERS DISABLED</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 6px;">Preview signals &amp; decisions only</div>
-              <button class="btn-sm" style="width: 100%;" onclick="window._switchTab('signals-decisions')">Execution Tab &rarr;</button>
+              <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 5px;">STOP: ORDERS DISABLED</div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; margin-bottom: 4px;">
+                <div>
+                  <div style="font-size: 7px; color: var(--info); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PREVIEW ONLY</div>
+                  <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="generateSignalPreview()">Preview Signals</button>
+                </div>
+                <div>
+                  <div style="font-size: 7px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">CREATES SIGNALS ONLY</div>
+                  <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createSignalsFromCandidates()">Create Signals</button>
+                </div>
+                <div>
+                  <div style="font-size: 7px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PREVIEW ONLY</div>
+                  <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="previewDecisionsFromSignals()">Preview Decisions</button>
+                </div>
+                <div>
+                  <div style="font-size: 7px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">CREATES TRADE DECISIONS ONLY</div>
+                  <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createDecisionsFromSignals()">Create Decisions</button>
+                </div>
+              </div>
+
+              <div class="overview-cmd-section" style="opacity: 0.75;">
+                <div style="font-size: 7px; color: var(--label); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">ORDERS DISABLED / PREVIEW ONLY</div>
+                <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="previewOrdersFromDecisions()">Preview Orders</button>
+              </div>
             </div>
 
             <!-- Hidden JS placeholder divs (used by updateWorkbench/loadWorkflow) -->
@@ -1828,132 +1903,151 @@
           <div style="font-size: 9px; color: var(--label); font-style: italic;" id="decision-outcome-source"></div>
         </div>
 
-        <!-- Step A: Signal Preview -->
-        <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-            <div>
-              <div style="font-size: 9px; color: var(--info); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step A</div>
-              <div class="section-title" style="margin-bottom: 0;">Preview Signals</div>
-            </div>
-            <button class="btn-sm" onclick="generateSignalPreview()">Preview Signals</button>
-          </div>
-          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write Signal rows. Reads APPROVED_FOR_SIGNAL candidates from Review Queue.</div>
-          <input type="hidden" id="signal-preview-limit" value="50">
-          <div id="signal-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No signal preview yet. Approve candidates in Review Queue first, then click Preview Signals.</div>
-        </div>
+        <!-- Execution cockpit row 1: Steps A + B -->
+        <div class="execution-cockpit-grid">
 
-        <!-- Step B: Create Signals -->
-        <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-            <div>
-              <div style="font-size: 9px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step B</div>
-              <div class="section-title" style="margin-bottom: 0;">Create Signals</div>
+          <!-- Step A: Signal Preview -->
+          <div class="command-section">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+              <div>
+                <div style="font-size: 9px; color: var(--info); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step A</div>
+                <div class="section-title" style="margin-bottom: 0;">Preview Signals</div>
+              </div>
+              <button class="btn-sm" onclick="generateSignalPreview()">Preview Signals</button>
             </div>
-            <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createSignalsFromCandidates()">Create Signals</button>
+            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write Signal rows. Reads APPROVED_FOR_SIGNAL candidates from Review Queue.</div>
+            <input type="hidden" id="signal-preview-limit" value="50">
+            <div id="signal-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No signal preview yet. Approve candidates in Review Queue first, then click Preview Signals.</div>
           </div>
-          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates Signal rows only. Does not create TradeDecisions or Orders. Requires confirmation.</div>
-          <input type="hidden" id="create-signals-limit" value="50">
-          <div id="create-signals-content" style="font-size: 10px; color: var(--text-accent);">Ready to create signals from candidates</div>
-        </div>
 
-        <!-- Step C: Decision Preview -->
-        <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-            <div>
-              <div style="font-size: 9px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step C</div>
-              <div class="section-title" style="margin-bottom: 0;">Preview Trade Decisions</div>
+          <!-- Step B: Create Signals -->
+          <div class="command-section">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+              <div>
+                <div style="font-size: 9px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step B</div>
+                <div class="section-title" style="margin-bottom: 0;">Create Signals</div>
+              </div>
+              <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createSignalsFromCandidates()">Create Signals</button>
             </div>
-            <button class="btn-sm" style="background: var(--warning); color: white;" onclick="previewDecisionsFromSignals()">Preview Decisions</button>
+            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates Signal rows only. Does not create TradeDecisions or Orders. Requires confirmation.</div>
+            <input type="hidden" id="create-signals-limit" value="50">
+            <div id="create-signals-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready to create signals from candidates</div>
           </div>
-          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write TradeDecision rows. Shows which signals pass risk rules and at what qty/notional. REJECTED = risk rule blocked (e.g. MAX_POSITIONS_REACHED).</div>
-          <input type="hidden" id="decision-preview-limit" value="50">
-          <input type="checkbox" id="decision-preview-received-only" style="display:none;">
-          <div id="decision-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No decision preview yet. Create signals first, then click Preview Decisions.</div>
-        </div>
 
-        <!-- Step D: Create Decisions -->
-        <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-            <div>
-              <div style="font-size: 9px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step D</div>
-              <div class="section-title" style="margin-bottom: 0;">Create Trade Decisions</div>
-            </div>
-            <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createDecisionsFromSignals()">Create Decisions</button>
-          </div>
-          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates TradeDecision rows only. Does not create Orders. Requires confirmation. Safety: no orders created.</div>
-          <input type="hidden" id="create-decisions-limit" value="50">
-          <input type="checkbox" id="create-decisions-received-only" style="display:none;">
-          <div id="create-decisions-content" style="font-size: 10px; color: var(--text-accent);">Ready to create trade decisions</div>
-        </div>
+        </div><!-- end execution-cockpit-grid row 1 -->
 
-        <!-- Step E: Order Preview -->
-        <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-            <div>
-              <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step E</div>
-              <div class="section-title" style="margin-bottom: 0;">Preview Orders</div>
+        <!-- Execution cockpit row 2: Steps C + D -->
+        <div class="execution-cockpit-grid">
+
+          <!-- Step C: Decision Preview -->
+          <div class="command-section">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+              <div>
+                <div style="font-size: 9px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step C</div>
+                <div class="section-title" style="margin-bottom: 0;">Preview Trade Decisions</div>
+              </div>
+              <button class="btn-sm" style="background: var(--warning); color: white;" onclick="previewDecisionsFromSignals()">Preview Decisions</button>
             </div>
-            <button class="btn-sm" onclick="previewOrdersFromDecisions()">Preview Orders</button>
+            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write TradeDecision rows. Shows which signals pass risk rules and at what qty/notional. REJECTED = risk rule blocked (e.g. MAX_POSITIONS_REACHED).</div>
+            <input type="hidden" id="decision-preview-limit" value="50">
+            <input type="checkbox" id="decision-preview-received-only" style="display:none;">
+            <div id="decision-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No decision preview yet. Create signals first, then click Preview Decisions.</div>
           </div>
-          <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. <strong style="color: var(--danger);">Orders are disabled.</strong> No orders will be created. For information only.</div>
-          <input type="hidden" id="order-preview-limit" value="50">
-          <input type="checkbox" id="order-preview-approved-only" style="display:none;" checked>
-          <div id="order-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No order preview yet. Create decisions first, then click Preview Orders.</div>
-        </div>
+
+          <!-- Step D: Create Trade Decisions -->
+          <div class="command-section">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+              <div>
+                <div style="font-size: 9px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step D</div>
+                <div class="section-title" style="margin-bottom: 0;">Create Trade Decisions</div>
+              </div>
+              <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createDecisionsFromSignals()">Create Decisions</button>
+            </div>
+            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates TradeDecision rows only. Does not create Orders. Requires confirmation. Safety: no orders created.</div>
+            <input type="hidden" id="create-decisions-limit" value="50">
+            <input type="checkbox" id="create-decisions-received-only" style="display:none;">
+            <div id="create-decisions-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready to create trade decisions</div>
+          </div>
+
+        </div><!-- end execution-cockpit-grid row 2 -->
+
+        <!-- Step E: Order Preview (collapsed by default, orders disabled) -->
+        <details class="exec-step-e">
+          <summary>
+            <span style="font-size: 9px; color: var(--label);">&#9656;</span>
+            <span>Step E &mdash; Preview Orders</span>
+            <span class="badge err" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">ORDERS DISABLED</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+          </summary>
+          <div class="command-section step-e-disabled">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="font-size: 10px; color: var(--label);">Preview only. <strong style="color: var(--danger);">Orders are disabled.</strong> No orders will be created. For information only.</div>
+              <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px;" onclick="previewOrdersFromDecisions()">Preview Orders</button>
+            </div>
+            <input type="hidden" id="order-preview-limit" value="50">
+            <input type="checkbox" id="order-preview-approved-only" style="display:none;" checked>
+            <div id="order-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 4px 0; max-height: 220px; overflow-y: auto;">No order preview yet. Create decisions first, then click Preview Orders.</div>
+          </div>
+        </details>
 
       </div><!-- end tab-signals-decisions -->
 
       <!-- TAB 4: PORTFOLIO -->
       <div id="tab-portfolio" class="tab-content">
 
-        <!-- Open Positions -->
-        <div class="card">
-          <div class="card-title">Open Positions</div>
-          <div class="table-wrap scroll-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ticker</th><th>Qty</th><th>Avg Cost</th>
-                  <th>Cost Basis</th><th>Opened</th><th>Updated</th>
-                </tr>
-              </thead>
-              <tbody id="posTbody">
-                <tr><td colspan="6" class="empty">Connect to load</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <!-- Portfolio cockpit: Open Positions (left) + Orders (right) -->
+        <div class="portfolio-cockpit-grid">
 
-        <!-- Orders -->
-        <div class="card">
-          <div class="card-title">Orders <span id="ordCount" class="row-count"></span></div>
-          <div class="filters">
-            <select id="ordStatus" onchange="loadOrders()">
-              <option value="">All statuses</option>
-              <option value="PENDING">PENDING</option>
-              <option value="FILLED">FILLED</option>
-              <option value="EXPIRED">EXPIRED</option>
-              <option value="FAILED">FAILED</option>
-            </select>
-            <input type="date" id="ordDate" onchange="loadOrders()">
-            <button class="btn-sm" onclick="setOrdToday()">Today</button>
+          <!-- Open Positions -->
+          <div class="card">
+            <div class="card-title">Open Positions</div>
+            <div class="table-wrap scroll-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ticker</th><th>Qty</th><th>Avg Cost</th>
+                    <th>Cost Basis</th><th>Opened</th><th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody id="posTbody">
+                  <tr><td colspan="6" class="empty">Connect to load</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="table-wrap scroll-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ticker</th><th>Side</th><th>Status</th><th>Date</th>
-                  <th>Qty</th><th>Fill Px</th><th>Commission</th><th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="ordTbody">
-                <tr><td colspan="8" class="empty">Connect to load</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
 
-        <!-- Performance History -->
+          <!-- Orders -->
+          <div class="card">
+            <div class="card-title">Orders <span id="ordCount" class="row-count"></span></div>
+            <div class="filters">
+              <select id="ordStatus" onchange="loadOrders()">
+                <option value="">All statuses</option>
+                <option value="PENDING">PENDING</option>
+                <option value="FILLED">FILLED</option>
+                <option value="EXPIRED">EXPIRED</option>
+                <option value="FAILED">FAILED</option>
+              </select>
+              <input type="date" id="ordDate" onchange="loadOrders()">
+              <button class="btn-sm" onclick="setOrdToday()">Today</button>
+            </div>
+            <div class="table-wrap scroll-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ticker</th><th>Side</th><th>Status</th><th>Date</th>
+                    <th>Qty</th><th>Fill Px</th><th>Commission</th><th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="ordTbody">
+                  <tr><td colspan="8" class="empty">Connect to load</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div><!-- end portfolio-cockpit-grid -->
+
+        <!-- Performance History (full width) -->
         <div class="card">
           <div class="card-title">Performance History <span id="histCount" class="row-count"></span></div>
           <div class="filters">
@@ -2330,6 +2424,26 @@
           <div id="cmp-result" style="margin-top:12px;font-size:12px;"></div>
         </div>
 
+        <!-- UI Runtime Status (developer diagnostics) -->
+        <div class="card">
+          <div class="card-title">UI Runtime Status</div>
+          <div style="font-size: 10px; line-height: 1.6; color: var(--text-accent);">
+            <div class="panel-item"><span>Bootstrap</span><span class="panel-value" id="runtime-bootstrap">-</span></div>
+            <div class="panel-item"><span>Main started</span><span class="panel-value" id="runtime-main-started">-</span></div>
+            <div class="panel-item"><span>Main completed</span><span class="panel-value" id="runtime-main-completed">-</span></div>
+            <div class="panel-item"><span>Post-auth</span><span class="panel-value" id="runtime-post-auth">-</span></div>
+            <div class="panel-item"><span>Run action</span><span class="panel-value" id="runtime-run-action">-</span></div>
+          </div>
+          <div id="runtime-last-error" style="display:none;margin-top:8px;padding:6px 8px;background:rgba(239,68,68,.08);border-left:2px solid var(--danger);border-radius:0 2px 2px 0;">
+            <div style="font-size:9px;color:var(--label);text-transform:uppercase;font-weight:600;margin-bottom:2px;">Last Error</div>
+            <span id="runtime-error-text" style="font-size:10px;color:var(--danger);font-family:monospace;"></span>
+          </div>
+          <div id="runtime-last-rejection" style="display:none;margin-top:8px;padding:6px 8px;background:rgba(245,158,11,.08);border-left:2px solid var(--warning);border-radius:0 2px 2px 0;">
+            <div style="font-size:9px;color:var(--label);text-transform:uppercase;font-weight:600;margin-bottom:2px;">Last Rejection</div>
+            <span id="runtime-rejection-text" style="font-size:10px;color:var(--warning);font-family:monospace;"></span>
+          </div>
+        </div>
+
       </div><!-- end tab-audit-advanced -->
 
     </div><!-- end main-content-area -->
@@ -2390,23 +2504,6 @@
       <div class="panel-section-title">Last UI Action</div>
       <div style="font-size: 10px; color: var(--text-accent);" id="right-action-status">Not attempted</div>
       <button class="btn" style="margin-top: 6px; width: 100%; padding: 5px; font-size: 10px;" onclick="window.paperTraderPostAuthLoad()">Reload Data</button>
-    </div>
-
-    <div class="panel-section">
-      <div class="panel-section-title">UI Runtime Status</div>
-      <div style="font-size: 9px; line-height: 1.4; color: var(--text-accent);">
-        <div><span style="color: var(--label);">Bootstrap:</span> <span id="runtime-bootstrap">-</span></div>
-        <div><span style="color: var(--label);">Main started:</span> <span id="runtime-main-started">-</span></div>
-        <div><span style="color: var(--label);">Main completed:</span> <span id="runtime-main-completed">-</span></div>
-        <div><span style="color: var(--label);">Post-auth:</span> <span id="runtime-post-auth">-</span></div>
-        <div><span style="color: var(--label);">Run action:</span> <span id="runtime-run-action">-</span></div>
-        <div id="runtime-last-error" style="display:none;margin-top:4px;">
-          <span style="color: var(--label);">Last error:</span> <span id="runtime-error-text" style="color:var(--danger);"></span>
-        </div>
-        <div id="runtime-last-rejection" style="display:none;margin-top:4px;">
-          <span style="color: var(--label);">Last rejection:</span> <span id="runtime-rejection-text" style="color:var(--warning);"></span>
-        </div>
-      </div>
     </div>
 
     <div class="panel-section">
@@ -2862,6 +2959,7 @@ function flag(v) {
 
 function setEl(id, html, isHtml = false) {
   const el = document.getElementById(id);
+  if (!el) return;
   if (isHtml) el.innerHTML = html;
   else el.textContent = html;
 }
@@ -4065,6 +4163,8 @@ async function runPredictionPreview(btn) {
       window._lastPredictionPreviewData = b;
       renderPredictionPreviewResult(b, resultEl);
       toast('Prediction preview complete', 'ok');
+      const _ovScanEl = document.getElementById('ov-scan-summary');
+      if (_ovScanEl && b.candidate_previews) _ovScanEl.textContent = b.candidate_previews.length + ' candidates found — save eligible to queue';
       const _naEl = document.getElementById('cockpit-next-action');
       if (_naEl) _naEl.textContent = 'Preview complete - review candidates and click Save to Review Queue';
       const _asEl = document.getElementById('right-action-status');
@@ -4158,6 +4258,8 @@ async function runDailyPlan(btn) {
     if (r.ok) {
       renderDailyPlanResult(b, resultEl);
       toast('Daily plan preview generated', 'ok');
+      const _ovPlanEl = document.getElementById('ov-plan-summary');
+      if (_ovPlanEl) _ovPlanEl.textContent = b.recommended_next_action ? b.recommended_next_action.substring(0, 70) : 'Plan ready — review then proceed to Execution';
       const _naEl = document.getElementById('cockpit-next-action');
       if (_naEl) _naEl.textContent = b.recommended_next_action || 'Review daily plan above';
       const _asEl = document.getElementById('right-action-status');
@@ -7368,6 +7470,7 @@ const WORKFLOW_STEPS = [
 window._workflowStatusData = null;
 
 async function refreshWorkflowStatus() {
+  if (!_appState.connected) return;
   try {
     const response = await call('GET', '/v1/review/workflow-status');
     if (!response.ok) throw new Error(`API error: ${response.status}`);
