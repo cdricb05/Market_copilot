@@ -1095,7 +1095,7 @@
     <span class="status-debug" id="health-debug"></span>
   </div>
   <span class="badge warning" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">MANUAL REVIEW</span>
-  <span class="badge err" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">ORDERS DISABLED</span>
+  <span class="badge ok" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">PAPER ORDERS ONLY</span>
   <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">AUTOMATION OFF</span>
   <div style="flex: 1;"></div>
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
@@ -1379,7 +1379,7 @@
             <!-- 4 - EXECUTE PREVIEW: signals, decisions, order preview -->
             <div class="stage-card" id="stage-execute" style="border-color: rgba(239,68,68,.4);">
               <div class="stage-title" style="color: var(--danger);">4 &mdash; EXECUTE PREVIEW</div>
-              <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 5px;">STOP: ORDERS DISABLED</div>
+              <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 5px;">PAPER ORDERS ONLY &mdash; NO BROKER EXECUTION</div>
               <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="ov-execute-summary">Approve candidates &rarr; create signals &rarr; create decisions</div>
 
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; margin-bottom: 4px;">
@@ -1401,9 +1401,15 @@
                 </div>
               </div>
 
-              <div class="overview-cmd-section" style="opacity: 0.75;">
-                <div style="font-size: 7px; color: var(--label); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">ORDERS DISABLED / PREVIEW ONLY</div>
-                <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="previewOrdersFromDecisions()">Preview Orders</button>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px;">
+                <div>
+                  <div style="font-size: 7px; color: var(--label); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PREVIEW ONLY</div>
+                  <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="previewOrdersFromDecisions()">Preview Orders</button>
+                </div>
+                <div>
+                  <div style="font-size: 7px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">CREATES ORDER TICKETS ONLY</div>
+                  <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
+                </div>
               </div>
             </div>
 
@@ -1417,6 +1423,7 @@
             <div id="decision-preview-card" style="display:none;"></div>
             <div id="create-decisions-card" style="display:none;"></div>
             <div id="order-preview-card" style="display:none;"></div>
+            <div id="create-orders-card" style="display:none;"></div>
 
           </div><!-- end cockpit-left-col -->
 
@@ -1468,11 +1475,11 @@
               <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Action / Safety Panel</div>
               <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
                 <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
-                <span class="badge err" style="font-size: 8px; padding: 2px 5px;">ORDERS DISABLED</span>
+                <span class="badge ok" style="font-size: 8px; padding: 2px 5px;">PAPER ORDERS ONLY</span>
                 <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
-                <span class="badge err" style="font-size: 8px; padding: 2px 5px;">NO ORDER CREATION</span>
+                <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">NO BROKER EXECUTION</span>
               </div>
-              <div style="font-size: 9px; color: var(--label); line-height: 1.4;">All actions require manual approval. Orders creation is disabled. No automation.</div>
+              <div style="font-size: 9px; color: var(--label); line-height: 1.4;">All actions require manual approval. Paper order tickets only &mdash; no broker execution, no fills. No automation.</div>
             </div>
 
             <!-- Blocked Summary -->
@@ -1514,7 +1521,7 @@
           <span style="color: var(--label);">&rarr;</span>
           <button class="btn-sm" style="font-size: 9px;" onclick="window._switchTab('signals-decisions')">EXECUTE PREVIEW</button>
           <span style="color: var(--label);">&rarr;</span>
-          <span class="badge err" style="font-size: 8px; padding: 2px 6px; flex-shrink: 0;">STOP: ORDERS DISABLED</span>
+          <span class="badge ok" style="font-size: 8px; padding: 2px 6px; flex-shrink: 0;">PAPER ORDERS ONLY</span>
         </div>
 
         <!-- 3-column cockpit grid -->
@@ -1734,11 +1741,11 @@
               <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Execution Safety Summary</div>
               <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">
                 <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
-                <span class="badge err" style="font-size: 8px; padding: 2px 5px;">ORDERS DISABLED</span>
+                <span class="badge ok" style="font-size: 8px; padding: 2px 5px;">PAPER ORDERS ONLY</span>
                 <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
-                <span class="badge err" style="font-size: 8px; padding: 2px 5px;">NO ORDER CREATION</span>
+                <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">NO BROKER EXECUTION</span>
               </div>
-              <div style="font-size: 9px; color: var(--label); line-height: 1.4;">Preview steps create no trades. Signals and decisions require explicit manual action.</div>
+              <div style="font-size: 9px; color: var(--label); line-height: 1.4;">Preview steps create no trades. Paper order tickets only &mdash; no broker execution, no fills. Signals and decisions require explicit manual action.</div>
             </div>
 
             <!-- Execution Status -->
@@ -1891,11 +1898,11 @@
           <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Execution Safety Summary</div>
           <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">
             <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
-            <span class="badge err" style="font-size: 8px; padding: 2px 5px;">ORDERS DISABLED</span>
+            <span class="badge ok" style="font-size: 8px; padding: 2px 5px;">PAPER ORDERS ONLY</span>
             <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
-            <span class="badge err" style="font-size: 8px; padding: 2px 5px;">NO ORDER CREATION</span>
+            <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">NO BROKER EXECUTION</span>
           </div>
-          <div style="font-size: 9px; color: var(--label);">Pipeline: Preview Signals &rarr; Create Signals &rarr; Preview Decisions &rarr; Create Decisions &rarr; Preview Orders (orders disabled). No step creates orders automatically.</div>
+          <div style="font-size: 9px; color: var(--label);">Pipeline: Preview Signals &rarr; Create Signals &rarr; Preview Decisions &rarr; Create Decisions &rarr; Preview Orders &rarr; Create Paper Orders. No broker execution. No fills. No automation.</div>
         </div>
 
         <!-- Decision Outcome Summary (populated after Step C/D run) -->
@@ -1978,17 +1985,35 @@
           <summary>
             <span style="font-size: 9px; color: var(--label);">&#9656;</span>
             <span>Step E &mdash; Preview Orders</span>
-            <span class="badge err" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">ORDERS DISABLED</span>
+            <span class="badge ok" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">PAPER ORDERS ONLY</span>
             <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
           </summary>
           <div class="command-section step-e-disabled">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <div style="font-size: 10px; color: var(--label);">Preview only. <strong style="color: var(--danger);">Orders are disabled.</strong> No orders will be created. For information only.</div>
+              <div style="font-size: 10px; color: var(--label);">Preview only. No orders created here. Use Step F (Create Paper Orders) to create paper order tickets.</div>
               <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px;" onclick="previewOrdersFromDecisions()">Preview Orders</button>
             </div>
             <input type="hidden" id="order-preview-limit" value="50">
             <input type="checkbox" id="order-preview-approved-only" style="display:none;" checked>
             <div id="order-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 4px 0; max-height: 220px; overflow-y: auto;">No order preview yet. Create decisions first, then click Preview Orders.</div>
+          </div>
+        </details>
+
+        <!-- Step F: Create Paper Order Tickets -->
+        <details class="exec-step-e">
+          <summary>
+            <span style="font-size: 9px; color: var(--label);">&#9656;</span>
+            <span>Step F &mdash; Create Paper Order Tickets</span>
+            <span class="badge ok" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">CREATES ORDER TICKETS ONLY</span>
+            <span class="badge warn" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+            <span class="badge err" style="font-size: 7px; padding: 1px 5px;">NO FILLS</span>
+          </summary>
+          <div class="command-section step-e-disabled">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="font-size: 10px; color: var(--label);">Creates paper Order rows with status=PENDING. <strong style="color: var(--warning);">PAPER ORDERS ONLY.</strong> No broker execution. No fills. No position changes. Automation off. Manual review required.</div>
+              <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
+            </div>
+            <div id="create-orders-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready. Complete Step E (Preview Orders) first to confirm eligibility, then click Create Paper Orders.</div>
           </div>
         </details>
 
@@ -2458,9 +2483,9 @@
       <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-primary); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">Action / Safety Panel</div>
       <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
         <span class="badge warning" style="font-size: 9px; padding: 2px 6px;">MANUAL REVIEW</span>
-        <span class="badge err" style="font-size: 9px; padding: 2px 6px;">ORDERS DISABLED</span>
+        <span class="badge ok" style="font-size: 9px; padding: 2px 6px;">PAPER ORDERS ONLY</span>
         <span class="badge neutral" style="font-size: 9px; padding: 2px 6px;">AUTOMATION OFF</span>
-        <span class="badge err" style="font-size: 9px; padding: 2px 6px;">NO ORDER CREATION</span>
+        <span class="badge warning" style="font-size: 9px; padding: 2px 6px;">NO BROKER EXECUTION</span>
       </div>
     </div>
     <div class="panel-section" style="border-color: var(--info);">
@@ -2522,8 +2547,9 @@
 
     <div class="panel-section">
       <div class="panel-section-title">Create Orders</div>
-      <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 4px;">DISABLED</div>
-      <div style="font-size: 9px; color: var(--label); font-style: italic;">Orders cannot be created.</div>
+      <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 4px;">PAPER ORDERS ONLY</div>
+      <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Creates PENDING order tickets. No broker. No fills. Automation off.</div>
+      <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
     </div>
 
     <div class="panel-section">
@@ -7401,7 +7427,114 @@ function renderOrderPreviewResponse(data) {
   const _oesOrderPrev = document.getElementById('ov-execute-summary');
   if (_oesOrderPrev) _oesOrderPrev.textContent = previewsGenerated + ' order preview(s)' + (skippedExistingCount > 0 ? ', ' + skippedExistingCount + ' skipped (existing order)' : '');
   const _ordPrevNextEl = document.getElementById('cockpit-next-action');
-  if (_ordPrevNextEl) _ordPrevNextEl.textContent = 'Order preview complete -- ORDERS DISABLED, no orders created. Preview is for reference only.';
+  if (_ordPrevNextEl) _ordPrevNextEl.textContent = 'Order preview complete -- PREVIEW ONLY, no orders created. Review previews above, then Create Paper Orders to record PENDING order tickets (no broker execution).';
+}
+
+async function createOrdersFromDecisions() {
+  const container = document.getElementById('create-orders-content');
+
+  return new Promise(resolve => {
+    window._showWriteConfirm({
+      title: 'Confirm: Create Paper Order Tickets',
+      writes: ['Order rows with status=PENDING (paper order tickets only)'],
+      doesNotDo: [
+        'does not execute trades',
+        'does not submit to broker',
+        'does not fill orders',
+        'does not change positions or cash',
+        'does not enable automation',
+      ],
+      confirmLabel: 'Create Paper Orders',
+      onConfirm: async () => {
+        if (container) container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Creating paper order tickets...</div>';
+
+        try {
+          const r = await call('POST', '/v1/review/create-orders', {
+            idempotency_key: `create-orders-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            confirm_create_orders: true,
+          });
+          if (!r.ok) {
+            const errData = await parseApiResponse(r);
+            const errMsg = formatApiError(errData);
+            if (container) container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${escapeHtml(errMsg)}</div>`;
+            resolve();
+            return;
+          }
+          const data = await r.json();
+          renderCreateOrdersResponse(data);
+          refreshCockpitAfterAction('Create Orders');
+          resolve();
+        } catch (e) {
+          if (container) container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(String(e))}</div>`;
+          resolve();
+        }
+      },
+      onCancel: () => resolve(),
+    });
+  });
+}
+
+function renderCreateOrdersResponse(data) {
+  const container = document.getElementById('create-orders-content');
+  if (!container) return;
+  let html = '';
+
+  const createdOrders = Array.isArray(data.created_orders) ? data.created_orders : [];
+  const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+  const ordersCreated = data.orders_created ?? 0;
+  const skippedExisting = data.skipped_existing_count ?? 0;
+  const skippedNotApproved = data.skipped_not_approved ?? 0;
+  const evaluated = data.trade_decisions_evaluated ?? 0;
+  const safetyMsg = data.safety_message || '';
+
+  // Safety banner
+  html += '<div style="padding: 6px 10px; background: rgba(34,197,94,.07); border: 1px solid rgba(34,197,94,.3); border-radius: 2px; margin-bottom: 10px; font-size: 9px; color: var(--ok); font-weight: 600;">';
+  html += escapeHtml(safetyMsg);
+  html += '</div>';
+
+  // Summary cards
+  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 12px;">';
+  html += `<div style="background: rgba(34,197,94,.1); padding: 10px; border: 1px solid var(--ok); border-radius: 2px; text-align: center;"><div style="font-size: 10px; color: var(--label);">Orders Created</div><div style="font-size: 18px; font-weight: 700; color: var(--ok);">${ordersCreated}</div></div>`;
+  html += `<div style="background: rgba(239,68,68,.1); padding: 10px; border: 1px solid var(--danger); border-radius: 2px; text-align: center;"><div style="font-size: 10px; color: var(--label);">Skipped (Existing)</div><div style="font-size: 18px; font-weight: 700; color: var(--danger);">${skippedExisting}</div></div>`;
+  html += `<div style="background: rgba(239,68,68,.1); padding: 10px; border: 1px solid var(--danger); border-radius: 2px; text-align: center;"><div style="font-size: 10px; color: var(--label);">Skipped (Not Approved)</div><div style="font-size: 18px; font-weight: 700; color: var(--danger);">${skippedNotApproved}</div></div>`;
+  html += `<div style="background: rgba(34,197,94,.1); padding: 10px; border: 1px solid var(--ok); border-radius: 2px; text-align: center;"><div style="font-size: 10px; color: var(--label);">Evaluated</div><div style="font-size: 18px; font-weight: 700; color: var(--ok);">${evaluated}</div></div>`;
+  html += '</div>';
+
+  // Created orders table
+  if (createdOrders.length > 0) {
+    html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;">';
+    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Side</th>';
+    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Status</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Qty</th>';
+    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Notional</th>';
+    html += '</tr></thead><tbody>';
+    createdOrders.forEach(o => {
+      const sideColor = o.side === 'BUY' ? '#22c55e' : '#ef4444';
+      html += `<tr style="border-bottom: 1px solid var(--border);">`;
+      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(o.ticker)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: center; color: ${sideColor}; font-weight: 600;">${escapeHtml(o.side)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: center; color: var(--warning); font-weight: 600;">${escapeHtml(o.status)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">${escapeHtml(o.qty)}</td>`;
+      html += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">${o.notional ? '$' + escapeHtml(o.notional) : '-'}</td>`;
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // Safety footer
+  html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--ok); font-weight: 600;">';
+  html += `PAPER ORDERS ONLY &mdash; PENDING status &mdash; No fills &mdash; No broker execution &mdash; Automation off`;
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  const _navEl = document.getElementById('cockpit-next-action');
+  if (_navEl) _navEl.textContent = ordersCreated > 0
+    ? `${ordersCreated} paper order ticket(s) created with PENDING status. NO broker execution. NO fills. Manual review only.`
+    : 'No new orders created (all decisions already have orders or were skipped). PAPER ORDERS ONLY - no broker execution.';
 }
 
 function getDtrStepStatus(step) {
@@ -7572,7 +7705,7 @@ const WORKFLOW_STEPS = [
   { id: 'decision-preview', name: 'Decision Preview', description: 'Preview trade decisions that will be created from signals', button: 'Preview Decisions', action: 'previewDecisionsFromSignals' },
   { id: 'create-decisions', name: 'Create Decisions', description: 'Create trade decision rows from review signals', button: 'Create Decisions', action: 'createDecisionsFromSignals' },
   { id: 'order-preview', name: 'Order Preview', description: 'Preview orders that can be created from approved decisions', button: 'Preview Orders', action: 'previewOrdersFromDecisions' },
-  { id: 'create-orders', name: 'Create Orders', description: 'Create order rows from approved decisions (coming soon)', button: 'Not Available Yet', action: null, disabled: true },
+  { id: 'create-orders', name: 'Create Orders', description: 'Create paper Order tickets from approved decisions (PENDING status, no broker execution, no fills)', button: 'Create Paper Orders', action: 'createOrdersFromDecisions' },
 ];
 
 // Global storage for workflow status data
@@ -7725,6 +7858,8 @@ async function updateReviewWorkflow() {
         html += `<button class="btn-sm" onclick="refreshReviewQueue()" style="background: var(--info);">${escapeHtml(step.button)}</button>`;
       } else if (step.action === 'runRotationPreview') {
         html += `<button class="btn-sm" onclick="runRotationPreview(this)" style="background: var(--warning);">${escapeHtml(step.button)}</button>`;
+      } else if (step.action === 'createOrdersFromDecisions') {
+        html += `<button class="btn-sm" onclick="createOrdersFromDecisions()" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
       } else {
         html += `<button class="btn-sm" onclick="${step.action}()" style="background: var(--ok);">${escapeHtml(step.button)}</button>`;
       }

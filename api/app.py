@@ -1234,6 +1234,61 @@ class ReviewOrderPreviewResponse(BaseModel):
     job_runs_created: int
 
 
+class CreatedOrderDetail(BaseModel):
+    """Detail about an Order row created by the create-orders endpoint."""
+    order_id: str
+    trade_decision_id: str
+    ticker: str
+    side: str
+    order_type: str
+    status: str
+    qty: str
+    notional: str | None
+    market_date: str
+    job_run_id: str
+
+
+class ReviewCreateOrdersRequest(BaseModel):
+    """Request to create paper Order rows from approved TradeDecision rows."""
+    idempotency_key: str = Field(
+        ...,
+        description="Unique key for this order creation batch.",
+    )
+    trade_decision_ids: list[str] | None = Field(
+        default=None,
+        description="Optional list of trade decision IDs to create orders for.",
+    )
+    source_run_prefix: str = Field(
+        default="review_queue_create_signals_v1:",
+        description="Source run prefix to filter review-created trade decisions.",
+    )
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of trade decisions to process.",
+    )
+    confirm_create_orders: bool = Field(
+        default=False,
+        description="Must be true to create Order rows. Safety guard.",
+    )
+
+
+class ReviewCreateOrdersResponse(BaseModel):
+    """Response from POST /v1/review/create-orders (PAPER ORDERS ONLY, no broker execution)."""
+    execution_mode: str
+    trade_decisions_evaluated: int
+    orders_created: int
+    skipped_count: int
+    skipped_existing_count: int
+    skipped_not_approved: int
+    skipped_invalid: int
+    created_orders: list[CreatedOrderDetail]
+    skipped: list[SkippedTradeDecisionDetail]
+    job_runs_created: int
+    safety_message: str
+
+
 class ReviewCandidatesCounts(BaseModel):
     """Count of review candidates by status."""
     total: int
@@ -6593,6 +6648,211 @@ async def preview_orders_from_decisions(
     )
 
 
+@app.post(
+    "/v1/review/create-orders",
+    response_model=ReviewCreateOrdersResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def create_orders_from_decisions(
+    body: ReviewCreateOrdersRequest,
+) -> ReviewCreateOrdersResponse:
+    """
+    Create paper Order rows from eligible TradeDecision rows.
+
+    PAPER ORDERS ONLY. No broker execution. No fills. No position changes.
+    No cash changes. No automation. Manual review required.
+
+    Eligibility rules:
+    - Only BUY/SELL decisions with approved_qty > 0
+    - Skips decisions that already have an Order row (idempotent)
+    - Skips REJECTED and HOLD decisions
+
+    Creates one JobRun (workflow_type=REVIEW_QUEUE_CREATE_ORDERS) only if
+    at least one Order row is created.
+
+    confirm_create_orders must be true to proceed.
+    """
+    import uuid as uuid_module
+
+    if not body.confirm_create_orders:
+        raise HTTPException(
+            status_code=422,
+            detail="confirm_create_orders must be true to create Order rows",
+        )
+
+    evaluated = 0
+    skipped_existing = 0
+    skipped_not_approved = 0
+    skipped_invalid = 0
+    skipped_list: list[SkippedTradeDecisionDetail] = []
+    created_orders_list: list[CreatedOrderDetail] = []
+    orders_to_create: list[TradeDecision] = []
+
+    with get_session() as session:
+        eastern_now = datetime.now(_EASTERN)
+        market_date = eastern_now.date()
+        now_utc = datetime.now(timezone.utc)
+
+        # Build query
+        if body.trade_decision_ids:
+            try:
+                decision_uuids = [uuid_module.UUID(did) for did in body.trade_decision_ids]
+                rows = session.query(TradeDecision).filter(
+                    TradeDecision.id.in_(decision_uuids)
+                ).limit(body.limit).all()
+            except (ValueError, AttributeError):
+                return ReviewCreateOrdersResponse(
+                    execution_mode="ORDER_CREATION_PAPER_ONLY",
+                    trade_decisions_evaluated=0,
+                    orders_created=0,
+                    skipped_count=0,
+                    skipped_existing_count=0,
+                    skipped_not_approved=0,
+                    skipped_invalid=0,
+                    created_orders=[],
+                    skipped=[],
+                    job_runs_created=0,
+                    safety_message="PAPER ORDERS ONLY. No broker execution. No fills. Automation off.",
+                )
+        else:
+            rows = session.query(TradeDecision).join(
+                Signal, Signal.id == TradeDecision.signal_id
+            ).filter(
+                Signal.source_run.startswith(body.source_run_prefix)
+            ).limit(body.limit).all()
+
+        # First pass: evaluate eligibility
+        for td in rows:
+            evaluated += 1
+            td_id_str = str(td.id)
+
+            # Validate source_run when trade_decision_ids is provided
+            if body.trade_decision_ids:
+                signal = session.query(Signal).filter(Signal.id == td.signal_id).first()
+                if not signal:
+                    skipped_invalid += 1
+                    skipped_list.append(SkippedTradeDecisionDetail(
+                        trade_decision_id=td_id_str,
+                        ticker=td.ticker,
+                        reason="Signal not found",
+                    ))
+                    continue
+                if not signal.source_run.startswith(body.source_run_prefix):
+                    skipped_invalid += 1
+                    skipped_list.append(SkippedTradeDecisionDetail(
+                        trade_decision_id=td_id_str,
+                        ticker=td.ticker,
+                        reason="TradeDecision source signal is not review-created",
+                    ))
+                    continue
+
+            # Skip if an Order already exists for this decision (idempotency)
+            existing_order = session.query(Order).filter(
+                Order.trade_decision_id == td.id
+            ).first()
+            if existing_order:
+                skipped_existing += 1
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=td_id_str,
+                    ticker=td.ticker,
+                    reason="Order already exists for TradeDecision",
+                ))
+                continue
+
+            # Only BUY/SELL with approved_qty > 0 create orders
+            if td.decision not in ("BUY", "SELL"):
+                skipped_not_approved += 1
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=td_id_str,
+                    ticker=td.ticker,
+                    reason=f"TradeDecision decision is {td.decision}, not BUY/SELL",
+                ))
+                continue
+
+            if not td.approved_qty or td.approved_qty <= Decimal("0"):
+                skipped_not_approved += 1
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=td_id_str,
+                    ticker=td.ticker,
+                    reason="TradeDecision has zero approved_qty",
+                ))
+                continue
+
+            orders_to_create.append(td)
+
+        # Create a JobRun only if there are orders to write
+        job_run = None
+        if orders_to_create:
+            job_run = JobRun(
+                idempotency_key=body.idempotency_key,
+                workflow_type="REVIEW_QUEUE_CREATE_ORDERS",
+                market_date=market_date,
+                status="COMPLETED",
+                completed_at=now_utc,
+                result_summary={},
+            )
+            session.add(job_run)
+            session.flush()
+
+            for td in orders_to_create:
+                order = Order(
+                    trade_decision_id=td.id,
+                    job_run_id=job_run.id,
+                    fill_job_run_id=None,
+                    ticker=td.ticker,
+                    side=td.decision,
+                    order_type="MARKET",
+                    status="PENDING",
+                    market_date=market_date,
+                    requested_qty=td.approved_qty,
+                    filled_qty=None,
+                    requested_at=now_utc,
+                    filled_at=None,
+                    fill_price=None,
+                    commission=None,
+                    slippage_cost=None,
+                    notes="Paper order ticket — review workflow. No broker execution.",
+                )
+                session.add(order)
+                session.flush()
+
+                created_orders_list.append(CreatedOrderDetail(
+                    order_id=str(order.id),
+                    trade_decision_id=str(td.id),
+                    ticker=td.ticker,
+                    side=td.decision,
+                    order_type="MARKET",
+                    status="PENDING",
+                    qty=str(td.approved_qty),
+                    notional=str(td.approved_notional) if td.approved_notional else None,
+                    market_date=str(market_date),
+                    job_run_id=str(job_run.id),
+                ))
+
+            job_run.result_summary = {
+                "trade_decisions_evaluated": evaluated,
+                "orders_created": len(created_orders_list),
+                "skipped_count": len(skipped_list),
+                "skipped_existing_count": skipped_existing,
+            }
+            session.add(job_run)
+
+    return ReviewCreateOrdersResponse(
+        execution_mode="ORDER_CREATION_PAPER_ONLY",
+        trade_decisions_evaluated=evaluated,
+        orders_created=len(created_orders_list),
+        skipped_count=len(skipped_list),
+        skipped_existing_count=skipped_existing,
+        skipped_not_approved=skipped_not_approved,
+        skipped_invalid=skipped_invalid,
+        created_orders=created_orders_list,
+        skipped=skipped_list,
+        job_runs_created=1 if job_run else 0,
+        safety_message="PAPER ORDERS ONLY. No broker execution. No fills. No position changes. Automation off. Manual review required.",
+    )
+
+
 @app.get(
     "/v1/review/workflow-status",
     status_code=status.HTTP_200_OK,
@@ -6836,12 +7096,19 @@ async def get_workflow_status() -> WorkflowStatusResponse:
                 reason=f"{order_eligible} trade decision(s) eligible for order preview.",
             ))
 
-        # Step 9: Create Orders (disabled)
-        steps.append(WorkflowStepStatus(
-            step="Create Orders",
-            status="DISABLED",
-            reason="Not yet implemented.",
-        ))
+        # Step 9: Create Orders (paper tickets only, no broker execution)
+        if order_eligible == 0:
+            steps.append(WorkflowStepStatus(
+                step="Create Orders",
+                status="BLOCKED",
+                reason="No order-eligible trade decisions. Complete Order Preview first.",
+            ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Create Orders",
+                status="READY",
+                reason=f"{order_eligible} trade decision(s) eligible for paper order creation.",
+            ))
 
     return WorkflowStatusResponse(
         review_candidates=candidates_counts,
@@ -6849,7 +7116,7 @@ async def get_workflow_status() -> WorkflowStatusResponse:
         review_created_trade_decisions=decisions_counts,
         orders=orders_counts,
         workflow_steps=steps,
-        safety={"create_orders_enabled": False, "automation_enabled": False},
+        safety={"create_orders_enabled": True, "automation_enabled": False},
     )
 
 

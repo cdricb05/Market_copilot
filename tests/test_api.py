@@ -12861,6 +12861,601 @@ class TestReviewOrderPreviewEndpoint:
             assert signal_status_after == signal_status_before, "Signal should not be modified"
 
 
+class TestReviewCreateOrdersEndpoint:
+    """Test POST /v1/review/create-orders endpoint (paper order ticket creation)."""
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_paper_orders(self, api_engine):
+        """Delete PENDING paper order ticket rows before and after each test.
+
+        Prevents DB pollution from accumulating PENDING Orders that would exhaust
+        _daily_buy_exposure() and cause later Daily Plan tests to fail.
+        Only deletes orders with the 'Paper order ticket' notes marker (set by
+        the create-orders endpoint); seeded FILLED orders are never touched.
+        """
+        def _purge():
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(
+                    Order.status == "PENDING",
+                    Order.notes.like("Paper order ticket%"),
+                ).delete(synchronize_session=False)
+                s.commit()
+
+        _purge()
+        yield
+        _purge()
+
+    def test_endpoint_requires_api_key(self, seeded_client: TestClient) -> None:
+        """Unauthorized request is rejected with 401."""
+        response = seeded_client.post(
+            "/v1/review/create-orders",
+            json={"idempotency_key": "no-auth-test"},
+        )
+        assert response.status_code == 401
+
+    def test_confirm_false_returns_422(self, seeded_client: TestClient) -> None:
+        """confirm_create_orders=False returns HTTP 422 (safety guard)."""
+        response = seeded_client.post(
+            "/v1/review/create-orders",
+            json={
+                "idempotency_key": "guard-test-false",
+                "confirm_create_orders": False,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 422
+
+    def test_confirm_missing_returns_422(self, seeded_client: TestClient) -> None:
+        """confirm_create_orders omitted returns HTTP 422 (default is False)."""
+        response = seeded_client.post(
+            "/v1/review/create-orders",
+            json={"idempotency_key": "guard-test-missing"},
+            headers=_AUTH,
+        )
+        assert response.status_code == 422
+
+    def test_no_eligible_decisions_returns_zero_orders(self, seeded_client: TestClient) -> None:
+        """When no eligible decisions exist returns zero orders created."""
+        response = seeded_client.post(
+            "/v1/review/create-orders",
+            json={
+                "idempotency_key": "create-orders-empty",
+                "source_run_prefix": "review_queue_create_signals_v1_orders_no_match:",
+                "confirm_create_orders": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["execution_mode"] == "ORDER_CREATION_PAPER_ONLY"
+        assert data["orders_created"] == 0
+        assert data["job_runs_created"] == 0
+        assert "safety_message" in data
+        assert len(data["created_orders"]) == 0
+
+    def test_approved_buy_decision_creates_pending_order(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """An approved BUY TradeDecision creates a PENDING paper Order row."""
+        import uuid as uuid_module
+
+        suffix = uuid_module.uuid4().hex[:8]
+        td_id: str | None = None
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key=f"setup-co-buy-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            ticker = f"COBUY{suffix[:5]}".upper()
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.88"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=f"review_queue_create_signals_v1:co_buy:{suffix}",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker=ticker,
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("100.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        try:
+            create_resp = seeded_client.post(
+                "/v1/review/create-decisions",
+                json={
+                    "idempotency_key": f"create-dec-co-buy-{suffix}",
+                    "signal_ids": [signal_id],
+                    "confirm_create_decisions": True,
+                },
+                headers=_AUTH,
+            )
+            assert create_resp.status_code == 200
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                td = session.query(TradeDecision).filter(
+                    TradeDecision.signal_id == uuid.UUID(signal_id)
+                ).first()
+                assert td is not None
+                td_id = str(td.id)
+                td_decision = td.decision
+                orders_before = session.query(Order).count()
+
+            if td_decision not in ("BUY", "SELL"):
+                import pytest
+                pytest.skip(f"Decision was {td_decision} (risk rejected) — skipping order creation test")
+
+            response = seeded_client.post(
+                "/v1/review/create-orders",
+                json={
+                    "idempotency_key": f"create-orders-buy-{suffix}",
+                    "trade_decision_ids": [td_id],
+                    "confirm_create_orders": True,
+                },
+                headers=_AUTH,
+            )
+            assert response.status_code == 201
+            data = response.json()
+            assert data["orders_created"] == 1
+            assert data["job_runs_created"] == 1
+            assert data["execution_mode"] == "ORDER_CREATION_PAPER_ONLY"
+            assert "safety_message" in data
+            assert len(data["created_orders"]) == 1
+            created = data["created_orders"][0]
+            assert created["ticker"] == ticker
+            assert created["side"] == "BUY"
+            assert created["order_type"] == "MARKET"
+            assert created["status"] == "PENDING"
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                orders_after = session.query(Order).count()
+                assert orders_after == orders_before + 1
+                order = session.query(Order).filter(
+                    Order.trade_decision_id == uuid.UUID(td_id)
+                ).first()
+                assert order is not None
+                assert order.status == "PENDING"
+                assert order.filled_at is None
+                assert order.fill_price is None
+                assert order.filled_qty is None
+        finally:
+            if td_id is not None:
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    s.query(Order).filter(
+                        Order.trade_decision_id == uuid.UUID(td_id)
+                    ).delete()
+                    s.commit()
+
+    def test_rejected_decision_does_not_create_order(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A REJECTED TradeDecision is skipped — no Order row created."""
+        import uuid as uuid_module
+
+        suffix = uuid_module.uuid4().hex[:8]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key=f"setup-co-rej-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            dec_job_run = JobRun(
+                idempotency_key=f"dec-co-rej-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(dec_job_run)
+            session.flush()
+
+            ticker = f"COREJ{suffix[:5]}".upper()
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.50"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=f"review_queue_create_signals_v1:co_rej:{suffix}",
+                status="DECISION_MADE",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            # Insert a REJECTED decision directly
+            rejected_td = TradeDecision(
+                signal_id=signal.id,
+                job_run_id=dec_job_run.id,
+                ticker=ticker,
+                signal_direction="BUY",
+                decision="REJECTED",
+                reason_code="MAX_POSITIONS_REACHED",
+                requested_notional=None,
+                approved_notional=None,
+                requested_qty=None,
+                approved_qty=None,
+                risk_snapshot={},
+                sizing_adjustments=[],
+                decided_at=datetime.now(timezone.utc),
+                market_date=date.today(),
+            )
+            session.add(rejected_td)
+            session.flush()
+            td_id = str(rejected_td.id)
+            orders_before = session.query(Order).count()
+            session.commit()
+
+        response = seeded_client.post(
+            "/v1/review/create-orders",
+            json={
+                "idempotency_key": f"create-orders-rej-{suffix}",
+                "trade_decision_ids": [td_id],
+                "confirm_create_orders": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["orders_created"] == 0
+        assert data["skipped_not_approved"] == 1
+        assert data["job_runs_created"] == 0
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            orders_after = session.query(Order).count()
+            assert orders_after == orders_before
+
+    def test_duplicate_call_skips_existing_order(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Repeated create-orders call for same decision skips, does not duplicate."""
+        import uuid as uuid_module
+
+        suffix = uuid_module.uuid4().hex[:8]
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key=f"setup-co-dup-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            ticker = f"CODUP{suffix[:5]}".upper()
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.90"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=f"review_queue_create_signals_v1:co_dup:{suffix}",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker=ticker,
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("120.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        td_id: str | None = None
+        try:
+            seeded_client.post(
+                "/v1/review/create-decisions",
+                json={
+                    "idempotency_key": f"create-dec-co-dup-{suffix}",
+                    "signal_ids": [signal_id],
+                    "confirm_create_decisions": True,
+                },
+                headers=_AUTH,
+            )
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                td = session.query(TradeDecision).filter(
+                    TradeDecision.signal_id == uuid.UUID(signal_id)
+                ).first()
+                if td is None or td.decision not in ("BUY", "SELL"):
+                    import pytest
+                    pytest.skip("Decision not BUY/SELL — cannot test duplicate order guard")
+                td_id = str(td.id)
+
+            # First call
+            r1 = seeded_client.post(
+                "/v1/review/create-orders",
+                json={
+                    "idempotency_key": f"create-orders-dup1-{suffix}",
+                    "trade_decision_ids": [td_id],
+                    "confirm_create_orders": True,
+                },
+                headers=_AUTH,
+            )
+            assert r1.status_code == 201
+            assert r1.json()["orders_created"] == 1
+
+            # Second call — must skip (idempotent)
+            r2 = seeded_client.post(
+                "/v1/review/create-orders",
+                json={
+                    "idempotency_key": f"create-orders-dup2-{suffix}",
+                    "trade_decision_ids": [td_id],
+                    "confirm_create_orders": True,
+                },
+                headers=_AUTH,
+            )
+            assert r2.status_code == 201
+            d2 = r2.json()
+            assert d2["orders_created"] == 0
+            assert d2["skipped_existing_count"] == 1
+        finally:
+            if td_id is not None:
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    s.query(Order).filter(
+                        Order.trade_decision_id == uuid.UUID(td_id)
+                    ).delete()
+                    s.commit()
+
+    def test_creating_orders_does_not_fill_orders(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Orders created have PENDING status — no fills, no fill_price, no filled_at."""
+        import uuid as uuid_module
+
+        suffix = uuid_module.uuid4().hex[:8]
+        td_id: str | None = None
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key=f"setup-co-nfill-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            ticker = f"CONFL{suffix[:5]}".upper()
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=f"review_queue_create_signals_v1:co_nfill:{suffix}",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker=ticker,
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("80.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        try:
+            seeded_client.post(
+                "/v1/review/create-decisions",
+                json={
+                    "idempotency_key": f"create-dec-co-nfill-{suffix}",
+                    "signal_ids": [signal_id],
+                    "confirm_create_decisions": True,
+                },
+                headers=_AUTH,
+            )
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                td = session.query(TradeDecision).filter(
+                    TradeDecision.signal_id == uuid.UUID(signal_id)
+                ).first()
+                if td is None or td.decision not in ("BUY", "SELL"):
+                    import pytest
+                    pytest.skip("Decision not BUY/SELL — cannot test fill guard")
+                td_id = str(td.id)
+
+            r = seeded_client.post(
+                "/v1/review/create-orders",
+                json={
+                    "idempotency_key": f"create-orders-nfill-{suffix}",
+                    "trade_decision_ids": [td_id],
+                    "confirm_create_orders": True,
+                },
+                headers=_AUTH,
+            )
+            assert r.status_code == 201
+            data = r.json()
+            if data["orders_created"] == 0:
+                import pytest
+                pytest.skip("Risk rejected — cannot test fill guard")
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                order = session.query(Order).filter(
+                    Order.trade_decision_id == uuid.UUID(td_id)
+                ).first()
+                assert order is not None
+                assert order.status == "PENDING"
+                assert order.filled_at is None
+                assert order.fill_price is None
+                assert order.filled_qty is None
+                assert order.fill_job_run_id is None
+        finally:
+            if td_id is not None:
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    s.query(Order).filter(
+                        Order.trade_decision_id == uuid.UUID(td_id)
+                    ).delete()
+                    s.commit()
+
+    def test_creating_orders_does_not_change_positions(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Create-orders does not mutate Position rows."""
+        import uuid as uuid_module
+
+        suffix = uuid_module.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            positions_before = session.query(Position).count()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            job_run = JobRun(
+                idempotency_key=f"setup-co-pos-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(job_run)
+            session.flush()
+
+            ticker = f"COPOS{suffix[:5]}".upper()
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.87"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=f"review_queue_create_signals_v1:co_pos:{suffix}",
+                status="RECEIVED",
+                raw_payload={},
+            )
+            session.add(signal)
+            session.flush()
+
+            price = PriceSnapshot(
+                ticker=ticker,
+                price_type="CLOSE",
+                session_type="REGULAR",
+                market_date=date.today(),
+                price=Decimal("90.00"),
+                snapshot_ts=datetime.now(timezone.utc),
+            )
+            session.add(price)
+            session.flush()
+            session.commit()
+
+        signal_id = str(signal.id)
+        td_id: str | None = None
+        try:
+            seeded_client.post(
+                "/v1/review/create-decisions",
+                json={
+                    "idempotency_key": f"create-dec-co-pos-{suffix}",
+                    "signal_ids": [signal_id],
+                    "confirm_create_decisions": True,
+                },
+                headers=_AUTH,
+            )
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                td = session.query(TradeDecision).filter(
+                    TradeDecision.signal_id == uuid.UUID(signal_id)
+                ).first()
+                if td is None or td.decision not in ("BUY", "SELL"):
+                    import pytest
+                    pytest.skip("Decision not BUY/SELL")
+                td_id = str(td.id)
+
+            seeded_client.post(
+                "/v1/review/create-orders",
+                json={
+                    "idempotency_key": f"create-orders-pos-{suffix}",
+                    "trade_decision_ids": [td_id],
+                    "confirm_create_orders": True,
+                },
+                headers=_AUTH,
+            )
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                positions_after = session.query(Position).count()
+                assert positions_after == positions_before
+        finally:
+            if td_id is not None:
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    s.query(Order).filter(
+                        Order.trade_decision_id == uuid.UUID(td_id)
+                    ).delete()
+                    s.commit()
+
+    def test_response_includes_safety_message(self, seeded_client: TestClient) -> None:
+        """Response always includes a safety_message field."""
+        response = seeded_client.post(
+            "/v1/review/create-orders",
+            json={
+                "idempotency_key": "safety-msg-test",
+                "confirm_create_orders": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert "safety_message" in data
+        assert len(data["safety_message"]) > 0
+        msg = data["safety_message"].upper()
+        assert "PAPER" in msg or "NO BROKER" in msg or "NO FILLS" in msg
+
+    def test_no_automation_triggered(self, seeded_client: TestClient) -> None:
+        """Create-orders response confirms automation is off."""
+        response = seeded_client.post(
+            "/v1/review/create-orders",
+            json={
+                "idempotency_key": "auto-off-test",
+                "confirm_create_orders": True,
+            },
+            headers=_AUTH,
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["execution_mode"] == "ORDER_CREATION_PAPER_ONLY"
+        msg = data["safety_message"].upper()
+        assert "AUTOMATION" in msg
+
+
 class TestReviewWorkflowStatusEndpoint:
     """Test GET /v1/review/workflow-status endpoint (read-only workflow status)."""
 
@@ -12913,8 +13508,9 @@ class TestReviewWorkflowStatusEndpoint:
         assert isinstance(data["orders"]["review_created"], int)
         assert all(v >= 0 for v in data["orders"].values())
 
-        # Verify safety flags are disabled
-        assert data["safety"]["create_orders_enabled"] is False
+        # create_orders_enabled: True = paper Order tickets can be created
+        # (no broker execution, no fills, no position changes, automation still off)
+        assert data["safety"]["create_orders_enabled"] is True
         assert data["safety"]["automation_enabled"] is False
 
     def test_counts_review_created_signals_with_correct_prefix(self, seeded_client: TestClient, api_engine) -> None:
@@ -13065,13 +13661,13 @@ class TestReviewWorkflowStatusEndpoint:
             orders_after = session.query(Order).count()
             assert orders_after == orders_before, "No Order rows should be created"
 
-    def test_safety_flags_disabled(self, seeded_client: TestClient) -> None:
-        """Test that safety flags indicate features are disabled."""
+    def test_safety_flags_correct(self, seeded_client: TestClient) -> None:
+        """Test that safety flags correctly reflect feature availability."""
         response = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
         assert response.status_code == 200
         data = response.json()
 
-        assert data["safety"]["create_orders_enabled"] is False
+        assert data["safety"]["create_orders_enabled"] is True
         assert data["safety"]["automation_enabled"] is False
 
     def test_workflow_steps_include_nine_steps(self, seeded_client: TestClient) -> None:
@@ -13571,6 +14167,26 @@ class TestReviewRotationPreviewEndpoint:
 
 class TestDailyPlanPreviewEndpoint:
     """Test POST /v1/review/daily-plan-preview endpoint (read-only, no DB writes)."""
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_stale_pending_orders(self, api_engine):
+        """Delete stale PENDING paper order ticket rows before each Daily Plan test.
+
+        Guards against order-dependent test pollution: if TestReviewCreateOrdersEndpoint
+        leaves PENDING paper order tickets in the DB (e.g. from a previous test run
+        that failed mid-cleanup), _daily_buy_exposure() would count them and block
+        all BUY recommendations. This fixture removes those rows before each test so
+        the Daily Plan always sees a clean daily-exposure slate.
+        Only deletes orders with the 'Paper order ticket' notes marker; seeded FILLED
+        orders are never touched.
+        """
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.query(Order).filter(
+                Order.status == "PENDING",
+                Order.notes.like("Paper order ticket%"),
+            ).delete(synchronize_session=False)
+            s.commit()
+        yield
 
     def test_daily_plan_requires_api_key(self, seeded_client: TestClient) -> None:
         response = seeded_client.post("/v1/review/daily-plan-preview", json={})
@@ -22040,11 +22656,11 @@ class TestUiStaticContent:
     def test_action_safety_panel_present(self) -> None:
         assert "Action / Safety Panel" in self._read_html()
 
-    def test_orders_disabled_badge_present(self) -> None:
-        assert "ORDERS DISABLED" in self._read_html()
+    def test_paper_orders_only_badge_present(self) -> None:
+        assert "PAPER ORDERS ONLY" in self._read_html()
 
-    def test_no_order_creation_badge_present(self) -> None:
-        assert "NO ORDER CREATION" in self._read_html()
+    def test_no_broker_execution_badge_present(self) -> None:
+        assert "NO BROKER EXECUTION" in self._read_html()
 
     def test_automation_off_present(self) -> None:
         assert "AUTOMATION OFF" in self._read_html()
@@ -22064,8 +22680,8 @@ class TestUiStaticContent:
     def test_execute_preview_stage_present(self) -> None:
         assert "EXECUTE PREVIEW" in self._read_html()
 
-    def test_stop_orders_disabled_present(self) -> None:
-        assert "STOP: ORDERS DISABLED" in self._read_html()
+    def test_paper_orders_only_stage4_present(self) -> None:
+        assert "PAPER ORDERS ONLY" in self._read_html()
 
     def test_portfolio_allocation_present(self) -> None:
         assert "Portfolio Allocation" in self._read_html()
@@ -22091,12 +22707,10 @@ class TestUiStaticContent:
     def test_recommended_next_action_present(self) -> None:
         assert "Recommended Next Action" in self._read_html()
 
-    def test_no_forbidden_create_orders_endpoint(self) -> None:
+    def test_create_orders_endpoint_present(self) -> None:
         html = self._read_html()
-        assert "/v1/review/create-orders" not in html
-        assert "/v1/orders/create" not in html
+        assert "/v1/review/create-orders" in html
 
-    def test_no_forbidden_create_orders_js(self) -> None:
+    def test_create_orders_js_present(self) -> None:
         html = self._read_html()
-        assert "createOrders" not in html
-        assert "createOrder" not in html
+        assert "createOrdersFromDecisions" in html
