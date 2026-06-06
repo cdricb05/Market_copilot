@@ -6793,22 +6793,27 @@ function renderCreateSignalsResponse(data) {
 
   // Skipped candidates
   if (skipped.length > 0) {
-    html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
-    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
-    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
-    html += '</tr></thead><tbody>';
-
+    let _sigSkipInner = '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+    _sigSkipInner += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    _sigSkipInner += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    _sigSkipInner += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
+    _sigSkipInner += '</tr></thead><tbody>';
     skipped.forEach(s => {
       const bgColor = s.reason.includes('already exists') ? 'rgba(245,158,11,.03)' : 'rgba(239,68,68,.03)';
-      html += `<tr style="border-bottom: 1px solid var(--border); background: ${bgColor};">`;
-      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
-      html += `<td style="padding: 6px 8px; color: var(--label);">${escapeHtml(s.reason)}</td>`;
-      html += '</tr>';
+      _sigSkipInner += `<tr style="border-bottom: 1px solid var(--border); background: ${bgColor};">`;
+      _sigSkipInner += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
+      _sigSkipInner += `<td style="padding: 6px 8px; color: var(--label);">${escapeHtml(s.reason)}</td>`;
+      _sigSkipInner += '</tr>';
     });
-
-    html += '</tbody></table></div>';
+    _sigSkipInner += '</tbody></table>';
+    if (skipped.length > 3) {
+      html += '<details style="margin-bottom:8px;border:1px solid var(--border);border-radius:2px;">' +
+        '<summary style="cursor:pointer;padding:4px 8px;background:rgba(0,0,0,.2);font-size:10px;color:var(--label);user-select:none;">' +
+        skipped.length + ' skipped row(s) (duplicate / invalid) -- click to expand' +
+        '</summary><div style="overflow-x:auto;overflow-y:auto;max-height:180px;">' + _sigSkipInner + '</div></details>';
+    } else {
+      html += '<div style="margin-bottom:12px;overflow-x:auto;border:1px solid var(--border);border-radius:2px;">' + _sigSkipInner + '</div>';
+    }
   }
 
   // Safety footer
@@ -7119,51 +7124,61 @@ function renderCreateDecisionsResponse(data) {
 
   // Created decisions table
   if (createdDecisions.length > 0) {
-    html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
-    html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;">';
-    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
-    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Side</th>';
-    html += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Decision</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Approved Qty</th>';
-    html += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Approved $</th>';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
-    html += '</tr></thead><tbody>';
-
+    let _decInner = '<table style="width: 100%; border-collapse: collapse; font-size: 10px;">';
+    _decInner += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    _decInner += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    _decInner += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Side</th>';
+    _decInner += '<th style="padding: 6px 8px; text-align: center; color: var(--label); font-weight: 700;">Decision</th>';
+    _decInner += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Approved Qty</th>';
+    _decInner += '<th style="padding: 6px 8px; text-align: right; color: var(--label); font-weight: 700;">Approved $</th>';
+    _decInner += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
+    _decInner += '</tr></thead><tbody>';
     createdDecisions.forEach(d => {
       const sideColor = d.side === 'BUY' ? '#22c55e' : (d.side === 'SELL' ? '#ef4444' : '#888');
       const decisionColor = d.decision === 'BUY' ? '#22c55e' : (d.decision === 'SELL' ? '#ef4444' : '#f59e0b');
       const reasonText = d.reason_code ? `${d.reason_code}` : 'Approved';
-      html += `<tr style="border-bottom: 1px solid var(--border); background: rgba(34,197,94,.03);">`;
-      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(d.ticker)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: center; color: ${sideColor}; font-weight: 600;">${escapeHtml(d.side)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(d.decision)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">${escapeHtml(d.approved_qty)}</td>`;
-      html += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">$${escapeHtml(d.approved_notional)}</td>`;
-      html += `<td style="padding: 6px 8px; font-size: 9px; color: var(--label);">${escapeHtml(reasonText)}</td>`;
-      html += '</tr>';
+      _decInner += `<tr style="border-bottom: 1px solid var(--border); background: rgba(34,197,94,.03);">`;
+      _decInner += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(d.ticker)}</td>`;
+      _decInner += `<td style="padding: 6px 8px; text-align: center; color: ${sideColor}; font-weight: 600;">${escapeHtml(d.side)}</td>`;
+      _decInner += `<td style="padding: 6px 8px; text-align: center; color: ${decisionColor}; font-weight: 600;">${escapeHtml(d.decision)}</td>`;
+      _decInner += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">${escapeHtml(d.approved_qty)}</td>`;
+      _decInner += `<td style="padding: 6px 8px; text-align: right; font-family: 'Monaco', monospace;">$${escapeHtml(d.approved_notional)}</td>`;
+      _decInner += `<td style="padding: 6px 8px; font-size: 9px; color: var(--label);">${escapeHtml(reasonText)}</td>`;
+      _decInner += '</tr>';
     });
-
-    html += '</tbody></table></div>';
+    _decInner += '</tbody></table>';
+    if (createdDecisions.length > 5) {
+      html += '<details style="margin-bottom:8px;border:1px solid var(--border);border-radius:2px;">' +
+        '<summary style="cursor:pointer;padding:4px 8px;background:rgba(0,0,0,.2);font-size:10px;color:var(--label);user-select:none;">' +
+        createdDecisions.length + ' decision row(s) -- click to expand' +
+        '</summary><div style="overflow-x:auto;overflow-y:auto;max-height:180px;">' + _decInner + '</div></details>';
+    } else {
+      html += '<div style="margin-bottom:12px;overflow-x:auto;border:1px solid var(--border);border-radius:2px;">' + _decInner + '</div>';
+    }
   }
 
   // Skipped signals (validation failures only -- risk rejections appear in created_decisions above)
   if (skipped.length > 0) {
-    html += '<div style="margin-bottom: 12px; overflow-x: auto; border: 1px solid var(--border); border-radius: 2px;">';
-    html += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
-    html += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
-    html += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
-    html += '</tr></thead><tbody>';
-
+    let _decSkipInner = '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+    _decSkipInner += '<thead><tr style="background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);">';
+    _decSkipInner += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Ticker</th>';
+    _decSkipInner += '<th style="padding: 6px 8px; text-align: left; color: var(--label); font-weight: 700;">Reason</th>';
+    _decSkipInner += '</tr></thead><tbody>';
     skipped.forEach(s => {
-      html += `<tr style="border-bottom: 1px solid var(--border); background: rgba(239,68,68,.03);">`;
-      html += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
-      html += `<td style="padding: 6px 8px;">${escapeHtml(s.reason)}</td>`;
-      html += '</tr>';
+      _decSkipInner += `<tr style="border-bottom: 1px solid var(--border); background: rgba(239,68,68,.03);">`;
+      _decSkipInner += `<td style="padding: 6px 8px; font-weight: 600; font-family: 'Monaco', monospace;">${escapeHtml(s.ticker)}</td>`;
+      _decSkipInner += `<td style="padding: 6px 8px;">${escapeHtml(s.reason)}</td>`;
+      _decSkipInner += '</tr>';
     });
-
-    html += '</tbody></table></div>';
+    _decSkipInner += '</tbody></table>';
+    if (skipped.length > 3) {
+      html += '<details style="margin-bottom:8px;border:1px solid var(--border);border-radius:2px;">' +
+        '<summary style="cursor:pointer;padding:4px 8px;background:rgba(0,0,0,.2);font-size:10px;color:var(--label);user-select:none;">' +
+        skipped.length + ' skipped signal(s) (validation failures) -- click to expand' +
+        '</summary><div style="overflow-x:auto;overflow-y:auto;max-height:180px;">' + _decSkipInner + '</div></details>';
+    } else {
+      html += '<div style="margin-bottom:12px;overflow-x:auto;border:1px solid var(--border);border-radius:2px;">' + _decSkipInner + '</div>';
+    }
   }
 
   // Safety footer
@@ -7321,6 +7336,9 @@ function renderOrderPreviewResponse(data) {
   html += '</div>';
 
   container.innerHTML = html;
+
+  const _oesOrderPrev = document.getElementById('ov-execute-summary');
+  if (_oesOrderPrev) _oesOrderPrev.textContent = previewsGenerated + ' order preview(s)' + (skippedExistingCount > 0 ? ', ' + skippedExistingCount + ' skipped (existing order)' : '');
 }
 
 function getDtrStepStatus(step) {
