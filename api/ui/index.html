@@ -742,7 +742,7 @@
       border: 1px solid var(--border);
       padding: 20px;
       border-radius: 4px;
-      max-width: 400px;
+      max-width: 480px;
       box-shadow: 0 4px 16px rgba(0,0,0,.5);
     }
 
@@ -1360,7 +1360,7 @@
             <div class="stage-card" id="stage-review">
               <div class="stage-title">2 &mdash; REVIEW</div>
               <div style="font-size: 8px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 3px;">SAVES REVIEW CANDIDATES ONLY</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px;" id="stage-review-count">Save after preview, then approve in queue</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px;" id="stage-review-count">Requires Step 1 preview. Confirms before writing.</div>
               <div style="display: flex; gap: 4px; margin-bottom: 2px;">
                 <button class="btn-sm" style="flex: 1; background: var(--ok); color: white; font-size: 9px;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save Eligible</button>
                 <button class="btn-sm" style="flex: 0 0 auto; font-size: 9px; background: transparent; border: 1px solid var(--border); color: var(--text-accent);" onclick="saveCandidatesToReviewQueue('ALL', this)">All</button>
@@ -1931,7 +1931,7 @@
               </div>
               <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createSignalsFromCandidates()">Create Signals</button>
             </div>
-            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates Signal rows only. Does not create TradeDecisions or Orders. Requires confirmation.</div>
+            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates Signal rows only. Does not create TradeDecisions or Orders. Requires APPROVED_FOR_SIGNAL candidates in Review Queue.</div>
             <input type="hidden" id="create-signals-limit" value="50">
             <div id="create-signals-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready to create signals from candidates</div>
           </div>
@@ -1965,7 +1965,7 @@
               </div>
               <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createDecisionsFromSignals()">Create Decisions</button>
             </div>
-            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates TradeDecision rows only. Does not create Orders. Requires confirmation. Safety: no orders created.</div>
+            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates TradeDecision rows only. Does not create Orders. Requires signals. Safety: no orders created, no automation, no broker submission.</div>
             <input type="hidden" id="create-decisions-limit" value="50">
             <input type="checkbox" id="create-decisions-received-only" style="display:none;">
             <div id="create-decisions-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready to create trade decisions</div>
@@ -2593,8 +2593,12 @@ window._currentConfirmCallback = null;
 window._showConfirmModal = function(message, onConfirm, onCancel) {
   const modal = document.getElementById('confirm-modal');
   const msgEl = document.getElementById('confirm-message');
+  const titleEl = document.getElementById('confirm-title');
+  const confirmBtn = modal ? modal.querySelector('.btn-confirm') : null;
   if (!modal || !msgEl) return;
 
+  if (titleEl) titleEl.textContent = 'Confirm Action';
+  if (confirmBtn) confirmBtn.textContent = 'Confirm';
   msgEl.textContent = message;
   window._currentConfirmCallback = onConfirm;
   window._currentConfirmOnCancel = onCancel;
@@ -2618,7 +2622,35 @@ window._confirmAction = function() {
   if (modal && window._currentConfirmCallback) {
     window._currentConfirmCallback();
   }
+  window._currentConfirmOnCancel = null;
   window._hideConfirmModal();
+};
+
+window._showWriteConfirm = function(opts) {
+  const modal = document.getElementById('confirm-modal');
+  const titleEl = document.getElementById('confirm-title');
+  const msgEl = document.getElementById('confirm-message');
+  const confirmBtn = modal ? modal.querySelector('.btn-confirm') : null;
+  if (!modal || !msgEl) return;
+
+  if (titleEl) titleEl.textContent = opts.title || 'Confirm Action';
+  if (confirmBtn) confirmBtn.textContent = opts.confirmLabel || 'Confirm';
+
+  let body = '<div style="margin-bottom:10px; padding:8px 10px; background:rgba(34,197,94,.07); border:1px solid rgba(34,197,94,.25); border-radius:3px;">';
+  body += '<div style="font-size:10px; font-weight:700; color:var(--ok); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.07em;">This will write to the database:</div>';
+  body += '<ul style="margin:0; padding:0 0 0 16px; color:var(--text-accent); font-size:11px;">';
+  (opts.writes || []).forEach(function(w) { body += '<li style="margin-bottom:3px;">' + w + '</li>'; });
+  body += '</ul></div>';
+  body += '<div style="padding:6px 10px; background:rgba(0,0,0,.15); border-radius:3px;">';
+  body += '<div style="font-size:10px; font-weight:700; color:var(--label); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.07em;">This will NOT:</div>';
+  body += '<ul style="margin:0; padding:0 0 0 16px; color:var(--label); font-size:11px;">';
+  (opts.doesNotDo || []).forEach(function(d) { body += '<li style="margin-bottom:3px;">' + d + '</li>'; });
+  body += '</ul></div>';
+
+  msgEl.innerHTML = body;
+  window._currentConfirmCallback = opts.onConfirm || null;
+  window._currentConfirmOnCancel = opts.onCancel || null;
+  modal.classList.add('active');
 };
 
 // Replace alert with toast
@@ -6349,126 +6381,125 @@ async function dtrRefreshReview(btn) {
 }
 
 async function saveCandidatesToReviewQueue(mode, btn) {
-  if (btn) btn.disabled = true;
-  try {
-    // Get current candidate previews from the last successful prediction preview run
-    const contentDiv = document.getElementById('prediction-preview-result');
-    if (!contentDiv) {
-      toast('No prediction preview data available', 'err');
-      return;
-    }
-
-    // Dedup guard: prevent saving the same preview batch twice
-    if (window._lastPredictionPreviewData?._saved) {
-      toast('Already saved. Re-run Prediction Preview to reset.', 'info');
-      return;
-    }
-
-    // Parse the current result to extract candidates
-    let candidates = window._lastPredictionPreviewData?.candidate_previews || [];
-    if (!candidates || candidates.length === 0) {
-      toast('No candidates available to save', 'err');
-      return;
-    }
-
-    // Filter if mode is CONSIDER  --  only send eligible new buy candidates
-    if (mode === 'CONSIDER') {
-      candidates = candidates.filter(c => c.eligible_for_review_queue === true || (c.eligible_for_review_queue === undefined && c.preview_decision === 'CONSIDER' && c.candidate_type !== 'CURRENT_HOLDING_MONITOR'));
-      if (candidates.length === 0) {
-        toast('No eligible new buy CONSIDER candidates to save', 'err');
-        return;
-      }
-    }
-
-    // Generate idempotency key
-    const now = new Date();
-    const ikey = `review-save-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-
-    // Build request  --  include Phase 4B classification fields so backend can validate
-    const payload = {
-      idempotency_key: ikey,
-      candidates: candidates.map(c => ({
-        ticker: c.ticker,
-        scan_rank: c.scan_rank,
-        scan_score: c.scan_score,
-        latest_price: c.latest_price,
-        momentum_5d_pct: c.momentum_5d_pct,
-        momentum_20d_pct: c.momentum_20d_pct,
-        relative_strength_vs_spy_20d: c.relative_strength_vs_spy_20d,
-        scan_reason_codes: c.scan_reason_codes,
-        prediction_recommendation: c.prediction_recommendation,
-        prediction_confidence: c.prediction_confidence,
-        forecast_price_5d: c.forecast_price_5d,
-        expected_return_pct: c.expected_return_pct,
-        market_context: c.market_context,
-        preview_decision: c.preview_decision,
-        preview_score: c.preview_score,
-        preview_reasons: c.preview_reasons,
-        status: c.status,
-        candidate_type: c.candidate_type || null,
-        eligible_for_review_queue: c.eligible_for_review_queue !== undefined ? c.eligible_for_review_queue : null,
-      }))
-    };
-
-    const r = await call('POST', '/v1/review/candidates', payload);
-    const b = await parseApiResponse(r);
-    if (r.ok) {
-      let msg = `Saved ${b.inserted_count || 0} new candidates.`;
-      if (b.skipped_existing_count) msg += ` ${b.skipped_existing_count} already existed.`;
-      const breakdownParts = [];
-      if (b.skipped_current_holdings) breakdownParts.push(`${b.skipped_current_holdings} holding-monitor skipped`);
-      if (b.skipped_watch) breakdownParts.push(`${b.skipped_watch} WATCH skipped`);
-      if (b.skipped_rejected) breakdownParts.push(`${b.skipped_rejected} REJECT skipped`);
-      if (b.skipped_other) breakdownParts.push(`${b.skipped_other} other skipped`);
-      if (breakdownParts.length > 0) msg += ' (' + breakdownParts.join(', ') + ')';
-      toast(msg, 'ok');
-
-      // Show breakdown in the result span
-      const bdEl = document.getElementById('save-breakdown-result');
-      if (bdEl) {
-        bdEl.textContent = msg;
-      }
-
-      // Mark this preview batch as saved to prevent duplicate posts
-      if (window._lastPredictionPreviewData) window._lastPredictionPreviewData._saved = true;
-
-      // Update Last UI Action
-      const actionEl = document.getElementById('right-action-status');
-      if (actionEl) actionEl.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-
-      // Update Next Action
-      const nextActionEl = document.getElementById('cockpit-next-action');
-      if (nextActionEl) {
-        nextActionEl.textContent = 'Open Review Queue to create signals from saved candidates';
-      }
-
-      // Show review queue, signal preview, create signals, decision preview, create decisions, and order preview
-      const _rqCard = document.getElementById('review-queue-card'); if (_rqCard) _rqCard.style.display = 'block';
-      const _spCard = document.getElementById('signal-preview-card'); if (_spCard) _spCard.style.display = 'block';
-      const _csCard = document.getElementById('create-signals-card'); if (_csCard) _csCard.style.display = 'block';
-      const _dpCard = document.getElementById('decision-preview-card'); if (_dpCard) _dpCard.style.display = 'block';
-      const _cdCard = document.getElementById('create-decisions-card'); if (_cdCard) _cdCard.style.display = 'block';
-      const _opCard = document.getElementById('order-preview-card'); if (_opCard) _opCard.style.display = 'block';
-      await loadReviewQueue();
-      // Show Step 3 and Step 4
-      const _s3 = document.getElementById('step3-review-queue');
-      if (_s3) _s3.style.display = 'block';
-      const _s4 = document.getElementById('step4-signal-decisions');
-      if (_s4) _s4.style.display = 'block';
-      updateCockpitReviewSummary();
-      // Update right panel
-      const _rnStep = document.getElementById('right-next-step');
-      if (_rnStep) _rnStep.textContent = 'Open Review Queue';
-      const _rnDetail = document.getElementById('right-next-step-detail');
-      if (_rnDetail) _rnDetail.textContent = 'Approve candidates you want eligible for signal creation, then go to Signals & Decisions.';
-    } else {
-      toast(`Failed: ${formatApiError(b.detail)}`, 'err');
-    }
-  } catch (e) {
-    toast(`Error: ${e.message}`, 'err');
-  } finally {
-    if (btn) btn.disabled = false;
+  // Early validation -- does not write to DB, no button disable needed yet
+  const contentDiv = document.getElementById('prediction-preview-result');
+  if (!contentDiv) {
+    toast('No prediction preview data available', 'err');
+    return;
   }
+  if (window._lastPredictionPreviewData?._saved) {
+    toast('Already saved. Re-run Prediction Preview to reset.', 'info');
+    return;
+  }
+  let candidates = window._lastPredictionPreviewData?.candidate_previews || [];
+  if (!candidates || candidates.length === 0) {
+    toast('No candidates available to save', 'err');
+    return;
+  }
+  if (mode === 'CONSIDER') {
+    candidates = candidates.filter(c => c.eligible_for_review_queue === true || (c.eligible_for_review_queue === undefined && c.preview_decision === 'CONSIDER' && c.candidate_type !== 'CURRENT_HOLDING_MONITOR'));
+    if (candidates.length === 0) {
+      toast('No eligible new buy CONSIDER candidates to save', 'err');
+      return;
+    }
+  }
+  const _saveCandCount = candidates.length;
+
+  // Show styled in-page confirmation before writing to DB
+  return new Promise(function(resolve) {
+    window._showWriteConfirm({
+      title: 'Confirm: Save Candidates to Review Queue',
+      writes: [_saveCandCount + ' ReviewCandidate row(s) to the Review Queue'],
+      doesNotDo: ['does not create signals', 'does not create trade decisions', 'does not create orders', 'does not execute trades', 'does not enable automation'],
+      confirmLabel: 'Save ' + _saveCandCount + ' Candidate(s)',
+      onConfirm: async function() {
+        if (btn) btn.disabled = true;
+        try {
+          // Generate idempotency key
+          const now = new Date();
+          const ikey = `review-save-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+
+          // Build request -- include Phase 4B classification fields so backend can validate
+          const payload = {
+            idempotency_key: ikey,
+            candidates: candidates.map(c => ({
+              ticker: c.ticker,
+              scan_rank: c.scan_rank,
+              scan_score: c.scan_score,
+              latest_price: c.latest_price,
+              momentum_5d_pct: c.momentum_5d_pct,
+              momentum_20d_pct: c.momentum_20d_pct,
+              relative_strength_vs_spy_20d: c.relative_strength_vs_spy_20d,
+              scan_reason_codes: c.scan_reason_codes,
+              prediction_recommendation: c.prediction_recommendation,
+              prediction_confidence: c.prediction_confidence,
+              forecast_price_5d: c.forecast_price_5d,
+              expected_return_pct: c.expected_return_pct,
+              market_context: c.market_context,
+              preview_decision: c.preview_decision,
+              preview_score: c.preview_score,
+              preview_reasons: c.preview_reasons,
+              status: c.status,
+              candidate_type: c.candidate_type || null,
+              eligible_for_review_queue: c.eligible_for_review_queue !== undefined ? c.eligible_for_review_queue : null,
+            }))
+          };
+
+          const r = await call('POST', '/v1/review/candidates', payload);
+          const b = await parseApiResponse(r);
+          if (r.ok) {
+            let msg = `Saved ${b.inserted_count || 0} new candidates.`;
+            if (b.skipped_existing_count) msg += ` ${b.skipped_existing_count} already existed.`;
+            const breakdownParts = [];
+            if (b.skipped_current_holdings) breakdownParts.push(`${b.skipped_current_holdings} holding-monitor skipped`);
+            if (b.skipped_watch) breakdownParts.push(`${b.skipped_watch} WATCH skipped`);
+            if (b.skipped_rejected) breakdownParts.push(`${b.skipped_rejected} REJECT skipped`);
+            if (b.skipped_other) breakdownParts.push(`${b.skipped_other} other skipped`);
+            if (breakdownParts.length > 0) msg += ' (' + breakdownParts.join(', ') + ')';
+            toast(msg, 'ok');
+
+            const bdEl = document.getElementById('save-breakdown-result');
+            if (bdEl) bdEl.textContent = msg;
+
+            if (window._lastPredictionPreviewData) window._lastPredictionPreviewData._saved = true;
+
+            const actionEl = document.getElementById('right-action-status');
+            if (actionEl) actionEl.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+            const nextActionEl = document.getElementById('cockpit-next-action');
+            if (nextActionEl) nextActionEl.textContent = 'Open Review Queue to create signals from saved candidates';
+
+            const _rqCard = document.getElementById('review-queue-card'); if (_rqCard) _rqCard.style.display = 'block';
+            const _spCard = document.getElementById('signal-preview-card'); if (_spCard) _spCard.style.display = 'block';
+            const _csCard = document.getElementById('create-signals-card'); if (_csCard) _csCard.style.display = 'block';
+            const _dpCard = document.getElementById('decision-preview-card'); if (_dpCard) _dpCard.style.display = 'block';
+            const _cdCard = document.getElementById('create-decisions-card'); if (_cdCard) _cdCard.style.display = 'block';
+            const _opCard = document.getElementById('order-preview-card'); if (_opCard) _opCard.style.display = 'block';
+            await loadReviewQueue();
+            const _s3 = document.getElementById('step3-review-queue');
+            if (_s3) _s3.style.display = 'block';
+            const _s4 = document.getElementById('step4-signal-decisions');
+            if (_s4) _s4.style.display = 'block';
+            updateCockpitReviewSummary();
+            const _rnStep = document.getElementById('right-next-step');
+            if (_rnStep) _rnStep.textContent = 'Open Review Queue';
+            const _rnDetail = document.getElementById('right-next-step-detail');
+            if (_rnDetail) _rnDetail.textContent = 'Approve candidates you want eligible for signal creation, then go to Signals & Decisions.';
+          } else {
+            toast(`Failed: ${formatApiError(b.detail)}`, 'err');
+          }
+        } catch (e) {
+          toast(`Error: ${e.message}`, 'err');
+        } finally {
+          if (btn) btn.disabled = false;
+          resolve();
+        }
+      },
+      onCancel: function() {
+        resolve();
+      },
+    });
+  });
 }
 
 async function loadReviewQueue() {
@@ -6691,11 +6722,14 @@ async function createSignalsFromCandidates() {
   const limit = parseInt(document.getElementById('create-signals-limit').value) || 50;
   const container = document.getElementById('create-signals-content');
 
-  // Show confirm modal and continue only if confirmed
+  // Show styled in-page confirmation before writing to DB
   return new Promise(resolve => {
-    window._showConfirmModal(
-      'This will create Signal rows only. It will NOT create decisions or orders. Continue?',
-      async () => {
+    window._showWriteConfirm({
+      title: 'Confirm: Create Signals',
+      writes: ['Signal rows from APPROVED_FOR_SIGNAL candidates in the Review Queue'],
+      doesNotDo: ['does not create trade decisions', 'does not create orders', 'does not execute trades', 'does not enable automation'],
+      confirmLabel: 'Create Signals',
+      onConfirm: async () => {
         container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Creating signals...</div>';
 
         try {
@@ -6720,8 +6754,8 @@ async function createSignalsFromCandidates() {
           resolve();
         }
       },
-      () => resolve()
-    );
+      onCancel: () => resolve(),
+    });
   });
 }
 
@@ -7033,11 +7067,14 @@ async function createDecisionsFromSignals() {
   const receivedOnly = document.getElementById('create-decisions-received-only').checked;
   const container = document.getElementById('create-decisions-content');
 
-  // Show confirm modal and continue only if confirmed
+  // Show styled in-page confirmation before writing to DB
   return new Promise(resolve => {
-    window._showConfirmModal(
-      'This will create TradeDecision rows only. It will NOT create Orders. Continue?',
-      async () => {
+    window._showWriteConfirm({
+      title: 'Confirm: Create Trade Decisions',
+      writes: ['TradeDecision rows from received signals'],
+      doesNotDo: ['does not create orders', 'does not execute trades', 'does not submit to broker', 'does not enable automation'],
+      confirmLabel: 'Create Decisions',
+      onConfirm: async () => {
         container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Creating trade decisions...</div>';
 
         try {
@@ -7062,8 +7099,8 @@ async function createDecisionsFromSignals() {
           resolve();
         }
       },
-      () => resolve()
-    );
+      onCancel: () => resolve(),
+    });
   });
 }
 
