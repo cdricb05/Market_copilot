@@ -4,6 +4,7 @@ engine/market_data.py — Market data fetching from external sources.
 Functions:
     fetch_latest_prices() — Fetch latest prices from Yahoo Finance.
     fetch_historical_prices() — Fetch daily CLOSE prices for date range from Yahoo Finance.
+    fetch_market_indicator_latest() — Per-symbol history fallback for market dashboard.
 
 Design principles:
     - No database writes. Returns data only.
@@ -250,6 +251,67 @@ def fetch_historical_prices(
             successful[ticker] = prices
 
     return successful, failed
+
+
+def fetch_market_indicator_latest(symbol: str) -> dict | None:
+    """
+    Fetch the latest available close price for a single market indicator symbol.
+
+    Uses Ticker.history(period="10d", interval="1d") to handle weekends and
+    after-hours when yfinance.download(period="1d") returns no data.
+
+    Args:
+        symbol: yfinance symbol (e.g. "^GSPC", "GC=F", "EURUSD=X").
+
+    Returns:
+        dict with keys {value, as_of, status} on success, or None if unavailable.
+        - value: Decimal string of the latest close price.
+        - as_of: ISO date string "YYYY-MM-DD" of that close.
+        - status: human-readable string, e.g. "yfinance last close 2026-06-05".
+    """
+    if yfinance is None:
+        return None
+
+    try:
+        hist = yfinance.Ticker(symbol).history(
+            period="10d", interval="1d", auto_adjust=False
+        )
+        if hist is None or len(hist) == 0:
+            return None
+
+        # Drop rows where Close is NaN
+        if hasattr(hist, "dropna"):
+            valid = hist.dropna(subset=["Close"])
+        else:
+            valid = hist
+
+        if len(valid) == 0:
+            return None
+
+        last_row = valid.tail(1)
+        close_val = last_row["Close"].iloc[-1]
+
+        try:
+            price_float = float(close_val)
+        except (ValueError, TypeError):
+            return None
+
+        if price_float <= 0:
+            return None
+
+        idx = last_row.index[-1]
+        if hasattr(idx, "date"):
+            as_of_date = idx.date().isoformat()
+        else:
+            as_of_date = str(idx)[:10]
+
+        return {
+            "value": str(Decimal(str(price_float))),
+            "as_of": as_of_date,
+            "status": f"yfinance last close {as_of_date}",
+        }
+    except Exception:
+        return None
 
 
 def _extract_historical_prices(ticker: str, data: Any) -> list[dict] | None:

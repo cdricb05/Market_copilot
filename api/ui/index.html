@@ -1084,76 +1084,174 @@
     details.exec-step-e[open] > summary { border-radius: 3px 3px 0 0; border-bottom: none; }
     details.exec-step-e > .command-section { border-radius: 0 0 3px 3px; border-top: none; margin-top: 0; }
 
-    /* --- Phase 14A: Overview Portfolio + Market Cockpit --- */
-    .ov-main-grid {
-      display: grid;
-      grid-template-columns: 1fr 340px;
-      gap: 10px;
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-    }
+    /* --- Phase 14C2: Overview - Market Dashboard + Portfolio Redesign --- */
     .ov-portfolio-panel {
-      overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      min-height: 0;
+      gap: 10px;
+      flex-shrink: 0;
     }
-    .ov-market-panel {
-      overflow-y: auto;
+    .ov-pf-header {
       display: flex;
-      flex-direction: column;
-      gap: 6px;
-      min-height: 0;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(168,184,216,0.1);
+    }
+    .ov-pf-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-accent);
+    }
+    .ov-pf-subtitle {
+      font-size: 9px;
+      color: var(--label);
     }
     .ov-chart-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      gap: 10px;
     }
     .ov-chart-card {
       background: var(--bg-panel);
       border: 1px solid var(--border);
       border-radius: 3px;
-      padding: 8px 10px;
+      padding: 10px 12px;
     }
     .ov-chart-title {
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--text-accent);
-      margin-bottom: 4px;
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid rgba(168,184,216,0.1);
     }
-    .ov-chart-svg { display: block; width: 100%; height: 75px; }
-    .ov-chart-status { font-size: 8px; color: var(--label); font-style: italic; margin-top: 3px; }
+    .ov-chart-svg { display: block; width: 100%; height: 80px; }
+    .ov-chart-status { font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px; }
     .ov-pf-summary-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 6px;
+      gap: 8px;
     }
     .ov-pf-summary-card {
       background: var(--bg-panel);
       border: 1px solid var(--border);
-      border-radius: 2px;
-      padding: 6px 8px;
+      border-radius: 3px;
+      padding: 10px 12px;
       text-align: center;
     }
-    .ov-market-grid {
+    /* Market Dashboard */
+    .ov-market-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .ov-market-section {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 14px 16px;
+      flex-shrink: 0;
+    }
+    .ov-market-section-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(168,184,216,0.1);
+    }
+    .ov-mkt-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-accent);
+    }
+    .ov-mkt-load-status {
+      font-size: 9px;
+      font-weight: 500;
+      color: var(--label);
+      margin-left: 10px;
+    }
+    /* 2-col top row (Equity | FX), Rates spans full width below */
+    .ov-market-groups {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 5px;
+      gap: 12px;
+    }
+    .ov-mkt-group {
+      background: rgba(0,0,0,.2);
+      border: 1px solid rgba(168,184,216,0.1);
+      border-radius: 3px;
+      padding: 12px 14px;
+    }
+    .ov-mkt-group.rates-group {
+      grid-column: 1 / -1;
+    }
+    .ov-mkt-group-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-accent);
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(168,184,216,0.12);
+    }
+    .ov-mkt-group-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      gap: 8px;
     }
     .ov-market-card {
       background: rgba(0,0,0,.15);
       border: 1px solid var(--border);
-      border-radius: 2px;
-      padding: 6px 8px;
+      border-radius: 3px;
+      padding: 12px 14px;
+      min-height: 82px;
     }
-    .ov-mkt-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--label); font-weight: 600; margin-bottom: 2px; }
-    .ov-mkt-value { font-size: 11px; font-weight: 700; color: var(--text-accent); font-family: 'Monaco', monospace; }
-    .ov-mkt-status { font-size: 8px; color: var(--label); font-style: italic; margin-top: 1px; }
+    .ov-market-card.available {
+      border-color: rgba(34,197,94,.3);
+      background: rgba(34,197,94,.05);
+    }
+    .ov-market-card.available .ov-mkt-value { color: var(--text-primary); }
+    .ov-mkt-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--label);
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .ov-mkt-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-accent);
+      font-family: 'Monaco', monospace;
+      line-height: 1.2;
+    }
+    .ov-mkt-status {
+      font-size: 9px;
+      color: var(--label);
+      opacity: 0.85;
+      margin-top: 3px;
+    }
+    .ov-mkt-badge {
+      display: inline-block;
+      font-size: 8px;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 2px 5px;
+      border-radius: 2px;
+      margin-top: 3px;
+    }
+    .ov-mkt-badge.live { background: rgba(34,197,94,.18); color: var(--ok); }
+    .ov-mkt-badge.unavailable { background: rgba(239,68,68,.12); color: var(--danger); }
+    .ov-mkt-badge.pending { background: rgba(245,158,11,.12); color: var(--warning); }
     .badge.danger { background: rgba(239,68,68,.12); color: var(--danger); border-color: var(--danger); }
     .dp-rotation-card { border-color: rgba(245,158,11,.35) !important; }
   </style>
@@ -1410,13 +1508,58 @@
           <div class="kpi-item"><span class="kpi-label">Pending Actions</span><span class="kpi-value" id="kpi-pending">-</span></div>
         </div>
 
-        <!-- Portfolio + Market Dashboard: 2/3 + 1/3 -->
-        <div class="ov-main-grid">
+        <!-- Market Dashboard: full-width section below KPI -->
+        <div class="ov-market-section">
+          <div class="ov-market-section-hdr">
+            <div>
+              <span class="ov-mkt-section-title">Market Dashboard</span>
+              <span id="mkt-load-status" class="ov-mkt-load-status"></span>
+            </div>
+            <button class="btn" style="background: var(--info); color: white; font-weight: 600; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="window._switchTab('prediction-cockpit')">&#9654; Open Daily Plan</button>
+          </div>
+          <div class="ov-market-groups">
+            <!-- Group: Equity / Volatility -->
+            <div class="ov-mkt-group">
+              <div class="ov-mkt-group-label">Equity / Volatility</div>
+              <div class="ov-mkt-group-cards">
+                <div class="ov-market-card" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+              </div>
+            </div>
+            <!-- Group: FX / Commodities -->
+            <div class="ov-mkt-group">
+              <div class="ov-mkt-group-label">FX / Commodities</div>
+              <div class="ov-mkt-group-cards">
+                <div class="ov-market-card" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="wti"><div class="ov-mkt-label">WTI</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+              </div>
+            </div>
+            <!-- Group: Rates / Macro -->
+            <div class="ov-mkt-group rates-group">
+              <div class="ov-mkt-group-label">Rates / Macro</div>
+              <div class="ov-mkt-group-cards">
+                <div class="ov-market-card" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="cpi_latest"><div class="ov-mkt-label">CPI latest</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="fed_funds"><div class="ov-mkt-label">Fed Funds</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="sofr"><div class="ov-mkt-label">SOFR</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+              </div>
+            </div>
+          </div>
+        </div><!-- end ov-market-section -->
 
-          <!-- LEFT: Portfolio visual sections -->
-          <div class="ov-portfolio-panel">
-            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Portfolio Overview</div>
-            <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Portfolio Allocation</div>
+        <!-- Portfolio visual section - full width -->
+        <div class="ov-portfolio-panel">
+          <div class="ov-pf-header">
+            <div>
+              <span class="ov-pf-title">Portfolio Overview</span>
+              <span class="ov-pf-subtitle">Portfolio Allocation &mdash; Live when connected</span>
+            </div>
+          </div>
 
             <!-- 2x2 chart grid -->
             <div class="ov-chart-grid">
@@ -1488,64 +1631,24 @@
             <!-- Summary row below charts -->
             <div class="ov-pf-summary-grid">
               <div class="ov-pf-summary-card">
-                <div style="font-size: 8px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Total Value</div>
-                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="ov-pf-total">-</div>
+                <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">Total Value</div>
+                <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); font-family: 'Monaco', monospace;" id="ov-pf-total">-</div>
               </div>
               <div class="ov-pf-summary-card">
-                <div style="font-size: 8px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Cash</div>
-                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="ov-pf-cash">-</div>
+                <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">Cash</div>
+                <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); font-family: 'Monaco', monospace;" id="ov-pf-cash">-</div>
               </div>
               <div class="ov-pf-summary-card">
-                <div style="font-size: 8px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Open Positions</div>
-                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="ov-pf-pos">-</div>
+                <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">Open Positions</div>
+                <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); font-family: 'Monaco', monospace;" id="ov-pf-pos">-</div>
               </div>
               <div class="ov-pf-summary-card">
-                <div style="font-size: 8px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Total Return</div>
-                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="ov-pf-ret">-</div>
+                <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;">Total Return</div>
+                <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); font-family: 'Monaco', monospace;" id="ov-pf-ret">-</div>
               </div>
             </div>
 
-          </div><!-- end ov-portfolio-panel -->
-
-          <!-- RIGHT: Safety badges + Market Dashboard -->
-          <div class="ov-market-panel">
-
-            <!-- Safety -->
-            <div class="compact-card" style="padding: 8px 10px; flex-shrink: 0;">
-              <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px;">
-                <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
-                <span class="badge ok" style="font-size: 8px; padding: 2px 5px;">PAPER ORDERS ONLY</span>
-                <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
-                <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">NO BROKER</span>
-                <span class="badge danger" style="font-size: 8px; padding: 2px 5px;" id="kpi-orders-status">ORDERS DISABLED</span>
-              </div>
-              <div style="font-size: 9px; color: var(--label);">Paper orders only. No broker. No automation. Manual review required.</div>
-            </div>
-
-            <!-- Go to Daily Plan -->
-            <button class="btn" style="background: var(--info); color: white; font-weight: 600; width: 100%; flex-shrink: 0;" onclick="window._switchTab('prediction-cockpit')">&#9654; Open Daily Plan Cockpit</button>
-
-            <!-- Market Dashboard -->
-            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Market Dashboard <span id="mkt-load-status" style="font-size: 8px; font-weight: 400; color: var(--label); text-transform: none;"></span></div>
-            <div class="ov-market-grid">
-              <div class="ov-market-card" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="wti"><div class="ov-mkt-label">WTI</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="cpi_latest"><div class="ov-mkt-label">CPI latest</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="fed_funds"><div class="ov-mkt-label">Fed Funds</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card" data-key="sofr"><div class="ov-mkt-label">SOFR</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-            </div><!-- end ov-market-grid -->
-
-          </div><!-- end ov-market-panel -->
-
-        </div><!-- end ov-main-grid -->
+        </div><!-- end ov-portfolio-panel -->
 
         <!-- Hidden elements preserved for JS compatibility (not shown in UI) -->
         <div style="display:none;">
@@ -3886,6 +3989,35 @@ async function loadHistory() {
   updateKpi();
 }
 
+function formatMarketIndicatorValue(indicator) {
+  if (!indicator.available || !indicator.value) {
+    return 'Unavailable';
+  }
+  const val = parseFloat(indicator.value);
+  if (isNaN(val)) return indicator.value;
+
+  const key = Object.entries({
+    'sp500': '^GSPC',
+    'nasdaq': '^IXIC',
+    'dow': '^DJI',
+    'vix': '^VIX',
+    'eurusd': 'EURUSD=X',
+    'gold': 'GC=F',
+    'brent': 'BZ=F',
+    'wti': 'CL=F',
+  }).find(([_, sym]) => sym === indicator.symbol)?.[0];
+
+  if (key === 'eurusd') return val.toFixed(4);
+  if (key === 'gold') return '$' + val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  if (key === 'brent') return '$' + val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  if (key === 'wti') return '$' + val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  if (key === 'vix') return val.toFixed(2);
+  if (['sp500', 'nasdaq', 'dow'].includes(key)) {
+    return val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+  return indicator.value;
+}
+
 async function loadMarketDashboard() {
   const statusEl = document.getElementById('mkt-load-status');
   try {
@@ -3915,6 +4047,7 @@ async function loadMarketDashboard() {
     };
 
     let updatedCount = 0;
+    const yfinanceCount = data.indicators ? data.indicators.length : 0;
     if (data.indicators) {
       for (const indicator of data.indicators) {
         const cardId = Object.entries(yfinanceSymbols)
@@ -3929,14 +4062,32 @@ async function loadMarketDashboard() {
 
         const valueEl = cardEl.querySelector('.ov-mkt-value');
         const statusEl = cardEl.querySelector('.ov-mkt-status');
+        const badgeEl = cardEl.querySelector('.ov-mkt-badge');
 
         if (indicator.available && indicator.value) {
-          valueEl.textContent = indicator.value;
-          statusEl.textContent = indicator.source;
+          valueEl.textContent = formatMarketIndicatorValue(indicator);
+          const statusText = indicator.status || indicator.source;
+          statusEl.textContent = statusText;
+          const isHistorical = statusText.includes('last close');
+          if (badgeEl) {
+            if (isHistorical) {
+              badgeEl.textContent = 'CLOSE';
+              badgeEl.className = 'ov-mkt-badge pending';
+            } else {
+              badgeEl.textContent = 'LIVE';
+              badgeEl.className = 'ov-mkt-badge live';
+            }
+          }
+          cardEl.classList.add('available');
           updatedCount++;
         } else if (!indicator.available) {
           valueEl.textContent = 'Unavailable';
-          statusEl.textContent = indicator.source;
+          statusEl.textContent = indicator.status || indicator.source;
+          if (badgeEl) {
+            badgeEl.textContent = 'UNAVAILABLE';
+            badgeEl.className = 'ov-mkt-badge unavailable';
+          }
+          cardEl.classList.remove('available');
         }
       }
     }
@@ -3950,15 +4101,28 @@ async function loadMarketDashboard() {
 
         const valueEl = cardEl.querySelector('.ov-mkt-value');
         const statusEl = cardEl.querySelector('.ov-mkt-status');
+        const badgeEl = cardEl.querySelector('.ov-mkt-badge');
         valueEl.textContent = 'Not available';
         statusEl.textContent = placeholder.reason;
+        if (badgeEl) {
+          badgeEl.textContent = 'PENDING';
+          badgeEl.className = 'ov-mkt-badge pending';
+        }
       }
     }
 
-    console.log(`[Market] Loaded: ${updatedCount} indicators available`);
+    console.log(`[Market] Loaded: ${updatedCount}/${yfinanceCount} indicators available`);
     if (statusEl) {
-      statusEl.textContent = updatedCount > 0 ? '(loaded)' : '(no prices)';
-      statusEl.style.color = updatedCount > 0 ? 'var(--ok)' : 'var(--warn)';
+      if (updatedCount === yfinanceCount && yfinanceCount > 0) {
+        statusEl.textContent = '(loaded)';
+        statusEl.style.color = 'var(--ok)';
+      } else if (updatedCount > 0) {
+        statusEl.textContent = `(partial: ${updatedCount}/${yfinanceCount})`;
+        statusEl.style.color = 'var(--ok)';
+      } else {
+        statusEl.textContent = '(no prices)';
+        statusEl.style.color = 'var(--warn)';
+      }
     }
   } catch (e) {
     console.error('[Market] Exception:', e.message);

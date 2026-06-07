@@ -23638,7 +23638,7 @@ class TestMarketIndicatorsEndpoint:
         assert "FRED" in us10y["reason"]
 
     def test_partial_failure_missing_indicator(self, seeded_client: TestClient, monkeypatch) -> None:
-        """When some tickers fail, available indicators are returned with unavailable ones."""
+        """When batch and history fallback both fail, indicator is available=False."""
         def mock_fetch_latest_prices(tickers):
             return [
                 {"ticker": "^GSPC", "price": "5432.10"},
@@ -23652,8 +23652,12 @@ class TestMarketIndicatorsEndpoint:
                 {"ticker": "CL=F", "reason": "Not found"},
             ]
 
+        def mock_fetch_market_indicator_latest(symbol):
+            return None  # history fallback also fails
+
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+        monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -23661,12 +23665,111 @@ class TestMarketIndicatorsEndpoint:
         data = resp.json()
         indicators = data["indicators"]
 
-        # Available indicators should have values
+        # Batch-successful indicators should have values
         sp500 = next((i for i in indicators if i["key"] == "sp500"), None)
         assert sp500["available"] is True
         assert sp500["value"] == "5432.10"
 
-        # Unavailable indicators should have available=False
+        # Both-failed indicators should have available=False and status
         vix = next((i for i in indicators if i["key"] == "vix"), None)
         assert vix["available"] is False
         assert vix["value"] is None
+        assert vix["status"] == "yfinance unavailable"
+
+    def test_history_fallback_recovers_missing_batch_symbol(self, seeded_client: TestClient, monkeypatch) -> None:
+        """When batch fetch misses a symbol but history fallback succeeds, indicator is available=True."""
+        def mock_fetch_latest_prices(tickers):
+            return [
+                {"ticker": "EURUSD=X", "price": "1.0950"},
+            ], [
+                {"ticker": "^GSPC", "reason": "No data for period=1d"},
+                {"ticker": "^IXIC", "reason": "No data for period=1d"},
+                {"ticker": "^DJI", "reason": "No data for period=1d"},
+                {"ticker": "^VIX", "reason": "No data for period=1d"},
+                {"ticker": "GC=F", "reason": "No data for period=1d"},
+                {"ticker": "BZ=F", "reason": "No data for period=1d"},
+                {"ticker": "CL=F", "reason": "No data for period=1d"},
+            ]
+
+        def mock_fetch_market_indicator_latest(symbol):
+            data = {
+                "^GSPC": {"value": "5432.10", "as_of": "2026-06-05", "status": "yfinance last close 2026-06-05"},
+                "^IXIC": {"value": "18200.00", "as_of": "2026-06-05", "status": "yfinance last close 2026-06-05"},
+                "^DJI": {"value": "42200.50", "as_of": "2026-06-05", "status": "yfinance last close 2026-06-05"},
+                "^VIX": {"value": "12.45", "as_of": "2026-06-05", "status": "yfinance last close 2026-06-05"},
+                "GC=F": {"value": "2025.50", "as_of": "2026-06-06", "status": "yfinance last close 2026-06-06"},
+                "BZ=F": {"value": "87.30", "as_of": "2026-06-06", "status": "yfinance last close 2026-06-06"},
+                "CL=F": {"value": "78.50", "as_of": "2026-06-06", "status": "yfinance last close 2026-06-06"},
+            }
+            return data.get(symbol)
+
+        from paper_trader.api import app
+        monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+        monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
+
+        resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
+        assert resp.status_code == 200
+
+        data = resp.json()
+        indicators = data["indicators"]
+
+        # History-recovered indicator should be available
+        sp500 = next((i for i in indicators if i["key"] == "sp500"), None)
+        assert sp500 is not None
+        assert sp500["available"] is True
+        assert sp500["value"] == "5432.10"
+        assert sp500["as_of"] == "2026-06-05"
+        assert "last close" in sp500["status"]
+
+        # Batch-recovered EUR/USD should also be available with live status
+        eurusd = next((i for i in indicators if i["key"] == "eurusd"), None)
+        assert eurusd["available"] is True
+        assert eurusd["status"] == "yfinance live"
+
+    def test_fred_placeholders_remain_unavailable(self, seeded_client: TestClient, monkeypatch) -> None:
+        """FRED-backed placeholders are always available=False with FRED reason."""
+        def mock_fetch_latest_prices(tickers):
+            return [], [{"ticker": t, "reason": "No data"} for t in tickers]
+
+        def mock_fetch_market_indicator_latest(symbol):
+            return None
+
+        from paper_trader.api import app
+        monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+        monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
+
+        resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
+        assert resp.status_code == 200
+
+        data = resp.json()
+        placeholders = data["placeholders"]
+        assert len(placeholders) == 5
+
+        for p in placeholders:
+            assert p["available"] is False
+            assert "FRED" in p["reason"]
+
+        keys = {p["key"] for p in placeholders}
+        assert keys == {"us10y", "us2y", "cpi_latest", "fed_funds", "sofr"}
+
+    def test_response_keys_match_ui_data_keys(self, seeded_client: TestClient, monkeypatch) -> None:
+        """All 13 keys expected by the UI data-key attributes are present in the response."""
+        def mock_fetch_latest_prices(tickers):
+            return [], [{"ticker": t, "reason": "No data"} for t in tickers]
+
+        def mock_fetch_market_indicator_latest(symbol):
+            return None
+
+        from paper_trader.api import app
+        monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+        monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
+
+        resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
+        assert resp.status_code == 200
+
+        data = resp.json()
+        all_keys = {i["key"] for i in data["indicators"]} | {p["key"] for p in data["placeholders"]}
+
+        ui_data_keys = {"sp500", "nasdaq", "dow", "vix", "eurusd", "gold", "brent", "wti",
+                        "us10y", "us2y", "cpi_latest", "fed_funds", "sofr"}
+        assert ui_data_keys == all_keys

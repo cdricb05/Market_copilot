@@ -80,7 +80,7 @@ from paper_trader.db.models import (
     TradeDecision,
 )
 from paper_trader.db.session import get_dedicated_session, get_session
-from paper_trader.engine.market_data import fetch_latest_prices, fetch_historical_prices
+from paper_trader.engine.market_data import fetch_latest_prices, fetch_historical_prices, fetch_market_indicator_latest
 from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import compute_cash, get_open_positions, get_portfolio
 from paper_trader.engine.prediction_client import (
@@ -368,6 +368,7 @@ class MarketIndicator(BaseModel):
     source: str
     available: bool
     as_of: str | None = None
+    status: str | None = None
 
 
 class MarketIndicatorPlaceholder(BaseModel):
@@ -12334,14 +12335,14 @@ def get_market_indicators() -> MarketIndicatorsResponse:
         ("sofr", "SOFR", "FRED integration not implemented"),
     ]
 
-    # Fetch all yfinance symbols at once
+    # Fetch all yfinance symbols at once (fast batch path)
     symbols = [cfg[2] for cfg in indicator_config]
-    successful_prices, failures = fetch_latest_prices(symbols)
+    successful_prices, _failures = fetch_latest_prices(symbols)
 
     # Create lookup by symbol
     price_map = {p["ticker"]: p["price"] for p in successful_prices}
 
-    # Build indicators list
+    # Build indicators list; fall back to per-symbol history for any batch miss
     now_str = datetime.now(timezone.utc).isoformat()
     indicators = []
 
@@ -12358,22 +12359,42 @@ def get_market_indicators() -> MarketIndicatorsResponse:
                     source="yfinance",
                     available=True,
                     as_of=now_str,
+                    status="yfinance live",
                 )
             )
         else:
-            indicators.append(
-                MarketIndicator(
-                    key=key,
-                    label=label,
-                    symbol=symbol,
-                    value=None,
-                    change=None,
-                    change_pct=None,
-                    source="yfinance",
-                    available=False,
-                    as_of=None,
+            # Per-symbol history fallback — handles weekends and after-hours
+            hist = fetch_market_indicator_latest(symbol)
+            if hist is not None:
+                indicators.append(
+                    MarketIndicator(
+                        key=key,
+                        label=label,
+                        symbol=symbol,
+                        value=hist["value"],
+                        change=None,
+                        change_pct=None,
+                        source="yfinance",
+                        available=True,
+                        as_of=hist["as_of"],
+                        status=hist["status"],
+                    )
                 )
-            )
+            else:
+                indicators.append(
+                    MarketIndicator(
+                        key=key,
+                        label=label,
+                        symbol=symbol,
+                        value=None,
+                        change=None,
+                        change_pct=None,
+                        source="yfinance",
+                        available=False,
+                        as_of=None,
+                        status="yfinance unavailable",
+                    )
+                )
 
     # Build placeholders list
     placeholders = [
