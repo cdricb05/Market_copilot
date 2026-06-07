@@ -3264,6 +3264,206 @@ function formatApiError(data) {
 // Note: Connection logic is now in the independent <script> block at the top
 // The independent paperTraderConnect() function and auto-connect logic handles all connection needs
 
+// ---------- portfolio history charts ----------
+
+async function loadPortfolioHistory() {
+  try {
+    const r = await call('GET', '/v1/performance/history');
+    if (!r.ok) {
+      console.warn('Portfolio history load failed:', r.status);
+      return;
+    }
+    const data = await r.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return;
+    }
+    renderPortfolioValueChart(data);
+    renderPnlChart(data);
+    await renderExposureChart();
+  } catch (e) {
+    console.error('loadPortfolioHistory error:', e);
+  }
+}
+
+function renderPortfolioValueChart(historyData) {
+  try {
+    const card = document.querySelector('.ov-chart-card:nth-child(1)');
+    if (!card) return;
+    const svg = card.querySelector('.ov-chart-svg');
+    if (!svg) return;
+    const points = historyData.map(h => {
+      const val = parseFloat(h.total_value) || 0;
+      return val;
+    });
+    if (points.length < 2) return;
+    const minVal = Math.min(...points);
+    const maxVal = Math.max(...points);
+    const range = maxVal - minVal || 1;
+    const xStep = (300 - 36 - 6) / (points.length - 1);
+    const polylinePoints = points.map((val, i) => {
+      const x = 36 + i * xStep;
+      const normalized = (val - minVal) / range;
+      const y = 62 - normalized * 57;
+      return x + ',' + y;
+    }).join(' ');
+    let existingPolyline = svg.querySelector('polyline');
+    if (existingPolyline) existingPolyline.remove();
+    const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    polyline.setAttribute('points', polylinePoints);
+    polyline.setAttribute('stroke', 'rgba(59,130,246,0.7)');
+    polyline.setAttribute('stroke-width', '1.5');
+    polyline.setAttribute('fill', 'none');
+    polyline.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(polyline);
+    const textEl = svg.querySelector('text[text-anchor="middle"]');
+    if (textEl && textEl.textContent.includes('Stale')) {
+      textEl.remove();
+    }
+    const latestDate = historyData.length > 0 ? historyData[historyData.length - 1].market_date : '';
+    const statusEl = card.querySelector('.ov-chart-status');
+    if (statusEl) {
+      statusEl.textContent = latestDate ? `Source: performance history (${latestDate})` : 'Source: performance history';
+    }
+  } catch (e) {
+    console.error('renderPortfolioValueChart error:', e);
+  }
+}
+
+function renderPnlChart(historyData) {
+  try {
+    const card = document.querySelector('.ov-chart-card:nth-child(2)');
+    if (!card) return;
+    const svg = card.querySelector('.ov-chart-svg');
+    if (!svg) return;
+    const points = historyData.map(h => {
+      const unrealized = parseFloat(h.unrealized_pnl) || 0;
+      const realized = parseFloat(h.realized_pnl_cumulative) || 0;
+      return unrealized + realized;
+    });
+    if (points.length < 2) return;
+    const minVal = Math.min(...points, 0);
+    const maxVal = Math.max(...points, 0);
+    const range = Math.max(Math.abs(minVal), Math.abs(maxVal)) || 1;
+    const zeroY = 36;
+    const xStep = (300 - 36 - 6) / (points.length - 1);
+    const polylinePoints = points.map((val, i) => {
+      const x = 36 + i * xStep;
+      const normalized = val / range;
+      const y = zeroY - normalized * 30;
+      return x + ',' + y;
+    }).join(' ');
+    let existingPolyline = svg.querySelector('polyline');
+    if (existingPolyline) existingPolyline.remove();
+    const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    polyline.setAttribute('points', polylinePoints);
+    polyline.setAttribute('stroke', points[points.length - 1] >= 0 ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.8)');
+    polyline.setAttribute('stroke-width', '1.5');
+    polyline.setAttribute('fill', 'none');
+    polyline.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(polyline);
+    const textEl = svg.querySelector('text[text-anchor="middle"]');
+    if (textEl && textEl.textContent.includes('Stale')) {
+      textEl.remove();
+    }
+    const latestDate = historyData.length > 0 ? historyData[historyData.length - 1].market_date : '';
+    const statusEl = card.querySelector('.ov-chart-status');
+    if (statusEl) {
+      statusEl.textContent = latestDate ? `Source: performance history (${latestDate})` : 'Source: performance history';
+    }
+  } catch (e) {
+    console.error('renderPnlChart error:', e);
+  }
+}
+
+async function renderExposureChart() {
+  try {
+    const card = document.querySelector('.ov-chart-card:nth-child(4)');
+    if (!card) return;
+    const svg = card.querySelector('.ov-chart-svg');
+    if (!svg) return;
+    const statusEl = card.querySelector('.ov-chart-status');
+    const r = await call('GET', '/v1/positions');
+    if (!r.ok) {
+      if (statusEl) statusEl.textContent = 'No position exposure available';
+      return;
+    }
+    const resp = await r.json();
+    let positionList = [];
+    if (Array.isArray(resp)) {
+      positionList = resp;
+    } else if (resp && typeof resp === 'object' && Array.isArray(resp.value)) {
+      positionList = resp.value;
+    } else if (resp && typeof resp === 'object' && Array.isArray(resp.items)) {
+      positionList = resp.items;
+    } else if (resp && typeof resp === 'object' && Array.isArray(resp.open_positions)) {
+      positionList = resp.open_positions;
+    }
+    if (!positionList || positionList.length === 0) {
+      const existingRects = svg.querySelectorAll('rect[data-phase="exposure"], text[data-phase="exposure"]');
+      existingRects.forEach(r => r.remove());
+      const existingStaleText = svg.querySelector('text[text-anchor="middle"]');
+      if (existingStaleText && existingStaleText.textContent.includes('Stale')) {
+        existingStaleText.remove();
+      }
+      if (statusEl) statusEl.textContent = 'No position exposure available';
+      return;
+    }
+    const positions = positionList.slice(0, 4).map(p => {
+      let value = 0;
+      if (p.cost_basis) {
+        value = typeof p.cost_basis === 'string' ? parseFloat(p.cost_basis.replace(/[$,]/g, '')) : parseFloat(p.cost_basis);
+      } else if (p.market_value) {
+        value = typeof p.market_value === 'string' ? parseFloat(p.market_value.replace(/[$,]/g, '')) : parseFloat(p.market_value);
+      }
+      return { ticker: (p.ticker || '?').trim(), value: value || 0 };
+    }).filter(pos => pos.value > 0);
+    if (positions.length === 0) {
+      if (statusEl) statusEl.textContent = 'No position exposure available';
+      return;
+    }
+    const maxVal = Math.max(...positions.map(p => p.value), 1);
+    const xSpacing = 40;
+    const barWidth = 30;
+    let newRects = [];
+    positions.forEach((pos, idx) => {
+      const normalized = pos.value / maxVal;
+      const barHeight = Math.max(2, normalized * 52);
+      const x = 40 + idx * xSpacing;
+      const y = 62 - barHeight;
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', x);
+      rect.setAttribute('y', y);
+      rect.setAttribute('width', barWidth);
+      rect.setAttribute('height', barHeight);
+      rect.setAttribute('fill', `rgba(${99 + idx * 15}, ${130 + idx * 10}, ${246 - idx * 10}, 0.3)`);
+      rect.setAttribute('stroke', `rgba(${99 + idx * 15}, ${130 + idx * 10}, ${246 - idx * 10}, 0.5)`);
+      rect.setAttribute('stroke-width', '1');
+      newRects.push(rect);
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', x + barWidth / 2);
+      label.setAttribute('y', 72);
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('font-size', '8');
+      label.setAttribute('fill', 'rgba(168,184,216,0.5)');
+      label.textContent = pos.ticker.length > 5 ? pos.ticker.substring(0, 5) : pos.ticker;
+      newRects.push(label);
+    });
+    const existingRects = svg.querySelectorAll('rect[data-phase="exposure"], text[data-phase="exposure"]');
+    existingRects.forEach(r => r.remove());
+    const existingStaleText = svg.querySelector('text[text-anchor="middle"]');
+    if (existingStaleText && existingStaleText.textContent.includes('Stale')) {
+      existingStaleText.remove();
+    }
+    newRects.forEach(rect => {
+      rect.setAttribute('data-phase', 'exposure');
+      svg.appendChild(rect);
+    });
+    if (statusEl) statusEl.textContent = 'Source: open positions';
+  } catch (e) {
+    console.error('renderExposureChart error:', e);
+  }
+}
+
 // ---------- post-auth dashboard load ----------
 
 window.paperTraderPostAuthLoad = async function paperTraderPostAuthLoad() {
@@ -3303,6 +3503,13 @@ window.paperTraderPostAuthLoad = async function paperTraderPostAuthLoad() {
     }
 
     try {
+      await loadPortfolioHistory();
+    } catch (e) {
+      failedLoaders.push('portfolio-history');
+      console.error('Portfolio history load error:', e);
+    }
+
+    try {
       await loadPositions();
     } catch (e) {
       failedLoaders.push('positions');
@@ -3335,7 +3542,7 @@ window.paperTraderPostAuthLoad = async function paperTraderPostAuthLoad() {
       if (failedLoaders.length === 0) {
         actionStatusEl.textContent = 'Success: dashboard loaded';
         actionStatusEl.style.color = 'var(--ok)';
-      } else if (failedLoaders.length < 7) {
+      } else if (failedLoaders.length < 8) {
         actionStatusEl.textContent = `Partial dashboard load: ${failedLoaders.join(', ')} failed`;
         actionStatusEl.style.color = 'var(--text-accent)';
       } else {
