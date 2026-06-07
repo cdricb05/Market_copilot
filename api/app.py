@@ -358,6 +358,33 @@ class PerformanceHistoryItem(BaseModel):
     portfolio_vs_benchmark: str | None
 
 
+class MarketIndicator(BaseModel):
+    key: str
+    label: str
+    symbol: str | None = None
+    value: str | None = None
+    change: str | None = None
+    change_pct: str | None = None
+    source: str
+    available: bool
+    as_of: str | None = None
+
+
+class MarketIndicatorPlaceholder(BaseModel):
+    key: str
+    label: str
+    available: bool
+    reason: str
+
+
+class MarketIndicatorsResponse(BaseModel):
+    status: str
+    source: str
+    as_of: str | None
+    indicators: list[MarketIndicator]
+    placeholders: list[MarketIndicatorPlaceholder]
+
+
 class StrategyRunRequest(BaseModel):
     idempotency_key: str
     market_date: date | None = Field(
@@ -12268,6 +12295,104 @@ async def cancel_pending_paper_orders(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=str(exc),
             )
+
+
+@app.get(
+    "/v1/market/indicators",
+    response_model=MarketIndicatorsResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_market_indicators() -> MarketIndicatorsResponse:
+    """
+    Fetch latest market indicators (yfinance only, read-only).
+
+    Returns indicators available from yfinance:
+    S&P 500, Nasdaq, Dow, VIX, EUR/USD, Gold, Brent, WTI.
+
+    Placeholder indicators (FRED not integrated):
+    US 10Y, US 2Y, CPI Latest, Fed Funds, SOFR.
+
+    Graceful partial failure: one missing indicator does not fail the response.
+    """
+    indicator_config = [
+        ("sp500", "S&P 500", "^GSPC"),
+        ("nasdaq", "Nasdaq", "^IXIC"),
+        ("dow", "Dow", "^DJI"),
+        ("vix", "VIX", "^VIX"),
+        ("eurusd", "EUR/USD", "EURUSD=X"),
+        ("gold", "Gold", "GC=F"),
+        ("brent", "Brent", "BZ=F"),
+        ("wti", "WTI", "CL=F"),
+    ]
+
+    placeholder_config = [
+        ("us10y", "US 10Y", "FRED integration not implemented"),
+        ("us2y", "US 2Y", "FRED integration not implemented"),
+        ("cpi_latest", "CPI Latest", "FRED integration not implemented"),
+        ("fed_funds", "Fed Funds", "FRED integration not implemented"),
+        ("sofr", "SOFR", "FRED integration not implemented"),
+    ]
+
+    # Fetch all yfinance symbols at once
+    symbols = [cfg[2] for cfg in indicator_config]
+    successful_prices, failures = fetch_latest_prices(symbols)
+
+    # Create lookup by symbol
+    price_map = {p["ticker"]: p["price"] for p in successful_prices}
+
+    # Build indicators list
+    now_str = datetime.now(timezone.utc).isoformat()
+    indicators = []
+
+    for key, label, symbol in indicator_config:
+        if symbol in price_map:
+            indicators.append(
+                MarketIndicator(
+                    key=key,
+                    label=label,
+                    symbol=symbol,
+                    value=price_map[symbol],
+                    change=None,
+                    change_pct=None,
+                    source="yfinance",
+                    available=True,
+                    as_of=now_str,
+                )
+            )
+        else:
+            indicators.append(
+                MarketIndicator(
+                    key=key,
+                    label=label,
+                    symbol=symbol,
+                    value=None,
+                    change=None,
+                    change_pct=None,
+                    source="yfinance",
+                    available=False,
+                    as_of=None,
+                )
+            )
+
+    # Build placeholders list
+    placeholders = [
+        MarketIndicatorPlaceholder(
+            key=key,
+            label=label,
+            available=False,
+            reason=reason,
+        )
+        for key, label, reason in placeholder_config
+    ]
+
+    return MarketIndicatorsResponse(
+        status="ok",
+        source="yfinance",
+        as_of=now_str,
+        indicators=indicators,
+        placeholders=placeholders,
+    )
 
 
 # ---------------------------------------------------------------------------

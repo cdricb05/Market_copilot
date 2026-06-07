@@ -23582,3 +23582,91 @@ class TestManualPaperCancelEndpoint:
         assert "NO CASH OR POSITION CHANGES" in safety
         assert "AUTOMATION OFF" in safety
         assert "MANUAL REVIEW" in safety
+
+
+class TestMarketIndicatorsEndpoint:
+    """Test GET /v1/market/indicators with mocked yfinance."""
+
+    def test_auth_required(self, seeded_client: TestClient) -> None:
+        """Missing API key returns 401."""
+        resp = seeded_client.get("/v1/market/indicators")
+        assert resp.status_code == 401
+
+    def test_returns_indicators_and_placeholders(self, seeded_client: TestClient, monkeypatch) -> None:
+        """Endpoint returns indicators list and placeholders list."""
+        def mock_fetch_latest_prices(tickers):
+            return [
+                {"ticker": "^GSPC", "price": "5432.10"},
+                {"ticker": "^IXIC", "price": "18200.00"},
+                {"ticker": "^DJI", "price": "42200.50"},
+                {"ticker": "^VIX", "price": "12.45"},
+                {"ticker": "EURUSD=X", "price": "1.0950"},
+                {"ticker": "GC=F", "price": "2025.50"},
+                {"ticker": "BZ=F", "price": "87.30"},
+                {"ticker": "CL=F", "price": "78.50"},
+            ], []
+
+        from paper_trader.api import app
+        monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+
+        resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
+        assert resp.status_code == 200
+
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["source"] == "yfinance"
+        assert "indicators" in data
+        assert "placeholders" in data
+
+        # Check indicators
+        indicators = data["indicators"]
+        assert len(indicators) == 8
+        sp500 = next((i for i in indicators if i["key"] == "sp500"), None)
+        assert sp500 is not None
+        assert sp500["label"] == "S&P 500"
+        assert sp500["available"] is True
+        assert sp500["value"] == "5432.10"
+        assert sp500["source"] == "yfinance"
+
+        # Check placeholders
+        placeholders = data["placeholders"]
+        assert len(placeholders) == 5
+        us10y = next((p for p in placeholders if p["key"] == "us10y"), None)
+        assert us10y is not None
+        assert us10y["label"] == "US 10Y"
+        assert us10y["available"] is False
+        assert "FRED" in us10y["reason"]
+
+    def test_partial_failure_missing_indicator(self, seeded_client: TestClient, monkeypatch) -> None:
+        """When some tickers fail, available indicators are returned with unavailable ones."""
+        def mock_fetch_latest_prices(tickers):
+            return [
+                {"ticker": "^GSPC", "price": "5432.10"},
+                {"ticker": "^IXIC", "price": "18200.00"},
+            ], [
+                {"ticker": "^DJI", "reason": "Not found"},
+                {"ticker": "^VIX", "reason": "Network error"},
+                {"ticker": "EURUSD=X", "reason": "Not found"},
+                {"ticker": "GC=F", "reason": "Not found"},
+                {"ticker": "BZ=F", "reason": "Not found"},
+                {"ticker": "CL=F", "reason": "Not found"},
+            ]
+
+        from paper_trader.api import app
+        monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+
+        resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
+        assert resp.status_code == 200
+
+        data = resp.json()
+        indicators = data["indicators"]
+
+        # Available indicators should have values
+        sp500 = next((i for i in indicators if i["key"] == "sp500"), None)
+        assert sp500["available"] is True
+        assert sp500["value"] == "5432.10"
+
+        # Unavailable indicators should have available=False
+        vix = next((i for i in indicators if i["key"] == "vix"), None)
+        assert vix["available"] is False
+        assert vix["value"] is None

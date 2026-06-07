@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -1526,21 +1526,21 @@
             <button class="btn" style="background: var(--info); color: white; font-weight: 600; width: 100%; flex-shrink: 0;" onclick="window._switchTab('prediction-cockpit')">&#9654; Open Daily Plan Cockpit</button>
 
             <!-- Market Dashboard -->
-            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Market Dashboard</div>
+            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Market Dashboard <span id="mkt-load-status" style="font-size: 8px; font-weight: 400; color: var(--label); text-transform: none;"></span></div>
             <div class="ov-market-grid">
-              <div class="ov-market-card"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">WTI</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">CPI Latest</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">Fed Funds</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
-              <div class="ov-market-card"><div class="ov-mkt-label">SOFR</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="wti"><div class="ov-mkt-label">WTI</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="cpi_latest"><div class="ov-mkt-label">CPI latest</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="fed_funds"><div class="ov-mkt-label">Fed Funds</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card" data-key="sofr"><div class="ov-mkt-label">SOFR</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
             </div><!-- end ov-market-grid -->
 
           </div><!-- end ov-market-panel -->
@@ -3102,6 +3102,15 @@ window.paperTraderDirectDashboardLoad = async function paperTraderDirectDashboar
       failedLoaders.push('workflow:network');
     }
 
+    // Load market dashboard indicators
+    try {
+      if (typeof loadMarketDashboard === 'function') {
+        await loadMarketDashboard();
+      }
+    } catch (e) {
+      failedLoaders.push('market:network');
+    }
+
     // Update status based on results
     if (actionStatusEl) {
       if (failedLoaders.length === 0) {
@@ -3537,12 +3546,19 @@ window.paperTraderPostAuthLoad = async function paperTraderPostAuthLoad() {
       console.error('Workflow status load error:', e);
     }
 
+    try {
+      await loadMarketDashboard();
+    } catch (e) {
+      failedLoaders.push('market');
+      console.error('Market dashboard load error:', e);
+    }
+
     // Update status based on results
     if (actionStatusEl) {
       if (failedLoaders.length === 0) {
         actionStatusEl.textContent = 'Success: dashboard loaded';
         actionStatusEl.style.color = 'var(--ok)';
-      } else if (failedLoaders.length < 8) {
+      } else if (failedLoaders.length < 9) {
         actionStatusEl.textContent = `Partial dashboard load: ${failedLoaders.join(', ')} failed`;
         actionStatusEl.style.color = 'var(--text-accent)';
       } else {
@@ -3868,6 +3884,89 @@ async function loadHistory() {
       <td>${h.portfolio_vs_benchmark != null ? signHtml(h.portfolio_vs_benchmark, usd) : '-'}</td>
     </tr>`).join('');
   updateKpi();
+}
+
+async function loadMarketDashboard() {
+  const statusEl = document.getElementById('mkt-load-status');
+  try {
+    const r = await call('GET', '/v1/market/indicators');
+    if (!r.ok) {
+      console.error('[Market] API error:', r.status);
+      if (statusEl) statusEl.textContent = '(load failed)';
+      return;
+    }
+    const data = await r.json();
+
+    if (!data.indicators && !data.placeholders) {
+      console.error('[Market] Empty response');
+      if (statusEl) statusEl.textContent = '(no data)';
+      return;
+    }
+
+    const yfinanceSymbols = {
+      'sp500': '^GSPC',
+      'nasdaq': '^IXIC',
+      'dow': '^DJI',
+      'vix': '^VIX',
+      'eurusd': 'EURUSD=X',
+      'gold': 'GC=F',
+      'brent': 'BZ=F',
+      'wti': 'CL=F',
+    };
+
+    let updatedCount = 0;
+    if (data.indicators) {
+      for (const indicator of data.indicators) {
+        const cardId = Object.entries(yfinanceSymbols)
+          .find(([_, sym]) => sym === indicator.symbol)?.[0];
+
+        if (!cardId) continue;
+
+        const cardEl = document.querySelector(
+          `.ov-market-card[data-key="${cardId}"]`
+        );
+        if (!cardEl) continue;
+
+        const valueEl = cardEl.querySelector('.ov-mkt-value');
+        const statusEl = cardEl.querySelector('.ov-mkt-status');
+
+        if (indicator.available && indicator.value) {
+          valueEl.textContent = indicator.value;
+          statusEl.textContent = indicator.source;
+          updatedCount++;
+        } else if (!indicator.available) {
+          valueEl.textContent = 'Unavailable';
+          statusEl.textContent = indicator.source;
+        }
+      }
+    }
+
+    if (data.placeholders) {
+      for (const placeholder of data.placeholders) {
+        const cardEl = document.querySelector(
+          `.ov-market-card[data-key="${placeholder.key}"]`
+        );
+        if (!cardEl) continue;
+
+        const valueEl = cardEl.querySelector('.ov-mkt-value');
+        const statusEl = cardEl.querySelector('.ov-mkt-status');
+        valueEl.textContent = 'Not available';
+        statusEl.textContent = placeholder.reason;
+      }
+    }
+
+    console.log(`[Market] Loaded: ${updatedCount} indicators available`);
+    if (statusEl) {
+      statusEl.textContent = updatedCount > 0 ? '(loaded)' : '(no prices)';
+      statusEl.style.color = updatedCount > 0 ? 'var(--ok)' : 'var(--warn)';
+    }
+  } catch (e) {
+    console.error('[Market] Exception:', e.message);
+    if (statusEl) {
+      statusEl.textContent = '(error)';
+      statusEl.style.color = 'var(--err)';
+    }
+  }
 }
 
 async function downloadCsv(e) {
@@ -8153,6 +8252,7 @@ async function connectDashboardLegacy() {
         loadOrders(),
         loadHistory(),
         loadReviewQueue(),
+        loadMarketDashboard(),
       ]);
       updateConnectStatus('Connected');
     } catch (e) {
