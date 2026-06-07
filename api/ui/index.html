@@ -2035,6 +2035,24 @@
           </div>
         </details>
 
+        <!-- Step H: Cancel Pending Paper Orders -->
+        <details class="exec-step-e">
+          <summary>
+            <span style="font-size: 9px; color: var(--label);">&#9656;</span>
+            <span>Step H &mdash; Cancel Pending Paper Orders</span>
+            <span class="badge ok" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">PAPER CANCEL ONLY</span>
+            <span class="badge warn" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+            <span class="badge err" style="font-size: 7px; padding: 1px 5px;">NO LIVE TRADES</span>
+          </summary>
+          <div class="command-section step-e-disabled">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="font-size: 10px; color: var(--label);">Cancels PENDING paper Order rows in the local DB only. <strong style="color: var(--danger);">PAPER CANCEL ONLY.</strong> No broker. No live trades. Does not change cash or positions. Automation off. Manual review required.</div>
+              <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
+            </div>
+            <div id="cancel-orders-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready. Click Cancel Pending Paper Orders to cancel all PENDING paper order tickets. Cash and positions are not changed.</div>
+          </div>
+        </details>
+
       </div><!-- end tab-signals-decisions -->
 
       <!-- TAB 4: PORTFOLIO -->
@@ -2575,6 +2593,13 @@
       <div style="font-size: 9px; color: var(--warning); font-weight: 600; margin-bottom: 4px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
       <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.</div>
       <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Cancel Orders</div>
+      <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 4px;">PAPER CANCEL ONLY &mdash; NO LIVE TRADES</div>
+      <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Cancels PENDING paper orders in local DB only. No broker. No cash changes. No position changes. Automation off.</div>
+      <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
     </div>
 
     <div class="panel-section">
@@ -7652,6 +7677,88 @@ function renderFillOrdersResponse(data) {
   if (_navEl) _navEl.textContent = filled > 0
     ? `${filled} paper order(s) filled. Cash delta: $${cashDelta}. PAPER FILLS ONLY - no broker execution, no live trades.`
     : 'No PENDING orders to fill. PAPER FILLS ONLY - no broker execution, no live trades.';
+}
+
+async function cancelPendingPaperOrders() {
+  const container = document.getElementById('cancel-orders-content');
+
+  return new Promise(resolve => {
+    window._showWriteConfirm({
+      title: 'Confirm: Cancel Pending Paper Orders',
+      writes: ['Sets PENDING paper Order rows to CANCELLED status', 'Appends cancellation note to each order'],
+      doesNotDo: [
+        'cancels PENDING paper Order rows only',
+        'does not execute live trades',
+        'does not submit to broker',
+        'does not change cash',
+        'does not change positions',
+        'does not enable automation',
+      ],
+      confirmLabel: 'Cancel Pending Paper Orders',
+      onConfirm: async () => {
+        if (container) container.innerHTML = '<div style="color: var(--label); padding: 12px; text-align: center;">Cancelling pending paper orders...</div>';
+
+        try {
+          const r = await call('POST', '/v1/review/cancel-pending-orders', {
+            confirm_cancel_orders: true,
+          });
+          if (!r.ok) {
+            const errData = await parseApiResponse(r);
+            const errMsg = formatApiError(errData);
+            if (container) container.innerHTML = `<div style="color: var(--danger); padding: 12px;">Error: ${escapeHtml(errMsg)}</div>`;
+            resolve();
+            return;
+          }
+          const data = await r.json();
+          renderCancelOrdersResponse(data);
+          refreshCockpitAfterAction('Cancel Orders');
+          resolve();
+        } catch (e) {
+          if (container) container.innerHTML = `<div style="color: var(--danger); padding: 12px;">${escapeHtml(String(e))}</div>`;
+          resolve();
+        }
+      },
+      onCancel: () => resolve(),
+    });
+  });
+}
+
+function renderCancelOrdersResponse(data) {
+  const container = document.getElementById('cancel-orders-content');
+  if (!container) return;
+  let html = '';
+
+  const cancelled = data.orders_cancelled ?? 0;
+  const evaluated = data.orders_evaluated ?? 0;
+  const skippedNotPending = data.skipped_not_pending ?? 0;
+  const skippedInvalid = data.skipped_invalid ?? 0;
+  const safetyMsg = data.safety_message || '';
+
+  // Safety banner
+  html += '<div style="padding: 6px 10px; background: rgba(239,68,68,.07); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; margin-bottom: 10px; font-size: 9px; color: var(--danger); font-weight: 600;">';
+  html += escapeHtml(safetyMsg);
+  html += '</div>';
+
+  // Summary cards
+  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px;">';
+  html += `<div style="background: rgba(239,68,68,.1); padding: 8px; border: 1px solid var(--danger); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Cancelled</div><div style="font-size: 18px; font-weight: 700; color: var(--danger);">${cancelled}</div></div>`;
+  html += `<div style="background: rgba(34,197,94,.05); padding: 8px; border: 1px solid var(--border); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Evaluated</div><div style="font-size: 18px; font-weight: 700; color: var(--text-accent);">${evaluated}</div></div>`;
+  html += `<div style="background: rgba(34,197,94,.05); padding: 8px; border: 1px solid var(--border); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Skipped</div><div style="font-size: 18px; font-weight: 700; color: var(--label);">${skippedNotPending}</div></div>`;
+  html += `<div style="background: rgba(239,68,68,.1); padding: 8px; border: 1px solid var(--danger); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Errors</div><div style="font-size: 18px; font-weight: 700; color: var(--danger);">${skippedInvalid}</div></div>`;
+  html += `<div style="padding: 8px; border: 1px solid var(--ok); border-radius: 2px; text-align: center;"><div style="font-size: 9px; color: var(--label);">Cash Delta</div><div style="font-size: 14px; font-weight: 700; color: var(--ok); font-family: 'Monaco', monospace;">$0.00</div></div>`;
+  html += '</div>';
+
+  // Safety footer
+  html += '<div style="padding: 8px; background: rgba(0,0,0,.1); border: 1px solid var(--border); border-radius: 2px; font-size: 10px; color: var(--danger); font-weight: 600;">';
+  html += `PAPER CANCEL ONLY &mdash; NO BROKER EXECUTION &mdash; NO LIVE TRADES &mdash; NO CASH OR POSITION CHANGES &mdash; Automation off`;
+  html += '</div>';
+
+  container.innerHTML = html;
+
+  const _navEl = document.getElementById('cockpit-next-action');
+  if (_navEl) _navEl.textContent = cancelled > 0
+    ? `${cancelled} paper order(s) cancelled. PAPER CANCEL ONLY - no broker execution, no cash or position changes.`
+    : 'No PENDING orders to cancel. PAPER CANCEL ONLY - no broker execution, no cash or position changes.';
 }
 
 function getDtrStepStatus(step) {

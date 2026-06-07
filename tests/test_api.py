@@ -23171,3 +23171,414 @@ class TestManualPaperFillEndpoint:
         assert "NO LIVE TRADES" in safety
         assert "AUTOMATION OFF" in safety
         assert "MANUAL REVIEW" in safety
+
+
+# ===========================================================================
+# TestManualPaperCancelEndpoint
+# ===========================================================================
+
+class TestManualPaperCancelEndpoint:
+    """Tests for POST /v1/review/cancel-pending-orders (PAPER CANCEL ONLY, no broker)."""
+
+    _ENDPOINT = "/v1/review/cancel-pending-orders"
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_cancel_artifacts(self, api_engine):
+        """Delete paper order ticket rows and any stray PENDING orders for today's
+        market_date before and after each test.
+
+        Two-clause deletion ensures isolation even when other test classes leave
+        PENDING orders without a 'Paper order ticket' notes marker.
+        """
+        def _purge():
+            today = date.today()
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(
+                    Order.notes.like("Paper order ticket%"),
+                ).delete(synchronize_session=False)
+                s.query(Order).filter(
+                    Order.status == "PENDING",
+                    Order.market_date == today,
+                ).delete(synchronize_session=False)
+                s.commit()
+        _purge()
+        yield
+        _purge()
+
+    # ------------------------------------------------------------------
+    # Helper: seed a complete Signal→TradeDecision→Order chain
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _seed_pending_order(
+        session,
+        suffix: str,
+        *,
+        side: str = "BUY",
+        qty: Decimal = Decimal("5.00000000"),
+        price: Decimal = Decimal("100.00"),
+        market_date: date | None = None,
+    ) -> tuple:
+        """
+        Create a PENDING paper Order row with all required FKs.
+        Returns (order_id, ticker, td_id).
+        """
+        import uuid as _uuid
+
+        md = market_date or date.today()
+        ticker = f"CNCL{suffix[:4]}".upper()
+
+        jr_sig = JobRun(
+            idempotency_key=f"cncl-sig-jr-{suffix}",
+            workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+            market_date=md,
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_sig)
+        session.flush()
+
+        sig = Signal(
+            job_run_id=jr_sig.id,
+            ticker=ticker,
+            direction=side,
+            confidence=Decimal("0.85"),
+            signal_ts=datetime.now(timezone.utc),
+            market_date=md,
+            source_run=f"review_queue_create_signals_v1:cncl:{suffix}",
+            status="RECEIVED",
+            raw_payload={},
+        )
+        session.add(sig)
+        session.flush()
+
+        jr_td = JobRun(
+            idempotency_key=f"cncl-td-jr-{suffix}",
+            workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+            market_date=md,
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_td)
+        session.flush()
+
+        td = TradeDecision(
+            signal_id=sig.id,
+            job_run_id=jr_td.id,
+            ticker=ticker,
+            signal_direction=side,
+            decision=side,
+            reason_code=None,
+            approved_qty=qty,
+            approved_notional=(qty * price).quantize(Decimal("0.01")),
+            requested_qty=qty,
+            requested_notional=(qty * price).quantize(Decimal("0.01")),
+            decided_at=datetime.now(timezone.utc),
+            market_date=md,
+        )
+        session.add(td)
+        session.flush()
+
+        jr_ord = JobRun(
+            idempotency_key=f"cncl-ord-jr-{suffix}",
+            workflow_type="REVIEW_QUEUE_CREATE_ORDERS",
+            market_date=md,
+            status="COMPLETED",
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(jr_ord)
+        session.flush()
+
+        order = Order(
+            trade_decision_id=td.id,
+            job_run_id=jr_ord.id,
+            ticker=ticker,
+            side=side,
+            order_type="MARKET",
+            status="PENDING",
+            market_date=md,
+            requested_qty=qty,
+            requested_at=datetime.now(timezone.utc),
+            notes="Paper order ticket — review workflow. No broker execution.",
+        )
+        session.add(order)
+        session.flush()
+
+        return order.id, ticker, td.id
+
+    # ------------------------------------------------------------------
+    # Test 1: unauthorized
+    # ------------------------------------------------------------------
+
+    def test_unauthorized_returns_401(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(self._ENDPOINT, json={"confirm_cancel_orders": True})
+        assert r.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: confirm_cancel_orders=False returns 422
+    # ------------------------------------------------------------------
+
+    def test_confirm_false_returns_422(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": False},
+            headers=_AUTH,
+        )
+        assert r.status_code == 422
+
+    # ------------------------------------------------------------------
+    # Test 3: confirm_cancel_orders missing returns 422 (default=False)
+    # ------------------------------------------------------------------
+
+    def test_confirm_missing_returns_422(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(self._ENDPOINT, json={}, headers=_AUTH)
+        assert r.status_code == 422
+
+    # ------------------------------------------------------------------
+    # Test 4: no PENDING orders returns zero cancels
+    # ------------------------------------------------------------------
+
+    def test_no_pending_orders_returns_zero(self, seeded_client: TestClient) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["execution_mode"] == "PAPER_CANCEL_ONLY"
+        assert data["orders_evaluated"] == 0
+        assert data["orders_cancelled"] == 0
+        assert "safety_message" in data
+        assert "PAPER CANCEL ONLY" in data["safety_message"]
+
+    # ------------------------------------------------------------------
+    # Test 5: PENDING paper order is cancelled and set to CANCELLED in DB
+    # ------------------------------------------------------------------
+
+    def test_pending_order_is_cancelled(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, td_id = self._seed_pending_order(s, sfx)
+            s.commit()
+
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["orders_cancelled"] >= 1
+        assert "PAPER CANCEL ONLY" in data["safety_message"]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order = s.query(Order).filter(Order.id == order_id).first()
+            assert order is not None
+            assert order.status == "CANCELLED"
+
+    # ------------------------------------------------------------------
+    # Test 6: FILLED order is skipped and remains FILLED
+    # ------------------------------------------------------------------
+
+    def test_filled_order_is_skipped(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, td_id = self._seed_pending_order(s, sfx)
+            # Manually mark as FILLED (bypassing fill endpoint)
+            order = s.query(Order).filter(Order.id == order_id).first()
+            order.status = "FILLED"
+            s.commit()
+
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["orders_cancelled"] == 0
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order = s.query(Order).filter(Order.id == order_id).first()
+            assert order.status == "FILLED"
+
+    # ------------------------------------------------------------------
+    # Test 7: repeated cancel is idempotent
+    # ------------------------------------------------------------------
+
+    def test_repeated_cancel_is_idempotent(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, td_id = self._seed_pending_order(s, sfx)
+            s.commit()
+
+        # First call — cancels the order
+        r1 = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r1.status_code == 200
+        d1 = r1.json()
+        assert d1["orders_cancelled"] >= 1
+
+        # Second call — no more PENDING orders, returns zero
+        r2 = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r2.status_code == 200
+        d2 = r2.json()
+        assert d2["orders_cancelled"] == 0
+        assert d2["orders_evaluated"] == 0
+
+    # ------------------------------------------------------------------
+    # Test 8: cancel does not change cash (no CashLedger entries added)
+    # ------------------------------------------------------------------
+
+    def test_cancel_does_not_change_cash(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        from paper_trader.db.models import CashLedger
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cash_entry_count_before = s.query(CashLedger).count()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, td_id = self._seed_pending_order(s, sfx)
+            s.commit()
+
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["cash_delta"] == "0.00"
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cash_entry_count_after = s.query(CashLedger).count()
+
+        assert cash_entry_count_before == cash_entry_count_after
+
+    # ------------------------------------------------------------------
+    # Test 9: cancel does not change positions
+    # ------------------------------------------------------------------
+
+    def test_cancel_does_not_change_positions(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos_tickers_before = {
+                p.ticker for p in s.query(Position).filter(Position.qty > 0).all()
+            }
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, td_id = self._seed_pending_order(s, sfx)
+            s.commit()
+
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["positions_changed"] == []
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos_tickers_after = {
+                p.ticker for p in s.query(Position).filter(Position.qty > 0).all()
+            }
+
+        assert pos_tickers_before == pos_tickers_after
+
+    # ------------------------------------------------------------------
+    # Test 10: cancel does not create Trade rows
+    # ------------------------------------------------------------------
+
+    def test_cancel_does_not_create_trade_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        from paper_trader.db.models import Trade
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            trade_count_before = s.query(Trade).count()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, td_id = self._seed_pending_order(s, sfx)
+            s.commit()
+
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            trade_count_after = s.query(Trade).count()
+
+        assert trade_count_before == trade_count_after
+
+    # ------------------------------------------------------------------
+    # Test 11: response shape and safety message content
+    # ------------------------------------------------------------------
+
+    def test_response_includes_safety_message(
+        self, seeded_client: TestClient
+    ) -> None:
+        r = seeded_client.post(
+            self._ENDPOINT,
+            json={"confirm_cancel_orders": True},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+        data = r.json()
+
+        required_keys = [
+            "execution_mode", "orders_evaluated", "orders_cancelled",
+            "skipped_not_pending", "skipped_invalid",
+            "cash_delta", "positions_changed", "safety_message",
+        ]
+        for key in required_keys:
+            assert key in data, f"Missing response key: {key}"
+
+        assert data["execution_mode"] == "PAPER_CANCEL_ONLY"
+        assert isinstance(data["orders_evaluated"], int)
+        assert isinstance(data["orders_cancelled"], int)
+        assert isinstance(data["skipped_not_pending"], int)
+        assert isinstance(data["skipped_invalid"], int)
+        assert isinstance(data["cash_delta"], str)
+        assert isinstance(data["positions_changed"], list)
+        assert isinstance(data["safety_message"], str)
+
+        safety = data["safety_message"]
+        assert "PAPER CANCEL ONLY" in safety
+        assert "NO BROKER EXECUTION" in safety
+        assert "NO LIVE TRADES" in safety
+        assert "NO CASH OR POSITION CHANGES" in safety
+        assert "AUTOMATION OFF" in safety
+        assert "MANUAL REVIEW" in safety

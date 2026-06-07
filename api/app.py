@@ -33,6 +33,7 @@ Endpoints:
     POST /v1/review/daily-plan-replay-preview — historical daily plan replay/backtest preview (read-only)
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
     POST /v1/review/fill-pending-orders — manually fill PENDING paper Order rows (PAPER FILLS ONLY, no broker execution)
+    POST /v1/review/cancel-pending-orders — manually cancel PENDING paper Order rows (PAPER CANCEL ONLY, no broker execution)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -1307,6 +1308,26 @@ class ManualPaperFillResponse(BaseModel):
     skipped_not_pending: int
     skipped_invalid: int
     skipped_no_price: int
+    cash_delta: str
+    positions_changed: list[str]
+    safety_message: str
+
+
+class ManualPaperCancelRequest(BaseModel):
+    """Request for POST /v1/review/cancel-pending-orders (PAPER CANCEL ONLY, no broker execution)."""
+    confirm_cancel_orders: bool = Field(
+        default=False,
+        description="Must be true to cancel pending paper orders. Safety gate.",
+    )
+
+
+class ManualPaperCancelResponse(BaseModel):
+    """Response from POST /v1/review/cancel-pending-orders (PAPER CANCEL ONLY, no broker execution)."""
+    execution_mode: str
+    orders_evaluated: int
+    orders_cancelled: int
+    skipped_not_pending: int
+    skipped_invalid: int
     cash_delta: str
     positions_changed: list[str]
     safety_message: str
@@ -12089,6 +12110,147 @@ async def fill_pending_paper_orders(
                 cash_delta=str(cash_delta),
                 positions_changed=positions_changed,
                 safety_message=_FILL_SAFETY_MSG,
+            )
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            if job_run is not None:
+                try:
+                    job_run.status = JobRunStatus.FAILED
+                    job_run.error_detail = str(exc)[:2000]
+                    job_run.completed_at = now
+                    session.commit()
+                except Exception:
+                    session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(exc),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Manual paper cancel
+# ---------------------------------------------------------------------------
+
+_CANCEL_SAFETY_MSG = (
+    "PAPER CANCEL ONLY. CANCELS PENDING PAPER ORDER TICKETS ONLY. "
+    "NO BROKER EXECUTION. NO LIVE TRADES. NO CASH OR POSITION CHANGES. "
+    "AUTOMATION OFF. MANUAL REVIEW."
+)
+
+
+@app.post(
+    "/v1/review/cancel-pending-orders",
+    response_model=ManualPaperCancelResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def cancel_pending_paper_orders(
+    body: ManualPaperCancelRequest,
+) -> ManualPaperCancelResponse:
+    """
+    Manually cancel all PENDING paper Order rows for today's market date.
+
+    PAPER CANCEL ONLY. No broker execution. No live trades. No cash changes.
+    No position changes. No Trade rows created. No automation.
+    Manual user confirmation required (confirm_cancel_orders must be true).
+
+    Cancel logic:
+    - Processes all PENDING orders whose market_date equals today's US-Eastern date.
+    - Sets status to CANCELLED (does not alter FILLED, EXPIRED, FAILED, or already-CANCELLED orders).
+    - Does not change cash, positions, or create any Trade rows.
+    - Cash delta is always 0.00. Positions changed is always empty.
+    """
+    import uuid as uuid_module
+
+    if not body.confirm_cancel_orders:
+        raise HTTPException(
+            status_code=422,
+            detail="confirm_cancel_orders must be true to cancel pending orders.",
+        )
+
+    now = datetime.now(timezone.utc)
+    market_date = now.astimezone(_EASTERN).date()
+
+    with get_dedicated_session() as session:
+        job_run: JobRun | None = None
+        try:
+            pending_orders = list(
+                session.execute(
+                    select(Order)
+                    .where(
+                        Order.status == "PENDING",
+                        Order.market_date == market_date,
+                    )
+                    .order_by(Order.requested_at)
+                ).scalars().all()
+            )
+            orders_evaluated = len(pending_orders)
+
+            if orders_evaluated == 0:
+                return ManualPaperCancelResponse(
+                    execution_mode="PAPER_CANCEL_ONLY",
+                    orders_evaluated=0,
+                    orders_cancelled=0,
+                    skipped_not_pending=0,
+                    skipped_invalid=0,
+                    cash_delta="0.00",
+                    positions_changed=[],
+                    safety_message=_CANCEL_SAFETY_MSG,
+                )
+
+            # Create a JobRun for audit trail
+            job_run = JobRun(
+                idempotency_key=f"manual-paper-cancel-{uuid_module.uuid4()}",
+                workflow_type="MANUAL_PAPER_CANCEL",
+                market_date=market_date,
+                status=JobRunStatus.RUNNING,
+                started_at=now,
+            )
+            session.add(job_run)
+            session.commit()
+
+            orders_cancelled = 0
+            skipped_not_pending = 0
+            skipped_invalid = 0
+
+            for order in pending_orders:
+                try:
+                    # Re-read status after commit (auto-expiry catches concurrent fill races)
+                    if order.status != "PENDING":
+                        skipped_not_pending += 1
+                        continue
+                    order.status = "CANCELLED"
+                    order.notes = (
+                        "Paper order ticket cancelled — manual paper cancel. "
+                        "No broker execution."
+                    )
+                    orders_cancelled += 1
+                except Exception:
+                    skipped_invalid += 1
+
+            session.commit()
+
+            job_run.status = JobRunStatus.COMPLETED
+            job_run.completed_at = now
+            job_run.result_summary = {
+                "orders_evaluated": orders_evaluated,
+                "orders_cancelled": orders_cancelled,
+                "skipped_not_pending": skipped_not_pending,
+                "skipped_invalid": skipped_invalid,
+            }
+            session.commit()
+
+            return ManualPaperCancelResponse(
+                execution_mode="PAPER_CANCEL_ONLY",
+                orders_evaluated=orders_evaluated,
+                orders_cancelled=orders_cancelled,
+                skipped_not_pending=skipped_not_pending,
+                skipped_invalid=skipped_invalid,
+                cash_delta="0.00",
+                positions_changed=[],
+                safety_message=_CANCEL_SAFETY_MSG,
             )
 
         except HTTPException:
