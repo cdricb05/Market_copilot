@@ -1083,6 +1083,79 @@
     details.exec-step-e > summary::-webkit-details-marker { display: none; }
     details.exec-step-e[open] > summary { border-radius: 3px 3px 0 0; border-bottom: none; }
     details.exec-step-e > .command-section { border-radius: 0 0 3px 3px; border-top: none; margin-top: 0; }
+
+    /* --- Phase 14A: Overview Portfolio + Market Cockpit --- */
+    .ov-main-grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 10px;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .ov-portfolio-panel {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+    }
+    .ov-market-panel {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 0;
+    }
+    .ov-chart-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .ov-chart-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 8px 10px;
+    }
+    .ov-chart-title {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-accent);
+      margin-bottom: 4px;
+    }
+    .ov-chart-svg { display: block; width: 100%; height: 75px; }
+    .ov-chart-status { font-size: 8px; color: var(--label); font-style: italic; margin-top: 3px; }
+    .ov-pf-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .ov-pf-summary-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 6px 8px;
+      text-align: center;
+    }
+    .ov-market-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+    }
+    .ov-market-card {
+      background: rgba(0,0,0,.15);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 6px 8px;
+    }
+    .ov-mkt-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--label); font-weight: 600; margin-bottom: 2px; }
+    .ov-mkt-value { font-size: 11px; font-weight: 700; color: var(--text-accent); font-family: 'Monaco', monospace; }
+    .ov-mkt-status { font-size: 8px; color: var(--label); font-style: italic; margin-top: 1px; }
+    .badge.danger { background: rgba(239,68,68,.12); color: var(--danger); border-color: var(--danger); }
+    .dp-rotation-card { border-color: rgba(245,158,11,.35) !important; }
   </style>
 </head>
 <body>
@@ -1300,8 +1373,6 @@
       <div class="sidebar-label">Views</div>
       <a class="sidebar-link" onclick="window._switchTab('overview');">Overview</a>
       <a class="sidebar-link" onclick="window._switchTab('prediction-cockpit');">Daily Plan</a>
-      <a class="sidebar-link" onclick="window._switchTab('review-queue');">Review Queue</a>
-      <a class="sidebar-link" onclick="window._switchTab('signals-decisions');">Execution</a>
       <a class="sidebar-link" onclick="window._switchTab('portfolio');">Portfolio</a>
       <a class="sidebar-link" onclick="window._switchTab('audit-advanced');">Audit / Advanced</a>
     </div>
@@ -1317,8 +1388,6 @@
     <div class="tab-bar">
       <button class="tab-button active" onclick="window._switchTab('overview')">Overview</button>
       <button class="tab-button" onclick="window._switchTab('prediction-cockpit')">Daily Plan</button>
-      <button class="tab-button" onclick="window._switchTab('review-queue')">Review Queue</button>
-      <button class="tab-button" onclick="window._switchTab('signals-decisions')">Execution</button>
       <button class="tab-button" onclick="window._switchTab('portfolio')">Portfolio</button>
       <button class="tab-button" onclick="window._switchTab('audit-advanced')">Audit / Advanced</button>
     </div>
@@ -1329,199 +1398,195 @@
 
         <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); margin-bottom: 4px; flex-shrink: 0;">Trading Cockpit Overview</div>
 
-        <!-- KPI strip (8 cards) -->
+        <!-- KPI strip: portfolio financial metrics -->
         <div class="cockpit-kpi-strip">
           <div class="kpi-item"><span class="kpi-label">Total Value</span><span class="kpi-value" id="pf-total">-</span></div>
           <div class="kpi-item"><span class="kpi-label">Cash</span><span class="kpi-value" id="pf-cash">-</span></div>
           <div class="kpi-item"><span class="kpi-label">Positions Value</span><span class="kpi-value" id="pf-positions">-</span></div>
-          <div class="kpi-item"><span class="kpi-label">Return %</span><span class="kpi-value" id="perf-pct">-</span></div>
-          <div class="kpi-item"><span class="kpi-label">Open Positions</span><span class="kpi-value" id="kpi-positions">-</span></div>
-          <div class="kpi-item"><span class="kpi-label">Available Slots</span><span class="kpi-value" id="kpi-avail-slots">-</span></div>
-          <div class="kpi-item"><span class="kpi-label">Pending Orders</span><span class="kpi-value" id="kpi-pending">-</span></div>
-          <div class="kpi-item"><span class="kpi-label">Orders</span><span class="kpi-value danger" id="kpi-orders-status">DISABLED</span></div>
+          <div class="kpi-item"><span class="kpi-label">Daily P&amp;L</span><span class="kpi-value" id="kpi-daily-pnl">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Total Return</span><span class="kpi-value" id="perf-pct">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Realized P&amp;L</span><span class="kpi-value" id="kpi-realized-pnl">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Unrealized P&amp;L</span><span class="kpi-value" id="kpi-unrealized-pnl">-</span></div>
+          <div class="kpi-item"><span class="kpi-label">Pending Actions</span><span class="kpi-value" id="kpi-pending">-</span></div>
         </div>
 
-        <!-- Main cockpit grid: 3 columns -->
-        <div class="cockpit-main-grid">
+        <!-- Portfolio + Market Dashboard: 2/3 + 1/3 -->
+        <div class="ov-main-grid">
 
-          <!-- LEFT COL: Today's Trading Run command center -->
-          <div class="cockpit-left-col">
-            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Today's Trading Run</div>
+          <!-- LEFT: Portfolio visual sections -->
+          <div class="ov-portfolio-panel">
+            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Portfolio Overview</div>
+            <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Portfolio Allocation</div>
 
-            <!-- 1 - SCAN: generate candidate preview -->
-            <div class="stage-card" id="stage-scan">
-              <div class="stage-title">1 &mdash; SCAN</div>
-              <div style="font-size: 8px; color: var(--info); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 3px;">PREVIEW ONLY &mdash; creates nothing</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px;" id="ov-scan-summary">Run to see results</div>
-              <button class="btn-sm" style="width: 100%; margin-bottom: 2px;" onclick="runPredictionPreview(this)">Generate Candidate Preview</button>
-            </div>
+            <!-- 2x2 chart grid -->
+            <div class="ov-chart-grid">
 
-            <!-- 2 - REVIEW: save candidates + open queue -->
-            <div class="stage-card" id="stage-review">
-              <div class="stage-title">2 &mdash; REVIEW</div>
-              <div style="font-size: 8px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 3px;">SAVES REVIEW CANDIDATES ONLY</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px;" id="stage-review-count">Requires Step 1 preview. Confirms before writing.</div>
-              <div style="display: flex; gap: 4px; margin-bottom: 2px;">
-                <button class="btn-sm" style="flex: 1; background: var(--ok); color: white; font-size: 9px;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save Eligible</button>
-                <button class="btn-sm" style="flex: 0 0 auto; font-size: 9px; background: transparent; border: 1px solid var(--border); color: var(--text-accent);" onclick="saveCandidatesToReviewQueue('ALL', this)">All</button>
-              </div>
-              <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="window._switchTab('review-queue')">Open Review Queue &rarr;</button>
-            </div>
-
-            <!-- 3 - PLAN: generate daily plan -->
-            <div class="stage-card" id="stage-plan">
-              <div class="stage-title">3 &mdash; PLAN</div>
-              <div style="font-size: 8px; color: var(--info); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 3px;">PREVIEW ONLY &mdash; creates nothing</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px;" id="ov-plan-summary">Generate after review</div>
-              <button class="btn-sm" style="width: 100%;" onclick="runDailyPlan(this)">Generate Daily Plan</button>
-            </div>
-
-            <!-- 4 - EXECUTE PREVIEW: signals, decisions, order preview -->
-            <div class="stage-card" id="stage-execute" style="border-color: rgba(239,68,68,.4);">
-              <div class="stage-title" style="color: var(--danger);">4 &mdash; EXECUTE PREVIEW</div>
-              <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 5px;">PAPER ORDERS ONLY &mdash; NO BROKER EXECUTION</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px;" id="ov-execute-summary">Approve candidates &rarr; create signals &rarr; create decisions</div>
-
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; margin-bottom: 4px;">
-                <div>
-                  <div style="font-size: 7px; color: var(--info); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PREVIEW ONLY</div>
-                  <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="generateSignalPreview()">Preview Signals</button>
-                </div>
-                <div>
-                  <div style="font-size: 7px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">CREATES SIGNALS ONLY</div>
-                  <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createSignalsFromCandidates()">Create Signals</button>
-                </div>
-                <div>
-                  <div style="font-size: 7px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PREVIEW ONLY</div>
-                  <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="previewDecisionsFromSignals()">Preview Decisions</button>
-                </div>
-                <div>
-                  <div style="font-size: 7px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">CREATES TRADE DECISIONS ONLY</div>
-                  <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createDecisionsFromSignals()">Create Decisions</button>
-                </div>
+              <!-- Chart 1: Portfolio Value Over Time -->
+              <div class="ov-chart-card">
+                <div class="ov-chart-title">Portfolio Value Over Time</div>
+                <svg class="ov-chart-svg" viewBox="0 0 300 75" preserveAspectRatio="none">
+                  <line x1="36" y1="5" x2="36" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
+                  <line x1="36" y1="62" x2="294" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
+                  <line x1="36" y1="45" x2="294" y2="45" stroke="rgba(168,184,216,0.07)" stroke-width="1" stroke-dasharray="3,5"/>
+                  <line x1="36" y1="28" x2="294" y2="28" stroke="rgba(168,184,216,0.07)" stroke-width="1" stroke-dasharray="3,5"/>
+                  <line x1="36" y1="11" x2="294" y2="11" stroke="rgba(168,184,216,0.07)" stroke-width="1" stroke-dasharray="3,5"/>
+                  <text x="32" y="65" text-anchor="end" fill="rgba(168,184,216,0.3)" font-size="7">0</text>
+                  <text x="32" y="48" text-anchor="end" fill="rgba(168,184,216,0.3)" font-size="7">25k</text>
+                  <text x="32" y="31" text-anchor="end" fill="rgba(168,184,216,0.3)" font-size="7">50k</text>
+                  <text x="32" y="14" text-anchor="end" fill="rgba(168,184,216,0.3)" font-size="7">75k</text>
+                  <text x="165" y="37" text-anchor="middle" dominant-baseline="middle" fill="rgba(168,184,216,0.18)" font-size="9">Stale &mdash; not wired yet</text>
+                </svg>
+                <div class="ov-chart-status">Source pending</div>
               </div>
 
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px;">
-                <div>
-                  <div style="font-size: 7px; color: var(--label); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PREVIEW ONLY</div>
-                  <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="previewOrdersFromDecisions()">Preview Orders</button>
+              <!-- Chart 2: P&L Curve -->
+              <div class="ov-chart-card">
+                <div class="ov-chart-title">P&amp;L Curve</div>
+                <svg class="ov-chart-svg" viewBox="0 0 300 75" preserveAspectRatio="none">
+                  <line x1="36" y1="5" x2="36" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
+                  <line x1="36" y1="62" x2="294" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
+                  <line x1="36" y1="36" x2="294" y2="36" stroke="rgba(34,197,94,0.18)" stroke-width="1" stroke-dasharray="4,4"/>
+                  <text x="32" y="39" text-anchor="end" fill="rgba(34,197,94,0.4)" font-size="7">0</text>
+                  <text x="165" y="37" text-anchor="middle" dominant-baseline="middle" fill="rgba(168,184,216,0.18)" font-size="9">Stale &mdash; not wired yet</text>
+                </svg>
+                <div class="ov-chart-status">Source pending</div>
+              </div>
+
+              <!-- Chart 3: Cash vs Invested -->
+              <div class="ov-chart-card">
+                <div class="ov-chart-title">Cash vs Invested</div>
+                <div style="padding: 6px 0 4px;">
+                  <div style="font-size: 9px; color: var(--label); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.06em;">Cash vs Positions</div>
+                  <div class="allocation-bar-outer"><div class="allocation-bar" id="ov-alloc-bar" style="width: 50%;"></div></div>
+                  <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--label); margin-top: 3px; margin-bottom: 8px;">
+                    <span id="ov-alloc-cash-pct">Cash: -</span>
+                    <span id="ov-alloc-pos-pct">Positions: -</span>
+                  </div>
+                  <div style="font-size: 9px; color: var(--label); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.06em;">Capacity Used</div>
+                  <div class="capacity-bar-outer"><div class="capacity-bar" id="ov-capacity-bar" style="width: 0%;"></div></div>
+                  <div style="font-size: 9px; color: var(--label); margin-top: 3px;" id="ov-capacity-label">Connect to load capacity</div>
                 </div>
-                <div>
-                  <div style="font-size: 7px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">CREATES ORDER TICKETS ONLY</div>
-                  <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
-                </div>
+                <div class="ov-chart-status">Live when connected</div>
+              </div>
+
+              <!-- Chart 4: Allocation by Ticker -->
+              <div class="ov-chart-card">
+                <div class="ov-chart-title">Exposure by Ticker</div>
+                <svg class="ov-chart-svg" viewBox="0 0 300 75" preserveAspectRatio="none">
+                  <rect x="40" y="10" width="30" height="52" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.2)" stroke-width="1"/>
+                  <rect x="80" y="25" width="30" height="37" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.2)" stroke-width="1"/>
+                  <rect x="120" y="35" width="30" height="27" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.2)" stroke-width="1"/>
+                  <rect x="160" y="42" width="30" height="20" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.2)" stroke-width="1"/>
+                  <line x1="36" y1="62" x2="294" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
+                  <text x="165" y="37" text-anchor="middle" dominant-baseline="middle" fill="rgba(168,184,216,0.18)" font-size="9">Stale &mdash; not wired yet</text>
+                </svg>
+                <div class="ov-chart-status">Source pending</div>
+              </div>
+
+            </div><!-- end ov-chart-grid -->
+
+            <!-- Summary row below charts -->
+            <div class="ov-pf-summary-grid">
+              <div class="ov-pf-summary-card">
+                <div style="font-size: 8px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Total Value</div>
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="ov-pf-total">-</div>
+              </div>
+              <div class="ov-pf-summary-card">
+                <div style="font-size: 8px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Cash</div>
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="ov-pf-cash">-</div>
+              </div>
+              <div class="ov-pf-summary-card">
+                <div style="font-size: 8px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Open Positions</div>
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="ov-pf-pos">-</div>
+              </div>
+              <div class="ov-pf-summary-card">
+                <div style="font-size: 8px; color: var(--label); text-transform: uppercase; margin-bottom: 2px;">Total Return</div>
+                <div style="font-size: 13px; font-weight: 700; color: var(--text-primary);" id="ov-pf-ret">-</div>
               </div>
             </div>
 
-            <!-- Hidden JS placeholder divs (used by updateWorkbench/loadWorkflow) -->
-            <div id="workflow-status-summary" style="display:none;"></div>
-            <div id="workflow-status-content" style="display:none;font-size:10px;color:var(--text-accent);"></div>
-            <div id="workflow-steps-container" style="display:none;"></div>
-            <div id="review-queue-card" style="display:none;"></div>
-            <div id="signal-preview-card" style="display:none;"></div>
-            <div id="create-signals-card" style="display:none;"></div>
-            <div id="decision-preview-card" style="display:none;"></div>
-            <div id="create-decisions-card" style="display:none;"></div>
-            <div id="order-preview-card" style="display:none;"></div>
-            <div id="create-orders-card" style="display:none;"></div>
+          </div><!-- end ov-portfolio-panel -->
 
-          </div><!-- end cockpit-left-col -->
+          <!-- RIGHT: Safety badges + Market Dashboard -->
+          <div class="ov-market-panel">
 
-          <!-- CENTER COL: Primary recommendation + portfolio visual + daily plan summary -->
-          <div class="cockpit-center-col">
-
-            <!-- Primary Recommendation block -->
-            <div class="main-recommendation-card" id="actionPanel">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--info); margin-bottom: 6px; border-bottom: 1px solid rgba(59,130,246,.3); padding-bottom: 4px;">Primary Recommendation</div>
-              <div style="font-size: 11px; font-weight: 700; color: var(--info); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;" id="action-title">Next Action</div>
-              <div style="font-size: 11px; color: var(--text-primary); margin-bottom: 8px; line-height: 1.5;" id="cockpit-next-action">Connect and load portfolio data to see recommended action</div>
-              <div style="display: flex; gap: 8px; flex-wrap: wrap;" id="action-links"></div>
-            </div>
-
-            <!-- Portfolio Allocation visual -->
-            <div class="portfolio-visual-card">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Portfolio Allocation</div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; font-size: 10px;">
-                <div><span style="color: var(--label); display: block; font-size: 8px; text-transform: uppercase; margin-bottom: 2px;">Total Value</span><span id="ov-pf-total" class="panel-value" style="font-size: 12px;">Load portfolio data to populate this view.</span></div>
-                <div><span style="color: var(--label); display: block; font-size: 8px; text-transform: uppercase; margin-bottom: 2px;">Cash</span><span id="ov-pf-cash" class="panel-value" style="font-size: 12px;">-</span></div>
-                <div><span style="color: var(--label); display: block; font-size: 8px; text-transform: uppercase; margin-bottom: 2px;">Open Positions</span><span id="ov-pf-pos" class="panel-value" style="font-size: 12px;">-</span></div>
-                <div><span style="color: var(--label); display: block; font-size: 8px; text-transform: uppercase; margin-bottom: 2px;">Return %</span><span id="ov-pf-ret" class="panel-value" style="font-size: 12px;">-</span></div>
-              </div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.08em;">Cash vs Positions</div>
-              <div class="allocation-bar-outer"><div class="allocation-bar" id="ov-alloc-bar" style="width: 50%;"></div></div>
-              <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--label); margin-bottom: 10px;">
-                <span id="ov-alloc-cash-pct">Cash: -</span>
-                <span id="ov-alloc-pos-pct">Positions: -</span>
-              </div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.08em;">Capacity</div>
-              <div class="capacity-bar-outer"><div class="capacity-bar" id="ov-capacity-bar" style="width: 0%;"></div></div>
-              <div style="font-size: 9px; color: var(--label); margin-top: 3px;" id="ov-capacity-label">Load portfolio data to see capacity</div>
-            </div>
-
-            <!-- Daily Plan Summary -->
-            <div class="compact-card" style="flex-shrink: 0;">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Daily Plan Summary</div>
-              <div id="ov-daily-plan-summary" style="font-size: 10px; color: var(--label); font-style: italic;">Generate Daily Plan to see summary</div>
-              <button class="btn-sm" style="margin-top: 8px; width: 100%;" onclick="window._switchTab('prediction-cockpit')">Open Daily Plan &rarr;</button>
-            </div>
-
-          </div><!-- end cockpit-center-col -->
-
-          <!-- RIGHT COL: Safety + blocked summary + quick nav -->
-          <div class="cockpit-right-col">
-
-            <!-- Action / Safety Panel -->
-            <div class="compact-card" style="flex-shrink: 0;">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Action / Safety Panel</div>
-              <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
+            <!-- Safety -->
+            <div class="compact-card" style="padding: 8px 10px; flex-shrink: 0;">
+              <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px;">
                 <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
                 <span class="badge ok" style="font-size: 8px; padding: 2px 5px;">PAPER ORDERS ONLY</span>
                 <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
-                <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">NO BROKER EXECUTION</span>
+                <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">NO BROKER</span>
+                <span class="badge danger" style="font-size: 8px; padding: 2px 5px;" id="kpi-orders-status">ORDERS DISABLED</span>
               </div>
-              <div style="font-size: 9px; color: var(--label); line-height: 1.4;">All actions require manual approval. Paper order tickets only &mdash; no broker execution, no fills. No automation.</div>
+              <div style="font-size: 9px; color: var(--label);">Paper orders only. No broker. No automation. Manual review required.</div>
             </div>
 
-            <!-- Blocked Summary -->
-            <div class="compact-card" style="flex-shrink: 0;">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Blocked Summary</div>
-              <div class="blocked-summary-grid" id="ov-blocked-grid" style="font-size: 10px; color: var(--label);">Generate Daily Plan to see blocked actions</div>
-            </div>
+            <!-- Go to Daily Plan -->
+            <button class="btn" style="background: var(--info); color: white; font-weight: 600; width: 100%; flex-shrink: 0;" onclick="window._switchTab('prediction-cockpit')">&#9654; Open Daily Plan Cockpit</button>
 
-            <!-- Quick Navigation -->
-            <div class="compact-card">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Quick Navigation</div>
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                <button class="btn-sm" onclick="window._switchTab('prediction-cockpit')">Daily Plan &rarr;</button>
-                <button class="btn-sm" onclick="window._switchTab('review-queue')">Review Queue &rarr;</button>
-                <button class="btn-sm" onclick="window._switchTab('signals-decisions')">Execution &rarr;</button>
-                <button class="btn-sm" onclick="window._switchTab('portfolio')">Portfolio &rarr;</button>
-                <button class="btn-sm" onclick="window._switchTab('audit-advanced')">Audit / Advanced &rarr;</button>
-                <button class="btn-sm" onclick="refresh()">Full Refresh</button>
-              </div>
-            </div>
+            <!-- Market Dashboard -->
+            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); flex-shrink: 0;">Market Dashboard</div>
+            <div class="ov-market-grid">
+              <div class="ov-market-card"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">WTI</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">CPI Latest</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">Fed Funds</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+              <div class="ov-market-card"><div class="ov-mkt-label">SOFR</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div></div>
+            </div><!-- end ov-market-grid -->
 
-          </div><!-- end cockpit-right-col -->
+          </div><!-- end ov-market-panel -->
 
-        </div><!-- end cockpit-main-grid -->
+        </div><!-- end ov-main-grid -->
+
+        <!-- Hidden elements preserved for JS compatibility (not shown in UI) -->
+        <div style="display:none;">
+          <div id="actionPanel"><div id="action-title"></div><div id="cockpit-next-action"></div><div id="action-links"></div></div>
+          <div id="stage-scan"><div id="ov-scan-summary"></div></div>
+          <div id="stage-review"><div id="stage-review-count"></div></div>
+          <div id="stage-plan"><div id="ov-plan-summary"></div></div>
+          <div id="stage-execute"><div id="ov-execute-summary"></div></div>
+          <div id="ov-daily-plan-summary"></div>
+          <div id="ov-blocked-grid"></div>
+          <div id="workflow-status-summary"></div>
+          <div id="workflow-status-content"></div>
+          <div id="workflow-steps-container"></div>
+          <div id="review-queue-card"></div>
+          <div id="signal-preview-card"></div>
+          <div id="create-signals-card"></div>
+          <div id="decision-preview-card"></div>
+          <div id="create-decisions-card"></div>
+          <div id="order-preview-card"></div>
+          <div id="create-orders-card"></div>
+          <div id="kpi-positions"></div>
+          <div id="kpi-avail-slots"></div>
+        </div>
 
       </div><!-- end tab-overview -->
 
       <!-- TAB 1: DAILY PLAN -->
       <div id="tab-prediction-cockpit" class="tab-content">
 
-        <!-- Command bar: 4 stages + STOP -->
+        <!-- Daily Plan Summary Label -->
+        <div style="font-size: 8px; color: var(--label); margin: 8px 0 4px 0; text-transform: uppercase; letter-spacing: 0.06em;">Daily Plan Summary</div>
+
+        <!-- Command bar: Run Daily Process primary action -->
         <div class="daily-plan-command-bar">
-          <span style="font-size: 9px; font-weight: 700; text-transform: uppercase; color: var(--label); flex-shrink: 0;">Stage:</span>
-          <button class="btn-sm" style="background: rgba(59,130,246,.15); color: var(--info); border-color: var(--info); font-size: 9px;" onclick="window.runUiAction('Run Prediction Preview', () => runPredictionPreview(this), this)">SCAN</button>
-          <span style="color: var(--label);">&rarr;</span>
-          <button class="btn-sm" style="background: rgba(245,158,11,.1); color: var(--warning); border-color: var(--warning); font-size: 9px;" onclick="window._switchTab('review-queue')">REVIEW</button>
-          <span style="color: var(--label);">&rarr;</span>
-          <button class="btn-sm" style="background: rgba(34,197,94,.15); color: var(--ok); border-color: var(--ok); font-size: 9px;" onclick="runDailyPlan(this)">PLAN</button>
-          <span style="color: var(--label);">&rarr;</span>
-          <button class="btn-sm" style="font-size: 9px;" onclick="window._switchTab('signals-decisions')">EXECUTE PREVIEW</button>
-          <span style="color: var(--label);">&rarr;</span>
-          <span class="badge ok" style="font-size: 8px; padding: 2px 6px; flex-shrink: 0;">PAPER ORDERS ONLY</span>
+          <button class="btn" style="background: var(--info); color: white; font-weight: 700; padding: 5px 16px; font-size: 11px; flex-shrink: 0;" onclick="window.runUiAction('Run Daily Process', () => runPredictionPreview(this), this)">&#9654; Run Daily Process</button>
+          <span style="font-size: 9px; color: var(--label); flex-shrink: 0;">Preview only &mdash; no writes</span>
+          <span style="flex: 1;"></span>
+          <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">MANUAL REVIEW</span>
+          <span class="badge ok" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">PAPER ORDERS ONLY</span>
+          <span class="badge neutral" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">AUTOMATION OFF</span>
+          <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">NO BROKER</span>
         </div>
 
         <!-- 3-column cockpit grid -->
@@ -1584,8 +1649,8 @@
             <div id="step3-review-queue" style="display:none;">
               <div class="compact-card" style="border-color: var(--info); flex-shrink: 0;">
                 <div style="font-weight: 600; color: var(--info); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">REVIEW &mdash; Review Queue</div>
-                <div id="step3-rq-summary" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px;"></div>
-                <button class="btn" style="background: var(--info); color: white; font-weight: 600; width: 100%;" onclick="window._switchTab('review-queue')">Open Review Queue &rarr;</button>
+                <div id="step3-rq-summary" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 6px;"></div>
+                <div style="font-size: 9px; color: var(--label);">Review candidates in the Review Queue section (Manual Review Items panel on the right).</div>
               </div>
             </div>
 
@@ -1632,27 +1697,10 @@
             <div id="step4-signal-decisions" style="display:none;">
               <div class="compact-card" style="border-color: var(--border); flex-shrink: 0;">
                 <div style="font-weight: 600; color: var(--text-accent); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">EXECUTE PREVIEW &mdash; Signals &amp; Decisions</div>
-                <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px;"><strong style="color: var(--warning);">Orders are disabled. No trades will be executed.</strong></div>
-                <button class="btn" style="background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-accent); font-weight: 600; width: 100%;" onclick="window._switchTab('signals-decisions')">Go to Signals &amp; Decisions &rarr;</button>
+                <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 4px;"><strong style="color: var(--warning);">Orders are disabled. No trades will be executed.</strong></div>
+                <div style="font-size: 9px; color: var(--label);">Advanced signal/decision actions are available in the Paper Orders panel (right) and Audit / Advanced tab.</div>
               </div>
             </div>
-
-            <!-- Rotation Preview (collapsed) -->
-            <details>
-              <summary>Rotation Preview (when portfolio at max positions)</summary>
-              <div style="padding: 4px 0;">
-                <div id="step3b-rotation-preview">
-                  <div class="compact-card" style="border-color: var(--warning);">
-                    <div style="font-weight: 600; color: var(--warning); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">Rotation Preview &mdash; Optional</div>
-                    <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px; line-height: 1.4;"><strong style="color: var(--ok);">Preview only.</strong></div>
-                    <button class="btn" style="background: var(--warning); color: white; font-weight: 600;" onclick="runRotationPreview(this)">Preview Rotation</button>
-                  </div>
-                </div>
-                <div id="rotation-preview-card" style="display:none;">
-                  <div class="compact-card"><div class="section-title">Rotation Preview</div><div id="rotation-preview-result"></div></div>
-                </div>
-              </div>
-            </details>
 
             <!-- Calibrated Rotation Workbench (collapsed) -->
             <details>
@@ -1731,6 +1779,56 @@
               <div class="compact-card"><div class="section-title">Daily Plan Preview</div><div id="daily-plan-result"></div></div>
             </div>
 
+            <!-- Market Snapshot -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Market Snapshot</div>
+              <div style="font-size: 9px; color: var(--label); font-style: italic;">Run Daily Process to populate market snapshot. Benchmark (SPY) and key metrics will appear here after scan.</div>
+            </div>
+
+            <!-- Candidate Funnel -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent);">Candidate Funnel</div>
+                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+              </div>
+              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-candidate-funnel-summary">Run Daily Process to see candidate counts: Scanned &rarr; Eligible &rarr; Approved &rarr; Planned.</div>
+            </div>
+
+            <!-- Trade Recommendations -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--info);">Trade Recommendations</div>
+                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+              </div>
+              <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Primary Recommendation</div>
+              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-trade-recs-summary">Generate Daily Plan to see trade recommendations. BUY candidates and their expected returns will appear here.</div>
+            </div>
+
+            <!-- Rotation Recommendations - first-class section -->
+            <div class="compact-card dp-rotation-card" style="flex-shrink: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--warning);">Rotation Recommendations</div>
+                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+              </div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; padding: 4px 8px; background: rgba(245,158,11,.06); border-left: 2px solid rgba(245,158,11,.4); border-radius: 0 2px 2px 0; line-height: 1.4;">
+                When portfolio is at max capacity, rotation compares incoming candidates vs existing positions by expected after-cost P&amp;L improvement. Full capacity does not mean rejected &mdash; it means rotation analysis is needed. Future: automatic comparison logic.
+              </div>
+              <div id="step3b-rotation-preview">
+                <button class="btn" style="background: var(--warning); color: white; font-weight: 600; font-size: 10px;" onclick="runRotationPreview(this)">Preview Rotation</button>
+                <div style="font-size: 9px; color: var(--label); margin-top: 4px; font-style: italic;">Rotation unavailable &mdash; portfolio not at max capacity, or preview not yet run.</div>
+              </div>
+              <div id="rotation-preview-card" style="display: none; margin-top: 8px;">
+                <div id="rotation-preview-result" style="font-size: 10px; color: var(--text-accent);"></div>
+              </div>
+            </div>
+
+            <!-- Risk Blocks -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--danger); margin-bottom: 6px; border-bottom: 1px solid rgba(239,68,68,.2); padding-bottom: 4px;">Risk Blocks</div>
+              <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Blocked Summary</div>
+              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-risk-blocks-summary">Generate Daily Plan to see blocked candidates and risk rule reasons (e.g. MAX_POSITIONS_REACHED, MIN_CONFIDENCE).</div>
+            </div>
+
           </div><!-- end cockpit-center-col -->
 
           <!-- RIGHT PANEL (26%): Safety + execution status + advanced -->
@@ -1755,6 +1853,36 @@
                 <button class="btn-sm" style="font-size: 9px; padding: 3px 8px;" onclick="refreshDailyPlanExecutionStatus(this)">Refresh</button>
               </div>
               <div id="dp-execution-status-result" style="font-size: 10px; color: var(--text-accent);">Click Refresh to load execution status.</div>
+            </div>
+
+            <!-- Paper Orders Panel -->
+            <div class="compact-card" style="flex-shrink: 0; border-color: rgba(34,197,94,.35);">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok); margin-bottom: 4px; border-bottom: 1px solid rgba(34,197,94,.2); padding-bottom: 4px;">Paper Orders</div>
+              <div style="font-size: 8px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">PAPER ONLY &mdash; NO BROKER &mdash; NO FILLS</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 8px; line-height: 1.4;">Paper order tickets only. No broker execution. Automation off. Each action requires explicit confirmation.</div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <div>
+                  <div style="font-size: 7px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">CREATES ORDER TICKETS ONLY</div>
+                  <button class="btn-sm" style="background: var(--ok); color: white; font-size: 9px; width: 100%;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
+                </div>
+                <div>
+                  <div style="font-size: 7px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
+                  <button class="btn-sm" style="background: var(--warning); color: white; font-size: 9px; width: 100%;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
+                </div>
+                <div>
+                  <div style="font-size: 7px; color: var(--danger); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PAPER CANCEL ONLY</div>
+                  <button class="btn-sm" style="background: var(--danger); color: white; font-size: 9px; width: 100%;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Manual Review Items -->
+            <div class="compact-card" style="flex-shrink: 0; border-color: rgba(245,158,11,.35);">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); margin-bottom: 4px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">Manual Review Items</div>
+              <span class="badge warning" style="font-size: 7px; padding: 1px 5px; margin-bottom: 6px; display: inline-block;">MANUAL REVIEW REQUIRED</span>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 8px; line-height: 1.4;">Candidates awaiting manual approval before signal creation. Review and approve or reject before proceeding.</div>
+              <div id="dp-manual-review-summary" style="font-size: 10px; color: var(--label); font-style: italic; margin-bottom: 8px;">Load review queue to see items awaiting manual review.</div>
+              <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh Review Queue</button>
             </div>
 
             <!-- Advanced Manual Actions (collapsed) -->
