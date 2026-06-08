@@ -5,6 +5,7 @@ Functions:
     fetch_latest_prices() — Fetch latest prices from Yahoo Finance.
     fetch_historical_prices() — Fetch daily CLOSE prices for date range from Yahoo Finance.
     fetch_market_indicator_latest() — Per-symbol history fallback for market dashboard.
+    fetch_fred_latest_series() — Fetch latest FRED macro observations (urllib, no extra deps).
 
 Design principles:
     - No database writes. Returns data only.
@@ -312,6 +313,75 @@ def fetch_market_indicator_latest(symbol: str) -> dict | None:
         }
     except Exception:
         return None
+
+
+def fetch_fred_latest_series(
+    series_map: dict[str, str],
+    api_key: str | None,
+) -> dict[str, dict | None]:
+    """
+    Fetch the latest available observation for each FRED series.
+
+    Args:
+        series_map: Maps output key -> FRED series_id, e.g. {"us10y": "DGS10"}.
+        api_key: FRED API key. If None, returns all None immediately (no network call).
+
+    Returns:
+        Dict mapping each key -> {"value": str, "as_of": str, "status": str} or None.
+        Returns None for a key if the series fetch fails or has no valid observation.
+    """
+    if not api_key:
+        return {key: None for key in series_map}
+
+    results: dict[str, dict | None] = {}
+    for key, series_id in series_map.items():
+        results[key] = _fetch_fred_single_series(series_id, api_key)
+    return results
+
+
+def _fetch_fred_single_series(series_id: str, api_key: str) -> dict | None:
+    """
+    Fetch the latest non-missing observation for a single FRED series via stdlib urllib.
+
+    Observations with value == "." (FRED missing data marker) are skipped.
+    Returns None on any network/parse error or if no valid observation is found.
+    The api_key is never logged.
+    """
+    import json
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    try:
+        params = urllib.parse.urlencode({
+            "series_id": series_id,
+            "api_key": api_key,
+            "file_type": "json",
+            "sort_order": "desc",
+            "limit": "10",
+        })
+        url = f"https://api.stlouisfed.org/fred/series/observations?{params}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    for obs in payload.get("observations", []):
+        val_str = obs.get("value", ".")
+        if not val_str or val_str == ".":
+            continue
+        try:
+            price_float = float(val_str)
+        except (ValueError, TypeError):
+            continue
+        as_of = obs.get("date", "")[:10]
+        return {
+            "value": str(Decimal(str(price_float))),
+            "as_of": as_of,
+            "status": f"FRED latest observation {as_of}",
+        }
+    return None
 
 
 def _extract_historical_prices(ticker: str, data: Any) -> list[dict] | None:

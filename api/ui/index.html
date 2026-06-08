@@ -3989,6 +3989,13 @@ async function loadHistory() {
   updateKpi();
 }
 
+function formatFredValue(key, value) {
+  const val = parseFloat(value);
+  if (isNaN(val)) return String(value);
+  if (key === 'cpi_latest') return val.toFixed(2);
+  return val.toFixed(2) + '%';
+}
+
 function formatMarketIndicatorValue(indicator) {
   if (!indicator.available || !indicator.value) {
     return 'Unavailable';
@@ -4102,11 +4109,22 @@ async function loadMarketDashboard() {
         const valueEl = cardEl.querySelector('.ov-mkt-value');
         const statusEl = cardEl.querySelector('.ov-mkt-status');
         const badgeEl = cardEl.querySelector('.ov-mkt-badge');
-        valueEl.textContent = 'Not available';
-        statusEl.textContent = placeholder.reason;
-        if (badgeEl) {
-          badgeEl.textContent = 'PENDING';
-          badgeEl.className = 'ov-mkt-badge pending';
+
+        if (placeholder.available && placeholder.value) {
+          valueEl.textContent = formatFredValue(placeholder.key, placeholder.value);
+          statusEl.textContent = placeholder.status || placeholder.source || 'FRED';
+          if (badgeEl) {
+            badgeEl.textContent = 'FRED';
+            badgeEl.className = 'ov-mkt-badge pending';
+          }
+          cardEl.classList.add('available');
+        } else {
+          valueEl.textContent = 'Not available';
+          statusEl.textContent = placeholder.reason || 'unavailable';
+          if (badgeEl) {
+            badgeEl.textContent = 'PENDING';
+            badgeEl.className = 'ov-mkt-badge pending';
+          }
         }
       }
     }

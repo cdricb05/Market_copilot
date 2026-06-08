@@ -23773,3 +23773,216 @@ class TestMarketIndicatorsEndpoint:
         ui_data_keys = {"sp500", "nasdaq", "dow", "vix", "eurusd", "gold", "brent", "wti",
                         "us10y", "us2y", "cpi_latest", "fed_funds", "sofr"}
         assert ui_data_keys == all_keys
+
+    def test_fred_api_key_missing_macro_cards_unavailable(self, seeded_client: TestClient, monkeypatch) -> None:
+        """When FRED API key is absent, macro cards are unavailable with 'FRED API key missing'."""
+        def mock_fetch_latest_prices(tickers):
+            return [
+                {"ticker": "^GSPC", "price": "5432.10"},
+                {"ticker": "^IXIC", "price": "18200.00"},
+                {"ticker": "^DJI", "price": "42200.50"},
+                {"ticker": "^VIX", "price": "12.45"},
+                {"ticker": "EURUSD=X", "price": "1.0950"},
+                {"ticker": "GC=F", "price": "2025.50"},
+                {"ticker": "BZ=F", "price": "87.30"},
+                {"ticker": "CL=F", "price": "78.50"},
+            ], []
+
+        def mock_fred_no_key(series_map, api_key):
+            assert api_key is None  # key must not be set in test env
+            return {k: None for k in series_map}
+
+        from paper_trader.api import app
+        monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+        monkeypatch.setattr(app, "fetch_fred_latest_series", mock_fred_no_key)
+
+        resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
+        assert resp.status_code == 200
+
+        data = resp.json()
+        # yfinance indicators remain available
+        indicators = data["indicators"]
+        assert len(indicators) == 8
+        sp500 = next(i for i in indicators if i["key"] == "sp500")
+        assert sp500["available"] is True
+        assert sp500["value"] == "5432.10"
+
+        # FRED macro cards unavailable with clear reason
+        placeholders = data["placeholders"]
+        assert len(placeholders) == 5
+        for p in placeholders:
+            assert p["available"] is False
+            assert "FRED" in p["reason"]
+            assert p["value"] is None
+
+    def test_fred_key_present_populates_macro_cards(self, seeded_client: TestClient, monkeypatch) -> None:
+        """When FRED key is present and fetch succeeds, macro cards are available with values."""
+        def mock_fetch_latest_prices(tickers):
+            return [
+                {"ticker": "^GSPC", "price": "5432.10"},
+                {"ticker": "^IXIC", "price": "18200.00"},
+                {"ticker": "^DJI", "price": "42200.50"},
+                {"ticker": "^VIX", "price": "12.45"},
+                {"ticker": "EURUSD=X", "price": "1.0950"},
+                {"ticker": "GC=F", "price": "2025.50"},
+                {"ticker": "BZ=F", "price": "87.30"},
+                {"ticker": "CL=F", "price": "78.50"},
+            ], []
+
+        def mock_fred_data(series_map, api_key):
+            return {
+                "us10y":     {"value": "4.23",   "as_of": "2026-06-05", "status": "FRED latest observation 2026-06-05"},
+                "us2y":      {"value": "4.71",   "as_of": "2026-06-05", "status": "FRED latest observation 2026-06-05"},
+                "cpi_latest":{"value": "315.61", "as_of": "2026-04-01", "status": "FRED latest observation 2026-04-01"},
+                "fed_funds": {"value": "5.33",   "as_of": "2026-05-01", "status": "FRED latest observation 2026-05-01"},
+                "sofr":      {"value": "5.31",   "as_of": "2026-06-05", "status": "FRED latest observation 2026-06-05"},
+            }
+
+        from paper_trader.api import app
+        monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+        monkeypatch.setattr(app, "fetch_fred_latest_series", mock_fred_data)
+
+        resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
+        assert resp.status_code == 200
+
+        data = resp.json()
+        placeholders = data["placeholders"]
+        assert len(placeholders) == 5
+        assert all(p["available"] is True for p in placeholders)
+
+        us10y = next(p for p in placeholders if p["key"] == "us10y")
+        assert us10y["value"] == "4.23"
+        assert us10y["as_of"] == "2026-06-05"
+        assert "FRED" in us10y["status"]
+        assert us10y["source"] == "fred"
+
+        cpi = next(p for p in placeholders if p["key"] == "cpi_latest")
+        assert cpi["available"] is True
+        assert cpi["value"] == "315.61"
+
+        # yfinance indicators unaffected
+        indicators = data["indicators"]
+        assert len(indicators) == 8
+        assert all(i["available"] is True for i in indicators)
+
+    def test_fred_network_error_card_unavailable_yfinance_ok(self, seeded_client: TestClient, monkeypatch) -> None:
+        """FRED network error makes macro cards unavailable; yfinance indicators still populate."""
+        def mock_fetch_latest_prices(tickers):
+            return [
+                {"ticker": "^GSPC", "price": "5432.10"},
+                {"ticker": "^IXIC", "price": "18200.00"},
+                {"ticker": "^DJI", "price": "42200.50"},
+                {"ticker": "^VIX", "price": "12.45"},
+                {"ticker": "EURUSD=X", "price": "1.0950"},
+                {"ticker": "GC=F", "price": "2025.50"},
+                {"ticker": "BZ=F", "price": "87.30"},
+                {"ticker": "CL=F", "price": "78.50"},
+            ], []
+
+        def mock_fred_network_error(series_map, api_key):
+            return {k: None for k in series_map}
+
+        from paper_trader.api import app
+        monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+        monkeypatch.setattr(app, "fetch_fred_latest_series", mock_fred_network_error)
+
+        resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
+        assert resp.status_code == 200
+
+        data = resp.json()
+        # yfinance indicators fully available
+        indicators = data["indicators"]
+        assert len(indicators) == 8
+        assert all(i["available"] is True for i in indicators)
+        # FRED macro cards unavailable (but response still 200)
+        placeholders = data["placeholders"]
+        assert len(placeholders) == 5
+        for p in placeholders:
+            assert p["available"] is False
+            assert p["value"] is None
+
+
+class TestFredFetcher:
+    """Unit tests for the FRED series fetch helper — no database required."""
+
+    def test_dot_observations_skipped_uses_latest_valid(self, monkeypatch) -> None:
+        """FRED observations with value='.' are skipped; latest valid numeric is returned."""
+        import json
+        import urllib.request
+
+        class _MockResp:
+            def __init__(self, payload):
+                self._data = json.dumps(payload).encode("utf-8")
+            def read(self):
+                return self._data
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+
+        mock_payload = {
+            "observations": [
+                {"date": "2026-06-07", "value": "."},
+                {"date": "2026-06-06", "value": "."},
+                {"date": "2026-06-05", "value": "4.23"},
+                {"date": "2026-06-04", "value": "4.20"},
+            ]
+        }
+
+        monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _MockResp(mock_payload))
+
+        from paper_trader.engine import market_data as md
+        result = md._fetch_fred_single_series("DGS10", "dummy-key")
+
+        assert result is not None
+        assert result["value"] == "4.23"
+        assert result["as_of"] == "2026-06-05"
+        assert result["status"] == "FRED latest observation 2026-06-05"
+
+    def test_all_dot_observations_returns_none(self, monkeypatch) -> None:
+        """When all observations are '.', return None."""
+        import json
+        import urllib.request
+
+        class _MockResp:
+            def __init__(self, payload):
+                self._data = json.dumps(payload).encode("utf-8")
+            def read(self):
+                return self._data
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+
+        mock_payload = {
+            "observations": [
+                {"date": "2026-06-07", "value": "."},
+                {"date": "2026-06-06", "value": "."},
+            ]
+        }
+
+        monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _MockResp(mock_payload))
+
+        from paper_trader.engine import market_data as md
+        result = md._fetch_fred_single_series("DGS10", "dummy-key")
+        assert result is None
+
+    def test_no_api_key_returns_all_none(self) -> None:
+        """fetch_fred_latest_series returns all None immediately when api_key is None."""
+        from paper_trader.engine import market_data as md
+        series_map = {"us10y": "DGS10", "us2y": "DGS2", "cpi_latest": "CPIAUCSL"}
+        result = md.fetch_fred_latest_series(series_map, None)
+        assert result == {"us10y": None, "us2y": None, "cpi_latest": None}
+
+    def test_network_error_returns_none(self, monkeypatch) -> None:
+        """Network errors in _fetch_fred_single_series return None, not an exception."""
+        import urllib.request
+
+        def _raise(*args, **kwargs):
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(urllib.request, "urlopen", _raise)
+
+        from paper_trader.engine import market_data as md
+        result = md._fetch_fred_single_series("DGS10", "dummy-key")
+        assert result is None

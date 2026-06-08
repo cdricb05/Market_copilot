@@ -80,7 +80,7 @@ from paper_trader.db.models import (
     TradeDecision,
 )
 from paper_trader.db.session import get_dedicated_session, get_session
-from paper_trader.engine.market_data import fetch_latest_prices, fetch_historical_prices, fetch_market_indicator_latest
+from paper_trader.engine.market_data import fetch_latest_prices, fetch_historical_prices, fetch_market_indicator_latest, fetch_fred_latest_series
 from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import compute_cash, get_open_positions, get_portfolio
 from paper_trader.engine.prediction_client import (
@@ -376,6 +376,10 @@ class MarketIndicatorPlaceholder(BaseModel):
     label: str
     available: bool
     reason: str
+    value: str | None = None
+    as_of: str | None = None
+    status: str | None = None
+    source: str | None = None
 
 
 class MarketIndicatorsResponse(BaseModel):
@@ -12306,14 +12310,13 @@ async def cancel_pending_paper_orders(
 )
 def get_market_indicators() -> MarketIndicatorsResponse:
     """
-    Fetch latest market indicators (yfinance only, read-only).
+    Fetch latest market indicators (read-only).
 
-    Returns indicators available from yfinance:
-    S&P 500, Nasdaq, Dow, VIX, EUR/USD, Gold, Brent, WTI.
+    yfinance indicators: S&P 500, Nasdaq, Dow, VIX, EUR/USD, Gold, Brent, WTI.
+    FRED macro indicators: US 10Y (DGS10), US 2Y (DGS2), CPI (CPIAUCSL), Fed Funds, SOFR.
 
-    Placeholder indicators (FRED not integrated):
-    US 10Y, US 2Y, CPI Latest, Fed Funds, SOFR.
-
+    FRED cards require PAPER_TRADER_FRED_API_KEY; if absent, they show available=False
+    with reason "FRED API key missing". yfinance cards always populate independently.
     Graceful partial failure: one missing indicator does not fail the response.
     """
     indicator_config = [
@@ -12327,13 +12330,13 @@ def get_market_indicators() -> MarketIndicatorsResponse:
         ("wti", "WTI", "CL=F"),
     ]
 
-    placeholder_config = [
-        ("us10y", "US 10Y", "FRED integration not implemented"),
-        ("us2y", "US 2Y", "FRED integration not implemented"),
-        ("cpi_latest", "CPI Latest", "FRED integration not implemented"),
-        ("fed_funds", "Fed Funds", "FRED integration not implemented"),
-        ("sofr", "SOFR", "FRED integration not implemented"),
-    ]
+    _FRED_SERIES = {
+        "us10y":     ("US 10Y",     "DGS10"),
+        "us2y":      ("US 2Y",      "DGS2"),
+        "cpi_latest":("CPI Latest", "CPIAUCSL"),
+        "fed_funds": ("Fed Funds",  "FEDFUNDS"),
+        "sofr":      ("SOFR",       "SOFR"),
+    }
 
     # Fetch all yfinance symbols at once (fast batch path)
     symbols = [cfg[2] for cfg in indicator_config]
@@ -12396,16 +12399,39 @@ def get_market_indicators() -> MarketIndicatorsResponse:
                     )
                 )
 
-    # Build placeholders list
-    placeholders = [
-        MarketIndicatorPlaceholder(
-            key=key,
-            label=label,
-            available=False,
-            reason=reason,
-        )
-        for key, label, reason in placeholder_config
-    ]
+    # Fetch FRED macro indicators
+    fred_api_key = get_settings().fred_api_key
+    fred_results = fetch_fred_latest_series(
+        {k: v[1] for k, v in _FRED_SERIES.items()},
+        fred_api_key,
+    )
+
+    placeholders = []
+    for key, (label, _series_id) in _FRED_SERIES.items():
+        fred_data = fred_results.get(key)
+        if fred_data is not None:
+            placeholders.append(
+                MarketIndicatorPlaceholder(
+                    key=key,
+                    label=label,
+                    available=True,
+                    reason="",
+                    value=fred_data["value"],
+                    as_of=fred_data["as_of"],
+                    status=fred_data["status"],
+                    source="fred",
+                )
+            )
+        else:
+            reason = "FRED API key missing" if not fred_api_key else "FRED data unavailable"
+            placeholders.append(
+                MarketIndicatorPlaceholder(
+                    key=key,
+                    label=label,
+                    available=False,
+                    reason=reason,
+                )
+            )
 
     return MarketIndicatorsResponse(
         status="ok",

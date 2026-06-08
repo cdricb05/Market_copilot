@@ -103,6 +103,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- FRED Macro Data ---
+    fred_api_key: str | None = Field(
+        default=None,
+        description=(
+            "FRED API key for fetching macro economic indicators (US 10Y, US 2Y, CPI, Fed Funds, SOFR). "
+            "Optional: if absent, macro cards show 'FRED API key missing'. "
+            "Maps to env var PAPER_TRADER_FRED_API_KEY."
+        ),
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
