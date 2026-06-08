@@ -1681,15 +1681,35 @@
         <!-- Daily Plan Summary Label -->
         <div style="font-size: 8px; color: var(--label); margin: 8px 0 4px 0; text-transform: uppercase; letter-spacing: 0.06em;">Daily Plan Summary</div>
 
-        <!-- Command bar: Run Daily Process primary action -->
+        <!-- Command bar: safety badges -->
         <div class="daily-plan-command-bar">
-          <button class="btn" style="background: var(--info); color: white; font-weight: 700; padding: 5px 16px; font-size: 11px; flex-shrink: 0;" onclick="window.runUiAction('Run Daily Process', () => runPredictionPreview(this), this)">&#9654; Run Daily Process</button>
           <span style="font-size: 9px; color: var(--label); flex-shrink: 0;">Preview only &mdash; no writes</span>
           <span style="flex: 1;"></span>
           <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">MANUAL REVIEW</span>
           <span class="badge ok" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">PAPER ORDERS ONLY</span>
           <span class="badge neutral" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">AUTOMATION OFF</span>
           <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">NO BROKER</span>
+        </div>
+
+        <!-- Daily Process Preview Orchestrator Panel -->
+        <div id="orch-panel" style="background: rgba(0,0,0,.25); border: 1px solid rgba(59,130,246,.4); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+            <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--info);">Daily Process Preview</div>
+            <span style="font-size: 8px; color: var(--ok); background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); padding: 1px 6px; border-radius: 2px; font-weight: 700;">PREVIEW ONLY</span>
+            <span style="font-size: 8px; color: var(--text-secondary); padding: 1px 6px; border-radius: 2px; background: rgba(255,255,255,.04);">No writes</span>
+            <span style="flex: 1;"></span>
+            <button id="orch-run-btn" class="btn" style="background: var(--info); color: white; font-weight: 700; font-size: 11px; padding: 6px 18px; flex-shrink: 0;" onclick="runDailyProcessPreview()">&#9654; Run Daily Process Preview</button>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px;">
+            <div id="orch-step-0" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">0: Refresh</div>
+            <div id="orch-step-1" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">1: Candidate Preview</div>
+            <div id="orch-step-2" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">2: Daily Plan</div>
+            <div id="orch-step-3" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">3: Signal Preview</div>
+            <div id="orch-step-4" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">4: Decision Preview</div>
+            <div id="orch-step-5" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">5: Order Preview</div>
+          </div>
+          <div style="font-size: 9px; color: var(--ok); opacity: 0.8; margin-bottom: 4px;">Preview only. No candidates saved. No signals created. No decisions created. No paper orders created. No fills. No broker orders. Automation off.</div>
+          <div id="orch-summary" style="display: none;"></div>
         </div>
 
         <!-- 3-column cockpit grid -->
@@ -4838,6 +4858,294 @@ async function checkStrategyReadiness() {
     readinessCard.style.display = 'block';
   }
 }
+
+// ---- Daily Process Preview Orchestrator ----
+
+const _ORCH_LABELS = [
+  '0: Refresh',
+  '1: Candidate Preview',
+  '2: Daily Plan',
+  '3: Signal Preview',
+  '4: Decision Preview',
+  '5: Order Preview',
+];
+
+function _orchStep(idx, status, text) {
+  const el = document.getElementById('orch-step-' + idx);
+  if (!el) return;
+  const _col = { pending: 'var(--label)', running: 'var(--warning)', done: 'var(--ok)', blocked: 'var(--warning)', failed: 'var(--danger)', skipped: 'var(--text-secondary)' };
+  const _bdr = { pending: 'rgba(255,255,255,.1)', running: 'rgba(245,158,11,.5)', done: 'rgba(34,197,94,.4)', blocked: 'rgba(245,158,11,.4)', failed: 'rgba(239,68,68,.5)', skipped: 'rgba(255,255,255,.08)' };
+  el.style.color = _col[status] || 'var(--text-accent)';
+  el.style.borderColor = _bdr[status] || 'rgba(255,255,255,.1)';
+  el.textContent = text;
+}
+
+function _orchNextAction(s) {
+  const s1 = s.steps.find(function(x) { return x.name === 'Candidate Preview'; });
+  const s2 = s.steps.find(function(x) { return x.name === 'Daily Plan'; });
+  if (!s1 || s1.status !== 'done') {
+    return 'Candidate preview failed. Check API connection and GCP prediction tunnel (http://127.0.0.1:9000).';
+  }
+  if (s.candidatesEligible === 0) {
+    return 'No eligible candidates found. Adjust scan parameters or wait for a better market session.';
+  }
+  if (s.approvedCandidates === 0) {
+    return 'Save eligible candidates to the Review Queue, then approve them manually before proceeding.';
+  }
+  if (!s2 || s2.status !== 'done') {
+    return 'Daily Plan generation failed. Approved candidates exist -- retry or check server logs.';
+  }
+  if (s.signalPreviews === 0 && s.decisionPreviews === 0) {
+    return 'Previews loaded. No signals or decisions in DB yet. Create Signals from Daily Plan when ready (manual action required).';
+  }
+  if (s.decisionsRejected > 0 && s.decisionsBuy === 0) {
+    return 'All decisions rejected (likely MAX_POSITIONS_REACHED). Review Rotation Recommendations to evaluate a position swap.';
+  }
+  if (s.orderPreviews === 0 && s.decisionPreviews > 0) {
+    return 'Signal and decision previews complete. Create Trade Decisions when ready (manual). Orders remain disabled.';
+  }
+  return 'Preview run complete. Review results above. Next write action is manual: Create Signals, Create Decisions, or review rotation. Automation off.';
+}
+
+function _renderOrchSummary(el, s) {
+  if (!el) return;
+  var html = '<div style="border-top: 1px solid rgba(255,255,255,.08); padding-top: 8px; margin-top: 4px;"><div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--label); margin-bottom: 6px;">Preview Summary</div>';
+
+  html += '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px;">';
+  html += '<span style="background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 2px; font-size: 10px;">Evaluated: <strong>' + escapeHtml(String(s.candidatesEvaluated)) + '</strong></span>';
+  html += '<span style="background: rgba(34,197,94,.08); padding: 2px 7px; border-radius: 2px; font-size: 10px; color: var(--ok);">Eligible: <strong>' + escapeHtml(String(s.candidatesEligible)) + '</strong></span>';
+  html += '<span style="background: rgba(59,130,246,.08); padding: 2px 7px; border-radius: 2px; font-size: 10px; color: var(--info);">Approved in DB: <strong>' + escapeHtml(String(s.approvedCandidates)) + '</strong></span>';
+  if (s.buyRecs > 0 || s.sellRecs > 0) {
+    html += '<span style="background: rgba(34,197,94,.06); padding: 2px 7px; border-radius: 2px; font-size: 10px; color: var(--ok);">BUY: <strong>' + escapeHtml(String(s.buyRecs)) + '</strong></span>';
+    html += '<span style="background: rgba(255,255,255,.06); padding: 2px 7px; border-radius: 2px; font-size: 10px;">SELL: <strong>' + escapeHtml(String(s.sellRecs)) + '</strong></span>';
+  }
+  if (s.riskBlocks > 0) {
+    html += '<span style="background: rgba(239,68,68,.08); padding: 2px 7px; border-radius: 2px; font-size: 10px; color: var(--danger);">Risk blocks: <strong>' + escapeHtml(String(s.riskBlocks)) + '</strong></span>';
+  }
+  html += '<span style="background: rgba(255,255,255,.04); padding: 2px 7px; border-radius: 2px; font-size: 10px;">Sig prev: <strong>' + escapeHtml(String(s.signalPreviews)) + '</strong></span>';
+  html += '<span style="background: rgba(255,255,255,.04); padding: 2px 7px; border-radius: 2px; font-size: 10px;">Dec prev: <strong>' + escapeHtml(String(s.decisionPreviews)) + '</strong></span>';
+  html += '<span style="background: rgba(255,255,255,.04); padding: 2px 7px; border-radius: 2px; font-size: 10px;">Ord prev: <strong>' + escapeHtml(String(s.orderPreviews)) + '</strong></span>';
+  html += '</div>';
+
+  if (s.blockers.length > 0) {
+    html += '<div style="margin-bottom: 6px;">';
+    for (var _bi = 0; _bi < s.blockers.length; _bi++) {
+      html += '<div style="font-size: 10px; color: var(--warning); padding: 2px 0;">&#9654; ' + escapeHtml(s.blockers[_bi]) + '</div>';
+    }
+    html += '</div>';
+  }
+
+  if (s.dailyPlanRec) {
+    html += '<div style="padding: 5px 8px; background: rgba(59,130,246,.08); border-left: 2px solid var(--info); border-radius: 0 3px 3px 0; font-size: 10px; color: var(--text-primary); margin-bottom: 6px;">' + escapeHtml(s.dailyPlanRec) + '</div>';
+  }
+
+  html += '<div style="padding: 6px 8px; background: rgba(245,158,11,.08); border-left: 3px solid var(--warning); border-radius: 0 3px 3px 0; font-size: 11px; font-weight: 600; color: var(--warning); margin-bottom: 8px;">Next manual action: ' + escapeHtml(_orchNextAction(s)) + '</div>';
+
+  html += '<div style="padding: 5px 8px; background: rgba(34,197,94,.05); border: 1px solid rgba(34,197,94,.2); border-radius: 3px; font-size: 9px; color: var(--ok); text-align: center; font-weight: 600; letter-spacing: 0.03em;">Preview only. No candidates saved. No signals created. No decisions created. No paper orders created. No fills. No broker orders. Automation off.</div>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+async function runDailyProcessPreview() {
+  var btn = document.getElementById('orch-run-btn');
+  var summaryEl = document.getElementById('orch-summary');
+  if (btn) btn.disabled = true;
+  if (summaryEl) { summaryEl.style.display = 'none'; summaryEl.innerHTML = ''; }
+
+  for (var _ri = 0; _ri <= 5; _ri++) { _orchStep(_ri, 'pending', _ORCH_LABELS[_ri]); }
+
+  var _orch = {
+    candidatesEvaluated: 0, candidatesEligible: 0, approvedCandidates: 0,
+    dailyPlanRec: '', buyRecs: 0, sellRecs: 0, riskBlocks: 0,
+    signalPreviews: 0, decisionPreviews: 0, decisionsBuy: 0, decisionsRejected: 0,
+    orderPreviews: 0, blockers: [], steps: [],
+  };
+
+  // Step 0 -- Refresh execution status (read-only)
+  _orchStep(0, 'running', '0: Refreshing...');
+  try {
+    var _r0 = await call('GET', '/v1/review/daily-plan-execution-status');
+    var _d0 = await parseApiResponse(_r0);
+    if (_r0.ok) {
+      var _cr0 = _d0.candidate_review_counts || {};
+      _orch.approvedCandidates = _cr0.approved_for_signal || 0;
+      var _sigs0 = _d0.daily_plan_signal_counts || {};
+      var _tds0 = _d0.daily_plan_trade_decision_counts || {};
+      var _dpExecEl = document.getElementById('dp-execution-status-result');
+      if (_dpExecEl) {
+        _dpExecEl.innerHTML = '<span style="font-size:10px;color:var(--text-accent);">Candidates: <strong>' + escapeHtml(String(_cr0.total || 0)) + '</strong> (' + escapeHtml(String(_orch.approvedCandidates)) + ' approved) | DP Signals: <strong>' + escapeHtml(String(_sigs0.total || 0)) + '</strong> | DP Decisions: <strong>' + escapeHtml(String(_tds0.total || 0)) + '</strong></span>';
+      }
+      _orchStep(0, 'done', '0: Refresh -- done');
+      _orch.steps.push({ name: 'Refresh Context', status: 'done', detail: _orch.approvedCandidates + ' approved candidates in DB' });
+    } else {
+      _orchStep(0, 'failed', '0: Refresh -- failed (non-critical)');
+      _orch.steps.push({ name: 'Refresh Context', status: 'failed', reason: 'HTTP ' + _r0.status });
+    }
+  } catch (_e0) {
+    _orchStep(0, 'failed', '0: Refresh -- failed (non-critical)');
+    _orch.steps.push({ name: 'Refresh Context', status: 'failed', reason: _e0.message });
+  }
+
+  // Step 1 -- Candidate Preview (read-only: dry_run=true, no DB writes)
+  _orchStep(1, 'running', '1: Running Candidate Preview...');
+  var _predBody = {
+    idempotency_key: 'orch-pred-' + Date.now(),
+    universe: 'SP500',
+    tickers: null,
+    benchmark_ticker: 'SPY',
+    lookback_days: parseInt((document.getElementById('pred-preview-lookback') || { value: '45' }).value, 10) || 45,
+    top_n: parseInt((document.getElementById('pred-preview-scan-top-n') || { value: '20' }).value, 10) || 20,
+    min_price_points: parseInt((document.getElementById('pred-preview-min-points') || { value: '20' }).value, 10) || 20,
+    prediction_top_n: parseInt((document.getElementById('pred-preview-top-n') || { value: '5' }).value, 10) || 5,
+    include_current_positions_for_prediction: (document.getElementById('pred-preview-include-holdings') || { checked: true }).checked !== false,
+    max_prediction_concurrency: parseInt((document.getElementById('pred-preview-concurrency') || { value: '4' }).value, 10) || 4,
+    scoring_profile: (document.getElementById('pred-preview-scoring-profile') || { value: 'current' }).value || 'current',
+    dry_run: true,
+    submit_signals: false,
+    run_risk: false,
+    create_orders: false,
+  };
+  try {
+    var _r1 = await call('POST', '/v1/strategy/market-scan/prediction-candidates', _predBody);
+    var _b1 = await parseApiResponse(_r1);
+    if (_r1.ok) {
+      window._lastPredictionPreviewData = _b1;
+      _orch.candidatesEvaluated = (_b1.candidate_previews || []).length;
+      _orch.candidatesEligible = (_b1.candidate_previews || []).filter(function(c) { return c.recommendation === 'CONSIDER'; }).length;
+      _orchStep(1, 'done', '1: Candidate Preview -- ' + _orch.candidatesEvaluated + ' evaluated, ' + _orch.candidatesEligible + ' eligible');
+      _orch.steps.push({ name: 'Candidate Preview', status: 'done', detail: _orch.candidatesEvaluated + ' evaluated, ' + _orch.candidatesEligible + ' eligible' });
+      var _rpCard = document.getElementById('prediction-preview-card');
+      var _rpEl = document.getElementById('prediction-preview-result');
+      if (_rpCard) _rpCard.style.display = 'block';
+      if (_rpEl && typeof renderPredictionPreviewResult === 'function') renderPredictionPreviewResult(_b1, _rpEl);
+    } else {
+      var _reason1 = (_b1 && _b1.detail) ? _b1.detail : 'HTTP ' + _r1.status;
+      _orchStep(1, 'failed', '1: Candidate Preview -- failed');
+      _orch.steps.push({ name: 'Candidate Preview', status: 'failed', reason: _reason1 });
+    }
+  } catch (_e1) {
+    _orchStep(1, 'failed', '1: Candidate Preview -- failed');
+    _orch.steps.push({ name: 'Candidate Preview', status: 'failed', reason: _e1.message });
+  }
+
+  // Step 2 -- Daily Plan Preview (read-only endpoint)
+  _orchStep(2, 'running', '2: Generating Daily Plan...');
+  var _dpBody = {
+    use_calibrated_rotation: (document.getElementById('dp-use-calibrated-rotation') || { checked: true }).checked !== false,
+    scoring_profile: (document.getElementById('dp-scoring-profile') || { value: 'calibration_recommended' }).value || 'calibration_recommended',
+    min_expected_improvement_pct: parseFloat((document.getElementById('dp-min-improvement-pct') || { value: '1.0' }).value) || 1.0,
+    min_expected_pnl_dollars: parseFloat((document.getElementById('dp-min-pnl-dollars') || { value: '25' }).value) || 25.0,
+    allow_loss_realization: (document.getElementById('dp-allow-loss-realization') || { checked: false }).checked === true,
+  };
+  window._lastDailyPlanBody = _dpBody;
+  window._lastDailyPlanSavedFlag = false;
+  try {
+    var _r2 = await call('POST', '/v1/review/daily-plan-preview', _dpBody);
+    var _b2 = await parseApiResponse(_r2);
+    if (_r2.ok) {
+      _orch.dailyPlanRec = _b2.recommended_next_action || '';
+      _orch.buyRecs = (_b2.buy_recommendations || []).length;
+      _orch.sellRecs = (_b2.sell_recommendations || []).length;
+      _orch.riskBlocks = (_b2.blocked_recommendations || []).length;
+      _orchStep(2, 'done', '2: Daily Plan -- ' + _orch.buyRecs + ' BUY, ' + _orch.sellRecs + ' SELL, ' + _orch.riskBlocks + ' blocked');
+      _orch.steps.push({ name: 'Daily Plan', status: 'done', detail: _orch.buyRecs + ' BUY, ' + _orch.sellRecs + ' SELL, ' + _orch.riskBlocks + ' blocked' });
+      var _dpCard = document.getElementById('daily-plan-card');
+      var _dpEl = document.getElementById('daily-plan-result');
+      if (_dpCard) _dpCard.style.display = 'block';
+      if (_dpEl && typeof renderDailyPlanResult === 'function') renderDailyPlanResult(_b2, _dpEl);
+    } else {
+      var _reason2 = (_b2 && _b2.detail) ? _b2.detail : 'HTTP ' + _r2.status;
+      _orchStep(2, 'failed', '2: Daily Plan -- failed');
+      _orch.steps.push({ name: 'Daily Plan', status: 'failed', reason: _reason2 });
+    }
+  } catch (_e2) {
+    _orchStep(2, 'failed', '2: Daily Plan -- failed');
+    _orch.steps.push({ name: 'Daily Plan', status: 'failed', reason: _e2.message });
+  }
+
+  // Step 3 -- Signal Preview (read-only, no DB writes)
+  _orchStep(3, 'running', '3: Previewing Signals...');
+  try {
+    var _r3 = await call('POST', '/v1/review/daily-plan-signal-preview', _dpBody);
+    var _d3 = await parseApiResponse(_r3);
+    if (_r3.ok) {
+      _orch.signalPreviews = _d3.signal_previews_generated || 0;
+      _orchStep(3, 'done', '3: Signal Preview -- ' + _orch.signalPreviews + ' previewed');
+      _orch.steps.push({ name: 'Signal Preview', status: 'done', detail: _orch.signalPreviews + ' previewed' });
+      if (_orch.signalPreviews === 0) {
+        _orch.blockers.push('Signal preview: 0 signals -- candidates may need manual approval in Review Queue first');
+      }
+    } else {
+      var _reason3 = (_d3 && _d3.detail) ? _d3.detail : 'HTTP ' + _r3.status;
+      _orchStep(3, 'blocked', '3: Signal Preview -- manual review required');
+      _orch.steps.push({ name: 'Signal Preview', status: 'blocked', reason: _reason3 });
+      _orch.blockers.push('Signal preview blocked: ' + _reason3);
+    }
+  } catch (_e3) {
+    _orchStep(3, 'failed', '3: Signal Preview -- failed');
+    _orch.steps.push({ name: 'Signal Preview', status: 'failed', reason: _e3.message });
+  }
+
+  // Step 4 -- Decision Preview (read-only, no DB writes)
+  _orchStep(4, 'running', '4: Previewing Decisions...');
+  try {
+    var _r4 = await call('POST', '/v1/review/daily-plan-decision-preview', {
+      latest_daily_plan_only: true,
+      received_only: true,
+      limit: 50,
+    });
+    var _d4 = await parseApiResponse(_r4);
+    if (_r4.ok) {
+      _orch.decisionPreviews = _d4.previews_generated || 0;
+      var _decC = _d4.decision_counts || {};
+      _orch.decisionsBuy = _decC['BUY'] || 0;
+      _orch.decisionsRejected = _decC['REJECTED'] || 0;
+      _orchStep(4, 'done', '4: Decision Preview -- ' + _orch.decisionPreviews + ' previewed (' + _orch.decisionsBuy + ' BUY, ' + _orch.decisionsRejected + ' rejected)');
+      _orch.steps.push({ name: 'Decision Preview', status: 'done', detail: _orch.decisionPreviews + ' previewed' });
+      if (_orch.decisionsRejected > 0) {
+        _orch.blockers.push(_orch.decisionsRejected + ' decision(s) rejected (likely MAX_POSITIONS_REACHED -- consider rotation)');
+      }
+    } else {
+      var _reason4 = (_d4 && _d4.detail) ? _d4.detail : 'HTTP ' + _r4.status;
+      _orchStep(4, 'blocked', '4: Decision Preview -- blocked');
+      _orch.steps.push({ name: 'Decision Preview', status: 'blocked', reason: _reason4 });
+      _orch.blockers.push('Decision preview blocked: ' + _reason4);
+    }
+  } catch (_e4) {
+    _orchStep(4, 'failed', '4: Decision Preview -- failed');
+    _orch.steps.push({ name: 'Decision Preview', status: 'failed', reason: _e4.message });
+  }
+
+  // Step 5 -- Order Preview (read-only, no DB writes)
+  _orchStep(5, 'running', '5: Previewing Orders...');
+  try {
+    var _r5 = await call('POST', '/v1/review/daily-plan-order-preview', {
+      approved_only: true,
+      limit: 50,
+    });
+    var _d5 = await parseApiResponse(_r5);
+    if (_r5.ok) {
+      _orch.orderPreviews = _d5.preview_count || 0;
+      _orchStep(5, 'done', '5: Order Preview -- ' + _orch.orderPreviews + ' order(s) previewable');
+      _orch.steps.push({ name: 'Order Preview', status: 'done', detail: _orch.orderPreviews + ' previewable' });
+    } else {
+      var _reason5 = (_d5 && _d5.detail) ? _d5.detail : 'HTTP ' + _r5.status;
+      _orchStep(5, 'blocked', '5: Order Preview -- blocked');
+      _orch.steps.push({ name: 'Order Preview', status: 'blocked', reason: _reason5 });
+      _orch.blockers.push('Order preview blocked: ' + _reason5);
+    }
+  } catch (_e5) {
+    _orchStep(5, 'failed', '5: Order Preview -- failed');
+    _orch.steps.push({ name: 'Order Preview', status: 'failed', reason: _e5.message });
+  }
+
+  // Final summary
+  _renderOrchSummary(summaryEl, _orch);
+  if (summaryEl) summaryEl.style.display = 'block';
+  if (btn) btn.disabled = false;
+}
+
+// ---- End Daily Process Preview Orchestrator ----
 
 async function runPredictionPreview(btn) {
   const universe = 'SP500';
