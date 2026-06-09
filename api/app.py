@@ -35,6 +35,8 @@ Endpoints:
     POST /v1/review/fill-pending-orders — manually fill PENDING paper Order rows (PAPER FILLS ONLY, no broker execution)
     POST /v1/review/cancel-pending-orders — manually cancel PENDING paper Order rows (PAPER CANCEL ONLY, no broker execution)
     GET  /v1/prediction/health         — check prediction service reachability and health (requires auth, no writes)
+    POST /v1/market/backfill-history   — backfill historical prices for S&P 500 + SPY benchmark (writes price_snapshots + benchmark_prices only)
+    GET  /v1/market/screening-readiness — read-only screening readiness check (no writes)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -310,6 +312,39 @@ class RefreshSnapshotResponse(BaseModel):
     open_positions_count: int | None = None
     safety_mode: str
     snapshot_error: str | None = None
+
+
+class BackfillHistoryRequest(BaseModel):
+    lookback_days: int = Field(default=45, ge=7, le=180)
+    dry_run: bool = Field(default=False)
+
+
+class BackfillHistoryResponse(BaseModel):
+    safety_mode: str
+    start_date: str
+    end_date: str
+    tickers_requested: int
+    tickers_succeeded: int
+    tickers_failed: int
+    snapshots_inserted_or_updated: int
+    market_dates_written: int
+    tickers_with_at_least_6_snapshots: int
+    tickers_with_at_least_21_snapshots: int
+    spy_snapshot_count: int
+    screening_ready: bool
+    no_writes_to_orders_signals_decisions_trades: bool
+
+
+class ScreeningReadinessResponse(BaseModel):
+    price_snapshots_total: int
+    distinct_market_dates: int
+    tickers_total: int
+    tickers_with_at_least_6_snapshots: int
+    tickers_with_at_least_21_snapshots: int
+    spy_snapshot_count: int
+    latest_market_date: date | None
+    screening_ready: bool
+    message: str
 
 
 class PositionOut(BaseModel):
@@ -1876,6 +1911,7 @@ class DailyPlanPreviewResponse(BaseModel):
     capital_allocation: CapitalAllocationAnalysis | None = None
     calibrated_rotation_context: DailyPlanCalibratedRotationContext | None = None
     profile_decision_context: DailyPlanProfileDecisionContext | None = None
+    market_history_warning: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -2655,6 +2691,47 @@ def _now_and_date() -> tuple[datetime, date]:
     """Return (UTC now, US-Eastern market_date) from a single clock read."""
     now = datetime.now(tz=timezone.utc)
     return now, now.astimezone(_EASTERN).date()
+
+
+def _get_screening_readiness_data(session) -> dict:
+    """Query screening readiness from the database. Returns a plain dict."""
+    ticker_counts_rows = session.execute(
+        select(PriceSnapshot.ticker, func.count(PriceSnapshot.id).label("cnt"))
+        .where(PriceSnapshot.price_type == PriceType.CLOSE)
+        .where(PriceSnapshot.session_type == SessionType.REGULAR)
+        .group_by(PriceSnapshot.ticker)
+    ).all()
+    ticker_counts = {row[0]: row[1] for row in ticker_counts_rows}
+    total_snapshots = sum(ticker_counts.values())
+    tickers_total = len(ticker_counts)
+    tickers_6 = sum(1 for c in ticker_counts.values() if c >= 6)
+    tickers_21 = sum(1 for c in ticker_counts.values() if c >= 21)
+    distinct_dates_val = session.execute(
+        select(func.count(distinct(PriceSnapshot.market_date)))
+        .where(PriceSnapshot.price_type == PriceType.CLOSE)
+        .where(PriceSnapshot.session_type == SessionType.REGULAR)
+    ).scalar() or 0
+    latest_market_date = session.execute(
+        select(func.max(PriceSnapshot.market_date))
+        .where(PriceSnapshot.price_type == PriceType.CLOSE)
+        .where(PriceSnapshot.session_type == SessionType.REGULAR)
+    ).scalar()
+    spy_count = session.execute(
+        select(func.count(BenchmarkPrice.id))
+        .where(BenchmarkPrice.ticker == "SPY")
+        .where(BenchmarkPrice.session_type == SessionType.REGULAR)
+    ).scalar() or 0
+    screening_ready = bool(spy_count >= 21 and tickers_21 >= 10)
+    return {
+        "price_snapshots_total": total_snapshots,
+        "distinct_market_dates": distinct_dates_val,
+        "tickers_total": tickers_total,
+        "tickers_with_at_least_6_snapshots": tickers_6,
+        "tickers_with_at_least_21_snapshots": tickers_21,
+        "spy_snapshot_count": spy_count,
+        "latest_market_date": latest_market_date,
+        "screening_ready": screening_ready,
+    }
 
 
 def _to_snapshot_out(snap: PortfolioSnapshot) -> SnapshotOut:
@@ -4638,6 +4715,166 @@ def refresh_market_snapshot() -> RefreshSnapshotResponse:
         open_positions_count=snapshot_result.get("open_position_count") if snapshot_result else None,
         safety_mode="PRICE_AND_PORTFOLIO_SNAPSHOT_ONLY",
         snapshot_error=snapshot_error,
+    )
+
+
+@app.post(
+    "/v1/market/backfill-history",
+    response_model=BackfillHistoryResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def backfill_history(body: BackfillHistoryRequest) -> BackfillHistoryResponse:
+    """
+    Backfill historical daily CLOSE prices for the S&P 500 universe and SPY benchmark.
+
+    Writes price_snapshots for universe tickers and benchmark_prices for SPY.
+    Idempotent: skips rows that already exist (same ticker + market_date + price_type + session_type).
+    Safe: writes only price_snapshots and benchmark_prices. No orders, signals, decisions, or trades.
+    """
+    from datetime import timedelta, datetime as _dt
+    from paper_trader.engine.universe import get_sp500_universe
+
+    _, end_date = _now_and_date()
+    start_date = end_date - timedelta(days=body.lookback_days)
+
+    universe_tickers = [t for t in get_sp500_universe() if t.upper() != "SPY"]
+
+    successful_prices, fetch_failures = fetch_historical_prices(
+        tickers=universe_tickers,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    spy_successful, spy_failures = fetch_historical_prices(
+        tickers=["SPY"],
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    tickers_requested = len(universe_tickers) + 1
+    tickers_failed = len(fetch_failures) + len(spy_failures)
+    tickers_succeeded = len(successful_prices) + len(spy_successful)
+    snapshots_inserted = 0
+    market_dates_set: set = set()
+
+    with get_dedicated_session() as session:
+        for ticker, rows in successful_prices.items():
+            for row in rows:
+                md = row["market_date"]
+                price = row["price"]
+                market_dates_set.add(md)
+                existing_id = session.execute(
+                    select(PriceSnapshot.id).where(
+                        PriceSnapshot.ticker == ticker,
+                        PriceSnapshot.market_date == md,
+                        PriceSnapshot.price_type == PriceType.CLOSE,
+                        PriceSnapshot.session_type == SessionType.REGULAR,
+                    )
+                ).scalar_one_or_none()
+                if not existing_id:
+                    if not body.dry_run:
+                        snap_ts = _dt.combine(md, _dt.min.time()).replace(hour=16, tzinfo=timezone.utc)
+                        session.add(PriceSnapshot(
+                            ticker=ticker,
+                            price=price,
+                            market_date=md,
+                            price_type=PriceType.CLOSE,
+                            session_type=SessionType.REGULAR,
+                            snapshot_ts=snap_ts,
+                            data_source="yahoo_finance",
+                            job_run_id=None,
+                        ))
+                    snapshots_inserted += 1
+
+        for row in spy_successful.get("SPY", []):
+            md = row["market_date"]
+            price = row["price"]
+            market_dates_set.add(md)
+            existing_id = session.execute(
+                select(BenchmarkPrice.id).where(
+                    BenchmarkPrice.ticker == "SPY",
+                    BenchmarkPrice.market_date == md,
+                    BenchmarkPrice.session_type == SessionType.REGULAR,
+                )
+            ).scalar_one_or_none()
+            if not existing_id:
+                if not body.dry_run:
+                    snap_ts = _dt.combine(md, _dt.min.time()).replace(hour=16, tzinfo=timezone.utc)
+                    session.add(BenchmarkPrice(
+                        ticker="SPY",
+                        price=price,
+                        market_date=md,
+                        session_type=SessionType.REGULAR,
+                        snapshot_ts=snap_ts,
+                        job_run_id=None,
+                    ))
+                snapshots_inserted += 1
+
+        if not body.dry_run:
+            session.commit()
+
+        readiness = _get_screening_readiness_data(session)
+
+    return BackfillHistoryResponse(
+        safety_mode="HISTORICAL_PRICES_ONLY",
+        start_date=str(start_date),
+        end_date=str(end_date),
+        tickers_requested=tickers_requested,
+        tickers_succeeded=tickers_succeeded,
+        tickers_failed=tickers_failed,
+        snapshots_inserted_or_updated=snapshots_inserted,
+        market_dates_written=len(market_dates_set),
+        tickers_with_at_least_6_snapshots=readiness["tickers_with_at_least_6_snapshots"],
+        tickers_with_at_least_21_snapshots=readiness["tickers_with_at_least_21_snapshots"],
+        spy_snapshot_count=readiness["spy_snapshot_count"],
+        screening_ready=readiness["screening_ready"],
+        no_writes_to_orders_signals_decisions_trades=True,
+    )
+
+
+@app.get(
+    "/v1/market/screening-readiness",
+    response_model=ScreeningReadinessResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_screening_readiness() -> ScreeningReadinessResponse:
+    """
+    Return current screening readiness metrics. Read-only — no database writes.
+
+    screening_ready is True when spy_snapshot_count >= 21 and
+    tickers_with_at_least_21_snapshots >= 10.
+    """
+    with get_session() as session:
+        data = _get_screening_readiness_data(session)
+
+    spy_cnt = data["spy_snapshot_count"]
+    tickers_21 = data["tickers_with_at_least_21_snapshots"]
+    if data["screening_ready"]:
+        msg = "Ready. Sufficient price history and SPY benchmark data available for screening."
+    elif spy_cnt < 21:
+        msg = (
+            f"SPY benchmark history insufficient ({spy_cnt} snapshots, need 21+). "
+            "Run Backfill Screening History first."
+        )
+    elif tickers_21 < 10:
+        msg = (
+            f"Universe history insufficient ({tickers_21} tickers with 21d history, need 10+). "
+            "Run Backfill Screening History first."
+        )
+    else:
+        msg = "Not ready. Run Backfill Screening History first."
+
+    return ScreeningReadinessResponse(
+        price_snapshots_total=data["price_snapshots_total"],
+        distinct_market_dates=data["distinct_market_dates"],
+        tickers_total=data["tickers_total"],
+        tickers_with_at_least_6_snapshots=data["tickers_with_at_least_6_snapshots"],
+        tickers_with_at_least_21_snapshots=tickers_21,
+        spy_snapshot_count=spy_cnt,
+        latest_market_date=data["latest_market_date"],
+        screening_ready=data["screening_ready"],
+        message=msg,
     )
 
 
@@ -7703,6 +7940,16 @@ async def daily_plan_preview(
     _DOLLARS = Decimal("0.01")
 
     with get_session() as session:
+        # Check market history readiness and surface warning if insufficient
+        _mh_data = _get_screening_readiness_data(session)
+        _market_history_warning: str | None = None
+        if not _mh_data["screening_ready"]:
+            _market_history_warning = (
+                "Market history is not ready — run Backfill Screening History first. "
+                f"(SPY: {_mh_data['spy_snapshot_count']} snapshots, "
+                f"tickers with 21d history: {_mh_data['tickers_with_at_least_21_snapshots']})"
+            )
+
         # 1. Portfolio & position state
         portfolio = get_portfolio(session)
         cfg_max = int((portfolio.config or {}).get("max_positions", get_settings().max_positions))
@@ -8653,6 +8900,7 @@ async def daily_plan_preview(
         capital_allocation=capital_allocation,
         calibrated_rotation_context=_crw_ctx,
         profile_decision_context=_profile_decision_context,
+        market_history_warning=_market_history_warning,
     )
 
 

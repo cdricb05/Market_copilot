@@ -24259,3 +24259,332 @@ class TestUiRefreshSnapshotContent:
 
     def test_no_open_positions_empty_state_present(self) -> None:
         assert "No open positions" in self._read_html()
+
+
+# ===========================================================================
+# TestDailyPlanPreviewReadinessWarning
+# ===========================================================================
+
+class TestDailyPlanPreviewReadinessWarning:
+    """Daily Plan Preview includes market_history_warning when screening history is insufficient."""
+
+    def test_daily_plan_returns_readiness_warning_when_no_history(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """market_history_warning is non-None and explains the issue when history is sparse."""
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(
+            _app, "fetch_fred_latest_series",
+            lambda series_map, api_key: {k: None for k in series_map},
+        )
+        resp = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={
+                "approved_only": True,
+                "min_confidence": 0.65,
+                "max_price_age_days": 5,
+                "block_loss_realization": True,
+                "include_rotation": True,
+                "limit_candidates": 25,
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["market_history_warning"] is not None
+        assert "Market history is not ready" in body["market_history_warning"]
+        assert "Backfill Screening History" in body["market_history_warning"]
+
+
+# ===========================================================================
+# TestBackfillHistoryEndpoint
+# ===========================================================================
+
+_DATE_BFH_FULL = [date(2023, 1, i) for i in range(1, 22)]   # 21 dates (Jan 2023)
+_DATE_BFH_ONE  = [date(2023, 6, 1)]                          # 1 date only
+_DATE_BFH_DRY  = [date(2022, 7, 1), date(2022, 7, 2)]        # 2 dry-run dates
+_BFH_UNIVERSE  = ["AAPL", "MSFT", "GOOG"]
+
+
+class TestBackfillHistoryEndpoint:
+    """POST /v1/market/backfill-history endpoint tests."""
+
+    _ENDPOINT = "/v1/market/backfill-history"
+
+    @pytest.fixture(autouse=True)
+    def _prevent_real_yfinance(self, monkeypatch):
+        """Fail immediately if real yfinance.download is called in any test."""
+        try:
+            import paper_trader.engine.market_data as _md
+            if hasattr(_md, "yfinance") and _md.yfinance is not None:
+                def _guard(*a, **kw):
+                    raise AssertionError(
+                        "Test attempted to call real yfinance.download in TestBackfillHistoryEndpoint."
+                    )
+                monkeypatch.setattr(_md.yfinance, "download", _guard)
+        except (ImportError, AttributeError):
+            pass
+
+    def _mock_universe(self, monkeypatch) -> None:
+        from paper_trader.engine import universe as _u
+        monkeypatch.setattr(_u, "get_sp500_universe", lambda: list(_BFH_UNIVERSE))
+
+    def _mock_fetch_full(self, monkeypatch) -> None:
+        import paper_trader.api.app as _app
+        def _fake(tickers, start_date, end_date):
+            if tickers == ["SPY"]:
+                return {"SPY": [{"market_date": d, "price": Decimal("550.00")} for d in _DATE_BFH_FULL]}, {}
+            return {t: [{"market_date": d, "price": Decimal("100.00")} for d in _DATE_BFH_FULL] for t in tickers}, {}
+        monkeypatch.setattr(_app, "fetch_historical_prices", _fake)
+
+    def _mock_fetch_one(self, monkeypatch) -> None:
+        import paper_trader.api.app as _app
+        def _fake(tickers, start_date, end_date):
+            if tickers == ["SPY"]:
+                return {"SPY": [{"market_date": d, "price": Decimal("550.00")} for d in _DATE_BFH_ONE]}, {}
+            return {t: [{"market_date": d, "price": Decimal("100.00")} for d in _DATE_BFH_ONE] for t in tickers}, {}
+        monkeypatch.setattr(_app, "fetch_historical_prices", _fake)
+
+    def _mock_fetch_dry(self, monkeypatch) -> None:
+        import paper_trader.api.app as _app
+        def _fake(tickers, start_date, end_date):
+            if tickers == ["SPY"]:
+                return {"SPY": [{"market_date": d, "price": Decimal("400.00")} for d in _DATE_BFH_DRY]}, {}
+            return {t: [{"market_date": d, "price": Decimal("90.00")} for d in _DATE_BFH_DRY] for t in tickers}, {}
+        monkeypatch.setattr(_app, "fetch_historical_prices", _fake)
+
+    # ------------------------------------------------------------------
+    # Test 1: auth required
+    # ------------------------------------------------------------------
+
+    def test_requires_api_key(self, seeded_client: TestClient) -> None:
+        """Endpoint returns 401 when API key is missing."""
+        resp = seeded_client.post(self._ENDPOINT, json={})
+        assert resp.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: writes price_snapshots and SPY benchmark
+    # ------------------------------------------------------------------
+
+    def test_writes_price_snapshots_and_spy_benchmark(
+        self, seeded_client: TestClient, api_engine, monkeypatch
+    ) -> None:
+        """Endpoint writes price_snapshots for universe tickers and benchmark_prices for SPY."""
+        from sqlalchemy import func as sa_func
+        self._mock_universe(monkeypatch)
+        self._mock_fetch_full(monkeypatch)
+
+        resp = seeded_client.post(self._ENDPOINT, json={"lookback_days": 45}, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["safety_mode"] == "HISTORICAL_PRICES_ONLY"
+        assert body["no_writes_to_orders_signals_decisions_trades"] is True
+        assert body["tickers_requested"] == len(_BFH_UNIVERSE) + 1
+        assert body["tickers_succeeded"] == len(_BFH_UNIVERSE) + 1
+        assert body["tickers_failed"] == 0
+        assert body["snapshots_inserted_or_updated"] == len(_BFH_UNIVERSE) * 21 + 21  # 3 tickers + SPY x 21 dates
+        assert body["market_dates_written"] == 21
+        assert body["spy_snapshot_count"] >= 21
+        assert body["tickers_with_at_least_6_snapshots"] >= len(_BFH_UNIVERSE)
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ps_count = s.execute(
+                select(sa_func.count()).select_from(PriceSnapshot)
+                .where(PriceSnapshot.ticker.in_(_BFH_UNIVERSE))
+                .where(PriceSnapshot.price_type == "CLOSE")
+                .where(PriceSnapshot.session_type == "REGULAR")
+                .where(PriceSnapshot.market_date.in_(_DATE_BFH_FULL))
+            ).scalar_one()
+            spy_count = s.execute(
+                select(sa_func.count()).select_from(BenchmarkPrice)
+                .where(BenchmarkPrice.ticker == "SPY")
+                .where(BenchmarkPrice.session_type == "REGULAR")
+                .where(BenchmarkPrice.market_date.in_(_DATE_BFH_FULL))
+            ).scalar_one()
+
+        assert ps_count == len(_BFH_UNIVERSE) * 21
+        assert spy_count == 21
+
+    # ------------------------------------------------------------------
+    # Test 3: no orders / signals / decisions / trades created
+    # ------------------------------------------------------------------
+
+    def test_no_orders_signals_decisions_trades_created(
+        self, seeded_client: TestClient, api_engine, monkeypatch
+    ) -> None:
+        """Backfill must not create any Order, Signal, TradeDecision, or Trade rows."""
+        from sqlalchemy import func as sa_func
+        self._mock_universe(monkeypatch)
+        self._mock_fetch_full(monkeypatch)
+
+        def _count(model):
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                return s.execute(select(sa_func.count()).select_from(model)).scalar_one()
+
+        orders_before    = _count(Order)
+        signals_before   = _count(Signal)
+        decisions_before = _count(TradeDecision)
+
+        resp = seeded_client.post(self._ENDPOINT, json={"lookback_days": 45}, headers=_AUTH)
+        assert resp.status_code == 200
+
+        assert _count(Order)         == orders_before
+        assert _count(Signal)        == signals_before
+        assert _count(TradeDecision) == decisions_before
+
+    # ------------------------------------------------------------------
+    # Test 4: idempotent — second call on same data inserts 0 rows
+    # ------------------------------------------------------------------
+
+    def test_is_idempotent(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Calling with the same data twice inserts 0 rows on the second call."""
+        self._mock_universe(monkeypatch)
+        self._mock_fetch_full(monkeypatch)
+
+        # Data already committed by test 2 — all rows should be skipped
+        resp = seeded_client.post(self._ENDPOINT, json={"lookback_days": 45}, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["snapshots_inserted_or_updated"] == 0
+
+    # ------------------------------------------------------------------
+    # Test 5: screening_ready False when insufficient history (< 10 tickers × 21d)
+    # ------------------------------------------------------------------
+
+    def test_screening_ready_false_when_only_three_tickers(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """With only 3 universe tickers having 21d history, screening_ready is False."""
+        self._mock_universe(monkeypatch)
+        self._mock_fetch_one(monkeypatch)
+
+        resp = seeded_client.post(self._ENDPOINT, json={"lookback_days": 45}, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["screening_ready"] is False
+
+    # ------------------------------------------------------------------
+    # Test 6: dry_run does not write rows to the database
+    # ------------------------------------------------------------------
+
+    def test_dry_run_does_not_write_rows(
+        self, seeded_client: TestClient, api_engine, monkeypatch
+    ) -> None:
+        """dry_run=True counts what would be inserted but does not write any rows."""
+        from sqlalchemy import func as sa_func
+        self._mock_universe(monkeypatch)
+        self._mock_fetch_dry(monkeypatch)
+
+        def _count_dry_snapshots():
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                return s.execute(
+                    select(sa_func.count()).select_from(PriceSnapshot)
+                    .where(PriceSnapshot.market_date.in_(_DATE_BFH_DRY))
+                    .where(PriceSnapshot.ticker.in_(_BFH_UNIVERSE))
+                    .where(PriceSnapshot.price_type == "CLOSE")
+                    .where(PriceSnapshot.session_type == "REGULAR")
+                ).scalar_one()
+
+        before = _count_dry_snapshots()
+        resp = seeded_client.post(self._ENDPOINT, json={"lookback_days": 45, "dry_run": True}, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["snapshots_inserted_or_updated"] > 0  # counts what WOULD be inserted
+        after = _count_dry_snapshots()
+        assert after == before  # nothing actually written to DB
+
+
+# ===========================================================================
+# TestScreeningReadinessEndpoint
+# ===========================================================================
+
+class TestScreeningReadinessEndpoint:
+    """GET /v1/market/screening-readiness tests."""
+
+    _ENDPOINT = "/v1/market/screening-readiness"
+
+    def test_readiness_false_when_insufficient_history(
+        self, seeded_client: TestClient
+    ) -> None:
+        """Readiness is False when fewer than 10 tickers have 21d price history."""
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        # At this point in the test suite: 3 universe tickers with 21d history (< 10 required)
+        assert body["screening_ready"] is False
+        assert "message" in body
+        assert isinstance(body["spy_snapshot_count"], int)
+        assert isinstance(body["tickers_with_at_least_21_snapshots"], int)
+        assert isinstance(body["distinct_market_dates"], int)
+
+    def test_readiness_true_when_sufficient_history(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Readiness is True after inserting 21+ dates for 10+ tickers and SPY benchmark."""
+        from datetime import datetime as _dtime, timedelta as _td
+        _base = date(2022, 10, 1)
+        _rdytickers = [f"RDY{i:02d}" for i in range(12)]  # 12 tickers → tickers_21 >= 10
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            for i in range(25):
+                md = _base + _td(days=i)
+                snap_ts = _dtime.combine(md, _dtime.min.time()).replace(
+                    hour=16, tzinfo=timezone.utc
+                )
+                for tk in _rdytickers:
+                    s.add(PriceSnapshot(
+                        ticker=tk,
+                        price=Decimal("120.00"),
+                        price_type="CLOSE",
+                        session_type="REGULAR",
+                        snapshot_ts=snap_ts,
+                        market_date=md,
+                        data_source="test",
+                        job_run_id=None,
+                    ))
+                s.add(BenchmarkPrice(
+                    ticker="SPY",
+                    price=Decimal("500.00"),
+                    session_type="REGULAR",
+                    snapshot_ts=snap_ts,
+                    market_date=md,
+                    job_run_id=None,
+                ))
+            s.commit()
+
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["screening_ready"] is True
+        assert body["spy_snapshot_count"] >= 21
+        assert body["tickers_with_at_least_21_snapshots"] >= 10
+        assert "Ready" in body["message"]
+
+
+# ===========================================================================
+# TestUiBackfillHistoryContent
+# ===========================================================================
+
+class TestUiBackfillHistoryContent:
+    """Verify backfill-history UI strings are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_backfill_button_present(self) -> None:
+        """'Backfill Screening History' button must be present in the UI."""
+        assert "Backfill Screening History" in self._read_html()
+
+    def test_db_write_badge_present(self) -> None:
+        """'DB WRITE: HISTORICAL PRICES ONLY' safety badge must be present."""
+        assert "DB WRITE: HISTORICAL PRICES ONLY" in self._read_html()
+
+    def test_screening_readiness_panel_present(self) -> None:
+        """'Screening readiness' panel must be present in the UI."""
+        assert "Screening readiness" in self._read_html()

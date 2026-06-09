@@ -1519,10 +1519,18 @@
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <button id="refresh-snapshot-btn" class="btn" style="background: var(--warn, #e6a817); color: #1a1a2e; font-weight: 700; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="refreshMarketSnapshot(this)">&#8635; Refresh Market Data &amp; Portfolio Snapshot</button>
               <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;flex-shrink:0;">DB WRITE: PRICES + PORTFOLIO SNAPSHOT ONLY</span>
+              <button id="backfill-history-btn" class="btn" style="background: var(--info, #1e90ff); color: #fff; font-weight: 700; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="backfillScreeningHistory(this)">&#8659; Backfill Screening History</button>
+              <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;flex-shrink:0;">DB WRITE: HISTORICAL PRICES ONLY</span>
               <button class="btn" style="background: var(--info); color: white; font-weight: 600; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="window._switchTab('prediction-cockpit')">&#9654; Open Daily Plan</button>
             </div>
           </div>
           <div id="refresh-snapshot-result" style="display:none;margin:4px 0 6px 0;padding:6px 10px;background:var(--card-bg,#16213e);border:1px solid var(--border,#2a2a4a);border-radius:4px;font-size:11px;color:var(--text-secondary,#a8b4cc);"></div>
+          <div id="backfill-history-result" style="display:none;margin:4px 0 6px 0;padding:6px 10px;background:var(--card-bg,#16213e);border:1px solid var(--border,#2a2a4a);border-radius:4px;font-size:11px;color:var(--text-secondary,#a8b4cc);"></div>
+          <div id="screening-readiness-panel" style="margin:4px 0 6px 0;padding:6px 10px;background:var(--card-bg,#16213e);border:1px solid var(--border,#2a2a4a);border-radius:4px;font-size:11px;">
+            <span style="color:var(--label,#8899aa);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.5px;">Screening readiness</span>
+            <span id="screening-readiness-status" style="margin-left:8px;color:var(--text-secondary,#a8b4cc);">Loading...</span>
+            <button class="btn" style="margin-left:10px;font-size:10px;padding:2px 8px;" onclick="loadScreeningReadiness()">Check</button>
+          </div>
           <div class="ov-market-groups">
             <!-- Group: Equity / Volatility -->
             <div class="ov-mkt-group">
@@ -4137,6 +4145,55 @@ async function refreshMarketSnapshot(btn) {
     if (resultEl) resultEl.textContent = 'Network error: ' + err.message;
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function backfillScreeningHistory(btn) {
+  const resultEl = document.getElementById('backfill-history-result');
+  if (btn) btn.disabled = true;
+  if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = 'Running Backfill Screening History (45 days)...'; }
+  try {
+    const r = await call('POST', '/v1/market/backfill-history', { lookback_days: 45 });
+    const data = await r.json();
+    if (!r.ok) {
+      if (resultEl) resultEl.textContent = 'Error: ' + (data.detail || r.status);
+      return;
+    }
+    const ready = data.screening_ready ? 'READY' : 'NOT READY';
+    const msg = [
+      'Range: ' + data.start_date + ' to ' + data.end_date,
+      'Inserted: ' + data.snapshots_inserted_or_updated,
+      'Dates written: ' + data.market_dates_written,
+      'Tickers 21d: ' + data.tickers_with_at_least_21_snapshots,
+      'SPY snapshots: ' + data.spy_snapshot_count,
+      'Screening: ' + ready,
+      'Safety: ' + data.safety_mode,
+    ].join(' | ');
+    if (resultEl) resultEl.textContent = msg;
+    loadScreeningReadiness();
+  } catch (err) {
+    if (resultEl) resultEl.textContent = 'Network error: ' + err.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function loadScreeningReadiness() {
+  const statusEl = document.getElementById('screening-readiness-status');
+  try {
+    const r = await call('GET', '/v1/market/screening-readiness');
+    if (!r.ok) {
+      if (statusEl) statusEl.textContent = 'Error loading readiness';
+      return;
+    }
+    const data = await r.json();
+    const ready = data.screening_ready;
+    const color = ready ? 'var(--ok, #27ae60)' : 'var(--warning, #e6a817)';
+    const label = ready ? 'Ready' : 'Not ready';
+    const details = 'SPY: ' + data.spy_snapshot_count + ' | Tickers 21d: ' + data.tickers_with_at_least_21_snapshots + ' | Dates: ' + data.distinct_market_dates;
+    if (statusEl) statusEl.innerHTML = '<span style="color:' + color + ';font-weight:700;">' + label + '</span> &mdash; ' + escapeHtml(details);
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Failed: ' + String(e);
   }
 }
 
