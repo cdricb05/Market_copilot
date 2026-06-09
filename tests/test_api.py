@@ -23277,6 +23277,249 @@ class TestManualPaperFillEndpoint:
 
 
 # ===========================================================================
+# TestPostFillSnapshotConsistency
+# ===========================================================================
+
+class TestPostFillSnapshotConsistency:
+    """
+    Tests that POST /v1/review/fill-pending-orders upserts today's portfolio
+    snapshot so performance history is consistent after a fill.
+    """
+
+    _FILL_ENDPOINT    = "/v1/review/fill-pending-orders"
+    _HISTORY_ENDPOINT = "/v1/performance/history"
+
+    @pytest.fixture(autouse=True)
+    def _cleanup(self, api_engine):
+        """Clean up fill artifacts and today's portfolio snapshot before/after each test."""
+        from zoneinfo import ZoneInfo
+        _eastern = ZoneInfo("America/New_York")
+        today = datetime.now(timezone.utc).astimezone(_eastern).date()
+
+        def _purge():
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(
+                    Order.notes.like("Paper order ticket%")
+                ).delete(synchronize_session=False)
+                s.query(Order).filter(
+                    Order.status == "PENDING",
+                    Order.market_date == today,
+                ).delete(synchronize_session=False)
+                s.query(PortfolioSnapshot).filter(
+                    PortfolioSnapshot.market_date == today
+                ).delete(synchronize_session=False)
+                s.commit()
+
+        _purge()
+        yield
+        _purge()
+
+    # ------------------------------------------------------------------
+    # Test 1: fill creates today's portfolio snapshot with post-fill values
+    # ------------------------------------------------------------------
+
+    def test_fill_creates_today_snapshot(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        from zoneinfo import ZoneInfo
+        from paper_trader.db.models import Trade, CashLedger
+
+        sfx = _uuid.uuid4().hex[:8]
+        _eastern = ZoneInfo("America/New_York")
+        today = datetime.now(timezone.utc).astimezone(_eastern).date()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, _ = TestManualPaperFillEndpoint._seed_pending_order(
+                s, sfx, side="BUY", qty=Decimal("3.00000000"), price=Decimal("200.00")
+            )
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._FILL_ENDPOINT,
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            assert r.json()["orders_filled"] >= 1
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                snap = s.execute(
+                    select(PortfolioSnapshot).where(
+                        PortfolioSnapshot.market_date == today
+                    )
+                ).scalar_one_or_none()
+
+            assert snap is not None, "portfolio_snapshots must have a row for today after fill"
+            assert snap.open_position_count >= 1
+            assert snap.positions_value > Decimal("0.00")
+            assert snap.cash < Decimal("10000.00")
+            assert snap.total_value == snap.cash + snap.positions_value
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CashLedger).filter(
+                    CashLedger.order_id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Trade).filter(
+                    Trade.order_id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Order).filter(
+                    Order.id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Position).filter(
+                    Position.ticker == ticker
+                ).delete(synchronize_session=False)
+                s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 2: fill upserts (no duplicate) when a stale snapshot pre-exists
+    # ------------------------------------------------------------------
+
+    def test_fill_upserts_not_duplicates_existing_snapshot(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        from zoneinfo import ZoneInfo
+        from paper_trader.db.models import Trade, CashLedger
+
+        sfx = _uuid.uuid4().hex[:8]
+        _eastern = ZoneInfo("America/New_York")
+        today = datetime.now(timezone.utc).astimezone(_eastern).date()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            jr = JobRun(
+                idempotency_key=f"pre-fill-snap-jr-{sfx}",
+                workflow_type=WorkflowType.POST_MARKET,
+                market_date=today,
+                status=JobRunStatus.COMPLETED,
+                completed_at=datetime.now(timezone.utc),
+            )
+            s.add(jr)
+            s.flush()
+            s.add(PortfolioSnapshot(
+                job_run_id=jr.id,
+                snapshot_ts=datetime.now(timezone.utc),
+                market_date=today,
+                cash=Decimal("10000.00"),
+                positions_value=Decimal("0.00"),
+                total_value=Decimal("10000.00"),
+                unrealized_pnl=Decimal("0.00"),
+                realized_pnl_cumulative=Decimal("0.00"),
+                open_position_count=0,
+            ))
+            s.commit()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, _ = TestManualPaperFillEndpoint._seed_pending_order(
+                s, sfx, side="BUY", qty=Decimal("3.00000000"), price=Decimal("200.00")
+            )
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._FILL_ENDPOINT,
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            assert r.json()["orders_filled"] >= 1
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                snaps = s.execute(
+                    select(PortfolioSnapshot).where(
+                        PortfolioSnapshot.market_date == today
+                    )
+                ).scalars().all()
+
+            assert len(snaps) == 1, f"Expected exactly 1 snapshot for today, got {len(snaps)}"
+            assert snaps[0].positions_value > Decimal("0.00"), (
+                "Stale snapshot was not updated: positions_value is still 0"
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CashLedger).filter(
+                    CashLedger.order_id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Trade).filter(
+                    Trade.order_id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Order).filter(
+                    Order.id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Position).filter(
+                    Position.ticker == ticker
+                ).delete(synchronize_session=False)
+                s.commit()
+
+    # ------------------------------------------------------------------
+    # Test 3: performance/history returns post-fill values for today
+    # ------------------------------------------------------------------
+
+    def test_performance_history_reflects_post_fill_values(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        import uuid as _uuid
+        from zoneinfo import ZoneInfo
+        from paper_trader.db.models import Trade, CashLedger
+
+        sfx = _uuid.uuid4().hex[:8]
+        _eastern = ZoneInfo("America/New_York")
+        today = datetime.now(timezone.utc).astimezone(_eastern).date()
+        today_str = today.isoformat()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order_id, ticker, _ = TestManualPaperFillEndpoint._seed_pending_order(
+                s, sfx, side="BUY", qty=Decimal("3.00000000"), price=Decimal("200.00")
+            )
+            s.commit()
+
+        try:
+            r = seeded_client.post(
+                self._FILL_ENDPOINT,
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            assert r.json()["orders_filled"] >= 1
+
+            r2 = seeded_client.get(
+                f"{self._HISTORY_ENDPOINT}?start_date={today_str}&end_date={today_str}",
+                headers=_AUTH,
+            )
+            assert r2.status_code == 200
+            items = r2.json()
+            assert len(items) == 1, f"Expected 1 history item for today, got {len(items)}"
+
+            item = items[0]
+            assert item["market_date"] == today_str
+            assert Decimal(item["positions_value"]) > Decimal("0.00"), (
+                "performance/history positions_value must be > 0 after fill"
+            )
+            assert Decimal(item["cash"]) < Decimal("10000.00"), (
+                "performance/history cash must drop after BUY fill"
+            )
+            assert Decimal(item["total_value"]) == (
+                Decimal(item["cash"]) + Decimal(item["positions_value"])
+            )
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(CashLedger).filter(
+                    CashLedger.order_id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Trade).filter(
+                    Trade.order_id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Order).filter(
+                    Order.id == order_id
+                ).delete(synchronize_session=False)
+                s.query(Position).filter(
+                    Position.ticker == ticker
+                ).delete(synchronize_session=False)
+                s.commit()
+
+
+# ===========================================================================
 # TestManualPaperCancelEndpoint
 # ===========================================================================
 

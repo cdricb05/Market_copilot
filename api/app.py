@@ -107,7 +107,7 @@ from paper_trader.engine.scoring import (
 )
 from paper_trader.engine.strategy import generate_signals
 from paper_trader.workflows.decision import run_decision_workflow, _latest_price
-from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow
+from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow, upsert_post_fill_snapshot
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -12545,6 +12545,18 @@ async def fill_pending_paper_orders(
                 job_run.completed_at = now
                 job_run.result_summary = dict(counts)
                 session.commit()
+
+                # Upsert today's portfolio snapshot to reflect post-fill state.
+                # Best-effort: a missing price snapshot must not undo the fill.
+                try:
+                    upsert_post_fill_snapshot(
+                        session,
+                        job_run_id=job_run.id,
+                        market_date=market_date,
+                        now=now,
+                    )
+                except (MissingPricesError, ValueError):
+                    pass
 
             finally:
                 try:
