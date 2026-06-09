@@ -24818,3 +24818,82 @@ class TestUiDailyPlanDecisionActionsContent:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiDailyPlanOrderPreviewContent:
+    """Verify Order Preview card and wiring are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_order_preview_card_present(self) -> None:
+        assert "dp-order-preview-card" in self._read_html()
+
+    def test_preview_paper_orders_button_text_present(self) -> None:
+        assert "Preview Paper Orders" in self._read_html()
+
+    def test_previews_paper_order_tickets_only_safety_note_present(self) -> None:
+        assert "Previews paper order tickets only" in self._read_html()
+
+    def test_no_orders_no_trades_no_fills_no_broker_execution_present(self) -> None:
+        assert "no orders, no trades, no fills, no broker execution" in self._read_html()
+
+    def test_preview_only_badge_present(self) -> None:
+        assert "PREVIEW ONLY" in self._read_html()
+
+    def test_no_orders_created_badge_present(self) -> None:
+        assert "NO ORDERS CREATED" in self._read_html()
+
+    def test_no_trades_badge_present(self) -> None:
+        assert "NO TRADES" in self._read_html()
+
+    def test_no_broker_execution_badge_present(self) -> None:
+        assert "NO BROKER EXECUTION" in self._read_html()
+
+    def test_manual_review_badge_present(self) -> None:
+        assert "MANUAL REVIEW" in self._read_html()
+
+    def test_dp_oa_decision_count_id_present(self) -> None:
+        assert "dp-oa-decision-count" in self._read_html()
+
+    def test_dp_oa_order_count_id_present(self) -> None:
+        assert "dp-oa-order-count" in self._read_html()
+
+    def test_dp_oa_result_id_present(self) -> None:
+        assert "dp-oa-result" in self._read_html()
+
+    def test_dp_oa_no_decisions_msg_id_present(self) -> None:
+        assert "dp-oa-no-decisions-msg" in self._read_html()
+
+    def test_dp_oa_has_decisions_id_present(self) -> None:
+        assert "dp-oa-has-decisions" in self._read_html()
+
+    def test_dp_preview_orders_function_present(self) -> None:
+        assert "dpPreviewOrders" in self._read_html()
+
+    def test_daily_plan_order_preview_endpoint_used(self) -> None:
+        assert "/v1/review/daily-plan-order-preview" in self._read_html()
+
+    def test_create_trade_decisions_first_empty_state_present(self) -> None:
+        assert "Create trade decisions first." in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+    def test_create_paper_orders_not_in_order_preview_card(self) -> None:
+        html = self._read_html()
+        idx_start = html.find('id="dp-order-preview-card"')
+        idx_end = html.find('id="dp-oa-result"')
+        assert idx_start >= 0 and idx_end > idx_start, "dp-order-preview-card or dp-oa-result not found"
+        card_section = html[idx_start:idx_end]
+        assert "Create Paper Orders" not in card_section

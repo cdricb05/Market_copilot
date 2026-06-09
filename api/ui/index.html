@@ -2017,6 +2017,32 @@
               <div id="dp-da-result" style="margin-top: 4px;"></div>
             </div>
 
+            <!-- Order Preview — visible after decisions created; previews paper order tickets only; no orders created -->
+            <div id="dp-order-preview-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(59,130,246,.4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(59,130,246,.2); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Order Preview</div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">PREVIEW ONLY</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(34,197,94,.1); color: var(--ok); border: 1px solid rgba(34,197,94,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS CREATED</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO TRADES</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO BROKER EXECUTION</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(99,102,241,.12); color: var(--text-accent); border: 1px solid rgba(99,102,241,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">MANUAL REVIEW</span>
+                </div>
+              </div>
+              <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 8px; background: rgba(59,130,246,.06); border-left: 2px solid rgba(59,130,246,.5); border-radius: 0 2px 2px 0; line-height: 1.4;">
+                Previews paper order tickets only &mdash; no orders, no trades, no fills, no broker execution.
+                Eligible decisions: <span id="dp-oa-decision-count" style="font-weight: 700; color: var(--info);">0</span> &nbsp;|&nbsp;
+                Orders: <span id="dp-oa-order-count" style="font-weight: 700; color: var(--text-secondary);">0</span>
+              </div>
+              <div id="dp-oa-no-decisions-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Create trade decisions first.</div>
+              <div id="dp-oa-has-decisions" style="display: none;">
+                <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                  <button class="btn-sm" style="background: rgba(59,130,246,.12); color: var(--info); border: 1px solid rgba(59,130,246,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewOrders(this)">Preview Paper Orders</button>
+                </div>
+              </div>
+              <div id="dp-oa-result" style="margin-top: 4px;"></div>
+            </div>
+
             <!-- Prediction Preview Result (hidden until run) -->
             <div id="prediction-preview-card" style="display: none;">
               <div class="compact-card"><div class="section-title">Prediction Preview</div><div id="prediction-preview-result"></div></div>
@@ -8229,6 +8255,65 @@ async function dpCreateDecisions(btn) {
   });
 }
 
+async function dpPreviewOrders(btn) {
+  const resultEl = document.getElementById('dp-oa-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<div style="color: var(--info); font-size: 11px; padding: 6px 0;">Fetching order preview...</div>';
+  try {
+    const r = await call('POST', '/v1/review/daily-plan-order-preview', {
+      approved_only: true,
+      limit: 50,
+    });
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : 'HTTP ' + r.status);
+    let html = '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px;">';
+    html += '<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ' + escapeHtml(String(data.evaluated_count || 0)) + '</span>';
+    html += '<span style="background: rgba(59,130,246,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--info);">Previewed: ' + escapeHtml(String(data.preview_count || 0)) + '</span>';
+    if ((data.skipped_count || 0) > 0) {
+      html += '<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ' + escapeHtml(String(data.skipped_count)) + '</span>';
+    }
+    html += '</div>';
+    if (data.order_previews && data.order_previews.length > 0) {
+      html += '<div style="overflow-x: auto; max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px; margin-bottom: 6px;">';
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">';
+      html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px; border-bottom: 1px solid var(--border);">Ticker</th>';
+      html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px; border-bottom: 1px solid var(--border);">Side</th>';
+      html += '<th style="padding: 3px 5px; text-align: right; color: var(--label); font-size: 9px; border-bottom: 1px solid var(--border);">Qty</th>';
+      html += '<th style="padding: 3px 5px; text-align: right; color: var(--label); font-size: 9px; border-bottom: 1px solid var(--border);">Notional</th>';
+      html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px; border-bottom: 1px solid var(--border);">Reason</th>';
+      html += '</tr></thead><tbody>';
+      for (const op of data.order_previews) {
+        const opSideColor = op.side === 'BUY' ? 'var(--ok)' : op.side === 'SELL' ? 'var(--warning)' : 'var(--label)';
+        const opNotional = parseFloat(op.notional);
+        const opNotionalStr = isNaN(opNotional) || opNotional <= 0 ? '-' : '$' + opNotional.toFixed(0);
+        html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+        html += '<td style="padding: 3px 5px; font-weight: 600; color: var(--ok);">' + escapeHtml(op.ticker) + '</td>';
+        html += '<td style="padding: 3px 5px; color: ' + opSideColor + '; font-weight: 600;">' + escapeHtml(op.side) + '</td>';
+        html += '<td style="padding: 3px 5px; text-align: right;">' + escapeHtml(String(op.qty)) + '</td>';
+        html += '<td style="padding: 3px 5px; text-align: right;">' + escapeHtml(opNotionalStr) + '</td>';
+        html += '<td style="padding: 3px 5px; font-size: 9px; color: var(--text-secondary);">' + escapeHtml(op.reason_code || '') + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div style="font-size: 10px; color: var(--text-secondary); padding: 4px 0; font-style: italic;">No order previews generated. No eligible approved trade decisions found.</div>';
+    }
+    if (data.skipped && data.skipped.length > 0) {
+      for (const sk of data.skipped) {
+        html += '<div style="font-size: 9px; color: var(--danger); margin-bottom: 2px;">' + escapeHtml(sk.ticker) + ': ' + escapeHtml(sk.reason || '') + '</div>';
+      }
+    }
+    html += '<div style="margin-top: 4px; padding: 3px 8px; background: rgba(0,0,0,.2); border-radius: 2px; font-size: 9px; color: var(--text-secondary); text-align: center;">Preview only — no orders, trades, or fills created.</div>';
+    resultEl.innerHTML = html;
+    refreshCockpitAfterAction('DP Order Preview');
+  } catch (e) {
+    resultEl.innerHTML = '<div style="color: var(--danger); font-size: 10px; padding: 4px 0;">Error: ' + escapeHtml(e.message) + '</div>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function updateReviewStatus(candidateId, newStatus) {
   try {
     const r = await call('PATCH', `/v1/review/candidates/${candidateId}`, { review_status: newStatus });
@@ -9572,6 +9657,23 @@ function renderWorkflowStatus(data) {
   const dpDaHasSignals = document.getElementById('dp-da-has-signals');
   if (dpDaNoSignals) dpDaNoSignals.style.display = sigCount > 0 ? 'none' : '';
   if (dpDaHasSignals) dpDaHasSignals.style.display = sigCount > 0 ? '' : 'none';
+
+  // Update Order Preview card counts and show/hide action buttons
+  const eligibleDecCount = (d && d.order_eligible) || 0;
+  const dpOaDecisionCount = document.getElementById('dp-oa-decision-count');
+  if (dpOaDecisionCount) dpOaDecisionCount.textContent = eligibleDecCount;
+  const dpOaOrderCount = document.getElementById('dp-oa-order-count');
+  if (dpOaOrderCount) dpOaOrderCount.textContent = ordCount;
+  const dpOaNoDecisions = document.getElementById('dp-oa-no-decisions-msg');
+  const dpOaHasDecisions = document.getElementById('dp-oa-has-decisions');
+  if (dpOaNoDecisions) dpOaNoDecisions.style.display = eligibleDecCount > 0 ? 'none' : '';
+  if (dpOaHasDecisions) dpOaHasDecisions.style.display = eligibleDecCount > 0 ? '' : 'none';
+
+  // When eligible decisions exist with no orders yet, direct user to Order Preview
+  const dpPrimRec = document.getElementById('dp-primary-recommendation');
+  if (dpPrimRec && eligibleDecCount > 0 && ordCount === 0) {
+    dpPrimRec.textContent = 'Preview Paper Orders — ' + eligibleDecCount + ' eligible trade decision(s) ready. No orders created yet.';
+  }
 }
 
 async function getWorkflowStepReason(stepName) {
