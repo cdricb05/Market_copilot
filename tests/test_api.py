@@ -78,6 +78,7 @@ _DATE_SNAP_REPLAY  = date(2025, 2, 2)
 _DATE_SNAP_RUNNING = date(2025, 2, 3)
 _DATE_SNAP_FAILED  = date(2025, 2, 4)
 _DATE_SNAP_MISSING = date(2025, 2, 5)
+_DATE_REFRESH      = date(2025, 3, 5)  # isolated date for refresh-snapshot tests
 
 # Weekday dates for strategy run tests (Tuesday 2025-01-21, Wednesday 2025-01-22)
 _DATE_STRAT_APPROVED  = date(2025, 1, 21)  # Tuesday
@@ -23715,6 +23716,7 @@ class TestMarketIndicatorsEndpoint:
 
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
+        monkeypatch.setattr(app, "fetch_fred_latest_series", lambda series_map, api_key: {k: None for k in series_map})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -23844,6 +23846,7 @@ class TestMarketIndicatorsEndpoint:
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
         monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
+        monkeypatch.setattr(app, "fetch_fred_latest_series", lambda series_map, api_key: {k: None for k in series_map})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -24103,3 +24106,156 @@ class TestFredFetcher:
         from paper_trader.engine import market_data as md
         result = md._fetch_fred_single_series("DGS10", "dummy-key")
         assert result is None
+
+
+# ===========================================================================
+# TestRefreshSnapshotEndpoint
+# ===========================================================================
+
+class TestRefreshSnapshotEndpoint:
+    """Tests for POST /v1/market/refresh-snapshot."""
+
+    _ENDPOINT = "/v1/market/refresh-snapshot"
+    _MARKET_DATE = _DATE_REFRESH
+
+    def _mock_fetch(self, monkeypatch) -> None:
+        """Patch fetch_latest_prices to return two synthetic prices, no failures."""
+        def _fake(tickers):
+            return [
+                {"ticker": "AAPL", "price": "200.00"},
+                {"ticker": "MSFT", "price": "420.00"},
+            ], []
+        monkeypatch.setattr("paper_trader.api.app.fetch_latest_prices", _fake)
+
+    def _mock_universe(self, monkeypatch) -> None:
+        """Patch get_sp500_universe to return a two-ticker stub."""
+        from paper_trader.engine import universe as _univ
+        monkeypatch.setattr(_univ, "get_sp500_universe", lambda: ["AAPL", "MSFT"])
+
+    def _mock_now(self, monkeypatch) -> None:
+        """Patch _now_and_date so market_date matches _DATE_REFRESH."""
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(
+            _app,
+            "_now_and_date",
+            lambda: (
+                _NOW,
+                self._MARKET_DATE,
+            ),
+        )
+
+    # ------------------------------------------------------------------
+    # Test 1: auth required
+    # ------------------------------------------------------------------
+
+    def test_requires_api_key(self, seeded_client: TestClient, monkeypatch) -> None:
+        """Endpoint returns 401 when API key is missing."""
+        self._mock_fetch(monkeypatch)
+        self._mock_universe(monkeypatch)
+        self._mock_now(monkeypatch)
+        resp = seeded_client.post(self._ENDPOINT)
+        assert resp.status_code == 401
+
+    # ------------------------------------------------------------------
+    # Test 2: no orders / signals / decisions / trades created
+    # ------------------------------------------------------------------
+
+    def test_no_orders_signals_decisions_trades_created(
+        self, seeded_client: TestClient, api_engine, monkeypatch
+    ) -> None:
+        """Refresh must not create any Order, Signal, TradeDecision, or Trade rows."""
+        from sqlalchemy import func as sa_func
+        from paper_trader.db.models import Order, Signal, TradeDecision
+
+        def _count(model):
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                return s.execute(select(sa_func.count()).select_from(model)).scalar_one()
+
+        self._mock_fetch(monkeypatch)
+        self._mock_universe(monkeypatch)
+        self._mock_now(monkeypatch)
+
+        orders_before    = _count(Order)
+        signals_before   = _count(Signal)
+        decisions_before = _count(TradeDecision)
+
+        resp = seeded_client.post(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+
+        assert _count(Order)         == orders_before
+        assert _count(Signal)        == signals_before
+        assert _count(TradeDecision) == decisions_before
+
+    # ------------------------------------------------------------------
+    # Test 3: cash-only portfolio gets a portfolio snapshot
+    # ------------------------------------------------------------------
+
+    def test_creates_portfolio_snapshot_cash_only_portfolio(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Cash-only portfolio (no open positions) still gets a portfolio snapshot."""
+        self._mock_fetch(monkeypatch)
+        self._mock_universe(monkeypatch)
+        self._mock_now(monkeypatch)
+
+        resp = seeded_client.post(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert body["portfolio_snapshot_created_or_updated"] is True
+        assert body["snapshot_error"] is None
+        assert body["safety_mode"] == "PRICE_AND_PORTFOLIO_SNAPSHOT_ONLY"
+        assert isinstance(body["open_positions_count"], int)
+        total = body["portfolio_total_value"]
+        assert total is not None
+        assert Decimal(total) > 0
+
+    # ------------------------------------------------------------------
+    # Test 4: idempotent — second call on same market_date still succeeds
+    # ------------------------------------------------------------------
+
+    def test_idempotent_same_market_date(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Calling the endpoint twice for the same market_date should both return 200."""
+        self._mock_fetch(monkeypatch)
+        self._mock_universe(monkeypatch)
+        self._mock_now(monkeypatch)
+
+        first  = seeded_client.post(self._ENDPOINT, headers=_AUTH)
+        second = seeded_client.post(self._ENDPOINT, headers=_AUTH)
+        assert first.status_code  == 200
+        assert second.status_code == 200
+        b1 = first.json()
+        b2 = second.json()
+        # Both must report snapshot created/updated
+        assert b1["portfolio_snapshot_created_or_updated"] is True
+        assert b2["portfolio_snapshot_created_or_updated"] is True
+        # market_date must be consistent
+        assert b1["market_date"] == b2["market_date"]
+
+
+# ===========================================================================
+# TestUiRefreshSnapshotContent
+# ===========================================================================
+
+class TestUiRefreshSnapshotContent:
+    """Verify that refresh-snapshot UI strings are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_refresh_button_present(self) -> None:
+        assert "Refresh Market Data" in self._read_html()
+
+    def test_db_write_badge_present(self) -> None:
+        assert "DB WRITE: PRICES + PORTFOLIO SNAPSHOT ONLY" in self._read_html()
+
+    def test_no_portfolio_snapshots_empty_state_present(self) -> None:
+        assert "No portfolio snapshots yet" in self._read_html()
+
+    def test_no_open_positions_empty_state_present(self) -> None:
+        assert "No open positions" in self._read_html()

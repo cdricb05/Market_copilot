@@ -1516,8 +1516,13 @@
               <span class="ov-mkt-section-title">Market Dashboard</span>
               <span id="mkt-load-status" class="ov-mkt-load-status"></span>
             </div>
-            <button class="btn" style="background: var(--info); color: white; font-weight: 600; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="window._switchTab('prediction-cockpit')">&#9654; Open Daily Plan</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button id="refresh-snapshot-btn" class="btn" style="background: var(--warn, #e6a817); color: #1a1a2e; font-weight: 700; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="refreshMarketSnapshot(this)">&#8635; Refresh Market Data &amp; Portfolio Snapshot</button>
+              <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;flex-shrink:0;">DB WRITE: PRICES + PORTFOLIO SNAPSHOT ONLY</span>
+              <button class="btn" style="background: var(--info); color: white; font-weight: 600; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="window._switchTab('prediction-cockpit')">&#9654; Open Daily Plan</button>
+            </div>
           </div>
+          <div id="refresh-snapshot-result" style="display:none;margin:4px 0 6px 0;padding:6px 10px;background:var(--card-bg,#16213e);border:1px solid var(--border,#2a2a4a);border-radius:4px;font-size:11px;color:var(--text-secondary,#a8b4cc);"></div>
           <div class="ov-market-groups">
             <!-- Group: Equity / Volatility -->
             <div class="ov-mkt-group">
@@ -4102,6 +4107,37 @@ function formatMarketIndicatorValue(indicator) {
     return val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   }
   return indicator.value;
+}
+
+async function refreshMarketSnapshot(btn) {
+  const resultEl = document.getElementById('refresh-snapshot-result');
+  if (btn) btn.disabled = true;
+  if (resultEl) { resultEl.style.display = 'block'; resultEl.textContent = 'Refreshing market data and portfolio snapshot...'; }
+  try {
+    const r = await call('POST', '/v1/market/refresh-snapshot');
+    const data = await r.json();
+    if (!r.ok) {
+      if (resultEl) resultEl.textContent = 'Error: ' + (data.detail || r.status);
+      return;
+    }
+    const snap = data.portfolio_snapshot_created_or_updated ? 'created/updated' : ('failed: ' + (data.snapshot_error || 'unknown'));
+    const msg = [
+      'Market date: ' + data.market_date,
+      'Tickers requested: ' + data.tickers_requested,
+      'Prices written: ' + data.prices_inserted_or_updated,
+      'Price failures: ' + data.price_failures.length,
+      'Portfolio snapshot: ' + snap,
+      data.portfolio_total_value ? ('Portfolio total: $' + data.portfolio_total_value) : null,
+      'Safety: ' + data.safety_mode,
+    ].filter(Boolean).join(' | ');
+    if (resultEl) resultEl.textContent = msg;
+    loadMarketDashboard();
+    loadPortfolioHistory();
+  } catch (err) {
+    if (resultEl) resultEl.textContent = 'Network error: ' + err.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function loadMarketDashboard() {

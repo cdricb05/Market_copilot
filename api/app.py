@@ -298,6 +298,20 @@ class FetchPricesResponse(BaseModel):
     failures: list[FetchPriceFailure]
 
 
+class RefreshSnapshotResponse(BaseModel):
+    market_date: date
+    tickers_requested: int
+    prices_inserted_or_updated: int
+    price_failures: list[dict]
+    portfolio_snapshot_created_or_updated: bool
+    portfolio_total_value: str | None = None
+    cash: str | None = None
+    positions_value: str | None = None
+    open_positions_count: int | None = None
+    safety_mode: str
+    snapshot_error: str | None = None
+
+
 class PositionOut(BaseModel):
     id: str
     ticker: str
@@ -4547,6 +4561,83 @@ def backfill_benchmark_prices(body: BenchmarkBackfillRequest) -> BenchmarkBackfi
         end_date=str(body.end_date),
         results=results,
         failures=failures_list,
+    )
+
+
+@app.post(
+    "/v1/market/refresh-snapshot",
+    response_model=RefreshSnapshotResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def refresh_market_snapshot() -> RefreshSnapshotResponse:
+    """
+    Fetch latest S&P 500 close prices from Yahoo Finance and create/update today's
+    portfolio snapshot.  Safe: no orders, no signals, no automation.
+    Idempotent: calling again on the same market_date updates prices and returns
+    the existing portfolio snapshot.
+    """
+    import uuid as _uuid
+    from paper_trader.engine.universe import get_sp500_universe
+
+    now, market_date = _now_and_date()
+    tickers = get_sp500_universe()
+    prices_inserted = 0
+    price_failures: list[dict] = []
+
+    if tickers:
+        successful, failures = fetch_latest_prices(tickers)
+        price_failures = [{"ticker": f["ticker"], "reason": f["reason"]} for f in failures]
+        rows = []
+        for p in successful:
+            try:
+                price = Decimal(p["price"])
+                if price > 0:
+                    rows.append(PriceSnapshot(
+                        ticker=p["ticker"],
+                        price=price,
+                        session_type=SessionType.REGULAR,
+                        price_type=PriceType.CLOSE,
+                        data_source="yahoo_finance",
+                        snapshot_ts=now,
+                        market_date=market_date,
+                        job_run_id=None,
+                    ))
+            except (ValueError, TypeError):
+                price_failures.append({"ticker": p.get("ticker", "unknown"), "reason": "price conversion error"})
+        if rows:
+            with get_session() as session:
+                session.add_all(rows)
+            prices_inserted = len(rows)
+
+    idempotency_key = f"refresh-snapshot-{market_date}-{_uuid.uuid4().hex[:8]}"
+    snapshot_result: dict | None = None
+    snapshot_created = False
+    snapshot_error: str | None = None
+    try:
+        snapshot_result = run_snapshot_workflow(
+            idempotency_key=idempotency_key,
+            market_date=market_date,
+            now=now,
+        )
+        snapshot_created = True
+    except MissingPricesError as exc:
+        snapshot_error = str(exc)
+    except RuntimeError as exc:
+        snapshot_error = str(exc)
+
+    return RefreshSnapshotResponse(
+        market_date=market_date,
+        tickers_requested=len(tickers),
+        prices_inserted_or_updated=prices_inserted,
+        price_failures=price_failures,
+        portfolio_snapshot_created_or_updated=snapshot_created,
+        portfolio_total_value=snapshot_result.get("total_value") if snapshot_result else None,
+        cash=snapshot_result.get("cash") if snapshot_result else None,
+        positions_value=snapshot_result.get("positions_value") if snapshot_result else None,
+        open_positions_count=snapshot_result.get("open_position_count") if snapshot_result else None,
+        safety_mode="PRICE_AND_PORTFOLIO_SNAPSHOT_ONLY",
+        snapshot_error=snapshot_error,
     )
 
 
