@@ -1967,6 +1967,29 @@
               </div>
             </div>
 
+            <!-- Signal Actions — visible after candidates approved; creates signals only; no decisions/orders -->
+            <div id="dp-signal-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(34,197,94,.4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(34,197,94,.2); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok);">Signal Actions</div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(34,197,94,.15); color: var(--ok); border: 1px solid rgba(34,197,94,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">SIGNALS ONLY</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS</span>
+                </div>
+              </div>
+              <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 8px; background: rgba(34,197,94,.06); border-left: 2px solid rgba(34,197,94,.5); border-radius: 0 2px 2px 0; line-height: 1.4;">
+                Creates signal records only &mdash; no decisions, no orders, no trades.
+                <span id="dp-sa-approved-count" style="font-weight: 700; color: var(--ok);">0</span> candidate(s) approved for signal.
+              </div>
+              <div id="dp-sa-no-approved-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Approve candidates in Review Queue first.</div>
+              <div id="dp-sa-has-approved" style="display: none;">
+                <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                  <button class="btn-sm" style="background: rgba(34,197,94,.12); color: var(--ok); border: 1px solid rgba(34,197,94,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewSignals(this)">Preview Signals from Approved Candidates</button>
+                  <button id="dp-sa-create-btn" class="btn-sm" style="background: rgba(34,197,94,.22); color: var(--ok); border: 1px solid rgba(34,197,94,.6); font-size: 9px; padding: 3px 10px; font-weight: 700;" onclick="dpCreateSignals(this)">Create Signals from Approved Candidates</button>
+                </div>
+              </div>
+              <div id="dp-sa-result" style="margin-top: 4px;"></div>
+            </div>
+
             <!-- Prediction Preview Result (hidden until run) -->
             <div id="prediction-preview-card" style="display: none;">
               <div class="compact-card"><div class="section-title">Prediction Preview</div><div id="prediction-preview-result"></div></div>
@@ -7910,6 +7933,138 @@ function renderDpInlineReviewQueue(candidates) {
   }).join('');
 }
 
+async function dpPreviewSignals(btn) {
+  const resultEl = document.getElementById('dp-sa-result');
+  if (!resultEl) return;
+  if (btn) btn.disabled = true;
+  resultEl.innerHTML = '<div style="color: var(--warning); font-size: 11px; padding: 6px 0;">Fetching signal preview...</div>';
+  try {
+    const r = await call('POST', '/v1/review/signal-preview', {
+      idempotency_key: 'dp-sig-preview-' + Date.now(),
+      review_status: 'APPROVED_FOR_SIGNAL',
+      limit: 50,
+    });
+    const data = await parseApiResponse(r);
+    if (!r.ok) throw new Error((data && data.detail) ? data.detail : 'HTTP ' + r.status);
+    let html = '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px;">';
+    html += '<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ' + escapeHtml(String(data.candidates_evaluated || 0)) + '</span>';
+    html += '<span style="background: rgba(34,197,94,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--ok);">Previewed: ' + escapeHtml(String(data.signal_previews_generated || 0)) + '</span>';
+    if ((data.skipped_count || 0) > 0) {
+      html += '<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ' + escapeHtml(String(data.skipped_count)) + '</span>';
+    }
+    html += '</div>';
+    if (data.signal_previews && data.signal_previews.length > 0) {
+      html += '<div style="overflow-x: auto; max-height: 160px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px; margin-bottom: 6px;">';
+      html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">';
+      html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Ticker</th>';
+      html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Side</th>';
+      html += '<th style="padding: 3px 5px; text-align: right; color: var(--label); font-size: 9px;">Conf</th>';
+      html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Decision</th>';
+      html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Reason</th>';
+      html += '</tr></thead><tbody>';
+      for (const sp of data.signal_previews) {
+        const spSideColor = sp.side === 'BUY' ? 'var(--ok)' : sp.side === 'SELL' ? 'var(--danger)' : 'var(--text-secondary)';
+        const spConf = parseFloat(sp.confidence);
+        const spConfStr = isNaN(spConf) ? '-' : (spConf * 100).toFixed(0) + '%';
+        html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+        html += '<td style="padding: 3px 5px; font-weight: 600;">' + escapeHtml(sp.ticker) + '</td>';
+        html += '<td style="padding: 3px 5px; color: ' + spSideColor + '; font-weight: 600;">' + escapeHtml(sp.side) + '</td>';
+        html += '<td style="padding: 3px 5px; text-align: right;">' + escapeHtml(spConfStr) + '</td>';
+        html += '<td style="padding: 3px 5px; font-size: 9px;">' + escapeHtml(sp.preview_decision || '-') + '</td>';
+        html += '<td style="padding: 3px 5px; color: var(--text-secondary); font-size: 9px;">' + escapeHtml((sp.reason || '').substring(0, 50)) + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+    } else {
+      html += '<div style="font-size: 10px; color: var(--text-secondary); padding: 4px 0; margin-bottom: 6px;">No signal previews generated.</div>';
+    }
+    if (data.skipped && data.skipped.length > 0) {
+      for (const sk of data.skipped) {
+        html += '<div style="font-size: 9px; color: var(--danger);">' + escapeHtml(sk.ticker) + ': ' + escapeHtml(sk.reason) + '</div>';
+      }
+    }
+    html += '<div style="margin-top: 4px; padding: 3px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--ok); text-align: center;">Preview only &mdash; no signals, decisions, or orders created.</div>';
+    resultEl.innerHTML = html;
+    refreshCockpitAfterAction('Signal Preview');
+  } catch (e) {
+    resultEl.innerHTML = '<div style="color: var(--danger); font-size: 10px; padding: 4px 0;">Error: ' + escapeHtml(e.message) + '</div>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function dpCreateSignals(btn) {
+  const resultEl = document.getElementById('dp-sa-result');
+  if (!resultEl) return;
+  return new Promise(resolve => {
+    window._showWriteConfirm({
+      title: 'Confirm: Create Signals',
+      writes: ['Signal rows from APPROVED_FOR_SIGNAL candidates in the Review Queue'],
+      doesNotDo: ['does not create trade decisions', 'does not create orders', 'does not execute trades', 'does not enable automation'],
+      confirmLabel: 'Create Signals',
+      onConfirm: async () => {
+        if (btn) btn.disabled = true;
+        resultEl.innerHTML = '<div style="color: var(--warning); font-size: 11px; padding: 6px 0;">Creating signals...</div>';
+        try {
+          const r = await call('POST', '/v1/review/create-signals', {
+            idempotency_key: 'dp-create-sigs-' + Date.now(),
+            review_status: 'APPROVED_FOR_SIGNAL',
+            limit: 50,
+            confirm_create_signals: true,
+          });
+          const data = await parseApiResponse(r);
+          if (!r.ok) throw new Error((data && data.detail) ? data.detail : 'HTTP ' + r.status);
+          const cCreated = data.signals_created || 0;
+          let html = '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px;">';
+          html += '<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Evaluated: ' + escapeHtml(String(data.candidates_evaluated || 0)) + '</span>';
+          const cBg = cCreated > 0 ? 'rgba(34,197,94,.1)' : 'rgba(255,255,255,.07)';
+          const cClr = cCreated > 0 ? 'color: var(--ok); ' : '';
+          html += '<span style="background: ' + cBg + '; ' + cClr + 'padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 600;">Signals created: ' + escapeHtml(String(cCreated)) + '</span>';
+          if ((data.skipped_existing_count || 0) > 0) {
+            html += '<span style="background: rgba(251,191,36,.08); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--warning);">Already existed: ' + escapeHtml(String(data.skipped_existing_count)) + '</span>';
+          }
+          if ((data.skipped_count || 0) > 0) {
+            html += '<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Skipped: ' + escapeHtml(String(data.skipped_count)) + '</span>';
+          }
+          html += '</div>';
+          if (data.created_signals && data.created_signals.length > 0) {
+            html += '<div style="overflow-x: auto; max-height: 160px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px; margin-bottom: 6px;">';
+            html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Ticker</th>';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Side</th>';
+            html += '<th style="padding: 3px 5px; text-align: right; color: var(--label); font-size: 9px;">Conf</th>';
+            html += '</tr></thead><tbody>';
+            for (const sig of data.created_signals) {
+              const sigSideColor = sig.side === 'BUY' ? 'var(--ok)' : sig.side === 'SELL' ? 'var(--danger)' : 'var(--text-secondary)';
+              const sigConf = parseFloat(sig.confidence);
+              const sigConfStr = isNaN(sigConf) ? '-' : (sigConf * 100).toFixed(0) + '%';
+              html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+              html += '<td style="padding: 3px 5px; font-weight: 600; color: var(--ok);">' + escapeHtml(sig.ticker) + '</td>';
+              html += '<td style="padding: 3px 5px; color: ' + sigSideColor + '; font-weight: 600;">' + escapeHtml(sig.side) + '</td>';
+              html += '<td style="padding: 3px 5px; text-align: right;">' + escapeHtml(sigConfStr) + '</td>';
+              html += '</tr>';
+            }
+            html += '</tbody></table></div>';
+          }
+          html += '<div style="margin-top: 4px; padding: 3px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">Signals: ' + escapeHtml(String(cCreated)) + ' created | Decisions: 0 | Orders: 0 | Automation: off</div>';
+          resultEl.innerHTML = html;
+          if (cCreated > 0) {
+            const _prEl = document.getElementById('dp-primary-recommendation');
+            if (_prEl) _prEl.textContent = cCreated + ' signal(s) created. Next: run Decision Preview to evaluate trade decisions.';
+          }
+          refreshCockpitAfterAction('Create Signals');
+          resolve();
+        } catch (e) {
+          resultEl.innerHTML = '<div style="color: var(--danger); font-size: 10px; padding: 4px 0;">Error: ' + escapeHtml(e.message) + '</div>';
+          if (btn) btn.disabled = false;
+          resolve();
+        }
+      },
+      onCancel: () => resolve(),
+    });
+  });
+}
+
 async function updateReviewStatus(candidateId, newStatus) {
   try {
     const r = await call('PATCH', `/v1/review/candidates/${candidateId}`, { review_status: newStatus });
@@ -9485,12 +9640,20 @@ function updateCockpitReviewSummary() {
       if (approved === 0 && pending > 0) {
         _prEl.textContent = 'Review and approve candidates in Review Queue — ' + pending + ' candidate(s) pending approval.';
       } else if (approved > 0 && pending === 0) {
-        _prEl.textContent = approved + ' candidate(s) approved for signal — run Signal Preview to generate signals.';
+        _prEl.textContent = approved + ' candidate(s) approved for signal — use Signal Actions below to preview or create signals.';
       } else if (approved > 0) {
-        _prEl.textContent = approved + ' approved, ' + pending + ' pending — review remaining candidates or run Signal Preview.';
+        _prEl.textContent = approved + ' approved, ' + pending + ' pending — review remaining candidates or use Signal Actions below.';
       }
     }
   }
+
+  // Update Signal Actions card approved count and show/hide action buttons
+  const dpSaCount = document.getElementById('dp-sa-approved-count');
+  if (dpSaCount) dpSaCount.textContent = approved;
+  const dpSaNoApproved = document.getElementById('dp-sa-no-approved-msg');
+  const dpSaHasApproved = document.getElementById('dp-sa-has-approved');
+  if (dpSaNoApproved) dpSaNoApproved.style.display = approved > 0 ? 'none' : '';
+  if (dpSaHasApproved) dpSaHasApproved.style.display = approved > 0 ? '' : 'none';
 }
 
 async function refreshReviewQueue() {

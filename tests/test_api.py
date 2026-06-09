@@ -24660,3 +24660,81 @@ class TestUiDailyPlanV2Content:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiDailyPlanSignalActionsContent:
+    """Verify Signal Actions card and wiring are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_signal_actions_card_present(self) -> None:
+        """dp-signal-actions-card element must be present in Daily Plan center column."""
+        assert "dp-signal-actions-card" in self._read_html()
+
+    def test_preview_signals_button_text_present(self) -> None:
+        """'Preview Signals from Approved Candidates' button text must be present."""
+        assert "Preview Signals from Approved Candidates" in self._read_html()
+
+    def test_create_signals_button_text_present(self) -> None:
+        """'Create Signals from Approved Candidates' button text must be present."""
+        assert "Create Signals from Approved Candidates" in self._read_html()
+
+    def test_creates_signal_records_only_safety_note_present(self) -> None:
+        """Safety note 'Creates signal records only' must be present."""
+        assert "Creates signal records only" in self._read_html()
+
+    def test_no_decisions_no_orders_no_trades_safety_note_present(self) -> None:
+        """Safety scope 'no decisions, no orders, no trades' must be present."""
+        assert "no decisions, no orders, no trades" in self._read_html()
+
+    def test_dp_sa_approved_count_id_present(self) -> None:
+        """dp-sa-approved-count stat element must be present."""
+        assert "dp-sa-approved-count" in self._read_html()
+
+    def test_dp_sa_result_id_present(self) -> None:
+        """dp-sa-result result area must be present."""
+        assert "dp-sa-result" in self._read_html()
+
+    def test_dp_sa_no_approved_msg_id_present(self) -> None:
+        """dp-sa-no-approved-msg empty-state element must be present."""
+        assert "dp-sa-no-approved-msg" in self._read_html()
+
+    def test_dp_sa_has_approved_id_present(self) -> None:
+        """dp-sa-has-approved actions container must be present."""
+        assert "dp-sa-has-approved" in self._read_html()
+
+    def test_dp_preview_signals_function_present(self) -> None:
+        """dpPreviewSignals JS function must be defined in the UI."""
+        assert "dpPreviewSignals" in self._read_html()
+
+    def test_dp_create_signals_function_present(self) -> None:
+        """dpCreateSignals JS function must be defined in the UI."""
+        assert "dpCreateSignals" in self._read_html()
+
+    def test_signal_preview_endpoint_used(self) -> None:
+        """UI must reference /v1/review/signal-preview endpoint."""
+        assert "/v1/review/signal-preview" in self._read_html()
+
+    def test_create_signals_endpoint_used(self) -> None:
+        """UI must reference /v1/review/create-signals endpoint."""
+        assert "/v1/review/create-signals" in self._read_html()
+
+    def test_approve_first_empty_state_present(self) -> None:
+        """'Approve candidates in Review Queue first' empty-state message must be present."""
+        assert "Approve candidates in Review Queue first" in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        """No alert() calls must appear in the HTML."""
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        """No confirm() calls must appear in the HTML."""
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
