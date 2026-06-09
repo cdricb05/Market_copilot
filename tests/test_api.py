@@ -22733,6 +22733,85 @@ class TestUiStaticContent:
 
 
 # ===========================================================================
+# TestPredictionHealthEndpoint
+# ===========================================================================
+
+class TestPredictionHealthEndpoint:
+    """GET /v1/prediction/health — always HTTP 200, no DB writes, no predictions run."""
+
+    def test_prediction_health_service_ok(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mocked healthy prediction service → status 'ok'."""
+        class _WithUrl:
+            service_api_key = _TEST_API_KEY
+            stock_prediction_api_url = "http://127.0.0.1:9000"
+            stock_prediction_api_timeout_seconds = 5
+
+        monkeypatch.setattr("paper_trader.api.app.get_settings", lambda: _WithUrl())
+        monkeypatch.setattr(
+            "paper_trader.api.app._check_prediction_healthz",
+            lambda base_url, timeout_seconds=5: (True, True, "Prediction service healthy"),
+        )
+        resp = client.get("/v1/prediction/health", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["reachable"] is True
+        assert data["healthz_ok"] is True
+        assert "expected_tunnel_command" in data
+        assert "gcloud" in data["expected_tunnel_command"]
+        assert "checked_at" in data
+
+    def test_prediction_health_service_unreachable(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mocked unreachable service → status 'unavailable'."""
+        class _WithUrl:
+            service_api_key = _TEST_API_KEY
+            stock_prediction_api_url = "http://127.0.0.1:9000"
+            stock_prediction_api_timeout_seconds = 5
+
+        monkeypatch.setattr("paper_trader.api.app.get_settings", lambda: _WithUrl())
+        monkeypatch.setattr(
+            "paper_trader.api.app._check_prediction_healthz",
+            lambda base_url, timeout_seconds=5: (False, False, "Unreachable: Connection refused"),
+        )
+        resp = client.get("/v1/prediction/health", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "unavailable"
+        assert data["reachable"] is False
+        assert data["healthz_ok"] is False
+        assert "gcloud" in data["expected_tunnel_command"]
+        assert "Unreachable" in data["detail"]
+
+    def test_prediction_health_no_url_configured(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Empty prediction URL → status 'misconfigured', no network call made."""
+        class _EmptyUrlSettings:
+            service_api_key = _TEST_API_KEY
+            stock_prediction_api_url = ""
+            stock_prediction_api_timeout_seconds = 5
+
+        monkeypatch.setattr("paper_trader.api.app.get_settings", lambda: _EmptyUrlSettings())
+        resp = client.get("/v1/prediction/health", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "misconfigured"
+        assert data["reachable"] is False
+        assert data["healthz_ok"] is False
+        assert data["prediction_base_url"] == ""
+        assert "gcloud" in data["expected_tunnel_command"]
+
+    def test_prediction_health_requires_auth(self, client: TestClient) -> None:
+        """Missing API key → 401."""
+        resp = client.get("/v1/prediction/health")
+        assert resp.status_code == 401
+
+
+# ===========================================================================
 # TestManualPaperFillEndpoint
 # ===========================================================================
 

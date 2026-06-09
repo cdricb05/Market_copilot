@@ -1268,6 +1268,7 @@
   <span class="badge warning" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">MANUAL REVIEW</span>
   <span class="badge ok" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">PAPER ORDERS ONLY</span>
   <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">AUTOMATION OFF</span>
+  <span id="pred-health-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;">Prediction: ---</span>
   <div style="flex: 1;"></div>
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
          onkeydown="if(event.key==='Enter')window.paperTraderConnect(event)">
@@ -1702,11 +1703,16 @@
           </div>
           <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px;">
             <div id="orch-step-0" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">0: Refresh</div>
-            <div id="orch-step-1" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">1: Candidate Preview</div>
-            <div id="orch-step-2" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">2: Daily Plan</div>
-            <div id="orch-step-3" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">3: Signal Preview</div>
-            <div id="orch-step-4" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">4: Decision Preview</div>
-            <div id="orch-step-5" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">5: Order Preview</div>
+            <div id="orch-step-1" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">1: Prediction</div>
+            <div id="orch-step-2" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">2: Candidate Preview</div>
+            <div id="orch-step-3" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">3: Daily Plan</div>
+            <div id="orch-step-4" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">4: Signal Preview</div>
+            <div id="orch-step-5" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">5: Decision Preview</div>
+            <div id="orch-step-6" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">6: Order Preview</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 5px; flex-wrap: wrap;">
+            <span id="pred-health-indicator" style="font-size: 9px; color: var(--label);">Prediction Service: ---</span>
+            <button id="pred-health-btn" class="btn" style="font-size: 9px; padding: 2px 8px; background: rgba(255,255,255,.06); color: var(--label); border: 1px solid rgba(255,255,255,.2);" onclick="checkPredictionService()">Check Prediction Service</button>
           </div>
           <div style="font-size: 9px; color: var(--ok); opacity: 0.8; margin-bottom: 4px;">Preview only. No candidates saved. No signals created. No decisions created. No paper orders created. No fills. No broker orders. Automation off.</div>
           <div id="orch-summary" style="display: none;"></div>
@@ -3403,6 +3409,50 @@ async function loadPortfolioHistory() {
     const r = await call('GET', '/v1/performance/history');
     if (!r.ok) {
       console.warn('Portfolio history load failed:', r.status);
+      if (r.status === 404) {
+        const card1 = document.querySelector('.ov-chart-card:nth-child(1)');
+        if (card1) {
+          const svg1 = card1.querySelector('.ov-chart-svg');
+          if (svg1) {
+            const textEl = svg1.querySelector('text[text-anchor="middle"]');
+            if (textEl && textEl.textContent.includes('Stale')) {
+              textEl.remove();
+            }
+            const emptyText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            emptyText.setAttribute('x', '165');
+            emptyText.setAttribute('y', '37');
+            emptyText.setAttribute('text-anchor', 'middle');
+            emptyText.setAttribute('dominant-baseline', 'middle');
+            emptyText.setAttribute('fill', 'rgba(168,184,216,0.18)');
+            emptyText.setAttribute('font-size', '9');
+            emptyText.textContent = 'No portfolio snapshots yet';
+            svg1.appendChild(emptyText);
+          }
+          const statusEl1 = card1.querySelector('.ov-chart-status');
+          if (statusEl1) statusEl1.textContent = 'Source: no snapshots recorded';
+        }
+        const card2 = document.querySelector('.ov-chart-card:nth-child(2)');
+        if (card2) {
+          const svg2 = card2.querySelector('.ov-chart-svg');
+          if (svg2) {
+            const textEl = svg2.querySelector('text[text-anchor="middle"]');
+            if (textEl && textEl.textContent.includes('Stale')) {
+              textEl.remove();
+            }
+            const emptyText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            emptyText.setAttribute('x', '165');
+            emptyText.setAttribute('y', '37');
+            emptyText.setAttribute('text-anchor', 'middle');
+            emptyText.setAttribute('dominant-baseline', 'middle');
+            emptyText.setAttribute('fill', 'rgba(168,184,216,0.18)');
+            emptyText.setAttribute('font-size', '9');
+            emptyText.textContent = 'No portfolio snapshots yet';
+            svg2.appendChild(emptyText);
+          }
+          const statusEl2 = card2.querySelector('.ov-chart-status');
+          if (statusEl2) statusEl2.textContent = 'Source: no snapshots recorded';
+        }
+      }
       return;
     }
     const data = await r.json();
@@ -3531,13 +3581,17 @@ async function renderExposureChart() {
       positionList = resp.open_positions;
     }
     if (!positionList || positionList.length === 0) {
-      const existingRects = svg.querySelectorAll('rect[data-phase="exposure"], text[data-phase="exposure"]');
-      existingRects.forEach(r => r.remove());
-      const existingStaleText = svg.querySelector('text[text-anchor="middle"]');
-      if (existingStaleText && existingStaleText.textContent.includes('Stale')) {
-        existingStaleText.remove();
-      }
-      if (statusEl) statusEl.textContent = 'No position exposure available';
+      svg.innerHTML = '';
+      const emptyText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      emptyText.setAttribute('x', '165');
+      emptyText.setAttribute('y', '37');
+      emptyText.setAttribute('text-anchor', 'middle');
+      emptyText.setAttribute('dominant-baseline', 'middle');
+      emptyText.setAttribute('fill', 'rgba(168,184,216,0.18)');
+      emptyText.setAttribute('font-size', '9');
+      emptyText.textContent = 'No open positions';
+      svg.appendChild(emptyText);
+      if (statusEl) statusEl.textContent = 'Source: open positions empty';
       return;
     }
     const positions = positionList.slice(0, 4).map(p => {
@@ -3550,7 +3604,17 @@ async function renderExposureChart() {
       return { ticker: (p.ticker || '?').trim(), value: value || 0 };
     }).filter(pos => pos.value > 0);
     if (positions.length === 0) {
-      if (statusEl) statusEl.textContent = 'No position exposure available';
+      svg.innerHTML = '';
+      const emptyText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      emptyText.setAttribute('x', '165');
+      emptyText.setAttribute('y', '37');
+      emptyText.setAttribute('text-anchor', 'middle');
+      emptyText.setAttribute('dominant-baseline', 'middle');
+      emptyText.setAttribute('fill', 'rgba(168,184,216,0.18)');
+      emptyText.setAttribute('font-size', '9');
+      emptyText.textContent = 'No open positions';
+      svg.appendChild(emptyText);
+      if (statusEl) statusEl.textContent = 'Source: open positions empty';
       return;
     }
     const maxVal = Math.max(...positions.map(p => p.value), 1);
@@ -3580,12 +3644,7 @@ async function renderExposureChart() {
       label.textContent = pos.ticker.length > 5 ? pos.ticker.substring(0, 5) : pos.ticker;
       newRects.push(label);
     });
-    const existingRects = svg.querySelectorAll('rect[data-phase="exposure"], text[data-phase="exposure"]');
-    existingRects.forEach(r => r.remove());
-    const existingStaleText = svg.querySelector('text[text-anchor="middle"]');
-    if (existingStaleText && existingStaleText.textContent.includes('Stale')) {
-      existingStaleText.remove();
-    }
+    svg.innerHTML = '';
     newRects.forEach(rect => {
       rect.setAttribute('data-phase', 'exposure');
       svg.appendChild(rect);
@@ -4863,11 +4922,12 @@ async function checkStrategyReadiness() {
 
 const _ORCH_LABELS = [
   '0: Refresh',
-  '1: Candidate Preview',
-  '2: Daily Plan',
-  '3: Signal Preview',
-  '4: Decision Preview',
-  '5: Order Preview',
+  '1: Prediction',
+  '2: Candidate Preview',
+  '3: Daily Plan',
+  '4: Signal Preview',
+  '5: Decision Preview',
+  '6: Order Preview',
 ];
 
 function _orchStep(idx, status, text) {
@@ -4946,13 +5006,38 @@ function _renderOrchSummary(el, s) {
   el.innerHTML = html;
 }
 
+async function checkPredictionService() {
+  var btn = document.getElementById('pred-health-btn');
+  var indicator = document.getElementById('pred-health-indicator');
+  var badge = document.getElementById('pred-health-badge');
+  if (btn) btn.disabled = true;
+  if (indicator) { indicator.textContent = 'Prediction Service: Checking...'; indicator.style.color = 'var(--label)'; }
+  try {
+    var r = await call('GET', '/v1/prediction/health');
+    var d = await parseApiResponse(r);
+    if (r.ok && d.status === 'ok') {
+      if (indicator) { indicator.textContent = 'Prediction Service: OK'; indicator.style.color = 'var(--ok)'; }
+      if (badge) { badge.textContent = 'Prediction: OK'; badge.style.color = 'var(--ok)'; badge.style.borderColor = 'rgba(34,197,94,.4)'; badge.style.background = 'rgba(34,197,94,.08)'; }
+    } else {
+      var _det = (d && d.detail) ? d.detail : 'Unavailable';
+      if (indicator) { indicator.textContent = 'Prediction Service: Unavailable -- ' + _det; indicator.style.color = 'var(--danger)'; }
+      if (badge) { badge.textContent = 'Prediction: Unavailable'; badge.style.color = 'var(--danger)'; badge.style.borderColor = 'rgba(239,68,68,.4)'; badge.style.background = 'rgba(239,68,68,.08)'; }
+    }
+  } catch (e) {
+    if (indicator) { indicator.textContent = 'Prediction Service: Error -- ' + e.message; indicator.style.color = 'var(--danger)'; }
+    if (badge) { badge.textContent = 'Prediction: Error'; badge.style.color = 'var(--danger)'; badge.style.borderColor = 'rgba(239,68,68,.4)'; badge.style.background = 'rgba(239,68,68,.08)'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function runDailyProcessPreview() {
   var btn = document.getElementById('orch-run-btn');
   var summaryEl = document.getElementById('orch-summary');
   if (btn) btn.disabled = true;
   if (summaryEl) { summaryEl.style.display = 'none'; summaryEl.innerHTML = ''; }
 
-  for (var _ri = 0; _ri <= 5; _ri++) { _orchStep(_ri, 'pending', _ORCH_LABELS[_ri]); }
+  for (var _ri = 0; _ri <= 6; _ri++) { _orchStep(_ri, 'pending', _ORCH_LABELS[_ri]); }
 
   var _orch = {
     candidatesEvaluated: 0, candidatesEligible: 0, approvedCandidates: 0,
@@ -4986,8 +5071,63 @@ async function runDailyProcessPreview() {
     _orch.steps.push({ name: 'Refresh Context', status: 'failed', reason: _e0.message });
   }
 
-  // Step 1 -- Candidate Preview (read-only: dry_run=true, no DB writes)
-  _orchStep(1, 'running', '1: Running Candidate Preview...');
+  // Step 1 -- Prediction Service Preflight (read-only, no writes, no predictions run)
+  _orchStep(1, 'running', '1: Checking Prediction Service...');
+  var _predHealthOk = false;
+  try {
+    var _rH = await call('GET', '/v1/prediction/health');
+    var _dH = await parseApiResponse(_rH);
+    if (_rH.ok && _dH.status === 'ok') {
+      _predHealthOk = true;
+      _orchStep(1, 'done', '1: Prediction Service -- OK');
+      _orch.steps.push({ name: 'Prediction Service', status: 'done', detail: 'Reachable and healthy' });
+      var _predBadge = document.getElementById('pred-health-badge');
+      var _predInd = document.getElementById('pred-health-indicator');
+      if (_predBadge) { _predBadge.textContent = 'Prediction: OK'; _predBadge.style.color = 'var(--ok)'; _predBadge.style.borderColor = 'rgba(34,197,94,.4)'; _predBadge.style.background = 'rgba(34,197,94,.08)'; }
+      if (_predInd) { _predInd.textContent = 'Prediction Service: OK'; _predInd.style.color = 'var(--ok)'; }
+    } else {
+      var _predDetail = (_dH && _dH.detail) ? _dH.detail : 'Prediction service unavailable';
+      var _tunnelCmd = (_dH && _dH.expected_tunnel_command) ? _dH.expected_tunnel_command : 'gcloud compute start-iap-tunnel stock-prediction-vm-new 8000 --project stock-prediction-app-466420 --zone us-central1-a --local-host-port=127.0.0.1:9000';
+      _orchStep(1, 'failed', '1: Prediction Service -- unavailable');
+      _orch.steps.push({ name: 'Prediction Service', status: 'failed', reason: _predDetail });
+      for (var _rSkip = 2; _rSkip <= 6; _rSkip++) { _orchStep(_rSkip, 'skipped', _ORCH_LABELS[_rSkip] + ' -- skipped'); }
+      var _predBadge2 = document.getElementById('pred-health-badge');
+      var _predInd2 = document.getElementById('pred-health-indicator');
+      if (_predBadge2) { _predBadge2.textContent = 'Prediction: Unavailable'; _predBadge2.style.color = 'var(--danger)'; _predBadge2.style.borderColor = 'rgba(239,68,68,.4)'; _predBadge2.style.background = 'rgba(239,68,68,.08)'; }
+      if (_predInd2) { _predInd2.textContent = 'Prediction Service: Unavailable -- ' + _predDetail; _predInd2.style.color = 'var(--danger)'; }
+      if (summaryEl) {
+        summaryEl.style.display = 'block';
+        summaryEl.innerHTML = '<div style="padding: 8px; background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3); border-radius: 3px;">'
+          + '<div style="font-size: 10px; font-weight: 700; color: var(--danger); margin-bottom: 4px;">Prediction service unavailable</div>'
+          + '<div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px;">' + escapeHtml(_predDetail) + '</div>'
+          + '<div style="font-size: 9px; color: var(--label); margin-bottom: 4px;">Start or restore the GCP IAP tunnel on local port 9000:</div>'
+          + '<code style="font-size: 9px; color: var(--warning); display: block; word-break: break-all; margin-bottom: 6px;">' + escapeHtml(_tunnelCmd) + '</code>'
+          + '<div style="font-size: 9px; color: var(--ok);">No candidates saved. No signals created. No decisions created. No paper orders created. No fills. No broker orders. Automation off.</div>'
+          + '</div>';
+      }
+      if (btn) btn.disabled = false;
+      return;
+    }
+  } catch (_eH) {
+    _orchStep(1, 'failed', '1: Prediction Service -- check failed');
+    _orch.steps.push({ name: 'Prediction Service', status: 'failed', reason: _eH.message });
+    for (var _rSkipE = 2; _rSkipE <= 6; _rSkipE++) { _orchStep(_rSkipE, 'skipped', _ORCH_LABELS[_rSkipE] + ' -- skipped'); }
+    if (summaryEl) {
+      summaryEl.style.display = 'block';
+      summaryEl.innerHTML = '<div style="padding: 8px; background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3); border-radius: 3px;">'
+        + '<div style="font-size: 10px; font-weight: 700; color: var(--danger); margin-bottom: 4px;">Prediction service unavailable</div>'
+        + '<div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px;">' + escapeHtml(_eH.message) + '</div>'
+        + '<div style="font-size: 9px; color: var(--label); margin-bottom: 4px;">Start or restore the GCP IAP tunnel on local port 9000:</div>'
+        + '<code style="font-size: 9px; color: var(--warning); display: block; word-break: break-all; margin-bottom: 6px;">gcloud compute start-iap-tunnel stock-prediction-vm-new 8000 --project stock-prediction-app-466420 --zone us-central1-a --local-host-port=127.0.0.1:9000</code>'
+        + '<div style="font-size: 9px; color: var(--ok);">No candidates saved. No signals created. No decisions created. No paper orders created. No fills. No broker orders. Automation off.</div>'
+        + '</div>';
+    }
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  // Step 2 -- Candidate Preview (read-only: dry_run=true, no DB writes)
+  _orchStep(2, 'running', '2: Running Candidate Preview...');
   var _predBody = {
     idempotency_key: 'orch-pred-' + Date.now(),
     universe: 'SP500',
@@ -5012,7 +5152,7 @@ async function runDailyProcessPreview() {
       window._lastPredictionPreviewData = _b1;
       _orch.candidatesEvaluated = (_b1.candidate_previews || []).length;
       _orch.candidatesEligible = (_b1.candidate_previews || []).filter(function(c) { return c.recommendation === 'CONSIDER'; }).length;
-      _orchStep(1, 'done', '1: Candidate Preview -- ' + _orch.candidatesEvaluated + ' evaluated, ' + _orch.candidatesEligible + ' eligible');
+      _orchStep(2, 'done', '2: Candidate Preview -- ' + _orch.candidatesEvaluated + ' evaluated, ' + _orch.candidatesEligible + ' eligible');
       _orch.steps.push({ name: 'Candidate Preview', status: 'done', detail: _orch.candidatesEvaluated + ' evaluated, ' + _orch.candidatesEligible + ' eligible' });
       var _rpCard = document.getElementById('prediction-preview-card');
       var _rpEl = document.getElementById('prediction-preview-result');
@@ -5020,16 +5160,16 @@ async function runDailyProcessPreview() {
       if (_rpEl && typeof renderPredictionPreviewResult === 'function') renderPredictionPreviewResult(_b1, _rpEl);
     } else {
       var _reason1 = (_b1 && _b1.detail) ? _b1.detail : 'HTTP ' + _r1.status;
-      _orchStep(1, 'failed', '1: Candidate Preview -- failed');
+      _orchStep(2, 'failed', '2: Candidate Preview -- failed');
       _orch.steps.push({ name: 'Candidate Preview', status: 'failed', reason: _reason1 });
     }
   } catch (_e1) {
-    _orchStep(1, 'failed', '1: Candidate Preview -- failed');
+    _orchStep(2, 'failed', '2: Candidate Preview -- failed');
     _orch.steps.push({ name: 'Candidate Preview', status: 'failed', reason: _e1.message });
   }
 
-  // Step 2 -- Daily Plan Preview (read-only endpoint)
-  _orchStep(2, 'running', '2: Generating Daily Plan...');
+  // Step 3 -- Daily Plan Preview (read-only endpoint)
+  _orchStep(3, 'running', '3: Generating Daily Plan...');
   var _dpBody = {
     use_calibrated_rotation: (document.getElementById('dp-use-calibrated-rotation') || { checked: true }).checked !== false,
     scoring_profile: (document.getElementById('dp-scoring-profile') || { value: 'calibration_recommended' }).value || 'calibration_recommended',
@@ -5047,7 +5187,7 @@ async function runDailyProcessPreview() {
       _orch.buyRecs = (_b2.buy_recommendations || []).length;
       _orch.sellRecs = (_b2.sell_recommendations || []).length;
       _orch.riskBlocks = (_b2.blocked_recommendations || []).length;
-      _orchStep(2, 'done', '2: Daily Plan -- ' + _orch.buyRecs + ' BUY, ' + _orch.sellRecs + ' SELL, ' + _orch.riskBlocks + ' blocked');
+      _orchStep(3, 'done', '3: Daily Plan -- ' + _orch.buyRecs + ' BUY, ' + _orch.sellRecs + ' SELL, ' + _orch.riskBlocks + ' blocked');
       _orch.steps.push({ name: 'Daily Plan', status: 'done', detail: _orch.buyRecs + ' BUY, ' + _orch.sellRecs + ' SELL, ' + _orch.riskBlocks + ' blocked' });
       var _dpCard = document.getElementById('daily-plan-card');
       var _dpEl = document.getElementById('daily-plan-result');
@@ -5055,39 +5195,39 @@ async function runDailyProcessPreview() {
       if (_dpEl && typeof renderDailyPlanResult === 'function') renderDailyPlanResult(_b2, _dpEl);
     } else {
       var _reason2 = (_b2 && _b2.detail) ? _b2.detail : 'HTTP ' + _r2.status;
-      _orchStep(2, 'failed', '2: Daily Plan -- failed');
+      _orchStep(3, 'failed', '3: Daily Plan -- failed');
       _orch.steps.push({ name: 'Daily Plan', status: 'failed', reason: _reason2 });
     }
   } catch (_e2) {
-    _orchStep(2, 'failed', '2: Daily Plan -- failed');
+    _orchStep(3, 'failed', '3: Daily Plan -- failed');
     _orch.steps.push({ name: 'Daily Plan', status: 'failed', reason: _e2.message });
   }
 
-  // Step 3 -- Signal Preview (read-only, no DB writes)
-  _orchStep(3, 'running', '3: Previewing Signals...');
+  // Step 4 -- Signal Preview (read-only, no DB writes)
+  _orchStep(4, 'running', '4: Previewing Signals...');
   try {
     var _r3 = await call('POST', '/v1/review/daily-plan-signal-preview', _dpBody);
     var _d3 = await parseApiResponse(_r3);
     if (_r3.ok) {
       _orch.signalPreviews = _d3.signal_previews_generated || 0;
-      _orchStep(3, 'done', '3: Signal Preview -- ' + _orch.signalPreviews + ' previewed');
+      _orchStep(4, 'done', '4: Signal Preview -- ' + _orch.signalPreviews + ' previewed');
       _orch.steps.push({ name: 'Signal Preview', status: 'done', detail: _orch.signalPreviews + ' previewed' });
       if (_orch.signalPreviews === 0) {
         _orch.blockers.push('Signal preview: 0 signals -- candidates may need manual approval in Review Queue first');
       }
     } else {
       var _reason3 = (_d3 && _d3.detail) ? _d3.detail : 'HTTP ' + _r3.status;
-      _orchStep(3, 'blocked', '3: Signal Preview -- manual review required');
+      _orchStep(4, 'blocked', '4: Signal Preview -- manual review required');
       _orch.steps.push({ name: 'Signal Preview', status: 'blocked', reason: _reason3 });
       _orch.blockers.push('Signal preview blocked: ' + _reason3);
     }
   } catch (_e3) {
-    _orchStep(3, 'failed', '3: Signal Preview -- failed');
+    _orchStep(4, 'failed', '4: Signal Preview -- failed');
     _orch.steps.push({ name: 'Signal Preview', status: 'failed', reason: _e3.message });
   }
 
-  // Step 4 -- Decision Preview (read-only, no DB writes)
-  _orchStep(4, 'running', '4: Previewing Decisions...');
+  // Step 5 -- Decision Preview (read-only, no DB writes)
+  _orchStep(5, 'running', '5: Previewing Decisions...');
   try {
     var _r4 = await call('POST', '/v1/review/daily-plan-decision-preview', {
       latest_daily_plan_only: true,
@@ -5100,24 +5240,24 @@ async function runDailyProcessPreview() {
       var _decC = _d4.decision_counts || {};
       _orch.decisionsBuy = _decC['BUY'] || 0;
       _orch.decisionsRejected = _decC['REJECTED'] || 0;
-      _orchStep(4, 'done', '4: Decision Preview -- ' + _orch.decisionPreviews + ' previewed (' + _orch.decisionsBuy + ' BUY, ' + _orch.decisionsRejected + ' rejected)');
+      _orchStep(5, 'done', '5: Decision Preview -- ' + _orch.decisionPreviews + ' previewed (' + _orch.decisionsBuy + ' BUY, ' + _orch.decisionsRejected + ' rejected)');
       _orch.steps.push({ name: 'Decision Preview', status: 'done', detail: _orch.decisionPreviews + ' previewed' });
       if (_orch.decisionsRejected > 0) {
         _orch.blockers.push(_orch.decisionsRejected + ' decision(s) rejected (likely MAX_POSITIONS_REACHED -- consider rotation)');
       }
     } else {
       var _reason4 = (_d4 && _d4.detail) ? _d4.detail : 'HTTP ' + _r4.status;
-      _orchStep(4, 'blocked', '4: Decision Preview -- blocked');
+      _orchStep(5, 'blocked', '5: Decision Preview -- blocked');
       _orch.steps.push({ name: 'Decision Preview', status: 'blocked', reason: _reason4 });
       _orch.blockers.push('Decision preview blocked: ' + _reason4);
     }
   } catch (_e4) {
-    _orchStep(4, 'failed', '4: Decision Preview -- failed');
+    _orchStep(5, 'failed', '5: Decision Preview -- failed');
     _orch.steps.push({ name: 'Decision Preview', status: 'failed', reason: _e4.message });
   }
 
-  // Step 5 -- Order Preview (read-only, no DB writes)
-  _orchStep(5, 'running', '5: Previewing Orders...');
+  // Step 6 -- Order Preview (read-only, no DB writes)
+  _orchStep(6, 'running', '6: Previewing Orders...');
   try {
     var _r5 = await call('POST', '/v1/review/daily-plan-order-preview', {
       approved_only: true,
@@ -5126,16 +5266,16 @@ async function runDailyProcessPreview() {
     var _d5 = await parseApiResponse(_r5);
     if (_r5.ok) {
       _orch.orderPreviews = _d5.preview_count || 0;
-      _orchStep(5, 'done', '5: Order Preview -- ' + _orch.orderPreviews + ' order(s) previewable');
+      _orchStep(6, 'done', '6: Order Preview -- ' + _orch.orderPreviews + ' order(s) previewable');
       _orch.steps.push({ name: 'Order Preview', status: 'done', detail: _orch.orderPreviews + ' previewable' });
     } else {
       var _reason5 = (_d5 && _d5.detail) ? _d5.detail : 'HTTP ' + _r5.status;
-      _orchStep(5, 'blocked', '5: Order Preview -- blocked');
+      _orchStep(6, 'blocked', '6: Order Preview -- blocked');
       _orch.steps.push({ name: 'Order Preview', status: 'blocked', reason: _reason5 });
       _orch.blockers.push('Order preview blocked: ' + _reason5);
     }
   } catch (_e5) {
-    _orchStep(5, 'failed', '5: Order Preview -- failed');
+    _orchStep(6, 'failed', '6: Order Preview -- failed');
     _orch.steps.push({ name: 'Order Preview', status: 'failed', reason: _e5.message });
   }
 

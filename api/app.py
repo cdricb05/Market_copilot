@@ -34,6 +34,7 @@ Endpoints:
     GET  /v1/strategy/universe/status  — read-only universe diagnostics (no DB writes)
     POST /v1/review/fill-pending-orders — manually fill PENDING paper Order rows (PAPER FILLS ONLY, no broker execution)
     POST /v1/review/cancel-pending-orders — manually cancel PENDING paper Order rows (PAPER CANCEL ONLY, no broker execution)
+    GET  /v1/prediction/health         — check prediction service reachability and health (requires auth, no writes)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -147,6 +148,25 @@ class ReadyOut(BaseModel):
 class AuthCheckOut(BaseModel):
     authenticated: bool
     service: str
+
+
+_PREDICTION_TUNNEL_COMMAND = (
+    "gcloud compute start-iap-tunnel stock-prediction-vm-new 8000 "
+    "--project stock-prediction-app-466420 "
+    "--zone us-central1-a "
+    "--local-host-port=127.0.0.1:9000"
+)
+
+
+class PredictionHealthOut(BaseModel):
+    status: str
+    prediction_base_url: str
+    reachable: bool
+    healthz_ok: bool
+    config_ok: bool | None = None
+    detail: str
+    expected_tunnel_command: str
+    checked_at: str
 
 
 class SignalIn(BaseModel):
@@ -2879,6 +2899,79 @@ def auth_check() -> AuthCheckOut:
     return AuthCheckOut(
         authenticated=True,
         service=_SERVICE_NAME,
+    )
+
+
+def _check_prediction_healthz(
+    base_url: str,
+    timeout_seconds: int = 5,
+) -> tuple[bool, bool, str]:
+    """
+    Check if the prediction service /healthz endpoint is reachable and healthy.
+
+    Returns (reachable, healthz_ok, detail). Never raises.
+    Uses stdlib urllib — no extra dependencies.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    healthz_url = base_url.rstrip("/") + "/healthz"
+    try:
+        req = urllib.request.Request(healthz_url)
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+            if body.get("status") == "ok":
+                return True, True, "Prediction service healthy"
+            return True, False, f"Service reachable but status={body.get('status', 'unknown')!r}"
+    except urllib.error.HTTPError as exc:
+        return True, False, f"HTTP {exc.code} from {healthz_url}"
+    except Exception as exc:
+        return False, False, f"Unreachable: {str(exc)[:120]}"
+
+
+@app.get(
+    "/v1/prediction/health",
+    response_model=PredictionHealthOut,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def prediction_health() -> PredictionHealthOut:
+    """
+    Check prediction service reachability and health.
+
+    Requires valid X-API-Key header. Always returns HTTP 200 — inspect the
+    'status' field ('ok', 'unavailable', or 'misconfigured') for the result.
+    No database writes. No predictions are run. No tickers are fetched.
+    """
+    settings = get_settings()
+    base_url = (settings.stock_prediction_api_url or "").strip()
+    checked_at = datetime.now(timezone.utc).isoformat()
+
+    if not base_url:
+        return PredictionHealthOut(
+            status="misconfigured",
+            prediction_base_url="",
+            reachable=False,
+            healthz_ok=False,
+            config_ok=None,
+            detail="PAPER_TRADER_STOCK_PREDICTION_API_URL is not configured.",
+            expected_tunnel_command=_PREDICTION_TUNNEL_COMMAND,
+            checked_at=checked_at,
+        )
+
+    reachable, healthz_ok, detail = _check_prediction_healthz(
+        base_url, timeout_seconds=5
+    )
+    return PredictionHealthOut(
+        status="ok" if healthz_ok else "unavailable",
+        prediction_base_url=base_url,
+        reachable=reachable,
+        healthz_ok=healthz_ok,
+        config_ok=None,
+        detail=detail,
+        expected_tunnel_command=_PREDICTION_TUNNEL_COMMAND,
+        checked_at=checked_at,
     )
 
 
