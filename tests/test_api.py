@@ -24738,3 +24738,83 @@ class TestUiDailyPlanSignalActionsContent:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiDailyPlanDecisionActionsContent:
+    """Verify Decision Actions card and wiring are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_decision_actions_card_present(self) -> None:
+        assert "dp-decision-actions-card" in self._read_html()
+
+    def test_preview_decisions_button_text_present(self) -> None:
+        assert "Preview Decisions from Signals" in self._read_html()
+
+    def test_create_decisions_button_text_present(self) -> None:
+        assert "Create Trade Decisions from Signals" in self._read_html()
+
+    def test_creates_trade_decision_records_only_safety_note_present(self) -> None:
+        assert "Creates trade decision records only" in self._read_html()
+
+    def test_no_orders_no_trades_no_fills_safety_note_present(self) -> None:
+        assert "no orders, no trades, no fills" in self._read_html()
+
+    def test_dp_da_signal_count_id_present(self) -> None:
+        assert "dp-da-signal-count" in self._read_html()
+
+    def test_dp_da_decision_count_id_present(self) -> None:
+        assert "dp-da-decision-count" in self._read_html()
+
+    def test_dp_da_order_count_id_present(self) -> None:
+        assert "dp-da-order-count" in self._read_html()
+
+    def test_dp_da_result_id_present(self) -> None:
+        assert "dp-da-result" in self._read_html()
+
+    def test_dp_da_no_signals_msg_id_present(self) -> None:
+        assert "dp-da-no-signals-msg" in self._read_html()
+
+    def test_dp_da_has_signals_id_present(self) -> None:
+        assert "dp-da-has-signals" in self._read_html()
+
+    def test_dp_preview_decisions_function_present(self) -> None:
+        assert "dpPreviewDecisions" in self._read_html()
+
+    def test_dp_create_decisions_function_present(self) -> None:
+        assert "dpCreateDecisions" in self._read_html()
+
+    def test_decision_preview_endpoint_used(self) -> None:
+        assert "/v1/review/decision-preview" in self._read_html()
+
+    def test_create_decisions_endpoint_used(self) -> None:
+        assert "/v1/review/create-decisions" in self._read_html()
+
+    def test_create_signals_first_empty_state_present(self) -> None:
+        assert "Create signals first." in self._read_html()
+
+    def test_decisions_only_safety_badge_present(self) -> None:
+        assert "DECISIONS ONLY" in self._read_html()
+
+    def test_no_orders_safety_badge_present(self) -> None:
+        assert "NO ORDERS" in self._read_html()
+
+    def test_no_trades_safety_badge_present(self) -> None:
+        assert "NO TRADES" in self._read_html()
+
+    def test_manual_review_safety_badge_present(self) -> None:
+        assert "MANUAL REVIEW" in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
