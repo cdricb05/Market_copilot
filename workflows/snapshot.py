@@ -453,3 +453,166 @@ def run_snapshot_workflow(
                 except Exception:
                     session.rollback()
             raise
+
+
+# ---------------------------------------------------------------------------
+# Post-fill snapshot upsert
+# ---------------------------------------------------------------------------
+
+def upsert_post_fill_snapshot(
+    session: Session,
+    *,
+    job_run_id,
+    market_date: date,
+    now: datetime,
+) -> dict:
+    """
+    Compute and upsert today's portfolio snapshot immediately after a paper fill.
+
+    Called from fill_pending_paper_orders while the portfolio advisory lock is
+    held and the fill has been committed. Does not create a new JobRun and does
+    not acquire the advisory lock (caller owns both).
+
+    If a PortfolioSnapshot for market_date already exists it is updated in place
+    (value fields only; job_run_id is preserved from the original row). If no
+    row exists, a new one is inserted using job_run_id.
+
+    Raises MissingPricesError if any open position lacks a price snapshot.
+    """
+    positions = get_open_positions(session)
+    price_map: dict[str, Decimal] = {}
+    missing: list[str] = []
+    for pos in positions:
+        price = _latest_price(session, pos.ticker)
+        if price is None:
+            missing.append(pos.ticker)
+        else:
+            price_map[pos.ticker] = price
+
+    if missing:
+        raise MissingPricesError(
+            f"Post-fill snapshot requires prices for all open positions. "
+            f"Missing: {', '.join(missing)}"
+        )
+
+    cash = compute_cash(session)
+
+    positions_value = sum(
+        (pos.qty * price_map[pos.ticker] for pos in positions),
+        Decimal("0"),
+    ).quantize(_DOLLARS)
+
+    total_value = (cash + positions_value).quantize(_DOLLARS)
+
+    unrealized_pnl = sum(
+        (
+            (price_map[pos.ticker] - pos.avg_cost) * pos.qty
+            for pos in positions
+        ),
+        Decimal("0"),
+    ).quantize(_DOLLARS)
+
+    realized_pnl_cum = _realized_pnl_cumulative(session)
+    daily_exposure   = _daily_new_exposure(session, market_date)
+
+    positions_detail: list[dict] | None = None
+    if positions:
+        positions_detail = [
+            {
+                "ticker":         pos.ticker,
+                "qty":            str(pos.qty),
+                "avg_cost":       str(pos.avg_cost),
+                "current_price":  str(price_map[pos.ticker]),
+                "market_value":   str(
+                    (pos.qty * price_map[pos.ticker]).quantize(_DOLLARS)
+                ),
+                "unrealized_pnl": str(
+                    (
+                        (price_map[pos.ticker] - pos.avg_cost) * pos.qty
+                    ).quantize(_DOLLARS)
+                ),
+            }
+            for pos in positions
+        ]
+
+    portfolio = get_portfolio(session)
+    cfg = portfolio.config or {}
+    benchmark_ticker    = cfg.get("benchmark_ticker") or None
+    benchmark_price_val = None
+    benchmark_inc_price = None
+    benchmark_value     = None
+    portfolio_vs_bench  = None
+
+    if benchmark_ticker:
+        benchmark_price_val = _latest_benchmark_price(session, benchmark_ticker)
+        if benchmark_price_val is not None:
+            cfg_inc = cfg.get("benchmark_inception_price")
+            if cfg_inc is not None:
+                benchmark_inc_price = Decimal(str(cfg_inc)).quantize(_PRICE)
+            else:
+                benchmark_inc_price = _benchmark_inception_price(
+                    session, benchmark_ticker, portfolio.inception_date
+                )
+            if benchmark_inc_price is not None and benchmark_inc_price > Decimal("0"):
+                benchmark_value = (
+                    portfolio.initial_capital
+                    / benchmark_inc_price
+                    * benchmark_price_val
+                ).quantize(_DOLLARS)
+                portfolio_vs_bench = (
+                    total_value - benchmark_value
+                ).quantize(_DOLLARS)
+
+    existing = session.execute(
+        select(PortfolioSnapshot).where(PortfolioSnapshot.market_date == market_date)
+    ).scalar_one_or_none()
+
+    if existing is not None:
+        existing.snapshot_ts             = now
+        existing.cash                    = cash
+        existing.positions_value         = positions_value
+        existing.total_value             = total_value
+        existing.unrealized_pnl          = unrealized_pnl
+        existing.realized_pnl_cumulative = realized_pnl_cum
+        existing.open_position_count     = len(positions)
+        existing.daily_new_exposure      = daily_exposure
+        existing.benchmark_ticker        = benchmark_ticker
+        existing.benchmark_price         = benchmark_price_val
+        existing.benchmark_inception_price = benchmark_inc_price
+        existing.benchmark_value         = benchmark_value
+        existing.portfolio_vs_benchmark  = portfolio_vs_bench
+        existing.positions_detail        = positions_detail
+    else:
+        session.add(PortfolioSnapshot(
+            job_run_id=job_run_id,
+            snapshot_ts=now,
+            market_date=market_date,
+            cash=cash,
+            positions_value=positions_value,
+            total_value=total_value,
+            unrealized_pnl=unrealized_pnl,
+            realized_pnl_cumulative=realized_pnl_cum,
+            open_position_count=len(positions),
+            daily_new_exposure=daily_exposure,
+            benchmark_ticker=benchmark_ticker,
+            benchmark_price=benchmark_price_val,
+            benchmark_inception_price=benchmark_inc_price,
+            benchmark_value=benchmark_value,
+            portfolio_vs_benchmark=portfolio_vs_bench,
+            positions_detail=positions_detail,
+        ))
+
+    session.commit()
+
+    return {
+        "total_value":             str(total_value),
+        "cash":                    str(cash),
+        "positions_value":         str(positions_value),
+        "unrealized_pnl":          str(unrealized_pnl),
+        "realized_pnl_cumulative": str(realized_pnl_cum),
+        "open_position_count":     len(positions),
+        "benchmark_ticker":        benchmark_ticker,
+        "portfolio_vs_benchmark":  (
+            str(portfolio_vs_bench) if portfolio_vs_bench is not None else None
+        ),
+    }
