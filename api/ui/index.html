@@ -9660,19 +9660,29 @@ function renderWorkflowStatus(data) {
 
   // Update Order Preview card counts and show/hide action buttons
   const eligibleDecCount = (d && d.order_eligible) || 0;
+  const alreadyHasOrderCount = (d && d.already_has_order) || 0;
   const dpOaDecisionCount = document.getElementById('dp-oa-decision-count');
   if (dpOaDecisionCount) dpOaDecisionCount.textContent = eligibleDecCount;
   const dpOaOrderCount = document.getElementById('dp-oa-order-count');
   if (dpOaOrderCount) dpOaOrderCount.textContent = ordCount;
   const dpOaNoDecisions = document.getElementById('dp-oa-no-decisions-msg');
   const dpOaHasDecisions = document.getElementById('dp-oa-has-decisions');
-  if (dpOaNoDecisions) dpOaNoDecisions.style.display = eligibleDecCount > 0 ? 'none' : '';
+  if (dpOaNoDecisions) {
+    dpOaNoDecisions.style.display = eligibleDecCount > 0 ? 'none' : '';
+    if (eligibleDecCount === 0) {
+      dpOaNoDecisions.textContent = alreadyHasOrderCount > 0
+        ? 'All eligible decisions already have orders. Check the Portfolio tab.'
+        : 'Create trade decisions first.';
+    }
+  }
   if (dpOaHasDecisions) dpOaHasDecisions.style.display = eligibleDecCount > 0 ? '' : 'none';
 
-  // When eligible decisions exist with no orders yet, direct user to Order Preview
+  // Update primary recommendation based on current workflow state
   const dpPrimRec = document.getElementById('dp-primary-recommendation');
   if (dpPrimRec && eligibleDecCount > 0 && ordCount === 0) {
     dpPrimRec.textContent = 'Preview Paper Orders — ' + eligibleDecCount + ' eligible trade decision(s) ready. No orders created yet.';
+  } else if (dpPrimRec && eligibleDecCount === 0 && ordCount > 0) {
+    dpPrimRec.textContent = ordCount + ' paper order(s) on record. Review positions and order status in the Portfolio tab.';
   }
 }
 
