@@ -23065,10 +23065,13 @@ class TestManualPaperFillEndpoint:
         self, seeded_client: TestClient, api_engine
     ) -> None:
         import uuid as _uuid
+        from zoneinfo import ZoneInfo
         sfx = _uuid.uuid4().hex[:8]
+        _eastern = ZoneInfo("America/New_York")
+        # Use same Eastern market_date calculation as the fill endpoint
+        md = datetime.now(timezone.utc).astimezone(_eastern).date()
 
         with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
-            md = date.today()
             ticker = f"NOPRC{sfx[:4]}".upper()
 
             jr_sig = JobRun(
@@ -23149,6 +23152,16 @@ class TestManualPaperFillEndpoint:
             order_id = order.id
 
         try:
+            # Precondition: no PriceSnapshot exists for this ticker (ensures skipped_no_price)
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                snap_count = s.query(PriceSnapshot).filter(
+                    PriceSnapshot.ticker == ticker
+                ).count()
+                assert snap_count == 0, (
+                    f"Precondition failed: PriceSnapshot already exists for {ticker}; "
+                    f"endpoint would fill instead of skip"
+                )
+
             r = seeded_client.post(
                 self._ENDPOINT,
                 json={"confirm_paper_fill": True},
@@ -23164,6 +23177,11 @@ class TestManualPaperFillEndpoint:
                 assert order.status == "PENDING"
         finally:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                # Defensive: remove any PriceSnapshot that might have been added
+                # by a concurrent test for this unique ticker
+                s.query(PriceSnapshot).filter(
+                    PriceSnapshot.ticker == ticker
+                ).delete(synchronize_session=False)
                 s.query(Order).filter(Order.id == order_id).delete(synchronize_session=False)
                 s.commit()
 
