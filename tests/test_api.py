@@ -22830,7 +22830,10 @@ class TestManualPaperFillEndpoint:
         order created in TestOrderPreviewEndpoint with no cleanup).
         """
         def _purge():
-            today = date.today()
+            from zoneinfo import ZoneInfo
+            _eastern = ZoneInfo("America/New_York")
+            # Use same market_date calculation as endpoints
+            today = datetime.now(timezone.utc).astimezone(_eastern).date()
             with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
                 # Delete all paper-ticket orders regardless of status
                 s.query(Order).filter(
@@ -22866,8 +22869,10 @@ class TestManualPaperFillEndpoint:
         Returns (order_id, ticker, td_id).
         """
         import uuid as _uuid
+        from zoneinfo import ZoneInfo
 
-        md = market_date or date.today()
+        _eastern = ZoneInfo("America/New_York")
+        md = market_date or datetime.now(timezone.utc).astimezone(_eastern).date()
         ticker = f"FILL{suffix[:5]}".upper()
 
         jr_sig = JobRun(
@@ -23270,7 +23275,10 @@ class TestManualPaperCancelEndpoint:
         PENDING orders without a 'Paper order ticket' notes marker.
         """
         def _purge():
-            today = date.today()
+            from zoneinfo import ZoneInfo
+            _eastern = ZoneInfo("America/New_York")
+            # Use same market_date calculation as endpoints
+            today = datetime.now(timezone.utc).astimezone(_eastern).date()
             with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
                 s.query(Order).filter(
                     Order.notes.like("Paper order ticket%"),
@@ -23303,8 +23311,10 @@ class TestManualPaperCancelEndpoint:
         Returns (order_id, ticker, td_id).
         """
         import uuid as _uuid
+        from zoneinfo import ZoneInfo
 
-        md = market_date or date.today()
+        _eastern = ZoneInfo("America/New_York")
+        md = market_date or datetime.now(timezone.utc).astimezone(_eastern).date()
         ticker = f"CNCL{suffix[:4]}".upper()
 
         jr_sig = JobRun(
@@ -23855,6 +23865,11 @@ class TestMarketIndicatorsEndpoint:
 
     def test_fred_api_key_missing_macro_cards_unavailable(self, seeded_client: TestClient, monkeypatch) -> None:
         """When FRED API key is absent, macro cards are unavailable with 'FRED API key missing'."""
+        # Explicitly clear environment variable and force settings reload
+        monkeypatch.delenv("PAPER_TRADER_FRED_API_KEY", raising=False)
+        from paper_trader.config import get_settings
+        get_settings.cache_clear()
+
         def mock_fetch_latest_prices(tickers):
             return [
                 {"ticker": "^GSPC", "price": "5432.10"},
@@ -23896,6 +23911,11 @@ class TestMarketIndicatorsEndpoint:
 
     def test_fred_key_present_populates_macro_cards(self, seeded_client: TestClient, monkeypatch) -> None:
         """When FRED key is present and fetch succeeds, macro cards are available with values."""
+        # Explicitly set environment variable and force settings reload
+        monkeypatch.setenv("PAPER_TRADER_FRED_API_KEY", "test-fred-key")
+        from paper_trader.config import get_settings
+        get_settings.cache_clear()
+
         def mock_fetch_latest_prices(tickers):
             return [
                 {"ticker": "^GSPC", "price": "5432.10"},
