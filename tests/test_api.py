@@ -24588,3 +24588,75 @@ class TestUiBackfillHistoryContent:
     def test_screening_readiness_panel_present(self) -> None:
         """'Screening readiness' panel must be present in the UI."""
         assert "Screening readiness" in self._read_html()
+
+
+class TestUiDailyPlanV2Content:
+    """Verify Daily Plan UX v2 improvements are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_inline_review_queue_card_present(self) -> None:
+        """Inline Review Queue card (dp-inline-rq-card) must be in Daily Plan center column."""
+        assert "dp-inline-rq-card" in self._read_html()
+
+    def test_refresh_review_queue_button_in_daily_plan(self) -> None:
+        """'Refresh Review Queue' button must appear in the Daily Plan tab."""
+        html = self._read_html()
+        # Must appear at least twice: once in Daily Plan inline card, once in right panel
+        assert html.count("Refresh Review Queue") >= 2
+
+    def test_review_and_approve_candidates_text_present(self) -> None:
+        """'Review and approve candidates' instruction text must be present."""
+        assert "Review and approve candidates" in self._read_html()
+
+    def test_no_review_candidates_empty_state_present(self) -> None:
+        """Empty state 'No review candidates saved yet' must appear in inline card."""
+        assert "No review candidates saved yet" in self._read_html()
+
+    def test_sticky_tab_bar_css_present(self) -> None:
+        """Tab bar must have sticky positioning CSS."""
+        html = self._read_html()
+        assert "position: sticky" in html
+        # Verify sticky is applied in the .tab-bar block context
+        import re
+        tab_bar_block = re.search(r'\.tab-bar\s*\{[^}]+\}', html, re.DOTALL)
+        assert tab_bar_block is not None, ".tab-bar CSS block not found"
+        assert "sticky" in tab_bar_block.group(0), ".tab-bar CSS does not contain sticky"
+
+    def test_daily_plan_cockpit_grid_present(self) -> None:
+        """Daily Plan must use multi-column cockpit grid layout class."""
+        assert "daily-plan-cockpit-grid" in self._read_html()
+
+    def test_dp_rq_inline_stats_ids_present(self) -> None:
+        """Inline review queue stat IDs must all be present in the HTML."""
+        html = self._read_html()
+        for stat_id in ("dp-rq-total", "dp-rq-approved", "dp-rq-watching", "dp-rq-rejected", "dp-rq-pending"):
+            assert stat_id in html, f"Missing inline RQ stat element: {stat_id}"
+
+    def test_dp_rq_tbody_id_present(self) -> None:
+        """Inline review queue table body id must be present."""
+        assert "dp-rq-tbody" in self._read_html()
+
+    def test_approve_does_not_create_signals_note_present(self) -> None:
+        """Safety note 'Approving does not create signals or orders' must be present."""
+        assert "Approving does not create signals or orders" in self._read_html()
+
+    def test_render_dp_inline_review_queue_function_present(self) -> None:
+        """renderDpInlineReviewQueue JS function must be defined in the UI."""
+        assert "renderDpInlineReviewQueue" in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        """No alert() calls must appear in the HTML."""
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        """No confirm() calls must appear in the HTML."""
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0

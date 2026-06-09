@@ -187,6 +187,9 @@
       border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
       flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 9;
     }
 
     .tab-button {
@@ -1792,7 +1795,7 @@
               <div class="compact-card" style="border-color: var(--info); flex-shrink: 0;">
                 <div style="font-weight: 600; color: var(--info); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">REVIEW &mdash; Review Queue</div>
                 <div id="step3-rq-summary" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 6px;"></div>
-                <div style="font-size: 9px; color: var(--label);">Review candidates in the Review Queue section (Manual Review Items panel on the right).</div>
+                <div style="font-size: 9px; color: var(--label);">Review candidates in the Review Queue card in the center column. Use Approve, Watch, or Reject buttons for each candidate.</div>
               </div>
             </div>
 
@@ -1909,6 +1912,59 @@
             <div class="main-recommendation-card" id="dp-rec-card" style="flex-shrink: 0;">
               <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--info); margin-bottom: 4px; border-bottom: 1px solid rgba(59,130,246,.3); padding-bottom: 3px;">Recommended Next Action</div>
               <div style="font-size: 11px; color: var(--text-primary); line-height: 1.5;" id="dp-primary-recommendation">Generate Candidate Preview (SCAN) to begin the daily workflow</div>
+            </div>
+
+            <!-- Inline Review Queue — always visible; shows candidates with approve/reject actions -->
+            <div id="dp-inline-rq-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(245,158,11,.4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Review Queue</div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+                  <button class="btn-sm" style="font-size: 9px; padding: 2px 8px;" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh Review Queue</button>
+                </div>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px;">
+                <div style="text-align:center; background:rgba(0,0,0,.2); padding:5px; border-radius:2px; border:1px solid var(--border);">
+                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Total</div>
+                  <div style="font-size:14px; font-weight:700; color:var(--text-primary);" id="dp-rq-total">-</div>
+                </div>
+                <div style="text-align:center; background:rgba(34,197,94,.08); padding:5px; border-radius:2px; border:1px solid rgba(34,197,94,.3);">
+                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Approved</div>
+                  <div style="font-size:14px; font-weight:700; color:var(--ok);" id="dp-rq-approved">-</div>
+                </div>
+                <div style="text-align:center; background:rgba(245,158,11,.08); padding:5px; border-radius:2px; border:1px solid rgba(245,158,11,.3);">
+                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Watching</div>
+                  <div style="font-size:14px; font-weight:700; color:var(--warning);" id="dp-rq-watching">-</div>
+                </div>
+                <div style="text-align:center; background:rgba(239,68,68,.08); padding:5px; border-radius:2px; border:1px solid rgba(239,68,68,.3);">
+                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Rejected</div>
+                  <div style="font-size:14px; font-weight:700; color:var(--danger);" id="dp-rq-rejected">-</div>
+                </div>
+                <div style="text-align:center; background:rgba(0,0,0,.2); padding:5px; border-radius:2px; border:1px solid var(--border);">
+                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Pending</div>
+                  <div style="font-size:14px; font-weight:700; color:var(--text-accent);" id="dp-rq-pending">-</div>
+                </div>
+              </div>
+              <div style="font-size: 9px; color: var(--text-accent); margin-bottom: 8px; padding: 4px 8px; background: rgba(59,130,246,.06); border-left: 2px solid var(--info); border-radius: 0 2px 2px 0; line-height: 1.4;">
+                Review and approve candidates &mdash; click <strong>Approve</strong> for each candidate you want eligible for signal creation. <strong>Approving does not create signals or orders.</strong>
+              </div>
+              <div style="overflow-x: auto; max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+                  <thead>
+                    <tr style="background: rgba(0,0,0,.3);">
+                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Ticker</th>
+                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Status</th>
+                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Decision</th>
+                      <th style="padding: 4px 6px; text-align: right; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Score</th>
+                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Rec</th>
+                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dp-rq-tbody">
+                    <tr><td colspan="6" style="text-align:center; color:var(--label); font-style:italic; padding: 12px; font-size: 10px;">No review candidates saved yet &mdash; run Daily Process Preview, then Save All or Save Eligible Candidates.</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <!-- Prediction Preview Result (hidden until run) -->
@@ -5434,6 +5490,8 @@ async function runPredictionPreview(btn) {
       if (_ovScanEl && b.candidate_previews) _ovScanEl.textContent = b.candidate_previews.length + ' candidates found -- save eligible to queue';
       const _naEl = document.getElementById('cockpit-next-action');
       if (_naEl) _naEl.textContent = 'Preview complete - review candidates and click Save to Review Queue';
+      const _prElPrev = document.getElementById('dp-primary-recommendation');
+      if (_prElPrev) _prElPrev.textContent = 'Preview complete — review candidates above and click Save Eligible Candidates or Save All.';
       const _asEl = document.getElementById('right-action-status');
       if (_asEl) { _asEl.textContent = new Date().toLocaleTimeString(); _asEl.style.color = 'var(--ok)'; }
       refreshCockpitAfterAction('Prediction Preview');
@@ -7712,6 +7770,8 @@ async function saveCandidatesToReviewQueue(mode, btn) {
 
             const nextActionEl = document.getElementById('cockpit-next-action');
             if (nextActionEl) nextActionEl.textContent = 'Open Review Queue to create signals from saved candidates';
+            const _prElSave = document.getElementById('dp-primary-recommendation');
+            if (_prElSave) _prElSave.textContent = 'Review and approve candidates in Review Queue below — click Approve for each candidate you want eligible for signal creation.';
 
             const _rqCard = document.getElementById('review-queue-card'); if (_rqCard) _rqCard.style.display = 'block';
             const _spCard = document.getElementById('signal-preview-card'); if (_spCard) _spCard.style.display = 'block';
@@ -7756,9 +7816,12 @@ async function loadReviewQueue() {
     }
     window._lastReviewQueueData = candidates;
     filterReviewQueue();
+    renderDpInlineReviewQueue(candidates);
   } catch (e) {
     const tb = document.getElementById('rq-tbody');
     if (tb) tb.innerHTML = `<tr><td colspan="9" class="empty" style="color: var(--danger);">Error: ${escapeHtml(e.message)}</td></tr>`;
+    const dtb = document.getElementById('dp-rq-tbody');
+    if (dtb) dtb.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--danger); padding: 10px; font-size: 10px;">Error loading review queue: ${escapeHtml(e.message)}</td></tr>`;
   }
 }
 
@@ -7801,6 +7864,50 @@ function renderReviewQueue(candidates) {
   }).join('');
 
   window._lastReviewQueueData = candidates;
+}
+
+function renderDpInlineReviewQueue(candidates) {
+  const tbody = document.getElementById('dp-rq-tbody');
+  if (!tbody) return;
+  const emptyMsg = '<tr><td colspan="6" style="text-align:center; color:var(--label); font-style:italic; padding: 12px; font-size: 10px;">No review candidates saved yet &mdash; run Daily Process Preview, then Save All or Save Eligible Candidates.</td></tr>';
+  if (!candidates || candidates.length === 0) {
+    tbody.innerHTML = emptyMsg;
+    return;
+  }
+  // Show latest per ticker
+  const latestMap = {};
+  candidates.forEach(c => {
+    if (!latestMap[c.ticker] || new Date(c.created_at) > new Date(latestMap[c.ticker].created_at)) {
+      latestMap[c.ticker] = c;
+    }
+  });
+  const latest = Object.values(latestMap);
+  if (latest.length === 0) {
+    tbody.innerHTML = emptyMsg;
+    return;
+  }
+  tbody.innerHTML = latest.map(c => {
+    const statusColor = c.review_status === 'NEW' ? 'var(--warning)' :
+                       c.review_status === 'WATCHING' ? 'var(--text-primary)' :
+                       c.review_status === 'REJECTED' ? 'var(--danger)' :
+                       c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
+    const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
+                         c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
+    const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
+                    c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+    return `<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">
+      <td style="padding:4px 6px;"><strong>${escapeHtml(c.ticker)}</strong></td>
+      <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(c.review_status)}</td>
+      <td style="padding:4px 6px;color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
+      <td style="padding:4px 6px;text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
+      <td style="padding:4px 6px;color:${recColor};font-weight:600;">${escapeHtml(c.prediction_recommendation || '-')}</td>
+      <td style="padding:4px 6px;">
+        <button onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button>
+        <button onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button>
+        <button onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>
+      </td>
+    </tr>`;
+  }).join('');
 }
 
 async function updateReviewStatus(candidateId, newStatus) {
@@ -9357,6 +9464,32 @@ function updateCockpitReviewSummary() {
   const _srcEl = document.getElementById('stage-review-count');
   if (_srcEl && total > 0) {
     _srcEl.textContent = approved + ' approved / ' + total + ' in queue (latest per ticker)';
+  }
+
+  // Update inline Daily Plan center-column stats
+  const dpTotal = document.getElementById('dp-rq-total');
+  const dpApproved = document.getElementById('dp-rq-approved');
+  const dpWatching = document.getElementById('dp-rq-watching');
+  const dpRejected = document.getElementById('dp-rq-rejected');
+  const dpPending = document.getElementById('dp-rq-pending');
+  if (dpTotal) dpTotal.textContent = total;
+  if (dpApproved) dpApproved.textContent = approved;
+  if (dpWatching) dpWatching.textContent = watching;
+  if (dpRejected) dpRejected.textContent = rejected;
+  if (dpPending) dpPending.textContent = pending;
+
+  // Smart next action: only update when queue has data and daily plan hasn't overridden
+  if (total > 0) {
+    const _prEl = document.getElementById('dp-primary-recommendation');
+    if (_prEl) {
+      if (approved === 0 && pending > 0) {
+        _prEl.textContent = 'Review and approve candidates in Review Queue — ' + pending + ' candidate(s) pending approval.';
+      } else if (approved > 0 && pending === 0) {
+        _prEl.textContent = approved + ' candidate(s) approved for signal — run Signal Preview to generate signals.';
+      } else if (approved > 0) {
+        _prEl.textContent = approved + ' approved, ' + pending + ' pending — review remaining candidates or run Signal Preview.';
+      }
+    }
   }
 }
 
