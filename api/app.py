@@ -39,6 +39,7 @@ Endpoints:
     GET  /v1/market/screening-readiness — read-only screening readiness check (no writes)
     POST /v1/review/position-monitor-preview — preview exit recommendations for open positions (PREVIEW ONLY, read-only)
     POST /v1/review/exit-signal-preview — preview exit intent per open position (PREVIEW ONLY, read-only, no signals/orders)
+    POST /v1/review/exit-decision-preview — preview exit decision per open position (PREVIEW ONLY, read-only, no signals/decisions/orders)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -1549,6 +1550,44 @@ class ExitSignalPreviewResponse(BaseModel):
     positions: list[ExitSignalPreviewItem]
     preview_only: bool = True
     writes_performed: bool = False
+    no_orders_created: bool = True
+    no_fills_created: bool = True
+    no_broker_execution: bool = True
+
+
+class ExitDecisionPreviewItem(BaseModel):
+    """Single position result from exit decision preview (PREVIEW ONLY, no DB writes)."""
+    ticker: str
+    qty: str
+    avg_cost: str
+    latest_price: str | None
+    unrealized_pnl: str | None
+    unrealized_pnl_pct: str | None
+    exit_signal_action: str
+    preview_decision: str
+    side: str
+    decision_qty: str
+    estimated_exit_value: str | None
+    estimated_realized_pnl: str | None
+    estimated_realized_pnl_pct: str | None
+    reason_codes: list[str]
+    explanation: str
+
+
+class ExitDecisionPreviewResponse(BaseModel):
+    """Response from exit decision preview endpoint (PREVIEW ONLY, no DB writes)."""
+    as_of: datetime
+    open_position_count: int
+    preview_sell_count: int
+    watch_count: int
+    hold_count: int
+    estimated_total_exit_value: str
+    estimated_total_realized_pnl: str
+    positions: list[ExitDecisionPreviewItem]
+    preview_only: bool = True
+    writes_performed: bool = False
+    no_signals_created: bool = True
+    no_decisions_created: bool = True
     no_orders_created: bool = True
     no_fills_created: bool = True
     no_broker_execution: bool = True
@@ -13299,6 +13338,194 @@ def exit_signal_preview() -> ExitSignalPreviewResponse:
             positions=items,
             preview_only=True,
             writes_performed=False,
+            no_orders_created=True,
+            no_fills_created=True,
+            no_broker_execution=True,
+        )
+
+
+@app.post(
+    "/v1/review/exit-decision-preview",
+    response_model=ExitDecisionPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def exit_decision_preview() -> ExitDecisionPreviewResponse:
+    """
+    Preview exit decision intent for all open positions (PREVIEW ONLY, no DB writes).
+
+    Maps exit signal actions to preview decisions:
+        PREVIEW_EXIT -> SELL / SELL / full qty
+        WATCH        -> WATCH / NONE / 0
+        HOLD         -> HOLD / NONE / 0
+        Missing price -> WATCH / NONE / 0
+
+    This endpoint never creates signals, decisions, orders, fills, or positions.
+    """
+    now = datetime.now(tz=timezone.utc)
+
+    with get_session() as session:
+        positions = session.execute(
+            select(Position).order_by(Position.opened_at)
+        ).scalars().all()
+
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        cached_total_value: Decimal | None = None
+        if portfolio is not None and portfolio.cached_total_value:
+            cached_total_value = Decimal(str(portfolio.cached_total_value))
+
+        items: list[ExitDecisionPreviewItem] = []
+        preview_sell_count = 0
+        watch_count = 0
+        hold_count = 0
+        total_exit_value = Decimal("0")
+        total_realized_pnl = Decimal("0")
+
+        for pos in positions:
+            qty = Decimal(str(pos.qty))
+            cost_basis = Decimal(str(pos.cost_basis))
+            latest_price = _latest_price(session, pos.ticker)
+
+            if latest_price is None:
+                items.append(ExitDecisionPreviewItem(
+                    ticker=pos.ticker,
+                    qty=str(qty),
+                    avg_cost=str(pos.avg_cost),
+                    latest_price=None,
+                    unrealized_pnl=None,
+                    unrealized_pnl_pct=None,
+                    exit_signal_action="WATCH",
+                    preview_decision="WATCH",
+                    side="NONE",
+                    decision_qty="0",
+                    estimated_exit_value=None,
+                    estimated_realized_pnl=None,
+                    estimated_realized_pnl_pct=None,
+                    reason_codes=["PRICE_MISSING"],
+                    explanation="Latest price unavailable; position cannot be fully evaluated.",
+                ))
+                watch_count += 1
+                continue
+
+            market_value = qty * latest_price
+            unrealized_pnl = market_value - cost_basis
+            unrealized_pnl_pct = (
+                unrealized_pnl / cost_basis * Decimal("100")
+                if cost_basis != Decimal("0")
+                else Decimal("0")
+            )
+
+            portfolio_weight_pct: Decimal | None = None
+            if cached_total_value is not None and cached_total_value > Decimal("0"):
+                portfolio_weight_pct = market_value / cached_total_value * Decimal("100")
+
+            upnl_pct_float = float(unrealized_pnl_pct)
+            weight_pct_float = (
+                float(portfolio_weight_pct) if portfolio_weight_pct is not None else 0.0
+            )
+
+            if upnl_pct_float <= -5.0:
+                exit_signal_action = "PREVIEW_EXIT"
+                preview_decision = "SELL"
+                side = "SELL"
+                decision_qty = str(qty)
+                est_exit_value: Decimal | None = market_value
+                est_realized_pnl: Decimal | None = market_value - cost_basis
+                est_realized_pnl_pct: Decimal | None = (
+                    est_realized_pnl / cost_basis * Decimal("100")
+                    if cost_basis != Decimal("0")
+                    else Decimal("0")
+                )
+                reason_codes: list[str] = ["STOP_LOSS_REVIEW"]
+                explanation = (
+                    f"Unrealized P&L of {upnl_pct_float:.1f}% is below the stop-loss "
+                    f"review threshold (-5.0%). Preview decision: SELL {qty} shares "
+                    f"at {latest_price} = est. exit value "
+                    f"{market_value.quantize(Decimal('0.01'))}."
+                )
+                total_exit_value += market_value
+                total_realized_pnl += est_realized_pnl
+                preview_sell_count += 1
+            elif upnl_pct_float <= -2.0:
+                exit_signal_action = "WATCH"
+                preview_decision = "WATCH"
+                side = "NONE"
+                decision_qty = "0"
+                est_exit_value = None
+                est_realized_pnl = None
+                est_realized_pnl_pct = None
+                reason_codes = ["WATCH_LOSS_THRESHOLD"]
+                explanation = (
+                    f"Unrealized P&L of {upnl_pct_float:.1f}% is in the watch range "
+                    f"(-2.0% to -5.0%). Monitor closely."
+                )
+                watch_count += 1
+            elif portfolio_weight_pct is not None and weight_pct_float > 25.0:
+                exit_signal_action = "WATCH"
+                preview_decision = "WATCH"
+                side = "NONE"
+                decision_qty = "0"
+                est_exit_value = None
+                est_realized_pnl = None
+                est_realized_pnl_pct = None
+                reason_codes = ["HIGH_CONCENTRATION"]
+                explanation = (
+                    f"Portfolio weight of {weight_pct_float:.1f}% exceeds the "
+                    f"concentration threshold (25.0%). Consider position sizing."
+                )
+                watch_count += 1
+            else:
+                exit_signal_action = "HOLD"
+                preview_decision = "HOLD"
+                side = "NONE"
+                decision_qty = "0"
+                est_exit_value = None
+                est_realized_pnl = None
+                est_realized_pnl_pct = None
+                reason_codes = ["HEALTHY_POSITION"]
+                explanation = "Position is within healthy parameters. No exit decision required."
+                hold_count += 1
+
+            items.append(ExitDecisionPreviewItem(
+                ticker=pos.ticker,
+                qty=str(qty),
+                avg_cost=str(pos.avg_cost),
+                latest_price=str(latest_price),
+                unrealized_pnl=str(unrealized_pnl.quantize(Decimal("0.01"))),
+                unrealized_pnl_pct=str(unrealized_pnl_pct.quantize(Decimal("0.01"))),
+                exit_signal_action=exit_signal_action,
+                preview_decision=preview_decision,
+                side=side,
+                decision_qty=decision_qty,
+                estimated_exit_value=(
+                    str(est_exit_value.quantize(Decimal("0.01")))
+                    if est_exit_value is not None else None
+                ),
+                estimated_realized_pnl=(
+                    str(est_realized_pnl.quantize(Decimal("0.01")))
+                    if est_realized_pnl is not None else None
+                ),
+                estimated_realized_pnl_pct=(
+                    str(est_realized_pnl_pct.quantize(Decimal("0.01")))
+                    if est_realized_pnl_pct is not None else None
+                ),
+                reason_codes=reason_codes,
+                explanation=explanation,
+            ))
+
+        return ExitDecisionPreviewResponse(
+            as_of=now,
+            open_position_count=len(positions),
+            preview_sell_count=preview_sell_count,
+            watch_count=watch_count,
+            hold_count=hold_count,
+            estimated_total_exit_value=str(total_exit_value.quantize(Decimal("0.01"))),
+            estimated_total_realized_pnl=str(total_realized_pnl.quantize(Decimal("0.01"))),
+            positions=items,
+            preview_only=True,
+            writes_performed=False,
+            no_signals_created=True,
+            no_decisions_created=True,
             no_orders_created=True,
             no_fills_created=True,
             no_broker_execution=True,
