@@ -13692,6 +13692,49 @@ class TestReviewWorkflowStatusEndpoint:
         }
         assert step_names == expected_steps
 
+    def test_consumed_count_field_present_in_review_candidates(self, seeded_client: TestClient) -> None:
+        """review_candidates must include a 'consumed' integer field >= 0."""
+        resp = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "consumed" in data["review_candidates"]
+        assert isinstance(data["review_candidates"]["consumed"], int)
+        assert data["review_candidates"]["consumed"] >= 0
+
+    def test_consumed_count_zero_when_no_signals_created(self, seeded_client: TestClient, api_engine) -> None:
+        """consumed is 0 when APPROVED_FOR_SIGNAL candidates exist but no review signals have been created."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            row = CandidateReview(
+                idempotency_key="consumed-test-no-signal-001",
+                ticker="CSMTST",
+                preview_decision="CONSIDER",
+                preview_score="80.0",
+                status="OK",
+                review_status="APPROVED_FOR_SIGNAL",
+            )
+            session.add(row)
+            session.commit()
+            row_id = row.id
+
+        try:
+            resp_before = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+            assert resp_before.status_code == 200
+            data = resp_before.json()
+            if data["review_created_signals"]["total"] == 0:
+                assert data["review_candidates"]["consumed"] == 0
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(CandidateReview).filter(CandidateReview.id == row_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_current_cycle_key_field_present_in_response(self, seeded_client: TestClient) -> None:
+        """Response must include 'current_cycle_key' field (null or string)."""
+        resp = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "current_cycle_key" in data
+        assert data["current_cycle_key"] is None or isinstance(data["current_cycle_key"], str)
+
 
 # ---------------------------------------------------------------------------
 # Completed lifecycle workflow status
@@ -22924,6 +22967,18 @@ class TestUiStaticContent:
     def test_monitor_portfolio_performance_history_message_present(self) -> None:
         html = self._read_html()
         assert "Monitor Portfolio / Performance History" in html
+
+    def test_current_review_cycle_text_present(self) -> None:
+        html = self._read_html()
+        assert "Current review cycle" in html
+
+    def test_completed_consumed_text_present(self) -> None:
+        html = self._read_html()
+        assert "Completed / consumed" in html
+
+    def test_historical_candidates_hidden_text_present(self) -> None:
+        html = self._read_html()
+        assert "Historical candidates hidden from primary queue" in html
 
 
 # ===========================================================================

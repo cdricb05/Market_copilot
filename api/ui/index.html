@@ -2253,6 +2253,17 @@
             Approve only candidates you want eligible for signal creation. Watch or Reject the rest. <strong>Approving does not create orders.</strong>
           </div>
 
+          <!-- Cycle header — shown after load -->
+          <div id="rq-cycle-header" style="display: none; font-size: 9px; color: var(--label); margin-bottom: 8px; padding: 5px 10px; background: rgba(0,0,0,.15); border-radius: 2px; border-left: 3px solid rgba(59,130,246,.4);">
+            <span style="color: var(--text-primary); font-weight: 600;">Current review cycle</span>
+            <span id="rq-cycle-key" style="margin-left: 6px; color: var(--label);"></span>
+            <span id="rq-cycle-count" style="margin-left: 6px;"></span>
+          </div>
+          <!-- New cycle hint: shown in completed workflow state -->
+          <div id="rq-new-cycle-hint" style="display: none; font-size: 9px; color: var(--ok); margin-bottom: 8px; padding: 5px 10px; background: rgba(34,197,94,.07); border-radius: 2px; border-left: 3px solid rgba(34,197,94,.5);">
+            Paper workflow complete. <strong>Run Daily Process Preview to start a new cycle.</strong>
+          </div>
+
           <!-- Column legend -->
           <div style="font-size: 9px; color: var(--label); margin-bottom: 8px;">
             Decision = app recommendation &nbsp;|&nbsp; Rec = model recommendation &nbsp;|&nbsp; Conf = model confidence &nbsp;|&nbsp; Return % = expected 5-day &nbsp;|&nbsp; RS SPY = relative strength vs SPY 20d
@@ -7944,10 +7955,13 @@ function renderReviewQueue(candidates) {
   }
 
   tbody.innerHTML = candidates.map(c => {
-    const statusColor = c.review_status === 'NEW' ? 'var(--warning)' :
+    const isConsumed = window._workflowCompletedState && c.review_status === 'APPROVED_FOR_SIGNAL';
+    const statusColor = isConsumed ? 'var(--label)' :
+                       c.review_status === 'NEW' ? 'var(--warning)' :
                        c.review_status === 'WATCHING' ? 'var(--text-primary)' :
                        c.review_status === 'REJECTED' ? 'var(--danger)' :
                        c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
+    const statusLabel = isConsumed ? 'CONSUMED' : c.review_status;
     const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
                          c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
     const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
@@ -7955,9 +7969,12 @@ function renderReviewQueue(candidates) {
     const conf = c.prediction_confidence ? parseFloat(c.prediction_confidence).toFixed(2) : '-';
     const ret = c.expected_return_pct ? parseFloat(c.expected_return_pct).toFixed(2) : '-';
     const rs = c.relative_strength_vs_spy_20d ? parseFloat(c.relative_strength_vs_spy_20d).toFixed(2) : '-';
+    const actionHtml = isConsumed
+      ? '<span style="font-size:9px;color:var(--label);font-style:italic;">Completed / consumed</span>'
+      : `<button onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding:3px 6px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Watch</button><button onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding:3px 6px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Reject</button><button onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding:3px 6px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
     return `<tr>
       <td><strong>${escapeHtml(c.ticker)}</strong></td>
-      <td style="color:${statusColor};font-weight:600;font-size:10px;">${escapeHtml(c.review_status)}</td>
+      <td style="color:${statusColor};font-weight:600;font-size:10px;">${escapeHtml(statusLabel)}</td>
       <td style="color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
       <td style="text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
       <td style="color:${recColor};font-weight:600;">${escapeHtml(c.prediction_recommendation || '-')}</td>
@@ -7965,9 +7982,7 @@ function renderReviewQueue(candidates) {
       <td style="text-align:right;">${ret}</td>
       <td style="text-align:right;">${rs}</td>
       <td>
-        <button onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding:3px 6px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Watch</button>
-        <button onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding:3px 6px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Reject</button>
-        <button onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding:3px 6px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>
+        ${actionHtml}
       </td>
     </tr>`;
   }).join('');
@@ -7996,24 +8011,28 @@ function renderDpInlineReviewQueue(candidates) {
     return;
   }
   tbody.innerHTML = latest.map(c => {
-    const statusColor = c.review_status === 'NEW' ? 'var(--warning)' :
+    const isConsumed = window._workflowCompletedState && c.review_status === 'APPROVED_FOR_SIGNAL';
+    const statusColor = isConsumed ? 'var(--label)' :
+                       c.review_status === 'NEW' ? 'var(--warning)' :
                        c.review_status === 'WATCHING' ? 'var(--text-primary)' :
                        c.review_status === 'REJECTED' ? 'var(--danger)' :
                        c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
+    const statusLabel = isConsumed ? 'CONSUMED' : c.review_status;
     const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
                          c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
     const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
                     c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+    const dpActionHtml = isConsumed
+      ? '<span style="font-size:8px;color:var(--label);font-style:italic;">Completed / consumed</span>'
+      : `<button onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
     return `<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">
       <td style="padding:4px 6px;"><strong>${escapeHtml(c.ticker)}</strong></td>
-      <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(c.review_status)}</td>
+      <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(statusLabel)}</td>
       <td style="padding:4px 6px;color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
       <td style="padding:4px 6px;text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
       <td style="padding:4px 6px;color:${recColor};font-weight:600;">${escapeHtml(c.prediction_recommendation || '-')}</td>
       <td style="padding:4px 6px;">
-        <button onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button>
-        <button onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button>
-        <button onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>
+        ${dpActionHtml}
       </td>
     </tr>`;
   }).join('');
@@ -8389,19 +8408,51 @@ function filterReviewQueue() {
   renderReviewQueue(filtered);
   updateCockpitReviewSummary();
 
+  updateReviewCycleHeader();
+
   const infoEl = document.getElementById('rq-filter-info');
   if (infoEl) {
     const hiddenByLatest = latestOnly ? (beforeLatestCount - filtered.length) : 0;
     if (hiddenByLatest > 0) {
-      infoEl.textContent = 'Showing ' + filtered.length + ' of ' + beforeLatestCount + ' entries (latest per ticker). ' + hiddenByLatest + ' older row(s) hidden -- uncheck "Latest per ticker" to see all.';
+      infoEl.textContent = 'Historical candidates hidden from primary queue. ' + hiddenByLatest + ' older row(s) hidden. Uncheck "Latest per ticker" to see full history.';
       infoEl.style.display = 'block';
     } else if (latestOnly && filtered.length > 0) {
-      infoEl.textContent = 'Latest row per ticker shown (' + filtered.length + ' unique ticker' + (filtered.length !== 1 ? 's' : '') + '). Uncheck to see full history.';
+      infoEl.textContent = 'Current review cycle shown - ' + filtered.length + ' unique ticker' + (filtered.length !== 1 ? 's' : '') + '. Uncheck to see full history.';
       infoEl.style.display = 'block';
     } else {
       infoEl.style.display = 'none';
     }
   }
+}
+
+function updateReviewCycleHeader() {
+  const hdr = document.getElementById('rq-cycle-header');
+  const keyEl = document.getElementById('rq-cycle-key');
+  const cntEl = document.getElementById('rq-cycle-count');
+  const hint = document.getElementById('rq-new-cycle-hint');
+  const all = window._lastReviewQueueData || [];
+  if (all.length === 0) {
+    if (hdr) hdr.style.display = 'none';
+    if (hint) hint.style.display = 'none';
+    return;
+  }
+  let latest = all[0];
+  all.forEach(c => {
+    if (new Date(c.created_at) > new Date(latest.created_at)) latest = c;
+  });
+  const cycleKey = latest.idempotency_key;
+  const cycleCount = all.filter(c => c.idempotency_key === cycleKey).length;
+  const olderCount = all.length - cycleCount;
+  if (hdr) {
+    hdr.style.display = '';
+    if (keyEl) keyEl.textContent = cycleKey;
+    if (cntEl) {
+      let txt = cycleCount + ' candidate' + (cycleCount !== 1 ? 's' : '');
+      if (olderCount > 0) txt += ' - ' + olderCount + ' historical';
+      cntEl.textContent = txt;
+    }
+  }
+  if (hint) hint.style.display = window._workflowCompletedState ? '' : 'none';
 }
 
 async function generateSignalPreview() {
@@ -9777,6 +9828,8 @@ function renderWorkflowStatus(data) {
     const fillStatus = document.getElementById('fill-orders-status');
     if (fillStatus) fillStatus.textContent = 'No pending paper orders.';
   }
+
+  updateReviewCycleHeader();
 }
 
 async function getWorkflowStepReason(stepName) {

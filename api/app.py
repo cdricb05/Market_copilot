@@ -1441,6 +1441,7 @@ class ReviewCandidatesCounts(BaseModel):
     watching: int
     approved_for_signal: int
     rejected: int
+    consumed: int = 0
 
 
 class ReviewCreatedSignalsCounts(BaseModel):
@@ -1485,6 +1486,7 @@ class WorkflowStatusResponse(BaseModel):
     workflow_steps: list[WorkflowStepStatus]
     safety: dict[str, bool]
     open_positions: int = 0
+    current_cycle_key: str | None = None
 
 
 class WeakestPositionDetail(BaseModel):
@@ -7390,13 +7392,11 @@ async def get_workflow_status() -> WorkflowStatusResponse:
             CandidateReview.review_status == "REJECTED"
         ).count()
 
-        candidates_counts = ReviewCandidatesCounts(
-            total=candidate_total,
-            new=candidate_new,
-            watching=candidate_watching,
-            approved_for_signal=candidate_approved,
-            rejected=candidate_rejected,
-        )
+        # Current cycle: latest idempotency_key by created_at
+        current_cycle_row = session.query(CandidateReview.idempotency_key).order_by(
+            CandidateReview.created_at.desc()
+        ).first()
+        current_cycle_key = current_cycle_row[0] if current_cycle_row else None
 
         # Count review-created signals by status
         signal_total = session.query(Signal).filter(
@@ -7420,6 +7420,18 @@ async def get_workflow_status() -> WorkflowStatusResponse:
             received=signal_received,
             decision_made=signal_decision_made,
             error=signal_error,
+        )
+
+        # consumed: approved candidates that entered the signal workflow
+        consumed_count = candidate_approved if signal_total > 0 else 0
+
+        candidates_counts = ReviewCandidatesCounts(
+            total=candidate_total,
+            new=candidate_new,
+            watching=candidate_watching,
+            approved_for_signal=candidate_approved,
+            rejected=candidate_rejected,
+            consumed=consumed_count,
         )
 
         # Count review-created trade decisions
@@ -7648,6 +7660,7 @@ async def get_workflow_status() -> WorkflowStatusResponse:
         workflow_steps=steps,
         safety={"create_orders_enabled": True, "automation_enabled": False},
         open_positions=open_positions_count,
+        current_cycle_key=current_cycle_key,
     )
 
 
