@@ -22901,6 +22901,18 @@ class TestUiStaticContent:
         html = self._read_html()
         assert "monitor portfolio" in html
 
+    def test_paper_workflow_complete_for_current_signal_text_present(self) -> None:
+        html = self._read_html()
+        assert "Paper workflow complete for current signal" in html
+
+    def test_filled_paper_order_exists_message_present(self) -> None:
+        html = self._read_html()
+        assert "Filled paper order exists" in html
+
+    def test_signal_consumed_message_present(self) -> None:
+        html = self._read_html()
+        assert "Signal consumed" in html
+
 
 # ===========================================================================
 # TestPredictionHealthEndpoint

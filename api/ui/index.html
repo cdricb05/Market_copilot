@@ -1981,6 +1981,7 @@
                 <span id="dp-sa-approved-count" style="font-weight: 700; color: var(--ok);">0</span> candidate(s) approved for signal.
               </div>
               <div id="dp-sa-no-approved-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Approve candidates in Review Queue first.</div>
+              <div id="dp-sa-completed-msg" style="display: none; font-size: 10px; color: var(--ok); font-style: italic; padding: 6px 0; text-align: center;">Signal consumed — paper order filled. Review Portfolio tab.</div>
               <div id="dp-sa-has-approved" style="display: none;">
                 <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
                   <button class="btn-sm" style="background: rgba(34,197,94,.12); color: var(--ok); border: 1px solid rgba(34,197,94,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewSignals(this)">Preview Signals from Approved Candidates</button>
@@ -2133,15 +2134,16 @@
             <div class="compact-card" style="flex-shrink: 0; border-color: rgba(34,197,94,.35);">
               <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok); margin-bottom: 4px; border-bottom: 1px solid rgba(34,197,94,.2); padding-bottom: 4px;">Paper Orders</div>
               <div style="font-size: 8px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;">PAPER ONLY &mdash; NO BROKER &mdash; NO FILLS</div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 8px; line-height: 1.4;">Paper order tickets only. No broker execution. Automation off. Each action requires explicit confirmation.</div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 4px; line-height: 1.4;">Paper order tickets only. No broker execution. Automation off. Each action requires explicit confirmation.</div>
+              <div id="dp-paper-orders-status" style="display: none; font-size: 9px; margin-bottom: 6px; padding: 4px 6px; background: rgba(34,197,94,.07); border-left: 2px solid rgba(34,197,94,.4); border-radius: 0 2px 2px 0; line-height: 1.4;"></div>
               <div style="display: flex; flex-direction: column; gap: 4px;">
                 <div>
                   <div style="font-size: 7px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">CREATES ORDER TICKETS ONLY</div>
-                  <button class="btn-sm" style="background: var(--ok); color: white; font-size: 9px; width: 100%;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
+                  <button id="dp-create-orders-btn" class="btn-sm" style="background: var(--ok); color: white; font-size: 9px; width: 100%;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
                 </div>
                 <div>
                   <div style="font-size: 7px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
-                  <button class="btn-sm" style="background: var(--warning); color: white; font-size: 9px; width: 100%;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
+                  <button id="dp-fill-orders-btn" class="btn-sm" style="background: var(--warning); color: white; font-size: 9px; width: 100%;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
                 </div>
                 <div>
                   <div style="font-size: 7px; color: var(--danger); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">PAPER CANCEL ONLY</div>
@@ -9701,13 +9703,52 @@ function renderWorkflowStatus(data) {
 
   // Update primary recommendation based on current workflow state
   const filledCount = (o && o.filled) || 0;
+  const pendingCount = (o && o.pending) || 0;
+  const openPositions = (data && data.open_positions) || 0;
+  const completedState = filledCount > 0 && pendingCount === 0 && openPositions > 0;
+  window._workflowCompletedState = completedState;
+
   const dpPrimRec = document.getElementById('dp-primary-recommendation');
-  if (dpPrimRec && filledCount > 0 && eligibleDecCount === 0) {
-    dpPrimRec.textContent = 'Paper workflow complete — ' + filledCount + ' paper order(s) filled. Monitor portfolio or start a new daily scan.';
+  if (dpPrimRec && completedState) {
+    dpPrimRec.textContent = 'Paper workflow complete for current signal — monitor portfolio or start a new daily scan.';
   } else if (dpPrimRec && eligibleDecCount > 0 && ordCount === 0) {
     dpPrimRec.textContent = 'Preview Paper Orders — ' + eligibleDecCount + ' eligible trade decision(s) ready. No orders created yet.';
-  } else if (dpPrimRec && eligibleDecCount === 0 && ordCount > 0) {
+  } else if (dpPrimRec && eligibleDecCount === 0 && ordCount > 0 && !completedState) {
     dpPrimRec.textContent = ordCount + ' paper order(s) on record. Review positions and order status in the Portfolio tab.';
+  }
+
+  // Signal Actions card: show completed message when workflow is done
+  const dpSaCompletedMsg = document.getElementById('dp-sa-completed-msg');
+  const dpSaNoApprovedMsg = document.getElementById('dp-sa-no-approved-msg');
+  const dpSaHasApproved = document.getElementById('dp-sa-has-approved');
+  if (completedState) {
+    if (dpSaCompletedMsg) dpSaCompletedMsg.style.display = '';
+    if (dpSaNoApprovedMsg) dpSaNoApprovedMsg.style.display = 'none';
+    if (dpSaHasApproved) dpSaHasApproved.style.display = 'none';
+  }
+
+  // Decision Actions card: update no-signals message for completed state
+  const dpDaNoSig = document.getElementById('dp-da-no-signals-msg');
+  if (dpDaNoSig && completedState) {
+    dpDaNoSig.textContent = 'Signal consumed — paper order filled. Decision complete.';
+  }
+
+  // Order Preview card: update no-decisions message for completed state
+  if (dpOaNoDecisions && completedState) {
+    dpOaNoDecisions.textContent = 'Order filled — ' + filledCount + ' filled paper order(s). Check Portfolio tab for open position.';
+  }
+
+  // Paper Orders panel: show status and de-emphasize buttons in completed state
+  const dpPaperOrdersStatus = document.getElementById('dp-paper-orders-status');
+  const dpCreateOrdersBtn = document.getElementById('dp-create-orders-btn');
+  const dpFillOrdersBtn = document.getElementById('dp-fill-orders-btn');
+  if (completedState) {
+    if (dpPaperOrdersStatus) {
+      dpPaperOrdersStatus.style.display = '';
+      dpPaperOrdersStatus.innerHTML = '<span style="color: var(--ok); font-weight: 700;">Filled paper order exists.</span> <span style="color: var(--label);">No pending paper orders.</span>';
+    }
+    if (dpCreateOrdersBtn) { dpCreateOrdersBtn.style.opacity = '0.45'; dpCreateOrdersBtn.title = 'No order-eligible decisions.'; }
+    if (dpFillOrdersBtn) { dpFillOrdersBtn.style.opacity = '0.45'; dpFillOrdersBtn.title = 'No pending paper orders.'; }
   }
 }
 
@@ -9949,8 +9990,8 @@ function updateCockpitReviewSummary() {
   if (dpRejected) dpRejected.textContent = rejected;
   if (dpPending) dpPending.textContent = pending;
 
-  // Smart next action: only update when queue has data and daily plan hasn't overridden
-  if (total > 0) {
+  // Smart next action: only update when queue has data and workflow is not in completed state
+  if (total > 0 && !window._workflowCompletedState) {
     const _prEl = document.getElementById('dp-primary-recommendation');
     if (_prEl) {
       if (approved === 0 && pending > 0) {
@@ -9964,12 +10005,15 @@ function updateCockpitReviewSummary() {
   }
 
   // Update Signal Actions card approved count and show/hide action buttons
+  // Skip if workflow is complete — signals already consumed, avoid overwriting completed state
   const dpSaCount = document.getElementById('dp-sa-approved-count');
   if (dpSaCount) dpSaCount.textContent = approved;
-  const dpSaNoApproved = document.getElementById('dp-sa-no-approved-msg');
-  const dpSaHasApproved = document.getElementById('dp-sa-has-approved');
-  if (dpSaNoApproved) dpSaNoApproved.style.display = approved > 0 ? 'none' : '';
-  if (dpSaHasApproved) dpSaHasApproved.style.display = approved > 0 ? '' : 'none';
+  if (!window._workflowCompletedState) {
+    const dpSaNoApproved = document.getElementById('dp-sa-no-approved-msg');
+    const dpSaHasApproved = document.getElementById('dp-sa-has-approved');
+    if (dpSaNoApproved) dpSaNoApproved.style.display = approved > 0 ? 'none' : '';
+    if (dpSaHasApproved) dpSaHasApproved.style.display = approved > 0 ? '' : 'none';
+  }
 }
 
 async function refreshReviewQueue() {
