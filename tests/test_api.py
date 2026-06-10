@@ -23284,6 +23284,171 @@ class TestExitDecisionPreviewEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# TestPositionReviewPreviewEndpoint
+# ---------------------------------------------------------------------------
+
+class TestPositionReviewPreviewEndpoint:
+    """POST /v1/review/position-review-preview — consolidated PREVIEW ONLY, no DB writes."""
+
+    def test_auth_required(self, client: TestClient) -> None:
+        """Endpoint requires X-API-Key header."""
+        resp = client.post("/v1/review/position-review-preview", json={})
+        assert resp.status_code == 401
+
+    def test_read_only_no_writes(self, seeded_client: TestClient, api_engine) -> None:
+        """POST must not create any new DB rows and must return all safety flags."""
+        def _count(model_class):
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                return s.query(model_class).count()
+
+        before = {
+            "job_run": _count(JobRun),
+            "signal": _count(Signal),
+            "trade_decision": _count(TradeDecision),
+            "order": _count(Order),
+            "position": _count(Position),
+            "portfolio_snapshot": _count(PortfolioSnapshot),
+        }
+
+        resp = seeded_client.post("/v1/review/position-review-preview", json={}, headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["preview_only"] is True
+        assert data["writes_performed"] is False
+        assert data["no_signals_created"] is True
+        assert data["no_decisions_created"] is True
+        assert data["no_orders_created"] is True
+        assert data["no_trades_created"] is True
+        assert data["no_fills_created"] is True
+        assert data["no_position_changes"] is True
+        assert data["no_cash_changes"] is True
+        assert data["no_broker_execution"] is True
+
+        after = {
+            "job_run": _count(JobRun),
+            "signal": _count(Signal),
+            "trade_decision": _count(TradeDecision),
+            "order": _count(Order),
+            "position": _count(Position),
+            "portfolio_snapshot": _count(PortfolioSnapshot),
+        }
+        for key in before:
+            assert before[key] == after[key], f"Row count for {key} changed after preview"
+
+    def test_hold_position_returns_consolidated_hold(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """HOLD position returns HOLD/HOLD/HOLD/NOT_NEEDED, side=NONE, suggested_qty=0."""
+        pos_id = None
+        price_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                pos = Position(
+                    ticker="PRPHOLD",
+                    qty=Decimal("8"),
+                    avg_cost=Decimal("100.000000"),
+                    cost_basis=Decimal("800.00"),
+                    opened_at=datetime.now(tz=timezone.utc),
+                    last_updated=datetime.now(tz=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+
+                price = PriceSnapshot(
+                    ticker="PRPHOLD",
+                    price=Decimal("105.000000"),  # +5% -> HOLD
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=datetime.now(tz=timezone.utc),
+                    market_date=datetime.now(tz=timezone.utc).date(),
+                    job_run_id=None,
+                )
+                session.add(price)
+                session.flush()
+                price_id = price.id
+                session.commit()
+
+            resp = seeded_client.post("/v1/review/position-review-preview", json={}, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+
+            pos_data = next((p for p in data["positions"] if p["ticker"] == "PRPHOLD"), None)
+            assert pos_data is not None, "PRPHOLD not found in positions"
+            assert pos_data["position_recommendation"] == "HOLD"
+            assert pos_data["exit_action"] == "HOLD"
+            assert pos_data["decision_preview"] == "HOLD"
+            assert pos_data["order_preview"] == "NOT_NEEDED"
+            assert pos_data["suggested_side"] == "NONE"
+            assert pos_data["suggested_qty"] == "0"
+            assert pos_data["estimated_exit_value"] is None
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id:
+                    session.query(Position).filter(Position.id == pos_id).delete(synchronize_session=False)
+                if price_id:
+                    session.query(PriceSnapshot).filter(PriceSnapshot.id == price_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_review_for_exit_returns_sell_preview_only(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Position below -5% returns REVIEW_FOR_EXIT/PREVIEW_EXIT/SELL/PREVIEW_ONLY/SELL/full qty without writing anything."""
+        pos_id = None
+        price_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                pos = Position(
+                    ticker="PRPEXIT",
+                    qty=Decimal("10"),
+                    avg_cost=Decimal("100.000000"),
+                    cost_basis=Decimal("1000.00"),
+                    opened_at=datetime.now(tz=timezone.utc),
+                    last_updated=datetime.now(tz=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+
+                price = PriceSnapshot(
+                    ticker="PRPEXIT",
+                    price=Decimal("88.000000"),  # -12% -> REVIEW_FOR_EXIT
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=datetime.now(tz=timezone.utc),
+                    market_date=datetime.now(tz=timezone.utc).date(),
+                    job_run_id=None,
+                )
+                session.add(price)
+                session.flush()
+                price_id = price.id
+                session.commit()
+
+            resp = seeded_client.post("/v1/review/position-review-preview", json={}, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+
+            pos_data = next((p for p in data["positions"] if p["ticker"] == "PRPEXIT"), None)
+            assert pos_data is not None, "PRPEXIT not found in positions"
+            assert pos_data["position_recommendation"] == "REVIEW_FOR_EXIT"
+            assert pos_data["exit_action"] == "PREVIEW_EXIT"
+            assert pos_data["decision_preview"] == "SELL"
+            assert pos_data["order_preview"] == "PREVIEW_ONLY"
+            assert pos_data["suggested_side"] == "SELL"
+            assert Decimal(pos_data["suggested_qty"]) == Decimal("10")
+            assert pos_data["estimated_exit_value"] is not None
+            assert data["review_for_exit_count"] >= 1
+            assert data["preview_sell_count"] >= 1
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id:
+                    session.query(Position).filter(Position.id == pos_id).delete(synchronize_session=False)
+                if price_id:
+                    session.query(PriceSnapshot).filter(PriceSnapshot.id == price_id).delete(synchronize_session=False)
+                session.commit()
+
+
+# ---------------------------------------------------------------------------
 # Static UI content assertions — reads index.html directly (no HTTP needed)
 # ---------------------------------------------------------------------------
 
@@ -23494,6 +23659,67 @@ class TestUiStaticContent:
         edp_start = html.find('id="exit-decision-preview-card"')
         assert edp_start >= 0, "exit-decision-preview-card not found"
         card_section = html[edp_start:edp_start + 2000]
+        assert "NO BROKER EXECUTION" in card_section
+
+    def test_position_review_heading_present(self) -> None:
+        html = self._read_html()
+        assert "Position Review" in html
+
+    def test_review_open_positions_button_present(self) -> None:
+        html = self._read_html()
+        assert "Review Open Positions" in html
+
+    def test_position_review_one_click_preview_only_text_present(self) -> None:
+        html = self._read_html()
+        assert "One-click preview only" in html
+
+    def test_position_review_no_signals_badge_present(self) -> None:
+        html = self._read_html()
+        prp_start = html.find('id="position-review-card"')
+        assert prp_start >= 0, "position-review-card not found"
+        card_section = html[prp_start:prp_start + 2000]
+        assert "NO SIGNALS" in card_section
+
+    def test_position_review_no_decisions_badge_present(self) -> None:
+        html = self._read_html()
+        prp_start = html.find('id="position-review-card"')
+        assert prp_start >= 0, "position-review-card not found"
+        card_section = html[prp_start:prp_start + 2000]
+        assert "NO DECISIONS" in card_section
+
+    def test_position_review_no_orders_badge_present(self) -> None:
+        html = self._read_html()
+        prp_start = html.find('id="position-review-card"')
+        assert prp_start >= 0, "position-review-card not found"
+        card_section = html[prp_start:prp_start + 2000]
+        assert "NO ORDERS" in card_section
+
+    def test_position_review_no_trades_badge_present(self) -> None:
+        html = self._read_html()
+        prp_start = html.find('id="position-review-card"')
+        assert prp_start >= 0, "position-review-card not found"
+        card_section = html[prp_start:prp_start + 2000]
+        assert "NO TRADES" in card_section
+
+    def test_position_review_no_fills_badge_present(self) -> None:
+        html = self._read_html()
+        prp_start = html.find('id="position-review-card"')
+        assert prp_start >= 0, "position-review-card not found"
+        card_section = html[prp_start:prp_start + 2000]
+        assert "NO FILLS" in card_section
+
+    def test_position_review_no_position_changes_badge_present(self) -> None:
+        html = self._read_html()
+        prp_start = html.find('id="position-review-card"')
+        assert prp_start >= 0, "position-review-card not found"
+        card_section = html[prp_start:prp_start + 2000]
+        assert "NO POSITION CHANGES" in card_section
+
+    def test_position_review_no_broker_execution_badge_present(self) -> None:
+        html = self._read_html()
+        prp_start = html.find('id="position-review-card"')
+        assert prp_start >= 0, "position-review-card not found"
+        card_section = html[prp_start:prp_start + 2000]
         assert "NO BROKER EXECUTION" in card_section
 
 

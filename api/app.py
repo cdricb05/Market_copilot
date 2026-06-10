@@ -40,6 +40,7 @@ Endpoints:
     POST /v1/review/position-monitor-preview — preview exit recommendations for open positions (PREVIEW ONLY, read-only)
     POST /v1/review/exit-signal-preview — preview exit intent per open position (PREVIEW ONLY, read-only, no signals/orders)
     POST /v1/review/exit-decision-preview — preview exit decision per open position (PREVIEW ONLY, read-only, no signals/decisions/orders)
+    POST /v1/review/position-review-preview — one-click consolidated position review: monitor+signal+decision+order layers (PREVIEW ONLY, read-only, no DB writes)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -1590,6 +1591,54 @@ class ExitDecisionPreviewResponse(BaseModel):
     no_decisions_created: bool = True
     no_orders_created: bool = True
     no_fills_created: bool = True
+    no_broker_execution: bool = True
+
+
+class PositionReviewItem(BaseModel):
+    """Single position result from consolidated position review preview (PREVIEW ONLY, no DB writes)."""
+    ticker: str
+    qty: str
+    avg_cost: str
+    latest_price: str | None
+    market_value: str | None
+    unrealized_pnl: str | None
+    unrealized_pnl_pct: str | None
+    portfolio_weight_pct: str | None
+    position_recommendation: str
+    exit_action: str
+    decision_preview: str
+    order_preview: str
+    suggested_side: str
+    suggested_qty: str
+    estimated_exit_value: str | None
+    estimated_realized_pnl: str | None
+    estimated_realized_pnl_pct: str | None
+    reason_codes: list[str]
+    explanation: str
+
+
+class PositionReviewPreviewResponse(BaseModel):
+    """Response from consolidated position review preview endpoint (PREVIEW ONLY, no DB writes)."""
+    as_of: datetime
+    open_position_count: int
+    hold_count: int
+    watch_count: int
+    review_for_exit_count: int
+    preview_exit_count: int
+    preview_sell_count: int
+    preview_order_count: int
+    estimated_total_exit_value: str
+    estimated_total_realized_pnl: str
+    positions: list[PositionReviewItem]
+    preview_only: bool = True
+    writes_performed: bool = False
+    no_signals_created: bool = True
+    no_decisions_created: bool = True
+    no_orders_created: bool = True
+    no_trades_created: bool = True
+    no_fills_created: bool = True
+    no_position_changes: bool = True
+    no_cash_changes: bool = True
     no_broker_execution: bool = True
 
 
@@ -13528,6 +13577,201 @@ def exit_decision_preview() -> ExitDecisionPreviewResponse:
             no_decisions_created=True,
             no_orders_created=True,
             no_fills_created=True,
+            no_broker_execution=True,
+        )
+
+
+@app.post(
+    "/v1/review/position-review-preview",
+    response_model=PositionReviewPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def position_review_preview() -> PositionReviewPreviewResponse:
+    """
+    One-click consolidated position review (PREVIEW ONLY, no DB writes).
+
+    Combines position monitor, exit signal, exit decision, and order preview layers:
+        REVIEW_FOR_EXIT / PREVIEW_EXIT / SELL / PREVIEW_ONLY if unrealized_pnl_pct <= -5.0%
+        WATCH           / WATCH        / WATCH / NOT_NEEDED  if unrealized_pnl_pct <= -2.0%
+        WATCH           / WATCH        / WATCH / NOT_NEEDED  if portfolio_weight_pct > 25.0%
+        HOLD            / HOLD         / HOLD  / NOT_NEEDED  otherwise
+        Missing price                         -> WATCH across all layers
+
+    This endpoint never creates signals, decisions, orders, trades, fills,
+    or modifies positions, cash, or broker state.
+    """
+    now = datetime.now(tz=timezone.utc)
+
+    with get_session() as session:
+        positions = session.execute(
+            select(Position).order_by(Position.opened_at)
+        ).scalars().all()
+
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        cached_total_value: Decimal | None = None
+        if portfolio is not None and portfolio.cached_total_value:
+            cached_total_value = Decimal(str(portfolio.cached_total_value))
+
+        items: list[PositionReviewItem] = []
+        hold_count = 0
+        watch_count = 0
+        review_for_exit_count = 0
+        total_exit_value = Decimal("0")
+        total_realized_pnl = Decimal("0")
+
+        for pos in positions:
+            qty = Decimal(str(pos.qty))
+            cost_basis = Decimal(str(pos.cost_basis))
+            latest_price = _latest_price(session, pos.ticker)
+
+            if latest_price is None:
+                items.append(PositionReviewItem(
+                    ticker=pos.ticker, qty=str(qty), avg_cost=str(pos.avg_cost),
+                    latest_price=None, market_value=None,
+                    unrealized_pnl=None, unrealized_pnl_pct=None, portfolio_weight_pct=None,
+                    position_recommendation="WATCH", exit_action="WATCH",
+                    decision_preview="WATCH", order_preview="NOT_NEEDED",
+                    suggested_side="NONE", suggested_qty="0",
+                    estimated_exit_value=None, estimated_realized_pnl=None,
+                    estimated_realized_pnl_pct=None,
+                    reason_codes=["PRICE_MISSING"],
+                    explanation="Latest price unavailable; position cannot be fully evaluated.",
+                ))
+                watch_count += 1
+                continue
+
+            market_value = qty * latest_price
+            unrealized_pnl = market_value - cost_basis
+            unrealized_pnl_pct = (
+                unrealized_pnl / cost_basis * Decimal("100")
+                if cost_basis != Decimal("0") else Decimal("0")
+            )
+
+            portfolio_weight_pct: Decimal | None = None
+            if cached_total_value is not None and cached_total_value > Decimal("0"):
+                portfolio_weight_pct = market_value / cached_total_value * Decimal("100")
+
+            upnl_pct_float = float(unrealized_pnl_pct)
+            weight_pct_float = float(portfolio_weight_pct) if portfolio_weight_pct is not None else 0.0
+
+            est_exit_value: Decimal | None = None
+            est_realized_pnl: Decimal | None = None
+            est_realized_pnl_pct: Decimal | None = None
+
+            if upnl_pct_float <= -5.0:
+                position_recommendation = "REVIEW_FOR_EXIT"
+                exit_action = "PREVIEW_EXIT"
+                decision_preview = "SELL"
+                order_preview = "PREVIEW_ONLY"
+                suggested_side = "SELL"
+                suggested_qty = str(qty)
+                est_exit_value = market_value
+                est_realized_pnl = market_value - cost_basis
+                est_realized_pnl_pct = (
+                    est_realized_pnl / cost_basis * Decimal("100")
+                    if cost_basis != Decimal("0") else Decimal("0")
+                )
+                reason_codes: list[str] = ["STOP_LOSS_REVIEW"]
+                explanation = (
+                    f"Unrealized P&L of {upnl_pct_float:.1f}% is below the stop-loss "
+                    f"review threshold (-5.0%). Consolidated preview: SELL {qty} shares "
+                    f"at {latest_price} = est. exit value "
+                    f"{market_value.quantize(Decimal('0.01'))}."
+                )
+                total_exit_value += market_value
+                total_realized_pnl += est_realized_pnl
+                review_for_exit_count += 1
+            elif upnl_pct_float <= -2.0:
+                position_recommendation = "WATCH"
+                exit_action = "WATCH"
+                decision_preview = "WATCH"
+                order_preview = "NOT_NEEDED"
+                suggested_side = "NONE"
+                suggested_qty = "0"
+                reason_codes = ["WATCH_LOSS_THRESHOLD"]
+                explanation = (
+                    f"Unrealized P&L of {upnl_pct_float:.1f}% is in the watch range "
+                    f"(-2.0% to -5.0%). Monitor closely."
+                )
+                watch_count += 1
+            elif portfolio_weight_pct is not None and weight_pct_float > 25.0:
+                position_recommendation = "WATCH"
+                exit_action = "WATCH"
+                decision_preview = "WATCH"
+                order_preview = "NOT_NEEDED"
+                suggested_side = "NONE"
+                suggested_qty = "0"
+                reason_codes = ["HIGH_CONCENTRATION"]
+                explanation = (
+                    f"Portfolio weight of {weight_pct_float:.1f}% exceeds the "
+                    f"concentration threshold (25.0%). Consider position sizing."
+                )
+                watch_count += 1
+            else:
+                position_recommendation = "HOLD"
+                exit_action = "HOLD"
+                decision_preview = "HOLD"
+                order_preview = "NOT_NEEDED"
+                suggested_side = "NONE"
+                suggested_qty = "0"
+                reason_codes = ["HEALTHY_POSITION"]
+                explanation = "Position is within healthy parameters. No exit or order action required."
+                hold_count += 1
+
+            items.append(PositionReviewItem(
+                ticker=pos.ticker, qty=str(qty), avg_cost=str(pos.avg_cost),
+                latest_price=str(latest_price),
+                market_value=str(market_value.quantize(Decimal("0.01"))),
+                unrealized_pnl=str(unrealized_pnl.quantize(Decimal("0.01"))),
+                unrealized_pnl_pct=str(unrealized_pnl_pct.quantize(Decimal("0.01"))),
+                portfolio_weight_pct=(
+                    str(portfolio_weight_pct.quantize(Decimal("0.01")))
+                    if portfolio_weight_pct is not None else None
+                ),
+                position_recommendation=position_recommendation,
+                exit_action=exit_action,
+                decision_preview=decision_preview,
+                order_preview=order_preview,
+                suggested_side=suggested_side,
+                suggested_qty=suggested_qty,
+                estimated_exit_value=(
+                    str(est_exit_value.quantize(Decimal("0.01")))
+                    if est_exit_value is not None else None
+                ),
+                estimated_realized_pnl=(
+                    str(est_realized_pnl.quantize(Decimal("0.01")))
+                    if est_realized_pnl is not None else None
+                ),
+                estimated_realized_pnl_pct=(
+                    str(est_realized_pnl_pct.quantize(Decimal("0.01")))
+                    if est_realized_pnl_pct is not None else None
+                ),
+                reason_codes=reason_codes,
+                explanation=explanation,
+            ))
+
+        return PositionReviewPreviewResponse(
+            as_of=now,
+            open_position_count=len(positions),
+            hold_count=hold_count,
+            watch_count=watch_count,
+            review_for_exit_count=review_for_exit_count,
+            preview_exit_count=review_for_exit_count,
+            preview_sell_count=review_for_exit_count,
+            preview_order_count=review_for_exit_count,
+            estimated_total_exit_value=str(total_exit_value.quantize(Decimal("0.01"))),
+            estimated_total_realized_pnl=str(total_realized_pnl.quantize(Decimal("0.01"))),
+            positions=items,
+            preview_only=True,
+            writes_performed=False,
+            no_signals_created=True,
+            no_decisions_created=True,
+            no_orders_created=True,
+            no_trades_created=True,
+            no_fills_created=True,
+            no_position_changes=True,
+            no_cash_changes=True,
             no_broker_execution=True,
         )
 

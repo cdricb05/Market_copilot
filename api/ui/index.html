@@ -2553,115 +2553,165 @@
           </div>
         </div>
 
-        <!-- Position Monitor: PREVIEW ONLY -->
-        <div class="card" id="position-monitor-card">
+        <!-- Position Review: consolidated PREVIEW ONLY -->
+        <div class="card" id="position-review-card">
           <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            Position Monitor
+            Position Review
             <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
-            <span class="safety-badge" style="background:#7d3c98;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
-            <span class="safety-badge" style="background:#1e8449;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO FILLS</span>
-            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
-            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW</span>
-          </div>
-          <div style="font-size:9px;color:var(--label);margin-bottom:8px;">
-            Preview only - no signals, no decisions, no orders, no fills.
-            V1 rules: REVIEW_FOR_EXIT if P&amp;L &le; -5%, WATCH if P&amp;L &le; -2% or weight &gt; 25%, HOLD otherwise.
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-            <button class="btn" onclick="runPositionMonitorPreview(this)" style="background:var(--info,#1e90ff);color:#fff;font-weight:700;font-size:10px;padding:5px 14px;">Preview Position Monitor</button>
-            <span id="pm-status" style="font-size:9px;color:var(--label);"></span>
-          </div>
-          <div id="pm-result" style="display:none;">
-            <div id="pm-summary" style="font-size:9px;color:var(--label);margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.12);border-radius:2px;"></div>
-            <div class="table-wrap scroll-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Ticker</th><th>Qty</th><th>Avg Cost</th><th>Latest Price</th>
-                    <th>Market Value</th><th>Unrealized P&amp;L</th><th>P&amp;L %</th>
-                    <th>Weight %</th><th>Days</th><th>Recommendation</th><th>Reason</th><th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody id="pm-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div><!-- end position-monitor-card -->
-
-        <!-- Exit Signal Preview: PREVIEW ONLY -->
-        <div class="card" id="exit-signal-preview-card">
-          <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            Exit Signal Preview
-            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
-            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO EXIT SIGNALS</span>
-            <span class="safety-badge" style="background:#7d3c98;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
-            <span class="safety-badge" style="background:#1e8449;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO FILLS</span>
-            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
-            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW</span>
-          </div>
-          <div style="font-size:9px;color:var(--label);margin-bottom:8px;">
-            Preview only - no exit signals, no decisions, no orders, no fills.
-            V1 rules: PREVIEW_EXIT (SELL full qty) if Position Monitor = REVIEW_FOR_EXIT, WATCH if WATCH, HOLD otherwise.
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-            <button class="btn" onclick="runExitSignalPreview(this)" style="background:var(--warning,#e67e22);color:#fff;font-weight:700;font-size:10px;padding:5px 14px;">Preview Exit Signals</button>
-            <span id="esp-status" style="font-size:9px;color:var(--label);"></span>
-          </div>
-          <div id="esp-result" style="display:none;">
-            <div id="esp-summary" style="font-size:9px;color:var(--label);margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.12);border-radius:2px;"></div>
-            <div class="table-wrap scroll-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Ticker</th><th>Qty</th><th>Avg Cost</th><th>Latest Price</th>
-                    <th>Unrealized P&amp;L</th><th>P&amp;L %</th>
-                    <th>Monitor Rec</th><th>Exit Action</th><th>Side</th><th>Suggested Qty</th>
-                    <th>Reason</th><th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody id="esp-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div><!-- end exit-signal-preview-card -->
-
-        <!-- Exit Decision Preview: PREVIEW ONLY -->
-        <div class="card" id="exit-decision-preview-card">
-          <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            Exit Decision Preview
-            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO SIGNALS</span>
             <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO DECISIONS</span>
             <span class="safety-badge" style="background:#7d3c98;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+            <span class="safety-badge" style="background:#117a65;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO TRADES</span>
             <span class="safety-badge" style="background:#1e8449;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO FILLS</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO POSITION CHANGES</span>
             <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
             <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW</span>
           </div>
           <div style="font-size:9px;color:var(--label);margin-bottom:8px;">
-            Preview only - no decisions, no orders, no fills.
-            V1 rules: SELL (full qty) if Exit Signal = PREVIEW_EXIT, WATCH if WATCH, HOLD otherwise. No TradeDecision rows are created.
+            One-click preview only - no signals, no decisions, no orders, no trades, no fills, no position changes.
+            V1 rules: REVIEW_FOR_EXIT/SELL/PREVIEW_ONLY if P&amp;L &le; -5%, WATCH if P&amp;L &le; -2% or weight &gt; 25%, HOLD otherwise.
           </div>
           <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
-            <button class="btn" onclick="runExitDecisionPreview(this)" style="background:var(--danger,#c0392b);color:#fff;font-weight:700;font-size:10px;padding:5px 14px;">Preview Exit Decisions</button>
-            <span id="edp-status" style="font-size:9px;color:var(--label);"></span>
+            <button class="btn" onclick="runPositionReviewPreview(this)" style="background:var(--info,#1e90ff);color:#fff;font-weight:700;font-size:10px;padding:5px 14px;">Review Open Positions</button>
+            <span id="prp-status" style="font-size:9px;color:var(--label);"></span>
           </div>
-          <div id="edp-result" style="display:none;">
-            <div id="edp-summary" style="font-size:9px;color:var(--label);margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.12);border-radius:2px;"></div>
+          <div id="prp-result" style="display:none;">
+            <div id="prp-summary" style="font-size:9px;color:var(--label);margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.12);border-radius:2px;"></div>
             <div class="table-wrap scroll-table">
               <table>
                 <thead>
                   <tr>
                     <th>Ticker</th><th>Qty</th><th>Avg Cost</th><th>Latest Price</th>
-                    <th>Unrealized P&amp;L</th><th>P&amp;L %</th>
-                    <th>Exit Signal</th><th>Decision</th><th>Side</th><th>Decision Qty</th>
+                    <th>Market Value</th><th>Unrlzd P&amp;L</th><th>P&amp;L %</th><th>Weight %</th>
+                    <th>Rec</th><th>Exit Action</th><th>Decision</th><th>Order</th>
+                    <th>Side</th><th>Qty</th>
                     <th>Est. Exit Value</th><th>Est. Realized P&amp;L</th>
                     <th>Reason</th><th>Notes</th>
                   </tr>
                 </thead>
-                <tbody id="edp-tbody"></tbody>
+                <tbody id="prp-tbody"></tbody>
               </table>
             </div>
           </div>
-        </div><!-- end exit-decision-preview-card -->
+
+          <!-- Advanced preview layers (collapsed) -->
+          <details style="margin-top:12px;">
+            <summary style="font-size:9px;color:var(--label);cursor:pointer;user-select:none;padding:4px 0;">Advanced preview layers (Position Monitor / Exit Signal Preview / Exit Decision Preview)</summary>
+            <div style="margin-top:8px;">
+
+              <!-- Position Monitor: PREVIEW ONLY -->
+              <div class="card" id="position-monitor-card" style="margin-bottom:8px;">
+                <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  Position Monitor
+                  <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+                  <span class="safety-badge" style="background:#7d3c98;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+                  <span class="safety-badge" style="background:#1e8449;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO FILLS</span>
+                  <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
+                  <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW</span>
+                </div>
+                <div style="font-size:9px;color:var(--label);margin-bottom:8px;">
+                  Preview only - no signals, no decisions, no orders, no fills.
+                  V1 rules: REVIEW_FOR_EXIT if P&amp;L &le; -5%, WATCH if P&amp;L &le; -2% or weight &gt; 25%, HOLD otherwise.
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+                  <button class="btn" onclick="runPositionMonitorPreview(this)" style="background:var(--info,#1e90ff);color:#fff;font-weight:700;font-size:10px;padding:5px 14px;">Preview Position Monitor</button>
+                  <span id="pm-status" style="font-size:9px;color:var(--label);"></span>
+                </div>
+                <div id="pm-result" style="display:none;">
+                  <div id="pm-summary" style="font-size:9px;color:var(--label);margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.12);border-radius:2px;"></div>
+                  <div class="table-wrap scroll-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Ticker</th><th>Qty</th><th>Avg Cost</th><th>Latest Price</th>
+                          <th>Market Value</th><th>Unrealized P&amp;L</th><th>P&amp;L %</th>
+                          <th>Weight %</th><th>Days</th><th>Recommendation</th><th>Reason</th><th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody id="pm-tbody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div><!-- end position-monitor-card -->
+
+              <!-- Exit Signal Preview: PREVIEW ONLY -->
+              <div class="card" id="exit-signal-preview-card" style="margin-bottom:8px;">
+                <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  Exit Signal Preview
+                  <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+                  <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO EXIT SIGNALS</span>
+                  <span class="safety-badge" style="background:#7d3c98;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+                  <span class="safety-badge" style="background:#1e8449;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO FILLS</span>
+                  <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
+                  <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW</span>
+                </div>
+                <div style="font-size:9px;color:var(--label);margin-bottom:8px;">
+                  Preview only - no exit signals, no decisions, no orders, no fills.
+                  V1 rules: PREVIEW_EXIT (SELL full qty) if Position Monitor = REVIEW_FOR_EXIT, WATCH if WATCH, HOLD otherwise.
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+                  <button class="btn" onclick="runExitSignalPreview(this)" style="background:var(--warning,#e67e22);color:#fff;font-weight:700;font-size:10px;padding:5px 14px;">Preview Exit Signals</button>
+                  <span id="esp-status" style="font-size:9px;color:var(--label);"></span>
+                </div>
+                <div id="esp-result" style="display:none;">
+                  <div id="esp-summary" style="font-size:9px;color:var(--label);margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.12);border-radius:2px;"></div>
+                  <div class="table-wrap scroll-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Ticker</th><th>Qty</th><th>Avg Cost</th><th>Latest Price</th>
+                          <th>Unrealized P&amp;L</th><th>P&amp;L %</th>
+                          <th>Monitor Rec</th><th>Exit Action</th><th>Side</th><th>Suggested Qty</th>
+                          <th>Reason</th><th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody id="esp-tbody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div><!-- end exit-signal-preview-card -->
+
+              <!-- Exit Decision Preview: PREVIEW ONLY -->
+              <div class="card" id="exit-decision-preview-card">
+                <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  Exit Decision Preview
+                  <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+                  <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO DECISIONS</span>
+                  <span class="safety-badge" style="background:#7d3c98;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+                  <span class="safety-badge" style="background:#1e8449;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO FILLS</span>
+                  <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
+                  <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW</span>
+                </div>
+                <div style="font-size:9px;color:var(--label);margin-bottom:8px;">
+                  Preview only - no decisions, no orders, no fills.
+                  V1 rules: SELL (full qty) if Exit Signal = PREVIEW_EXIT, WATCH if WATCH, HOLD otherwise. No TradeDecision rows are created.
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+                  <button class="btn" onclick="runExitDecisionPreview(this)" style="background:var(--danger,#c0392b);color:#fff;font-weight:700;font-size:10px;padding:5px 14px;">Preview Exit Decisions</button>
+                  <span id="edp-status" style="font-size:9px;color:var(--label);"></span>
+                </div>
+                <div id="edp-result" style="display:none;">
+                  <div id="edp-summary" style="font-size:9px;color:var(--label);margin-bottom:6px;padding:4px 8px;background:rgba(0,0,0,.12);border-radius:2px;"></div>
+                  <div class="table-wrap scroll-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Ticker</th><th>Qty</th><th>Avg Cost</th><th>Latest Price</th>
+                          <th>Unrealized P&amp;L</th><th>P&amp;L %</th>
+                          <th>Exit Signal</th><th>Decision</th><th>Side</th><th>Decision Qty</th>
+                          <th>Est. Exit Value</th><th>Est. Realized P&amp;L</th>
+                          <th>Reason</th><th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody id="edp-tbody"></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div><!-- end exit-decision-preview-card -->
+
+            </div>
+          </details>
+        </div><!-- end position-review-card -->
 
       </div><!-- end tab-portfolio -->
 
@@ -3860,6 +3910,71 @@ async function runExitDecisionPreview(btn) {
   } catch (e) {
     if (statusEl) { statusEl.textContent = 'Error: ' + e.message; statusEl.style.color = 'var(--danger)'; }
     console.error('runExitDecisionPreview error:', e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ---------- position review preview ----------
+
+async function runPositionReviewPreview(btn) {
+  if (btn) btn.disabled = true;
+  const statusEl = document.getElementById('prp-status');
+  const resultEl = document.getElementById('prp-result');
+  const summaryEl = document.getElementById('prp-summary');
+  const tbody = document.getElementById('prp-tbody');
+  if (statusEl) { statusEl.textContent = 'Running...'; statusEl.style.color = 'var(--label)'; }
+  try {
+    const r = await call('POST', '/v1/review/position-review-preview', {});
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      if (statusEl) { statusEl.textContent = 'Error: ' + (err.detail || r.status); statusEl.style.color = 'var(--danger)'; }
+      return;
+    }
+    const data = await r.json();
+    if (statusEl) { statusEl.textContent = 'As of ' + new Date(data.as_of).toLocaleTimeString(); statusEl.style.color = 'var(--ok)'; }
+    if (summaryEl) {
+      summaryEl.textContent = (
+        data.open_position_count + ' position(s) - HOLD: ' + data.hold_count +
+        ' - WATCH: ' + data.watch_count + ' - REVIEW_FOR_EXIT: ' + data.review_for_exit_count +
+        ' | Est. Exit Value: ' + data.estimated_total_exit_value +
+        ' | Est. Realized P&L: ' + data.estimated_total_realized_pnl
+      );
+    }
+    if (tbody) {
+      tbody.innerHTML = (data.positions || []).map(function(p) {
+        var recColor = p.position_recommendation === 'REVIEW_FOR_EXIT' ? 'var(--danger)' :
+                       p.position_recommendation === 'WATCH' ? 'var(--warning)' : 'var(--ok)';
+        var pnlPct = p.unrealized_pnl_pct !== null ? parseFloat(p.unrealized_pnl_pct) : null;
+        var pnlColor = pnlPct === null ? 'var(--label)' : (pnlPct < 0 ? 'var(--danger)' : 'var(--ok)');
+        var estPnl = p.estimated_realized_pnl !== null ? parseFloat(p.estimated_realized_pnl) : null;
+        var estPnlColor = estPnl === null ? 'var(--label)' : (estPnl < 0 ? 'var(--danger)' : 'var(--ok)');
+        return '<tr>' +
+          '<td style="font-weight:600;">' + escapeHtml(p.ticker) + '</td>' +
+          '<td>' + escapeHtml(p.qty) + '</td>' +
+          '<td>' + escapeHtml(p.avg_cost) + '</td>' +
+          '<td>' + (p.latest_price !== null ? escapeHtml(p.latest_price) : '<span style="color:var(--label);">N/A</span>') + '</td>' +
+          '<td>' + (p.market_value !== null ? escapeHtml(p.market_value) : '-') + '</td>' +
+          '<td style="color:' + pnlColor + ';">' + (p.unrealized_pnl !== null ? escapeHtml(p.unrealized_pnl) : '-') + '</td>' +
+          '<td style="color:' + pnlColor + ';">' + (pnlPct !== null ? escapeHtml(p.unrealized_pnl_pct) + '%' : '-') + '</td>' +
+          '<td>' + (p.portfolio_weight_pct !== null ? escapeHtml(p.portfolio_weight_pct) + '%' : '-') + '</td>' +
+          '<td style="font-weight:700;color:' + recColor + ';">' + escapeHtml(p.position_recommendation) + '</td>' +
+          '<td style="font-size:9px;color:var(--label);">' + escapeHtml(p.exit_action) + '</td>' +
+          '<td style="font-size:9px;color:var(--label);">' + escapeHtml(p.decision_preview) + '</td>' +
+          '<td style="font-size:9px;color:var(--label);">' + escapeHtml(p.order_preview) + '</td>' +
+          '<td>' + escapeHtml(p.suggested_side) + '</td>' +
+          '<td>' + escapeHtml(p.suggested_qty) + '</td>' +
+          '<td>' + (p.estimated_exit_value !== null ? escapeHtml(p.estimated_exit_value) : '-') + '</td>' +
+          '<td style="color:' + estPnlColor + ';">' + (p.estimated_realized_pnl !== null ? escapeHtml(p.estimated_realized_pnl) : '-') + '</td>' +
+          '<td style="font-size:9px;color:var(--label);">' + escapeHtml((p.reason_codes || []).join(', ')) + '</td>' +
+          '<td style="font-size:9px;color:var(--label);">' + escapeHtml(p.explanation) + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+    if (resultEl) resultEl.style.display = '';
+  } catch (e) {
+    if (statusEl) { statusEl.textContent = 'Error: ' + e.message; statusEl.style.color = 'var(--danger)'; }
+    console.error('runPositionReviewPreview error:', e);
   } finally {
     if (btn) btn.disabled = false;
   }
