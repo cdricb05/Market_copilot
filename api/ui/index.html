@@ -2985,25 +2985,34 @@
       <div style="font-size: 9px; color: var(--label); font-style: italic;">No scheduled jobs running.</div>
     </div>
 
-    <div class="panel-section">
+    <div id="right-completed-summary" style="display: none; font-size: 10px; color: var(--ok); line-height: 1.5; padding: 8px 10px; background: rgba(34,197,94,.07); border-left: 3px solid rgba(34,197,94,.5); border-radius: 0 3px 3px 0; margin: 0 0 4px 0;">
+      <div style="font-weight: 700; margin-bottom: 3px;">Paper position open</div>
+      <div style="color: var(--label);">No pending paper orders</div>
+      <div style="color: var(--label);">Monitor Portfolio / Performance History</div>
+      <div style="color: var(--label);">Run a new Daily Process Preview when ready</div>
+    </div>
+
+    <div id="right-create-orders-section" class="panel-section">
       <div class="panel-section-title">Create Orders</div>
       <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 4px;">PAPER ORDERS ONLY</div>
       <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Creates PENDING order tickets. No broker. No fills. Automation off.</div>
-      <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
+      <div id="right-create-orders-status" style="display: none; font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;"></div>
+      <button id="right-create-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
     </div>
 
-    <div class="panel-section">
+    <div id="right-fill-orders-section" class="panel-section">
       <div class="panel-section-title">Fill Orders</div>
       <div style="font-size: 9px; color: var(--warning); font-weight: 600; margin-bottom: 4px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
       <div id="fill-orders-status" style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.</div>
-      <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
+      <button id="right-fill-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
     </div>
 
-    <div class="panel-section">
+    <div id="right-cancel-orders-section" class="panel-section">
       <div class="panel-section-title">Cancel Orders</div>
       <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 4px;">PAPER CANCEL ONLY &mdash; NO LIVE TRADES</div>
       <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Cancels PENDING paper orders in local DB only. No broker. No cash changes. No position changes. Automation off.</div>
-      <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
+      <div id="right-cancel-orders-status" style="display: none; font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;"></div>
+      <button id="right-cancel-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
     </div>
 
     <div class="panel-section">
@@ -9749,6 +9758,24 @@ function renderWorkflowStatus(data) {
     }
     if (dpCreateOrdersBtn) { dpCreateOrdersBtn.style.opacity = '0.45'; dpCreateOrdersBtn.title = 'No order-eligible decisions.'; }
     if (dpFillOrdersBtn) { dpFillOrdersBtn.style.opacity = '0.45'; dpFillOrdersBtn.title = 'No pending paper orders.'; }
+  }
+
+  // Right-side panel: de-emphasize Create/Fill/Cancel sections in completed state
+  const rightCompletedSummary = document.getElementById('right-completed-summary');
+  const rightCreateOrdersStatus = document.getElementById('right-create-orders-status');
+  const rightCancelOrdersStatus = document.getElementById('right-cancel-orders-status');
+  const rightCreateOrdersBtn = document.getElementById('right-create-orders-btn');
+  const rightFillOrdersBtn = document.getElementById('right-fill-orders-btn');
+  const rightCancelOrdersBtn = document.getElementById('right-cancel-orders-btn');
+  if (completedState) {
+    if (rightCompletedSummary) rightCompletedSummary.style.display = '';
+    if (rightCreateOrdersStatus) { rightCreateOrdersStatus.style.display = ''; rightCreateOrdersStatus.textContent = 'No order-eligible decisions.'; }
+    if (rightCancelOrdersStatus) { rightCancelOrdersStatus.style.display = ''; rightCancelOrdersStatus.textContent = 'No pending paper orders to cancel.'; }
+    if (rightCreateOrdersBtn) { rightCreateOrdersBtn.style.opacity = '0.45'; rightCreateOrdersBtn.title = 'No order-eligible decisions.'; }
+    if (rightFillOrdersBtn) { rightFillOrdersBtn.style.opacity = '0.45'; rightFillOrdersBtn.title = 'No pending paper orders.'; }
+    if (rightCancelOrdersBtn) { rightCancelOrdersBtn.style.opacity = '0.45'; rightCancelOrdersBtn.title = 'No pending paper orders to cancel.'; }
+    const fillStatus = document.getElementById('fill-orders-status');
+    if (fillStatus) fillStatus.textContent = 'No pending paper orders.';
   }
 }
 

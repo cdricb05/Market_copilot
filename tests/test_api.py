@@ -22913,6 +22913,18 @@ class TestUiStaticContent:
         html = self._read_html()
         assert "Signal consumed" in html
 
+    def test_no_order_eligible_decisions_message_present(self) -> None:
+        html = self._read_html()
+        assert "No order-eligible decisions" in html
+
+    def test_no_pending_paper_orders_to_cancel_message_present(self) -> None:
+        html = self._read_html()
+        assert "No pending paper orders to cancel" in html
+
+    def test_monitor_portfolio_performance_history_message_present(self) -> None:
+        html = self._read_html()
+        assert "Monitor Portfolio / Performance History" in html
+
 
 # ===========================================================================
 # TestPredictionHealthEndpoint
