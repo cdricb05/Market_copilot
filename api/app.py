@@ -38,6 +38,7 @@ Endpoints:
     POST /v1/market/backfill-history   — backfill historical prices for S&P 500 + SPY benchmark (writes price_snapshots + benchmark_prices only)
     GET  /v1/market/screening-readiness — read-only screening readiness check (no writes)
     POST /v1/review/position-monitor-preview — preview exit recommendations for open positions (PREVIEW ONLY, read-only)
+    POST /v1/review/exit-signal-preview — preview exit intent per open position (PREVIEW ONLY, read-only, no signals/orders)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -1520,6 +1521,37 @@ class PositionMonitorPreviewResponse(BaseModel):
     positions: list[PositionMonitorItem]
     preview_only: bool = True
     writes_performed: bool = False
+
+
+class ExitSignalPreviewItem(BaseModel):
+    """Single position result from exit signal preview (PREVIEW ONLY, no DB writes)."""
+    ticker: str
+    qty: str
+    avg_cost: str
+    latest_price: str | None
+    unrealized_pnl: str | None
+    unrealized_pnl_pct: str | None
+    monitor_recommendation: str
+    preview_exit_action: str
+    suggested_side: str
+    suggested_qty: str
+    reason_codes: list[str]
+    explanation: str
+
+
+class ExitSignalPreviewResponse(BaseModel):
+    """Response from exit signal preview endpoint (PREVIEW ONLY, no DB writes)."""
+    as_of: datetime
+    open_position_count: int
+    preview_exit_count: int
+    watch_count: int
+    hold_count: int
+    positions: list[ExitSignalPreviewItem]
+    preview_only: bool = True
+    writes_performed: bool = False
+    no_orders_created: bool = True
+    no_fills_created: bool = True
+    no_broker_execution: bool = True
 
 
 class WeakestPositionDetail(BaseModel):
@@ -13123,6 +13155,153 @@ def position_monitor_preview() -> PositionMonitorPreviewResponse:
             positions=items,
             preview_only=True,
             writes_performed=False,
+        )
+
+
+@app.post(
+    "/v1/review/exit-signal-preview",
+    response_model=ExitSignalPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def exit_signal_preview() -> ExitSignalPreviewResponse:
+    """
+    Preview exit intent for all open positions (PREVIEW ONLY, no DB writes).
+
+    Maps position monitor recommendations to exit actions:
+        REVIEW_FOR_EXIT -> PREVIEW_EXIT / SELL / full qty
+        WATCH           -> WATCH / NONE / 0
+        HOLD            -> HOLD / NONE / 0
+        Missing price   -> WATCH / NONE / 0
+
+    This endpoint never creates signals, decisions, orders, fills, or positions.
+    """
+    now = datetime.now(tz=timezone.utc)
+
+    with get_session() as session:
+        positions = session.execute(
+            select(Position).order_by(Position.opened_at)
+        ).scalars().all()
+
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        cached_total_value: Decimal | None = None
+        if portfolio is not None and portfolio.cached_total_value:
+            cached_total_value = Decimal(str(portfolio.cached_total_value))
+
+        items: list[ExitSignalPreviewItem] = []
+        preview_exit_count = 0
+        watch_count = 0
+        hold_count = 0
+
+        for pos in positions:
+            qty = Decimal(str(pos.qty))
+            cost_basis = Decimal(str(pos.cost_basis))
+            latest_price = _latest_price(session, pos.ticker)
+
+            if latest_price is None:
+                items.append(ExitSignalPreviewItem(
+                    ticker=pos.ticker,
+                    qty=str(qty),
+                    avg_cost=str(pos.avg_cost),
+                    latest_price=None,
+                    unrealized_pnl=None,
+                    unrealized_pnl_pct=None,
+                    monitor_recommendation="WATCH",
+                    preview_exit_action="WATCH",
+                    suggested_side="NONE",
+                    suggested_qty="0",
+                    reason_codes=["PRICE_MISSING"],
+                    explanation="Latest price unavailable; position cannot be fully evaluated.",
+                ))
+                watch_count += 1
+                continue
+
+            market_value = qty * latest_price
+            unrealized_pnl = market_value - cost_basis
+            unrealized_pnl_pct = (
+                unrealized_pnl / cost_basis * Decimal("100")
+                if cost_basis != Decimal("0")
+                else Decimal("0")
+            )
+
+            portfolio_weight_pct: Decimal | None = None
+            if cached_total_value is not None and cached_total_value > Decimal("0"):
+                portfolio_weight_pct = market_value / cached_total_value * Decimal("100")
+
+            upnl_pct_float = float(unrealized_pnl_pct)
+            weight_pct_float = (
+                float(portfolio_weight_pct) if portfolio_weight_pct is not None else 0.0
+            )
+
+            if upnl_pct_float <= -5.0:
+                monitor_recommendation = "REVIEW_FOR_EXIT"
+                preview_exit_action = "PREVIEW_EXIT"
+                suggested_side = "SELL"
+                suggested_qty = str(qty)
+                reason_codes: list[str] = ["STOP_LOSS_REVIEW"]
+                explanation = (
+                    f"Unrealized P&L of {upnl_pct_float:.1f}% is below the stop-loss "
+                    f"review threshold (-5.0%). Preview exit: SELL {qty} shares."
+                )
+                preview_exit_count += 1
+            elif upnl_pct_float <= -2.0:
+                monitor_recommendation = "WATCH"
+                preview_exit_action = "WATCH"
+                suggested_side = "NONE"
+                suggested_qty = "0"
+                reason_codes = ["WATCH_LOSS_THRESHOLD"]
+                explanation = (
+                    f"Unrealized P&L of {upnl_pct_float:.1f}% is in the watch range "
+                    f"(-2.0% to -5.0%). Monitor closely."
+                )
+                watch_count += 1
+            elif portfolio_weight_pct is not None and weight_pct_float > 25.0:
+                monitor_recommendation = "WATCH"
+                preview_exit_action = "WATCH"
+                suggested_side = "NONE"
+                suggested_qty = "0"
+                reason_codes = ["HIGH_CONCENTRATION"]
+                explanation = (
+                    f"Portfolio weight of {weight_pct_float:.1f}% exceeds the "
+                    f"concentration threshold (25.0%). Consider position sizing."
+                )
+                watch_count += 1
+            else:
+                monitor_recommendation = "HOLD"
+                preview_exit_action = "HOLD"
+                suggested_side = "NONE"
+                suggested_qty = "0"
+                reason_codes = ["HEALTHY_POSITION"]
+                explanation = "Position is within healthy parameters. No exit action required."
+                hold_count += 1
+
+            items.append(ExitSignalPreviewItem(
+                ticker=pos.ticker,
+                qty=str(qty),
+                avg_cost=str(pos.avg_cost),
+                latest_price=str(latest_price),
+                unrealized_pnl=str(unrealized_pnl.quantize(Decimal("0.01"))),
+                unrealized_pnl_pct=str(unrealized_pnl_pct.quantize(Decimal("0.01"))),
+                monitor_recommendation=monitor_recommendation,
+                preview_exit_action=preview_exit_action,
+                suggested_side=suggested_side,
+                suggested_qty=suggested_qty,
+                reason_codes=reason_codes,
+                explanation=explanation,
+            ))
+
+        return ExitSignalPreviewResponse(
+            as_of=now,
+            open_position_count=len(positions),
+            preview_exit_count=preview_exit_count,
+            watch_count=watch_count,
+            hold_count=hold_count,
+            positions=items,
+            preview_only=True,
+            writes_performed=False,
+            no_orders_created=True,
+            no_fills_created=True,
+            no_broker_execution=True,
         )
 
 

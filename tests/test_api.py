@@ -22978,6 +22978,158 @@ class TestPositionMonitorPreviewEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# TestExitSignalPreviewEndpoint
+# ---------------------------------------------------------------------------
+
+class TestExitSignalPreviewEndpoint:
+    """POST /v1/review/exit-signal-preview — PREVIEW ONLY, no DB writes."""
+
+    def test_auth_required(self, client: TestClient) -> None:
+        """Endpoint requires X-API-Key header."""
+        resp = client.post("/v1/review/exit-signal-preview", json={})
+        assert resp.status_code == 401
+
+    def test_read_only_no_writes(self, seeded_client: TestClient, api_engine) -> None:
+        """POST must not create any new DB rows (JobRun, Signal, TradeDecision, Order, Position, PortfolioSnapshot)."""
+        def _count(model_class):
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                return s.query(model_class).count()
+
+        before = {
+            "job_run": _count(JobRun),
+            "signal": _count(Signal),
+            "trade_decision": _count(TradeDecision),
+            "order": _count(Order),
+            "position": _count(Position),
+            "portfolio_snapshot": _count(PortfolioSnapshot),
+        }
+
+        resp = seeded_client.post("/v1/review/exit-signal-preview", json={}, headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["preview_only"] is True
+        assert data["writes_performed"] is False
+        assert data["no_orders_created"] is True
+        assert data["no_fills_created"] is True
+        assert data["no_broker_execution"] is True
+
+        after = {
+            "job_run": _count(JobRun),
+            "signal": _count(Signal),
+            "trade_decision": _count(TradeDecision),
+            "order": _count(Order),
+            "position": _count(Position),
+            "portfolio_snapshot": _count(PortfolioSnapshot),
+        }
+        for key in before:
+            assert before[key] == after[key], f"Row count for {key} changed after preview"
+
+    def test_review_for_exit_maps_to_preview_exit_sell(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Position with REVIEW_FOR_EXIT recommendation maps to PREVIEW_EXIT/SELL/full qty."""
+        pos_id = None
+        price_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                pos = Position(
+                    ticker="ESPTST",
+                    qty=Decimal("10"),
+                    avg_cost=Decimal("100.000000"),
+                    cost_basis=Decimal("1000.00"),
+                    opened_at=datetime.now(tz=timezone.utc),
+                    last_updated=datetime.now(tz=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+
+                price = PriceSnapshot(
+                    ticker="ESPTST",
+                    price=Decimal("88.000000"),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=datetime.now(tz=timezone.utc),
+                    market_date=datetime.now(tz=timezone.utc).date(),
+                    job_run_id=None,
+                )
+                session.add(price)
+                session.flush()
+                price_id = price.id
+                session.commit()
+
+            resp = seeded_client.post("/v1/review/exit-signal-preview", json={}, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+
+            pos_data = next((p for p in data["positions"] if p["ticker"] == "ESPTST"), None)
+            assert pos_data is not None, "ESPTST not found in positions"
+            assert pos_data["monitor_recommendation"] == "REVIEW_FOR_EXIT"
+            assert pos_data["preview_exit_action"] == "PREVIEW_EXIT"
+            assert pos_data["suggested_side"] == "SELL"
+            assert Decimal(pos_data["suggested_qty"]) == Decimal("10")
+            assert data["preview_exit_count"] >= 1
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id:
+                    session.query(Position).filter(Position.id == pos_id).delete(synchronize_session=False)
+                if price_id:
+                    session.query(PriceSnapshot).filter(PriceSnapshot.id == price_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_hold_watch_positions_do_not_suggest_sell(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """HOLD position has suggested_side=NONE and suggested_qty=0."""
+        pos_id = None
+        price_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                pos = Position(
+                    ticker="ESPHOLD",
+                    qty=Decimal("8"),
+                    avg_cost=Decimal("100.000000"),
+                    cost_basis=Decimal("800.00"),
+                    opened_at=datetime.now(tz=timezone.utc),
+                    last_updated=datetime.now(tz=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+
+                price = PriceSnapshot(
+                    ticker="ESPHOLD",
+                    price=Decimal("105.000000"),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=datetime.now(tz=timezone.utc),
+                    market_date=datetime.now(tz=timezone.utc).date(),
+                    job_run_id=None,
+                )
+                session.add(price)
+                session.flush()
+                price_id = price.id
+                session.commit()
+
+            resp = seeded_client.post("/v1/review/exit-signal-preview", json={}, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+
+            pos_data = next((p for p in data["positions"] if p["ticker"] == "ESPHOLD"), None)
+            assert pos_data is not None, "ESPHOLD not found in positions"
+            assert pos_data["preview_exit_action"] == "HOLD"
+            assert pos_data["suggested_side"] == "NONE"
+            assert pos_data["suggested_qty"] == "0"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id:
+                    session.query(Position).filter(Position.id == pos_id).delete(synchronize_session=False)
+                if price_id:
+                    session.query(PriceSnapshot).filter(PriceSnapshot.id == price_id).delete(synchronize_session=False)
+                session.commit()
+
+
+# ---------------------------------------------------------------------------
 # Static UI content assertions — reads index.html directly (no HTTP needed)
 # ---------------------------------------------------------------------------
 
@@ -23136,6 +23288,32 @@ class TestUiStaticContent:
         pm_start = html.find('id="position-monitor-card"')
         assert pm_start >= 0, "position-monitor-card not found"
         card_section = html[pm_start:pm_start + 2000]
+        assert "NO BROKER EXECUTION" in card_section
+
+    def test_exit_signal_preview_heading_present(self) -> None:
+        html = self._read_html()
+        assert "Exit Signal Preview" in html
+
+    def test_preview_exit_signals_button_present(self) -> None:
+        html = self._read_html()
+        assert "Preview Exit Signals" in html
+
+    def test_exit_signal_preview_only_text_present(self) -> None:
+        html = self._read_html()
+        assert "Preview only - no exit signals, no decisions, no orders, no fills" in html
+
+    def test_exit_signal_no_exit_signals_badge_present(self) -> None:
+        html = self._read_html()
+        esp_start = html.find('id="exit-signal-preview-card"')
+        assert esp_start >= 0, "exit-signal-preview-card not found"
+        card_section = html[esp_start:esp_start + 2000]
+        assert "NO EXIT SIGNALS" in card_section
+
+    def test_exit_signal_no_broker_execution_badge_present(self) -> None:
+        html = self._read_html()
+        esp_start = html.find('id="exit-signal-preview-card"')
+        assert esp_start >= 0, "exit-signal-preview-card not found"
+        card_section = html[esp_start:esp_start + 2000]
         assert "NO BROKER EXECUTION" in card_section
 
 
