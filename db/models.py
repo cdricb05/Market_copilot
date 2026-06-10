@@ -1196,6 +1196,18 @@ class CandidateReview(Base):
         comment="NEW | WATCHING | REJECTED | APPROVED_FOR_SIGNAL. User-editable review state.",
     )
 
+    # --- Review rationale (UI-editable) ---
+    review_reason_code: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Reason code for review action, e.g. STRONG_MODEL_SIGNAL.",
+    )
+    review_note: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Optional free-text review note. Not used for trading.",
+    )
+
     # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
