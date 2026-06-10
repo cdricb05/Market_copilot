@@ -2993,7 +2993,7 @@
     <div class="panel-section">
       <div class="panel-section-title">Fill Orders</div>
       <div style="font-size: 9px; color: var(--warning); font-weight: 600; margin-bottom: 4px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
-      <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.</div>
+      <div id="fill-orders-status" style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.</div>
       <button class="btn-sm" style="width: 100%; font-size: 9px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
     </div>
 
@@ -3451,6 +3451,7 @@ const _appState = {
   connected: false,
   portfolioSeeded: null,
   pendingOrders: null,
+  filledOrders: null,
   hasPositions: false,
   hasHistory: false,
 };
@@ -4146,8 +4147,10 @@ async function loadOrders() {
   countEl.textContent = `(${rows.length})`;
   if (!status && !date) {
     _appState.pendingOrders = rows.filter(o => o.status === 'PENDING').length;
+    _appState.filledOrders = rows.filter(o => o.status === 'FILLED').length;
   } else {
     _appState.pendingOrders = null;
+    _appState.filledOrders = null;
   }
   if (!rows.length) {
     const hasFilter = status || date;
@@ -4497,9 +4500,28 @@ function updateWorkbench() {
   // Update right panel "Next Step" based on current state
   const _rnStep = document.getElementById('right-next-step');
   const _rnDetail = document.getElementById('right-next-step-detail');
-  if (_rnStep && !window._lastPredictionPreviewData) {
-    _rnStep.textContent = 'Generate Candidate Preview';
-    if (_rnDetail) _rnDetail.textContent = 'Run "Generate Candidate Preview" in the Prediction Cockpit to start.';
+  if (_rnStep) {
+    if (_appState.filledOrders > 0 && _appState.hasPositions && _appState.pendingOrders === 0) {
+      _rnStep.textContent = 'Paper position open — monitor portfolio';
+      if (_rnDetail) _rnDetail.textContent = 'A paper order has been filled and an open position exists. Review Portfolio and Performance History, or start a new Daily Process Preview when ready.';
+    } else if (!window._lastPredictionPreviewData) {
+      _rnStep.textContent = 'Generate Candidate Preview';
+      if (_rnDetail) _rnDetail.textContent = 'Run "Generate Candidate Preview" in the Prediction Cockpit to start.';
+    }
+  }
+  // Update Fill Orders status in right panel
+  const _fillStatus = document.getElementById('fill-orders-status');
+  if (_fillStatus) {
+    if (_appState.pendingOrders === 0) {
+      _fillStatus.textContent = 'No pending paper orders.';
+      _fillStatus.style.color = 'var(--label)';
+    } else if (_appState.pendingOrders > 0) {
+      _fillStatus.textContent = _appState.pendingOrders + ' pending paper order(s) ready to fill.';
+      _fillStatus.style.color = 'var(--warning)';
+    } else {
+      _fillStatus.textContent = 'Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.';
+      _fillStatus.style.color = 'var(--label)';
+    }
   }
   updateKpi();
 }
@@ -9678,8 +9700,11 @@ function renderWorkflowStatus(data) {
   if (dpOaHasDecisions) dpOaHasDecisions.style.display = eligibleDecCount > 0 ? '' : 'none';
 
   // Update primary recommendation based on current workflow state
+  const filledCount = (o && o.filled) || 0;
   const dpPrimRec = document.getElementById('dp-primary-recommendation');
-  if (dpPrimRec && eligibleDecCount > 0 && ordCount === 0) {
+  if (dpPrimRec && filledCount > 0 && eligibleDecCount === 0) {
+    dpPrimRec.textContent = 'Paper workflow complete — ' + filledCount + ' paper order(s) filled. Monitor portfolio or start a new daily scan.';
+  } else if (dpPrimRec && eligibleDecCount > 0 && ordCount === 0) {
     dpPrimRec.textContent = 'Preview Paper Orders — ' + eligibleDecCount + ' eligible trade decision(s) ready. No orders created yet.';
   } else if (dpPrimRec && eligibleDecCount === 0 && ordCount > 0) {
     dpPrimRec.textContent = ordCount + ' paper order(s) on record. Review positions and order status in the Portfolio tab.';

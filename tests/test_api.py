@@ -13694,6 +13694,163 @@ class TestReviewWorkflowStatusEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Completed lifecycle workflow status
+# ---------------------------------------------------------------------------
+
+class TestCompletedLifecycleWorkflowStatus:
+    """GET /v1/review/workflow-status — completed paper lifecycle exposes pending/filled counts and correct step statuses."""
+
+    _REVIEW_SOURCE_PREFIX = "review_queue_create_signals_v1:"
+
+    def test_response_includes_order_pending_and_filled_fields(self, seeded_client: TestClient) -> None:
+        """orders section must include 'pending' and 'filled' integer fields."""
+        resp = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "pending" in data["orders"]
+        assert "filled" in data["orders"]
+        assert isinstance(data["orders"]["pending"], int)
+        assert isinstance(data["orders"]["filled"], int)
+        assert data["orders"]["pending"] >= 0
+        assert data["orders"]["filled"] >= 0
+
+    def test_response_includes_open_positions_field(self, seeded_client: TestClient) -> None:
+        """Response must include 'open_positions' integer field >= 0."""
+        resp = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "open_positions" in data
+        assert isinstance(data["open_positions"], int)
+        assert data["open_positions"] >= 0
+
+    def test_filled_order_and_position_show_complete_steps(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """With a filled review-created order and open position, Order Preview and Create Orders steps reflect correct status."""
+        _TICKER = "WFTSTST"
+
+        resp_before = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert resp_before.status_code == 200
+        data_before = resp_before.json()
+        baseline_filled = data_before["orders"]["filled"]
+        baseline_positions = data_before["open_positions"]
+        baseline_eligible = data_before["review_created_trade_decisions"]["order_eligible"]
+        baseline_has_order = data_before["review_created_trade_decisions"]["already_has_order"]
+
+        jr_id = signal_id = td_id = order_id = None
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            # Clean up any stale position for this ticker
+            session.query(Position).filter(Position.ticker == _TICKER).delete(synchronize_session=False)
+            session.flush()
+
+            jr = JobRun(
+                idempotency_key="lifecycle-wf-status-test-01",
+                workflow_type=WorkflowType.PRE_MARKET,
+                market_date=date.today(),
+                status=JobRunStatus.COMPLETED,
+            )
+            session.add(jr)
+            session.flush()
+            jr_id = jr.id
+
+            signal = Signal(
+                job_run_id=jr.id,
+                ticker=_TICKER,
+                direction="BUY",
+                confidence=Decimal("0.80"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=self._REVIEW_SOURCE_PREFIX + "lifecycle-test-01",
+                status="DECISION_MADE",
+            )
+            session.add(signal)
+            session.flush()
+            signal_id = signal.id
+
+            td = TradeDecision(
+                signal_id=signal.id,
+                job_run_id=jr.id,
+                ticker=_TICKER,
+                signal_direction="BUY",
+                decision="BUY",
+                reason_code="POSITIVE_SIGNAL",
+                approved_qty=Decimal("10.00"),
+                approved_notional=Decimal("1000.00"),
+                market_date=date.today(),
+            )
+            session.add(td)
+            session.flush()
+            td_id = td.id
+
+            order = Order(
+                trade_decision_id=td.id,
+                job_run_id=jr.id,
+                ticker=_TICKER,
+                side="BUY",
+                status="FILLED",
+                market_date=date.today(),
+                requested_qty=Decimal("10.00"),
+                filled_qty=Decimal("10.00"),
+                fill_price=Decimal("100.000000"),
+                requested_at=datetime.now(timezone.utc),
+                filled_at=datetime.now(timezone.utc),
+            )
+            session.add(order)
+            session.flush()
+            order_id = order.id
+
+            now_ts = datetime.now(timezone.utc)
+            position = Position(
+                ticker=_TICKER,
+                qty=Decimal("10.00000000"),
+                avg_cost=Decimal("100.000000"),
+                cost_basis=Decimal("1000.00"),
+                opened_at=now_ts,
+                last_updated=now_ts,
+            )
+            session.add(position)
+            session.commit()
+
+        try:
+            resp = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+
+            assert data["orders"]["filled"] >= baseline_filled + 1, "filled order count must increase"
+            assert data["open_positions"] >= baseline_positions + 1, "open_positions must increase"
+
+            # Our seeded decision has an order, so already_has_order increases and order_eligible stays unchanged
+            assert data["review_created_trade_decisions"]["already_has_order"] >= baseline_has_order + 1
+            assert data["review_created_trade_decisions"]["order_eligible"] == baseline_eligible
+
+            steps_by_name = {s["step"]: s for s in data["workflow_steps"]}
+            # If no other eligible decisions exist, steps are COMPLETE; otherwise READY — both are non-BLOCKED
+            assert steps_by_name["Order Preview"]["status"] in ("COMPLETE", "READY")
+            assert steps_by_name["Create Orders"]["status"] in ("COMPLETE", "READY")
+            # When baseline had no eligible decisions, the steps must now be COMPLETE
+            if baseline_eligible == 0:
+                assert steps_by_name["Order Preview"]["status"] == "COMPLETE"
+                assert steps_by_name["Create Orders"]["status"] == "COMPLETE"
+            # The old misleading reason must never appear
+            for step in data["workflow_steps"]:
+                assert "Complete Order Preview first" not in step["reason"]
+
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if order_id:
+                    session.query(Order).filter(Order.id == order_id).delete(synchronize_session=False)
+                if td_id:
+                    session.query(TradeDecision).filter(TradeDecision.id == td_id).delete(synchronize_session=False)
+                if signal_id:
+                    session.query(Signal).filter(Signal.id == signal_id).delete(synchronize_session=False)
+                session.query(Position).filter(Position.ticker == _TICKER).delete(synchronize_session=False)
+                if jr_id:
+                    session.query(JobRun).filter(JobRun.id == jr_id).delete(synchronize_session=False)
+                session.commit()
+
+
+# ---------------------------------------------------------------------------
 # Rotation Preview endpoint
 # ---------------------------------------------------------------------------
 
@@ -22731,6 +22888,18 @@ class TestUiStaticContent:
     def test_no_live_trades_badge_present(self) -> None:
         html = self._read_html()
         assert "NO LIVE TRADES" in html
+
+    def test_paper_position_open_message_present(self) -> None:
+        html = self._read_html()
+        assert "Paper position open" in html
+
+    def test_no_pending_paper_orders_message_present(self) -> None:
+        html = self._read_html()
+        assert "No pending paper orders" in html
+
+    def test_monitor_portfolio_message_present(self) -> None:
+        html = self._read_html()
+        assert "monitor portfolio" in html
 
 
 # ===========================================================================

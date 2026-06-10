@@ -1465,6 +1465,8 @@ class OrdersCounts(BaseModel):
     """Count of orders."""
     total: int
     review_created: int
+    pending: int = 0
+    filled: int = 0
 
 
 class WorkflowStepStatus(BaseModel):
@@ -1482,6 +1484,7 @@ class WorkflowStatusResponse(BaseModel):
     orders: OrdersCounts
     workflow_steps: list[WorkflowStepStatus]
     safety: dict[str, bool]
+    open_positions: int = 0
 
 
 class WeakestPositionDetail(BaseModel):
@@ -7469,9 +7472,27 @@ async def get_workflow_status() -> WorkflowStatusResponse:
             Signal.source_run.startswith(REVIEW_SOURCE_PREFIX)
         ).count()
 
+        review_pending_orders = session.query(Order).join(
+            TradeDecision, TradeDecision.id == Order.trade_decision_id
+        ).join(Signal, Signal.id == TradeDecision.signal_id).filter(
+            Signal.source_run.startswith(REVIEW_SOURCE_PREFIX),
+            Order.status == "PENDING",
+        ).count()
+
+        review_filled_orders = session.query(Order).join(
+            TradeDecision, TradeDecision.id == Order.trade_decision_id
+        ).join(Signal, Signal.id == TradeDecision.signal_id).filter(
+            Signal.source_run.startswith(REVIEW_SOURCE_PREFIX),
+            Order.status == "FILLED",
+        ).count()
+
+        open_positions_count = session.query(Position).count()
+
         orders_counts = OrdersCounts(
             total=order_total,
             review_created=review_created_orders,
+            pending=review_pending_orders,
+            filled=review_filled_orders,
         )
 
         # Evaluate workflow steps
@@ -7579,32 +7600,44 @@ async def get_workflow_status() -> WorkflowStatusResponse:
                 reason=f"{decision_buy + decision_sell} approved decision(s) available.",
             ))
 
-        # Step 8: Order Preview (blocked if no order-eligible decisions)
-        if order_eligible == 0:
-            steps.append(WorkflowStepStatus(
-                step="Order Preview",
-                status="BLOCKED",
-                reason="No review-created trade decisions eligible for orders.",
-            ))
-        else:
+        # Step 8: Order Preview
+        if order_eligible > 0:
             steps.append(WorkflowStepStatus(
                 step="Order Preview",
                 status="READY",
                 reason=f"{order_eligible} trade decision(s) eligible for order preview.",
             ))
-
-        # Step 9: Create Orders (paper tickets only, no broker execution)
-        if order_eligible == 0:
+        elif already_has_order > 0:
             steps.append(WorkflowStepStatus(
-                step="Create Orders",
-                status="BLOCKED",
-                reason="No order-eligible trade decisions. Complete Order Preview first.",
+                step="Order Preview",
+                status="COMPLETE",
+                reason=f"Orders created for all {already_has_order} eligible decision(s).",
             ))
         else:
+            steps.append(WorkflowStepStatus(
+                step="Order Preview",
+                status="BLOCKED",
+                reason="No review-created trade decisions eligible for orders.",
+            ))
+
+        # Step 9: Create Orders (paper tickets only, no broker execution)
+        if order_eligible > 0:
             steps.append(WorkflowStepStatus(
                 step="Create Orders",
                 status="READY",
                 reason=f"{order_eligible} trade decision(s) eligible for paper order creation.",
+            ))
+        elif already_has_order > 0:
+            steps.append(WorkflowStepStatus(
+                step="Create Orders",
+                status="COMPLETE",
+                reason=f"Paper order ticket(s) already created for all {already_has_order} eligible decision(s).",
+            ))
+        else:
+            steps.append(WorkflowStepStatus(
+                step="Create Orders",
+                status="BLOCKED",
+                reason="No order-eligible trade decisions.",
             ))
 
     return WorkflowStatusResponse(
@@ -7614,6 +7647,7 @@ async def get_workflow_status() -> WorkflowStatusResponse:
         orders=orders_counts,
         workflow_steps=steps,
         safety={"create_orders_enabled": True, "automation_enabled": False},
+        open_positions=open_positions_count,
     )
 
 
