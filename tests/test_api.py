@@ -24204,6 +24204,18 @@ class TestUiStaticContent:
         card_section = html[drs_start:drs_start + 2000]
         assert "NO FILLS" in card_section
 
+    def test_next_action_neutral_message_present(self) -> None:
+        assert "Generate Daily Review Summary for recommended next action" in self._read_html()
+
+    def test_next_action_review_new_candidates_label_present(self) -> None:
+        assert "Review new-entry candidates" in self._read_html()
+
+    def test_next_action_monitor_portfolio_label_present(self) -> None:
+        assert "Monitor portfolio" in self._read_html()
+
+    def test_next_action_review_pending_orders_label_present(self) -> None:
+        assert "Review pending paper orders" in self._read_html()
+
 
 # ===========================================================================
 # TestPredictionHealthEndpoint

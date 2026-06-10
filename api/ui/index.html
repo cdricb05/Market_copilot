@@ -3122,7 +3122,7 @@
     </div>
     <div class="panel-section" style="border-color: var(--info);">
       <div class="panel-section-title" style="color: var(--info);">Next Step</div>
-      <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px;" id="right-next-step">-</div>
+      <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px;" id="right-next-step">Generate Daily Review Summary for recommended next action.</div>
       <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4;" id="right-next-step-detail"></div>
     </div>
     <div class="panel-section">
@@ -4334,12 +4334,19 @@ window.paperTraderPostAuthLoad = async function paperTraderPostAuthLoad() {
       console.error('Market dashboard load error:', e);
     }
 
+    try {
+      await generateDailyReviewSummary(null);
+    } catch (e) {
+      failedLoaders.push('daily-review-summary');
+      console.error('Daily Review Summary load error:', e);
+    }
+
     // Update status based on results
     if (actionStatusEl) {
       if (failedLoaders.length === 0) {
         actionStatusEl.textContent = 'Success: dashboard loaded';
         actionStatusEl.style.color = 'var(--ok)';
-      } else if (failedLoaders.length < 9) {
+      } else if (failedLoaders.length < 10) {
         actionStatusEl.textContent = `Partial dashboard load: ${failedLoaders.join(', ')} failed`;
         actionStatusEl.style.color = 'var(--text-accent)';
       } else {
@@ -4950,16 +4957,16 @@ function updateWorkbench() {
   } else {
     document.getElementById('actionPanel').style.display = 'none';
   }
-  // Update right panel "Next Step" based on current state
+  // Update right panel "Next Step" from Daily Review Summary (authoritative) or neutral fallback
   const _rnStep = document.getElementById('right-next-step');
   const _rnDetail = document.getElementById('right-next-step-detail');
   if (_rnStep) {
-    if (_appState.filledOrders > 0 && _appState.hasPositions && _appState.pendingOrders === 0) {
-      _rnStep.textContent = 'Paper position open — monitor portfolio';
-      if (_rnDetail) _rnDetail.textContent = 'A paper order has been filled and an open position exists. Review Portfolio and Performance History, or start a new Daily Process Preview when ready.';
-    } else if (!window._lastPredictionPreviewData) {
-      _rnStep.textContent = 'Generate Candidate Preview';
-      if (_rnDetail) _rnDetail.textContent = 'Run "Generate Candidate Preview" in the Prediction Cockpit to start.';
+    if (window._lastDailyReviewSummary) {
+      _rnStep.textContent = window._lastDailyReviewSummary.next_action_label || 'Monitor portfolio';
+      if (_rnDetail) _rnDetail.textContent = window._lastDailyReviewSummary.next_action_detail || '';
+    } else {
+      _rnStep.textContent = 'Generate Daily Review Summary for recommended next action.';
+      if (_rnDetail) _rnDetail.textContent = '';
     }
   }
   // Update Fill Orders status in right panel
@@ -10123,6 +10130,8 @@ async function generateDailyReviewSummary(btn) {
     const r = await call('GET', '/v1/review/daily-review-summary');
     if (!r.ok) { toast('Daily Review Summary error: ' + r.status, 'error'); return; }
     const d = await r.json();
+    window._lastDailyReviewSummary = d;
+    _syncDrsToUi(d);
     let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px; margin-bottom: 7px;">';
 
     // Portfolio
@@ -10177,7 +10186,7 @@ async function generateDailyReviewSummary(btn) {
 
     el.innerHTML = html;
     el.style.display = 'block';
-    toast('Daily Review Summary generated', 'ok');
+    if (btn) toast('Daily Review Summary generated', 'ok');
   } catch (e) {
     toast('Daily Review Summary error: ' + e.message, 'error');
   } finally {
@@ -10187,6 +10196,31 @@ async function generateDailyReviewSummary(btn) {
 
 // Global storage for workflow status data
 window._workflowStatusData = null;
+window._lastDailyReviewSummary = null;
+
+// Next-action code to canonical label map (used by _syncDrsToUi and UI static tests)
+const _DRS_ACTION_LABELS = {
+  'REVIEW_PENDING_ORDERS': 'Review pending paper orders',
+  'REVIEW_POSITION_EXIT': 'Review open positions for possible exit',
+  'MONITOR_PORTFOLIO': 'Monitor portfolio',
+  'REVIEW_NEW_CANDIDATES': 'Review new-entry candidates',
+  'RUN_DAILY_PROCESS_PREVIEW': 'Run Daily Process Preview',
+};
+
+function _syncDrsToUi(d) {
+  if (!d) return;
+  const rnStep = document.getElementById('right-next-step');
+  const rnDetail = document.getElementById('right-next-step-detail');
+  if (rnStep) rnStep.textContent = d.next_action_label || (_DRS_ACTION_LABELS[d.next_action_code] || '');
+  if (rnDetail) rnDetail.textContent = d.next_action_detail || '';
+  if (!window._workflowCompletedState && !window._lastPredictionPreviewData) {
+    const dpPrimRec = document.getElementById('dp-primary-recommendation');
+    if (dpPrimRec && d.next_action_code !== 'RUN_DAILY_PROCESS_PREVIEW') {
+      const _label = d.next_action_label || (_DRS_ACTION_LABELS[d.next_action_code] || '');
+      dpPrimRec.textContent = _label + '. ' + (d.next_action_detail || '');
+    }
+  }
+}
 
 async function refreshWorkflowStatus() {
   if (!_appState.connected) return;
