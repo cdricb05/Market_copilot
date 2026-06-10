@@ -5390,6 +5390,74 @@ class TestMarketScanPredictionCandidatesEndpoint:
                 session.execute(delete(Position).where(Position.ticker == holding_ticker))
                 session.commit()
 
+    def test_holding_candidate_has_position_enrichment_fields(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch, api_engine
+    ) -> None:
+        """Portfolio-aware: held ticker has open_position_qty, open_position_avg_cost, holding_action_hint."""
+        from paper_trader.engine.market_screener import CandidateScore
+        from paper_trader.db.models import Position
+        from sqlalchemy import delete as _delete
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.0", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.0", momentum_20d_pct="4.0",
+                    volatility_20d_pct="2.0", relative_strength_vs_spy_20d="1.0",
+                    reason_codes=[],
+                ),
+            ], [], date(2025, 1, 14)
+
+        monkeypatch.setattr("paper_trader.engine.market_screener.scan_market", mock_scan)
+
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return [], []
+
+        monkeypatch.setattr("paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch)
+
+        holding_ticker = "PAWENRICH_TEST"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            pos = Position(
+                ticker=holding_ticker,
+                qty=Decimal("7"),
+                avg_cost=Decimal("250.00"),
+                cost_basis=Decimal("1750.00"),
+                opened_at=_NOW,
+                last_updated=_NOW,
+            )
+            session.add(pos)
+            session.commit()
+
+        try:
+            resp = market_scan_prediction_seeded_client.post(
+                "/v1/strategy/market-scan/prediction-candidates",
+                json={
+                    "idempotency_key": "test-pa-enrich-001",
+                    "universe": "SP500", "tickers": ["AAPL"],
+                    "benchmark_ticker": "SPY", "lookback_days": 20,
+                    "top_n": 5, "min_price_points": 5, "prediction_top_n": 2,
+                    "dry_run": True, "submit_signals": False,
+                    "run_risk": False, "create_orders": False,
+                    "include_current_positions_for_prediction": True,
+                },
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            previews = resp.json()["candidate_previews"]
+            hold_p = next((p for p in previews if p["ticker"] == holding_ticker), None)
+            assert hold_p is not None, f"Expected {holding_ticker} in previews"
+            assert hold_p["is_current_holding"] is True
+            assert hold_p["open_position_qty"] is not None
+            assert Decimal(hold_p["open_position_qty"]) == Decimal("7")
+            assert hold_p["open_position_avg_cost"] is not None
+            assert Decimal(hold_p["open_position_avg_cost"]) == Decimal("250.00")
+            assert hold_p["holding_action_hint"] == "Monitor in Position Review"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.execute(_delete(Position).where(Position.ticker == holding_ticker))
+                session.commit()
+
     def test_top_scan_consider_candidate_has_eligible_true(
         self, market_scan_prediction_seeded_client: TestClient, monkeypatch
     ) -> None:
@@ -5540,6 +5608,58 @@ class TestMarketScanPredictionCandidatesEndpoint:
         # Should insert normally — no classification fields means no skipping
         assert data["inserted_count"] == 1
         assert data["skipped_current_holdings"] == 0
+
+    def test_save_returns_already_held_skip_reason(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Portfolio-aware: save endpoint returns already_held_skip_reason=ALREADY_HELD_MONITOR_ONLY when holdings skipped."""
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-pa-skip-reason-001",
+                "candidates": [
+                    {
+                        "ticker": "PAWSKIP_TEST",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "70",
+                        "status": "OK",
+                        "candidate_type": "CURRENT_HOLDING_MONITOR",
+                        "eligible_for_review_queue": False,
+                    },
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skipped_current_holdings"] == 1
+        assert data["already_held_skip_reason"] == "ALREADY_HELD_MONITOR_ONLY"
+
+    def test_save_no_skip_reason_when_no_holdings_skipped(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """Portfolio-aware: already_held_skip_reason is None when no holdings were skipped."""
+        resp = market_scan_prediction_seeded_client.post(
+            "/v1/review/candidates",
+            json={
+                "idempotency_key": "test-pa-no-skip-reason-001",
+                "candidates": [
+                    {
+                        "ticker": "PAWNOSKIP_TEST",
+                        "preview_decision": "CONSIDER",
+                        "preview_score": "65",
+                        "status": "OK",
+                        "candidate_type": "NEW_BUY_CANDIDATE",
+                        "eligible_for_review_queue": True,
+                    },
+                ],
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["skipped_current_holdings"] == 0
+        assert data["already_held_skip_reason"] is None
 
     # ---------------------------------------------------------------------------
     # Phase 4B: Balanced scoring
@@ -16632,6 +16752,20 @@ class TestDailyPlanPreviewEndpoint:
             f"Expected CALIBRATED_ROTATION_DISABLED in blockers, got: {pdc['replay_blockers']}"
         )
 
+    def test_portfolio_aware_note_is_present(self, seeded_client: TestClient) -> None:
+        """Portfolio-aware: daily plan response includes portfolio_aware_note."""
+        response = seeded_client.post(
+            "/v1/review/daily-plan-preview",
+            json={"candidate_ids": [], "use_calibrated_rotation": False},
+            headers=_AUTH,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "portfolio_aware_note" in data
+        assert data["portfolio_aware_note"] is not None
+        assert "Position Review" in data["portfolio_aware_note"]
+        assert "Held tickers" in data["portfolio_aware_note"]
+
 
 class TestUniverseStatusEndpoint:
     """GET /v1/strategy/universe/status -- read-only universe diagnostics."""
@@ -22307,6 +22441,42 @@ class TestDailyPlanOrderPreviewBridgeEndpoint:
         finally:
             self._cleanup(api_engine, [ticker])
 
+    # ------------------------------------------------------------------
+    # Test 19: portfolio-aware — BUY for already-held ticker is blocked
+    # ------------------------------------------------------------------
+    def test_already_held_buy_decision_skipped_with_portfolio_aware_reason(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Portfolio-aware: BUY TradeDecision for an already-held ticker is skipped with ALREADY_HELD_NO_DUPLICATE_ENTRY."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:6].upper()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            _, td_buy, ticker = self._seed_dp_trade_decision(
+                s, sfx, direction="BUY", decision="BUY",
+                approved_qty=Decimal("5"), has_position=True,
+            )
+            s.commit()
+            td_id = str(td_buy.id)
+
+        try:
+            r = seeded_client.post(
+                self._ENDPOINT,
+                json={"trade_decision_ids": [td_id]},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            data = r.json()
+            assert data["evaluated_count"] == 1
+            assert data["preview_count"] == 0
+            assert data["skipped_count"] == 1
+            skipped_reasons = [s["reason"] for s in data["skipped"]]
+            assert any("ALREADY_HELD_NO_DUPLICATE_ENTRY" in r for r in skipped_reasons), (
+                f"Expected ALREADY_HELD_NO_DUPLICATE_ENTRY in skipped reasons, got: {skipped_reasons}"
+            )
+        finally:
+            self._cleanup(api_engine, [ticker])
+
 
 # ===========================================================================
 # Phase 4P — Daily Plan Execution Status Endpoint
@@ -23721,6 +23891,22 @@ class TestUiStaticContent:
         assert prp_start >= 0, "position-review-card not found"
         card_section = html[prp_start:prp_start + 2000]
         assert "NO BROKER EXECUTION" in card_section
+
+    # Portfolio-aware daily process UI tests
+    def test_portfolio_aware_daily_process_text_present(self) -> None:
+        assert "Portfolio-aware daily process" in self._read_html()
+
+    def test_existing_holdings_excluded_text_present(self) -> None:
+        assert "Existing holdings are excluded from new-entry orders" in self._read_html()
+
+    def test_use_position_review_for_open_holdings_text_present(self) -> None:
+        assert "Use Position Review for open holdings" in self._read_html()
+
+    def test_monitor_only_text_present(self) -> None:
+        assert "Monitor only" in self._read_html()
+
+    def test_held_badge_text_present(self) -> None:
+        assert "HELD" in self._read_html()
 
 
 # ===========================================================================

@@ -1701,6 +1701,7 @@
         <!-- Command bar: safety badges -->
         <div class="daily-plan-command-bar">
           <span style="font-size: 9px; color: var(--label); flex-shrink: 0;">Preview only &mdash; no writes</span>
+          <span style="font-size: 8px; color: var(--info); background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3); padding: 2px 5px; border-radius: 2px; flex-shrink: 0; font-weight: 600;">Portfolio-aware daily process</span>
           <span style="flex: 1;"></span>
           <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">MANUAL REVIEW</span>
           <span class="badge ok" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">PAPER ORDERS ONLY</span>
@@ -1781,7 +1782,8 @@
             <div id="step2-save-candidates" style="display:none;">
               <div class="compact-card" style="border-color: var(--ok); flex-shrink: 0;">
                 <div style="font-weight: 600; color: var(--ok); margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;">SCAN &mdash; Save Candidates</div>
-                <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 6px; line-height: 1.4;"><strong style="color: var(--ok);">No signals, decisions, or orders created.</strong></div>
+                <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 4px; line-height: 1.4;"><strong style="color: var(--ok);">No signals, decisions, or orders created.</strong></div>
+                <div style="font-size: 9px; color: var(--info); margin-bottom: 6px; line-height: 1.5; padding: 4px 7px; background: rgba(59,130,246,.07); border-left: 2px solid rgba(59,130,246,.4); border-radius: 1px;">Existing holdings are excluded from new-entry orders. Use Position Review for open holdings.</div>
                 <div id="step2-candidate-summary" style="font-size: 10px; color: var(--text-accent); margin-bottom: 8px; padding: 4px 8px; background: rgba(0,0,0,.2); border-radius: 2px;"></div>
                 <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                   <button class="btn" style="background: var(--ok); color: white; font-weight: 600; font-size: 10px;" onclick="saveCandidatesToReviewQueue('CONSIDER', this)">Save Eligible Candidates</button>
@@ -7653,7 +7655,7 @@ function renderPredictionPreviewResult(data, resultEl) {
       t += `<div style="margin-bottom: 16px;">`;
       t += `<div style="font-weight: 700; margin-bottom: 6px; color: ${borderColor}; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">${escapeHtml(label)}</div>`;
       if (isHoldingSection) {
-        t += `<div style="font-size: 10px; color: var(--label); margin-bottom: 8px; padding: 5px 8px; background: rgba(245,158,11,.08); border-left: 3px solid var(--warning); border-radius: 1px;">Monitoring existing position &mdash; not saved as new buy candidate</div>`;
+        t += `<div style="font-size: 10px; color: var(--label); margin-bottom: 8px; padding: 5px 8px; background: rgba(245,158,11,.08); border-left: 3px solid var(--warning); border-radius: 1px;"><span style="font-size: 8px; font-weight: 700; padding: 1px 5px; background: rgba(245,158,11,.25); color: var(--warning); border-radius: 2px; text-transform: uppercase; margin-right: 6px;">HELD</span><span style="font-size: 8px; font-weight: 600; padding: 1px 5px; background: rgba(245,158,11,.12); color: var(--warning); border-radius: 2px; margin-right: 6px;">Monitor only</span>Monitoring existing position &mdash; not saved as new buy candidate</div>`;
       }
       t += '<div style="overflow-x: auto; border: 1px solid ' + borderColor + '; border-radius: 2px;">';
       t += '<table style="width: 100%; border-collapse: collapse; font-size: 11px;">';

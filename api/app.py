@@ -561,6 +561,11 @@ class CandidatePreview(BaseModel):
     eligible_for_review_queue: bool = False
     review_queue_eligibility_reason: str | None = None
 
+    # Portfolio-aware fields: existing position context for held tickers
+    open_position_qty: str | None = None
+    open_position_avg_cost: str | None = None
+    holding_action_hint: str | None = None      # "Monitor in Position Review" when is_current_holding
+
     # Phase 4B balanced scoring fields (populated only when scoring_profile="balanced_preview")
     current_score: str | None = None
     balanced_preview_score: str | None = None
@@ -1042,6 +1047,8 @@ class CandidateReviewSaveResponse(BaseModel):
     skipped_watch: int = 0
     skipped_rejected: int = 0
     skipped_other: int = 0
+    # Portfolio-aware skip reason (set when skipped_current_holdings > 0)
+    already_held_skip_reason: str | None = None
 
 
 class CandidateReviewStatusUpdate(BaseModel):
@@ -2070,6 +2077,8 @@ class DailyPlanPreviewResponse(BaseModel):
     calibrated_rotation_context: DailyPlanCalibratedRotationContext | None = None
     profile_decision_context: DailyPlanProfileDecisionContext | None = None
     market_history_warning: str | None = None
+    # Portfolio-aware note: guidance on held tickers vs new-entry candidates
+    portfolio_aware_note: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -5397,6 +5406,7 @@ async def market_scan_prediction_candidates(
     # Inject current open-position tickers into GCP batch (holdings always need fresh prediction)
     holdings_injected: list[str] = []
     holding_tickers_set: set[str] = set()
+    _open_positions_map: dict[str, Any] = {}  # ticker.upper() -> Position (portfolio-aware enrichment)
     if body.include_current_positions_for_prediction:
         with get_dedicated_session() as _pos_session:
             open_positions = list(_pos_session.execute(select(Position)).scalars().all())
@@ -5404,6 +5414,7 @@ async def market_scan_prediction_candidates(
         for pos in open_positions:
             t = pos.ticker.upper()
             holding_tickers_set.add(t)
+            _open_positions_map[t] = pos
             if t not in selected_set:
                 holdings_injected.append(t)
                 selected_set.add(t)
@@ -5677,6 +5688,9 @@ async def market_scan_prediction_candidates(
             is_current_holding=is_holding,
             eligible_for_review_queue=_eligible_for_rq,
             review_queue_eligibility_reason=_rq_reason,
+            open_position_qty=str(_open_positions_map[selected_ticker.upper()].qty) if selected_ticker.upper() in _open_positions_map else None,
+            open_position_avg_cost=str(_open_positions_map[selected_ticker.upper()].avg_cost) if selected_ticker.upper() in _open_positions_map else None,
+            holding_action_hint="Monitor in Position Review" if is_holding else None,
         )
         candidate_previews.append(preview)
 
@@ -6158,6 +6172,7 @@ async def save_review_candidates(
         skipped_watch=skipped_watch,
         skipped_rejected=skipped_rejected,
         skipped_other=skipped_other,
+        already_held_skip_reason="ALREADY_HELD_MONITOR_ONLY" if skipped_current_holdings > 0 else None,
     )
 
 
@@ -9078,6 +9093,23 @@ async def daily_plan_preview(
             ),
         )
 
+    # Portfolio-aware note: explain held tickers vs new-entry candidates
+    _held_in_watch = sum(
+        1 for w in watch_candidates if "already held" in (w.reason or "").lower()
+    )
+    if _held_in_watch > 0 and not buy_recommendations and not sell_recommendations:
+        _portfolio_aware_note = (
+            f"{_held_in_watch} candidate(s) are already held positions. "
+            "Existing holdings are monitored through Position Review. "
+            "Held tickers are not new-entry candidates. "
+            "Review open positions or broaden scan universe."
+        )
+    else:
+        _portfolio_aware_note = (
+            "Existing holdings are monitored through Position Review. "
+            "Held tickers are not new-entry candidates."
+        )
+
     return DailyPlanPreviewResponse(
         as_of=now,
         portfolio_summary=portfolio_summary,
@@ -9101,6 +9133,7 @@ async def daily_plan_preview(
         calibrated_rotation_context=_crw_ctx,
         profile_decision_context=_profile_decision_context,
         market_history_warning=_market_history_warning,
+        portfolio_aware_note=_portfolio_aware_note,
     )
 
 
@@ -10040,6 +10073,12 @@ async def daily_plan_order_preview(
                 .all()
             )
 
+        # Portfolio-aware: load held tickers to block duplicate BUY for already-held positions
+        _held_tickers_set = {
+            p.ticker.upper()
+            for p in session.execute(select(Position)).scalars().all()
+        }
+
         for td in rows:
             evaluated += 1
             decision_id_str = str(td.id)
@@ -10060,6 +10099,15 @@ async def daily_plan_order_preview(
                     trade_decision_id=decision_id_str,
                     ticker=td.ticker,
                     reason="TradeDecision source signal is not a Daily Plan signal",
+                ))
+                continue
+
+            # Portfolio-aware: block duplicate BUY entry for already-held tickers
+            if td.decision == "BUY" and td.ticker.upper() in _held_tickers_set:
+                skipped_list.append(SkippedTradeDecisionDetail(
+                    trade_decision_id=decision_id_str,
+                    ticker=td.ticker,
+                    reason="ALREADY_HELD_NO_DUPLICATE_ENTRY: ticker is an open position",
                 ))
                 continue
 
