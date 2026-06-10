@@ -1033,6 +1033,8 @@ class CandidateReviewOut(BaseModel):
     preview_reasons: list[str] | None
     status: str
     review_status: str
+    review_reason_code: str | None = None
+    review_note: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -1058,6 +1060,8 @@ class CandidateReviewStatusUpdate(BaseModel):
         ...,
         description="NEW | WATCHING | REJECTED | APPROVED_FOR_SIGNAL",
     )
+    review_reason_code: str | None = Field(default=None, description="Reason code for review action")
+    review_note: str | None = Field(default=None, max_length=500, description="Optional review note")
 
 
 class ReviewSignalPreviewRequest(BaseModel):
@@ -6161,6 +6165,8 @@ async def save_review_candidates(
                     preview_reasons=existing.preview_reasons,
                     status=existing.status,
                     review_status=existing.review_status,
+                    review_reason_code=existing.review_reason_code,
+                    review_note=existing.review_note,
                     created_at=existing.created_at,
                     updated_at=existing.updated_at,
                 ))
@@ -6213,6 +6219,8 @@ async def save_review_candidates(
                 preview_reasons=new_review.preview_reasons,
                 status=new_review.status,
                 review_status=new_review.review_status,
+                review_reason_code=new_review.review_reason_code,
+                review_note=new_review.review_note,
                 created_at=new_review.created_at,
                 updated_at=new_review.updated_at,
             ))
@@ -6279,6 +6287,8 @@ async def list_review_candidates(
                 preview_reasons=row.preview_reasons,
                 status=row.status,
                 review_status=row.review_status,
+                review_reason_code=row.review_reason_code,
+                review_note=row.review_note,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
             )
@@ -6338,8 +6348,12 @@ async def update_review_candidate_status(
                 detail=f"Candidate '{candidate_id}' not found.",
             )
 
-        # Update review_status
+        # Update review_status and optional rationale fields
         row.review_status = body.review_status
+        if body.review_reason_code is not None:
+            row.review_reason_code = body.review_reason_code
+        if body.review_note is not None:
+            row.review_note = body.review_note
         session.add(row)
         session.flush()
 
@@ -6364,6 +6378,8 @@ async def update_review_candidate_status(
             preview_reasons=row.preview_reasons,
             status=row.status,
             review_status=row.review_status,
+            review_reason_code=row.review_reason_code,
+            review_note=row.review_note,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

@@ -24216,6 +24216,148 @@ class TestUiStaticContent:
     def test_next_action_review_pending_orders_label_present(self) -> None:
         assert "Review pending paper orders" in self._read_html()
 
+    def test_manual_review_journal_present(self) -> None:
+        assert "Manual review journal" in self._read_html()
+
+    def test_review_rationale_present(self) -> None:
+        assert "Review rationale" in self._read_html()
+
+    def test_reason_code_copy_present(self) -> None:
+        assert "Reason code" in self._read_html()
+
+    def test_optional_note_copy_present(self) -> None:
+        assert "Optional note" in self._read_html()
+
+    def test_no_trading_actions_review_notes_copy_present(self) -> None:
+        assert "No trading actions are created by review notes" in self._read_html()
+
+
+# ===========================================================================
+# TestCandidateReviewJournal
+# ===========================================================================
+
+class TestCandidateReviewJournal:
+    """Tests for review_reason_code / review_note in PATCH /v1/review/candidates/{id}."""
+
+    _CANDIDATE_PAYLOAD = {
+        "ticker": "JRNL",
+        "scan_rank": "3",
+        "scan_score": "16.0",
+        "latest_price": "100.00",
+        "momentum_5d_pct": "1.5",
+        "momentum_20d_pct": "4.5",
+        "relative_strength_vs_spy_20d": "2.0",
+        "prediction_recommendation": "BUY",
+        "prediction_confidence": "0.82",
+        "forecast_price_5d": "104.00",
+        "expected_return_pct": "4.0",
+        "market_context": "bullish",
+        "preview_decision": "CONSIDER",
+        "preview_score": "82.0",
+    }
+
+    def _save_candidate(self, client: TestClient, ikey: str) -> str:
+        resp = client.post(
+            "/v1/review/candidates",
+            json={"idempotency_key": ikey, "candidates": [self._CANDIDATE_PAYLOAD]},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        return resp.json()["candidates_saved"][0]["id"]
+
+    def test_patch_accepts_review_reason_code_and_note(self, seeded_client: TestClient) -> None:
+        """PATCH accepts review_reason_code and review_note and returns them."""
+        cid = self._save_candidate(seeded_client, "journal-test-001")
+        resp = seeded_client.patch(
+            f"/v1/review/candidates/{cid}",
+            json={
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "review_reason_code": "STRONG_MODEL_SIGNAL",
+                "review_note": "High confidence BUY signal.",
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["review_status"] == "APPROVED_FOR_SIGNAL"
+        assert data["review_reason_code"] == "STRONG_MODEL_SIGNAL"
+        assert data["review_note"] == "High confidence BUY signal."
+
+    def test_patch_without_reason_note_is_backward_compatible(self, seeded_client: TestClient) -> None:
+        """PATCH with only review_status (no reason/note) still works."""
+        cid = self._save_candidate(seeded_client, "journal-test-002")
+        resp = seeded_client.patch(
+            f"/v1/review/candidates/{cid}",
+            json={"review_status": "WATCHING"},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["review_status"] == "WATCHING"
+        assert data["review_reason_code"] is None
+        assert data["review_note"] is None
+
+    def test_get_returns_reason_and_note_fields(self, seeded_client: TestClient) -> None:
+        """GET /v1/review/candidates returns review_reason_code and review_note."""
+        cid = self._save_candidate(seeded_client, "journal-test-003")
+        seeded_client.patch(
+            f"/v1/review/candidates/{cid}",
+            json={
+                "review_status": "REJECTED",
+                "review_reason_code": "WEAK_SETUP",
+                "review_note": "Setup not convincing.",
+            },
+            headers=_AUTH,
+        )
+        resp = seeded_client.get("/v1/review/candidates?ticker=JRNL", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        match = next((c for c in data if c["id"] == cid), None)
+        assert match is not None
+        assert match["review_reason_code"] == "WEAK_SETUP"
+        assert match["review_note"] == "Setup not convincing."
+
+    def test_reason_note_update_creates_no_trading_rows(
+        self, seeded_client: TestClient, api_engine: "Engine"
+    ) -> None:
+        """PATCH with reason/note creates no Signal, TradeDecision, Order, Trade, or Position rows."""
+        from sqlalchemy import func as sqlfunc, select as sqlselect, text as sqltext
+
+        def _count(conn, table_name: str) -> int:
+            return conn.execute(sqltext(f"SELECT COUNT(*) FROM {table_name}")).scalar() or 0
+
+        with api_engine.connect() as conn:
+            sig_before = _count(conn, "signals")
+            td_before = _count(conn, "trade_decisions")
+            ord_before = _count(conn, "orders")
+            trade_before = _count(conn, "trades")
+            pos_before = _count(conn, "positions")
+
+        cid = self._save_candidate(seeded_client, "journal-test-004")
+        resp = seeded_client.patch(
+            f"/v1/review/candidates/{cid}",
+            json={
+                "review_status": "APPROVED_FOR_SIGNAL",
+                "review_reason_code": "PORTFOLIO_FIT",
+                "review_note": "Fits current allocation.",
+            },
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+
+        with api_engine.connect() as conn:
+            sig_after = _count(conn, "signals")
+            td_after = _count(conn, "trade_decisions")
+            ord_after = _count(conn, "orders")
+            trade_after = _count(conn, "trades")
+            pos_after = _count(conn, "positions")
+
+        assert sig_after == sig_before, "review note must not create Signal rows"
+        assert td_after == td_before, "review note must not create TradeDecision rows"
+        assert ord_after == ord_before, "review note must not create Order rows"
+        assert trade_after == trade_before, "review note must not create Trade rows"
+        assert pos_after == pos_before, "review note must not create Position rows"
+
 
 # ===========================================================================
 # TestPredictionHealthEndpoint

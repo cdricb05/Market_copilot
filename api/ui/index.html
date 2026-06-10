@@ -3083,6 +3083,32 @@
           <div id="cmp-result" style="margin-top:12px;font-size:12px;"></div>
         </div>
 
+        <!-- Manual Review Journal -->
+        <div class="card">
+          <div class="card-title">Manual review journal</div>
+          <div style="font-size:10px; color:var(--label); margin-bottom:8px; line-height:1.5;">
+            Review rationale &mdash; latest candidate review actions with reason code and optional note.
+            <span style="background:rgba(255,255,255,.06); padding:2px 6px; border-radius:2px; margin-left:4px;">MANUAL REVIEW</span>
+            <span style="font-style:italic; margin-left:6px;">No trading actions are created by review notes.</span>
+          </div>
+          <div id="review-journal-container">
+            <table style="width:100%; border-collapse:collapse; font-size:10px;">
+              <thead>
+                <tr style="background:rgba(0,0,0,.25);">
+                  <th style="padding:4px 6px; text-align:left; color:var(--label); font-size:9px; font-weight:600;">Ticker</th>
+                  <th style="padding:4px 6px; text-align:left; color:var(--label); font-size:9px; font-weight:600;">Status</th>
+                  <th style="padding:4px 6px; text-align:left; color:var(--label); font-size:9px; font-weight:600;">Reason code</th>
+                  <th style="padding:4px 6px; text-align:left; color:var(--label); font-size:9px; font-weight:600;">Note</th>
+                  <th style="padding:4px 6px; text-align:left; color:var(--label); font-size:9px; font-weight:600;">Reviewed at</th>
+                </tr>
+              </thead>
+              <tbody id="review-journal-tbody">
+                <tr><td colspan="5" style="padding:10px; text-align:center; color:var(--label); font-style:italic; font-size:10px;">Load review queue to populate journal.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- UI Runtime Status (developer diagnostics) -->
         <div class="card">
           <div class="card-title">UI Runtime Status</div>
@@ -3219,6 +3245,26 @@
 <div id="toast"></div>
 
 <!-- Confirm Modal -->
+<!-- Review Note Panel — capture review rationale before updating candidate status -->
+<div id="review-note-panel" class="confirm-modal">
+  <div class="confirm-modal-content" style="width:380px; max-width:94vw;">
+    <div class="confirm-modal-title" id="rnp-title">Review rationale</div>
+    <div style="margin-bottom:10px;">
+      <div style="font-size:10px; color:var(--label); margin-bottom:3px; text-transform:uppercase; font-weight:600; letter-spacing:.04em;">Reason code</div>
+      <select id="rnp-reason" style="width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text-primary); padding:5px 8px; border-radius:3px; font-size:11px;"></select>
+    </div>
+    <div style="margin-bottom:12px;">
+      <div style="font-size:10px; color:var(--label); margin-bottom:3px; text-transform:uppercase; font-weight:600; letter-spacing:.04em;">Optional note</div>
+      <input id="rnp-note" type="text" maxlength="500" placeholder="Optional review note..." style="width:100%; box-sizing:border-box; background:var(--bg); border:1px solid var(--border); color:var(--text-primary); padding:5px 8px; border-radius:3px; font-size:11px;">
+    </div>
+    <div style="font-size:9px; color:var(--label); margin-bottom:10px; padding:5px 8px; background:rgba(0,0,0,.15); border-radius:2px; line-height:1.5;">No trading actions are created by review notes.</div>
+    <div class="confirm-modal-buttons">
+      <button class="btn-cancel" onclick="_rnpCancel()">Cancel</button>
+      <button class="btn-confirm" onclick="_rnpConfirm()">Save Review</button>
+    </div>
+  </div>
+</div>
+
 <div id="confirm-modal" class="confirm-modal">
   <div class="confirm-modal-content">
     <div class="confirm-modal-title" id="confirm-title">Confirm Action</div>
@@ -8375,12 +8421,35 @@ async function loadReviewQueue() {
     window._lastReviewQueueData = candidates;
     filterReviewQueue();
     renderDpInlineReviewQueue(candidates);
+    renderReviewJournal(candidates);
   } catch (e) {
     const tb = document.getElementById('rq-tbody');
     if (tb) tb.innerHTML = `<tr><td colspan="9" class="empty" style="color: var(--danger);">Error: ${escapeHtml(e.message)}</td></tr>`;
     const dtb = document.getElementById('dp-rq-tbody');
     if (dtb) dtb.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--danger); padding: 10px; font-size: 10px;">Error loading review queue: ${escapeHtml(e.message)}</td></tr>`;
   }
+}
+
+function renderReviewJournal(candidates) {
+  const tbody = document.getElementById('review-journal-tbody');
+  if (!tbody) return;
+  const reviewed = (candidates || []).filter(c => c.review_status !== 'NEW');
+  reviewed.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  if (reviewed.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:10px; text-align:center; color:var(--label); font-style:italic; font-size:10px;">No reviewed candidates yet.</td></tr>';
+    return;
+  }
+  const statusColor = s => s === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : s === 'REJECTED' ? 'var(--danger)' : s === 'WATCHING' ? 'var(--text-primary)' : 'var(--label)';
+  tbody.innerHTML = reviewed.slice(0, 30).map(c => {
+    const ts = c.updated_at ? new Date(c.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '-';
+    return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+      <td style="padding:4px 6px; font-weight:600;">${escapeHtml(c.ticker)}</td>
+      <td style="padding:4px 6px; color:${statusColor(c.review_status)}; font-weight:600; font-size:9px;">${escapeHtml(c.review_status)}</td>
+      <td style="padding:4px 6px; color:var(--label); font-size:9px;">${c.review_reason_code ? escapeHtml(c.review_reason_code) : '<span style="color:var(--label);font-style:italic;">none</span>'}</td>
+      <td style="padding:4px 6px; color:var(--text-secondary); font-size:9px; font-style:italic;">${c.review_note ? escapeHtml(c.review_note.length > 40 ? c.review_note.substring(0, 40) + '...' : c.review_note) : ''}</td>
+      <td style="padding:4px 6px; color:var(--label); font-size:9px;">${escapeHtml(ts)}</td>
+    </tr>`;
+  }).join('');
 }
 
 function renderReviewQueue(candidates) {
@@ -8407,12 +8476,14 @@ function renderReviewQueue(candidates) {
     const conf = c.prediction_confidence ? parseFloat(c.prediction_confidence).toFixed(2) : '-';
     const ret = c.expected_return_pct ? parseFloat(c.expected_return_pct).toFixed(2) : '-';
     const rs = c.relative_strength_vs_spy_20d ? parseFloat(c.relative_strength_vs_spy_20d).toFixed(2) : '-';
+    const reasonBadge = c.review_reason_code ? `<br><span style="font-size:8px;color:var(--label);">${escapeHtml(c.review_reason_code)}</span>` : '';
+    const noteBadge = c.review_note ? `<br><span style="font-size:8px;color:var(--text-secondary);font-style:italic;">${escapeHtml(c.review_note.length > 32 ? c.review_note.substring(0, 32) + '...' : c.review_note)}</span>` : '';
     const actionHtml = isConsumed
       ? '<span style="font-size:9px;color:var(--label);font-style:italic;">Completed / consumed</span>'
-      : `<button onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding:3px 6px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Watch</button><button onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding:3px 6px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Reject</button><button onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding:3px 6px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+      : `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:3px 6px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:3px 6px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:3px 6px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
     return `<tr>
       <td><strong>${escapeHtml(c.ticker)}</strong></td>
-      <td style="color:${statusColor};font-weight:600;font-size:10px;">${escapeHtml(statusLabel)}</td>
+      <td style="color:${statusColor};font-weight:600;font-size:10px;">${escapeHtml(statusLabel)}${reasonBadge}${noteBadge}</td>
       <td style="color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
       <td style="text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
       <td style="color:${recColor};font-weight:600;">${escapeHtml(c.prediction_recommendation || '-')}</td>
@@ -8462,7 +8533,7 @@ function renderDpInlineReviewQueue(candidates) {
                     c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
     const dpActionHtml = isConsumed
       ? '<span style="font-size:8px;color:var(--label);font-style:italic;">Completed / consumed</span>'
-      : `<button onclick="updateReviewStatus('${c.id}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="updateReviewStatus('${c.id}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="updateReviewStatus('${c.id}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+      : `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
     return `<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">
       <td style="padding:4px 6px;"><strong>${escapeHtml(c.ticker)}</strong></td>
       <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(statusLabel)}</td>
@@ -8804,9 +8875,12 @@ async function dpPreviewOrders(btn) {
   }
 }
 
-async function updateReviewStatus(candidateId, newStatus) {
+async function updateReviewStatus(candidateId, newStatus, reasonCode, note) {
   try {
-    const r = await call('PATCH', `/v1/review/candidates/${candidateId}`, { review_status: newStatus });
+    const body = { review_status: newStatus };
+    if (reasonCode) body.review_reason_code = reasonCode;
+    if (note) body.review_note = note;
+    const r = await call('PATCH', `/v1/review/candidates/${candidateId}`, body);
     const result = await parseApiResponse(r);
     if (r.ok) {
       await loadReviewQueue();
@@ -10197,6 +10271,74 @@ async function generateDailyReviewSummary(btn) {
 // Global storage for workflow status data
 window._workflowStatusData = null;
 window._lastDailyReviewSummary = null;
+window._rnpPendingId = null;
+window._rnpPendingStatus = null;
+window._rnpPendingTicker = null;
+
+// Reason code options per review action (Manual review journal - Review rationale)
+const _REVIEW_REASON_OPTIONS = {
+  'APPROVED_FOR_SIGNAL': [
+    { code: 'STRONG_MODEL_SIGNAL', label: 'Strong model signal' },
+    { code: 'GOOD_MOMENTUM', label: 'Good momentum' },
+    { code: 'PORTFOLIO_FIT', label: 'Portfolio fit' },
+    { code: 'MANUAL_OVERRIDE_APPROVE', label: 'Manual override (approve)' },
+  ],
+  'WATCHING': [
+    { code: 'WAIT_FOR_CONFIRMATION', label: 'Wait for confirmation' },
+    { code: 'HIGH_VOLATILITY', label: 'High volatility' },
+    { code: 'ALREADY_NEAR_ENTRY', label: 'Already near entry' },
+    { code: 'MANUAL_OVERRIDE_WATCH', label: 'Manual override (watch)' },
+  ],
+  'REJECTED': [
+    { code: 'WEAK_SETUP', label: 'Weak setup' },
+    { code: 'RISK_TOO_HIGH', label: 'Risk too high' },
+    { code: 'ALREADY_HELD', label: 'Already held' },
+    { code: 'MAX_POSITIONS', label: 'Max positions' },
+    { code: 'MANUAL_OVERRIDE_REJECT', label: 'Manual override (reject)' },
+  ],
+};
+
+function _showReviewNotePanel(candidateId, ticker, newStatus) {
+  window._rnpPendingId = candidateId;
+  window._rnpPendingStatus = newStatus;
+  window._rnpPendingTicker = ticker;
+  const panel = document.getElementById('review-note-panel');
+  if (!panel) return;
+  const title = document.getElementById('rnp-title');
+  const statusLabel = { 'APPROVED_FOR_SIGNAL': 'Approve', 'WATCHING': 'Watch', 'REJECTED': 'Reject' }[newStatus] || newStatus;
+  if (title) title.textContent = 'Review rationale: ' + ticker + ' → ' + statusLabel;
+  const reasonSel = document.getElementById('rnp-reason');
+  if (reasonSel) {
+    const opts = _REVIEW_REASON_OPTIONS[newStatus] || [];
+    reasonSel.innerHTML = '<option value="">-- No reason selected --</option>' +
+      opts.map(o => '<option value="' + escapeHtml(o.code) + '">' + escapeHtml(o.label) + '</option>').join('');
+    if (opts.length > 0) reasonSel.value = opts[0].code;
+  }
+  const noteInput = document.getElementById('rnp-note');
+  if (noteInput) noteInput.value = '';
+  panel.classList.add('active');
+}
+
+async function _rnpConfirm() {
+  const reasonSel = document.getElementById('rnp-reason');
+  const noteInput = document.getElementById('rnp-note');
+  const reasonCode = (reasonSel && reasonSel.value) ? reasonSel.value : null;
+  const note = (noteInput && noteInput.value.trim()) ? noteInput.value.trim() : null;
+  const cId = window._rnpPendingId;
+  const cStatus = window._rnpPendingStatus;
+  _rnpCancel();
+  if (cId && cStatus) {
+    await updateReviewStatus(cId, cStatus, reasonCode, note);
+  }
+}
+
+function _rnpCancel() {
+  const panel = document.getElementById('review-note-panel');
+  if (panel) panel.classList.remove('active');
+  window._rnpPendingId = null;
+  window._rnpPendingStatus = null;
+  window._rnpPendingTicker = null;
+}
 
 // Next-action code to canonical label map (used by _syncDrsToUi and UI static tests)
 const _DRS_ACTION_LABELS = {
