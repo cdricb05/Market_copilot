@@ -22839,6 +22839,145 @@ class TestDailyPlanExecutionStatusEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# Position Monitor Preview endpoint
+# ---------------------------------------------------------------------------
+
+class TestPositionMonitorPreviewEndpoint:
+    """POST /v1/review/position-monitor-preview — PREVIEW ONLY, no DB writes."""
+
+    def test_auth_required(self, client: TestClient) -> None:
+        """Endpoint requires X-API-Key header."""
+        resp = client.post("/v1/review/position-monitor-preview", json={})
+        assert resp.status_code == 401
+
+    def test_read_only_no_writes(self, seeded_client: TestClient, api_engine) -> None:
+        """POST must not create any new DB rows (JobRun, Signal, TradeDecision, Order, Position, PortfolioSnapshot)."""
+        def _count(model_class):
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                return s.query(model_class).count()
+
+        before = {
+            "job_run": _count(JobRun),
+            "signal": _count(Signal),
+            "trade_decision": _count(TradeDecision),
+            "order": _count(Order),
+            "position": _count(Position),
+            "portfolio_snapshot": _count(PortfolioSnapshot),
+        }
+
+        resp = seeded_client.post("/v1/review/position-monitor-preview", json={}, headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["preview_only"] is True
+        assert data["writes_performed"] is False
+
+        after = {
+            "job_run": _count(JobRun),
+            "signal": _count(Signal),
+            "trade_decision": _count(TradeDecision),
+            "order": _count(Order),
+            "position": _count(Position),
+            "portfolio_snapshot": _count(PortfolioSnapshot),
+        }
+        for key in before:
+            assert before[key] == after[key], f"Row count for {key} changed after preview"
+
+    def test_open_position_with_price_returns_correct_fields(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Open position with a latest price returns correct market_value, pnl, pnl_pct, and HOLD recommendation."""
+        pos_id = None
+        price_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                pos = Position(
+                    ticker="PMTST",
+                    qty=Decimal("10"),
+                    avg_cost=Decimal("100.000000"),
+                    cost_basis=Decimal("1000.00"),
+                    opened_at=datetime.now(tz=timezone.utc),
+                    last_updated=datetime.now(tz=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+
+                price = PriceSnapshot(
+                    ticker="PMTST",
+                    price=Decimal("110.000000"),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=datetime.now(tz=timezone.utc),
+                    market_date=datetime.now(tz=timezone.utc).date(),
+                    job_run_id=None,
+                )
+                session.add(price)
+                session.flush()
+                price_id = price.id
+                session.commit()
+
+            resp = seeded_client.post("/v1/review/position-monitor-preview", json={}, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["preview_only"] is True
+            assert data["writes_performed"] is False
+
+            pos_data = next((p for p in data["positions"] if p["ticker"] == "PMTST"), None)
+            assert pos_data is not None, "PMTST not found in positions"
+            assert Decimal(pos_data["market_value"]) == Decimal("1100.00")
+            assert Decimal(pos_data["unrealized_pnl"]) == Decimal("100.00")
+            assert Decimal(pos_data["unrealized_pnl_pct"]) == Decimal("10.00")
+            assert pos_data["recommendation"] == "HOLD"
+            assert "HEALTHY_POSITION" in pos_data["reason_codes"]
+            assert pos_data["latest_price"] is not None
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id:
+                    session.query(Position).filter(Position.id == pos_id).delete(synchronize_session=False)
+                if price_id:
+                    session.query(PriceSnapshot).filter(PriceSnapshot.id == price_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_missing_price_returns_watch_price_missing(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Position with no latest price returns WATCH/PRICE_MISSING without failing the full response."""
+        pos_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(PriceSnapshot).filter(PriceSnapshot.ticker == "PMNOPRICE").delete(synchronize_session=False)
+                pos = Position(
+                    ticker="PMNOPRICE",
+                    qty=Decimal("5"),
+                    avg_cost=Decimal("50.000000"),
+                    cost_basis=Decimal("250.00"),
+                    opened_at=datetime.now(tz=timezone.utc),
+                    last_updated=datetime.now(tz=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+                session.commit()
+
+            resp = seeded_client.post("/v1/review/position-monitor-preview", json={}, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+
+            pos_data = next((p for p in data["positions"] if p["ticker"] == "PMNOPRICE"), None)
+            assert pos_data is not None, "PMNOPRICE not found in positions"
+            assert pos_data["recommendation"] == "WATCH"
+            assert "PRICE_MISSING" in pos_data["reason_codes"]
+            assert pos_data["market_value"] is None
+            assert pos_data["unrealized_pnl"] is None
+            assert pos_data["latest_price"] is None
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id:
+                    session.query(Position).filter(Position.id == pos_id).delete(synchronize_session=False)
+                session.commit()
+
+
+# ---------------------------------------------------------------------------
 # Static UI content assertions — reads index.html directly (no HTTP needed)
 # ---------------------------------------------------------------------------
 
@@ -22979,6 +23118,25 @@ class TestUiStaticContent:
     def test_historical_candidates_hidden_text_present(self) -> None:
         html = self._read_html()
         assert "Historical candidates hidden from primary queue" in html
+
+    def test_position_monitor_heading_present(self) -> None:
+        html = self._read_html()
+        assert "Position Monitor" in html
+
+    def test_preview_position_monitor_button_present(self) -> None:
+        html = self._read_html()
+        assert "Preview Position Monitor" in html
+
+    def test_position_monitor_preview_only_text_present(self) -> None:
+        html = self._read_html()
+        assert "Preview only - no signals, no decisions, no orders, no fills" in html
+
+    def test_position_monitor_no_broker_execution_badge_present(self) -> None:
+        html = self._read_html()
+        pm_start = html.find('id="position-monitor-card"')
+        assert pm_start >= 0, "position-monitor-card not found"
+        card_section = html[pm_start:pm_start + 2000]
+        assert "NO BROKER EXECUTION" in card_section
 
 
 # ===========================================================================

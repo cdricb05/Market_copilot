@@ -37,6 +37,7 @@ Endpoints:
     GET  /v1/prediction/health         — check prediction service reachability and health (requires auth, no writes)
     POST /v1/market/backfill-history   — backfill historical prices for S&P 500 + SPY benchmark (writes price_snapshots + benchmark_prices only)
     GET  /v1/market/screening-readiness — read-only screening readiness check (no writes)
+    POST /v1/review/position-monitor-preview — preview exit recommendations for open positions (PREVIEW ONLY, read-only)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -1487,6 +1488,38 @@ class WorkflowStatusResponse(BaseModel):
     safety: dict[str, bool]
     open_positions: int = 0
     current_cycle_key: str | None = None
+
+
+class PositionMonitorItem(BaseModel):
+    """Single position result from position monitor preview (PREVIEW ONLY, no DB writes)."""
+    ticker: str
+    qty: str
+    avg_cost: str
+    latest_price: str | None
+    market_value: str | None
+    cost_basis: str
+    unrealized_pnl: str | None
+    unrealized_pnl_pct: str | None
+    portfolio_weight_pct: str | None
+    opened_at: datetime
+    holding_days: int
+    recommendation: str
+    reason_codes: list[str]
+    explanation: str
+
+
+class PositionMonitorPreviewResponse(BaseModel):
+    """Response from position monitor preview endpoint (PREVIEW ONLY, no DB writes)."""
+    as_of: datetime
+    open_position_count: int
+    total_positions_value: str
+    total_unrealized_pnl: str
+    reviewed_for_exit_count: int
+    watch_count: int
+    hold_count: int
+    positions: list[PositionMonitorItem]
+    preview_only: bool = True
+    writes_performed: bool = False
 
 
 class WeakestPositionDetail(BaseModel):
@@ -12931,6 +12964,166 @@ def get_market_indicators() -> MarketIndicatorsResponse:
         indicators=indicators,
         placeholders=placeholders,
     )
+
+
+@app.post(
+    "/v1/review/position-monitor-preview",
+    response_model=PositionMonitorPreviewResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def position_monitor_preview() -> PositionMonitorPreviewResponse:
+    """
+    Preview exit recommendations for all open positions (PREVIEW ONLY, no DB writes).
+
+    Evaluates each open position against v1 exit rules:
+        REVIEW_FOR_EXIT  if unrealized_pnl_pct <= -5.0%
+        WATCH            if unrealized_pnl_pct <= -2.0%
+        WATCH            if portfolio_weight_pct > 25.0%
+        HOLD             otherwise
+
+    If the latest price is missing the position returns WATCH/PRICE_MISSING without
+    failing the full response.
+
+    This endpoint never creates signals, decisions, orders, fills, or positions.
+    """
+    now = datetime.now(tz=timezone.utc)
+
+    with get_session() as session:
+        positions = session.execute(
+            select(Position).order_by(Position.opened_at)
+        ).scalars().all()
+
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        cached_total_value: Decimal | None = None
+        if portfolio is not None and portfolio.cached_total_value:
+            cached_total_value = Decimal(str(portfolio.cached_total_value))
+
+        items: list[PositionMonitorItem] = []
+        total_positions_value = Decimal("0")
+        total_unrealized_pnl = Decimal("0")
+        reviewed_for_exit_count = 0
+        watch_count = 0
+        hold_count = 0
+
+        for pos in positions:
+            qty = Decimal(str(pos.qty))
+            cost_basis = Decimal(str(pos.cost_basis))
+
+            opened_at_utc = (
+                pos.opened_at
+                if pos.opened_at.tzinfo is not None
+                else pos.opened_at.replace(tzinfo=timezone.utc)
+            )
+            holding_days = max(0, (now - opened_at_utc).days)
+
+            latest_price = _latest_price(session, pos.ticker)
+
+            if latest_price is None:
+                items.append(PositionMonitorItem(
+                    ticker=pos.ticker,
+                    qty=str(qty),
+                    avg_cost=str(pos.avg_cost),
+                    latest_price=None,
+                    market_value=None,
+                    cost_basis=str(cost_basis),
+                    unrealized_pnl=None,
+                    unrealized_pnl_pct=None,
+                    portfolio_weight_pct=None,
+                    opened_at=pos.opened_at,
+                    holding_days=holding_days,
+                    recommendation="WATCH",
+                    reason_codes=["PRICE_MISSING"],
+                    explanation="Latest price unavailable; position cannot be fully evaluated.",
+                ))
+                watch_count += 1
+                continue
+
+            market_value = qty * latest_price
+            unrealized_pnl = market_value - cost_basis
+            unrealized_pnl_pct = (
+                unrealized_pnl / cost_basis * Decimal("100")
+                if cost_basis != Decimal("0")
+                else Decimal("0")
+            )
+
+            total_positions_value += market_value
+            total_unrealized_pnl += unrealized_pnl
+
+            portfolio_weight_pct: Decimal | None = None
+            if cached_total_value is not None and cached_total_value > Decimal("0"):
+                portfolio_weight_pct = market_value / cached_total_value * Decimal("100")
+
+            upnl_pct_float = float(unrealized_pnl_pct)
+            weight_pct_float = float(portfolio_weight_pct) if portfolio_weight_pct is not None else 0.0
+
+            reason_codes: list[str] = []
+            recommendation: str
+            explanation: str
+
+            if upnl_pct_float <= -5.0:
+                recommendation = "REVIEW_FOR_EXIT"
+                reason_codes.append("STOP_LOSS_REVIEW")
+                explanation = (
+                    f"Unrealized P&L of {upnl_pct_float:.1f}% is below the stop-loss "
+                    f"review threshold (-5.0%). Manual review recommended."
+                )
+                reviewed_for_exit_count += 1
+            elif upnl_pct_float <= -2.0:
+                recommendation = "WATCH"
+                reason_codes.append("WATCH_LOSS_THRESHOLD")
+                explanation = (
+                    f"Unrealized P&L of {upnl_pct_float:.1f}% is in the watch range "
+                    f"(-2.0% to -5.0%). Monitor closely."
+                )
+                watch_count += 1
+            elif portfolio_weight_pct is not None and weight_pct_float > 25.0:
+                recommendation = "WATCH"
+                reason_codes.append("HIGH_CONCENTRATION")
+                explanation = (
+                    f"Portfolio weight of {weight_pct_float:.1f}% exceeds the "
+                    f"concentration threshold (25.0%). Consider position sizing."
+                )
+                watch_count += 1
+            else:
+                recommendation = "HOLD"
+                reason_codes.append("HEALTHY_POSITION")
+                explanation = "Position is within healthy parameters. No action required."
+                hold_count += 1
+
+            items.append(PositionMonitorItem(
+                ticker=pos.ticker,
+                qty=str(qty),
+                avg_cost=str(pos.avg_cost),
+                latest_price=str(latest_price),
+                market_value=str(market_value.quantize(Decimal("0.01"))),
+                cost_basis=str(cost_basis),
+                unrealized_pnl=str(unrealized_pnl.quantize(Decimal("0.01"))),
+                unrealized_pnl_pct=str(unrealized_pnl_pct.quantize(Decimal("0.01"))),
+                portfolio_weight_pct=(
+                    str(portfolio_weight_pct.quantize(Decimal("0.01")))
+                    if portfolio_weight_pct is not None
+                    else None
+                ),
+                opened_at=pos.opened_at,
+                holding_days=holding_days,
+                recommendation=recommendation,
+                reason_codes=reason_codes,
+                explanation=explanation,
+            ))
+
+        return PositionMonitorPreviewResponse(
+            as_of=now,
+            open_position_count=len(positions),
+            total_positions_value=str(total_positions_value.quantize(Decimal("0.01"))),
+            total_unrealized_pnl=str(total_unrealized_pnl.quantize(Decimal("0.01"))),
+            reviewed_for_exit_count=reviewed_for_exit_count,
+            watch_count=watch_count,
+            hold_count=hold_count,
+            positions=items,
+            preview_only=True,
+            writes_performed=False,
+        )
 
 
 # ---------------------------------------------------------------------------
