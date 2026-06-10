@@ -1512,6 +1512,25 @@
           <div class="kpi-item"><span class="kpi-label">Pending Actions</span><span class="kpi-value" id="kpi-pending">-</span></div>
         </div>
 
+        <!-- Daily Review Summary card -->
+        <div id="daily-review-summary-card" style="background: rgba(0,0,0,.2); border: 1px solid rgba(59,130,246,.3); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+            <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--info);">Daily Review Summary</div>
+            <span style="font-size: 8px; color: var(--ok); background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); padding: 1px 5px; border-radius: 2px; font-weight: 700;">READ ONLY</span>
+            <span style="font-size: 8px; color: var(--ok); background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); padding: 1px 5px; border-radius: 2px; font-weight: 700;">PREVIEW ONLY</span>
+            <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">NO SIGNALS</span>
+            <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">NO DECISIONS</span>
+            <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">NO ORDERS</span>
+            <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">NO FILLS</span>
+            <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">NO BROKER EXECUTION</span>
+            <span style="font-size: 8px; color: var(--warning); padding: 1px 5px; border-radius: 2px; background: rgba(245,158,11,.08);">MANUAL REVIEW</span>
+            <span style="flex: 1;"></span>
+            <button class="btn" style="background: var(--info); color: white; font-weight: 600; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="generateDailyReviewSummary(this)">Generate Daily Review Summary</button>
+          </div>
+          <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 5px;">Read-only summary &mdash; no signals, no decisions, no orders, no fills.</div>
+          <div id="daily-review-summary-result" style="display: none;"></div>
+        </div>
+
         <!-- Market Dashboard: full-width section below KPI -->
         <div class="ov-market-section">
           <div class="ov-market-section-hdr">
@@ -10096,6 +10115,75 @@ const WORKFLOW_STEPS = [
   { id: 'order-preview', name: 'Order Preview', description: 'Preview orders that can be created from approved decisions', button: 'Preview Orders', action: 'previewOrdersFromDecisions' },
   { id: 'create-orders', name: 'Create Orders', description: 'Create paper Order tickets from approved decisions (PENDING status, no broker execution, no fills)', button: 'Create Paper Orders', action: 'createOrdersFromDecisions' },
 ];
+
+async function generateDailyReviewSummary(btn) {
+  if (btn) btn.disabled = true;
+  const el = document.getElementById('daily-review-summary-result');
+  try {
+    const r = await call('GET', '/v1/review/daily-review-summary');
+    if (!r.ok) { toast('Daily Review Summary error: ' + r.status, 'error'); return; }
+    const d = await r.json();
+    let html = '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 7px; margin-bottom: 7px;">';
+
+    // Portfolio
+    html += '<div style="background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 3px; padding: 7px;">';
+    html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--label); margin-bottom: 4px;">Portfolio</div>';
+    if (d.total_value) html += '<div style="font-size: 11px; color: var(--text-primary); margin-bottom: 2px;">Total: <span style="font-family: monospace; color: var(--ok);">' + escapeHtml(d.total_value) + '</span></div>';
+    if (d.cash) html += '<div style="font-size: 10px; color: var(--text-secondary);">Cash: <span style="font-family: monospace;">' + escapeHtml(d.cash) + '</span></div>';
+    if (d.total_return_pct !== null && d.total_return_pct !== undefined) html += '<div style="font-size: 10px; color: var(--text-secondary);">Return: <span style="font-family: monospace;">' + escapeHtml(d.total_return_pct) + '%</span></div>';
+    html += '<div style="font-size: 10px; color: var(--text-secondary);">Positions: ' + d.open_position_count + '</div>';
+    html += '</div>';
+
+    // Position status
+    html += '<div style="background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 3px; padding: 7px;">';
+    html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--label); margin-bottom: 4px;">Position Status</div>';
+    html += '<div style="font-size: 10px; color: var(--ok);">HOLD: ' + d.hold_count + '</div>';
+    html += '<div style="font-size: 10px; color: var(--warning);">WATCH: ' + d.watch_count + '</div>';
+    if (d.review_for_exit_count > 0) html += '<div style="font-size: 10px; color: var(--danger);">EXIT REVIEW: ' + d.review_for_exit_count + '</div>';
+    for (const pos of (d.open_positions || [])) {
+      const pnlColor = pos.unrealized_pnl && parseFloat(pos.unrealized_pnl) < 0 ? 'var(--danger)' : 'var(--ok)';
+      html += '<div style="font-size: 9px; color: var(--text-secondary); margin-top: 2px; font-family: monospace;">' + escapeHtml(pos.ticker) + ': <span style="color: ' + pnlColor + ';">' + (pos.unrealized_pnl_pct ? escapeHtml(pos.unrealized_pnl_pct) + '%' : '-') + '</span> <span style="color: var(--label);">' + escapeHtml(pos.recommendation) + '</span></div>';
+    }
+    html += '</div>';
+
+    // Candidates
+    html += '<div style="background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 3px; padding: 7px;">';
+    html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--label); margin-bottom: 4px;">Candidates / Review</div>';
+    html += '<div style="font-size: 10px; color: var(--text-secondary);">Total: ' + d.review_candidates_total + '</div>';
+    html += '<div style="font-size: 10px; color: var(--info);">Actionable: ' + d.review_candidates_actionable + '</div>';
+    html += '<div style="font-size: 10px; color: var(--text-secondary);">Watching: ' + d.review_candidates_watching + '</div>';
+    if (d.review_candidates_consumed > 0) html += '<div style="font-size: 10px; color: var(--label);">Consumed: ' + d.review_candidates_consumed + '</div>';
+    if (d.current_cycle_key) html += '<div style="font-size: 9px; color: var(--label); margin-top: 3px; font-family: monospace; word-break: break-all;">' + escapeHtml(d.current_cycle_key) + '</div>';
+    html += '</div>';
+
+    // Orders
+    html += '<div style="background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 3px; padding: 7px;">';
+    html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--label); margin-bottom: 4px;">Orders</div>';
+    html += '<div style="font-size: 10px; color: ' + (d.pending_orders > 0 ? 'var(--warning)' : 'var(--text-secondary)') + ';">Pending: ' + d.pending_orders + '</div>';
+    html += '<div style="font-size: 10px; color: var(--text-secondary);">Filled: ' + d.filled_orders + '</div>';
+    if (d.canceled_orders > 0) html += '<div style="font-size: 10px; color: var(--label);">Canceled: ' + d.canceled_orders + '</div>';
+    html += '</div>';
+
+    html += '</div>';
+
+    // Recommended next action
+    const actionColor = d.next_action_code === 'REVIEW_POSITION_EXIT' ? 'var(--danger)' : d.next_action_code === 'REVIEW_PENDING_ORDERS' ? 'var(--warning)' : d.next_action_code === 'MONITOR_PORTFOLIO' ? 'var(--ok)' : 'var(--info)';
+    html += '<div style="background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.1); border-radius: 3px; padding: 7px;">';
+    html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--label); margin-bottom: 3px;">Recommended next action</div>';
+    html += '<div style="font-size: 12px; font-weight: 700; color: ' + actionColor + '; margin-bottom: 3px;">' + escapeHtml(d.next_action_label) + '</div>';
+    html += '<div style="font-size: 10px; color: var(--text-secondary);">' + escapeHtml(d.next_action_detail) + '</div>';
+    html += '<div style="font-size: 9px; color: var(--label); margin-top: 3px; font-family: monospace; opacity: .7;">' + escapeHtml(d.next_action_code) + '</div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+    el.style.display = 'block';
+    toast('Daily Review Summary generated', 'ok');
+  } catch (e) {
+    toast('Daily Review Summary error: ' + e.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 // Global storage for workflow status data
 window._workflowStatusData = null;

@@ -41,6 +41,7 @@ Endpoints:
     POST /v1/review/exit-signal-preview — preview exit intent per open position (PREVIEW ONLY, read-only, no signals/orders)
     POST /v1/review/exit-decision-preview — preview exit decision per open position (PREVIEW ONLY, read-only, no signals/decisions/orders)
     POST /v1/review/position-review-preview — one-click consolidated position review: monitor+signal+decision+order layers (PREVIEW ONLY, read-only, no DB writes)
+    GET  /v1/review/daily-review-summary   — read-only daily operating summary: portfolio + positions + candidates + orders + next action (no DB writes)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -1647,6 +1648,59 @@ class PositionReviewPreviewResponse(BaseModel):
     no_position_changes: bool = True
     no_cash_changes: bool = True
     no_broker_execution: bool = True
+
+
+class DailyReviewSummaryPositionItem(BaseModel):
+    """Per-position summary in daily review (READ ONLY, no DB writes)."""
+    ticker: str
+    qty: str
+    unrealized_pnl: str | None
+    unrealized_pnl_pct: str | None
+    recommendation: str
+
+
+class DailyReviewSummaryResponse(BaseModel):
+    """Response from GET /v1/review/daily-review-summary (READ ONLY, no DB writes)."""
+    as_of: datetime
+    # Safety flags
+    preview_only: bool = True
+    writes_performed: bool = False
+    no_signals_created: bool = True
+    no_decisions_created: bool = True
+    no_orders_created: bool = True
+    no_trades_created: bool = True
+    no_fills_created: bool = True
+    no_position_changes: bool = True
+    no_cash_changes: bool = True
+    no_broker_execution: bool = True
+    # Portfolio summary
+    total_value: str | None = None
+    cash: str | None = None
+    positions_value: str | None = None
+    open_position_count: int
+    unrealized_pnl: str | None = None
+    total_return_pct: str | None = None
+    # Position summary
+    hold_count: int
+    watch_count: int
+    review_for_exit_count: int
+    open_positions: list[DailyReviewSummaryPositionItem]
+    # Daily process summary
+    current_cycle_key: str | None = None
+    review_candidates_total: int
+    review_candidates_actionable: int
+    review_candidates_consumed: int
+    review_candidates_watching: int
+    portfolio_aware: bool = True
+    # Orders summary
+    pending_orders: int
+    filled_orders: int
+    canceled_orders: int
+    no_pending_orders: bool
+    # Next action
+    next_action_code: str
+    next_action_label: str
+    next_action_detail: str
 
 
 class WeakestPositionDetail(BaseModel):
@@ -13822,6 +13876,208 @@ def position_review_preview() -> PositionReviewPreviewResponse:
             no_cash_changes=True,
             no_broker_execution=True,
         )
+
+
+@app.get(
+    "/v1/review/daily-review-summary",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def daily_review_summary() -> DailyReviewSummaryResponse:
+    """
+    GET /v1/review/daily-review-summary — Read-only daily operating summary.
+
+    Consolidates portfolio, open positions, candidate/review queue, orders, and
+    performance history into one response and recommends the next action.
+
+    READ ONLY: zero rows created, zero rows mutated. Safe to call any time.
+
+    Next-action priority:
+        REVIEW_PENDING_ORDERS   — pending_orders > 0
+        REVIEW_POSITION_EXIT    — review_for_exit_count > 0
+        MONITOR_PORTFOLIO       — open positions, no actionable candidates
+        REVIEW_NEW_CANDIDATES   — actionable candidates in queue
+        RUN_DAILY_PROCESS_PREVIEW — nothing actionable
+    """
+    now = datetime.now(tz=timezone.utc)
+
+    with get_session() as session:
+        # --- Portfolio ---
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        total_value: str | None = None
+        cash: str | None = None
+        positions_value: str | None = None
+        cached_total: Decimal | None = None
+        if portfolio is not None:
+            total_value = str(portfolio.cached_total_value)
+            cash = str(portfolio.cached_cash)
+            cached_total = Decimal(str(portfolio.cached_total_value)) if portfolio.cached_total_value else None
+
+        # --- Positions (lightweight position review) ---
+        positions = session.execute(
+            select(Position).order_by(Position.opened_at)
+        ).scalars().all()
+
+        open_position_count = len(positions)
+        hold_count = 0
+        watch_count = 0
+        review_for_exit_count = 0
+        total_unrealized_pnl = Decimal("0")
+        pos_items: list[DailyReviewSummaryPositionItem] = []
+
+        for pos in positions:
+            qty = Decimal(str(pos.qty))
+            cost_basis = Decimal(str(pos.cost_basis))
+            latest_price = _latest_price(session, pos.ticker)
+
+            if latest_price is None:
+                watch_count += 1
+                pos_items.append(DailyReviewSummaryPositionItem(
+                    ticker=pos.ticker,
+                    qty=str(qty),
+                    unrealized_pnl=None,
+                    unrealized_pnl_pct=None,
+                    recommendation="WATCH",
+                ))
+                continue
+
+            market_value = qty * latest_price
+            unrealized_pnl = market_value - cost_basis
+            total_unrealized_pnl += unrealized_pnl
+            unrealized_pnl_pct = (
+                unrealized_pnl / cost_basis * Decimal("100")
+                if cost_basis != Decimal("0") else Decimal("0")
+            )
+
+            weight_pct_float = 0.0
+            if cached_total is not None and cached_total > Decimal("0"):
+                weight_pct_float = float(market_value / cached_total * Decimal("100"))
+
+            upnl_pct_float = float(unrealized_pnl_pct)
+
+            if upnl_pct_float <= -5.0:
+                recommendation = "REVIEW_FOR_EXIT"
+                review_for_exit_count += 1
+            elif upnl_pct_float <= -2.0 or weight_pct_float > 25.0:
+                recommendation = "WATCH"
+                watch_count += 1
+            else:
+                recommendation = "HOLD"
+                hold_count += 1
+
+            pos_items.append(DailyReviewSummaryPositionItem(
+                ticker=pos.ticker,
+                qty=str(qty),
+                unrealized_pnl=str(unrealized_pnl.quantize(Decimal("0.01"))),
+                unrealized_pnl_pct=str(unrealized_pnl_pct.quantize(Decimal("0.01"))),
+                recommendation=recommendation,
+            ))
+
+        if open_position_count > 0:
+            positions_value = None
+            if cached_total is not None:
+                _cash_dec = Decimal(str(portfolio.cached_cash)) if portfolio and portfolio.cached_cash else Decimal("0")
+                _pos_val = cached_total - _cash_dec
+                positions_value = str(_pos_val.quantize(Decimal("0.01")))
+
+        unrealized_pnl_str = str(total_unrealized_pnl.quantize(Decimal("0.01"))) if open_position_count > 0 else None
+
+        # --- Performance history (latest row) for total_return_pct ---
+        total_return_pct: str | None = None
+        if portfolio is not None and portfolio.initial_capital:
+            snap_row = session.execute(
+                select(PortfolioSnapshot)
+                .order_by(PortfolioSnapshot.market_date.desc())
+            ).scalars().first()
+            if snap_row is not None:
+                initial_capital = Decimal(str(portfolio.initial_capital))
+                latest_total = Decimal(str(snap_row.total_value))
+                if initial_capital != Decimal("0"):
+                    total_return_pct = str(
+                        ((latest_total - initial_capital) / initial_capital * Decimal("100"))
+                        .quantize(Decimal("0.01"))
+                    )
+
+        # --- Candidate review counts ---
+        cr_total = session.query(CandidateReview).count()
+        cr_new = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "NEW"
+        ).count()
+        cr_approved = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "APPROVED_FOR_SIGNAL"
+        ).count()
+        cr_watching = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "WATCHING"
+        ).count()
+        cr_consumed = session.query(CandidateReview).filter(
+            CandidateReview.review_status == "CONSUMED"
+        ).count()
+
+        current_cycle_row = session.query(CandidateReview.idempotency_key).order_by(
+            CandidateReview.created_at.desc()
+        ).first()
+        current_cycle_key: str | None = current_cycle_row[0] if current_cycle_row else None
+
+        # actionable = NEW + APPROVED_FOR_SIGNAL (candidates that can drive new entry)
+        cr_actionable = cr_new + cr_approved
+
+        # --- Orders counts ---
+        pending_orders = session.query(Order).filter(Order.status == "PENDING").count()
+        filled_orders = session.query(Order).filter(Order.status == "FILLED").count()
+        canceled_orders = session.query(Order).filter(Order.status == "CANCELLED").count()
+
+    # --- Recommended next action ---
+    if pending_orders > 0:
+        next_action_code = "REVIEW_PENDING_ORDERS"
+        next_action_label = "Review pending paper orders"
+        next_action_detail = f"{pending_orders} pending paper order(s) waiting for fill review."
+    elif review_for_exit_count > 0:
+        next_action_code = "REVIEW_POSITION_EXIT"
+        next_action_label = "Review open positions for possible exit"
+        next_action_detail = f"{review_for_exit_count} position(s) below stop-loss threshold (-5%)."
+    elif open_position_count > 0 and cr_actionable == 0:
+        next_action_code = "MONITOR_PORTFOLIO"
+        next_action_label = "Monitor portfolio"
+        next_action_detail = "Open positions are healthy. No new-entry candidates available."
+    elif cr_actionable > 0:
+        next_action_code = "REVIEW_NEW_CANDIDATES"
+        next_action_label = "Review new-entry candidates"
+        next_action_detail = f"{cr_actionable} candidate(s) in review queue (NEW or APPROVED_FOR_SIGNAL)."
+    else:
+        next_action_code = "RUN_DAILY_PROCESS_PREVIEW"
+        next_action_label = "Run Daily Process Preview"
+        next_action_detail = "No candidates in queue. Run Daily Process Preview to scan for new opportunities."
+
+    return DailyReviewSummaryResponse(
+        as_of=now,
+        # Portfolio
+        total_value=total_value,
+        cash=cash,
+        positions_value=positions_value,
+        open_position_count=open_position_count,
+        unrealized_pnl=unrealized_pnl_str,
+        total_return_pct=total_return_pct,
+        # Positions
+        hold_count=hold_count,
+        watch_count=watch_count,
+        review_for_exit_count=review_for_exit_count,
+        open_positions=pos_items,
+        # Daily process
+        current_cycle_key=current_cycle_key,
+        review_candidates_total=cr_total,
+        review_candidates_actionable=cr_actionable,
+        review_candidates_consumed=cr_consumed,
+        review_candidates_watching=cr_watching,
+        # Orders
+        pending_orders=pending_orders,
+        filled_orders=filled_orders,
+        canceled_orders=canceled_orders,
+        no_pending_orders=(pending_orders == 0),
+        # Next action
+        next_action_code=next_action_code,
+        next_action_label=next_action_label,
+        next_action_detail=next_action_detail,
+    )
 
 
 # ---------------------------------------------------------------------------

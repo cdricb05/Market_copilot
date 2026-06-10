@@ -23619,6 +23619,266 @@ class TestPositionReviewPreviewEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# TestDailyReviewSummaryEndpoint
+# ---------------------------------------------------------------------------
+
+class TestDailyReviewSummaryEndpoint:
+    """GET /v1/review/daily-review-summary — READ ONLY, no DB writes."""
+
+    _ENDPOINT = "/v1/review/daily-review-summary"
+
+    def test_auth_required(self, client: TestClient) -> None:
+        """Endpoint requires X-API-Key header."""
+        resp = client.get(self._ENDPOINT)
+        assert resp.status_code == 401
+
+    def test_read_only_no_writes(self, seeded_client: TestClient, api_engine) -> None:
+        """GET must not create any new DB rows and must return all safety flags."""
+        def _count(model_class):
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                return s.query(model_class).count()
+
+        before = {
+            "job_run": _count(JobRun),
+            "signal": _count(Signal),
+            "trade_decision": _count(TradeDecision),
+            "order": _count(Order),
+            "position": _count(Position),
+            "portfolio_snapshot": _count(PortfolioSnapshot),
+            "candidate_review": _count(CandidateReview),
+        }
+
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["preview_only"] is True
+        assert data["writes_performed"] is False
+        assert data["no_signals_created"] is True
+        assert data["no_decisions_created"] is True
+        assert data["no_orders_created"] is True
+        assert data["no_trades_created"] is True
+        assert data["no_fills_created"] is True
+        assert data["no_position_changes"] is True
+        assert data["no_cash_changes"] is True
+        assert data["no_broker_execution"] is True
+
+        after = {
+            "job_run": _count(JobRun),
+            "signal": _count(Signal),
+            "trade_decision": _count(TradeDecision),
+            "order": _count(Order),
+            "position": _count(Position),
+            "portfolio_snapshot": _count(PortfolioSnapshot),
+            "candidate_review": _count(CandidateReview),
+        }
+        for key in before:
+            assert before[key] == after[key], f"Row count for {key} changed after daily review summary"
+
+    def test_monitor_portfolio_next_action(self, seeded_client: TestClient, api_engine) -> None:
+        """Open position + no pending orders + no actionable candidates → MONITOR_PORTFOLIO."""
+        pos_id = None
+        price_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                pos = Position(
+                    ticker="DRSMON",
+                    qty=Decimal("5"),
+                    avg_cost=Decimal("100.000000"),
+                    cost_basis=Decimal("500.00"),
+                    opened_at=datetime.now(tz=timezone.utc),
+                    last_updated=datetime.now(tz=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+
+                price = PriceSnapshot(
+                    ticker="DRSMON",
+                    price=Decimal("102.000000"),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=datetime.now(tz=timezone.utc),
+                    market_date=datetime.now(tz=timezone.utc).date(),
+                    job_run_id=None,
+                )
+                session.add(price)
+                session.flush()
+                price_id = price.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["open_position_count"] >= 1
+            assert data["next_action_code"] in ("MONITOR_PORTFOLIO", "REVIEW_PENDING_ORDERS", "REVIEW_POSITION_EXIT", "REVIEW_NEW_CANDIDATES", "RUN_DAILY_PROCESS_PREVIEW")
+            # With a healthy position, no pending orders, and (likely) no actionable candidates,
+            # the next action should be MONITOR_PORTFOLIO.
+            if data["pending_orders"] == 0 and data["review_for_exit_count"] == 0 and data["review_candidates_actionable"] == 0:
+                assert data["next_action_code"] == "MONITOR_PORTFOLIO"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id:
+                    session.query(Position).filter(Position.id == pos_id).delete(synchronize_session=False)
+                if price_id:
+                    session.query(PriceSnapshot).filter(PriceSnapshot.id == price_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_review_pending_orders_next_action(self, seeded_client: TestClient, api_engine) -> None:
+        """Pending paper order present → REVIEW_PENDING_ORDERS (highest priority)."""
+        import uuid as _uuid
+        from zoneinfo import ZoneInfo
+        _eastern = ZoneInfo("America/New_York")
+        md = datetime.now(timezone.utc).astimezone(_eastern).date()
+        sfx = _uuid.uuid4().hex[:6].upper()
+        ticker = f"DRSORD{sfx[:3]}"
+
+        jr_sig_id = jr_td_id = jr_ord_id = sig_id = td_id = ord_id = snap_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                jr_sig = JobRun(
+                    idempotency_key=f"drs-sig-{sfx}",
+                    workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                    market_date=md, status="COMPLETED",
+                    completed_at=datetime.now(timezone.utc),
+                )
+                session.add(jr_sig)
+                session.flush()
+                jr_sig_id = jr_sig.id
+
+                sig = Signal(
+                    job_run_id=jr_sig.id, ticker=ticker, direction="BUY",
+                    confidence=Decimal("0.80"), signal_ts=datetime.now(timezone.utc),
+                    market_date=md, source_run=f"review_queue_create_signals_v1:drs:{sfx}",
+                    status="RECEIVED", raw_payload={},
+                )
+                session.add(sig)
+                session.flush()
+                sig_id = sig.id
+
+                snap = PriceSnapshot(
+                    ticker=ticker, price=Decimal("50.00"),
+                    session_type="REGULAR", price_type="CLOSE",
+                    market_date=md, snapshot_ts=datetime.now(timezone.utc),
+                )
+                session.add(snap)
+                session.flush()
+                snap_id = snap.id
+
+                jr_td = JobRun(
+                    idempotency_key=f"drs-td-{sfx}",
+                    workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                    market_date=md, status="COMPLETED",
+                    completed_at=datetime.now(timezone.utc),
+                )
+                session.add(jr_td)
+                session.flush()
+                jr_td_id = jr_td.id
+
+                td = TradeDecision(
+                    signal_id=sig.id, job_run_id=jr_td.id, ticker=ticker,
+                    signal_direction="BUY", decision="BUY", reason_code=None,
+                    approved_qty=Decimal("3"), approved_notional=Decimal("150.00"),
+                    requested_qty=Decimal("3"), requested_notional=Decimal("150.00"),
+                    decided_at=datetime.now(timezone.utc), market_date=md,
+                )
+                session.add(td)
+                session.flush()
+                td_id = td.id
+
+                jr_ord = JobRun(
+                    idempotency_key=f"drs-ord-{sfx}",
+                    workflow_type="REVIEW_QUEUE_CREATE_ORDERS",
+                    market_date=md, status="COMPLETED",
+                    completed_at=datetime.now(timezone.utc),
+                )
+                session.add(jr_ord)
+                session.flush()
+                jr_ord_id = jr_ord.id
+
+                order = Order(
+                    trade_decision_id=td.id, job_run_id=jr_ord.id, ticker=ticker,
+                    side="BUY", order_type="MARKET", status="PENDING",
+                    market_date=md, requested_qty=Decimal("3"),
+                    requested_at=datetime.now(timezone.utc),
+                    notes="Daily review summary test — no broker execution.",
+                )
+                session.add(order)
+                session.flush()
+                ord_id = order.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["pending_orders"] >= 1
+            assert data["next_action_code"] == "REVIEW_PENDING_ORDERS"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for model, pk in [
+                    (Order, ord_id), (TradeDecision, td_id), (Signal, sig_id),
+                    (PriceSnapshot, snap_id), (JobRun, jr_ord_id),
+                    (JobRun, jr_td_id), (JobRun, jr_sig_id),
+                ]:
+                    if pk is not None:
+                        session.query(model).filter(model.id == pk).delete(synchronize_session=False)
+                session.commit()
+
+    def test_review_new_candidates_next_action(self, seeded_client: TestClient, api_engine) -> None:
+        """Actionable candidates + no pending orders → REVIEW_NEW_CANDIDATES."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8].upper()
+        cr_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                cr = CandidateReview(
+                    idempotency_key=f"drs-cr-{sfx}",
+                    ticker=f"DRSCR{sfx[:3]}",
+                    preview_decision="CONSIDER",
+                    preview_score="80.0",
+                    status="OK",
+                    review_status="APPROVED_FOR_SIGNAL",
+                    prediction_recommendation="BUY",
+                    prediction_confidence="0.80",
+                    expected_return_pct="5.0",
+                )
+                session.add(cr)
+                session.flush()
+                cr_id = cr.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["review_candidates_actionable"] >= 1
+            if data["pending_orders"] == 0 and data["review_for_exit_count"] == 0:
+                assert data["next_action_code"] == "REVIEW_NEW_CANDIDATES"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if cr_id is not None:
+                    session.query(CandidateReview).filter(CandidateReview.id == cr_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_response_structure_complete(self, seeded_client: TestClient) -> None:
+        """Response contains all required fields."""
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        for field in [
+            "as_of", "preview_only", "writes_performed",
+            "no_signals_created", "no_decisions_created", "no_orders_created",
+            "no_trades_created", "no_fills_created", "no_position_changes",
+            "no_cash_changes", "no_broker_execution",
+            "open_position_count", "hold_count", "watch_count", "review_for_exit_count",
+            "open_positions", "review_candidates_total", "review_candidates_actionable",
+            "review_candidates_consumed", "review_candidates_watching", "portfolio_aware",
+            "pending_orders", "filled_orders", "canceled_orders", "no_pending_orders",
+            "next_action_code", "next_action_label", "next_action_detail",
+        ]:
+            assert field in data, f"Missing field: {field}"
+        assert data["portfolio_aware"] is True
+
+
+# ---------------------------------------------------------------------------
 # Static UI content assertions — reads index.html directly (no HTTP needed)
 # ---------------------------------------------------------------------------
 
@@ -23907,6 +24167,42 @@ class TestUiStaticContent:
 
     def test_held_badge_text_present(self) -> None:
         assert "HELD" in self._read_html()
+
+    # Daily Review Summary UI tests
+    def test_daily_review_summary_heading_present(self) -> None:
+        assert "Daily Review Summary" in self._read_html()
+
+    def test_generate_daily_review_summary_button_present(self) -> None:
+        assert "Generate Daily Review Summary" in self._read_html()
+
+    def test_daily_review_summary_read_only_copy_present(self) -> None:
+        assert "Read-only summary" in self._read_html()
+
+    def test_daily_review_summary_recommended_next_action_present(self) -> None:
+        drs_start = self._read_html().find('id="daily-review-summary-card"')
+        assert drs_start >= 0, "daily-review-summary-card not found"
+        assert "Recommended next action" in self._read_html()
+
+    def test_daily_review_summary_no_broker_execution_badge_present(self) -> None:
+        html = self._read_html()
+        drs_start = html.find('id="daily-review-summary-card"')
+        assert drs_start >= 0, "daily-review-summary-card not found"
+        card_section = html[drs_start:drs_start + 2000]
+        assert "NO BROKER EXECUTION" in card_section
+
+    def test_daily_review_summary_no_orders_badge_present(self) -> None:
+        html = self._read_html()
+        drs_start = html.find('id="daily-review-summary-card"')
+        assert drs_start >= 0, "daily-review-summary-card not found"
+        card_section = html[drs_start:drs_start + 2000]
+        assert "NO ORDERS" in card_section
+
+    def test_daily_review_summary_no_fills_badge_present(self) -> None:
+        html = self._read_html()
+        drs_start = html.find('id="daily-review-summary-card"')
+        assert drs_start >= 0, "daily-review-summary-card not found"
+        card_section = html[drs_start:drs_start + 2000]
+        assert "NO FILLS" in card_section
 
 
 # ===========================================================================
