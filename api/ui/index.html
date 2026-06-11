@@ -1748,6 +1748,23 @@
           <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">NO BROKER</span>
         </div>
 
+        <!-- Guided Daily Plan: Current Task card -->
+        <div id="dp-current-task-card" style="background: rgba(0,0,0,.2); border: 1px solid rgba(59,130,246,.4); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap;">
+            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Guided daily plan</div>
+            <div style="font-size: 9px; color: var(--label);">&mdash; Current task</div>
+            <span style="flex: 1;"></span>
+            <span style="font-size: 8px; color: var(--label); padding: 1px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">No automatic trading actions</span>
+            <span class="badge neutral" style="font-size: 8px; padding: 1px 5px;">AUTOMATION OFF</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 3px;">
+            <div style="font-size: 13px; font-weight: 700; color: var(--info);" id="dp-current-task-label">Run Daily Review Session to begin</div>
+            <div style="font-size: 10px; color: var(--text-secondary);" id="dp-current-task-detail"></div>
+          </div>
+          <div style="font-size: 9px; color: var(--label);" id="dp-current-task-safety"></div>
+          <div style="font-size: 8px; color: var(--label); margin-top: 6px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 5px;">Future steps are collapsed until needed &mdash; Advanced manual actions available below.</div>
+        </div>
+
         <!-- Daily Process Preview Orchestrator Panel -->
         <div id="orch-panel" style="background: rgba(0,0,0,.25); border: 1px solid rgba(59,130,246,.4); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
@@ -2008,7 +2025,9 @@
               </div>
             </div>
 
-            <!-- Signal Actions — visible after candidates approved; creates signals only; no decisions/orders -->
+            <!-- Signal Actions — future step, collapsed until candidates approved -->
+            <details id="dp-signal-actions-details">
+              <summary style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--ok);cursor:pointer;padding:4px 0;user-select:none;">Signal Actions <span style="font-weight:400;color:var(--label);text-transform:none;">&#8212; expand after approving candidates</span></summary>
             <div id="dp-signal-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(34,197,94,.4);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(34,197,94,.2); padding-bottom: 4px;">
                 <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok);">Signal Actions</div>
@@ -2031,8 +2050,11 @@
               </div>
               <div id="dp-sa-result" style="margin-top: 4px;"></div>
             </div>
+            </details>
 
-            <!-- Decision Actions — visible after signals created; creates trade decisions only; no orders/trades -->
+            <!-- Decision Actions — future step, collapsed until signals created -->
+            <details id="dp-decision-actions-details">
+              <summary style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--warning);cursor:pointer;padding:4px 0;user-select:none;">Decision Actions <span style="font-weight:400;color:var(--label);text-transform:none;">&#8212; expand after creating signals</span></summary>
             <div id="dp-decision-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(251,191,36,.4);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(251,191,36,.2); padding-bottom: 4px;">
                 <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Decision Actions</div>
@@ -2058,8 +2080,11 @@
               </div>
               <div id="dp-da-result" style="margin-top: 4px;"></div>
             </div>
+            </details>
 
-            <!-- Order Preview — visible after decisions created; previews paper order tickets only; no orders created -->
+            <!-- Order Preview — future step, collapsed until decisions created -->
+            <details id="dp-order-preview-details">
+              <summary style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--info);cursor:pointer;padding:4px 0;user-select:none;">Order Preview <span style="font-weight:400;color:var(--label);text-transform:none;">&#8212; expand after creating decisions</span></summary>
             <div id="dp-order-preview-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(59,130,246,.4);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(59,130,246,.2); padding-bottom: 4px;">
                 <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Order Preview</div>
@@ -2084,6 +2109,7 @@
               </div>
               <div id="dp-oa-result" style="margin-top: 4px;"></div>
             </div>
+            </details>
 
             <!-- Prediction Preview Result (hidden until run) -->
             <div id="prediction-preview-card" style="display: none;">
@@ -2095,6 +2121,9 @@
               <div class="compact-card"><div class="section-title">Daily Plan Preview</div><div id="daily-plan-result"></div></div>
             </div>
 
+            <!-- Plan Analytics section (collapsed) -->
+            <details id="dp-analytics-details">
+              <summary style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--label);cursor:pointer;padding:5px 0;user-select:none;">Plan Analytics <span style="font-weight:400;text-transform:none;">(Market Snapshot, Candidates, Trade Recs, Rotation, Risk)</span></summary>
             <!-- Market Snapshot -->
             <div class="compact-card" style="flex-shrink: 0;">
               <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Market Snapshot</div>
@@ -2144,6 +2173,7 @@
               <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Blocked Summary</div>
               <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-risk-blocks-summary">Generate Daily Plan to see blocked candidates and risk rule reasons (e.g. MAX_POSITIONS_REACHED, MIN_CONFIDENCE).</div>
             </div>
+            </details>
 
           </div><!-- end cockpit-center-col -->
 
@@ -10612,6 +10642,35 @@ async function _runDailyReviewSession() {
 
 // ----- End Daily Review Session -----
 
+function updateDpCurrentTask() {
+  const labelEl = document.getElementById('dp-current-task-label');
+  const detailEl = document.getElementById('dp-current-task-detail');
+  const safetyEl = document.getElementById('dp-current-task-safety');
+  if (!labelEl) return;
+  const d = window._lastDailyReviewSummary;
+  const code = d ? d.next_action_code : null;
+  const colorMap = {
+    'REVIEW_NEW_CANDIDATES': 'var(--info)',
+    'REVIEW_PENDING_ORDERS': 'var(--warning)',
+    'REVIEW_POSITION_EXIT': 'var(--danger)',
+    'MONITOR_PORTFOLIO': 'var(--ok)',
+    'RUN_DAILY_PROCESS_PREVIEW': 'var(--label)',
+  };
+  const safetyMap = {
+    'REVIEW_NEW_CANDIDATES': 'Approving candidates does not create signals or orders.',
+    'REVIEW_PENDING_ORDERS': 'Paper orders only. No broker execution.',
+    'MONITOR_PORTFOLIO': 'No action required. Monitor open positions.',
+    'RUN_DAILY_PROCESS_PREVIEW': 'Go to Overview to run Daily Review Session.',
+  };
+  const displayLabel = d
+    ? (d.next_action_label || (_DRS_ACTION_LABELS[code] || code || 'Run Daily Review Session to begin'))
+    : 'Run Daily Review Session to begin';
+  labelEl.style.color = colorMap[code] || 'var(--info)';
+  labelEl.textContent = displayLabel;
+  if (detailEl) detailEl.textContent = d ? (d.next_action_detail || '') : '';
+  if (safetyEl) safetyEl.textContent = safetyMap[code] || '';
+}
+
 // Next-action code to canonical label map (used by _syncDrsToUi and UI static tests)
 const _DRS_ACTION_LABELS = {
   'REVIEW_PENDING_ORDERS': 'Review pending paper orders',
@@ -10634,6 +10693,7 @@ function _syncDrsToUi(d) {
       dpPrimRec.textContent = _label + '. ' + (d.next_action_detail || '');
     }
   }
+  updateDpCurrentTask();
 }
 
 async function refreshWorkflowStatus() {
@@ -11041,6 +11101,8 @@ function updateCockpitReviewSummary() {
     const dpSaHasApproved = document.getElementById('dp-sa-has-approved');
     if (dpSaNoApproved) dpSaNoApproved.style.display = approved > 0 ? 'none' : '';
     if (dpSaHasApproved) dpSaHasApproved.style.display = approved > 0 ? '' : 'none';
+    const dpSaDetails = document.getElementById('dp-signal-actions-details');
+    if (dpSaDetails) dpSaDetails.open = approved > 0;
   }
 }
 

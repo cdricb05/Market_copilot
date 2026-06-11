@@ -26806,3 +26806,62 @@ class TestUiDailyPlanOrderPreviewContent:
         assert idx_start >= 0 and idx_end > idx_start, "dp-order-preview-card or dp-oa-result not found"
         card_section = html[idx_start:idx_end]
         assert "Create Paper Orders" not in card_section
+
+
+class TestUiGuidedDailyPlanContent:
+    """Verify Guided Daily Plan v1 UI elements are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_guided_daily_plan_text_present(self) -> None:
+        assert "Guided daily plan" in self._read_html()
+
+    def test_current_task_text_present(self) -> None:
+        assert "Current task" in self._read_html()
+
+    def test_review_new_entry_candidates_text_present(self) -> None:
+        assert "Review new-entry candidates" in self._read_html()
+
+    def test_future_steps_collapsed_text_present(self) -> None:
+        assert "Future steps are collapsed until needed" in self._read_html()
+
+    def test_advanced_manual_actions_text_present(self) -> None:
+        assert "Advanced manual actions" in self._read_html()
+
+    def test_no_automatic_trading_actions_text_present(self) -> None:
+        assert "No automatic trading actions" in self._read_html()
+
+    def test_dp_current_task_card_present(self) -> None:
+        assert 'id="dp-current-task-card"' in self._read_html()
+
+    def test_dp_current_task_label_id_present(self) -> None:
+        assert 'id="dp-current-task-label"' in self._read_html()
+
+    def test_update_dp_current_task_function_present(self) -> None:
+        assert "updateDpCurrentTask" in self._read_html()
+
+    def test_signal_actions_details_element_present(self) -> None:
+        assert 'id="dp-signal-actions-details"' in self._read_html()
+
+    def test_decision_actions_details_element_present(self) -> None:
+        assert 'id="dp-decision-actions-details"' in self._read_html()
+
+    def test_order_preview_details_element_present(self) -> None:
+        assert 'id="dp-order-preview-details"' in self._read_html()
+
+    def test_analytics_details_element_present(self) -> None:
+        assert 'id="dp-analytics-details"' in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
