@@ -3349,8 +3349,20 @@
 
 <!-- Review Note Panel — capture review rationale before updating candidate status -->
 <div id="review-note-panel" class="confirm-modal">
-  <div class="confirm-modal-content" style="width:380px; max-width:94vw;">
+  <div class="confirm-modal-content" style="width:440px; max-width:96vw;">
     <div class="confirm-modal-title" id="rnp-title">Review rationale</div>
+    <div id="rnp-context-info" style="font-size:10px; color:var(--text-secondary); margin-bottom:8px; padding:6px 8px; background:rgba(0,0,0,.15); border-radius:2px; min-height:18px;"></div>
+    <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:10px;">
+      <span class="badge warning" style="font-size:8px; padding:2px 5px;">MANUAL REVIEW</span>
+      <span class="badge neutral" style="font-size:8px; padding:2px 5px;">REVIEW RATIONALE ONLY</span>
+      <span class="badge neutral" style="font-size:8px; padding:2px 5px;">NO SIGNALS</span>
+      <span class="badge neutral" style="font-size:8px; padding:2px 5px;">NO DECISIONS</span>
+      <span class="badge neutral" style="font-size:8px; padding:2px 5px;">NO ORDERS</span>
+      <span class="badge neutral" style="font-size:8px; padding:2px 5px;">NO TRADES</span>
+      <span class="badge neutral" style="font-size:8px; padding:2px 5px;">NO FILLS</span>
+      <span class="badge neutral" style="font-size:8px; padding:2px 5px;">NO BROKER EXECUTION</span>
+      <span class="badge neutral" style="font-size:8px; padding:2px 5px;">AUTOMATION OFF</span>
+    </div>
     <div style="margin-bottom:10px;">
       <div style="font-size:10px; color:var(--label); margin-bottom:3px; text-transform:uppercase; font-weight:600; letter-spacing:.04em;">Reason code</div>
       <select id="rnp-reason" style="width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text-primary); padding:5px 8px; border-radius:3px; font-size:11px;"></select>
@@ -3359,7 +3371,7 @@
       <div style="font-size:10px; color:var(--label); margin-bottom:3px; text-transform:uppercase; font-weight:600; letter-spacing:.04em;">Optional note</div>
       <input id="rnp-note" type="text" maxlength="500" placeholder="Optional review note..." style="width:100%; box-sizing:border-box; background:var(--bg); border:1px solid var(--border); color:var(--text-primary); padding:5px 8px; border-radius:3px; font-size:11px;">
     </div>
-    <div style="font-size:9px; color:var(--label); margin-bottom:10px; padding:5px 8px; background:rgba(0,0,0,.15); border-radius:2px; line-height:1.5;">No trading actions are created by review notes.</div>
+    <div style="font-size:9px; color:var(--label); margin-bottom:10px; padding:5px 8px; background:rgba(0,0,0,.15); border-radius:2px; line-height:1.5;">This updates manual review rationale only. No signals, decisions, orders, trades, fills, or broker actions are created. No trading actions are created by review notes.</div>
     <div class="confirm-modal-buttons">
       <button class="btn-cancel" onclick="_rnpCancel()">Cancel</button>
       <button class="btn-confirm" onclick="_rnpConfirm()">Save Review</button>
@@ -8633,12 +8645,14 @@ function renderDpInlineReviewQueue(candidates) {
                          c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
     const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
                     c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+    const reasonBadge = c.review_reason_code ? `<br><span style="font-size:8px;color:var(--label);">${escapeHtml(c.review_reason_code)}</span>` : '';
+    const noteBadge = c.review_note ? `<br><span style="font-size:8px;color:var(--text-secondary);font-style:italic;">${escapeHtml(c.review_note.length > 30 ? c.review_note.substring(0, 30) + '...' : c.review_note)}</span>` : '';
     const dpActionHtml = isConsumed
       ? '<span style="font-size:8px;color:var(--label);font-style:italic;">Completed / consumed</span>'
       : `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
     return `<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">
       <td style="padding:4px 6px;"><strong>${escapeHtml(c.ticker)}</strong></td>
-      <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(statusLabel)}</td>
+      <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(statusLabel)}${reasonBadge}${noteBadge}</td>
       <td style="padding:4px 6px;color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
       <td style="padding:4px 6px;text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
       <td style="padding:4px 6px;color:${recColor};font-weight:600;">${escapeHtml(c.prediction_recommendation || '-')}</td>
@@ -8986,6 +9000,7 @@ async function updateReviewStatus(candidateId, newStatus, reasonCode, note) {
     const result = await parseApiResponse(r);
     if (r.ok) {
       await loadReviewQueue();
+      refreshCockpitAfterAction('Candidate Review');
     } else {
       toast(`Failed: ${result.detail}`, 'err');
     }
@@ -10407,8 +10422,27 @@ function _showReviewNotePanel(candidateId, ticker, newStatus) {
   const panel = document.getElementById('review-note-panel');
   if (!panel) return;
   const title = document.getElementById('rnp-title');
-  const statusLabel = { 'APPROVED_FOR_SIGNAL': 'Approve', 'WATCHING': 'Watch', 'REJECTED': 'Reject' }[newStatus] || newStatus;
-  if (title) title.textContent = 'Review rationale: ' + ticker + ' → ' + statusLabel;
+  const actionTitles = {
+    'APPROVED_FOR_SIGNAL': 'Approve candidate',
+    'WATCHING': 'Move candidate to watch',
+    'REJECTED': 'Reject candidate'
+  };
+  if (title) title.textContent = actionTitles[newStatus] || ('Review candidate: ' + ticker);
+  const contextEl = document.getElementById('rnp-context-info');
+  if (contextEl) {
+    const cData = (window._lastReviewQueueData || []).find(function(c) { return c.id === candidateId; });
+    if (cData) {
+      const score = cData.preview_score ? parseFloat(cData.preview_score).toFixed(1) : '-';
+      const rec = cData.prediction_recommendation ? escapeHtml(cData.prediction_recommendation) : '-';
+      const decision = cData.preview_decision ? escapeHtml(cData.preview_decision) : '-';
+      contextEl.innerHTML = '<strong style="color:var(--text-primary);">' + escapeHtml(ticker) + '</strong>'
+        + '<span style="color:var(--label);margin:0 5px;">&mdash;</span>Score: <strong>' + score + '</strong>'
+        + '<span style="color:var(--label);margin:0 5px;">&mdash;</span>Rec: <strong>' + rec + '</strong>'
+        + '<span style="color:var(--label);margin:0 5px;">&mdash;</span>Decision: <strong>' + decision + '</strong>';
+    } else {
+      contextEl.innerHTML = '<strong style="color:var(--text-primary);">' + escapeHtml(ticker) + '</strong>';
+    }
+  }
   const reasonSel = document.getElementById('rnp-reason');
   if (reasonSel) {
     const opts = _REVIEW_REASON_OPTIONS[newStatus] || [];

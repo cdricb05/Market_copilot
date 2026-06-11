@@ -26943,3 +26943,69 @@ class TestUiReviewWorkspaceV2Content:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+# ===========================================================================
+# TestCandidateReviewActionV2UiContent
+# ===========================================================================
+
+class TestCandidateReviewActionV2UiContent:
+    """Verify Candidate Review Action v2 UI elements are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_approve_candidate_text_present(self) -> None:
+        assert "Approve candidate" in self._read_html()
+
+    def test_move_candidate_to_watch_text_present(self) -> None:
+        assert "Move candidate to watch" in self._read_html()
+
+    def test_reject_candidate_text_present(self) -> None:
+        assert "Reject candidate" in self._read_html()
+
+    def test_review_rationale_text_present(self) -> None:
+        assert "Review rationale" in self._read_html()
+
+    def test_reason_code_text_present(self) -> None:
+        assert "Reason code" in self._read_html()
+
+    def test_optional_note_text_present(self) -> None:
+        assert "Optional note" in self._read_html()
+
+    def test_save_review_text_present(self) -> None:
+        assert "Save Review" in self._read_html()
+
+    def test_review_rationale_only_badge_present(self) -> None:
+        assert "REVIEW RATIONALE ONLY" in self._read_html()
+
+    def test_no_trading_actions_review_notes_text_present(self) -> None:
+        assert "No trading actions are created by review notes" in self._read_html()
+
+    def test_review_note_panel_id_present(self) -> None:
+        assert 'id="review-note-panel"' in self._read_html()
+
+    def test_rnp_title_id_present(self) -> None:
+        assert 'id="rnp-title"' in self._read_html()
+
+    def test_rnp_context_info_id_present(self) -> None:
+        assert 'id="rnp-context-info"' in self._read_html()
+
+    def test_rnp_reason_id_present(self) -> None:
+        assert 'id="rnp-reason"' in self._read_html()
+
+    def test_rnp_note_id_present(self) -> None:
+        assert 'id="rnp-note"' in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
