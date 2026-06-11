@@ -26865,3 +26865,81 @@ class TestUiGuidedDailyPlanContent:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiReviewWorkspaceV2Content:
+    """Verify Daily Plan Review Workspace v2 UI elements are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_review_workspace_text_present(self) -> None:
+        assert "Review Workspace" in self._read_html()
+
+    def test_current_task_label_text_present(self) -> None:
+        assert "Current task:" in self._read_html()
+
+    def test_approve_watch_reject_text_present(self) -> None:
+        assert "Approve, watch, or reject candidates" in self._read_html()
+
+    def test_approving_does_not_create_signals_text_present(self) -> None:
+        assert "Approving candidates does not create signals or orders" in self._read_html()
+
+    def test_setup_rerun_drawer_text_present(self) -> None:
+        assert "Setup / rerun daily process" in self._read_html()
+
+    def test_later_steps_text_present(self) -> None:
+        assert "Later steps" in self._read_html()
+
+    def test_diagnostics_manual_tools_text_present(self) -> None:
+        assert "Diagnostics and manual tools" in self._read_html()
+
+    def test_these_steps_unlock_text_present(self) -> None:
+        assert "These steps unlock after candidate review" in self._read_html()
+
+    def test_no_automatic_trading_actions_text_present(self) -> None:
+        assert "No automatic trading actions" in self._read_html()
+
+    def test_dp_setup_drawer_id_present(self) -> None:
+        assert 'id="dp-setup-drawer"' in self._read_html()
+
+    def test_dp_later_steps_details_id_present(self) -> None:
+        assert 'id="dp-later-steps-details"' in self._read_html()
+
+    def test_dp_diagnostics_details_id_present(self) -> None:
+        assert 'id="dp-diagnostics-details"' in self._read_html()
+
+    def test_dp_inline_rq_card_present(self) -> None:
+        assert 'id="dp-inline-rq-card"' in self._read_html()
+
+    def test_dp_rq_tbody_present(self) -> None:
+        assert 'id="dp-rq-tbody"' in self._read_html()
+
+    def test_review_queue_is_before_setup_drawer(self) -> None:
+        html = self._read_html()
+        rq_pos = html.find('id="dp-inline-rq-card"')
+        setup_pos = html.find('id="dp-setup-drawer"')
+        assert rq_pos < setup_pos, "Review Queue must appear before setup drawer"
+
+    def test_later_steps_before_setup_drawer(self) -> None:
+        html = self._read_html()
+        later_pos = html.find('id="dp-later-steps-details"')
+        setup_pos = html.find('id="dp-setup-drawer"')
+        assert later_pos < setup_pos, "Later steps drawer must appear before setup drawer"
+
+    def test_no_duplicate_rq_tbody_id(self) -> None:
+        html = self._read_html()
+        assert html.count('id="dp-rq-tbody"') == 1
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0

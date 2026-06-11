@@ -1737,33 +1737,246 @@
         <!-- Daily Plan Summary Label -->
         <div style="font-size: 8px; color: var(--label); margin: 8px 0 4px 0; text-transform: uppercase; letter-spacing: 0.06em;">Daily Plan Summary</div>
 
-        <!-- Command bar: safety badges -->
+        <!-- Safety command bar -->
         <div class="daily-plan-command-bar">
-          <span style="font-size: 9px; color: var(--label); flex-shrink: 0;">Preview only &mdash; no writes</span>
           <span style="font-size: 8px; color: var(--info); background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3); padding: 2px 5px; border-radius: 2px; flex-shrink: 0; font-weight: 600;">Portfolio-aware daily process</span>
           <span style="flex: 1;"></span>
           <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">MANUAL REVIEW</span>
           <span class="badge ok" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">PAPER ORDERS ONLY</span>
           <span class="badge neutral" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">AUTOMATION OFF</span>
-          <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">NO BROKER</span>
+          <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">NO BROKER EXECUTION</span>
         </div>
 
-        <!-- Guided Daily Plan: Current Task card -->
-        <div id="dp-current-task-card" style="background: rgba(0,0,0,.2); border: 1px solid rgba(59,130,246,.4); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap;">
-            <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Guided daily plan</div>
-            <div style="font-size: 9px; color: var(--label);">&mdash; Current task</div>
-            <span style="flex: 1;"></span>
-            <span style="font-size: 8px; color: var(--label); padding: 1px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">No automatic trading actions</span>
-            <span class="badge neutral" style="font-size: 8px; padding: 1px 5px;">AUTOMATION OFF</span>
+        <!-- Review Workspace: primary full-width header -->
+        <div id="dp-current-task-card" style="background: rgba(59,130,246,.09); border: 2px solid rgba(59,130,246,.5); border-radius: 6px; padding: 14px 18px; margin-bottom: 12px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; flex-wrap: wrap;">
+            <div style="font-size: 15px; font-weight: 800; color: var(--info); letter-spacing: 0.01em;">Review Workspace</div>
+            <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: 0.08em; align-self: center;">Guided daily plan</div>
+            <div style="font-size: 11px; color: var(--label);">&mdash; Current task:</div>
+            <div id="dp-current-task-label" style="font-size: 13px; font-weight: 700; color: var(--info);">Review new-entry candidates</div>
+            <div id="dp-current-task-detail" style="font-size: 10px; color: var(--text-secondary);"></div>
           </div>
-          <div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 3px;">
-            <div style="font-size: 13px; font-weight: 700; color: var(--info);" id="dp-current-task-label">Run Daily Review Session to begin</div>
-            <div style="font-size: 10px; color: var(--text-secondary);" id="dp-current-task-detail"></div>
+          <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 8px;">Approve, watch, or reject candidates. Approving candidates does not create signals or orders.</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">
+            <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
+            <span class="badge ok" style="font-size: 8px; padding: 2px 5px;">PREVIEW ONLY</span>
+            <span style="font-size: 8px; color: var(--label); padding: 2px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">NO SIGNALS</span>
+            <span style="font-size: 8px; color: var(--label); padding: 2px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">NO DECISIONS</span>
+            <span style="font-size: 8px; color: var(--label); padding: 2px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">NO ORDERS</span>
+            <span style="font-size: 8px; color: var(--label); padding: 2px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">NO BROKER EXECUTION</span>
+            <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
           </div>
-          <div style="font-size: 9px; color: var(--label);" id="dp-current-task-safety"></div>
+          <div id="dp-current-task-safety" style="font-size: 9px; color: var(--label);"></div>
           <div style="font-size: 8px; color: var(--label); margin-top: 6px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 5px;">Future steps are collapsed until needed &mdash; Advanced manual actions available below.</div>
         </div>
+
+        <!-- Review Queue: primary action panel (full width) -->
+        <div id="dp-inline-rq-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(245,158,11,.4); margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Review Queue</div>
+              <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+            </div>
+            <button class="btn-sm" style="font-size: 9px; padding: 2px 8px;" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh Review Queue</button>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px;">
+            <div style="text-align: center; background: rgba(0,0,0,.2); padding: 5px; border-radius: 2px; border: 1px solid var(--border);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Total</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--text-primary);" id="dp-rq-total">-</div>
+            </div>
+            <div style="text-align: center; background: rgba(34,197,94,.08); padding: 5px; border-radius: 2px; border: 1px solid rgba(34,197,94,.3);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Approved</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--ok);" id="dp-rq-approved">-</div>
+            </div>
+            <div style="text-align: center; background: rgba(245,158,11,.08); padding: 5px; border-radius: 2px; border: 1px solid rgba(245,158,11,.3);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Watching</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--warning);" id="dp-rq-watching">-</div>
+            </div>
+            <div style="text-align: center; background: rgba(239,68,68,.08); padding: 5px; border-radius: 2px; border: 1px solid rgba(239,68,68,.3);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Rejected</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--danger);" id="dp-rq-rejected">-</div>
+            </div>
+            <div style="text-align: center; background: rgba(0,0,0,.2); padding: 5px; border-radius: 2px; border: 1px solid var(--border);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Pending</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--text-accent);" id="dp-rq-pending">-</div>
+            </div>
+          </div>
+          <div style="font-size: 9px; color: var(--text-accent); margin-bottom: 8px; padding: 4px 8px; background: rgba(59,130,246,.06); border-left: 2px solid var(--info); border-radius: 0 2px 2px 0; line-height: 1.4;">
+            Review and approve candidates &mdash; click <strong>Approve</strong> for each candidate you want eligible for signal creation. <strong>Approving does not create signals or orders.</strong>
+          </div>
+          <div style="overflow-x: auto; max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+              <thead>
+                <tr style="background: rgba(0,0,0,.3);">
+                  <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Ticker</th>
+                  <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Status</th>
+                  <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Decision</th>
+                  <th style="padding: 4px 6px; text-align: right; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Score</th>
+                  <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Rec</th>
+                  <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="dp-rq-tbody">
+                <tr><td colspan="6" style="text-align: center; color: var(--label); font-style: italic; padding: 12px; font-size: 10px;">No review candidates saved yet &mdash; run Daily Process Preview, then Save All or Save Eligible Candidates.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Later steps: signals, decisions, paper orders (collapsed) -->
+        <details id="dp-later-steps-details" style="margin-bottom: 6px;">
+          <summary style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); cursor: pointer; padding: 7px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px; user-select: none;">
+            Later steps &mdash; signals, decisions, paper orders
+            <span style="font-weight: 400; text-transform: none; font-size: 9px;">&nbsp;(collapsed until candidate review complete)</span>
+          </summary>
+          <div style="padding: 8px 0 4px 0;">
+            <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.15); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">These steps unlock after candidate review. No automatic trading actions.</div>
+
+            <!-- Signal Actions -->
+            <details id="dp-signal-actions-details">
+              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok); cursor: pointer; padding: 4px 0; user-select: none;">Signal Actions <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after approving candidates</span></summary>
+            <div id="dp-signal-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(34,197,94,.4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(34,197,94,.2); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok);">Signal Actions</div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(34,197,94,.15); color: var(--ok); border: 1px solid rgba(34,197,94,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">SIGNALS ONLY</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS</span>
+                </div>
+              </div>
+              <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 8px; background: rgba(34,197,94,.06); border-left: 2px solid rgba(34,197,94,.5); border-radius: 0 2px 2px 0; line-height: 1.4;">
+                Creates signal records only &mdash; no decisions, no orders, no trades.
+                <span id="dp-sa-approved-count" style="font-weight: 700; color: var(--ok);">0</span> candidate(s) approved for signal.
+              </div>
+              <div id="dp-sa-no-approved-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Approve candidates in Review Queue first.</div>
+              <div id="dp-sa-completed-msg" style="display: none; font-size: 10px; color: var(--ok); font-style: italic; padding: 6px 0; text-align: center;">Signal consumed &mdash; paper order filled. Review Portfolio tab.</div>
+              <div id="dp-sa-has-approved" style="display: none;">
+                <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                  <button class="btn-sm" style="background: rgba(34,197,94,.12); color: var(--ok); border: 1px solid rgba(34,197,94,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewSignals(this)">Preview Signals from Approved Candidates</button>
+                  <button id="dp-sa-create-btn" class="btn-sm" style="background: rgba(34,197,94,.22); color: var(--ok); border: 1px solid rgba(34,197,94,.6); font-size: 9px; padding: 3px 10px; font-weight: 700;" onclick="dpCreateSignals(this)">Create Signals from Approved Candidates</button>
+                </div>
+              </div>
+              <div id="dp-sa-result" style="margin-top: 4px;"></div>
+            </div>
+            </details>
+
+            <!-- Decision Actions -->
+            <details id="dp-decision-actions-details">
+              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); cursor: pointer; padding: 4px 0; user-select: none;">Decision Actions <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after creating signals</span></summary>
+            <div id="dp-decision-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(251,191,36,.4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(251,191,36,.2); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Decision Actions</div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(251,191,36,.15); color: var(--warning); border: 1px solid rgba(251,191,36,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">DECISIONS ONLY</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO TRADES</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(99,102,241,.12); color: var(--text-accent); border: 1px solid rgba(99,102,241,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">MANUAL REVIEW</span>
+                </div>
+              </div>
+              <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 8px; background: rgba(251,191,36,.06); border-left: 2px solid rgba(251,191,36,.5); border-radius: 0 2px 2px 0; line-height: 1.4;">
+                Creates trade decision records only &mdash; no orders, no trades, no fills.
+                Signals: <span id="dp-da-signal-count" style="font-weight: 700; color: var(--warning);">0</span> received &nbsp;|&nbsp;
+                Decisions: <span id="dp-da-decision-count" style="font-weight: 700; color: var(--text-secondary);">0</span> existing &nbsp;|&nbsp;
+                Orders: <span id="dp-da-order-count" style="font-weight: 700; color: var(--text-secondary);">0</span>
+              </div>
+              <div id="dp-da-no-signals-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Create signals first.</div>
+              <div id="dp-da-has-signals" style="display: none;">
+                <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                  <button class="btn-sm" style="background: rgba(251,191,36,.12); color: var(--warning); border: 1px solid rgba(251,191,36,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewDecisions(this)">Preview Decisions from Signals</button>
+                  <button id="dp-da-create-btn" class="btn-sm" style="background: rgba(251,191,36,.22); color: var(--warning); border: 1px solid rgba(251,191,36,.6); font-size: 9px; padding: 3px 10px; font-weight: 700;" onclick="dpCreateDecisions(this)">Create Trade Decisions from Signals</button>
+                </div>
+              </div>
+              <div id="dp-da-result" style="margin-top: 4px;"></div>
+            </div>
+            </details>
+
+            <!-- Order Preview -->
+            <details id="dp-order-preview-details">
+              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info); cursor: pointer; padding: 4px 0; user-select: none;">Order Preview <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after creating decisions</span></summary>
+            <div id="dp-order-preview-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(59,130,246,.4);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(59,130,246,.2); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Order Preview</div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">PREVIEW ONLY</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(34,197,94,.1); color: var(--ok); border: 1px solid rgba(34,197,94,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS CREATED</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO TRADES</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO BROKER EXECUTION</span>
+                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(99,102,241,.12); color: var(--text-accent); border: 1px solid rgba(99,102,241,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">MANUAL REVIEW</span>
+                </div>
+              </div>
+              <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 8px; background: rgba(59,130,246,.06); border-left: 2px solid rgba(59,130,246,.5); border-radius: 0 2px 2px 0; line-height: 1.4;">
+                Previews paper order tickets only &mdash; no orders, no trades, no fills, no broker execution.
+                Eligible decisions: <span id="dp-oa-decision-count" style="font-weight: 700; color: var(--info);">0</span> &nbsp;|&nbsp;
+                Orders: <span id="dp-oa-order-count" style="font-weight: 700; color: var(--text-secondary);">0</span>
+              </div>
+              <div id="dp-oa-no-decisions-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Create trade decisions first.</div>
+              <div id="dp-oa-has-decisions" style="display: none;">
+                <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                  <button class="btn-sm" style="background: rgba(59,130,246,.12); color: var(--info); border: 1px solid rgba(59,130,246,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewOrders(this)">Preview Paper Orders</button>
+                </div>
+              </div>
+              <div id="dp-oa-result" style="margin-top: 4px;"></div>
+            </div>
+            </details>
+
+            <!-- Plan Analytics -->
+            <details id="dp-analytics-details">
+              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); cursor: pointer; padding: 5px 0; user-select: none;">Plan Analytics <span style="font-weight: 400; text-transform: none;">(Market Snapshot, Candidates, Trade Recs, Rotation, Risk)</span></summary>
+            <!-- Market Snapshot -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Market Snapshot</div>
+              <div style="font-size: 9px; color: var(--label); font-style: italic;">Run Daily Process to populate market snapshot. Benchmark (SPY) and key metrics will appear here after scan.</div>
+            </div>
+            <!-- Candidate Funnel -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent);">Candidate Funnel</div>
+                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+              </div>
+              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-candidate-funnel-summary">Run Daily Process to see candidate counts: Scanned &rarr; Eligible &rarr; Approved &rarr; Planned.</div>
+            </div>
+            <!-- Trade Recommendations -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--info);">Trade Recommendations</div>
+                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+              </div>
+              <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Primary Recommendation</div>
+              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-trade-recs-summary">Generate Daily Plan to see trade recommendations. BUY candidates and their expected returns will appear here.</div>
+            </div>
+            <!-- Rotation Recommendations -->
+            <div class="compact-card dp-rotation-card" style="flex-shrink: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--warning);">Rotation Recommendations</div>
+                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+              </div>
+              <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; padding: 4px 8px; background: rgba(245,158,11,.06); border-left: 2px solid rgba(245,158,11,.4); border-radius: 0 2px 2px 0; line-height: 1.4;">
+                When portfolio is at max capacity, rotation compares incoming candidates vs existing positions by expected after-cost P&amp;L improvement. Full capacity does not mean rejected &mdash; it means rotation analysis is needed. Future: automatic comparison logic.
+              </div>
+              <div id="step3b-rotation-preview">
+                <button class="btn" style="background: var(--warning); color: white; font-weight: 600; font-size: 10px;" onclick="runRotationPreview(this)">Preview Rotation</button>
+                <div style="font-size: 9px; color: var(--label); margin-top: 4px; font-style: italic;">Rotation unavailable &mdash; portfolio not at max capacity, or preview not yet run.</div>
+              </div>
+              <div id="rotation-preview-card" style="display: none; margin-top: 8px;">
+                <div id="rotation-preview-result" style="font-size: 10px; color: var(--text-accent);"></div>
+              </div>
+            </div>
+            <!-- Risk Blocks -->
+            <div class="compact-card" style="flex-shrink: 0;">
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--danger); margin-bottom: 6px; border-bottom: 1px solid rgba(239,68,68,.2); padding-bottom: 4px;">Risk Blocks</div>
+              <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Blocked Summary</div>
+              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-risk-blocks-summary">Generate Daily Plan to see blocked candidates and risk rule reasons (e.g. MAX_POSITIONS_REACHED, MIN_CONFIDENCE).</div>
+            </div>
+            </details>
+          </div>
+        </details>
+
+        <!-- Setup / rerun daily process (collapsed) -->
+        <details id="dp-setup-drawer" style="margin-bottom: 6px;">
+          <summary style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); cursor: pointer; padding: 7px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px; user-select: none;">
+            Setup / rerun daily process
+            <span style="font-weight: 400; text-transform: none; font-size: 9px;">&nbsp;(scan, generate candidates, daily plan)</span>
+          </summary>
+          <div style="padding: 8px 0 4px 0;">
 
         <!-- Daily Process Preview Orchestrator Panel -->
         <div id="orch-panel" style="background: rgba(0,0,0,.25); border: 1px solid rgba(59,130,246,.4); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
@@ -1961,224 +2174,25 @@
             <div id="prediction-strategy-card" style="display:none;"><div class="compact-card"><div class="section-title">Prediction Strategy Result</div><div id="prediction-strategy-result" class="step-result"></div></div></div>
             <div id="strategy-readiness" style="display:none;"><div class="compact-card"><div class="section-title">Strategy Readiness</div><div id="readiness-context" style="font-size:10px;color:var(--label);margin-bottom:8px;"></div><div id="readiness-result" class="step-result"></div></div></div>
 
-          </div><!-- end daily-plan-main-panel -->
-
-          <!-- CENTER PANEL (1fr): Recommendation + preview results -->
-          <div class="cockpit-center-col">
-
-            <!-- Primary recommendation for daily plan (updated after plan runs) -->
-            <div class="main-recommendation-card" id="dp-rec-card" style="flex-shrink: 0;">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--info); margin-bottom: 4px; border-bottom: 1px solid rgba(59,130,246,.3); padding-bottom: 3px;">Recommended Next Action</div>
-              <div style="font-size: 11px; color: var(--text-primary); line-height: 1.5;" id="dp-primary-recommendation">Generate Candidate Preview (SCAN) to begin the daily workflow</div>
-            </div>
-
-            <!-- Inline Review Queue — always visible; shows candidates with approve/reject actions -->
-            <div id="dp-inline-rq-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(245,158,11,.4);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Review Queue</div>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
-                  <button class="btn-sm" style="font-size: 9px; padding: 2px 8px;" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh Review Queue</button>
-                </div>
-              </div>
-              <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px;">
-                <div style="text-align:center; background:rgba(0,0,0,.2); padding:5px; border-radius:2px; border:1px solid var(--border);">
-                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Total</div>
-                  <div style="font-size:14px; font-weight:700; color:var(--text-primary);" id="dp-rq-total">-</div>
-                </div>
-                <div style="text-align:center; background:rgba(34,197,94,.08); padding:5px; border-radius:2px; border:1px solid rgba(34,197,94,.3);">
-                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Approved</div>
-                  <div style="font-size:14px; font-weight:700; color:var(--ok);" id="dp-rq-approved">-</div>
-                </div>
-                <div style="text-align:center; background:rgba(245,158,11,.08); padding:5px; border-radius:2px; border:1px solid rgba(245,158,11,.3);">
-                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Watching</div>
-                  <div style="font-size:14px; font-weight:700; color:var(--warning);" id="dp-rq-watching">-</div>
-                </div>
-                <div style="text-align:center; background:rgba(239,68,68,.08); padding:5px; border-radius:2px; border:1px solid rgba(239,68,68,.3);">
-                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Rejected</div>
-                  <div style="font-size:14px; font-weight:700; color:var(--danger);" id="dp-rq-rejected">-</div>
-                </div>
-                <div style="text-align:center; background:rgba(0,0,0,.2); padding:5px; border-radius:2px; border:1px solid var(--border);">
-                  <div style="font-size:8px; color:var(--label); text-transform:uppercase;">Pending</div>
-                  <div style="font-size:14px; font-weight:700; color:var(--text-accent);" id="dp-rq-pending">-</div>
-                </div>
-              </div>
-              <div style="font-size: 9px; color: var(--text-accent); margin-bottom: 8px; padding: 4px 8px; background: rgba(59,130,246,.06); border-left: 2px solid var(--info); border-radius: 0 2px 2px 0; line-height: 1.4;">
-                Review and approve candidates &mdash; click <strong>Approve</strong> for each candidate you want eligible for signal creation. <strong>Approving does not create signals or orders.</strong>
-              </div>
-              <div style="overflow-x: auto; max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
-                  <thead>
-                    <tr style="background: rgba(0,0,0,.3);">
-                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Ticker</th>
-                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Status</th>
-                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Decision</th>
-                      <th style="padding: 4px 6px; text-align: right; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Score</th>
-                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Rec</th>
-                      <th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="dp-rq-tbody">
-                    <tr><td colspan="6" style="text-align:center; color:var(--label); font-style:italic; padding: 12px; font-size: 10px;">No review candidates saved yet &mdash; run Daily Process Preview, then Save All or Save Eligible Candidates.</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- Signal Actions — future step, collapsed until candidates approved -->
-            <details id="dp-signal-actions-details">
-              <summary style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--ok);cursor:pointer;padding:4px 0;user-select:none;">Signal Actions <span style="font-weight:400;color:var(--label);text-transform:none;">&#8212; expand after approving candidates</span></summary>
-            <div id="dp-signal-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(34,197,94,.4);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(34,197,94,.2); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok);">Signal Actions</div>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(34,197,94,.15); color: var(--ok); border: 1px solid rgba(34,197,94,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">SIGNALS ONLY</span>
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS</span>
-                </div>
-              </div>
-              <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 8px; background: rgba(34,197,94,.06); border-left: 2px solid rgba(34,197,94,.5); border-radius: 0 2px 2px 0; line-height: 1.4;">
-                Creates signal records only &mdash; no decisions, no orders, no trades.
-                <span id="dp-sa-approved-count" style="font-weight: 700; color: var(--ok);">0</span> candidate(s) approved for signal.
-              </div>
-              <div id="dp-sa-no-approved-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Approve candidates in Review Queue first.</div>
-              <div id="dp-sa-completed-msg" style="display: none; font-size: 10px; color: var(--ok); font-style: italic; padding: 6px 0; text-align: center;">Signal consumed — paper order filled. Review Portfolio tab.</div>
-              <div id="dp-sa-has-approved" style="display: none;">
-                <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
-                  <button class="btn-sm" style="background: rgba(34,197,94,.12); color: var(--ok); border: 1px solid rgba(34,197,94,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewSignals(this)">Preview Signals from Approved Candidates</button>
-                  <button id="dp-sa-create-btn" class="btn-sm" style="background: rgba(34,197,94,.22); color: var(--ok); border: 1px solid rgba(34,197,94,.6); font-size: 9px; padding: 3px 10px; font-weight: 700;" onclick="dpCreateSignals(this)">Create Signals from Approved Candidates</button>
-                </div>
-              </div>
-              <div id="dp-sa-result" style="margin-top: 4px;"></div>
-            </div>
-            </details>
-
-            <!-- Decision Actions — future step, collapsed until signals created -->
-            <details id="dp-decision-actions-details">
-              <summary style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--warning);cursor:pointer;padding:4px 0;user-select:none;">Decision Actions <span style="font-weight:400;color:var(--label);text-transform:none;">&#8212; expand after creating signals</span></summary>
-            <div id="dp-decision-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(251,191,36,.4);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(251,191,36,.2); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Decision Actions</div>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(251,191,36,.15); color: var(--warning); border: 1px solid rgba(251,191,36,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">DECISIONS ONLY</span>
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS</span>
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO TRADES</span>
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(99,102,241,.12); color: var(--text-accent); border: 1px solid rgba(99,102,241,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">MANUAL REVIEW</span>
-                </div>
-              </div>
-              <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 8px; background: rgba(251,191,36,.06); border-left: 2px solid rgba(251,191,36,.5); border-radius: 0 2px 2px 0; line-height: 1.4;">
-                Creates trade decision records only &mdash; no orders, no trades, no fills.
-                Signals: <span id="dp-da-signal-count" style="font-weight: 700; color: var(--warning);">0</span> received &nbsp;|&nbsp;
-                Decisions: <span id="dp-da-decision-count" style="font-weight: 700; color: var(--text-secondary);">0</span> existing &nbsp;|&nbsp;
-                Orders: <span id="dp-da-order-count" style="font-weight: 700; color: var(--text-secondary);">0</span>
-              </div>
-              <div id="dp-da-no-signals-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Create signals first.</div>
-              <div id="dp-da-has-signals" style="display: none;">
-                <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
-                  <button class="btn-sm" style="background: rgba(251,191,36,.12); color: var(--warning); border: 1px solid rgba(251,191,36,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewDecisions(this)">Preview Decisions from Signals</button>
-                  <button id="dp-da-create-btn" class="btn-sm" style="background: rgba(251,191,36,.22); color: var(--warning); border: 1px solid rgba(251,191,36,.6); font-size: 9px; padding: 3px 10px; font-weight: 700;" onclick="dpCreateDecisions(this)">Create Trade Decisions from Signals</button>
-                </div>
-              </div>
-              <div id="dp-da-result" style="margin-top: 4px;"></div>
-            </div>
-            </details>
-
-            <!-- Order Preview — future step, collapsed until decisions created -->
-            <details id="dp-order-preview-details">
-              <summary style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--info);cursor:pointer;padding:4px 0;user-select:none;">Order Preview <span style="font-weight:400;color:var(--label);text-transform:none;">&#8212; expand after creating decisions</span></summary>
-            <div id="dp-order-preview-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(59,130,246,.4);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(59,130,246,.2); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Order Preview</div>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">PREVIEW ONLY</span>
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(34,197,94,.1); color: var(--ok); border: 1px solid rgba(34,197,94,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS CREATED</span>
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO TRADES</span>
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO BROKER EXECUTION</span>
-                  <span style="font-size: 7px; padding: 1px 5px; background: rgba(99,102,241,.12); color: var(--text-accent); border: 1px solid rgba(99,102,241,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">MANUAL REVIEW</span>
-                </div>
-              </div>
-              <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 8px; padding: 4px 8px; background: rgba(59,130,246,.06); border-left: 2px solid rgba(59,130,246,.5); border-radius: 0 2px 2px 0; line-height: 1.4;">
-                Previews paper order tickets only &mdash; no orders, no trades, no fills, no broker execution.
-                Eligible decisions: <span id="dp-oa-decision-count" style="font-weight: 700; color: var(--info);">0</span> &nbsp;|&nbsp;
-                Orders: <span id="dp-oa-order-count" style="font-weight: 700; color: var(--text-secondary);">0</span>
-              </div>
-              <div id="dp-oa-no-decisions-msg" style="font-size: 10px; color: var(--label); font-style: italic; padding: 6px 0; text-align: center;">Create trade decisions first.</div>
-              <div id="dp-oa-has-decisions" style="display: none;">
-                <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
-                  <button class="btn-sm" style="background: rgba(59,130,246,.12); color: var(--info); border: 1px solid rgba(59,130,246,.4); font-size: 9px; padding: 3px 10px;" onclick="dpPreviewOrders(this)">Preview Paper Orders</button>
-                </div>
-              </div>
-              <div id="dp-oa-result" style="margin-top: 4px;"></div>
-            </div>
-            </details>
-
             <!-- Prediction Preview Result (hidden until run) -->
             <div id="prediction-preview-card" style="display: none;">
               <div class="compact-card"><div class="section-title">Prediction Preview</div><div id="prediction-preview-result"></div></div>
             </div>
 
             <!-- Daily Plan Result Card (hidden until run) -->
-            <div id="daily-plan-card" style="display:none;">
+            <div id="daily-plan-card" style="display: none;">
               <div class="compact-card"><div class="section-title">Daily Plan Preview</div><div id="daily-plan-result"></div></div>
             </div>
 
-            <!-- Plan Analytics section (collapsed) -->
-            <details id="dp-analytics-details">
-              <summary style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--label);cursor:pointer;padding:5px 0;user-select:none;">Plan Analytics <span style="font-weight:400;text-transform:none;">(Market Snapshot, Candidates, Trade Recs, Rotation, Risk)</span></summary>
-            <!-- Market Snapshot -->
-            <div class="compact-card" style="flex-shrink: 0;">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Market Snapshot</div>
-              <div style="font-size: 9px; color: var(--label); font-style: italic;">Run Daily Process to populate market snapshot. Benchmark (SPY) and key metrics will appear here after scan.</div>
-            </div>
+          </div><!-- end dp-setup-drawer inner -->
+        </details><!-- end dp-setup-drawer -->
 
-            <!-- Candidate Funnel -->
-            <div class="compact-card" style="flex-shrink: 0;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent);">Candidate Funnel</div>
-                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
-              </div>
-              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-candidate-funnel-summary">Run Daily Process to see candidate counts: Scanned &rarr; Eligible &rarr; Approved &rarr; Planned.</div>
-            </div>
-
-            <!-- Trade Recommendations -->
-            <div class="compact-card" style="flex-shrink: 0;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--info);">Trade Recommendations</div>
-                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
-              </div>
-              <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Primary Recommendation</div>
-              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-trade-recs-summary">Generate Daily Plan to see trade recommendations. BUY candidates and their expected returns will appear here.</div>
-            </div>
-
-            <!-- Rotation Recommendations - first-class section -->
-            <div class="compact-card dp-rotation-card" style="flex-shrink: 0;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--warning);">Rotation Recommendations</div>
-                <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
-              </div>
-              <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; padding: 4px 8px; background: rgba(245,158,11,.06); border-left: 2px solid rgba(245,158,11,.4); border-radius: 0 2px 2px 0; line-height: 1.4;">
-                When portfolio is at max capacity, rotation compares incoming candidates vs existing positions by expected after-cost P&amp;L improvement. Full capacity does not mean rejected &mdash; it means rotation analysis is needed. Future: automatic comparison logic.
-              </div>
-              <div id="step3b-rotation-preview">
-                <button class="btn" style="background: var(--warning); color: white; font-weight: 600; font-size: 10px;" onclick="runRotationPreview(this)">Preview Rotation</button>
-                <div style="font-size: 9px; color: var(--label); margin-top: 4px; font-style: italic;">Rotation unavailable &mdash; portfolio not at max capacity, or preview not yet run.</div>
-              </div>
-              <div id="rotation-preview-card" style="display: none; margin-top: 8px;">
-                <div id="rotation-preview-result" style="font-size: 10px; color: var(--text-accent);"></div>
-              </div>
-            </div>
-
-            <!-- Risk Blocks -->
-            <div class="compact-card" style="flex-shrink: 0;">
-              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--danger); margin-bottom: 6px; border-bottom: 1px solid rgba(239,68,68,.2); padding-bottom: 4px;">Risk Blocks</div>
-              <div style="font-size: 8px; color: var(--label); margin-bottom: 4px;">Blocked Summary</div>
-              <div style="font-size: 9px; color: var(--label); font-style: italic;" id="dp-risk-blocks-summary">Generate Daily Plan to see blocked candidates and risk rule reasons (e.g. MAX_POSITIONS_REACHED, MIN_CONFIDENCE).</div>
-            </div>
-            </details>
-
-          </div><!-- end cockpit-center-col -->
-
-          <!-- RIGHT PANEL (26%): Safety + execution status + advanced -->
-          <div class="daily-plan-side-panel">
+        <!-- Diagnostics and manual tools (collapsed) -->
+        <details id="dp-diagnostics-details" style="margin-bottom: 6px;">
+          <summary style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); cursor: pointer; padding: 7px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px; user-select: none;">
+            Diagnostics and manual tools
+          </summary>
+          <div style="padding: 8px 0 4px 0; display: flex; flex-direction: column; gap: 8px;">
 
             <!-- Execution Safety Summary -->
             <div class="compact-card" style="flex-shrink: 0;">
@@ -2232,7 +2246,7 @@
               <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh Review Queue</button>
             </div>
 
-            <!-- Advanced Manual Actions (collapsed) -->
+            <!-- Advanced Manual Actions -->
             <details>
               <summary>Advanced Manual Actions</summary>
               <div style="padding: 4px 0;">
@@ -2265,9 +2279,13 @@
               </div>
             </details>
 
-          </div><!-- end daily-plan-side-panel -->
+          </div>
+        </details><!-- end dp-diagnostics-details -->
 
-        </div><!-- end daily-plan-cockpit-grid -->
+        <!-- dp-rec-card preserved (JS updates dp-primary-recommendation) -->
+        <div id="dp-rec-card" style="display: none;">
+          <div id="dp-primary-recommendation"></div>
+        </div>
 
         <!-- Bottom drawer: Candidates | Blocked | Diagnostics -->
         <div class="bottom-drawer-tabs">
