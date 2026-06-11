@@ -1770,6 +1770,51 @@
           <div style="font-size: 8px; color: var(--label); margin-top: 6px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 5px;">Future steps are collapsed until needed &mdash; Advanced manual actions available below.</div>
         </div>
 
+        <!-- Candidate Review Progress Gate -->
+        <div id="dp-review-gate-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(99,102,241,.4); margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(99,102,241,.2); padding-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Candidate Review Progress</div>
+              <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">REVIEW GATE</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">SIGNALS ONLY WHEN APPROVED</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO DECISIONS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO TRADES</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO FILLS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 8px;">
+            <div style="text-align: center; background: rgba(245,158,11,.08); padding: 4px; border-radius: 2px; border: 1px solid rgba(245,158,11,.3);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Pending review</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--warning);" id="dp-gate-pending">-</div>
+            </div>
+            <div style="text-align: center; background: rgba(34,197,94,.08); padding: 4px; border-radius: 2px; border: 1px solid rgba(34,197,94,.3);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Approved</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--ok);" id="dp-gate-approved">-</div>
+            </div>
+            <div style="text-align: center; background: rgba(245,158,11,.06); padding: 4px; border-radius: 2px; border: 1px solid rgba(245,158,11,.2);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Watching</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--warning);" id="dp-gate-watching">-</div>
+            </div>
+            <div style="text-align: center; background: rgba(239,68,68,.08); padding: 4px; border-radius: 2px; border: 1px solid rgba(239,68,68,.3);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Rejected</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--danger);" id="dp-gate-rejected">-</div>
+            </div>
+            <div style="text-align: center; background: rgba(0,0,0,.2); padding: 4px; border-radius: 2px; border: 1px solid var(--border);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Monitor-only / held</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--label);" id="dp-gate-consumed">-</div>
+            </div>
+            <div id="dp-gate-status-cell" style="text-align: center; padding: 4px; border-radius: 2px; border: 1px solid var(--border);">
+              <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Review status</div>
+              <div style="font-size: 9px; font-weight: 700;" id="dp-gate-status-label">-</div>
+            </div>
+          </div>
+          <div id="dp-gate-message" style="font-size: 10px; padding: 6px 10px; border-radius: 2px; margin-bottom: 8px; line-height: 1.5; background: rgba(0,0,0,.12); color: var(--label);">Loading review progress...</div>
+          <div id="dp-gate-next-step" style="font-size: 9px; color: var(--label); padding: 4px 8px; background: rgba(0,0,0,.12); border-radius: 2px; line-height: 1.5;"></div>
+        </div>
+
         <!-- Review Queue: primary action panel (full width) -->
         <div id="dp-inline-rq-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(245,158,11,.4); margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
@@ -8582,7 +8627,7 @@ function renderReviewQueue(candidates) {
                        c.review_status === 'WATCHING' ? 'var(--text-primary)' :
                        c.review_status === 'REJECTED' ? 'var(--danger)' :
                        c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
-    const statusLabel = isConsumed ? 'CONSUMED' : c.review_status;
+    const statusLabel = isConsumed ? 'Monitor-only / held' : c.review_status;
     const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
                          c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
     const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
@@ -8640,7 +8685,7 @@ function renderDpInlineReviewQueue(candidates) {
                        c.review_status === 'WATCHING' ? 'var(--text-primary)' :
                        c.review_status === 'REJECTED' ? 'var(--danger)' :
                        c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
-    const statusLabel = isConsumed ? 'CONSUMED' : c.review_status;
+    const statusLabel = isConsumed ? 'Monitor-only / held' : c.review_status;
     const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
                          c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
     const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
@@ -8648,7 +8693,7 @@ function renderDpInlineReviewQueue(candidates) {
     const reasonBadge = c.review_reason_code ? `<br><span style="font-size:8px;color:var(--label);">${escapeHtml(c.review_reason_code)}</span>` : '';
     const noteBadge = c.review_note ? `<br><span style="font-size:8px;color:var(--text-secondary);font-style:italic;">${escapeHtml(c.review_note.length > 30 ? c.review_note.substring(0, 30) + '...' : c.review_note)}</span>` : '';
     const dpActionHtml = isConsumed
-      ? '<span style="font-size:8px;color:var(--label);font-style:italic;">Completed / consumed</span>'
+      ? '<span style="font-size:8px;color:var(--label);font-style:italic;">Monitor-only / held</span>'
       : `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
     return `<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">
       <td style="padding:4px 6px;"><strong>${escapeHtml(c.ticker)}</strong></td>
@@ -11129,6 +11174,70 @@ function updateCockpitReviewSummary() {
   if (dpWatching) dpWatching.textContent = watching;
   if (dpRejected) dpRejected.textContent = rejected;
   if (dpPending) dpPending.textContent = pending;
+
+  // Update Candidate Review Gate panel
+  const consumed = window._workflowCompletedState ? approved : 0;
+  const displayApproved = window._workflowCompletedState ? 0 : approved;
+  const reviewComplete = total > 0 && pending === 0;
+  const dpGatePending = document.getElementById('dp-gate-pending');
+  const dpGateApproved = document.getElementById('dp-gate-approved');
+  const dpGateWatching = document.getElementById('dp-gate-watching');
+  const dpGateRejected = document.getElementById('dp-gate-rejected');
+  const dpGateConsumed = document.getElementById('dp-gate-consumed');
+  const dpGateStatusLabel = document.getElementById('dp-gate-status-label');
+  const dpGateStatusCell = document.getElementById('dp-gate-status-cell');
+  const dpGateMessage = document.getElementById('dp-gate-message');
+  const dpGateNextStep = document.getElementById('dp-gate-next-step');
+  if (dpGatePending) dpGatePending.textContent = total > 0 ? pending : '-';
+  if (dpGateApproved) dpGateApproved.textContent = total > 0 ? displayApproved : '-';
+  if (dpGateWatching) dpGateWatching.textContent = total > 0 ? watching : '-';
+  if (dpGateRejected) dpGateRejected.textContent = total > 0 ? rejected : '-';
+  if (dpGateConsumed) dpGateConsumed.textContent = total > 0 ? consumed : '-';
+  if (total === 0) {
+    if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'No candidates'; dpGateStatusLabel.style.color = 'var(--label)'; }
+    if (dpGateStatusCell) dpGateStatusCell.style.background = '';
+    if (dpGateMessage) { dpGateMessage.textContent = 'No candidates loaded. Run Daily Process Preview to generate candidates.'; dpGateMessage.style.background = 'rgba(0,0,0,.12)'; dpGateMessage.style.color = 'var(--label)'; }
+    if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Run Daily Process Preview.';
+  } else if (!reviewComplete) {
+    if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Review in progress'; dpGateStatusLabel.style.color = 'var(--warning)'; }
+    if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(245,158,11,.08)';
+    if (dpGateMessage) {
+      dpGateMessage.innerHTML = '<strong style="color:var(--warning);">Finish reviewing candidates before moving to signals.</strong><br><span style="color:var(--label);font-size:9px;">Signal creation is locked until candidate review is complete. ' + pending + ' candidate(s) still need review.</span>';
+      dpGateMessage.style.background = 'rgba(245,158,11,.06)';
+      dpGateMessage.style.color = 'var(--warning)';
+    }
+    if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Review remaining candidates -- use Watch, Reject, or Approve in the Review Queue below.';
+  } else if (displayApproved > 0) {
+    if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Candidate review complete'; dpGateStatusLabel.style.color = 'var(--ok)'; }
+    if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(34,197,94,.08)';
+    if (dpGateMessage) {
+      dpGateMessage.innerHTML = '<strong style="color:var(--ok);">Candidate review complete.</strong><br><span style="color:var(--text-secondary);font-size:9px;">Signal creation is available. Create signals from approved candidates. It creates Signal records only - no decisions, orders, trades, or fills.</span>';
+      dpGateMessage.style.background = 'rgba(34,197,94,.06)';
+      dpGateMessage.style.color = 'var(--ok)';
+    }
+    if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Create signals from approved candidates -- expand Signal Actions below.';
+  } else if (consumed > 0) {
+    if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Candidate review complete'; dpGateStatusLabel.style.color = 'var(--ok)'; }
+    if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(34,197,94,.08)';
+    if (dpGateMessage) {
+      dpGateMessage.innerHTML = '<strong style="color:var(--ok);">Candidate review complete.</strong><br><span style="color:var(--text-secondary);font-size:9px;">Approved candidate(s) consumed by paper order workflow. Monitor portfolio.</span>';
+      dpGateMessage.style.background = 'rgba(34,197,94,.06)';
+      dpGateMessage.style.color = 'var(--ok)';
+    }
+    if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Monitor portfolio -- review Portfolio tab for open positions.';
+  } else {
+    const openPos = (window._workflowStatusData && window._workflowStatusData.open_positions) || 0;
+    if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Candidate review complete'; dpGateStatusLabel.style.color = 'var(--ok)'; }
+    if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(34,197,94,.08)';
+    if (dpGateMessage) {
+      dpGateMessage.innerHTML = openPos > 0
+        ? '<strong style="color:var(--ok);">Candidate review complete.</strong><br><span style="color:var(--text-secondary);font-size:9px;">No candidates approved. Monitor open portfolio positions.</span>'
+        : '<strong style="color:var(--ok);">Candidate review complete.</strong><br><span style="color:var(--text-secondary);font-size:9px;">No candidates approved. Run Daily Review Session to start fresh.</span>';
+      dpGateMessage.style.background = 'rgba(34,197,94,.06)';
+      dpGateMessage.style.color = 'var(--ok)';
+    }
+    if (dpGateNextStep) dpGateNextStep.textContent = openPos > 0 ? 'Next step: Monitor portfolio -- review open positions in the Portfolio tab.' : 'Next step: Run Daily Review Session.';
+  }
 
   // Smart next action: only update when queue has data and workflow is not in completed state
   if (total > 0 && !window._workflowCompletedState) {

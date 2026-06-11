@@ -27009,3 +27009,86 @@ class TestCandidateReviewActionV2UiContent:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiCandidateReviewGateV1Content:
+    """Verify Candidate Review Gate v1 UI elements are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_candidate_review_progress_text_present(self) -> None:
+        assert "Candidate Review Progress" in self._read_html()
+
+    def test_review_in_progress_text_present(self) -> None:
+        assert "Review in progress" in self._read_html()
+
+    def test_candidate_review_complete_text_present(self) -> None:
+        assert "Candidate review complete" in self._read_html()
+
+    def test_finish_reviewing_candidates_text_present(self) -> None:
+        assert "Finish reviewing candidates before moving to signals" in self._read_html()
+
+    def test_signal_creation_locked_text_present(self) -> None:
+        assert "Signal creation is locked until candidate review is complete" in self._read_html()
+
+    def test_create_signals_from_approved_text_present(self) -> None:
+        assert "Create signals from approved candidates" in self._read_html()
+
+    def test_signal_creation_available_text_present(self) -> None:
+        assert "Signal creation is available" in self._read_html()
+
+    def test_it_creates_signal_records_only_text_present(self) -> None:
+        assert "It creates Signal records only" in self._read_html()
+
+    def test_no_decisions_orders_trades_fills_text_present(self) -> None:
+        assert "no decisions, orders, trades, or fills" in self._read_html()
+
+    def test_monitor_only_held_text_present(self) -> None:
+        assert "Monitor-only / held" in self._read_html()
+
+    def test_review_gate_badge_present(self) -> None:
+        assert "REVIEW GATE" in self._read_html()
+
+    def test_signals_only_when_approved_badge_present(self) -> None:
+        assert "SIGNALS ONLY WHEN APPROVED" in self._read_html()
+
+    def test_dp_review_gate_card_id_present(self) -> None:
+        assert 'id="dp-review-gate-card"' in self._read_html()
+
+    def test_dp_gate_pending_id_present(self) -> None:
+        assert 'id="dp-gate-pending"' in self._read_html()
+
+    def test_dp_gate_approved_id_present(self) -> None:
+        assert 'id="dp-gate-approved"' in self._read_html()
+
+    def test_dp_gate_watching_id_present(self) -> None:
+        assert 'id="dp-gate-watching"' in self._read_html()
+
+    def test_dp_gate_rejected_id_present(self) -> None:
+        assert 'id="dp-gate-rejected"' in self._read_html()
+
+    def test_dp_gate_consumed_id_present(self) -> None:
+        assert 'id="dp-gate-consumed"' in self._read_html()
+
+    def test_dp_gate_status_label_id_present(self) -> None:
+        assert 'id="dp-gate-status-label"' in self._read_html()
+
+    def test_dp_gate_message_id_present(self) -> None:
+        assert 'id="dp-gate-message"' in self._read_html()
+
+    def test_dp_gate_next_step_id_present(self) -> None:
+        assert 'id="dp-gate-next-step"' in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls_gate(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
