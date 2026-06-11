@@ -1751,11 +1751,14 @@
 
         <!-- Review Workspace: primary full-width header -->
         <div id="dp-current-task-card" style="background: rgba(59,130,246,.07); border: 2px solid rgba(59,130,246,.45); border-radius: 6px; padding: 14px 18px; margin-bottom: 12px;">
-          <div style="font-size: 16px; font-weight: 800; color: var(--info); letter-spacing: 0.01em; margin-bottom: 10px;">Today's Review</div>
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--info); letter-spacing: 0.01em;">Today's Review</div>
+            <button class="btn-sm" style="font-size: 9px; padding: 2px 8px;" onclick="refreshTodaysReview(this)">Refresh Today's Review</button>
+          </div>
           <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 10px;">
             <div>
               <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px;">Current task</div>
-              <div id="tr-current-task" style="font-size: 14px; font-weight: 700; color: var(--info);">-</div>
+              <div id="tr-current-task" style="font-size: 14px; font-weight: 700; color: var(--info);">Loading today's review…</div>
             </div>
             <div>
               <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px;">Next action</div>
@@ -1763,6 +1766,7 @@
             </div>
           </div>
           <div id="tr-context" style="font-size: 10px; color: var(--label); margin-bottom: 10px; line-height: 1.5;"></div>
+          <div id="tr-load-error" style="display:none; font-size:10px; color:var(--danger); margin-bottom:6px;">Could not load today's review. Use Refresh Today's Review.</div>
           <div id="tr-action-area" style="margin-bottom: 8px;"></div>
           <div id="tr-portfolio-result" style="display: none; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 3px; margin-bottom: 8px;"></div>
           <div style="display: flex; flex-wrap: wrap; gap: 4px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.06);">
@@ -1989,14 +1993,14 @@
             <span style="display:none;">Audit trail &mdash; internal signal/decision/order details</span>
           </summary>
           <div style="padding: 8px 0 4px 0;">
-            <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.15); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">Internal signals, decisions, and order details are audit-only. Internal pipeline details for audit and troubleshooting. Use Today's Review above for the primary workflow. No automatic trading actions.</div>
+            <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.15); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">You do not need these sections for normal daily review. Internal signals, decisions, and order details are audit-only. Internal pipeline details for audit and troubleshooting. Use Today's Review above for the primary workflow. No automatic trading actions.</div>
 
             <!-- Signal Actions -->
             <details id="dp-signal-actions-details">
-              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok); cursor: pointer; padding: 4px 0; user-select: none;">Signal Actions <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after approving candidates</span></summary>
+              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok); cursor: pointer; padding: 4px 0; user-select: none;">Internal signal audit <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after approving candidates</span></summary>
             <div id="dp-signal-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(34,197,94,.4);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(34,197,94,.2); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok);">Signal Actions</div>
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok);">Internal signal audit</div>
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="font-size: 7px; padding: 1px 5px; background: rgba(34,197,94,.15); color: var(--ok); border: 1px solid rgba(34,197,94,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">SIGNALS ONLY</span>
                   <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS</span>
@@ -2020,10 +2024,10 @@
 
             <!-- Decision Actions -->
             <details id="dp-decision-actions-details">
-              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); cursor: pointer; padding: 4px 0; user-select: none;">Decision Actions <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after creating signals</span></summary>
+              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning); cursor: pointer; padding: 4px 0; user-select: none;">Internal decision audit <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after creating signals</span></summary>
             <div id="dp-decision-actions-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(251,191,36,.4);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(251,191,36,.2); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Decision Actions</div>
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Internal decision audit</div>
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="font-size: 7px; padding: 1px 5px; background: rgba(251,191,36,.15); color: var(--warning); border: 1px solid rgba(251,191,36,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">DECISIONS ONLY</span>
                   <span style="font-size: 7px; padding: 1px 5px; background: rgba(239,68,68,.12); color: var(--danger); border: 1px solid rgba(239,68,68,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS</span>
@@ -2050,10 +2054,10 @@
 
             <!-- Order Preview -->
             <details id="dp-order-preview-details">
-              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info); cursor: pointer; padding: 4px 0; user-select: none;">Order Preview <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after creating decisions</span></summary>
+              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info); cursor: pointer; padding: 4px 0; user-select: none;">Internal order audit <span style="font-weight: 400; color: var(--label); text-transform: none;">&#8212; expand after creating decisions</span></summary>
             <div id="dp-order-preview-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(59,130,246,.4);">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(59,130,246,.2); padding-bottom: 4px;">
-                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Order Preview</div>
+                <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Internal order audit</div>
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="font-size: 7px; padding: 1px 5px; background: rgba(59,130,246,.15); color: var(--info); border: 1px solid rgba(59,130,246,.4); border-radius: 2px; font-weight: 700; text-transform: uppercase;">PREVIEW ONLY</span>
                   <span style="font-size: 7px; padding: 1px 5px; background: rgba(34,197,94,.1); color: var(--ok); border: 1px solid rgba(34,197,94,.3); border-radius: 2px; font-weight: 700; text-transform: uppercase;">NO ORDERS CREATED</span>
@@ -2136,6 +2140,7 @@
             <span style="font-weight: 400; text-transform: none; font-size: 9px;">&nbsp;(scan, generate candidates, daily plan)</span>
           </summary>
           <div style="padding: 8px 0 4px 0;">
+          <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.12); border-radius: 2px; margin-bottom: 8px; line-height: 1.4;">Advanced rerun controls. Usually not needed after Today's Review is loaded.</div>
 
         <!-- Daily Process Preview Orchestrator Panel -->
         <div id="orch-panel" style="background: rgba(0,0,0,.25); border: 1px solid rgba(59,130,246,.4); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
@@ -8810,6 +8815,24 @@ async function loadReviewQueue() {
     if (tb) tb.innerHTML = `<tr><td colspan="9" class="empty" style="color: var(--danger);">Error: ${escapeHtml(e.message)}</td></tr>`;
     const dtb = document.getElementById('dp-rq-tbody');
     if (dtb) dtb.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--danger); padding: 10px; font-size: 10px;">Error loading review queue: ${escapeHtml(e.message)}</td></tr>`;
+    const taskEl = document.getElementById('tr-current-task');
+    if (taskEl) { taskEl.textContent = `Could not load today's review. Use Refresh Today's Review.`; taskEl.style.color = 'var(--danger)'; }
+    const errEl = document.getElementById('tr-load-error');
+    if (errEl) errEl.style.display = '';
+  }
+}
+
+async function refreshTodaysReview(btn) {
+  const taskEl = document.getElementById('tr-current-task');
+  const errEl = document.getElementById('tr-load-error');
+  if (taskEl) { taskEl.textContent = `Loading today's review…`; taskEl.style.color = 'var(--info)'; }
+  if (errEl) errEl.style.display = 'none';
+  if (btn) btn.disabled = true;
+  try {
+    await loadReviewQueue();
+    if (_appState.connected) await refreshWorkflowStatus();
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -11482,7 +11505,7 @@ function updateTodayReview(total, pending, displayApproved, reviewComplete) {
     if (nextEl) { nextEl.textContent = 'Run Daily Process Preview to generate candidates for review'; nextEl.style.color = 'var(--text-accent)'; }
     if (ctxEl) { ctxEl.textContent = ''; }
     if (resultEl) resultEl.style.display = 'none';
-    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review Session</button>';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review</button>';
   } else if (!reviewComplete) {
     taskEl.textContent = 'Review Candidates';
     taskEl.style.color = 'var(--warning)';

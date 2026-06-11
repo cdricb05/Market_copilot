@@ -27564,3 +27564,56 @@ class TestUiStickyTabBarContent:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiDailyPlanUsabilityCleanupV1Content:
+    """Daily Plan Usability Cleanup v1: non-empty loading state, audit rename, setup note."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_loading_today_review_placeholder_present(self) -> None:
+        assert "Loading today's review…" in self._read_html()
+
+    def test_refresh_todays_review_button_present(self) -> None:
+        assert "Refresh Today's Review" in self._read_html()
+
+    def test_could_not_load_error_message_present(self) -> None:
+        assert "Could not load today's review. Use Refresh Today's Review." in self._read_html()
+
+    def test_advanced_rerun_controls_note_present(self) -> None:
+        assert "Advanced rerun controls. Usually not needed after Today's Review is loaded." in self._read_html()
+
+    def test_review_progress_details_present(self) -> None:
+        assert "Review progress details" in self._read_html()
+
+    def test_internal_signal_audit_label_present(self) -> None:
+        assert "Internal signal audit" in self._read_html()
+
+    def test_internal_decision_audit_label_present(self) -> None:
+        assert "Internal decision audit" in self._read_html()
+
+    def test_internal_order_audit_label_present(self) -> None:
+        assert "Internal order audit" in self._read_html()
+
+    def test_you_do_not_need_these_sections_present(self) -> None:
+        assert "You do not need these sections for normal daily review." in self._read_html()
+
+    def test_internal_signals_decisions_audit_only_present(self) -> None:
+        assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
+
+    def test_sticky_tab_bar_still_present(self) -> None:
+        assert "position: sticky" in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
