@@ -27400,3 +27400,83 @@ class TestUiNoTradeReviewOutcomeV1Content:
 
     def test_no_broker_execution_badge_present(self) -> None:
         assert "NO BROKER EXECUTION" in self._read_html()
+
+
+# ---------------------------------------------------------------------------
+# Portfolio Monitoring Workspace v1 UI content
+# ---------------------------------------------------------------------------
+
+class TestUiPortfolioMonitoringWorkspaceV1Content:
+    """Verify Portfolio Monitoring Workspace v1 UI elements are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_portfolio_monitoring_workspace_title_present(self) -> None:
+        assert "Portfolio Monitoring Workspace" in self._read_html()
+
+    def test_monitor_open_positions_text_present(self) -> None:
+        assert "Monitor open positions" in self._read_html()
+
+    def test_preview_only_no_orders_text_present(self) -> None:
+        assert "Preview only &mdash; no orders, trades, fills, or broker actions" in self._read_html()
+
+    def test_current_task_monitor_portfolio_text_present(self) -> None:
+        assert "Current task: monitor portfolio" in self._read_html()
+
+    def test_no_position_changes_text_present(self) -> None:
+        assert "No position changes are made" in self._read_html()
+
+    def test_healthy_positions_text_present(self) -> None:
+        assert "Healthy positions require no action" in self._read_html()
+
+    def test_review_for_exit_risk_rules_text_present(self) -> None:
+        assert "Review-for-exit appears only when risk rules are triggered" in self._read_html()
+
+    def test_review_open_positions_button_present(self) -> None:
+        assert "Review Open Positions" in self._read_html()
+
+    def test_all_healthy_no_action_text_present(self) -> None:
+        assert "All open positions are currently healthy. No action required." in self._read_html()
+
+    def test_position_watch_required_text_present(self) -> None:
+        assert "Position watch required. Review position details before taking any action." in self._read_html()
+
+    def test_exit_review_required_text_present(self) -> None:
+        assert "Exit review required. This is preview-only. No exit order is created." in self._read_html()
+
+    def test_portfolio_monitor_preview_complete_text_present(self) -> None:
+        assert "Portfolio monitor preview complete." in self._read_html()
+
+    def test_audit_trail_internal_position_review_text_present(self) -> None:
+        assert "Audit trail &mdash; internal position review details" in self._read_html()
+
+    def test_dp_portfolio_monitor_workspace_id_present(self) -> None:
+        assert 'id="dp-portfolio-monitor-workspace"' in self._read_html()
+
+    def test_pmw_status_id_present(self) -> None:
+        assert 'id="pmw-status"' in self._read_html()
+
+    def test_pmw_result_id_present(self) -> None:
+        assert 'id="pmw-result"' in self._read_html()
+
+    def test_pmw_tbody_id_present(self) -> None:
+        assert 'id="pmw-tbody"' in self._read_html()
+
+    def test_pmw_summary_cards_id_present(self) -> None:
+        assert 'id="pmw-summary-cards"' in self._read_html()
+
+    def test_pmw_status_message_id_present(self) -> None:
+        assert 'id="pmw-status-message"' in self._read_html()
+
+    def test_monitor_only_badge_present(self) -> None:
+        assert "MONITOR ONLY" in self._read_html()
+
+    def test_no_position_changes_badge_present(self) -> None:
+        assert "NO POSITION CHANGES" in self._read_html()
+
+    def test_run_portfolio_monitor_workspace_fn_present(self) -> None:
+        assert "runPortfolioMonitorWorkspace" in self._read_html()
