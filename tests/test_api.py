@@ -24231,6 +24231,46 @@ class TestUiStaticContent:
     def test_no_trading_actions_review_notes_copy_present(self) -> None:
         assert "No trading actions are created by review notes" in self._read_html()
 
+    def test_daily_review_session_card_present(self) -> None:
+        assert "Daily Review Session" in self._read_html()
+
+    def test_start_daily_review_session_button_present(self) -> None:
+        assert "Start Daily Review Session" in self._read_html()
+
+    def test_daily_session_manual_session_badge_present(self) -> None:
+        assert "MANUAL SESSION" in self._read_html()
+
+    def test_daily_session_db_writes_market_review_only_badge_present(self) -> None:
+        assert "DB WRITES: MARKET + REVIEW ONLY" in self._read_html()
+
+    def test_daily_session_no_trades_badge_in_panel(self) -> None:
+        html = self._read_html()
+        panel_start = html.find('id="daily-session-panel"')
+        assert panel_start >= 0, "daily-session-panel not found"
+        panel_section = html[panel_start:panel_start + 3000]
+        assert "NO TRADES" in panel_section
+
+    def test_daily_session_no_fills_badge_in_panel(self) -> None:
+        html = self._read_html()
+        panel_start = html.find('id="daily-session-panel"')
+        assert panel_start >= 0, "daily-session-panel not found"
+        panel_section = html[panel_start:panel_start + 3000]
+        assert "NO FILLS" in panel_section
+
+    def test_daily_session_no_broker_execution_in_card(self) -> None:
+        html = self._read_html()
+        card_start = html.find('id="daily-session-card"')
+        assert card_start >= 0, "daily-session-card not found"
+        card_section = html[card_start:card_start + 3000]
+        assert "NO BROKER EXECUTION" in card_section
+
+    def test_daily_session_automation_off_in_card(self) -> None:
+        html = self._read_html()
+        card_start = html.find('id="daily-session-card"')
+        assert card_start >= 0, "daily-session-card not found"
+        card_section = html[card_start:card_start + 3000]
+        assert "AUTOMATION OFF" in card_section
+
 
 # ===========================================================================
 # TestCandidateReviewJournal

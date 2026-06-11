@@ -1531,6 +1531,26 @@
           <div id="daily-review-summary-result" style="display: none;"></div>
         </div>
 
+        <!-- Daily Review Session card -->
+        <div id="daily-session-card" style="background:rgba(0,0,0,.2); border:1px solid rgba(245,158,11,.35); border-radius:4px; padding:10px 14px; margin-bottom:8px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+            <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--warning);">Daily Review Session</div>
+            <span style="font-size:8px; color:var(--warning); background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.3); padding:1px 5px; border-radius:2px; font-weight:700;">MANUAL SESSION</span>
+            <span style="font-size:8px; color:var(--ok); background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.3); padding:1px 5px; border-radius:2px; font-weight:700;">DB WRITES: MARKET + REVIEW ONLY</span>
+            <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">NO SIGNALS</span>
+            <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">NO DECISIONS</span>
+            <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">NO ORDERS</span>
+            <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">NO TRADES</span>
+            <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">NO FILLS</span>
+            <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">NO BROKER EXECUTION</span>
+            <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">AUTOMATION OFF</span>
+            <span style="flex:1;"></span>
+            <button id="start-daily-session-btn" class="btn" style="background:var(--warning,#e6a817); color:#1a1a2e; font-weight:700; font-size:10px; padding:5px 14px; flex-shrink:0;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review Session</button>
+          </div>
+          <div style="font-size:9px; color:var(--text-secondary); margin-bottom:5px;">One-click daily review &mdash; refresh market data, scan candidates, save to review queue, generate summary. Manual only &mdash; no automation.</div>
+          <div id="daily-session-progress" style="display:none; margin-top:6px;"></div>
+        </div>
+
         <!-- Market Dashboard: full-width section below KPI -->
         <div class="ov-market-section">
           <div class="ov-market-section-hdr">
@@ -3245,6 +3265,40 @@
 <div id="toast"></div>
 
 <!-- Confirm Modal -->
+<!-- Daily Review Session confirm panel -->
+<div id="daily-session-panel" class="confirm-modal">
+  <div class="confirm-modal-content" style="width:480px; max-width:94vw;">
+    <div class="confirm-modal-title">Start Daily Review Session</div>
+    <div style="margin-bottom:12px; padding:8px 10px; background:rgba(34,197,94,.07); border:1px solid rgba(34,197,94,.25); border-radius:3px;">
+      <div style="font-size:11px; color:var(--text-accent); line-height:1.6;">This will refresh market/portfolio data and prepare new-entry candidates. It will not create signals, decisions, orders, trades, fills, or broker actions.</div>
+    </div>
+    <div style="margin-bottom:12px; padding:6px 10px; background:rgba(0,0,0,.15); border-radius:3px;">
+      <div style="font-size:10px; font-weight:700; color:var(--label); margin-bottom:5px; text-transform:uppercase; letter-spacing:.07em;">Steps that will run:</div>
+      <ol style="margin:0; padding-left:18px; color:var(--text-secondary); font-size:11px; line-height:1.8;">
+        <li>Refresh market prices &amp; portfolio snapshot</li>
+        <li>Run prediction scan (Daily Process Preview)</li>
+        <li>Save eligible new-entry candidates to Review Queue</li>
+        <li>Generate Daily Review Summary</li>
+      </ol>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:12px;">
+      <span style="font-size:8px; color:var(--warning); background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.3); padding:2px 6px; border-radius:2px; font-weight:700;">MANUAL SESSION</span>
+      <span style="font-size:8px; color:var(--ok); background:rgba(34,197,94,.1); border:1px solid rgba(34,197,94,.3); padding:2px 6px; border-radius:2px; font-weight:700;">DB WRITES: MARKET + REVIEW ONLY</span>
+      <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:2px 6px; border-radius:2px;">NO SIGNALS</span>
+      <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:2px 6px; border-radius:2px;">NO DECISIONS</span>
+      <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:2px 6px; border-radius:2px;">NO ORDERS</span>
+      <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:2px 6px; border-radius:2px;">NO TRADES</span>
+      <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:2px 6px; border-radius:2px;">NO FILLS</span>
+      <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:2px 6px; border-radius:2px;">NO BROKER EXECUTION</span>
+      <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:2px 6px; border-radius:2px;">AUTOMATION OFF</span>
+    </div>
+    <div class="confirm-modal-buttons">
+      <button class="btn-cancel" onclick="_drsCancel()">Cancel</button>
+      <button class="btn-confirm" onclick="_drsConfirm()">Start Session</button>
+    </div>
+  </div>
+</div>
+
 <!-- Review Note Panel — capture review rationale before updating candidate status -->
 <div id="review-note-panel" class="confirm-modal">
   <div class="confirm-modal-content" style="width:380px; max-width:94vw;">
@@ -10339,6 +10393,224 @@ function _rnpCancel() {
   window._rnpPendingStatus = null;
   window._rnpPendingTicker = null;
 }
+
+// ----- Daily Review Session orchestration -----
+
+function startDailyReviewSession(btn) {
+  const panel = document.getElementById('daily-session-panel');
+  if (!panel) return;
+  panel.classList.add('active');
+}
+
+function _drsCancel() {
+  const panel = document.getElementById('daily-session-panel');
+  if (panel) panel.classList.remove('active');
+}
+
+async function _drsConfirm() {
+  const panel = document.getElementById('daily-session-panel');
+  if (panel) panel.classList.remove('active');
+  await _runDailyReviewSession();
+}
+
+async function _runDailyReviewSession() {
+  const btn = document.getElementById('start-daily-session-btn');
+  const progEl = document.getElementById('daily-session-progress');
+  if (btn) btn.disabled = true;
+  if (progEl) { progEl.style.display = 'block'; progEl.innerHTML = ''; }
+
+  const steps = [
+    { id: 'mkt',  label: 'Market data refreshed',          status: 'pending', detail: '' },
+    { id: 'pred', label: 'Daily process preview complete',  status: 'pending', detail: '' },
+    { id: 'save', label: 'New-entry candidates saved',      status: 'pending', detail: '' },
+    { id: 'summ', label: 'Daily Review Summary generated',  status: 'pending', detail: '' },
+  ];
+
+  function _drsRenderSteps(extra) {
+    if (!progEl) return;
+    const html = steps.map(function(s) {
+      const icon = s.status === 'done' ? '&#10003;' : s.status === 'running' ? '&#9675;' : s.status === 'failed' ? '&#10007;' : '&#8212;';
+      const clr  = s.status === 'done' ? 'var(--ok)' : s.status === 'running' ? 'var(--info)' : s.status === 'failed' ? 'var(--danger)' : 'var(--label)';
+      return '<div style="display:flex;align-items:baseline;gap:6px;font-size:10px;padding:2px 0;">'
+        + '<span style="color:' + clr + ';font-weight:700;min-width:14px;">' + icon + '</span>'
+        + '<span style="color:' + clr + ';">' + escapeHtml(s.label) + '</span>'
+        + (s.detail ? '<span style="font-size:9px;color:var(--text-secondary);">' + escapeHtml(s.detail) + '</span>' : '')
+        + '</div>';
+    }).join('');
+    progEl.innerHTML = '<div style="padding:8px 10px;background:rgba(0,0,0,.2);border:1px solid var(--border);border-radius:3px;">' + html + (extra || '') + '</div>';
+  }
+
+  function _drsSetStep(id, status, detail) {
+    const s = steps.find(function(x) { return x.id === id; });
+    if (s) { s.status = status; s.detail = detail || ''; }
+    _drsRenderSteps();
+  }
+
+  _drsRenderSteps();
+  let _savedCount = 0;
+  let _skippedHoldings = 0;
+  let _candResult = null;
+
+  // Step A: Refresh market data & portfolio snapshot
+  _drsSetStep('mkt', 'running');
+  try {
+    const rA = await call('POST', '/v1/market/refresh-snapshot');
+    const dA = await rA.json();
+    if (!rA.ok) {
+      _drsSetStep('mkt', 'failed', (dA.detail || ('HTTP ' + rA.status)));
+      toast('Daily session stopped: market refresh failed', 'err');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    const snapNote = dA.portfolio_snapshot_created_or_updated ? 'snapshot updated' : 'snapshot unchanged';
+    _drsSetStep('mkt', 'done', (dA.prices_inserted_or_updated || 0) + ' prices, ' + snapNote);
+    loadMarketDashboard();
+    loadPortfolioHistory();
+  } catch (eA) {
+    _drsSetStep('mkt', 'failed', eA.message);
+    toast('Daily session stopped: network error', 'err');
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  // Step B: Prediction preview (Daily Process Preview)
+  _drsSetStep('pred', 'running');
+  try {
+    const predBody = {
+      idempotency_key: 'daily-session-pred-' + Date.now(),
+      universe: 'SP500',
+      tickers: null,
+      benchmark_ticker: 'SPY',
+      lookback_days: 45,
+      top_n: 20,
+      min_price_points: 20,
+      prediction_top_n: 5,
+      include_current_positions_for_prediction: true,
+      max_prediction_concurrency: 4,
+      scoring_profile: 'current',
+      dry_run: true,
+      submit_signals: false,
+      run_risk: false,
+      create_orders: false,
+    };
+    const rB = await call('POST', '/v1/strategy/market-scan/prediction-candidates', predBody);
+    const dB = await rB.json();
+    if (!rB.ok) {
+      _drsSetStep('pred', 'failed', (dB.detail || ('HTTP ' + rB.status)));
+      toast('Daily session stopped: prediction preview failed', 'err');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    window._lastPredictionPreviewData = dB;
+    _candResult = dB;
+    const _total    = (dB.candidate_previews || []).length;
+    const _eligible = (dB.candidate_previews || []).filter(function(c) { return c.eligible_for_review_queue === true; }).length;
+    _skippedHoldings = (dB.candidate_previews || []).filter(function(c) { return c.candidate_type === 'CURRENT_HOLDING_MONITOR'; }).length;
+    _drsSetStep('pred', 'done', _total + ' scanned, ' + _eligible + ' eligible');
+  } catch (eB) {
+    _drsSetStep('pred', 'failed', eB.message);
+    toast('Daily session stopped: prediction preview error', 'err');
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  // Step C: Save eligible new-entry candidates to Review Queue
+  _drsSetStep('save', 'running');
+  try {
+    const cands = (_candResult.candidate_previews || []).filter(function(c) {
+      return c.eligible_for_review_queue === true ||
+        (c.eligible_for_review_queue === undefined && c.preview_decision === 'CONSIDER' && c.candidate_type !== 'CURRENT_HOLDING_MONITOR');
+    });
+    if (cands.length === 0) {
+      _drsSetStep('save', 'done', 'no eligible candidates');
+    } else {
+      const now = new Date();
+      const ikey = 'daily-session-' + now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0') + '-' + String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0');
+      const payload = {
+        idempotency_key: ikey,
+        candidates: cands.map(function(c) {
+          return {
+            ticker: c.ticker,
+            scan_rank: c.scan_rank,
+            scan_score: c.scan_score,
+            latest_price: c.latest_price,
+            momentum_5d_pct: c.momentum_5d_pct,
+            momentum_20d_pct: c.momentum_20d_pct,
+            relative_strength_vs_spy_20d: c.relative_strength_vs_spy_20d,
+            scan_reason_codes: c.scan_reason_codes,
+            prediction_recommendation: c.prediction_recommendation,
+            prediction_confidence: c.prediction_confidence,
+            forecast_price_5d: c.forecast_price_5d,
+            expected_return_pct: c.expected_return_pct,
+            market_context: c.market_context,
+            preview_decision: c.preview_decision,
+            preview_score: c.preview_score,
+            preview_reasons: c.preview_reasons,
+            status: c.status,
+            candidate_type: c.candidate_type || null,
+            eligible_for_review_queue: c.eligible_for_review_queue !== undefined ? c.eligible_for_review_queue : null,
+          };
+        })
+      };
+      const rC = await call('POST', '/v1/review/candidates', payload);
+      const dC = await rC.json();
+      if (!rC.ok) {
+        _drsSetStep('save', 'failed', (dC.detail || ('HTTP ' + rC.status)));
+        toast('Daily session stopped: save candidates failed', 'err');
+        if (btn) btn.disabled = false;
+        return;
+      }
+      _savedCount = dC.inserted_count || 0;
+      if (window._lastPredictionPreviewData) window._lastPredictionPreviewData._saved = true;
+      _drsSetStep('save', 'done', _savedCount + ' saved, ' + (dC.skipped_existing_count || 0) + ' already existed');
+      await loadReviewQueue();
+    }
+  } catch (eC) {
+    _drsSetStep('save', 'failed', eC.message);
+    toast('Daily session stopped: save candidates error', 'err');
+    if (btn) btn.disabled = false;
+    return;
+  }
+
+  // Step D: Generate Daily Review Summary
+  _drsSetStep('summ', 'running');
+  try {
+    const rD = await call('GET', '/v1/review/daily-review-summary');
+    if (!rD.ok) {
+      _drsSetStep('summ', 'failed', 'HTTP ' + rD.status);
+    } else {
+      const dD = await rD.json();
+      window._lastDailyReviewSummary = dD;
+      _syncDrsToUi(dD);
+      await generateDailyReviewSummary(null);
+      _drsSetStep('summ', 'done', dD.open_position_count + ' positions, ' + dD.review_candidates_actionable + ' actionable');
+    }
+  } catch (eD) {
+    _drsSetStep('summ', 'failed', eD.message);
+  }
+
+  // Final result panel
+  const _fd = window._lastDailyReviewSummary;
+  let _finalHtml = '';
+  if (_fd) {
+    _finalHtml += '<div style="margin-top:8px;padding:8px 10px;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.25);border-radius:3px;">';
+    _finalHtml += '<div style="font-size:10px;font-weight:700;color:var(--ok);margin-bottom:5px;text-transform:uppercase;letter-spacing:.07em;">Session Complete</div>';
+    _finalHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:5px;">';
+    _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Saved: <strong style="color:var(--ok);">' + _savedCount + '</strong></div>';
+    if (_skippedHoldings > 0) _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Holdings (monitor-only): <strong>' + _skippedHoldings + '</strong></div>';
+    _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Actionable: <strong style="color:var(--info);">' + _fd.review_candidates_actionable + '</strong></div>';
+    _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Open positions: <strong>' + _fd.open_position_count + '</strong></div>';
+    if (_fd.pending_orders > 0) _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Pending orders: <strong style="color:var(--warning);">' + _fd.pending_orders + '</strong></div>';
+    _finalHtml += '</div>';
+    if (_fd.next_action_label) _finalHtml += '<div style="margin-top:6px;font-size:10px;color:var(--text-secondary);">Next: <strong style="color:var(--info);">' + escapeHtml(_fd.next_action_label) + '</strong></div>';
+    _finalHtml += '</div>';
+  }
+  _drsRenderSteps(_finalHtml);
+  if (btn) btn.disabled = false;
+  toast('Daily Review Session complete', 'ok');
+}
+
+// ----- End Daily Review Session -----
 
 // Next-action code to canonical label map (used by _syncDrsToUi and UI static tests)
 const _DRS_ACTION_LABELS = {
