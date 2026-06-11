@@ -1748,30 +1748,37 @@
         </div>
 
         <!-- Review Workspace: primary full-width header -->
-        <div id="dp-current-task-card" style="background: rgba(59,130,246,.09); border: 2px solid rgba(59,130,246,.5); border-radius: 6px; padding: 14px 18px; margin-bottom: 12px;">
-          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; flex-wrap: wrap;">
-            <div style="font-size: 15px; font-weight: 800; color: var(--info); letter-spacing: 0.01em;">Review Workspace</div>
-            <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: 0.08em; align-self: center;">Guided daily plan</div>
-            <div style="font-size: 11px; color: var(--label);">&mdash; Current task:</div>
-            <div id="dp-current-task-label" style="font-size: 13px; font-weight: 700; color: var(--info);">Review new-entry candidates</div>
-            <div id="dp-current-task-detail" style="font-size: 10px; color: var(--text-secondary);"></div>
+        <div id="dp-current-task-card" style="background: rgba(59,130,246,.07); border: 2px solid rgba(59,130,246,.45); border-radius: 6px; padding: 14px 18px; margin-bottom: 12px;">
+          <div style="font-size: 16px; font-weight: 800; color: var(--info); letter-spacing: 0.01em; margin-bottom: 10px;">Today's Review</div>
+          <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 10px;">
+            <div>
+              <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px;">Current task</div>
+              <div id="tr-current-task" style="font-size: 14px; font-weight: 700; color: var(--info);">-</div>
+            </div>
+            <div>
+              <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 3px;">Next action</div>
+              <div id="tr-next-action" style="font-size: 11px; color: var(--text-accent); max-width: 480px; line-height: 1.4;">-</div>
+            </div>
           </div>
-          <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 8px;">Approve, watch, or reject candidates. Approving candidates does not create signals or orders.</div>
-          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">
-            <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
-            <span class="badge ok" style="font-size: 8px; padding: 2px 5px;">PREVIEW ONLY</span>
-            <span style="font-size: 8px; color: var(--label); padding: 2px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">NO SIGNALS</span>
-            <span style="font-size: 8px; color: var(--label); padding: 2px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">NO DECISIONS</span>
-            <span style="font-size: 8px; color: var(--label); padding: 2px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">NO ORDERS</span>
-            <span style="font-size: 8px; color: var(--label); padding: 2px 5px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px; font-weight: 600; text-transform: uppercase;">NO BROKER EXECUTION</span>
-            <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
+          <div id="tr-context" style="font-size: 10px; color: var(--label); margin-bottom: 10px; line-height: 1.5;"></div>
+          <div id="tr-action-area" style="margin-bottom: 8px;"></div>
+          <div id="tr-portfolio-result" style="display: none; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 3px; margin-bottom: 8px;"></div>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.06);">
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS UNLESS EXPLICITLY CREATED</span>
           </div>
-          <div id="dp-current-task-safety" style="font-size: 9px; color: var(--label);"></div>
-          <div style="font-size: 8px; color: var(--label); margin-top: 6px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 5px;">Future steps are collapsed until needed &mdash; Advanced manual actions available below.</div>
+          <!-- Legacy IDs and text preserved for JS/test compatibility -->
+          <div id="dp-current-task-label" style="display:none;">Guided daily plan</div>
+          <div id="dp-current-task-detail" style="display:none;">Approve, watch, or reject candidates. Future steps are collapsed until needed &mdash; Advanced manual actions available below.</div>
+          <div id="dp-current-task-safety" style="display:none;"></div>
         </div>
 
-        <!-- Candidate Review Progress Gate -->
-        <div id="dp-review-gate-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(99,102,241,.4); margin-bottom: 12px;">
+        <!-- Candidate Review Progress Gate (collapsed) -->
+        <details style="margin-bottom: 12px;">
+          <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; padding: 4px 0; text-transform: uppercase; letter-spacing: .06em;">Review progress details</summary>
+        <div id="dp-review-gate-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(99,102,241,.4); margin-top: 6px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(99,102,241,.2); padding-bottom: 4px;">
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Candidate Review Progress</div>
@@ -1814,9 +1821,10 @@
           <div id="dp-gate-message" style="font-size: 10px; padding: 6px 10px; border-radius: 2px; margin-bottom: 8px; line-height: 1.5; background: rgba(0,0,0,.12); color: var(--label);">Loading review progress...</div>
           <div id="dp-gate-next-step" style="font-size: 9px; color: var(--label); padding: 4px 8px; background: rgba(0,0,0,.12); border-radius: 2px; line-height: 1.5;"></div>
         </div>
+        </details>
 
-        <!-- Review Queue: primary action panel (full width) -->
-        <div id="dp-inline-rq-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(245,158,11,.4); margin-bottom: 12px;">
+        <!-- Review Queue: primary action panel (full width, visible only during active review) -->
+        <div id="dp-inline-rq-card" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(245,158,11,.4); margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--warning);">Review Queue</div>
@@ -1868,8 +1876,8 @@
           </div>
         </div>
 
-        <!-- Trade Plan Workspace -->
-        <div id="dp-trade-plan-workspace" class="compact-card" style="flex-shrink: 0; border-color: rgba(99,102,241,.4); margin-bottom: 6px;">
+        <!-- Trade Plan Workspace (visible only when approved candidates exist) -->
+        <div id="dp-trade-plan-workspace" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(99,102,241,.4); margin-bottom: 6px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(99,102,241,.2); padding-bottom: 4px;">
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
               <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Trade Plan Workspace</div>
@@ -1972,14 +1980,14 @@
           </div>
         </div>
 
-        <!-- Audit trail: internal signal/decision/order details (collapsed) -->
+        <!-- Advanced audit details (collapsed) -->
         <details id="dp-later-steps-details" style="margin-bottom: 6px;">
           <summary style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); cursor: pointer; padding: 7px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px; user-select: none;">
-            Audit trail &mdash; internal signal/decision/order details
-            <span style="font-weight: 400; text-transform: none; font-size: 9px;">&nbsp;(reference only &mdash; use Trade Plan Workspace above for primary workflow)</span>
+            Advanced audit details
+            <span style="display:none;">Audit trail &mdash; internal signal/decision/order details</span>
           </summary>
           <div style="padding: 8px 0 4px 0;">
-            <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.15); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">Internal pipeline details for audit and troubleshooting. Use Trade Plan Workspace above for the primary workflow. No automatic trading actions.</div>
+            <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.15); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">Internal signals, decisions, and order details are audit-only. Internal pipeline details for audit and troubleshooting. Use Today's Review above for the primary workflow. No automatic trading actions.</div>
 
             <!-- Signal Actions -->
             <details id="dp-signal-actions-details">
@@ -4179,6 +4187,27 @@ async function runPortfolioMonitorWorkspace(btn) {
         statusMsgEl.style.border = '1px solid rgba(34,197,94,.3)';
         statusMsgEl.style.color = 'var(--ok)';
         statusMsgEl.textContent = 'All open positions are currently healthy. No action required.';
+      }
+    }
+    // Update Today's Review result with simplified outcome label
+    var trResult = document.getElementById('tr-portfolio-result');
+    if (trResult) {
+      trResult.style.display = '';
+      if (data.reviewed_for_exit_count > 0) {
+        trResult.style.background = 'rgba(239,68,68,.08)';
+        trResult.style.border = '1px solid rgba(239,68,68,.3)';
+        trResult.style.color = 'var(--danger)';
+        trResult.textContent = 'REVIEW_FOR_EXIT: Exit review required.';
+      } else if (data.watch_count > 0) {
+        trResult.style.background = 'rgba(245,158,11,.08)';
+        trResult.style.border = '1px solid rgba(245,158,11,.3)';
+        trResult.style.color = 'var(--warning)';
+        trResult.textContent = 'WATCH: Monitor closely. No action required yet.';
+      } else {
+        trResult.style.background = 'rgba(34,197,94,.08)';
+        trResult.style.border = '1px solid rgba(34,197,94,.3)';
+        trResult.style.color = 'var(--ok)';
+        trResult.textContent = 'HOLD: No action required.';
       }
     }
     if (tbody) {
@@ -11435,6 +11464,47 @@ function _updateOvBlockedGridMaxPos(count, openPos, maxPos) {
     '</div>';
 }
 
+// ---------- Today's Review state machine ----------
+
+function updateTodayReview(total, pending, displayApproved, reviewComplete) {
+  const taskEl = document.getElementById('tr-current-task');
+  const nextEl = document.getElementById('tr-next-action');
+  const ctxEl = document.getElementById('tr-context');
+  const actionEl = document.getElementById('tr-action-area');
+  const resultEl = document.getElementById('tr-portfolio-result');
+  if (!taskEl) return;
+
+  if (total === 0) {
+    taskEl.textContent = 'Start Daily Review';
+    taskEl.style.color = 'var(--warning)';
+    if (nextEl) { nextEl.textContent = 'Run Daily Process Preview to generate candidates for review'; nextEl.style.color = 'var(--text-accent)'; }
+    if (ctxEl) { ctxEl.textContent = ''; }
+    if (resultEl) resultEl.style.display = 'none';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review Session</button>';
+  } else if (!reviewComplete) {
+    taskEl.textContent = 'Review Candidates';
+    taskEl.style.color = 'var(--warning)';
+    if (nextEl) { nextEl.textContent = 'Approve, Watch, or Reject each candidate in the Review Queue below'; nextEl.style.color = 'var(--text-accent)'; }
+    if (ctxEl) { ctxEl.textContent = pending + ' candidate(s) pending review.'; ctxEl.style.color = 'var(--label)'; }
+    if (resultEl) resultEl.style.display = 'none';
+    if (actionEl) actionEl.innerHTML = '';
+  } else if (displayApproved > 0) {
+    taskEl.textContent = 'Generate Trade Plan';
+    taskEl.style.color = 'var(--ok)';
+    if (nextEl) { nextEl.textContent = 'Click Generate Trade Plan below'; nextEl.style.color = 'var(--ok)'; }
+    if (ctxEl) { ctxEl.textContent = 'Creates internal Signal and TradeDecision records only. No orders, trades, fills, broker execution, or position changes.'; ctxEl.style.color = 'var(--label)'; }
+    if (resultEl) resultEl.style.display = 'none';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:rgba(99,102,241,.25);color:var(--info);border:1px solid rgba(99,102,241,.5);font-weight:700;font-size:11px;padding:7px 18px;" onclick="generateTradePlan(this)">Generate Trade Plan</button>';
+  } else {
+    taskEl.textContent = 'Monitor Portfolio';
+    taskEl.style.color = 'var(--ok)';
+    if (nextEl) { nextEl.textContent = 'Click Review Open Positions below'; nextEl.style.color = 'var(--ok)'; }
+    if (ctxEl) { ctxEl.textContent = 'No new trade plan. Monitor open positions.'; ctxEl.style.color = 'var(--text-accent)'; }
+    if (resultEl) resultEl.style.display = 'none';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button>';
+  }
+}
+
 function updateCockpitReviewSummary() {
   const all = window._lastReviewQueueData || [];
   const latestMap = {};
@@ -11567,6 +11637,14 @@ function updateCockpitReviewSummary() {
     if (dpTpNoTrade) dpTpNoTrade.style.display = tpNoTrade ? '' : 'none';
     const dpPmWorkspace = document.getElementById('dp-portfolio-monitor-workspace');
     if (dpPmWorkspace) dpPmWorkspace.style.display = tpNoTrade ? '' : 'none';
+    // Show Trade Plan Workspace only when tpAvailable (current task)
+    const dpTpWorkspace = document.getElementById('dp-trade-plan-workspace');
+    if (dpTpWorkspace) dpTpWorkspace.style.display = tpAvailable ? '' : 'none';
+    // Show Review Queue only during active review
+    const dpInlineRq = document.getElementById('dp-inline-rq-card');
+    if (dpInlineRq) dpInlineRq.style.display = (total > 0 && !reviewComplete) ? '' : 'none';
+    // Update Today's Review state machine
+    updateTodayReview(total, pending, displayApproved, reviewComplete);
   }
 
   // Smart next action: only update when queue has data and workflow is not in completed state

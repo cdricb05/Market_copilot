@@ -27480,3 +27480,52 @@ class TestUiPortfolioMonitoringWorkspaceV1Content:
 
     def test_run_portfolio_monitor_workspace_fn_present(self) -> None:
         assert "runPortfolioMonitorWorkspace" in self._read_html()
+
+
+class TestUiSimplifiedDailyPlanWorkflowV1Content:
+    """Verify Simplified Daily Plan Workflow v1 UI elements are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_todays_review_title_present(self) -> None:
+        assert "Today's Review" in self._read_html()
+
+    def test_current_task_label_present(self) -> None:
+        assert "Current task" in self._read_html()
+
+    def test_next_action_label_present(self) -> None:
+        assert "Next action" in self._read_html()
+
+    def test_start_daily_review_text_present(self) -> None:
+        assert "Start Daily Review" in self._read_html()
+
+    def test_review_candidates_text_present(self) -> None:
+        assert "Review Candidates" in self._read_html()
+
+    def test_generate_trade_plan_text_present(self) -> None:
+        assert "Generate Trade Plan" in self._read_html()
+
+    def test_monitor_portfolio_text_present(self) -> None:
+        assert "Monitor Portfolio" in self._read_html()
+
+    def test_no_new_trade_plan_monitor_text_present(self) -> None:
+        assert "No new trade plan. Monitor open positions." in self._read_html()
+
+    def test_watch_monitor_closely_text_present(self) -> None:
+        assert "WATCH: Monitor closely. No action required yet." in self._read_html()
+
+    def test_hold_no_action_text_present(self) -> None:
+        assert "HOLD: No action required." in self._read_html()
+
+    def test_review_for_exit_required_text_present(self) -> None:
+        assert "REVIEW_FOR_EXIT: Exit review required." in self._read_html()
+
+    def test_advanced_audit_details_text_present(self) -> None:
+        assert "Advanced audit details" in self._read_html()
+
+    def test_internal_signals_decisions_audit_only_text_present(self) -> None:
+        assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
