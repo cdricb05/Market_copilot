@@ -1868,14 +1868,49 @@
           </div>
         </div>
 
-        <!-- Later steps: signals, decisions, paper orders (collapsed) -->
+        <!-- Trade Plan Workspace -->
+        <div id="dp-trade-plan-workspace" class="compact-card" style="flex-shrink: 0; border-color: rgba(99,102,241,.4); margin-bottom: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(99,102,241,.2); padding-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--info);">Trade Plan Workspace</div>
+              <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL ACTION</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">TRADE PLAN ONLY</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">INTERNAL SIGNALS + DECISIONS ONLY</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO PAPER ORDERS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO TRADES</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO FILLS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO POSITION CHANGES</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+            </div>
+          </div>
+          <!-- Locked state: shown while candidate review is incomplete -->
+          <div id="dp-tp-locked" style="padding: 10px; background: rgba(245,158,11,.06); border: 1px solid rgba(245,158,11,.2); border-radius: 2px; margin-bottom: 4px;">
+            <div style="font-size: 11px; font-weight: 700; color: var(--warning); margin-bottom: 4px;">Trade plan locked</div>
+            <div style="font-size: 10px; color: var(--label); line-height: 1.5;">Finish candidate review before generating a trade plan.<br><span style="font-size: 9px;">No signals, decisions, orders, trades, or fills are created automatically.</span></div>
+          </div>
+          <!-- Available state: shown when review complete and approved_count > 0 -->
+          <div id="dp-tp-available" style="display: none;">
+            <div style="padding: 8px 10px; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.2); border-radius: 2px; margin-bottom: 8px;">
+              <div style="font-size: 10px; font-weight: 700; color: var(--ok); margin-bottom: 4px;">Generate Trade Plan from Approved Candidates</div>
+              <div style="font-size: 9px; color: var(--text-secondary); line-height: 1.5;">This creates internal Signal and TradeDecision records only. No paper orders, trades, fills, broker actions, or position changes.</div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 4px;">
+              <button id="dp-tp-generate-btn" class="btn-sm" style="background: rgba(99,102,241,.25); color: var(--info); border: 1px solid rgba(99,102,241,.5); font-size: 10px; padding: 5px 14px; font-weight: 700;" onclick="generateTradePlan(this)">Generate Trade Plan</button>
+            </div>
+          </div>
+          <div id="dp-tp-result" style="margin-top: 4px;"></div>
+          <div id="dp-tp-next-step" style="display: none; font-size: 9px; color: var(--label); padding: 4px 8px; background: rgba(0,0,0,.12); border-radius: 2px; margin-top: 6px; line-height: 1.5;"></div>
+        </div>
+
+        <!-- Audit trail: internal signal/decision/order details (collapsed) -->
         <details id="dp-later-steps-details" style="margin-bottom: 6px;">
           <summary style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); cursor: pointer; padding: 7px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px; user-select: none;">
-            Later steps &mdash; signals, decisions, paper orders
-            <span style="font-weight: 400; text-transform: none; font-size: 9px;">&nbsp;(collapsed until candidate review complete)</span>
+            Audit trail &mdash; internal signal/decision/order details
+            <span style="font-weight: 400; text-transform: none; font-size: 9px;">&nbsp;(reference only &mdash; use Trade Plan Workspace above for primary workflow)</span>
           </summary>
           <div style="padding: 8px 0 4px 0;">
-            <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.15); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">These steps unlock after candidate review. No automatic trading actions.</div>
+            <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.15); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">Internal pipeline details for audit and troubleshooting. Use Trade Plan Workspace above for the primary workflow. No automatic trading actions.</div>
 
             <!-- Signal Actions -->
             <details id="dp-signal-actions-details">
@@ -9036,6 +9071,110 @@ async function dpPreviewOrders(btn) {
   }
 }
 
+async function generateTradePlan(btn) {
+  const resultEl = document.getElementById('dp-tp-result');
+  if (!resultEl) return;
+  return new Promise(resolve => {
+    window._showWriteConfirm({
+      title: 'Generate Trade Plan',
+      writes: [
+        'Signal rows for approved candidates (idempotent -- skips existing)',
+        'TradeDecision rows for each signal (idempotent -- skips existing)',
+      ],
+      doesNotDo: [
+        'does not create paper orders',
+        'does not create trades',
+        'does not fill or cancel anything',
+        'does not call broker execution',
+        'does not change positions or cash',
+        'does not enable automation',
+      ],
+      confirmLabel: 'Generate Trade Plan',
+      onConfirm: async () => {
+        if (btn) btn.disabled = true;
+        resultEl.innerHTML = '<div style="color: var(--info); font-size: 11px; padding: 6px 0;">Generating trade plan...</div>';
+        try {
+          const r = await call('POST', '/v1/review/generate-trade-plan', {
+            idempotency_key: 'generate-trade-plan-' + Date.now(),
+            confirm_generate: true,
+            limit: 50,
+          });
+          const data = await parseApiResponse(r);
+          if (!r.ok) throw new Error((data && data.detail) ? data.detail : 'HTTP ' + r.status);
+
+          const sigsCreated = data.signals_created || 0;
+          const sigsExisting = data.signals_existing || 0;
+          const decsCreated = data.decisions_created || 0;
+          const decsExisting = data.decisions_existing || 0;
+          const decsRejected = data.rejected_decisions || 0;
+
+          let html = '<div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px;">';
+          html += '<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px;">Candidates: ' + escapeHtml(String(data.candidates_processed || 0)) + '</span>';
+          const sBg = sigsCreated > 0 ? 'rgba(34,197,94,.1)' : 'rgba(255,255,255,.07)';
+          const sClr = sigsCreated > 0 ? 'color: var(--ok); ' : '';
+          html += '<span style="background: ' + sBg + '; ' + sClr + 'padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 600;">Signals created: ' + escapeHtml(String(sigsCreated)) + '</span>';
+          if (sigsExisting > 0) html += '<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--label);">Signals existing: ' + escapeHtml(String(sigsExisting)) + '</span>';
+          const dBg = decsCreated > 0 ? 'rgba(99,102,241,.1)' : 'rgba(255,255,255,.07)';
+          const dClr = decsCreated > 0 ? 'color: var(--info); ' : '';
+          html += '<span style="background: ' + dBg + '; ' + dClr + 'padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 600;">Decisions created: ' + escapeHtml(String(decsCreated)) + '</span>';
+          if (decsExisting > 0) html += '<span style="background: rgba(255,255,255,.07); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--label);">Decisions existing: ' + escapeHtml(String(decsExisting)) + '</span>';
+          if (decsRejected > 0) html += '<span style="background: rgba(239,68,68,.1); padding: 2px 7px; border-radius: 3px; font-size: 10px; color: var(--danger);">Rejected/blocked: ' + escapeHtml(String(decsRejected)) + '</span>';
+          html += '</div>';
+
+          if (data.decision_details && data.decision_details.length > 0) {
+            html += '<div style="overflow-x: auto; max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px; margin-bottom: 6px;">';
+            html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Ticker</th>';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Side</th>';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Decision</th>';
+            html += '<th style="padding: 3px 5px; text-align: right; color: var(--label); font-size: 9px;">Notional</th>';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Status</th>';
+            html += '</tr></thead><tbody>';
+            for (const dec of data.decision_details) {
+              const dSideClr = dec.side === 'BUY' ? 'var(--ok)' : dec.side === 'SELL' ? 'var(--danger)' : 'var(--text-secondary)';
+              const dDecClr = (dec.decision === 'APPROVE' || dec.decision === 'BUY') ? 'var(--ok)' : dec.decision === 'REJECT' ? 'var(--danger)' : 'var(--text-secondary)';
+              html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+              html += '<td style="padding: 3px 5px; font-weight: 600;">' + escapeHtml(dec.ticker) + '</td>';
+              html += '<td style="padding: 3px 5px; color: ' + dSideClr + '; font-weight: 600;">' + escapeHtml(dec.side) + '</td>';
+              html += '<td style="padding: 3px 5px; color: ' + dDecClr + '; font-size: 9px; font-weight: 600;">' + escapeHtml(dec.decision || '-') + '</td>';
+              html += '<td style="padding: 3px 5px; text-align: right; font-size: 9px;">' + escapeHtml(String(dec.approved_notional || '-')) + '</td>';
+              html += '<td style="padding: 3px 5px; font-size: 9px; color: var(--label);">' + escapeHtml(dec.status || '-') + '</td>';
+              html += '</tr>';
+            }
+            html += '</tbody></table></div>';
+          }
+          html += '<div style="margin-top: 4px; padding: 3px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">Orders: 0 | Trades: 0 | Fills: 0 | Broker execution: off | Positions changed: no</div>';
+          resultEl.innerHTML = html;
+
+          const dpTpNext = document.getElementById('dp-tp-next-step');
+          if (dpTpNext) {
+            const totalDecs = decsCreated + decsExisting;
+            const approvedDecs = totalDecs - decsRejected;
+            let nextMsg;
+            if (approvedDecs > 0) {
+              nextMsg = 'Next step: Review trade plan -- Create paper order tickets manually when ready.';
+            } else if ((data.approved_candidates_count || 0) > 0) {
+              nextMsg = 'Next step: Monitor portfolio -- all decisions were rejected or risk-blocked.';
+            } else {
+              nextMsg = 'Next step: Run Daily Review Session.';
+            }
+            dpTpNext.textContent = nextMsg;
+            dpTpNext.style.display = '';
+          }
+
+          refreshCockpitAfterAction('Generate Trade Plan');
+          resolve();
+        } catch (e) {
+          resultEl.innerHTML = '<div style="color: var(--danger); font-size: 10px; padding: 4px 0;">Error: ' + escapeHtml(e.message) + '</div>';
+          if (btn) btn.disabled = false;
+          resolve();
+        }
+      },
+      onCancel: () => resolve(),
+    });
+  });
+}
+
 async function updateReviewStatus(candidateId, newStatus, reasonCode, note) {
   try {
     const body = { review_status: newStatus };
@@ -11215,7 +11354,7 @@ function updateCockpitReviewSummary() {
       dpGateMessage.style.background = 'rgba(34,197,94,.06)';
       dpGateMessage.style.color = 'var(--ok)';
     }
-    if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Create signals from approved candidates -- expand Signal Actions below.';
+    if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Generate Trade Plan from Approved Candidates -- use Trade Plan Workspace below.';
   } else if (consumed > 0) {
     if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Candidate review complete'; dpGateStatusLabel.style.color = 'var(--ok)'; }
     if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(34,197,94,.08)';
@@ -11239,6 +11378,15 @@ function updateCockpitReviewSummary() {
     if (dpGateNextStep) dpGateNextStep.textContent = openPos > 0 ? 'Next step: Monitor portfolio -- review open positions in the Portfolio tab.' : 'Next step: Run Daily Review Session.';
   }
 
+  // Update Trade Plan Workspace locked/available state
+  const dpTpLocked = document.getElementById('dp-tp-locked');
+  const dpTpAvailable = document.getElementById('dp-tp-available');
+  if (dpTpLocked && dpTpAvailable) {
+    const tpUnlocked = reviewComplete && displayApproved > 0;
+    dpTpLocked.style.display = tpUnlocked ? 'none' : '';
+    dpTpAvailable.style.display = tpUnlocked ? '' : 'none';
+  }
+
   // Smart next action: only update when queue has data and workflow is not in completed state
   if (total > 0 && !window._workflowCompletedState) {
     const _prEl = document.getElementById('dp-primary-recommendation');
@@ -11246,9 +11394,9 @@ function updateCockpitReviewSummary() {
       if (approved === 0 && pending > 0) {
         _prEl.textContent = 'Review and approve candidates in Review Queue — ' + pending + ' candidate(s) pending approval.';
       } else if (approved > 0 && pending === 0) {
-        _prEl.textContent = approved + ' candidate(s) approved for signal — use Signal Actions below to preview or create signals.';
+        _prEl.textContent = approved + ' candidate(s) approved -- use Trade Plan Workspace below to generate a trade plan.';
       } else if (approved > 0) {
-        _prEl.textContent = approved + ' approved, ' + pending + ' pending — review remaining candidates or use Signal Actions below.';
+        _prEl.textContent = approved + ' approved, ' + pending + ' pending -- review remaining candidates then use Trade Plan Workspace below.';
       }
     }
   }

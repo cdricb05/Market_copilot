@@ -1291,6 +1291,60 @@ class ReviewCreateDecisionsResponse(BaseModel):
     orders_created: int
 
 
+class TradePlanSignalDetail(BaseModel):
+    """A signal created or reused by generate-trade-plan."""
+    candidate_review_id: str
+    signal_id: str
+    ticker: str
+    side: str
+    confidence: str
+    status: str
+
+
+class TradePlanDecisionDetail(BaseModel):
+    """A trade decision created or reused by generate-trade-plan."""
+    signal_id: str
+    trade_decision_id: str
+    ticker: str
+    side: str
+    decision: str
+    approved_notional: str
+    status: str
+
+
+class GenerateTradePlanRequest(BaseModel):
+    """Request to generate a trade plan from approved candidates."""
+    idempotency_key: str | None = Field(default=None)
+    confirm_generate: bool = Field(
+        default=False,
+        description="Must be true to create Signal and TradeDecision rows.",
+    )
+    limit: int = Field(default=50, ge=1, le=100)
+
+
+class GenerateTradePlanResponse(BaseModel):
+    """Response from POST /v1/review/generate-trade-plan."""
+    preview_only: bool = False
+    writes_performed: bool = True
+    candidates_processed: int
+    approved_candidates_count: int
+    signals_created: int
+    signals_existing: int
+    decisions_created: int
+    decisions_existing: int
+    rejected_decisions: int
+    orders_created: int = 0
+    trades_created: int = 0
+    fills_created: int = 0
+    broker_execution: bool = False
+    positions_changed: bool = False
+    cash_changed: bool = False
+    signal_details: list[TradePlanSignalDetail]
+    decision_details: list[TradePlanDecisionDetail]
+    next_step: str
+    safety_note: str
+
+
 class OrderPreviewItem(BaseModel):
     """A preview of an Order that would be created from a TradeDecision."""
     trade_decision_id: str
@@ -7214,6 +7268,286 @@ async def create_decisions_from_signals(
         created_decisions=created_decisions_list,
         skipped=skipped_list,
         orders_created=0,
+    )
+
+
+@app.post(
+    "/v1/review/generate-trade-plan",
+    response_model=GenerateTradePlanResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def generate_trade_plan(
+    body: GenerateTradePlanRequest,
+) -> GenerateTradePlanResponse:
+    """
+    Generate a trade plan from approved candidates.
+
+    Orchestrates Signal creation then TradeDecision creation in one manual action.
+    Idempotent: repeated calls reuse existing Signal and TradeDecision rows.
+
+    Does NOT create Order, Trade, Position, CashLedger, or PortfolioSnapshot rows.
+    Does NOT trigger broker execution or automation.
+
+    confirm_generate must be true.
+    """
+    import uuid as uuid_module
+
+    if not body.confirm_generate:
+        raise HTTPException(
+            status_code=422,
+            detail="confirm_generate must be true to generate a trade plan.",
+        )
+
+    eastern_now = datetime.now(_EASTERN)
+    market_date = eastern_now.date()
+    now_utc = datetime.now(timezone.utc)
+    ikey = body.idempotency_key or f"generate-trade-plan:{str(market_date)}:{uuid_module.uuid4().hex[:8]}"
+
+    signals_created = 0
+    signals_existing = 0
+    decisions_created = 0
+    decisions_existing = 0
+    rejected_decisions = 0
+    signal_details: list[TradePlanSignalDetail] = []
+    decision_details: list[TradePlanDecisionDetail] = []
+    approved_count = 0
+    candidates_processed = 0
+
+    # Collect (signal_id_str, ticker, side) tuples for decision phase
+    all_signal_ids: list[tuple[str, str, str]] = []
+
+    # ---- Phase 1: Create/reuse Signal rows for APPROVED_FOR_SIGNAL candidates ----
+    with get_session() as session:
+        rows = (
+            session.query(CandidateReview)
+            .filter(CandidateReview.review_status == "APPROVED_FOR_SIGNAL")
+            .limit(body.limit)
+            .all()
+        )
+        approved_count = len(rows)
+
+        signals_to_create: list[tuple] = []
+
+        for row in rows:
+            candidates_processed += 1
+            candidate_id_str = str(row.id)
+
+            if row.status != "OK":
+                continue
+            if not row.prediction_recommendation:
+                continue
+            rec_upper = row.prediction_recommendation.upper()
+            if rec_upper not in ("BUY", "SELL"):
+                continue
+            direction = rec_upper
+            if not row.prediction_confidence:
+                continue
+            try:
+                confidence_decimal = Decimal(row.prediction_confidence)
+                if not (Decimal("0") <= confidence_decimal <= Decimal("1")):
+                    continue
+            except Exception:
+                continue
+
+            source_run = f"review_queue_create_signals_v1:{candidate_id_str}"
+
+            existing_signal = session.query(Signal).filter(
+                Signal.source_run == source_run,
+                Signal.ticker == row.ticker,
+                Signal.direction == direction,
+            ).first()
+
+            if existing_signal:
+                signals_existing += 1
+                all_signal_ids.append((str(existing_signal.id), row.ticker, direction))
+                signal_details.append(TradePlanSignalDetail(
+                    candidate_review_id=candidate_id_str,
+                    signal_id=str(existing_signal.id),
+                    ticker=row.ticker,
+                    side=direction,
+                    confidence=str(confidence_decimal),
+                    status="existing",
+                ))
+            else:
+                signals_to_create.append((row, direction, confidence_decimal, source_run, candidate_id_str))
+
+        if signals_to_create:
+            job_run_sigs = JobRun(
+                idempotency_key=ikey + ":signals",
+                workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                market_date=market_date,
+                status="COMPLETED",
+                completed_at=now_utc,
+                result_summary={},
+            )
+            session.add(job_run_sigs)
+            session.flush()
+
+            for row, direction, confidence_decimal, source_run, candidate_id_str in signals_to_create:
+                signal = Signal(
+                    job_run_id=job_run_sigs.id,
+                    ticker=row.ticker,
+                    direction=direction,
+                    confidence=confidence_decimal,
+                    signal_ts=now_utc,
+                    market_date=market_date,
+                    source_run=source_run,
+                    status="RECEIVED",
+                    raw_payload={
+                        "source": "generate_trade_plan_v1",
+                        "candidate_review_id": candidate_id_str,
+                        "request_idempotency_key": ikey,
+                    },
+                )
+                session.add(signal)
+                session.flush()
+                signals_created += 1
+                all_signal_ids.append((str(signal.id), row.ticker, direction))
+                signal_details.append(TradePlanSignalDetail(
+                    candidate_review_id=candidate_id_str,
+                    signal_id=str(signal.id),
+                    ticker=row.ticker,
+                    side=direction,
+                    confidence=str(confidence_decimal),
+                    status="created",
+                ))
+
+            job_run_sigs.result_summary = {"signals_created": signals_created}
+            session.add(job_run_sigs)
+            session.flush()
+
+    # ---- Phase 2: Create/reuse TradeDecision rows for collected signals ----
+    with get_session() as session:
+        portfolio = get_portfolio(session)
+        decisions_to_create: list = []
+
+        for signal_id_str, ticker, side in all_signal_ids:
+            try:
+                sig_uuid = uuid_module.UUID(signal_id_str)
+            except (ValueError, AttributeError):
+                continue
+
+            signal = session.query(Signal).filter(Signal.id == sig_uuid).first()
+            if not signal:
+                continue
+
+            existing_decision = session.query(TradeDecision).filter(
+                TradeDecision.signal_id == signal.id
+            ).first()
+
+            if existing_decision:
+                decisions_existing += 1
+                if existing_decision.decision not in ("APPROVE", "BUY", "SELL"):
+                    rejected_decisions += 1
+                decision_details.append(TradePlanDecisionDetail(
+                    signal_id=signal_id_str,
+                    trade_decision_id=str(existing_decision.id),
+                    ticker=ticker,
+                    side=side,
+                    decision=existing_decision.decision or "-",
+                    approved_notional=str(existing_decision.approved_notional or "0"),
+                    status="existing",
+                ))
+            else:
+                decisions_to_create.append(signal)
+
+        if decisions_to_create:
+            job_run_decs = JobRun(
+                idempotency_key=ikey + ":decisions",
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=market_date,
+                status="COMPLETED",
+                completed_at=now_utc,
+                result_summary={},
+            )
+            session.add(job_run_decs)
+            session.flush()
+
+            for signal in decisions_to_create:
+                snapshot_price = _latest_price(session, signal.ticker)
+                rd = evaluate_signal(
+                    session,
+                    portfolio=portfolio,
+                    direction=signal.direction,
+                    ticker=signal.ticker,
+                    confidence=signal.confidence,
+                    snapshot_price=snapshot_price,
+                    market_date=market_date,
+                    now=now_utc,
+                )
+                trade_decision = TradeDecision(
+                    signal_id=signal.id,
+                    job_run_id=job_run_decs.id,
+                    ticker=signal.ticker,
+                    signal_direction=signal.direction,
+                    decision=rd.decision,
+                    reason_code=rd.reason_code,
+                    requested_notional=rd.requested_notional if rd.requested_notional > Decimal("0") else None,
+                    approved_notional=rd.approved_notional if rd.approved_notional > Decimal("0") else None,
+                    requested_qty=rd.requested_qty if rd.requested_qty > Decimal("0") else None,
+                    approved_qty=rd.approved_qty if rd.approved_qty > Decimal("0") else None,
+                    risk_snapshot=rd.risk_snapshot,
+                    sizing_adjustments=rd.sizing_adjustments,
+                    decided_at=now_utc,
+                    market_date=market_date,
+                )
+                session.add(trade_decision)
+                session.flush()
+
+                signal.status = "DECISION_MADE"
+                session.add(signal)
+                session.flush()
+
+                decisions_created += 1
+                if rd.decision not in ("APPROVE", "BUY", "SELL"):
+                    rejected_decisions += 1
+                decision_details.append(TradePlanDecisionDetail(
+                    signal_id=str(signal.id),
+                    trade_decision_id=str(trade_decision.id),
+                    ticker=signal.ticker,
+                    side=signal.direction,
+                    decision=rd.decision,
+                    approved_notional=str(rd.approved_notional),
+                    status="created",
+                ))
+
+            job_run_decs.result_summary = {
+                "decisions_created": decisions_created,
+                "rejected_decisions": rejected_decisions,
+                "orders_created": 0,
+            }
+            session.add(job_run_decs)
+            session.flush()
+
+    approved_decisions = (decisions_created + decisions_existing) - rejected_decisions
+    if approved_decisions > 0:
+        next_step = "Review trade plan -- Create paper order tickets manually when ready"
+    elif approved_count > 0:
+        next_step = "Monitor portfolio -- all decisions were rejected or risk-blocked"
+    else:
+        next_step = "Run Daily Review Session -- no approved candidates found"
+
+    return GenerateTradePlanResponse(
+        preview_only=False,
+        writes_performed=True,
+        candidates_processed=candidates_processed,
+        approved_candidates_count=approved_count,
+        signals_created=signals_created,
+        signals_existing=signals_existing,
+        decisions_created=decisions_created,
+        decisions_existing=decisions_existing,
+        rejected_decisions=rejected_decisions,
+        orders_created=0,
+        trades_created=0,
+        fills_created=0,
+        broker_execution=False,
+        positions_changed=False,
+        cash_changed=False,
+        signal_details=signal_details,
+        decision_details=decision_details,
+        next_step=next_step,
+        safety_note="Signal and TradeDecision rows only. No Orders, Trades, Positions, or CashLedger rows created or modified.",
     )
 
 
