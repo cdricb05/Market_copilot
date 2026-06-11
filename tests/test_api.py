@@ -24012,9 +24012,9 @@ class TestUiStaticContent:
         html = self._read_html()
         assert "Current review cycle" in html
 
-    def test_completed_consumed_text_present(self) -> None:
+    def test_monitor_only_held_text_present(self) -> None:
         html = self._read_html()
-        assert "Completed / consumed" in html
+        assert "Monitor-only / held" in html
 
     def test_historical_candidates_hidden_text_present(self) -> None:
         html = self._read_html()
@@ -27330,3 +27330,73 @@ class TestUiReviewToTradePlanV1Content:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiNoTradeReviewOutcomeV1Content:
+    """Verify No-Trade Review Outcome v1 UI elements are present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_no_trade_plan_to_generate_text_present(self) -> None:
+        assert "No trade plan to generate" in self._read_html()
+
+    def test_candidate_review_complete_no_approved_text_present(self) -> None:
+        assert "Candidate review is complete. No candidates are currently approved for a new trade plan." in self._read_html()
+
+    def test_watch_and_reject_valid_outcomes_text_present(self) -> None:
+        assert "Watch and Reject are valid review outcomes." in self._read_html()
+
+    def test_next_step_monitor_portfolio_text_present(self) -> None:
+        assert "Next step: Monitor portfolio or start a new Daily Review Session when ready." in self._read_html()
+
+    def test_review_complete_badge_present(self) -> None:
+        assert "REVIEW COMPLETE" in self._read_html()
+
+    def test_no_approved_candidates_badge_present(self) -> None:
+        assert "NO APPROVED CANDIDATES" in self._read_html()
+
+    def test_watching_action_text_present(self) -> None:
+        assert "Watching" in self._read_html()
+
+    def test_rejected_action_text_present(self) -> None:
+        assert "Rejected" in self._read_html()
+
+    def test_monitor_only_held_text_present(self) -> None:
+        assert "Monitor-only / held" in self._read_html()
+
+    def test_dp_tp_no_trade_id_present(self) -> None:
+        assert 'id="dp-tp-no-trade"' in self._read_html()
+
+    def test_three_tp_state_divs_present(self) -> None:
+        html = self._read_html()
+        assert 'id="dp-tp-locked"' in html
+        assert 'id="dp-tp-no-trade"' in html
+        assert 'id="dp-tp-available"' in html
+
+    def test_trade_plan_locked_still_present(self) -> None:
+        assert "Trade plan locked" in self._read_html()
+
+    def test_finish_candidate_review_text_still_present(self) -> None:
+        assert "Finish candidate review before generating a trade plan" in self._read_html()
+
+    def test_no_signals_badge_present(self) -> None:
+        assert "NO SIGNALS" in self._read_html()
+
+    def test_no_decisions_badge_present(self) -> None:
+        assert "NO DECISIONS" in self._read_html()
+
+    def test_no_orders_badge_present(self) -> None:
+        assert "NO ORDERS" in self._read_html()
+
+    def test_no_trades_badge_present(self) -> None:
+        assert "NO TRADES" in self._read_html()
+
+    def test_no_fills_badge_present(self) -> None:
+        assert "NO FILLS" in self._read_html()
+
+    def test_no_broker_execution_badge_present(self) -> None:
+        assert "NO BROKER EXECUTION" in self._read_html()

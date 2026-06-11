@@ -1889,6 +1889,21 @@
             <div style="font-size: 11px; font-weight: 700; color: var(--warning); margin-bottom: 4px;">Trade plan locked</div>
             <div style="font-size: 10px; color: var(--label); line-height: 1.5;">Finish candidate review before generating a trade plan.<br><span style="font-size: 9px;">No signals, decisions, orders, trades, or fills are created automatically.</span></div>
           </div>
+          <!-- No-trade outcome: shown when review complete and no eligible approved candidates -->
+          <div id="dp-tp-no-trade" style="display: none; padding: 10px; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.2); border-radius: 2px; margin-bottom: 4px;">
+            <div style="font-size: 11px; font-weight: 700; color: var(--ok); margin-bottom: 4px;">No trade plan to generate</div>
+            <div style="font-size: 10px; color: var(--text-accent); line-height: 1.6; margin-bottom: 6px;">Candidate review is complete. No candidates are currently approved for a new trade plan.<br>Watch and Reject are valid review outcomes.<br><span style="color: var(--label);">Next step: Monitor portfolio or start a new Daily Review Session when ready.</span></div>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">
+              <span class="badge ok" style="font-size: 7px; padding: 1px 5px;">REVIEW COMPLETE</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO APPROVED CANDIDATES</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO SIGNALS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO DECISIONS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO TRADES</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO FILLS</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+            </div>
+          </div>
           <!-- Available state: shown when review complete and approved_count > 0 -->
           <div id="dp-tp-available" style="display: none;">
             <div style="padding: 8px 10px; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.2); border-radius: 2px; margin-bottom: 8px;">
@@ -8672,9 +8687,18 @@ function renderReviewQueue(candidates) {
     const rs = c.relative_strength_vs_spy_20d ? parseFloat(c.relative_strength_vs_spy_20d).toFixed(2) : '-';
     const reasonBadge = c.review_reason_code ? `<br><span style="font-size:8px;color:var(--label);">${escapeHtml(c.review_reason_code)}</span>` : '';
     const noteBadge = c.review_note ? `<br><span style="font-size:8px;color:var(--text-secondary);font-style:italic;">${escapeHtml(c.review_note.length > 32 ? c.review_note.substring(0, 32) + '...' : c.review_note)}</span>` : '';
-    const actionHtml = isConsumed
-      ? '<span style="font-size:9px;color:var(--label);font-style:italic;">Completed / consumed</span>'
-      : `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:3px 6px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:3px 6px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:3px 6px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+    let actionHtml;
+    if (isConsumed) {
+      actionHtml = '<span style="font-size:9px;color:var(--label);font-style:italic;">Monitor-only / held</span>';
+    } else if (c.review_status === 'WATCHING') {
+      actionHtml = '<span style="font-size:9px;color:var(--text-primary);font-style:italic;">Watching</span>';
+    } else if (c.review_status === 'REJECTED') {
+      actionHtml = '<span style="font-size:9px;color:var(--danger);font-style:italic;">Rejected</span>';
+    } else if (c.review_status === 'APPROVED_FOR_SIGNAL') {
+      actionHtml = '<span style="font-size:9px;color:var(--ok);font-style:italic;">Approved</span>';
+    } else {
+      actionHtml = `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:3px 6px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:3px 6px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:3px 6px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+    }
     return `<tr>
       <td><strong>${escapeHtml(c.ticker)}</strong></td>
       <td style="color:${statusColor};font-weight:600;font-size:10px;">${escapeHtml(statusLabel)}${reasonBadge}${noteBadge}</td>
@@ -8727,9 +8751,18 @@ function renderDpInlineReviewQueue(candidates) {
                     c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
     const reasonBadge = c.review_reason_code ? `<br><span style="font-size:8px;color:var(--label);">${escapeHtml(c.review_reason_code)}</span>` : '';
     const noteBadge = c.review_note ? `<br><span style="font-size:8px;color:var(--text-secondary);font-style:italic;">${escapeHtml(c.review_note.length > 30 ? c.review_note.substring(0, 30) + '...' : c.review_note)}</span>` : '';
-    const dpActionHtml = isConsumed
-      ? '<span style="font-size:8px;color:var(--label);font-style:italic;">Monitor-only / held</span>'
-      : `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+    let dpActionHtml;
+    if (isConsumed) {
+      dpActionHtml = '<span style="font-size:8px;color:var(--label);font-style:italic;">Monitor-only / held</span>';
+    } else if (c.review_status === 'WATCHING') {
+      dpActionHtml = '<span style="font-size:8px;color:var(--text-primary);font-style:italic;">Watching</span>';
+    } else if (c.review_status === 'REJECTED') {
+      dpActionHtml = '<span style="font-size:8px;color:var(--danger);font-style:italic;">Rejected</span>';
+    } else if (c.review_status === 'APPROVED_FOR_SIGNAL') {
+      dpActionHtml = '<span style="font-size:8px;color:var(--ok);font-style:italic;">Approved</span>';
+    } else {
+      dpActionHtml = `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+    }
     return `<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">
       <td style="padding:4px 6px;"><strong>${escapeHtml(c.ticker)}</strong></td>
       <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(statusLabel)}${reasonBadge}${noteBadge}</td>
@@ -11273,13 +11306,16 @@ function updateCockpitReviewSummary() {
   const watching = latest.filter(c => c.review_status === 'WATCHING').length;
   const rejected = latest.filter(c => c.review_status === 'REJECTED').length;
   const pending = total - approved - watching - rejected;
+  const consumed = window._workflowCompletedState ? approved : 0;
+  const displayApproved = window._workflowCompletedState ? 0 : approved;
+  const reviewComplete = total > 0 && pending === 0;
 
   // Update cockpit Step 3 summary grid
   const s3el = document.getElementById('step3-rq-summary');
   if (s3el) {
     s3el.innerHTML =
       `<div style="text-align:center;background:rgba(0,0,0,.2);padding:6px;border-radius:2px;border:1px solid var(--border);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Total</div><div style="font-size:16px;font-weight:700;color:var(--text-primary);">${total}</div></div>` +
-      `<div style="text-align:center;background:rgba(34,197,94,.08);padding:6px;border-radius:2px;border:1px solid rgba(34,197,94,.3);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Approved</div><div style="font-size:16px;font-weight:700;color:var(--ok);">${approved}</div></div>` +
+      `<div style="text-align:center;background:rgba(34,197,94,.08);padding:6px;border-radius:2px;border:1px solid rgba(34,197,94,.3);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Approved</div><div style="font-size:16px;font-weight:700;color:var(--ok);">${displayApproved}</div></div>` +
       `<div style="text-align:center;background:rgba(245,158,11,.08);padding:6px;border-radius:2px;border:1px solid rgba(245,158,11,.3);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Watching</div><div style="font-size:16px;font-weight:700;color:var(--warning);">${watching}</div></div>` +
       `<div style="text-align:center;background:rgba(239,68,68,.08);padding:6px;border-radius:2px;border:1px solid rgba(239,68,68,.3);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Rejected</div><div style="font-size:16px;font-weight:700;color:var(--danger);">${rejected}</div></div>` +
       `<div style="text-align:center;background:rgba(0,0,0,.2);padding:6px;border-radius:2px;border:1px solid var(--border);"><div style="font-size:9px;color:var(--label);text-transform:uppercase;">Pending</div><div style="font-size:16px;font-weight:700;color:var(--text-accent);">${pending}</div></div>`;
@@ -11292,7 +11328,7 @@ function updateCockpitReviewSummary() {
   const rqRejected = document.getElementById('rq-card-rejected');
   const rqPending = document.getElementById('rq-card-pending');
   if (rqTotal) rqTotal.textContent = total;
-  if (rqApproved) rqApproved.textContent = approved;
+  if (rqApproved) rqApproved.textContent = displayApproved;
   if (rqWatching) rqWatching.textContent = watching;
   if (rqRejected) rqRejected.textContent = rejected;
   if (rqPending) rqPending.textContent = pending;
@@ -11309,15 +11345,12 @@ function updateCockpitReviewSummary() {
   const dpRejected = document.getElementById('dp-rq-rejected');
   const dpPending = document.getElementById('dp-rq-pending');
   if (dpTotal) dpTotal.textContent = total;
-  if (dpApproved) dpApproved.textContent = approved;
+  if (dpApproved) dpApproved.textContent = displayApproved;
   if (dpWatching) dpWatching.textContent = watching;
   if (dpRejected) dpRejected.textContent = rejected;
   if (dpPending) dpPending.textContent = pending;
 
   // Update Candidate Review Gate panel
-  const consumed = window._workflowCompletedState ? approved : 0;
-  const displayApproved = window._workflowCompletedState ? 0 : approved;
-  const reviewComplete = total > 0 && pending === 0;
   const dpGatePending = document.getElementById('dp-gate-pending');
   const dpGateApproved = document.getElementById('dp-gate-approved');
   const dpGateWatching = document.getElementById('dp-gate-watching');
@@ -11378,13 +11411,17 @@ function updateCockpitReviewSummary() {
     if (dpGateNextStep) dpGateNextStep.textContent = openPos > 0 ? 'Next step: Monitor portfolio -- review open positions in the Portfolio tab.' : 'Next step: Run Daily Review Session.';
   }
 
-  // Update Trade Plan Workspace locked/available state
+  // Update Trade Plan Workspace locked/available/no-trade state
   const dpTpLocked = document.getElementById('dp-tp-locked');
   const dpTpAvailable = document.getElementById('dp-tp-available');
+  const dpTpNoTrade = document.getElementById('dp-tp-no-trade');
   if (dpTpLocked && dpTpAvailable) {
-    const tpUnlocked = reviewComplete && displayApproved > 0;
-    dpTpLocked.style.display = tpUnlocked ? 'none' : '';
-    dpTpAvailable.style.display = tpUnlocked ? '' : 'none';
+    const tpAvailable = reviewComplete && displayApproved > 0;
+    const tpNoTrade = reviewComplete && displayApproved === 0 && total > 0;
+    const tpLocked = !reviewComplete || total === 0;
+    dpTpLocked.style.display = tpLocked ? '' : 'none';
+    dpTpAvailable.style.display = tpAvailable ? '' : 'none';
+    if (dpTpNoTrade) dpTpNoTrade.style.display = tpNoTrade ? '' : 'none';
   }
 
   // Smart next action: only update when queue has data and workflow is not in completed state
