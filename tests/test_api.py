@@ -27524,8 +27524,8 @@ class TestUiSimplifiedDailyPlanWorkflowV1Content:
     def test_review_for_exit_required_text_present(self) -> None:
         assert "REVIEW_FOR_EXIT: Exit review required." in self._read_html()
 
-    def test_advanced_audit_details_text_present(self) -> None:
-        assert "Advanced audit details" in self._read_html()
+    def test_advanced_audit_section_text_present(self) -> None:
+        assert "Advanced / Audit" in self._read_html()
 
     def test_internal_signals_decisions_audit_only_text_present(self) -> None:
         assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
@@ -27604,6 +27604,77 @@ class TestUiDailyPlanUsabilityCleanupV1Content:
 
     def test_internal_signals_decisions_audit_only_present(self) -> None:
         assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
+
+    def test_sticky_tab_bar_still_present(self) -> None:
+        assert "position: sticky" in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiGuidedWorkflowV1Content:
+    """Guided Daily Plan Workflow v1: simplified single-path workflow, required text, audit collapsed."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_prepare_today_candidates_snapshot_text_present(self) -> None:
+        assert "Prepare today's candidates and portfolio snapshot." in self._read_html()
+
+    def test_approve_watch_reject_remaining_text_present(self) -> None:
+        assert "Approve, watch, or reject the remaining candidates." in self._read_html()
+
+    def test_generate_trade_plan_from_approved_text_present(self) -> None:
+        assert "Generate a trade plan from approved candidates." in self._read_html()
+
+    def test_advanced_audit_section_present(self) -> None:
+        assert "Advanced / Audit" in self._read_html()
+
+    def test_advanced_scan_settings_section_present(self) -> None:
+        assert "Advanced scan settings" in self._read_html()
+
+    def test_run_advanced_daily_process_preview_button_present(self) -> None:
+        assert "Run advanced daily process preview" in self._read_html()
+
+    def test_diagnostics_and_manual_tools_section_present(self) -> None:
+        assert "Diagnostics and manual tools" in self._read_html()
+
+    def test_setup_rerun_section_present(self) -> None:
+        assert "Setup / rerun daily process" in self._read_html()
+
+    def test_internal_signal_audit_section_present(self) -> None:
+        assert "Internal signal audit" in self._read_html()
+
+    def test_internal_decision_audit_section_present(self) -> None:
+        assert "Internal decision audit" in self._read_html()
+
+    def test_internal_order_audit_section_present(self) -> None:
+        assert "Internal order audit" in self._read_html()
+
+    def test_you_do_not_need_these_sections_text_present(self) -> None:
+        assert "You do not need these sections for normal daily review." in self._read_html()
+
+    def test_internal_signals_decisions_audit_only_text_present(self) -> None:
+        assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
+
+    def test_hold_state_text_present(self) -> None:
+        assert "HOLD: No action required." in self._read_html()
+
+    def test_watch_state_text_present(self) -> None:
+        assert "WATCH: Monitor closely. No action required yet." in self._read_html()
+
+    def test_review_for_exit_state_text_present(self) -> None:
+        assert "REVIEW_FOR_EXIT: Exit review required." in self._read_html()
 
     def test_sticky_tab_bar_still_present(self) -> None:
         assert "position: sticky" in self._read_html()

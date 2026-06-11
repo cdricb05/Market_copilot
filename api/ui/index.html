@@ -1989,11 +1989,39 @@
         <!-- Advanced audit details (collapsed) -->
         <details id="dp-later-steps-details" style="margin-bottom: 6px;">
           <summary style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); cursor: pointer; padding: 7px 10px; background: rgba(0,0,0,.15); border: 1px solid rgba(255,255,255,.08); border-radius: 3px; user-select: none;">
-            Advanced audit details
+            Advanced / Audit
             <span style="display:none;">Audit trail &mdash; internal signal/decision/order details</span>
           </summary>
           <div style="padding: 8px 0 4px 0;">
             <div style="font-size: 9px; color: var(--label); padding: 5px 10px; background: rgba(0,0,0,.15); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">You do not need these sections for normal daily review. Internal signals, decisions, and order details are audit-only. Internal pipeline details for audit and troubleshooting. Use Today's Review above for the primary workflow. No automatic trading actions.</div>
+
+            <!-- Advanced scan settings -->
+            <details>
+              <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--label); cursor: pointer; padding: 4px 0; user-select: none;">Advanced scan settings</summary>
+              <div style="padding: 8px 4px;">
+                <div class="inputs-grid">
+                  <div class="input-group"><label>Ticker</label><input id="dtr-ticker" placeholder="AAPL" class="mono"></div>
+                  <div class="input-group"><label>Price</label><input id="dtr-price" placeholder="150.00" class="mono"></div>
+                  <div class="input-group"><label>Direction</label><select id="dtr-direction" class="mono"><option>BUY</option><option>SELL</option><option>HOLD</option></select></div>
+                  <div class="input-group"><label>Confidence (0-1)</label><input id="dtr-confidence" placeholder="0.80" class="mono"></div>
+                  <div class="input-group"><label>Short Window</label><input id="dtr-short-window" type="number" value="3" min="1" class="mono"></div>
+                  <div class="input-group"><label>Long Window</label><input id="dtr-long-window" type="number" value="5" min="1" class="mono"></div>
+                  <div class="input-group"><label>Strategy Tickers</label><input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA" class="mono"></div>
+                  <div class="input-group"><label>Scan Universe</label><select id="market-scan-universe" class="mono"><option>SP500</option></select></div>
+                  <div class="input-group"><label>Top N</label><input id="market-scan-top-n" type="number" value="10" min="1" max="100" class="mono"></div>
+                  <div class="input-group"><label>Lookback Days</label><input id="market-scan-lookback" type="number" value="20" min="1" class="mono"></div>
+                  <div class="input-group"><label>Min Price Points</label><input id="market-scan-min-points" type="number" value="5" min="1" class="mono"></div>
+                  <div class="input-group"><label>Benchmark</label><input id="market-scan-benchmark" value="SPY" placeholder="SPY" class="mono"></div>
+                  <div class="input-group"><label>Scan Top N</label><input id="pred-preview-scan-top-n" type="number" value="20" min="1" max="100" class="mono"></div>
+                  <div class="input-group"><label>Prediction Top N</label><input id="pred-preview-top-n" type="number" value="5" min="1" max="20" class="mono"></div>
+                  <div class="input-group"><label>GCP Concurrency</label><input id="pred-preview-concurrency" type="number" value="4" min="1" max="10" class="mono"></div>
+                  <div class="input-group" style="display: flex; align-items: center; gap: 8px;"><label style="margin: 0;">Include Holdings</label><input id="pred-preview-include-holdings" type="checkbox" checked style="width: auto; margin: 0; cursor: pointer;"></div>
+                  <div class="input-group"><label>Scoring Profile</label><select id="pred-preview-scoring-profile" class="mono"><option value="current" selected>Current (Default)</option><option value="balanced_preview">Balanced Preview</option><option value="quality_preview">Quality Preview</option><option value="risk_adjusted_preview">Risk Adjusted Preview</option></select></div>
+                  <input id="pred-preview-lookback" type="hidden" value="45">
+                  <input id="pred-preview-min-points" type="hidden" value="20">
+                </div>
+              </div>
+            </details>
 
             <!-- Signal Actions -->
             <details id="dp-signal-actions-details">
@@ -2149,7 +2177,7 @@
             <span style="font-size: 8px; color: var(--ok); background: rgba(34,197,94,.1); border: 1px solid rgba(34,197,94,.3); padding: 1px 6px; border-radius: 2px; font-weight: 700;">PREVIEW ONLY</span>
             <span style="font-size: 8px; color: var(--text-secondary); padding: 1px 6px; border-radius: 2px; background: rgba(255,255,255,.04);">No writes</span>
             <span style="flex: 1;"></span>
-            <button id="orch-run-btn" class="btn" style="background: var(--info); color: white; font-weight: 700; font-size: 11px; padding: 6px 18px; flex-shrink: 0;" onclick="runDailyProcessPreview()">&#9654; Run Daily Process Preview</button>
+            <button id="orch-run-btn" class="btn" style="background: var(--info); color: white; font-weight: 700; font-size: 11px; padding: 6px 18px; flex-shrink: 0;" onclick="runDailyProcessPreview()">&#9654; Run advanced daily process preview</button>
           </div>
           <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 7px;">
             <div id="orch-step-0" style="font-size: 9px; padding: 2px 7px; border-radius: 2px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); color: var(--label); font-family: monospace;">0: Refresh</div>
@@ -2173,34 +2201,6 @@
 
           <!-- LEFT PANEL (28%): controls + step buttons -->
           <div class="daily-plan-main-panel">
-
-            <!-- Advanced Settings (collapsed) -->
-            <details>
-              <summary>Advanced Settings (Scan &amp; Prediction Config)</summary>
-              <div style="padding: 8px 4px;">
-                <div class="inputs-grid">
-                  <div class="input-group"><label>Ticker</label><input id="dtr-ticker" placeholder="AAPL" class="mono"></div>
-                  <div class="input-group"><label>Price</label><input id="dtr-price" placeholder="150.00" class="mono"></div>
-                  <div class="input-group"><label>Direction</label><select id="dtr-direction" class="mono"><option>BUY</option><option>SELL</option><option>HOLD</option></select></div>
-                  <div class="input-group"><label>Confidence (0-1)</label><input id="dtr-confidence" placeholder="0.80" class="mono"></div>
-                  <div class="input-group"><label>Short Window</label><input id="dtr-short-window" type="number" value="3" min="1" class="mono"></div>
-                  <div class="input-group"><label>Long Window</label><input id="dtr-long-window" type="number" value="5" min="1" class="mono"></div>
-                  <div class="input-group"><label>Strategy Tickers</label><input id="dtr-strategy-tickers" placeholder="AAPL,MSFT,NVDA" class="mono"></div>
-                  <div class="input-group"><label>Scan Universe</label><select id="market-scan-universe" class="mono"><option>SP500</option></select></div>
-                  <div class="input-group"><label>Top N</label><input id="market-scan-top-n" type="number" value="10" min="1" max="100" class="mono"></div>
-                  <div class="input-group"><label>Lookback Days</label><input id="market-scan-lookback" type="number" value="20" min="1" class="mono"></div>
-                  <div class="input-group"><label>Min Price Points</label><input id="market-scan-min-points" type="number" value="5" min="1" class="mono"></div>
-                  <div class="input-group"><label>Benchmark</label><input id="market-scan-benchmark" value="SPY" placeholder="SPY" class="mono"></div>
-                  <div class="input-group"><label>Scan Top N</label><input id="pred-preview-scan-top-n" type="number" value="20" min="1" max="100" class="mono"></div>
-                  <div class="input-group"><label>Prediction Top N</label><input id="pred-preview-top-n" type="number" value="5" min="1" max="20" class="mono"></div>
-                  <div class="input-group"><label>GCP Concurrency</label><input id="pred-preview-concurrency" type="number" value="4" min="1" max="10" class="mono"></div>
-                  <div class="input-group" style="display: flex; align-items: center; gap: 8px;"><label style="margin: 0;">Include Holdings</label><input id="pred-preview-include-holdings" type="checkbox" checked style="width: auto; margin: 0; cursor: pointer;"></div>
-                  <div class="input-group"><label>Scoring Profile</label><select id="pred-preview-scoring-profile" class="mono"><option value="current" selected>Current (Default)</option><option value="balanced_preview">Balanced Preview</option><option value="quality_preview">Quality Preview</option><option value="risk_adjusted_preview">Risk Adjusted Preview</option></select></div>
-                  <input id="pred-preview-lookback" type="hidden" value="45">
-                  <input id="pred-preview-min-points" type="hidden" value="20">
-                </div>
-              </div>
-            </details>
 
             <!-- Step 1: Generate Candidate Preview -->
             <div class="compact-card" style="flex-shrink: 0;">
@@ -11502,21 +11502,21 @@ function updateTodayReview(total, pending, displayApproved, reviewComplete) {
   if (total === 0) {
     taskEl.textContent = 'Start Daily Review';
     taskEl.style.color = 'var(--warning)';
-    if (nextEl) { nextEl.textContent = 'Run Daily Process Preview to generate candidates for review'; nextEl.style.color = 'var(--text-accent)'; }
+    if (nextEl) { nextEl.textContent = "Prepare today's candidates and portfolio snapshot."; nextEl.style.color = 'var(--text-accent)'; }
     if (ctxEl) { ctxEl.textContent = ''; }
     if (resultEl) resultEl.style.display = 'none';
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review</button>';
   } else if (!reviewComplete) {
     taskEl.textContent = 'Review Candidates';
     taskEl.style.color = 'var(--warning)';
-    if (nextEl) { nextEl.textContent = 'Approve, Watch, or Reject each candidate in the Review Queue below'; nextEl.style.color = 'var(--text-accent)'; }
+    if (nextEl) { nextEl.textContent = 'Approve, watch, or reject the remaining candidates.'; nextEl.style.color = 'var(--text-accent)'; }
     if (ctxEl) { ctxEl.textContent = pending + ' candidate(s) pending review.'; ctxEl.style.color = 'var(--label)'; }
     if (resultEl) resultEl.style.display = 'none';
     if (actionEl) actionEl.innerHTML = '';
   } else if (displayApproved > 0) {
     taskEl.textContent = 'Generate Trade Plan';
     taskEl.style.color = 'var(--ok)';
-    if (nextEl) { nextEl.textContent = 'Click Generate Trade Plan below'; nextEl.style.color = 'var(--ok)'; }
+    if (nextEl) { nextEl.textContent = 'Generate a trade plan from approved candidates.'; nextEl.style.color = 'var(--ok)'; }
     if (ctxEl) { ctxEl.textContent = 'Creates internal Signal and TradeDecision records only. No orders, trades, fills, broker execution, or position changes.'; ctxEl.style.color = 'var(--label)'; }
     if (resultEl) resultEl.style.display = 'none';
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:rgba(99,102,241,.25);color:var(--info);border:1px solid rgba(99,102,241,.5);font-weight:700;font-size:11px;padding:7px 18px;" onclick="generateTradePlan(this)">Generate Trade Plan</button>';
