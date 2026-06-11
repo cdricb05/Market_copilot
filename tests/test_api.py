@@ -27540,8 +27540,27 @@ class TestUiStickyTabBarContent:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
+    @staticmethod
+    def _tab_bar_css_block(html: str) -> str:
+        import re
+        m = re.search(r'\.tab-bar\s*\{[^}]+\}', html, re.DOTALL)
+        assert m is not None, ".tab-bar CSS block not found"
+        return m.group(0)
+
     def test_tab_bar_has_sticky_positioning(self) -> None:
         assert "position: sticky" in self._read_html()
+
+    def test_tab_bar_css_block_has_sticky(self) -> None:
+        assert "sticky" in self._tab_bar_css_block(self._read_html())
+
+    def test_tab_bar_css_has_solid_background(self) -> None:
+        assert "background" in self._tab_bar_css_block(self._read_html())
+
+    def test_tab_bar_css_has_border_bottom(self) -> None:
+        assert "border-bottom" in self._tab_bar_css_block(self._read_html())
+
+    def test_tab_bar_css_has_z_index(self) -> None:
+        assert "z-index" in self._tab_bar_css_block(self._read_html())
 
     def test_overview_tab_present(self) -> None:
         assert "Overview" in self._read_html()
@@ -27677,6 +27696,81 @@ class TestUiGuidedWorkflowV1Content:
         assert "REVIEW_FOR_EXIT: Exit review required." in self._read_html()
 
     def test_sticky_tab_bar_still_present(self) -> None:
+        assert "position: sticky" in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestUiActionPanelConsistencyV1Content:
+    """Action panel consistency v1: right panel mirrors Today's Review; order controls collapsed."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_right_panel_has_current_task_id(self) -> None:
+        assert 'id="right-current-task"' in self._read_html()
+
+    def test_right_panel_has_next_action_id(self) -> None:
+        assert 'id="right-next-action"' in self._read_html()
+
+    def test_advanced_order_controls_section_present(self) -> None:
+        assert "Advanced order controls" in self._read_html()
+
+    def test_advanced_order_controls_copy_present(self) -> None:
+        assert "Usually not needed. Paper order controls remain manual and create no broker execution." in self._read_html()
+
+    def test_order_controls_inside_details(self) -> None:
+        import re
+        html = self._read_html()
+        details_blocks = re.findall(r'<details[^>]*>[\s\S]*?</details>', html)
+        aoc_blocks = [b for b in details_blocks if "Advanced order controls" in b]
+        assert len(aoc_blocks) > 0, "No <details> block with 'Advanced order controls' found"
+        assert any("Create Paper Orders" in b for b in aoc_blocks)
+
+    def test_manual_review_safety_text_present(self) -> None:
+        assert "Manual review" in self._read_html()
+
+    def test_no_broker_execution_safety_text_present(self) -> None:
+        assert "No broker execution" in self._read_html()
+
+    def test_automation_off_safety_text_present(self) -> None:
+        assert "Automation off" in self._read_html()
+
+    def test_no_orders_unless_explicitly_created_present(self) -> None:
+        assert "No orders unless explicitly created" in self._read_html()
+
+    def test_update_today_review_syncs_right_panel(self) -> None:
+        import re
+        html = self._read_html()
+        scripts = "\n".join(re.findall(r"<script[^>]*>([\s\S]*?)</script>", html))
+        assert "'right-current-task'" in scripts or '"right-current-task"' in scripts
+        assert "'right-next-action'" in scripts or '"right-next-action"' in scripts
+
+    def test_right_panel_task_not_initialized_to_stale_text(self) -> None:
+        import re
+        html = self._read_html()
+        m = re.search(r'id="right-current-task"[^>]*>([^<]*)<', html)
+        assert m is not None, "right-current-task element not found"
+        assert "Review new-entry candidates" not in m.group(1).strip()
+
+    def test_order_button_ids_still_exist(self) -> None:
+        html = self._read_html()
+        assert 'id="right-create-orders-btn"' in html
+        assert 'id="right-fill-orders-btn"' in html
+        assert 'id="right-cancel-orders-btn"' in html
+
+    def test_sticky_tabs_still_present(self) -> None:
         assert "position: sticky" in self._read_html()
 
     def test_no_alert_calls(self) -> None:

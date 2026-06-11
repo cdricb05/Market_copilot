@@ -178,7 +178,8 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
+      overflow-y: auto;
+      min-height: 0;
     }
 
     .tab-bar {
@@ -190,7 +191,7 @@
       flex-wrap: wrap;
       flex-shrink: 0;
       position: sticky;
-      top: var(--app-header-height);
+      top: 0;
       z-index: 9;
     }
 
@@ -218,7 +219,6 @@
 
     .main-content-area {
       flex: 1;
-      overflow: hidden;
       min-height: 0;
     }
 
@@ -229,8 +229,6 @@
     .tab-content.active {
       display: flex;
       flex-direction: column;
-      height: 100%;
-      overflow-y: auto;
       padding: 12px 16px;
       gap: 10px;
       box-sizing: border-box;
@@ -3379,10 +3377,14 @@
       </div>
     </div>
     <div class="panel-section" style="border-color: var(--info);">
-      <div class="panel-section-title" style="color: var(--info);">Next Step</div>
-      <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 4px;" id="right-next-step">Generate Daily Review Summary for recommended next action.</div>
-      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4;" id="right-next-step-detail"></div>
+      <div class="panel-section-title" style="color: var(--info);">Workflow</div>
+      <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 2px;">Current task</div>
+      <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 8px;" id="right-current-task">---</div>
+      <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 2px;">Next action</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4;" id="right-next-action">Connect and load data to begin.</div>
     </div>
+    <!-- compat: right-next-step/detail still targeted by other JS; hidden, not primary display -->
+    <div style="display:none;"><span id="right-next-step"></span><span id="right-next-step-detail"></span></div>
     <div class="panel-section">
       <div class="panel-section-title">Portfolio Capacity</div>
       <div class="panel-item">
@@ -3425,14 +3427,10 @@
 
     <div class="panel-section">
       <div class="panel-section-title">Safety Mode</div>
-      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4; margin-bottom: 6px;">Manual Review</div>
-      <div style="font-size: 9px; color: var(--label); font-style: italic;">All trading actions require explicit approval.</div>
-    </div>
-
-    <div class="panel-section">
-      <div class="panel-section-title">Automation</div>
-      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4; margin-bottom: 6px;">Off</div>
-      <div style="font-size: 9px; color: var(--label); font-style: italic;">No scheduled jobs running.</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5;">Manual review</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5;">No broker execution</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5;">Automation off</div>
+      <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 4px;">No orders unless explicitly created</div>
     </div>
 
     <div id="right-completed-summary" style="display: none; font-size: 10px; color: var(--ok); line-height: 1.5; padding: 8px 10px; background: rgba(34,197,94,.07); border-left: 3px solid rgba(34,197,94,.5); border-radius: 0 3px 3px 0; margin: 0 0 4px 0;">
@@ -3442,28 +3440,30 @@
       <div style="color: var(--label);">Run a new Daily Process Preview when ready</div>
     </div>
 
-    <div id="right-create-orders-section" class="panel-section">
-      <div class="panel-section-title">Create Orders</div>
-      <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 4px;">PAPER ORDERS ONLY</div>
-      <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Creates PENDING order tickets. No broker. No fills. Automation off.</div>
-      <div id="right-create-orders-status" style="display: none; font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;"></div>
-      <button id="right-create-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
-    </div>
-
-    <div id="right-fill-orders-section" class="panel-section">
-      <div class="panel-section-title">Fill Orders</div>
-      <div style="font-size: 9px; color: var(--warning); font-weight: 600; margin-bottom: 4px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
-      <div id="fill-orders-status" style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.</div>
-      <button id="right-fill-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
-    </div>
-
-    <div id="right-cancel-orders-section" class="panel-section">
-      <div class="panel-section-title">Cancel Orders</div>
-      <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 4px;">PAPER CANCEL ONLY &mdash; NO LIVE TRADES</div>
-      <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Cancels PENDING paper orders in local DB only. No broker. No cash changes. No position changes. Automation off.</div>
-      <div id="right-cancel-orders-status" style="display: none; font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;"></div>
-      <button id="right-cancel-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
-    </div>
+    <details>
+      <summary style="cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--label); padding: 8px 0; user-select: none; list-style: none;">&#9654; Advanced order controls</summary>
+      <div style="font-size: 9px; color: var(--label); font-style: italic; padding: 4px 0 6px 0; line-height: 1.4;">Usually not needed. Paper order controls remain manual and create no broker execution.</div>
+      <div id="right-create-orders-section" class="panel-section">
+        <div class="panel-section-title">Create Orders</div>
+        <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 4px;">PAPER ORDERS ONLY</div>
+        <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Creates PENDING order tickets. No broker. No fills. Automation off.</div>
+        <div id="right-create-orders-status" style="display: none; font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;"></div>
+        <button id="right-create-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
+      </div>
+      <div id="right-fill-orders-section" class="panel-section">
+        <div class="panel-section-title">Fill Orders</div>
+        <div style="font-size: 9px; color: var(--warning); font-weight: 600; margin-bottom: 4px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
+        <div id="fill-orders-status" style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.</div>
+        <button id="right-fill-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
+      </div>
+      <div id="right-cancel-orders-section" class="panel-section">
+        <div class="panel-section-title">Cancel Orders</div>
+        <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 4px;">PAPER CANCEL ONLY &mdash; NO LIVE TRADES</div>
+        <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Cancels PENDING paper orders in local DB only. No broker. No cash changes. No position changes. Automation off.</div>
+        <div id="right-cancel-orders-status" style="display: none; font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;"></div>
+        <button id="right-cancel-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
+      </div>
+    </details>
 
     <div class="panel-section">
       <div style="font-size: 9px; color: var(--ok); font-weight: 600; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); padding: 8px; border-radius: 2px; text-align: center; line-height: 1.4;">
@@ -11499,35 +11499,52 @@ function updateTodayReview(total, pending, displayApproved, reviewComplete) {
   const resultEl = document.getElementById('tr-portfolio-result');
   if (!taskEl) return;
 
+  let _rpTask = '';
+  let _rpNext = '';
+
   if (total === 0) {
-    taskEl.textContent = 'Start Daily Review';
+    _rpTask = 'Start Daily Review';
+    _rpNext = "Prepare today's candidates and portfolio snapshot.";
+    taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--warning)';
-    if (nextEl) { nextEl.textContent = "Prepare today's candidates and portfolio snapshot."; nextEl.style.color = 'var(--text-accent)'; }
+    if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--text-accent)'; }
     if (ctxEl) { ctxEl.textContent = ''; }
     if (resultEl) resultEl.style.display = 'none';
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review</button>';
   } else if (!reviewComplete) {
-    taskEl.textContent = 'Review Candidates';
+    _rpTask = 'Review Candidates';
+    _rpNext = 'Approve, watch, or reject the remaining candidates.';
+    taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--warning)';
-    if (nextEl) { nextEl.textContent = 'Approve, watch, or reject the remaining candidates.'; nextEl.style.color = 'var(--text-accent)'; }
+    if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--text-accent)'; }
     if (ctxEl) { ctxEl.textContent = pending + ' candidate(s) pending review.'; ctxEl.style.color = 'var(--label)'; }
     if (resultEl) resultEl.style.display = 'none';
     if (actionEl) actionEl.innerHTML = '';
   } else if (displayApproved > 0) {
-    taskEl.textContent = 'Generate Trade Plan';
+    _rpTask = 'Generate Trade Plan';
+    _rpNext = 'Generate a trade plan from approved candidates.';
+    taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
-    if (nextEl) { nextEl.textContent = 'Generate a trade plan from approved candidates.'; nextEl.style.color = 'var(--ok)'; }
+    if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
     if (ctxEl) { ctxEl.textContent = 'Creates internal Signal and TradeDecision records only. No orders, trades, fills, broker execution, or position changes.'; ctxEl.style.color = 'var(--label)'; }
     if (resultEl) resultEl.style.display = 'none';
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:rgba(99,102,241,.25);color:var(--info);border:1px solid rgba(99,102,241,.5);font-weight:700;font-size:11px;padding:7px 18px;" onclick="generateTradePlan(this)">Generate Trade Plan</button>';
   } else {
-    taskEl.textContent = 'Monitor Portfolio';
+    _rpTask = 'Monitor Portfolio';
+    _rpNext = 'No new trade plan. Monitor open positions.';
+    taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
-    if (nextEl) { nextEl.textContent = 'Click Review Open Positions below'; nextEl.style.color = 'var(--ok)'; }
+    if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
     if (ctxEl) { ctxEl.textContent = 'No new trade plan. Monitor open positions.'; ctxEl.style.color = 'var(--text-accent)'; }
     if (resultEl) resultEl.style.display = 'none';
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button>';
   }
+
+  // Sync right panel to mirror Today's Review (single source of truth)
+  const _rpTaskEl = document.getElementById('right-current-task');
+  const _rpNextEl = document.getElementById('right-next-action');
+  if (_rpTaskEl) _rpTaskEl.textContent = _rpTask;
+  if (_rpNextEl) _rpNextEl.textContent = _rpNext;
 }
 
 function updateCockpitReviewSummary() {
