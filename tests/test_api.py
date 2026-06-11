@@ -27529,3 +27529,38 @@ class TestUiSimplifiedDailyPlanWorkflowV1Content:
 
     def test_internal_signals_decisions_audit_only_text_present(self) -> None:
         assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
+
+
+class TestUiStickyTabBarContent:
+    """Verify sticky tab bar UX fix: tab bar has sticky positioning and all required tabs."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_tab_bar_has_sticky_positioning(self) -> None:
+        assert "position: sticky" in self._read_html()
+
+    def test_overview_tab_present(self) -> None:
+        assert "Overview" in self._read_html()
+
+    def test_daily_plan_tab_present(self) -> None:
+        assert "Daily Plan" in self._read_html()
+
+    def test_portfolio_tab_present(self) -> None:
+        assert "Portfolio" in self._read_html()
+
+    def test_audit_advanced_tab_present(self) -> None:
+        assert "Audit / Advanced" in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
