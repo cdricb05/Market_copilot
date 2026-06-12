@@ -1899,7 +1899,7 @@
           <!-- Locked state: shown while candidate review is incomplete -->
           <div id="dp-tp-locked" style="padding: 10px; background: rgba(245,158,11,.06); border: 1px solid rgba(245,158,11,.2); border-radius: 2px; margin-bottom: 4px;">
             <div style="font-size: 11px; font-weight: 700; color: var(--warning); margin-bottom: 4px;">Trade plan locked</div>
-            <div style="font-size: 10px; color: var(--label); line-height: 1.5;">Finish candidate review before generating a trade plan.<br><span style="font-size: 9px;">No signals, decisions, orders, trades, or fills are created automatically.</span></div>
+            <div style="font-size: 10px; color: var(--label); line-height: 1.5;">Finish candidate review before generating a trade plan.<br>Finish reviewing candidates before generating a trade plan.<br><span style="font-size: 9px;">No signals, decisions, orders, trades, or fills are created automatically.</span></div>
           </div>
           <!-- No-trade outcome: shown when review complete and no eligible approved candidates -->
           <div id="dp-tp-no-trade" style="display: none; padding: 10px; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.2); border-radius: 2px; margin-bottom: 4px;">
@@ -1920,7 +1920,9 @@
           <div id="dp-tp-available" style="display: none;">
             <div style="padding: 8px 10px; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.2); border-radius: 2px; margin-bottom: 8px;">
               <div style="font-size: 10px; font-weight: 700; color: var(--ok); margin-bottom: 4px;">Generate Trade Plan from Approved Candidates</div>
-              <div style="font-size: 9px; color: var(--text-secondary); line-height: 1.5;">This creates internal Signal and TradeDecision records only. No paper orders, trades, fills, broker actions, or position changes.</div>
+              <div style="font-size: 9px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 4px;">Review approved candidates and generate the trade plan.</div>
+              <div style="font-size: 9px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 4px;">This creates internal Signal and TradeDecision records only. No paper orders, trades, fills, broker actions, or position changes.</div>
+              <div style="font-size: 9px; color: var(--label); line-height: 1.5;">This creates an internal trade plan only. No paper orders, trades, fills, cash changes, or broker actions are created.</div>
             </div>
             <div style="display: flex; gap: 8px; margin-bottom: 4px;">
               <button id="dp-tp-generate-btn" class="btn-sm" style="background: rgba(99,102,241,.25); color: var(--info); border: 1px solid rgba(99,102,241,.5); font-size: 10px; padding: 5px 14px; font-weight: 700;" onclick="generateTradePlan(this)">Generate Trade Plan</button>
@@ -9407,6 +9409,7 @@ async function generateTradePlan(btn) {
           const r = await call('POST', '/v1/review/generate-trade-plan', {
             idempotency_key: 'generate-trade-plan-' + Date.now(),
             confirm_generate: true,
+            confirm_generate_trade_plan: true,
             limit: 50,
           });
           const data = await parseApiResponse(r);
@@ -9454,6 +9457,47 @@ async function generateTradePlan(btn) {
             html += '</tbody></table></div>';
           }
           html += '<div style="margin-top: 4px; padding: 3px 8px; background: rgba(0,0,0,.2); border-radius: 3px; font-size: 10px; color: var(--text-secondary); text-align: center;">Orders: 0 | Trades: 0 | Fills: 0 | Broker execution: off | Positions changed: no</div>';
+
+          // Trade plan rows table (user-facing simplified view)
+          const rows = data.trade_plan_rows || [];
+          if (rows.length > 0) {
+            let orderEligibleCount = 0;
+            html += '<div style="margin-top: 8px; font-size: 10px; font-weight: 700; color: var(--info); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em;">Trade Plan</div>';
+            html += '<div style="overflow-x: auto; max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px; margin-bottom: 6px;">';
+            html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Ticker</th>';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Action</th>';
+            html += '<th style="padding: 3px 5px; text-align: right; color: var(--label); font-size: 9px;">Qty</th>';
+            html += '<th style="padding: 3px 5px; text-align: right; color: var(--label); font-size: 9px;">Est. Cost</th>';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Risk Status</th>';
+            html += '<th style="padding: 3px 5px; text-align: left; color: var(--label); font-size: 9px;">Next Step</th>';
+            html += '</tr></thead><tbody>';
+            for (const row of rows) {
+              const actClr = row.action === 'BUY' ? 'var(--ok)' : row.action === 'SELL' ? 'var(--danger)' : 'var(--text-secondary)';
+              const rsClr = row.risk_status === 'APPROVED' ? 'var(--ok)' : 'var(--danger)';
+              const nsText = row.already_has_order ? 'Order already created' : (row.order_eligible ? 'Create paper order ticket' : (row.next_step || '-'));
+              const nsClr = row.already_has_order ? 'var(--label)' : (row.order_eligible ? 'var(--ok)' : 'var(--danger)');
+              if (row.order_eligible) orderEligibleCount++;
+              html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+              html += '<td style="padding: 3px 5px; font-weight: 600;">' + escapeHtml(row.ticker) + '</td>';
+              html += '<td style="padding: 3px 5px; color: ' + actClr + '; font-weight: 600;">' + escapeHtml(row.action) + '</td>';
+              html += '<td style="padding: 3px 5px; text-align: right;">' + escapeHtml(row.qty || '-') + '</td>';
+              html += '<td style="padding: 3px 5px; text-align: right;">' + escapeHtml(row.estimated_cost || '-') + '</td>';
+              html += '<td style="padding: 3px 5px; color: ' + rsClr + '; font-size: 9px; font-weight: 600;">' + escapeHtml(row.risk_status) + (row.risk_reason ? ' (' + escapeHtml(row.risk_reason) + ')' : '') + '</td>';
+              html += '<td style="padding: 3px 5px; color: ' + nsClr + '; font-size: 9px;">' + escapeHtml(nsText) + '</td>';
+              html += '</tr>';
+            }
+            html += '</tbody></table></div>';
+            if (orderEligibleCount > 0) {
+              html += '<div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">';
+              html += '<button class="btn-sm" style="background: var(--ok); color: #000; font-weight: 700; font-size: 10px;" onclick="createOrdersFromDecisions()">Create Paper Order Tickets</button>';
+              html += '<span style="font-size: 9px; color: var(--label);">Creates PENDING paper order tickets only. No broker. No fills. Automation off.</span>';
+              html += '</div>';
+            } else {
+              html += '<div style="font-size: 10px; color: var(--label); padding: 4px 0;">No order-eligible trades.</div>';
+            }
+          }
+
           resultEl.innerHTML = html;
 
           const dpTpNext = document.getElementById('dp-tp-next-step');

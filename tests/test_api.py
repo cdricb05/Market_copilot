@@ -28063,3 +28063,315 @@ class TestUiManualExitPaperOrderTicketV1Content:
         import re
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Daily Trade Plan v1 — backend and UI
+# ---------------------------------------------------------------------------
+
+class TestDailyTradePlanV1Endpoint:
+    """Tests for POST /v1/review/generate-trade-plan — Daily Trade Plan v1 spec."""
+
+    _IKEY_PREFIX = "dtp-v1-test"
+
+    def _clean(self, api_engine, prefix: str) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.query(Order).filter(
+                Order.ticker.like("DTP%")
+            ).delete(synchronize_session=False)
+            session.query(TradeDecision).filter(
+                TradeDecision.ticker.like("DTP%")
+            ).delete(synchronize_session=False)
+            session.query(Signal).filter(
+                Signal.ticker.like("DTP%")
+            ).delete(synchronize_session=False)
+            session.query(CandidateReview).filter(
+                CandidateReview.idempotency_key.like(prefix + "%")
+            ).delete(synchronize_session=False)
+            session.commit()
+
+    def _add_candidate(self, api_engine, ticker: str, ikey: str, review_status: str) -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.add(CandidateReview(
+                idempotency_key=ikey,
+                ticker=ticker,
+                prediction_recommendation="BUY",
+                prediction_confidence="0.85",
+                preview_decision="CONSIDER",
+                preview_score="75.0",
+                status="OK",
+                review_status=review_status,
+            ))
+            session.commit()
+
+    def test_confirm_generate_trade_plan_required(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY_PREFIX}-req-{uuid.uuid4().hex[:6]}"
+        self._clean(api_engine, ikey)
+        try:
+            resp = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+
+            resp = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": False},
+                headers=_AUTH,
+            )
+            assert resp.status_code in (400, 422)
+        finally:
+            self._clean(api_engine, ikey)
+
+    def test_watching_candidate_not_in_plan(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY_PREFIX}-watch-{uuid.uuid4().hex[:6]}"
+        ticker = f"DTP{uuid.uuid4().hex[:4].upper()}"
+        self._clean(api_engine, ikey)
+        try:
+            self._add_candidate(api_engine, ticker, ikey, "WATCHING")
+            resp = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            plan_tickers = [r["ticker"] for r in resp.json().get("trade_plan_rows", [])]
+            assert ticker not in plan_tickers
+        finally:
+            self._clean(api_engine, ikey)
+
+    def test_rejected_candidate_not_in_plan(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY_PREFIX}-rej-{uuid.uuid4().hex[:6]}"
+        ticker = f"DTP{uuid.uuid4().hex[:4].upper()}"
+        self._clean(api_engine, ikey)
+        try:
+            self._add_candidate(api_engine, ticker, ikey, "REJECTED")
+            resp = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            plan_tickers = [r["ticker"] for r in resp.json().get("trade_plan_rows", [])]
+            assert ticker not in plan_tickers
+        finally:
+            self._clean(api_engine, ikey)
+
+    def test_approved_candidate_generates_plan_row(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY_PREFIX}-appr-{uuid.uuid4().hex[:6]}"
+        ticker = f"DTP{uuid.uuid4().hex[:4].upper()}"
+        self._clean(api_engine, ikey)
+        try:
+            self._add_candidate(api_engine, ticker, ikey, "APPROVED_FOR_SIGNAL")
+            resp = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            plan_tickers = [r["ticker"] for r in data.get("trade_plan_rows", [])]
+            assert ticker in plan_tickers
+        finally:
+            self._clean(api_engine, ikey)
+
+    def test_idempotent_twice_no_duplicate_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY_PREFIX}-idem2-{uuid.uuid4().hex[:6]}"
+        ticker = f"DTP{uuid.uuid4().hex[:4].upper()}"
+        self._clean(api_engine, ikey)
+        try:
+            self._add_candidate(api_engine, ticker, ikey, "APPROVED_FOR_SIGNAL")
+            r1 = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert r1.status_code == 200
+            sigs_first = r1.json()["signals_created"]
+
+            r2 = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert r2.status_code == 200
+            d2 = r2.json()
+            assert d2["signals_created"] == 0
+            assert d2["signals_existing"] == sigs_first
+            assert d2["orders_created"] == 0
+        finally:
+            self._clean(api_engine, ikey)
+
+    def test_no_paper_orders_created(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(
+            "/v1/review/generate-trade-plan",
+            json={"confirm_generate_trade_plan": True},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["no_paper_orders_created"] is True
+
+    def test_no_trades_created(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(
+            "/v1/review/generate-trade-plan",
+            json={"confirm_generate_trade_plan": True},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["no_trades_created"] is True
+
+    def test_no_fills_created(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(
+            "/v1/review/generate-trade-plan",
+            json={"confirm_generate_trade_plan": True},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["no_fills_created"] is True
+
+    def test_no_cash_changes(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(
+            "/v1/review/generate-trade-plan",
+            json={"confirm_generate_trade_plan": True},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["no_cash_changes"] is True
+
+    def test_no_position_changes(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(
+            "/v1/review/generate-trade-plan",
+            json={"confirm_generate_trade_plan": True},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["no_position_changes"] is True
+
+    def test_all_safety_flags_present(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(
+            "/v1/review/generate-trade-plan",
+            json={"confirm_generate_trade_plan": True},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["no_paper_orders_created"] is True
+        assert data["no_trades_created"] is True
+        assert data["no_fills_created"] is True
+        assert data["no_cash_changes"] is True
+        assert data["no_position_changes"] is True
+        assert data["no_broker_execution"] is True
+        assert data["automation_enabled"] is False
+
+    def test_already_ordered_candidate_not_duplicated(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY_PREFIX}-dup-{uuid.uuid4().hex[:6]}"
+        ticker = f"DTP{uuid.uuid4().hex[:4].upper()}"
+        self._clean(api_engine, ikey)
+        try:
+            self._add_candidate(api_engine, ticker, ikey, "APPROVED_FOR_SIGNAL")
+            r1 = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert r1.status_code == 200
+            sigs_first = r1.json()["signals_created"]
+
+            r2 = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert r2.status_code == 200
+            d2 = r2.json()
+            assert d2["signals_created"] == 0
+            assert d2["signals_existing"] == sigs_first
+        finally:
+            self._clean(api_engine, ikey)
+
+
+class TestDailyTradePlanV1UiContent:
+    """Verify Daily Trade Plan v1 UI text is present in index.html."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    def test_trade_plan_workspace_present(self) -> None:
+        assert "Trade Plan Workspace" in self._read_html()
+
+    def test_generate_trade_plan_button_present(self) -> None:
+        assert "Generate Trade Plan" in self._read_html()
+
+    def test_create_paper_order_tickets_present(self) -> None:
+        assert "Create Paper Order Tickets" in self._read_html()
+
+    def test_no_order_eligible_trades_present(self) -> None:
+        assert "No order-eligible trades." in self._read_html()
+
+    def test_trade_plan_locked_present(self) -> None:
+        assert "Trade plan locked" in self._read_html()
+
+    def test_finish_candidate_review_present(self) -> None:
+        assert "Finish candidate review before generating a trade plan." in self._read_html()
+
+    def test_finish_reviewing_candidates_present(self) -> None:
+        assert "Finish reviewing candidates before generating a trade plan." in self._read_html()
+
+    def test_internal_trade_plan_only_text_present(self) -> None:
+        assert (
+            "This creates an internal trade plan only. "
+            "No paper orders, trades, fills, cash changes, or broker actions are created."
+        ) in self._read_html()
+
+    def test_order_already_created_present(self) -> None:
+        assert "Order already created" in self._read_html()
+
+    def test_create_paper_order_ticket_present(self) -> None:
+        assert "Create paper order ticket" in self._read_html()
+
+    def test_review_approved_candidates_text_present(self) -> None:
+        assert "Review approved candidates and generate the trade plan." in self._read_html()
+
+    def test_internal_signal_audit_present(self) -> None:
+        assert "Internal signal audit" in self._read_html()
+
+    def test_internal_decision_audit_present(self) -> None:
+        assert "Internal decision audit" in self._read_html()
+
+    def test_internal_order_audit_present(self) -> None:
+        assert "Internal order audit" in self._read_html()
+
+    def test_no_need_for_sections_text_present(self) -> None:
+        assert "You do not need these sections for normal daily review." in self._read_html()
+
+    def test_no_alert_calls_v1(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", self._read_html())) == 0
+
+    def test_no_confirm_calls_v1(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
+
+    def test_internals_not_expanded_by_default(self) -> None:
+        html = self._read_html()
+        assert 'id="dp-later-steps-details"' in html
+        assert 'id="dp-signal-actions-details"' in html
+        assert 'id="dp-decision-actions-details"' in html
+        assert 'id="dp-order-preview-details"' in html

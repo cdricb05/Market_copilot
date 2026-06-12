@@ -1313,12 +1313,30 @@ class TradePlanDecisionDetail(BaseModel):
     status: str
 
 
+class TradePlanRow(BaseModel):
+    """A user-facing row in the trade plan table."""
+    ticker: str
+    action: str
+    qty: str
+    estimated_cost: str
+    reason: str
+    risk_status: str
+    risk_reason: str
+    next_step: str
+    order_eligible: bool
+    already_has_order: bool
+
+
 class GenerateTradePlanRequest(BaseModel):
     """Request to generate a trade plan from approved candidates."""
     idempotency_key: str | None = Field(default=None)
     confirm_generate: bool = Field(
         default=False,
         description="Must be true to create Signal and TradeDecision rows.",
+    )
+    confirm_generate_trade_plan: bool = Field(
+        default=False,
+        description="Alias for confirm_generate. Must be true to create Signal and TradeDecision rows.",
     )
     limit: int = Field(default=50, ge=1, le=100)
 
@@ -1340,6 +1358,18 @@ class GenerateTradePlanResponse(BaseModel):
     broker_execution: bool = False
     positions_changed: bool = False
     cash_changed: bool = False
+    generated_count: int = 0
+    reused_count: int = 0
+    skipped_count: int = 0
+    safety_message: str = ""
+    no_paper_orders_created: bool = True
+    no_trades_created: bool = True
+    no_fills_created: bool = True
+    no_cash_changes: bool = True
+    no_position_changes: bool = True
+    no_broker_execution: bool = True
+    automation_enabled: bool = False
+    trade_plan_rows: list[TradePlanRow] = Field(default_factory=list)
     signal_details: list[TradePlanSignalDetail]
     decision_details: list[TradePlanDecisionDetail]
     next_step: str
@@ -7337,7 +7367,7 @@ async def generate_trade_plan(
     """
     import uuid as uuid_module
 
-    if not body.confirm_generate:
+    if not body.confirm_generate and not body.confirm_generate_trade_plan:
         raise HTTPException(
             status_code=422,
             detail="confirm_generate must be true to generate a trade plan.",
@@ -7572,6 +7602,45 @@ async def generate_trade_plan(
     else:
         next_step = "Run Daily Review Session -- no approved candidates found"
 
+    # ---- Phase 3: Build user-facing trade_plan_rows ----
+    trade_plan_rows: list[TradePlanRow] = []
+    with get_session() as session:
+        for dd in decision_details:
+            try:
+                td_uuid = uuid_module.UUID(dd.trade_decision_id)
+            except (ValueError, AttributeError):
+                continue
+            td = session.query(TradeDecision).filter(TradeDecision.id == td_uuid).first()
+            if not td:
+                continue
+            is_eligible = dd.decision in ("APPROVE", "BUY", "SELL")
+            existing_order = session.query(Order).filter(Order.trade_decision_id == td.id).first()
+            has_order = existing_order is not None
+
+            if has_order:
+                next_step_row = "Order already created"
+            elif is_eligible:
+                next_step_row = "Create paper order ticket"
+            else:
+                next_step_row = "Blocked by risk - review decision"
+
+            trade_plan_rows.append(TradePlanRow(
+                ticker=dd.ticker,
+                action=dd.side,
+                qty=str(td.approved_qty) if td.approved_qty else "-",
+                estimated_cost=dd.approved_notional,
+                reason=td.reason_code or dd.decision or "-",
+                risk_status="APPROVED" if is_eligible else "BLOCKED",
+                risk_reason="" if is_eligible else (td.reason_code or dd.decision or "-"),
+                next_step=next_step_row,
+                order_eligible=is_eligible and not has_order,
+                already_has_order=has_order,
+            ))
+
+    skipped_count = candidates_processed - (signals_created + signals_existing)
+    if skipped_count < 0:
+        skipped_count = 0
+
     return GenerateTradePlanResponse(
         preview_only=False,
         writes_performed=True,
@@ -7588,6 +7657,18 @@ async def generate_trade_plan(
         broker_execution=False,
         positions_changed=False,
         cash_changed=False,
+        generated_count=signals_created + decisions_created,
+        reused_count=signals_existing + decisions_existing,
+        skipped_count=skipped_count,
+        safety_message="Signal and TradeDecision rows only. No Orders, Trades, Positions, or CashLedger rows created or modified.",
+        no_paper_orders_created=True,
+        no_trades_created=True,
+        no_fills_created=True,
+        no_cash_changes=True,
+        no_position_changes=True,
+        no_broker_execution=True,
+        automation_enabled=False,
+        trade_plan_rows=trade_plan_rows,
         signal_details=signal_details,
         decision_details=decision_details,
         next_step=next_step,
