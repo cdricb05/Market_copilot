@@ -41,6 +41,7 @@ Endpoints:
     POST /v1/review/exit-signal-preview — preview exit intent per open position (PREVIEW ONLY, read-only, no signals/orders)
     POST /v1/review/exit-decision-preview — preview exit decision per open position (PREVIEW ONLY, read-only, no signals/decisions/orders)
     POST /v1/review/position-review-preview — one-click consolidated position review: monitor+signal+decision+order layers (PREVIEW ONLY, read-only, no DB writes)
+    POST /v1/review/create-exit-orders     — create PENDING SELL paper order tickets for REVIEW_FOR_EXIT positions (confirmation required, no broker execution)
     GET  /v1/review/daily-review-summary   — read-only daily operating summary: portfolio + positions + candidates + orders + next action (no DB writes)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
@@ -1502,6 +1503,49 @@ class ManualPaperCancelResponse(BaseModel):
     cash_delta: str
     positions_changed: list[str]
     safety_message: str
+
+
+class CreateExitOrdersRequest(BaseModel):
+    """Request for POST /v1/review/create-exit-orders (PAPER SELL ORDERS ONLY, no broker execution)."""
+    confirm_create_exit_orders: bool = Field(
+        default=False,
+        description="Must be true to create exit Order rows. Safety gate.",
+    )
+
+
+class ExitOrderCreatedDetail(BaseModel):
+    """Detail about a PENDING SELL paper order row created by the create-exit-orders endpoint."""
+    order_id: str
+    ticker: str
+    side: str
+    status: str
+    qty: str
+    market_date: str
+    job_run_id: str
+    monitor_recommendation: str
+
+
+class ExitOrderSkippedDetail(BaseModel):
+    """Detail about a position skipped by the create-exit-orders endpoint."""
+    ticker: str
+    reason: str
+    monitor_recommendation: str
+
+
+class CreateExitOrdersResponse(BaseModel):
+    """Response from POST /v1/review/create-exit-orders (PAPER SELL ORDERS ONLY, no broker execution)."""
+    execution_mode: str
+    created_count: int
+    skipped_count: int
+    orders: list[ExitOrderCreatedDetail]
+    eligible_positions: list[str]
+    skipped_positions: list[ExitOrderSkippedDetail]
+    safety_message: str
+    no_broker_execution: bool = True
+    no_fills_created: bool = True
+    no_trades_created: bool = True
+    no_position_changes: bool = True
+    automation_enabled: bool = False
 
 
 class ReviewCandidatesCounts(BaseModel):
@@ -14427,6 +14471,233 @@ def daily_review_summary() -> DailyReviewSummaryResponse:
         next_action_code=next_action_code,
         next_action_label=next_action_label,
         next_action_detail=next_action_detail,
+    )
+
+
+@app.post(
+    "/v1/review/create-exit-orders",
+    response_model=CreateExitOrdersResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def create_exit_orders(
+    body: CreateExitOrdersRequest,
+) -> CreateExitOrdersResponse:
+    """
+    Create PENDING SELL paper order tickets for open positions with REVIEW_FOR_EXIT recommendation.
+
+    PAPER SELL ORDERS ONLY. No broker execution. No fills. No trades.
+    No position changes. No cash changes. No automation. Manual review required.
+
+    Server recomputes monitor recommendation — UI value is not trusted.
+    Eligible only when unrealized_pnl_pct <= -5.0% (REVIEW_FOR_EXIT).
+    WATCH and HOLD positions are skipped.
+
+    Creates full open quantity as a PENDING SELL paper order.
+
+    Idempotent: if a PENDING SELL exit order already exists for the ticker
+    (notes start with "Paper exit order ticket"), the ticker is skipped.
+
+    confirm_create_exit_orders must be true to proceed.
+    """
+    import uuid as uuid_module
+
+    if not body.confirm_create_exit_orders:
+        raise HTTPException(
+            status_code=400,
+            detail="confirm_create_exit_orders must be true to create exit Order rows",
+        )
+
+    created_list: list[ExitOrderCreatedDetail] = []
+    skipped_list: list[ExitOrderSkippedDetail] = []
+    eligible_tickers: list[str] = []
+
+    with get_session() as session:
+        eastern_now = datetime.now(_EASTERN)
+        market_date = eastern_now.date()
+        now_utc = datetime.now(timezone.utc)
+
+        positions = session.execute(
+            select(Position).order_by(Position.opened_at)
+        ).scalars().all()
+
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        cached_total_value: Decimal | None = None
+        if portfolio is not None and portfolio.cached_total_value:
+            cached_total_value = Decimal(str(portfolio.cached_total_value))
+
+        job_run: JobRun | None = None
+
+        for pos in positions:
+            qty = Decimal(str(pos.qty))
+            cost_basis = Decimal(str(pos.cost_basis))
+            latest_price = _latest_price(session, pos.ticker)
+
+            if latest_price is None:
+                skipped_list.append(ExitOrderSkippedDetail(
+                    ticker=pos.ticker,
+                    reason="Latest price unavailable; cannot evaluate position.",
+                    monitor_recommendation="WATCH",
+                ))
+                continue
+
+            market_value = qty * latest_price
+            unrealized_pnl = market_value - cost_basis
+            unrealized_pnl_pct = (
+                unrealized_pnl / cost_basis * Decimal("100")
+                if cost_basis != Decimal("0")
+                else Decimal("0")
+            )
+            upnl_pct_float = float(unrealized_pnl_pct)
+
+            portfolio_weight_pct: Decimal | None = None
+            if cached_total_value is not None and cached_total_value > Decimal("0"):
+                portfolio_weight_pct = market_value / cached_total_value * Decimal("100")
+            weight_pct_float = float(portfolio_weight_pct) if portfolio_weight_pct is not None else 0.0
+
+            if upnl_pct_float <= -5.0:
+                recommendation = "REVIEW_FOR_EXIT"
+            elif upnl_pct_float <= -2.0:
+                recommendation = "WATCH"
+            elif portfolio_weight_pct is not None and weight_pct_float > 25.0:
+                recommendation = "WATCH"
+            else:
+                recommendation = "HOLD"
+
+            if recommendation != "REVIEW_FOR_EXIT":
+                skipped_list.append(ExitOrderSkippedDetail(
+                    ticker=pos.ticker,
+                    reason=f"Position recommendation is {recommendation}, not REVIEW_FOR_EXIT. Eligible only when P&L <= -5.0%.",
+                    monitor_recommendation=recommendation,
+                ))
+                continue
+
+            eligible_tickers.append(pos.ticker)
+
+            existing_order = session.query(Order).filter(
+                Order.ticker == pos.ticker,
+                Order.side == "SELL",
+                Order.status == "PENDING",
+                Order.notes.like("Paper exit order ticket%"),
+            ).first()
+            if existing_order:
+                skipped_list.append(ExitOrderSkippedDetail(
+                    ticker=pos.ticker,
+                    reason="PENDING SELL exit order already exists for this ticker; skipped to prevent duplicate.",
+                    monitor_recommendation=recommendation,
+                ))
+                continue
+
+            if job_run is None:
+                job_run = JobRun(
+                    idempotency_key=f"manual-exit-create-orders-{uuid_module.uuid4()}",
+                    workflow_type="MANUAL_EXIT_CREATE_ORDERS",
+                    market_date=market_date,
+                    status="COMPLETED",
+                    completed_at=now_utc,
+                    result_summary={},
+                )
+                session.add(job_run)
+                session.flush()
+
+            source_run = f"manual_exit_v1:{pos.ticker}:{market_date}"
+            existing_sig = session.query(Signal).filter(
+                Signal.source_run == source_run,
+                Signal.ticker == pos.ticker,
+                Signal.direction == "SELL",
+            ).first()
+            if existing_sig is not None:
+                sig = existing_sig
+            else:
+                sig = Signal(
+                    job_run_id=job_run.id,
+                    ticker=pos.ticker,
+                    direction="SELL",
+                    confidence=Decimal("1.0000"),
+                    signal_ts=now_utc,
+                    market_date=market_date,
+                    source_run=source_run,
+                    status="DECISION_MADE",
+                    raw_payload={"reason": "REVIEW_FOR_EXIT manual exit"},
+                )
+                session.add(sig)
+                session.flush()
+
+            existing_td = session.query(TradeDecision).filter(
+                TradeDecision.signal_id == sig.id
+            ).first()
+            if existing_td is not None:
+                td = existing_td
+            else:
+                td = TradeDecision(
+                    signal_id=sig.id,
+                    job_run_id=job_run.id,
+                    ticker=pos.ticker,
+                    signal_direction="SELL",
+                    decision="SELL",
+                    reason_code="REVIEW_FOR_EXIT",
+                    approved_qty=qty,
+                    approved_notional=(qty * latest_price).quantize(Decimal("0.01")),
+                    requested_qty=qty,
+                    requested_notional=(qty * latest_price).quantize(Decimal("0.01")),
+                    decided_at=now_utc,
+                    market_date=market_date,
+                )
+                session.add(td)
+                session.flush()
+
+            order = Order(
+                trade_decision_id=td.id,
+                job_run_id=job_run.id,
+                fill_job_run_id=None,
+                ticker=pos.ticker,
+                side="SELL",
+                order_type="MARKET",
+                status="PENDING",
+                market_date=market_date,
+                requested_qty=qty,
+                filled_qty=None,
+                requested_at=now_utc,
+                filled_at=None,
+                fill_price=None,
+                commission=None,
+                slippage_cost=None,
+                notes="Paper exit order ticket — manual exit workflow. No broker execution.",
+            )
+            session.add(order)
+            session.flush()
+
+            created_list.append(ExitOrderCreatedDetail(
+                order_id=str(order.id),
+                ticker=pos.ticker,
+                side="SELL",
+                status="PENDING",
+                qty=str(qty),
+                market_date=str(market_date),
+                job_run_id=str(job_run.id),
+                monitor_recommendation="REVIEW_FOR_EXIT",
+            ))
+
+        if job_run is not None and created_list:
+            job_run.result_summary = {
+                "created_count": len(created_list),
+                "skipped_count": len(skipped_list),
+            }
+            session.add(job_run)
+
+    return CreateExitOrdersResponse(
+        execution_mode="EXIT_ORDER_CREATION_PAPER_ONLY",
+        created_count=len(created_list),
+        skipped_count=len(skipped_list),
+        orders=created_list,
+        eligible_positions=eligible_tickers,
+        skipped_positions=skipped_list,
+        safety_message="PAPER SELL ORDERS ONLY. No broker execution. No fills. No trades. No position changes. Automation off. Manual review required.",
+        no_broker_execution=True,
+        no_fills_created=True,
+        no_trades_created=True,
+        no_position_changes=True,
+        automation_enabled=False,
     )
 
 

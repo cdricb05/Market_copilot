@@ -19388,7 +19388,12 @@ class TestDailyPlanReplayProfileComparisonEndpoint:
         import uuid as _uuid
         sfx = _uuid.uuid4().hex[:6].upper()
         ticker = f"CMP{sfx}Y"
-        two_dates = [self._AS_OF + timedelta(days=i * 7) for i in range(2)]
+        # Use dates 47 days apart so date2's lookback (starting 2025-05-08) does not
+        # overlap with date1's forward window (2025-04-20 to 2025-04-30 with
+        # default forward_return_days=5). With 7-day spacing, date2's lookback rows
+        # at 2025-04-20 to 2025-04-22 fell inside date1's forward window, causing
+        # fwd_ret_date1 = -0.8% and avg_vs_spy = -0.4% instead of +6%.
+        two_dates = [self._AS_OF + timedelta(days=i * 47) for i in range(2)]
         with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
             for d in two_dates:
                 self._seed_ticker_prices(s, ticker, d, lookback=25, latest_price=100.0, fwd_price=106.0)
@@ -27772,6 +27777,282 @@ class TestUiActionPanelConsistencyV1Content:
 
     def test_sticky_tabs_still_present(self) -> None:
         assert "position: sticky" in self._read_html()
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestCreateExitOrdersEndpoint:
+    """Tests for POST /v1/review/create-exit-orders (paper SELL order ticket creation)."""
+
+    _ENDPOINT = "/v1/review/create-exit-orders"
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_exit_artifacts(self, api_engine):
+        """Delete positions, price snapshots, signals, trade decisions, and orders for EXIT... tickers."""
+        def _purge():
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(
+                    Order.notes.like("Paper exit order ticket%"),
+                ).delete(synchronize_session=False)
+                s.flush()
+                s.query(TradeDecision).filter(
+                    TradeDecision.ticker.like("EXIT%"),
+                    TradeDecision.reason_code == "REVIEW_FOR_EXIT",
+                ).delete(synchronize_session=False)
+                s.flush()
+                s.query(Signal).filter(
+                    Signal.source_run.like("manual_exit_v1%"),
+                    Signal.ticker.like("EXIT%"),
+                ).delete(synchronize_session=False)
+                s.flush()
+                s.query(Position).filter(Position.ticker.like("EXIT%")).delete(synchronize_session=False)
+                s.query(PriceSnapshot).filter(PriceSnapshot.ticker.like("EXIT%")).delete(synchronize_session=False)
+                s.commit()
+
+        _purge()
+        yield
+        _purge()
+
+    @staticmethod
+    def _seed_exit_position(
+        session,
+        suffix: str,
+        *,
+        qty: Decimal = Decimal("10"),
+        cost_basis_per_share: Decimal = Decimal("100.00"),
+        latest_price: Decimal = Decimal("90.00"),
+    ) -> str:
+        """Seed a Position and PriceSnapshot for an EXIT... ticker. Returns ticker."""
+        from zoneinfo import ZoneInfo
+        _eastern = ZoneInfo("America/New_York")
+        md = datetime.now(timezone.utc).astimezone(_eastern).date()
+        ticker = f"EXIT{suffix[:4]}".upper()
+        open_position(session, ticker=ticker, qty=qty, fill_price=cost_basis_per_share, now=datetime.now(timezone.utc))
+        snap = PriceSnapshot(
+            ticker=ticker,
+            price=latest_price,
+            session_type="REGULAR",
+            price_type="CLOSE",
+            market_date=md,
+            snapshot_ts=datetime.now(timezone.utc),
+        )
+        session.add(snap)
+        session.flush()
+        return ticker
+
+    def test_endpoint_requires_api_key(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True})
+        assert resp.status_code == 401
+
+    def test_confirm_false_returns_400(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": False}, headers=_AUTH)
+        assert resp.status_code == 400
+
+    def test_confirm_missing_returns_400(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(self._ENDPOINT, json={}, headers=_AUTH)
+        assert resp.status_code == 400
+
+    def test_response_includes_safety_flags(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["no_broker_execution"] is True
+        assert data["no_fills_created"] is True
+        assert data["no_trades_created"] is True
+        assert data["no_position_changes"] is True
+        assert data["automation_enabled"] is False
+        assert "safety_message" in data
+        assert data["execution_mode"] == "EXIT_ORDER_CREATION_PAPER_ONLY"
+
+    def test_hold_position_creates_no_exit_order(self, seeded_client: TestClient, api_engine) -> None:
+        """A HOLD position (healthy P&L) does not create an exit order."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ticker = self._seed_exit_position(s, "hold", cost_basis_per_share=Decimal("100.00"), latest_price=Decimal("102.00"))
+            s.commit()
+        resp = seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        assert resp.status_code == 201
+        data = resp.json()
+        assert all(o["ticker"] != ticker for o in data["orders"])
+
+    def test_watch_position_creates_no_exit_order(self, seeded_client: TestClient, api_engine) -> None:
+        """A WATCH position (-3% P&L) does not create an exit order."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ticker = self._seed_exit_position(s, "wtch", cost_basis_per_share=Decimal("100.00"), latest_price=Decimal("97.00"))
+            s.commit()
+        resp = seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        assert resp.status_code == 201
+        data = resp.json()
+        assert all(o["ticker"] != ticker for o in data["orders"])
+
+    def test_review_for_exit_creates_pending_sell_order(self, seeded_client: TestClient, api_engine) -> None:
+        """A REVIEW_FOR_EXIT position (P&L <= -5%) creates one PENDING SELL paper order for full qty."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ticker = self._seed_exit_position(s, "rfe1", qty=Decimal("10"), cost_basis_per_share=Decimal("100.00"), latest_price=Decimal("90.00"))
+            s.commit()
+        resp = seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        assert resp.status_code == 201
+        data = resp.json()
+        created = [o for o in data["orders"] if o["ticker"] == ticker]
+        assert len(created) == 1, f"Expected 1 exit order for {ticker}, got {len(created)}"
+        assert created[0]["side"] == "SELL"
+        assert created[0]["status"] == "PENDING"
+        assert created[0]["monitor_recommendation"] == "REVIEW_FOR_EXIT"
+        assert created[0]["qty"] == "10.00000000"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            order = s.query(Order).filter(
+                Order.ticker == ticker, Order.side == "SELL", Order.status == "PENDING"
+            ).first()
+            assert order is not None
+            assert "Paper exit order ticket" in (order.notes or "")
+
+    def test_running_endpoint_twice_does_not_duplicate_sell_orders(self, seeded_client: TestClient, api_engine) -> None:
+        """Second call skips already-pending exit orders (idempotent)."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ticker = self._seed_exit_position(s, "dup1", cost_basis_per_share=Decimal("100.00"), latest_price=Decimal("88.00"))
+            s.commit()
+        resp1 = seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        assert resp1.status_code == 201
+        resp2 = seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        assert resp2.status_code == 201
+        data2 = resp2.json()
+        second_created = [o for o in data2["orders"] if o["ticker"] == ticker]
+        assert len(second_created) == 0, "Duplicate exit order created on second call"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            count = s.query(Order).filter(
+                Order.ticker == ticker,
+                Order.side == "SELL",
+                Order.status == "PENDING",
+                Order.notes.like("Paper exit order ticket%"),
+            ).count()
+            assert count == 1
+
+    def test_endpoint_does_not_create_trades(self, seeded_client: TestClient, api_engine) -> None:
+        """Endpoint creates no Trade rows."""
+        from paper_trader.db.models import Trade
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            trades_before = s.query(Trade).count()
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_exit_position(s, "ntrd", cost_basis_per_share=Decimal("100.00"), latest_price=Decimal("80.00"))
+            s.commit()
+        seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            trades_after = s.query(Trade).count()
+        assert trades_after == trades_before
+
+    def test_endpoint_does_not_fill_orders(self, seeded_client: TestClient, api_engine) -> None:
+        """All created orders remain PENDING (no fills executed)."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ticker = self._seed_exit_position(s, "nfil", cost_basis_per_share=Decimal("100.00"), latest_price=Decimal("80.00"))
+            s.commit()
+        seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            filled = s.query(Order).filter(Order.ticker == ticker, Order.status == "FILLED").count()
+        assert filled == 0
+
+    def test_endpoint_does_not_change_positions(self, seeded_client: TestClient, api_engine) -> None:
+        """Position rows are not deleted or modified by the endpoint."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            ticker = self._seed_exit_position(s, "npos", qty=Decimal("7"), cost_basis_per_share=Decimal("100.00"), latest_price=Decimal("80.00"))
+            s.commit()
+        seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            pos = s.query(Position).filter(Position.ticker == ticker).first()
+            assert pos is not None, "Position was deleted by create-exit-orders"
+            assert Decimal(str(pos.qty)) == Decimal("7.00000000")
+
+    def test_endpoint_does_not_change_cash(self, seeded_client: TestClient, api_engine) -> None:
+        """Endpoint does not write cash ledger entries."""
+        from paper_trader.db.models import CashLedger
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cash_entry_count_before = s.query(CashLedger).count()
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            self._seed_exit_position(s, "ncsh", cost_basis_per_share=Decimal("100.00"), latest_price=Decimal("80.00"))
+            s.commit()
+        seeded_client.post(self._ENDPOINT, json={"confirm_create_exit_orders": True}, headers=_AUTH)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            cash_entry_count_after = s.query(CashLedger).count()
+        assert cash_entry_count_after == cash_entry_count_before
+
+
+class TestUiManualExitPaperOrderTicketV1Content:
+    """UI static content tests: Manual Exit Paper Order Ticket v1."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    def test_create_exit_paper_order_ticket_button_present(self) -> None:
+        assert "Create Exit Paper Order Ticket" in self._read_html()
+
+    def test_confirm_create_exit_paper_order_ticket_present(self) -> None:
+        assert "Confirm: Create Exit Paper Order Ticket" in self._read_html()
+
+    def test_pending_sell_paper_order_ticket_text_present(self) -> None:
+        assert "PENDING SELL paper order ticket(s) for positions marked REVIEW_FOR_EXIT" in self._read_html()
+
+    def test_submit_anything_to_a_broker_present(self) -> None:
+        assert "Submit anything to a broker" in self._read_html()
+
+    def test_fill_any_order_present(self) -> None:
+        assert "Fill any order" in self._read_html()
+
+    def test_create_a_trade_row_present(self) -> None:
+        assert "Create a trade row" in self._read_html()
+
+    def test_change_cash_present(self) -> None:
+        assert "Change cash" in self._read_html()
+
+    def test_change_positions_present(self) -> None:
+        assert "Change positions" in self._read_html()
+
+    def test_enable_automation_present(self) -> None:
+        assert "Enable automation" in self._read_html()
+
+    def test_no_exit_order_needed_present(self) -> None:
+        assert "No exit order needed." in self._read_html()
+
+    def test_monitor_closely_no_action_required_yet_present(self) -> None:
+        assert "Monitor closely. No action required yet." in self._read_html()
+
+    def test_review_exit_right_panel_text_present(self) -> None:
+        assert "Review Exit" in self._read_html()
+
+    def test_create_manual_sell_paper_order_ticket_present(self) -> None:
+        assert "Create a manual SELL paper order ticket or keep monitoring." in self._read_html()
+
+    def test_paper_order_only_badge_present(self) -> None:
+        assert "PAPER ORDER ONLY" in self._read_html()
+
+    def test_sell_ticket_only_badge_present(self) -> None:
+        assert "SELL TICKET ONLY" in self._read_html()
+
+    def test_no_broker_execution_badge_present(self) -> None:
+        assert "NO BROKER EXECUTION" in self._read_html()
+
+    def test_no_fill_badge_present(self) -> None:
+        assert "NO FILL" in self._read_html()
+
+    def test_no_trade_badge_present(self) -> None:
+        assert "NO TRADE" in self._read_html()
+
+    def test_no_cash_change_badge_present(self) -> None:
+        assert "NO CASH CHANGE" in self._read_html()
+
+    def test_no_position_change_badge_present(self) -> None:
+        assert "NO POSITION CHANGE" in self._read_html()
+
+    def test_manual_review_badge_present(self) -> None:
+        assert "MANUAL REVIEW" in self._read_html()
 
     def test_no_alert_calls(self) -> None:
         import re

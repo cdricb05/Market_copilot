@@ -1961,6 +1961,7 @@
             </div>
             <div id="pmw-summary-cards" style="display: none; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;"></div>
             <div id="pmw-status-message" style="display: none; padding: 8px 10px; border-radius: 2px; margin-bottom: 8px; font-size: 10px; font-weight: 600;"></div>
+            <div id="pmw-exit-action-area" style="display: none; margin-bottom: 8px;"></div>
             <div id="pmw-result" style="display: none;">
               <div class="table-wrap scroll-table">
                 <table>
@@ -4217,6 +4218,45 @@ async function runPortfolioMonitorWorkspace(btn) {
         trResult.textContent = 'HOLD: No action required.';
       }
     }
+    // Update exit action area
+    var exitActionEl = document.getElementById('pmw-exit-action-area');
+    if (exitActionEl) {
+      exitActionEl.style.display = '';
+      if (data.reviewed_for_exit_count > 0) {
+        exitActionEl.innerHTML = '<div style="padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:2px;">' +
+          '<div style="font-size:10px;font-weight:700;color:var(--danger);margin-bottom:6px;">Exit review required</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">' +
+          '<span style="font-size:8px;font-weight:700;padding:2px 6px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);border-radius:2px;color:var(--danger);">PAPER ORDER ONLY</span>' +
+          '<span style="font-size:8px;font-weight:700;padding:2px 6px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.4);border-radius:2px;color:var(--danger);">SELL TICKET ONLY</span>' +
+          '<span style="font-size:8px;font-weight:700;padding:2px 6px;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);border-radius:2px;color:var(--label);">NO BROKER EXECUTION</span>' +
+          '<span style="font-size:8px;font-weight:700;padding:2px 6px;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);border-radius:2px;color:var(--label);">NO FILL</span>' +
+          '<span style="font-size:8px;font-weight:700;padding:2px 6px;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);border-radius:2px;color:var(--label);">NO TRADE</span>' +
+          '<span style="font-size:8px;font-weight:700;padding:2px 6px;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);border-radius:2px;color:var(--label);">NO CASH CHANGE</span>' +
+          '<span style="font-size:8px;font-weight:700;padding:2px 6px;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);border-radius:2px;color:var(--label);">NO POSITION CHANGE</span>' +
+          '<span style="font-size:8px;font-weight:700;padding:2px 6px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.4);border-radius:2px;color:var(--warning);">MANUAL REVIEW</span>' +
+          '</div>' +
+          '<button class="btn" id="create-exit-order-btn" onclick="createExitPaperOrderTicket(this)" style="background:var(--danger);color:#fff;font-weight:700;font-size:10px;padding:5px 14px;">Create Exit Paper Order Ticket</button>' +
+          '<span id="create-exit-order-status" style="font-size:9px;color:var(--label);margin-left:8px;"></span>' +
+          '</div>';
+      } else if (data.watch_count > 0) {
+        exitActionEl.innerHTML = '<div style="padding:6px 10px;font-size:10px;color:var(--warning);font-weight:600;">Monitor closely. No action required yet.</div>';
+      } else {
+        exitActionEl.innerHTML = '<div style="padding:6px 10px;font-size:10px;color:var(--ok);">No exit order needed.</div>';
+      }
+    }
+    // Update right panel to mirror exit state
+    var _rpTaskEl = document.getElementById('right-current-task');
+    var _rpNextEl = document.getElementById('right-next-action');
+    if (data.reviewed_for_exit_count > 0) {
+      if (_rpTaskEl) _rpTaskEl.textContent = 'Review Exit';
+      if (_rpNextEl) _rpNextEl.textContent = 'Create a manual SELL paper order ticket or keep monitoring.';
+    } else if (data.watch_count > 0) {
+      if (_rpTaskEl) _rpTaskEl.textContent = 'Monitor Portfolio';
+      if (_rpNextEl) _rpNextEl.textContent = 'Monitor closely. No action required yet.';
+    } else {
+      if (_rpTaskEl) _rpTaskEl.textContent = 'Monitor Portfolio';
+      if (_rpNextEl) _rpNextEl.textContent = 'No action required.';
+    }
     if (tbody) {
       tbody.innerHTML = (data.positions || []).map(function(p) {
         var recColor = p.recommendation === 'REVIEW_FOR_EXIT' ? 'var(--danger)' :
@@ -4245,6 +4285,46 @@ async function runPortfolioMonitorWorkspace(btn) {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+async function createExitPaperOrderTicket(btn) {
+  window._showWriteConfirm({
+    title: 'Confirm: Create Exit Paper Order Ticket',
+    confirmLabel: 'Create Exit Ticket',
+    writes: [
+      'PENDING SELL paper order ticket(s) for positions marked REVIEW_FOR_EXIT',
+    ],
+    doesNotDo: [
+      'Submit anything to a broker',
+      'Fill any order',
+      'Create a trade row',
+      'Change cash',
+      'Change positions',
+      'Enable automation',
+    ],
+    onConfirm: async function() {
+      var statusEl = document.getElementById('create-exit-order-status');
+      if (btn) btn.disabled = true;
+      if (statusEl) { statusEl.textContent = 'Creating...'; statusEl.style.color = 'var(--label)'; }
+      try {
+        var r = await call('POST', '/v1/review/create-exit-orders', { confirm_create_exit_orders: true });
+        var data = await r.json();
+        if (r.ok) {
+          if (statusEl) {
+            statusEl.textContent = 'Done. ' + data.created_count + ' exit order(s) created. ' + data.skipped_count + ' skipped.';
+            statusEl.style.color = 'var(--ok)';
+          }
+          toast('Exit order ticket created: ' + data.created_count + ' order(s).', 'ok');
+        } else {
+          if (statusEl) { statusEl.textContent = 'Error: ' + (data.detail || r.status); statusEl.style.color = 'var(--danger)'; }
+        }
+      } catch (e) {
+        if (statusEl) { statusEl.textContent = 'Error: ' + e.message; statusEl.style.color = 'var(--danger)'; }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    },
+  });
 }
 
 // ---------- exit signal preview ----------
