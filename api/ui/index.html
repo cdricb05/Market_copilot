@@ -1921,6 +1921,22 @@
           </details>
         </div>
 
+        <!-- Guided Trade Plan + Paper Order Flow v1: one stage, one primary action -->
+        <div id="dp-trade-flow-card" class="compact-card" style="display: none; flex-shrink: 0; border: 2px solid rgba(99,102,241,.55); margin-bottom: 12px; background: rgba(99,102,241,.05);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid rgba(99,102,241,.2); padding-bottom: 6px;">
+            <div id="tf-title" style="font-size: 15px; font-weight: 800; color: var(--info); letter-spacing: .02em;">Trade Plan</div>
+            <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+              <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+            </div>
+          </div>
+          <div id="tf-status" style="font-size: 12px; font-weight: 700; margin-bottom: 8px; line-height: 1.5;"></div>
+          <div id="tf-rows" style="margin-bottom: 10px;"></div>
+          <div id="tf-action" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;"></div>
+          <div id="tf-safety" style="font-size: 9px; color: var(--label); padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 2px; line-height: 1.5;"></div>
+        </div>
+
         <!-- Trade Plan Workspace (visible only when approved candidates exist) -->
         <div id="dp-trade-plan-workspace" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(99,102,241,.4); margin-bottom: 6px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(99,102,241,.2); padding-bottom: 4px;">
@@ -9533,6 +9549,8 @@ async function generateTradePlan(btn) {
 
           // Trade plan rows table (user-facing simplified view)
           const rows = data.trade_plan_rows || [];
+          // Cache for the guided Trade Flow card so it can show the plan without re-fetching.
+          window._lastTradePlanRows = rows;
           if (rows.length > 0) {
             let orderEligibleCount = 0;
             html += '<div style="margin-top: 8px; font-size: 10px; font-weight: 700; color: var(--info); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em;">Trade Plan</div>';
@@ -11393,6 +11411,10 @@ async function refreshWorkflowStatus() {
     window._workflowStatusData = data;
     renderWorkflowStatus(data);
     updateReviewWorkflow();
+    // Re-render the cockpit (incl. guided Trade Flow card) with fresh counts so
+    // the post-approval stage (Generate -> Create Ticket -> Fill -> Portfolio)
+    // advances after each action.
+    updateCockpitReviewSummary();
   } catch (e) {
     console.error('Failed to refresh workflow status:', e);
   }
@@ -11883,6 +11905,7 @@ function updateTodayReview(ctx) {
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
     if (ctxEl) { ctxEl.textContent = 'No new-entry candidates found.' + _olderNote; ctxEl.style.color = 'var(--label)'; }
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button>';
+    renderTradeFlowCard('HIDE');
   } else if (todayTotal === 0) {
     // No session run yet today.
     _rpTask = 'Start Daily Review';
@@ -11892,6 +11915,7 @@ function updateTodayReview(ctx) {
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--text-accent)'; }
     if (ctxEl) { ctxEl.textContent = olderCount > 0 ? 'Older review items are not part of today’s new scan.' : ''; ctxEl.style.color = 'var(--label)'; }
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review</button>';
+    renderTradeFlowCard('HIDE');
   } else if (!todayReviewComplete) {
     _rpTask = 'Review Candidates';
     _rpNext = "Review the new candidates saved by today's session.";
@@ -11901,24 +11925,66 @@ function updateTodayReview(ctx) {
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--text-accent)'; }
     if (ctxEl) { ctxEl.textContent = todayPending + ' candidate(s) pending review. Approve, watch, or reject the remaining candidates.' + _olderNote; ctxEl.style.color = 'var(--label)'; }
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="focusReviewQueue()">Review Candidates</button>';
+    renderTradeFlowCard('HIDE');
   } else if (todayApproved > 0) {
-    _rpTask = 'Generate Trade Plan';
-    _rpNext = 'Generate a trade plan from approved candidates.';
-    _rightNext = 'Generate trade plan from approved candidates.';
-    taskEl.textContent = _rpTask;
+    // Guided post-approval flow: Generate Trade Plan -> Create Paper Order
+    // Ticket -> Fill Paper Order. The stage is driven by live workflow-status
+    // counts so the main flow always shows the correct next action.
+    const _ws = window._workflowStatusData || {};
+    const _wd = _ws.review_created_trade_decisions || {};
+    const _wo = _ws.orders || {};
+    const _pendingOrders = _wo.pending || 0;
+    const _orderEligible = _wd.order_eligible || 0;
+    let _stage;
+    if (_pendingOrders > 0) _stage = 'FILL';
+    else if (_orderEligible > 0) _stage = 'CREATE_ORDER';
+    else _stage = 'GENERATE';
+
     taskEl.style.color = 'var(--ok)';
+    if (_stage === 'CREATE_ORDER') {
+      _rpTask = 'Create Paper Order Ticket';
+      _rpNext = 'Trade plan ready. Create a paper order ticket.';
+      _rightNext = 'Create a paper order ticket.';
+      if (ctxEl) { ctxEl.textContent = 'No order has been created yet. Creates PENDING paper order tickets only — no trades, fills, positions, cash changes, or broker actions.'; ctxEl.style.color = 'var(--label)'; }
+      if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:700;font-size:11px;padding:7px 18px;" onclick="createOrdersFromDecisions()">Create Paper Order Ticket</button>';
+    } else if (_stage === 'FILL') {
+      _rpTask = 'Fill Paper Order';
+      _rpNext = 'Paper order ticket created. Fill the paper order.';
+      _rightNext = 'Fill the paper order.';
+      if (ctxEl) { ctxEl.textContent = 'This is still not a trade. Portfolio holdings update only after paper fill.'; ctxEl.style.color = 'var(--label)'; }
+      if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="fillPendingPaperOrders()">Fill Paper Order</button>';
+    } else {
+      _rpTask = 'Generate Trade Plan';
+      _rpNext = 'Generate a trade plan from approved candidates.';
+      _rightNext = 'Generate trade plan from approved candidates.';
+      if (ctxEl) { ctxEl.textContent = 'Creates internal Signal and TradeDecision records only. No orders, trades, fills, broker execution, or position changes.'; ctxEl.style.color = 'var(--label)'; }
+      if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:rgba(99,102,241,.25);color:var(--info);border:1px solid rgba(99,102,241,.5);font-weight:700;font-size:11px;padding:7px 18px;" onclick="generateTradePlan(this)">Generate Trade Plan</button>';
+    }
+    taskEl.textContent = _rpTask;
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
-    if (ctxEl) { ctxEl.textContent = 'Creates internal Signal and TradeDecision records only. No orders, trades, fills, broker execution, or position changes.'; ctxEl.style.color = 'var(--label)'; }
-    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:rgba(99,102,241,.25);color:var(--info);border:1px solid rgba(99,102,241,.5);font-weight:700;font-size:11px;padding:7px 18px;" onclick="generateTradePlan(this)">Generate Trade Plan</button>';
-  } else {
-    _rpTask = 'Monitor Portfolio';
-    _rpNext = 'No new trade plan. Monitor open positions.';
+    renderTradeFlowCard(_stage);
+  } else if (window._workflowCompletedState) {
+    // Paper order filled: positions and cash have been updated. Guide the user
+    // to the Portfolio tab to see the new holding.
+    _rpTask = 'View Portfolio';
+    _rpNext = 'Paper trade completed. Portfolio updated.';
     _rightNext = 'Review open positions.';
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
-    if (ctxEl) { ctxEl.textContent = 'No new trade plan. Monitor open positions.' + _olderNote; ctxEl.style.color = 'var(--text-accent)'; }
+    if (ctxEl) { ctxEl.textContent = 'Paper trade completed. Portfolio updated.' + _olderNote; ctxEl.style.color = 'var(--text-accent)'; }
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="viewPortfolio()">View Portfolio</button>';
+    renderTradeFlowCard('COMPLETED');
+  } else {
+    _rpTask = 'Monitor Portfolio';
+    _rpNext = 'No approved candidates available for a trade plan.';
+    _rightNext = 'Review open positions.';
+    taskEl.textContent = _rpTask;
+    taskEl.style.color = 'var(--ok)';
+    if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
+    if (ctxEl) { ctxEl.textContent = 'No approved candidates available for a trade plan.' + _olderNote; ctxEl.style.color = 'var(--text-accent)'; }
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button>';
+    renderTradeFlowCard('HIDE');
   }
 
   // Sync right panel to mirror Today's Review (single source of truth). The
@@ -11927,6 +11993,166 @@ function updateTodayReview(ctx) {
   const _rpNextEl = document.getElementById('right-next-action');
   if (_rpTaskEl) _rpTaskEl.textContent = _rpTask;
   if (_rpNextEl) _rpNextEl.textContent = _rightNext || _rpNext;
+}
+
+// ---------- Guided Trade Plan + Paper Order Flow v1 ----------
+// One card, one stage, one primary action. Reuses the existing
+// generate-trade-plan / create-orders / fill-pending-orders endpoints. The
+// guided card owns the surface for CREATE_ORDER / FILL / COMPLETED stages and
+// hides the legacy Trade Plan and Portfolio Monitor workspaces while active.
+function renderTradeFlowCard(stage) {
+  const card = document.getElementById('dp-trade-flow-card');
+  if (!card) return;
+  const tpWs = document.getElementById('dp-trade-plan-workspace');
+  const pmWs = document.getElementById('dp-portfolio-monitor-workspace');
+
+  if (stage !== 'CREATE_ORDER' && stage !== 'FILL' && stage !== 'COMPLETED') {
+    card.style.display = 'none';
+    card.dataset.stage = '';
+    return;
+  }
+
+  // Guided card owns the workflow surface for these stages.
+  if (tpWs) tpWs.style.display = 'none';
+  if (pmWs) pmWs.style.display = 'none';
+  card.style.display = '';
+  const transitioned = card.dataset.stage !== stage;
+  card.dataset.stage = stage;
+
+  const titleEl = document.getElementById('tf-title');
+  const statusEl = document.getElementById('tf-status');
+  const safetyEl = document.getElementById('tf-safety');
+  const actionEl = document.getElementById('tf-action');
+  const rowsEl = document.getElementById('tf-rows');
+
+  if (stage === 'CREATE_ORDER') {
+    if (titleEl) titleEl.textContent = 'Trade Plan';
+    if (statusEl) { statusEl.textContent = 'No order has been created yet.'; statusEl.style.color = 'var(--warning)'; }
+    if (safetyEl) safetyEl.textContent = 'Creates PENDING paper order tickets only. No trades, fills, positions, cash changes, or broker actions are created.';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:800;font-size:13px;padding:12px 18px;" onclick="createOrdersFromDecisions()">Create Paper Order Ticket</button>';
+    if (transitioned || !Array.isArray(window._lastTradePlanRows)) _loadTradeFlowPlanRows();
+    else _renderTradeFlowPlanRows(window._lastTradePlanRows);
+  } else if (stage === 'FILL') {
+    if (titleEl) titleEl.textContent = 'Paper Order Ticket';
+    if (statusEl) { statusEl.textContent = 'Paper order ticket created.'; statusEl.style.color = 'var(--ok)'; }
+    if (safetyEl) safetyEl.textContent = 'This is still not a trade. Portfolio holdings update only after paper fill. No live broker execution. Automation off.';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:800;font-size:13px;padding:12px 18px;" onclick="fillPendingPaperOrders()">Fill Paper Order</button>';
+    if (transitioned) _loadTradeFlowPendingOrders();
+  } else if (stage === 'COMPLETED') {
+    if (titleEl) titleEl.textContent = 'Paper Trade Completed';
+    if (statusEl) { statusEl.innerHTML = '<span style="color:var(--ok);font-weight:800;">Paper trade completed.</span> <span style="color:var(--ok);">Portfolio updated.</span>'; }
+    if (safetyEl) safetyEl.textContent = 'Paper portfolio only. No live broker execution. Automation off. Manual review.';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:800;font-size:13px;padding:12px 18px;" onclick="viewPortfolio()">View Portfolio</button>';
+    if (rowsEl) rowsEl.innerHTML = '<div style="font-size: 10px; color: var(--text-secondary); padding: 6px 10px; background: rgba(0,0,0,.15); border-radius: 3px; line-height: 1.5;">The paper order was filled. Open the Portfolio tab to see the new holding and updated positions.</div>';
+  }
+}
+
+function _renderTradeFlowPlanRows(rows) {
+  const rowsEl = document.getElementById('tf-rows');
+  if (!rowsEl) return;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    rowsEl.innerHTML = '<div style="font-size: 10px; color: var(--label); padding: 6px 10px; background: rgba(0,0,0,.15); border-radius: 3px;">No order-eligible trades in the current plan.</div>';
+    return;
+  }
+  let html = '<div style="overflow-x: auto; max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px;">';
+  html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">';
+  html += '<th style="padding: 4px 6px; text-align: left; color: var(--label); font-size: 9px;">Ticker</th>';
+  html += '<th style="padding: 4px 6px; text-align: left; color: var(--label); font-size: 9px;">Side</th>';
+  html += '<th style="padding: 4px 6px; text-align: right; color: var(--label); font-size: 9px;">Qty</th>';
+  html += '<th style="padding: 4px 6px; text-align: right; color: var(--label); font-size: 9px;">Est. Value</th>';
+  html += '<th style="padding: 4px 6px; text-align: left; color: var(--label); font-size: 9px;">Reason</th>';
+  html += '<th style="padding: 4px 6px; text-align: left; color: var(--label); font-size: 9px;">Safety</th>';
+  html += '</tr></thead><tbody>';
+  for (const row of rows) {
+    const actClr = row.action === 'BUY' ? 'var(--ok)' : row.action === 'SELL' ? 'var(--danger)' : 'var(--text-secondary)';
+    const rsClr = row.risk_status === 'APPROVED' ? 'var(--ok)' : 'var(--danger)';
+    html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+    html += '<td style="padding: 4px 6px; font-weight: 600;">' + escapeHtml(row.ticker || '-') + '</td>';
+    html += '<td style="padding: 4px 6px; color: ' + actClr + '; font-weight: 600;">' + escapeHtml(row.action || '-') + '</td>';
+    html += '<td style="padding: 4px 6px; text-align: right;">' + escapeHtml(row.qty || '-') + '</td>';
+    html += '<td style="padding: 4px 6px; text-align: right;">' + (row.estimated_cost ? '$' + escapeHtml(String(row.estimated_cost)) : '-') + '</td>';
+    html += '<td style="padding: 4px 6px; font-size: 9px;">' + escapeHtml(row.reason || '-') + '</td>';
+    html += '<td style="padding: 4px 6px; color: ' + rsClr + '; font-size: 9px; font-weight: 600;">' + escapeHtml(row.risk_status || 'APPROVED') + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  rowsEl.innerHTML = html;
+}
+
+async function _loadTradeFlowPlanRows() {
+  if (Array.isArray(window._lastTradePlanRows)) _renderTradeFlowPlanRows(window._lastTradePlanRows);
+  else {
+    const rowsEl = document.getElementById('tf-rows');
+    if (rowsEl) rowsEl.innerHTML = '<div style="font-size: 10px; color: var(--label); padding: 6px 10px;">Loading trade plan...</div>';
+  }
+  try {
+    // PREVIEW ONLY: order-preview never creates rows. Used to populate the
+    // trade plan when the page reloads without a fresh generate response.
+    const r = await call('POST', '/v1/review/order-preview', {
+      idempotency_key: 'tf-order-preview-' + Date.now(),
+      approved_only: true,
+    });
+    if (!r.ok) return;
+    const data = await r.json();
+    const previews = Array.isArray(data.order_previews) ? data.order_previews : [];
+    const rows = previews.map(function(p) {
+      return {
+        ticker: p.ticker,
+        action: p.side,
+        qty: p.qty,
+        estimated_cost: p.notional,
+        reason: p.reason_code || p.decision || '-',
+        risk_status: 'APPROVED',
+      };
+    });
+    if (rows.length > 0 || !Array.isArray(window._lastTradePlanRows)) {
+      window._lastTradePlanRows = rows;
+      _renderTradeFlowPlanRows(rows);
+    }
+  } catch (e) { /* preview-only fetch is best-effort */ }
+}
+
+async function _loadTradeFlowPendingOrders() {
+  const rowsEl = document.getElementById('tf-rows');
+  if (rowsEl) rowsEl.innerHTML = '<div style="font-size: 10px; color: var(--label); padding: 6px 10px;">Loading pending paper order...</div>';
+  try {
+    const r = await call('GET', '/v1/orders?status=PENDING');
+    if (!r.ok) return;
+    const orders = await r.json();
+    if (!rowsEl) return;
+    if (!Array.isArray(orders) || orders.length === 0) {
+      rowsEl.innerHTML = '<div style="font-size: 10px; color: var(--label); padding: 6px 10px; background: rgba(0,0,0,.15); border-radius: 3px;">No pending paper orders.</div>';
+      return;
+    }
+    let html = '<div style="overflow-x: auto; max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">';
+    html += '<th style="padding: 4px 6px; text-align: left; color: var(--label); font-size: 9px;">Ticker</th>';
+    html += '<th style="padding: 4px 6px; text-align: left; color: var(--label); font-size: 9px;">Side</th>';
+    html += '<th style="padding: 4px 6px; text-align: right; color: var(--label); font-size: 9px;">Qty</th>';
+    html += '<th style="padding: 4px 6px; text-align: right; color: var(--label); font-size: 9px;">Requested Price</th>';
+    html += '<th style="padding: 4px 6px; text-align: left; color: var(--label); font-size: 9px;">Status</th>';
+    html += '</tr></thead><tbody>';
+    for (const o of orders) {
+      const sideClr = o.side === 'BUY' ? 'var(--ok)' : o.side === 'SELL' ? 'var(--danger)' : 'var(--text-secondary)';
+      html += '<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">';
+      html += '<td style="padding: 4px 6px; font-weight: 600;">' + escapeHtml(o.ticker || '-') + '</td>';
+      html += '<td style="padding: 4px 6px; color: ' + sideClr + '; font-weight: 600;">' + escapeHtml(o.side || '-') + '</td>';
+      html += '<td style="padding: 4px 6px; text-align: right;">' + escapeHtml(o.requested_qty || '-') + '</td>';
+      html += '<td style="padding: 4px 6px; text-align: right;">' + (o.fill_price ? '$' + escapeHtml(String(o.fill_price)) : '-') + '</td>';
+      html += '<td style="padding: 4px 6px; color: var(--warning); font-weight: 600; font-size: 9px;">PENDING</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    rowsEl.innerHTML = html;
+  } catch (e) { /* best-effort */ }
+}
+
+function viewPortfolio() {
+  try { if (window._switchTab) window._switchTab('portfolio'); } catch (e) {}
+  if (_appState.connected) {
+    try { loadPositions(); } catch (e) {}
+    try { loadOrders(); } catch (e) {}
+  }
 }
 
 function updateCockpitReviewSummary() {

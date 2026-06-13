@@ -27520,7 +27520,9 @@ class TestUiSimplifiedDailyPlanWorkflowV1Content:
         assert "Monitor Portfolio" in self._read_html()
 
     def test_no_new_trade_plan_monitor_text_present(self) -> None:
-        assert "No new trade plan. Monitor open positions." in self._read_html()
+        # Guided Trade Plan + Paper Order Flow v1: the review-complete / no-approved
+        # state now reads "No approved candidates available for a trade plan."
+        assert "No approved candidates available for a trade plan." in self._read_html()
 
     def test_watch_monitor_closely_text_present(self) -> None:
         assert "WATCH: Monitor closely. No action required yet." in self._read_html()
@@ -28658,6 +28660,439 @@ class TestDailyCandidateDecisionCardV1Content:
 
     def test_setup_rerun_collapsed_by_default(self) -> None:
         assert '<details id="dp-setup-drawer" style="margin-bottom: 6px;">' in self._read_html()
+
+    # --- No browser dialogs ---
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", self._read_html())) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
+
+
+# ---------------------------------------------------------------------------
+# Guided Trade Plan + Paper Order Flow v1 — backend safety + UI
+# ---------------------------------------------------------------------------
+
+
+class TestGuidedTradePlanPaperOrderFlowV1Endpoint:
+    """Staged write boundaries for the guided trade-plan -> paper-order -> fill flow.
+
+    Reuses the existing generate-trade-plan / create-orders /
+    fill-pending-orders endpoints. Proves:
+      1. candidate approval alone writes no trading rows,
+      2/3. generate-trade-plan creates internal records only (no orders/positions),
+      4/5. create-orders creates PENDING tickets only, idempotent, no fills/positions,
+      6. fill-pending-orders updates positions and the cash ledger,
+      and that each write is explicit (confirm flag required).
+    """
+
+    _IKEY_PREFIX = "gtpf-v1-test"
+    _REVIEW_SOURCE_PREFIX = "review_queue_create_signals_v1:"
+
+    @pytest.fixture(autouse=True)
+    def _purge_pending(self, api_engine):
+        """Remove paper-ticket and stray PENDING orders for today before/after each
+        test so the shared-DB fill endpoint only acts on this test's order."""
+        def _purge():
+            from zoneinfo import ZoneInfo
+            today = datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date()
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(Order.notes.like("Paper order ticket%")).delete(synchronize_session=False)
+                s.query(Order).filter(Order.status == "PENDING", Order.market_date == today).delete(synchronize_session=False)
+                s.commit()
+        _purge()
+        yield
+        _purge()
+
+    def _ticker(self) -> str:
+        return f"GTF{uuid.uuid4().hex[:4].upper()}"
+
+    def _clean(self, api_engine, ticker: str, ikey_prefix: str) -> None:
+        from paper_trader.db.models import Trade, CashLedger
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            ords = session.query(Order).filter(Order.ticker == ticker).all()
+            for o in ords:
+                session.query(CashLedger).filter(CashLedger.order_id == o.id).delete(synchronize_session=False)
+                session.query(Trade).filter(Trade.order_id == o.id).delete(synchronize_session=False)
+            session.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
+            session.query(Order).filter(Order.ticker == ticker).delete(synchronize_session=False)
+            session.query(TradeDecision).filter(TradeDecision.ticker == ticker).delete(synchronize_session=False)
+            session.query(Signal).filter(Signal.ticker == ticker).delete(synchronize_session=False)
+            session.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete(synchronize_session=False)
+            session.query(CandidateReview).filter(
+                CandidateReview.idempotency_key.like(ikey_prefix + "%")
+            ).delete(synchronize_session=False)
+            session.commit()
+
+    def _add_candidate(self, api_engine, ticker: str, ikey: str, review_status: str) -> str:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            row = CandidateReview(
+                idempotency_key=ikey,
+                ticker=ticker,
+                prediction_recommendation="BUY",
+                prediction_confidence="0.85",
+                preview_decision="CONSIDER",
+                preview_score="75.0",
+                status="OK",
+                review_status=review_status,
+            )
+            session.add(row)
+            session.commit()
+            return str(row.id)
+
+    def _counts(self, api_engine, ticker: str) -> tuple:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            return (
+                session.query(Signal).filter(Signal.ticker == ticker).count(),
+                session.query(TradeDecision).filter(TradeDecision.ticker == ticker).count(),
+                session.query(Order).filter(Order.ticker == ticker).count(),
+                session.query(Position).filter(Position.ticker == ticker).count(),
+            )
+
+    def _seed_decision(self, api_engine, ticker: str, qty: str = "5.00", price: str = "100.00") -> str:
+        """Seed a review-created Signal + BUY TradeDecision; return the decision id."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            jr = JobRun(
+                idempotency_key=f"{self._IKEY_PREFIX}-jr-{uuid.uuid4().hex[:8]}",
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(jr)
+            session.flush()
+            sig = Signal(
+                job_run_id=jr.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=self._REVIEW_SOURCE_PREFIX + uuid.uuid4().hex[:8],
+                status="DECISION_MADE",
+                raw_payload={},
+            )
+            session.add(sig)
+            session.flush()
+            notional = (Decimal(qty) * Decimal(price)).quantize(Decimal("0.01"))
+            td = TradeDecision(
+                signal_id=sig.id,
+                job_run_id=jr.id,
+                ticker=ticker,
+                signal_direction="BUY",
+                decision="BUY",
+                reason_code="POSITIVE_SIGNAL",
+                approved_qty=Decimal(qty),
+                approved_notional=notional,
+                requested_qty=Decimal(qty),
+                requested_notional=notional,
+                decided_at=datetime.now(timezone.utc),
+                market_date=date.today(),
+            )
+            session.add(td)
+            session.commit()
+            return str(td.id)
+
+    # --- 1. Candidate approval alone creates no trading rows ---
+    def test_candidate_approval_creates_no_trading_rows(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY_PREFIX}-appr-{uuid.uuid4().hex[:6]}"
+        ticker = self._ticker()
+        self._clean(api_engine, ticker, ikey)
+        try:
+            cid = self._add_candidate(api_engine, ticker, ikey, "NEW")
+            before = self._counts(api_engine, ticker)
+            resp = seeded_client.patch(
+                f"/v1/review/candidates/{cid}",
+                json={"review_status": "APPROVED_FOR_SIGNAL"},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["review_status"] == "APPROVED_FOR_SIGNAL"
+            after = self._counts(api_engine, ticker)
+            assert before == (0, 0, 0, 0)
+            assert after == (0, 0, 0, 0), "approval must create no signals/decisions/orders/positions"
+        finally:
+            self._clean(api_engine, ticker, ikey)
+
+    # --- 2/3. generate-trade-plan creates internal records only ---
+    def test_generate_trade_plan_creates_no_orders_or_positions(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY_PREFIX}-gen-{uuid.uuid4().hex[:6]}"
+        ticker = self._ticker()
+        self._clean(api_engine, ticker, ikey)
+        try:
+            self._add_candidate(api_engine, ticker, ikey, "APPROVED_FOR_SIGNAL")
+            resp = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={"confirm_generate_trade_plan": True},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["orders_created"] == 0
+            assert data["trades_created"] == 0
+            assert data["fills_created"] == 0
+            assert data["positions_changed"] is False
+            _, _, orders, positions = self._counts(api_engine, ticker)
+            assert orders == 0, "generate-trade-plan must not create Order rows"
+            assert positions == 0, "generate-trade-plan must not open positions"
+        finally:
+            self._clean(api_engine, ticker, ikey)
+
+    # --- 4/5. create-orders creates PENDING tickets only and is idempotent ---
+    def test_create_orders_creates_pending_only_and_idempotent(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY_PREFIX}-co-{uuid.uuid4().hex[:6]}"
+        ticker = self._ticker()
+        self._clean(api_engine, ticker, ikey)
+        try:
+            td_id = self._seed_decision(api_engine, ticker)
+            r1 = seeded_client.post(
+                "/v1/review/create-orders",
+                json={"idempotency_key": ikey + "-1", "trade_decision_ids": [td_id], "confirm_create_orders": True},
+                headers=_AUTH,
+            )
+            assert r1.status_code == 201
+            d1 = r1.json()
+            assert d1["orders_created"] == 1
+            assert d1["created_orders"][0]["status"] == "PENDING"
+            _, _, orders, positions = self._counts(api_engine, ticker)
+            assert orders == 1
+            assert positions == 0, "create-orders must not open positions"
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                o = session.query(Order).filter(Order.ticker == ticker).first()
+                assert o.status == "PENDING"
+                assert o.filled_qty is None
+            # Idempotent: a second call for the same decision creates no new order.
+            r2 = seeded_client.post(
+                "/v1/review/create-orders",
+                json={"idempotency_key": ikey + "-2", "trade_decision_ids": [td_id], "confirm_create_orders": True},
+                headers=_AUTH,
+            )
+            assert r2.status_code == 201
+            assert r2.json()["orders_created"] == 0
+            _, _, orders2, _ = self._counts(api_engine, ticker)
+            assert orders2 == 1, "re-running Create Paper Order Ticket must not duplicate the pending order"
+        finally:
+            self._clean(api_engine, ticker, ikey)
+
+    def test_create_orders_requires_confirm(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY_PREFIX}-cc-{uuid.uuid4().hex[:6]}"
+        ticker = self._ticker()
+        self._clean(api_engine, ticker, ikey)
+        try:
+            td_id = self._seed_decision(api_engine, ticker)
+            resp = seeded_client.post(
+                "/v1/review/create-orders",
+                json={"idempotency_key": ikey, "trade_decision_ids": [td_id], "confirm_create_orders": False},
+                headers=_AUTH,
+            )
+            assert resp.status_code in (400, 422)
+            _, _, orders, _ = self._counts(api_engine, ticker)
+            assert orders == 0, "no order ticket may be created without confirm_create_orders"
+        finally:
+            self._clean(api_engine, ticker, ikey)
+
+    # --- 6. fill-pending-orders updates position and cash ledger ---
+    def test_fill_paper_order_updates_position_and_cash(self, seeded_client: TestClient, api_engine) -> None:
+        from paper_trader.db.models import CashLedger
+        ikey = f"{self._IKEY_PREFIX}-fill-{uuid.uuid4().hex[:6]}"
+        ticker = self._ticker()
+        self._clean(api_engine, ticker, ikey)
+        try:
+            td_id = self._seed_decision(api_engine, ticker, qty="3.00", price="100.00")
+            rc = seeded_client.post(
+                "/v1/review/create-orders",
+                json={"idempotency_key": ikey, "trade_decision_ids": [td_id], "confirm_create_orders": True},
+                headers=_AUTH,
+            )
+            assert rc.status_code == 201
+            assert rc.json()["orders_created"] == 1
+            order_id = rc.json()["created_orders"][0]["order_id"]
+            # Price snapshot so the pending order can be priced and filled.
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.add(PriceSnapshot(
+                    ticker=ticker,
+                    price=Decimal("100.00"),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=datetime.now(timezone.utc),
+                    market_date=date.today(),
+                    job_run_id=None,
+                ))
+                session.commit()
+            resp = seeded_client.post(
+                "/v1/review/fill-pending-orders",
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["orders_filled"] >= 1
+            assert ticker in data["positions_changed"]
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                pos = session.query(Position).filter(Position.ticker == ticker).first()
+                assert pos is not None and pos.qty > Decimal("0"), "fill must open a position (portfolio updated)"
+                o = session.query(Order).filter(Order.ticker == ticker).first()
+                assert o.status == "FILLED"
+                assert o.filled_at is not None and o.fill_price is not None
+                ledger = session.query(CashLedger).filter(CashLedger.order_id == o.id).count()
+                assert ledger >= 1, "fill must append a cash ledger entry (cash updated)"
+        finally:
+            self._clean(api_engine, ticker, ikey)
+
+    def test_fill_requires_confirm(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.post(
+            "/v1/review/fill-pending-orders",
+            json={"confirm_paper_fill": False},
+            headers=_AUTH,
+        )
+        assert resp.status_code in (400, 422)
+
+
+class TestGuidedTradePlanPaperOrderFlowV1Ui:
+    """Guided Trade Plan + Paper Order Flow v1 UI: one card, one stage, one action.
+
+    The main Daily Plan flow advances Today's Review through Generate Trade Plan
+    -> Create Paper Order Ticket -> Fill Paper Order -> View Portfolio, mirrored
+    in the right Action / Safety panel, with the required guidance text and no
+    browser dialogs.
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    @staticmethod
+    def _fn(html: str, decl: str) -> str:
+        start = html.index(decl)
+        nxt = html.index("\nfunction ", start + 1)
+        return html[start:nxt]
+
+    # --- Required exact UI text ---
+
+    def test_generate_trade_plan_text_present(self) -> None:
+        assert "Generate Trade Plan" in self._read_html()
+
+    def test_generate_from_approved_sentence_present(self) -> None:
+        assert "Generate a trade plan from approved candidates." in self._read_html()
+
+    def test_trade_plan_text_present(self) -> None:
+        assert "Trade Plan" in self._read_html()
+
+    def test_no_order_created_yet_present(self) -> None:
+        assert "No order has been created yet." in self._read_html()
+
+    def test_create_paper_order_ticket_present(self) -> None:
+        assert "Create Paper Order Ticket" in self._read_html()
+
+    def test_paper_order_ticket_created_present(self) -> None:
+        assert "Paper order ticket created." in self._read_html()
+
+    def test_still_not_a_trade_present(self) -> None:
+        assert (
+            "This is still not a trade. Portfolio holdings update only after paper fill."
+            in self._read_html()
+        )
+
+    def test_fill_paper_order_present(self) -> None:
+        assert "Fill Paper Order" in self._read_html()
+
+    def test_paper_trade_completed_present(self) -> None:
+        assert "Paper trade completed." in self._read_html()
+
+    def test_portfolio_updated_present(self) -> None:
+        assert "Portfolio updated." in self._read_html()
+
+    def test_view_portfolio_present(self) -> None:
+        assert "View Portfolio" in self._read_html()
+
+    def test_no_approved_candidates_for_plan_present(self) -> None:
+        assert "No approved candidates available for a trade plan." in self._read_html()
+
+    def test_review_open_positions_present(self) -> None:
+        assert "Review Open Positions" in self._read_html()
+
+    # --- Guided card structure ---
+
+    def test_trade_flow_card_element_present(self) -> None:
+        html = self._read_html()
+        assert 'id="dp-trade-flow-card"' in html
+        assert 'id="tf-title"' in html
+        assert 'id="tf-status"' in html
+        assert 'id="tf-rows"' in html
+        assert 'id="tf-action"' in html
+        assert 'id="tf-safety"' in html
+
+    def test_render_trade_flow_card_fn_present(self) -> None:
+        html = self._read_html()
+        assert "function renderTradeFlowCard(" in html
+        assert "function viewPortfolio(" in html
+
+    # --- Stages reuse existing write endpoints (no duplicated business logic) ---
+
+    def test_stage_actions_reuse_existing_handlers(self) -> None:
+        fn = self._fn(self._read_html(), "function renderTradeFlowCard(")
+        assert "createOrdersFromDecisions()" in fn
+        assert "fillPendingPaperOrders()" in fn
+        assert "viewPortfolio()" in fn
+
+    def test_create_order_stage_shows_no_order_yet(self) -> None:
+        fn = self._fn(self._read_html(), "function renderTradeFlowCard(")
+        assert "No order has been created yet." in fn
+        assert "Create Paper Order Ticket" in fn
+
+    def test_fill_stage_shows_not_a_trade(self) -> None:
+        fn = self._fn(self._read_html(), "function renderTradeFlowCard(")
+        assert "Paper order ticket created." in fn
+        assert "Fill Paper Order" in fn
+
+    def test_completed_stage_shows_portfolio_updated(self) -> None:
+        fn = self._fn(self._read_html(), "function renderTradeFlowCard(")
+        assert "Paper trade completed." in fn
+        assert "Portfolio updated." in fn
+        assert "View Portfolio" in fn
+
+    def test_view_portfolio_switches_to_portfolio_tab(self) -> None:
+        fn = self._fn(self._read_html(), "function viewPortfolio(")
+        assert "_switchTab" in fn
+        assert "portfolio" in fn
+
+    def test_plan_rows_use_preview_only_endpoint(self) -> None:
+        fn = self._fn(self._read_html(), "function _loadTradeFlowPlanRows(")
+        assert "/v1/review/order-preview" in fn
+
+    # --- Today's Review routes the guided flow and mirrors the right panel ---
+
+    def test_today_review_routes_guided_stages(self) -> None:
+        fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
+        assert "renderTradeFlowCard" in fn
+        assert "Create Paper Order Ticket" in fn
+        assert "Fill Paper Order" in fn
+        assert "View Portfolio" in fn
+        assert "No approved candidates available for a trade plan." in fn
+
+    def test_right_panel_mirrors_guided_stages(self) -> None:
+        fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
+        assert "right-current-task" in fn
+        assert "right-next-action" in fn
+
+    def test_workflow_status_refreshes_cockpit(self) -> None:
+        fn = self._fn(self._read_html(), "function refreshWorkflowStatus(")
+        assert "updateCockpitReviewSummary()" in fn
+
+    # --- Internal signal/decision/order pipeline stays in Advanced / Audit ---
+
+    def test_internal_pipeline_collapsed(self) -> None:
+        html = self._read_html()
+        assert '<details id="dp-later-steps-details" style="margin-bottom: 6px;">' in html
+        assert 'id="dp-signal-actions-details"' in html
+        assert 'id="dp-decision-actions-details"' in html
+        assert 'id="dp-order-preview-details"' in html
 
     # --- No browser dialogs ---
 
