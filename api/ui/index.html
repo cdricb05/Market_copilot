@@ -1779,6 +1779,42 @@
           <div id="dp-current-task-safety" style="display:none;"></div>
         </div>
 
+        <!-- Daily Candidate Decision Card v1: one candidate, one clear decision -->
+        <div id="dp-candidate-decision-card" class="compact-card" style="display: none; flex-shrink: 0; border: 2px solid rgba(245,158,11,.55); margin-bottom: 12px; background: rgba(245,158,11,.05);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 6px;">
+            <div style="display: flex; align-items: baseline; gap: 10px;">
+              <div style="font-size: 15px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Review Candidate</div>
+              <span id="dcc-progress" style="font-size: 10px; color: var(--label); font-weight: 600;">Candidate 1 of N</span>
+            </div>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+          </div>
+          <div style="display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 10px;">
+            <div>
+              <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 2px;">Ticker</div>
+              <div id="dcc-ticker" style="font-size: 22px; font-weight: 800; color: var(--text-primary);">-</div>
+            </div>
+            <div>
+              <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 2px;">Score</div>
+              <div id="dcc-score" style="font-size: 20px; font-weight: 700; color: var(--text-accent);">-</div>
+            </div>
+            <div>
+              <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 2px;">Recommendation</div>
+              <div id="dcc-rec" style="font-size: 15px; font-weight: 700;">-</div>
+            </div>
+            <div>
+              <div style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 2px;">Decision</div>
+              <div id="dcc-decision" style="font-size: 15px; font-weight: 700;">-</div>
+            </div>
+          </div>
+          <div id="dcc-reason" style="font-size: 10px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5; padding: 6px 10px; background: rgba(0,0,0,.15); border-radius: 3px;"></div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+            <button id="dcc-approve-btn" class="btn" style="flex: 1 1 190px; background: var(--ok); color: #04210f; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('APPROVED_FOR_SIGNAL')">Approve for Trade Plan</button>
+            <button id="dcc-watch-btn" class="btn" style="flex: 1 1 140px; background: var(--warning); color: #1a1a2e; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('WATCHING')">Watch Only</button>
+            <button id="dcc-reject-btn" class="btn" style="flex: 1 1 120px; background: var(--danger); color: #fff; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('REJECTED')">Reject</button>
+          </div>
+          <div style="font-size: 9px; color: var(--label); padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 2px; line-height: 1.5;">Review actions only. No signals, decisions, orders, trades, fills, or broker actions are created.</div>
+        </div>
+
         <!-- Candidate Review Progress Gate (collapsed) -->
         <details style="margin-bottom: 12px;">
           <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; padding: 4px 0; text-transform: uppercase; letter-spacing: .06em;">Review progress details</summary>
@@ -1836,6 +1872,9 @@
             </div>
             <button class="btn-sm" style="font-size: 9px; padding: 2px 8px;" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh Review Queue</button>
           </div>
+          <details id="dp-all-candidates-details" style="margin-top: 2px;">
+          <summary style="font-size: 10px; font-weight: 700; color: var(--label); cursor: pointer; user-select: none; padding: 4px 0; text-transform: uppercase; letter-spacing: .06em;">All review candidates</summary>
+          <div style="font-size: 9px; color: var(--label); font-style: italic; margin: 2px 0 8px;">Detailed candidate table. Usually not needed for normal review.</div>
           <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px;">
             <div style="text-align: center; background: rgba(0,0,0,.2); padding: 5px; border-radius: 2px; border: 1px solid var(--border);">
               <div style="font-size: 8px; color: var(--label); text-transform: uppercase;">Total</div>
@@ -1879,6 +1918,7 @@
             </table>
           </div>
           <div id="dp-rq-older"></div>
+          </details>
         </div>
 
         <!-- Trade Plan Workspace (visible only when approved candidates exist) -->
@@ -9004,7 +9044,7 @@ function _dpRqRowHtml(c) {
                      c.review_status === 'WATCHING' ? 'var(--text-primary)' :
                      c.review_status === 'REJECTED' ? 'var(--danger)' :
                      c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
-  const statusLabel = isConsumed ? 'Monitor-only / held' : c.review_status;
+  const statusLabel = isConsumed ? 'Monitor-only / held' : _friendlyReviewStatus(c.review_status);
   const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
                        c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
   const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
@@ -10994,9 +11034,9 @@ function _showReviewNotePanel(candidateId, ticker, newStatus) {
   if (!panel) return;
   const title = document.getElementById('rnp-title');
   const actionTitles = {
-    'APPROVED_FOR_SIGNAL': 'Approve candidate',
-    'WATCHING': 'Move candidate to watch',
-    'REJECTED': 'Reject candidate'
+    'APPROVED_FOR_SIGNAL': 'Approve Candidate',
+    'WATCHING': 'Move Candidate to Watch',
+    'REJECTED': 'Reject Candidate'
   };
   if (title) title.textContent = actionTitles[newStatus] || ('Review candidate: ' + ticker);
   const contextEl = document.getElementById('rnp-context-info');
@@ -11708,11 +11748,102 @@ function _getDailySessionOutcome() {
   return o;
 }
 
+// User-facing review status labels (item 7: avoid raw APPROVED_FOR_SIGNAL in
+// the primary workflow). Internal status codes still flow through the API.
+function _friendlyReviewStatus(s) {
+  if (s === 'APPROVED_FOR_SIGNAL') return 'Approved for trade plan';
+  if (s === 'WATCHING') return 'Watching';
+  if (s === 'REJECTED') return 'Rejected';
+  if (s === 'NEW') return 'Needs review';
+  return s || '-';
+}
+
+// "Review Candidates" routes to the single candidate decision card (the primary
+// review workflow) -- it never depends on the detailed table. Switch to the
+// Daily Plan tab, scroll, highlight, and focus the first action. If nothing
+// needs review, route to the Today's Review card which shows the correct next
+// step instead of doing nothing.
 function focusReviewQueue() {
-  const card = document.getElementById('dp-inline-rq-card');
-  if (card) {
-    card.style.display = '';
-    try { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+  try { if (window._switchTab) window._switchTab('prediction-cockpit'); } catch (e) {}
+  const card = document.getElementById('dp-candidate-decision-card');
+  const hasCandidate = card && card.dataset && card.dataset.hasCandidate === '1' && card.style.display !== 'none';
+  if (!hasCandidate) {
+    const tr = document.getElementById('dp-current-task-card');
+    if (tr) { try { tr.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
+    return;
+  }
+  try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+  const _prevShadow = card.style.boxShadow;
+  card.style.transition = 'box-shadow .2s ease';
+  card.style.boxShadow = '0 0 0 3px rgba(245,158,11,.75)';
+  setTimeout(function() { card.style.boxShadow = _prevShadow; }, 1200);
+  const firstBtn = document.getElementById('dcc-approve-btn');
+  if (firstBtn) { try { firstBtn.focus(); } catch (e) {} }
+}
+
+// Open the existing styled review modal for the current candidate card decision.
+function dccDecide(status) {
+  if (!window._dccCurrentId) return;
+  _showReviewNotePanel(window._dccCurrentId, window._dccCurrentTicker, status);
+}
+
+// Render the single candidate decision card from today's saved candidates.
+// Shows the first candidate still needing review (status NEW). Auto-advances on
+// the next render after a decision is saved (loadReviewQueue ->
+// updateCockpitReviewSummary). Hides itself when nothing today needs review.
+function renderCandidateDecisionCard(todays) {
+  const card = document.getElementById('dp-candidate-decision-card');
+  if (!card) return;
+  const ordered = (todays || []).slice().sort(function(a, b) {
+    return (a.scan_rank != null ? a.scan_rank : 999) - (b.scan_rank != null ? b.scan_rank : 999);
+  });
+  const total = ordered.length;
+  const curIdx = ordered.findIndex(function(c) { return c.review_status === 'NEW'; });
+  if (total === 0 || curIdx < 0) {
+    card.style.display = 'none';
+    card.dataset.hasCandidate = '0';
+    window._dccCurrentId = null;
+    window._dccCurrentTicker = null;
+    return;
+  }
+  const cur = ordered[curIdx];
+  window._dccCurrentId = cur.id;
+  window._dccCurrentTicker = cur.ticker;
+  card.style.display = '';
+  card.dataset.hasCandidate = '1';
+
+  const progEl = document.getElementById('dcc-progress');
+  if (progEl) progEl.textContent = 'Candidate ' + (curIdx + 1) + ' of ' + total;
+  const tickerEl = document.getElementById('dcc-ticker');
+  if (tickerEl) tickerEl.textContent = cur.ticker || '-';
+  const scoreEl = document.getElementById('dcc-score');
+  if (scoreEl) scoreEl.textContent = (cur.preview_score != null) ? parseFloat(cur.preview_score).toFixed(1) : '-';
+  const recEl = document.getElementById('dcc-rec');
+  if (recEl) {
+    recEl.textContent = cur.prediction_recommendation || '-';
+    recEl.style.color = cur.prediction_recommendation === 'BUY' ? 'var(--ok)' :
+      cur.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+  }
+  const decEl = document.getElementById('dcc-decision');
+  if (decEl) {
+    decEl.textContent = cur.preview_decision || '-';
+    decEl.style.color = cur.preview_decision === 'CONSIDER' ? 'var(--ok)' :
+      cur.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
+  }
+  const reasonEl = document.getElementById('dcc-reason');
+  if (reasonEl) {
+    let main = '';
+    const pr = cur.preview_reasons;
+    if (Array.isArray(pr) && pr.length) main = pr.join(', ');
+    else if (typeof pr === 'string' && pr) main = pr;
+    const extras = [];
+    if (cur.prediction_confidence != null && cur.prediction_confidence !== '') extras.push('Confidence: ' + parseFloat(cur.prediction_confidence).toFixed(2));
+    if (cur.expected_return_pct != null && cur.expected_return_pct !== '') extras.push('Expected return: ' + parseFloat(cur.expected_return_pct).toFixed(1) + '%');
+    if (cur.forecast_price_5d != null && cur.forecast_price_5d !== '') extras.push('Forecast 5d: ' + parseFloat(cur.forecast_price_5d).toFixed(2));
+    if (typeof cur.market_context === 'string' && cur.market_context) extras.push('Context: ' + cur.market_context);
+    let combined = main;
+    if (extras.length) combined += (combined ? ' — ' : '') + extras.join('  ·  ');
+    reasonEl.textContent = combined || 'No additional model context available.';
   }
 }
 
@@ -11732,16 +11863,21 @@ function updateTodayReview(ctx) {
   const todayReviewComplete = ctx.todayReviewComplete;
   const sessionRanToday = ctx.sessionRanToday;
   const olderCount = ctx.olderCount;
+  const currentTicker = ctx.currentTicker;
   const _olderNote = olderCount > 0 ? ' Older review items are not part of today’s new scan.' : '';
 
   let _rpTask = '';
   let _rpNext = '';
+  // Right-side panel next action mirrors the candidate decision card and may
+  // differ from the in-card next action (e.g. "Decide on TICKER.").
+  let _rightNext = '';
   if (resultEl) resultEl.style.display = 'none';
 
   if (todayTotal === 0 && sessionRanToday) {
     // Latest session completed today and saved 0 new-entry candidates.
     _rpTask = 'Monitor Portfolio';
     _rpNext = 'No new-entry candidates found. Review open positions.';
+    _rightNext = 'Review open positions.';
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
@@ -11759,6 +11895,7 @@ function updateTodayReview(ctx) {
   } else if (!todayReviewComplete) {
     _rpTask = 'Review Candidates';
     _rpNext = "Review the new candidates saved by today's session.";
+    _rightNext = 'Decide on ' + (currentTicker || 'the next candidate') + '.';
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--warning)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--text-accent)'; }
@@ -11767,6 +11904,7 @@ function updateTodayReview(ctx) {
   } else if (todayApproved > 0) {
     _rpTask = 'Generate Trade Plan';
     _rpNext = 'Generate a trade plan from approved candidates.';
+    _rightNext = 'Generate trade plan from approved candidates.';
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
@@ -11775,6 +11913,7 @@ function updateTodayReview(ctx) {
   } else {
     _rpTask = 'Monitor Portfolio';
     _rpNext = 'No new trade plan. Monitor open positions.';
+    _rightNext = 'Review open positions.';
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
@@ -11782,11 +11921,12 @@ function updateTodayReview(ctx) {
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button>';
   }
 
-  // Sync right panel to mirror Today's Review (single source of truth)
+  // Sync right panel to mirror Today's Review (single source of truth). The
+  // right-side next action mirrors the candidate decision card wording.
   const _rpTaskEl = document.getElementById('right-current-task');
   const _rpNextEl = document.getElementById('right-next-action');
   if (_rpTaskEl) _rpTaskEl.textContent = _rpTask;
-  if (_rpNextEl) _rpNextEl.textContent = _rpNext;
+  if (_rpNextEl) _rpNextEl.textContent = _rightNext || _rpNext;
 }
 
 function updateCockpitReviewSummary() {
@@ -11820,6 +11960,14 @@ function updateCockpitReviewSummary() {
   const todayReviewComplete = todayTotal > 0 && todayPending === 0;
   const olderCount = total - todayTotal;
   const sessionRanToday = !!_getDailySessionOutcome();
+
+  // Current candidate awaiting a decision (first NEW by scan rank). Drives the
+  // single candidate decision card and the right-panel "Decide on TICKER." text.
+  const _orderedToday = todays.slice().sort(function(a, b) {
+    return (a.scan_rank != null ? a.scan_rank : 999) - (b.scan_rank != null ? b.scan_rank : 999);
+  });
+  const _curCand = _orderedToday.find(function(c) { return c.review_status === 'NEW'; });
+  const currentTicker = _curCand ? _curCand.ticker : null;
 
   // Update cockpit Step 3 summary grid
   const s3el = document.getElementById('step3-rq-summary');
@@ -11937,11 +12085,14 @@ function updateCockpitReviewSummary() {
     // Show Trade Plan Workspace only when tpAvailable (current task)
     const dpTpWorkspace = document.getElementById('dp-trade-plan-workspace');
     if (dpTpWorkspace) dpTpWorkspace.style.display = tpAvailable ? '' : 'none';
-    // Show Review Queue only during active review of today's candidates
+    // Show Review Queue (now the secondary "All review candidates" detail) only
+    // during active review of today's candidates.
     const dpInlineRq = document.getElementById('dp-inline-rq-card');
     if (dpInlineRq) dpInlineRq.style.display = (todayTotal > 0 && !todayReviewComplete) ? '' : 'none';
+    // Primary review workflow: render the single candidate decision card.
+    renderCandidateDecisionCard(todays);
     // Update Today's Review state machine from the latest session outcome
-    updateTodayReview({ todayTotal, todayPending, todayApproved, todayReviewComplete, sessionRanToday, olderCount });
+    updateTodayReview({ todayTotal, todayPending, todayApproved, todayReviewComplete, sessionRanToday, olderCount, currentTicker });
   }
 
   // Smart next action: only update when queue has data and workflow is not in completed state

@@ -26967,10 +26967,12 @@ class TestCandidateReviewActionV2UiContent:
         assert "Approve candidate" in self._read_html()
 
     def test_move_candidate_to_watch_text_present(self) -> None:
-        assert "Move candidate to watch" in self._read_html()
+        # Daily Candidate Decision Card v1: modal title matches the action.
+        assert "Move Candidate to Watch" in self._read_html()
 
     def test_reject_candidate_text_present(self) -> None:
-        assert "Reject candidate" in self._read_html()
+        # Daily Candidate Decision Card v1: modal title matches the action.
+        assert "Reject Candidate" in self._read_html()
 
     def test_review_rationale_text_present(self) -> None:
         assert "Review rationale" in self._read_html()
@@ -28489,6 +28491,169 @@ class TestDailyReviewOutcomeConsistencyV1Content:
 
     def test_advanced_audit_collapsed_by_default(self) -> None:
         # <details> without an `open` attribute is collapsed by default.
+        assert '<details id="dp-later-steps-details" style="margin-bottom: 6px;">' in self._read_html()
+
+    def test_setup_rerun_collapsed_by_default(self) -> None:
+        assert '<details id="dp-setup-drawer" style="margin-bottom: 6px;">' in self._read_html()
+
+    # --- No browser dialogs ---
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", self._read_html())) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
+
+
+class TestDailyCandidateDecisionCardV1Content:
+    """Daily Candidate Decision Card v1.
+
+    When today's review has candidates needing review, the Daily Plan must show
+    one clear candidate decision card with three large actions (Approve for
+    Trade Plan / Watch Only / Reject) instead of relying on the detailed table.
+    The detailed review-queue table becomes secondary (collapsed under "All
+    review candidates"). The right-side Action / Safety panel mirrors the card.
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    @staticmethod
+    def _fn(html: str, decl: str) -> str:
+        start = html.index(decl)
+        nxt = html.index("\nfunction ", start + 1)
+        return html[start:nxt]
+
+    # --- Required exact UI text (item 9) ---
+
+    def test_review_candidate_title_present(self) -> None:
+        assert "Review Candidate" in self._read_html()
+
+    def test_candidate_progress_text_present(self) -> None:
+        assert "Candidate 1 of" in self._read_html()
+
+    def test_approve_for_trade_plan_present(self) -> None:
+        assert "Approve for Trade Plan" in self._read_html()
+
+    def test_watch_only_present(self) -> None:
+        assert "Watch Only" in self._read_html()
+
+    def test_reject_present(self) -> None:
+        assert "Reject" in self._read_html()
+
+    def test_review_actions_only_safety_copy_present(self) -> None:
+        assert (
+            "Review actions only. No signals, decisions, orders, trades, "
+            "fills, or broker actions are created." in self._read_html()
+        )
+
+    def test_all_review_candidates_present(self) -> None:
+        assert "All review candidates" in self._read_html()
+
+    def test_detailed_candidate_table_copy_present(self) -> None:
+        assert (
+            "Detailed candidate table. Usually not needed for normal review."
+            in self._read_html()
+        )
+
+    def test_decide_on_present(self) -> None:
+        assert "Decide on" in self._read_html()
+
+    def test_approved_for_trade_plan_present(self) -> None:
+        assert "Approved for trade plan" in self._read_html()
+
+    def test_generate_trade_plan_from_approved_present(self) -> None:
+        assert "Generate trade plan from approved candidates." in self._read_html()
+
+    def test_review_open_positions_sentence_present(self) -> None:
+        assert "Review open positions." in self._read_html()
+
+    # --- Decision card structure & wiring ---
+
+    def test_decision_card_element_present(self) -> None:
+        html = self._read_html()
+        assert 'id="dp-candidate-decision-card"' in html
+        assert 'id="dcc-progress"' in html
+        assert 'id="dcc-ticker"' in html
+        assert 'id="dcc-score"' in html
+        assert 'id="dcc-rec"' in html
+        assert 'id="dcc-decision"' in html
+        assert 'id="dcc-reason"' in html
+
+    def test_decision_card_three_action_buttons(self) -> None:
+        html = self._read_html()
+        assert "dccDecide('APPROVED_FOR_SIGNAL')" in html
+        assert "dccDecide('WATCHING')" in html
+        assert "dccDecide('REJECTED')" in html
+
+    def test_render_candidate_decision_card_fn_present(self) -> None:
+        html = self._read_html()
+        assert "function renderCandidateDecisionCard(" in html
+        assert "function dccDecide(" in html
+
+    def test_decision_card_rendered_from_today_scan(self) -> None:
+        fn = self._fn(self._read_html(), "function renderCandidateDecisionCard(")
+        # First candidate still needing review (status NEW) is the current one.
+        assert "review_status === 'NEW'" in fn
+        assert "Candidate " in fn
+        assert "_dccCurrentId" in fn
+
+    def test_decision_card_reuses_styled_review_modal(self) -> None:
+        # dccDecide opens the existing styled review-note panel (no new modal).
+        fn = self._fn(self._read_html(), "function dccDecide(")
+        assert "_showReviewNotePanel" in fn
+
+    def test_decision_card_rendered_by_cockpit_summary(self) -> None:
+        fn = self._fn(self._read_html(), "function updateCockpitReviewSummary(")
+        assert "renderCandidateDecisionCard(todays)" in fn
+        assert "currentTicker" in fn
+
+    # --- Review Candidates button focuses the decision card (item 5) ---
+
+    def test_focus_review_queue_targets_decision_card(self) -> None:
+        fn = self._fn(self._read_html(), "function focusReviewQueue(")
+        assert "dp-candidate-decision-card" in fn
+        assert "_switchTab" in fn
+        assert "scrollIntoView" in fn
+        assert "focus()" in fn
+
+    # --- Right-side panel mirrors the candidate decision card (item 8) ---
+
+    def test_right_panel_decide_on_ticker(self) -> None:
+        fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
+        assert "Decide on " in fn
+        assert "Generate trade plan from approved candidates." in fn
+        assert "Review open positions." in fn
+        assert "right-next-action" in fn
+
+    # --- Friendly status term replaces raw APPROVED_FOR_SIGNAL in workflow ---
+
+    def test_friendly_review_status_mapping(self) -> None:
+        fn = self._fn(self._read_html(), "function _friendlyReviewStatus(")
+        assert "Approved for trade plan" in fn
+
+    # --- Detailed table is collapsed/secondary ---
+
+    def test_table_collapsed_under_all_review_candidates(self) -> None:
+        html = self._read_html()
+        assert 'id="dp-all-candidates-details"' in html
+        # The collapsible wraps the existing review-queue table body.
+        details_pos = html.find('id="dp-all-candidates-details"')
+        tbody_pos = html.find('id="dp-rq-tbody"')
+        assert details_pos < tbody_pos
+
+    # --- Preserve existing good behavior ---
+
+    def test_sticky_tabs_css_preserved(self) -> None:
+        assert "position: sticky" in self._read_html()
+
+    def test_advanced_audit_collapsed_by_default(self) -> None:
         assert '<details id="dp-later-steps-details" style="margin-bottom: 6px;">' in self._read_html()
 
     def test_setup_rerun_collapsed_by_default(self) -> None:
