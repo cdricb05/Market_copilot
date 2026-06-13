@@ -1878,6 +1878,7 @@
               </tbody>
             </table>
           </div>
+          <div id="dp-rq-older"></div>
         </div>
 
         <!-- Trade Plan Workspace (visible only when approved candidates exist) -->
@@ -8996,12 +8997,52 @@ function renderReviewQueue(candidates) {
   window._lastReviewQueueData = candidates;
 }
 
+function _dpRqRowHtml(c) {
+  const isConsumed = window._workflowCompletedState && c.review_status === 'APPROVED_FOR_SIGNAL';
+  const statusColor = isConsumed ? 'var(--label)' :
+                     c.review_status === 'NEW' ? 'var(--warning)' :
+                     c.review_status === 'WATCHING' ? 'var(--text-primary)' :
+                     c.review_status === 'REJECTED' ? 'var(--danger)' :
+                     c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
+  const statusLabel = isConsumed ? 'Monitor-only / held' : c.review_status;
+  const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
+                       c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
+  const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
+                  c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
+  const reasonBadge = c.review_reason_code ? `<br><span style="font-size:8px;color:var(--label);">${escapeHtml(c.review_reason_code)}</span>` : '';
+  const noteBadge = c.review_note ? `<br><span style="font-size:8px;color:var(--text-secondary);font-style:italic;">${escapeHtml(c.review_note.length > 30 ? c.review_note.substring(0, 30) + '...' : c.review_note)}</span>` : '';
+  let dpActionHtml;
+  if (isConsumed) {
+    dpActionHtml = '<span style="font-size:8px;color:var(--label);font-style:italic;">Monitor-only / held</span>';
+  } else if (c.review_status === 'WATCHING') {
+    dpActionHtml = '<span style="font-size:8px;color:var(--text-primary);font-style:italic;">Watching</span>';
+  } else if (c.review_status === 'REJECTED') {
+    dpActionHtml = '<span style="font-size:8px;color:var(--danger);font-style:italic;">Rejected</span>';
+  } else if (c.review_status === 'APPROVED_FOR_SIGNAL') {
+    dpActionHtml = '<span style="font-size:8px;color:var(--ok);font-style:italic;">Approved</span>';
+  } else {
+    dpActionHtml = `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+  }
+  return `<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">
+    <td style="padding:4px 6px;"><strong>${escapeHtml(c.ticker)}</strong></td>
+    <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(statusLabel)}${reasonBadge}${noteBadge}</td>
+    <td style="padding:4px 6px;color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
+    <td style="padding:4px 6px;text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
+    <td style="padding:4px 6px;color:${recColor};font-weight:600;">${escapeHtml(c.prediction_recommendation || '-')}</td>
+    <td style="padding:4px 6px;">
+      ${dpActionHtml}
+    </td>
+  </tr>`;
+}
+
 function renderDpInlineReviewQueue(candidates) {
   const tbody = document.getElementById('dp-rq-tbody');
   if (!tbody) return;
+  const olderEl = document.getElementById('dp-rq-older');
   const emptyMsg = '<tr><td colspan="6" style="text-align:center; color:var(--label); font-style:italic; padding: 12px; font-size: 10px;">No review candidates saved yet &mdash; run Daily Process Preview, then Save All or Save Eligible Candidates.</td></tr>';
   if (!candidates || candidates.length === 0) {
     tbody.innerHTML = emptyMsg;
+    if (olderEl) olderEl.innerHTML = '';
     return;
   }
   // Show latest per ticker
@@ -9014,45 +9055,37 @@ function renderDpInlineReviewQueue(candidates) {
   const latest = Object.values(latestMap);
   if (latest.length === 0) {
     tbody.innerHTML = emptyMsg;
+    if (olderEl) olderEl.innerHTML = '';
     return;
   }
-  tbody.innerHTML = latest.map(c => {
-    const isConsumed = window._workflowCompletedState && c.review_status === 'APPROVED_FOR_SIGNAL';
-    const statusColor = isConsumed ? 'var(--label)' :
-                       c.review_status === 'NEW' ? 'var(--warning)' :
-                       c.review_status === 'WATCHING' ? 'var(--text-primary)' :
-                       c.review_status === 'REJECTED' ? 'var(--danger)' :
-                       c.review_status === 'APPROVED_FOR_SIGNAL' ? 'var(--ok)' : 'var(--label)';
-    const statusLabel = isConsumed ? 'Monitor-only / held' : c.review_status;
-    const decisionColor = c.preview_decision === 'CONSIDER' ? 'var(--ok)' :
-                         c.preview_decision === 'WATCH' ? 'var(--warning)' : 'var(--danger)';
-    const recColor = c.prediction_recommendation === 'BUY' ? 'var(--ok)' :
-                    c.prediction_recommendation === 'SELL' ? 'var(--danger)' : 'var(--warning)';
-    const reasonBadge = c.review_reason_code ? `<br><span style="font-size:8px;color:var(--label);">${escapeHtml(c.review_reason_code)}</span>` : '';
-    const noteBadge = c.review_note ? `<br><span style="font-size:8px;color:var(--text-secondary);font-style:italic;">${escapeHtml(c.review_note.length > 30 ? c.review_note.substring(0, 30) + '...' : c.review_note)}</span>` : '';
-    let dpActionHtml;
-    if (isConsumed) {
-      dpActionHtml = '<span style="font-size:8px;color:var(--label);font-style:italic;">Monitor-only / held</span>';
-    } else if (c.review_status === 'WATCHING') {
-      dpActionHtml = '<span style="font-size:8px;color:var(--text-primary);font-style:italic;">Watching</span>';
-    } else if (c.review_status === 'REJECTED') {
-      dpActionHtml = '<span style="font-size:8px;color:var(--danger);font-style:italic;">Rejected</span>';
-    } else if (c.review_status === 'APPROVED_FOR_SIGNAL') {
-      dpActionHtml = '<span style="font-size:8px;color:var(--ok);font-style:italic;">Approved</span>';
+
+  // Today's saved candidates are primary; older rows are collapsed separately.
+  const todays = latest.filter(c => _ptIsToday(c.created_at));
+  const older = latest.filter(c => !_ptIsToday(c.created_at));
+
+  if (todays.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--label); font-style:italic; padding: 12px; font-size: 10px;">No new-entry candidates from today’s scan.</td></tr>';
+  } else {
+    tbody.innerHTML = todays.map(_dpRqRowHtml).join('');
+  }
+
+  if (olderEl) {
+    if (older.length === 0) {
+      olderEl.innerHTML = '';
     } else {
-      dpActionHtml = `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:2px 5px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:2px 5px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:2px 5px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:8px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
+      const _th = '<th style="padding: 4px 6px; text-align: left; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">';
+      olderEl.innerHTML =
+        '<details style="margin-top: 8px;">' +
+        '<summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; padding: 4px 0; text-transform: uppercase; letter-spacing: .06em;">Older review items (' + older.length + ')</summary>' +
+        '<div style="font-size: 9px; color: var(--label); font-style: italic; margin: 4px 0 6px;">Older review items are not part of today’s new scan.</div>' +
+        '<div style="overflow-x: auto; max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px;">' +
+        '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">' +
+        _th + 'Ticker</th>' + _th + 'Status</th>' + _th + 'Decision</th>' +
+        '<th style="padding: 4px 6px; text-align: right; font-size: 9px; color: var(--label); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap;">Score</th>' +
+        _th + 'Rec</th>' + _th + 'Actions</th>' +
+        '</tr></thead><tbody>' + older.map(_dpRqRowHtml).join('') + '</tbody></table></div></details>';
     }
-    return `<tr style="border-bottom: 1px solid rgba(255,255,255,.04);">
-      <td style="padding:4px 6px;"><strong>${escapeHtml(c.ticker)}</strong></td>
-      <td style="padding:4px 6px;color:${statusColor};font-weight:600;font-size:9px;">${escapeHtml(statusLabel)}${reasonBadge}${noteBadge}</td>
-      <td style="padding:4px 6px;color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
-      <td style="padding:4px 6px;text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
-      <td style="padding:4px 6px;color:${recColor};font-weight:600;">${escapeHtml(c.prediction_recommendation || '-')}</td>
-      <td style="padding:4px 6px;">
-        ${dpActionHtml}
-      </td>
-    </tr>`;
-  }).join('');
+  }
 }
 
 async function dpPreviewSignals(btn) {
@@ -11070,6 +11103,8 @@ async function _runDailyReviewSession() {
   let _savedCount = 0;
   let _skippedHoldings = 0;
   let _candResult = null;
+  let _scanned = 0;
+  let _eligibleCount = 0;
 
   // Step A: Refresh market data & portfolio snapshot
   _drsSetStep('mkt', 'running');
@@ -11126,6 +11161,7 @@ async function _runDailyReviewSession() {
     const _total    = (dB.candidate_previews || []).length;
     const _eligible = (dB.candidate_previews || []).filter(function(c) { return c.eligible_for_review_queue === true; }).length;
     _skippedHoldings = (dB.candidate_previews || []).filter(function(c) { return c.candidate_type === 'CURRENT_HOLDING_MONITOR'; }).length;
+    _scanned = _total;
     _drsSetStep('pred', 'done', _total + ' scanned, ' + _eligible + ' eligible');
   } catch (eB) {
     _drsSetStep('pred', 'failed', eB.message);
@@ -11141,6 +11177,7 @@ async function _runDailyReviewSession() {
       return c.eligible_for_review_queue === true ||
         (c.eligible_for_review_queue === undefined && c.preview_decision === 'CONSIDER' && c.candidate_type !== 'CURRENT_HOLDING_MONITOR');
     });
+    _eligibleCount = cands.length;
     if (cands.length === 0) {
       _drsSetStep('save', 'done', 'no eligible candidates');
     } else {
@@ -11203,30 +11240,51 @@ async function _runDailyReviewSession() {
       window._lastDailyReviewSummary = dD;
       _syncDrsToUi(dD);
       await generateDailyReviewSummary(null);
-      _drsSetStep('summ', 'done', dD.open_position_count + ' positions, ' + dD.review_candidates_actionable + ' actionable');
+      _drsSetStep('summ', 'done', dD.open_position_count + ' open positions');
     }
   } catch (eD) {
     _drsSetStep('summ', 'failed', eD.message);
   }
 
-  // Final result panel
+  // Record the latest session outcome so the UI routes off the actual scan
+  // result (today saved 0 vs >=1), not stale review-queue rows.
+  _setDailySessionOutcome(_eligibleCount);
+
+  // Final result panel: one clear outcome summary using clear labels (no
+  // "actionable"), plus the matching next action.
   const _fd = window._lastDailyReviewSummary;
   let _finalHtml = '';
-  if (_fd) {
-    _finalHtml += '<div style="margin-top:8px;padding:8px 10px;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.25);border-radius:3px;">';
-    _finalHtml += '<div style="font-size:10px;font-weight:700;color:var(--ok);margin-bottom:5px;text-transform:uppercase;letter-spacing:.07em;">Session Complete</div>';
-    _finalHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:5px;">';
-    _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Saved: <strong style="color:var(--ok);">' + _savedCount + '</strong></div>';
-    if (_skippedHoldings > 0) _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Holdings (monitor-only): <strong>' + _skippedHoldings + '</strong></div>';
-    _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Actionable: <strong style="color:var(--info);">' + _fd.review_candidates_actionable + '</strong></div>';
-    _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Open positions: <strong>' + _fd.open_position_count + '</strong></div>';
-    if (_fd.pending_orders > 0) _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Pending orders: <strong style="color:var(--warning);">' + _fd.pending_orders + '</strong></div>';
-    _finalHtml += '</div>';
-    if (_fd.next_action_label) _finalHtml += '<div style="margin-top:6px;font-size:10px;color:var(--text-secondary);">Next: <strong style="color:var(--info);">' + escapeHtml(_fd.next_action_label) + '</strong></div>';
-    _finalHtml += '</div>';
+  _finalHtml += '<div style="margin-top:8px;padding:8px 10px;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.25);border-radius:3px;">';
+  _finalHtml += '<div style="font-size:10px;font-weight:700;color:var(--ok);margin-bottom:5px;text-transform:uppercase;letter-spacing:.07em;">Daily review complete</div>';
+  _finalHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:5px;">';
+  _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Scanned: <strong>' + _scanned + '</strong></div>';
+  _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Eligible: <strong>' + _eligibleCount + '</strong></div>';
+  _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Saved: <strong style="color:var(--ok);">' + _savedCount + '</strong></div>';
+  if (_fd) _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Open positions: <strong>' + _fd.open_position_count + '</strong></div>';
+  if (_fd && _fd.watch_count !== undefined && _fd.watch_count !== null) _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Position watch: <strong>' + _fd.watch_count + '</strong></div>';
+  if (_skippedHoldings > 0) _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Holdings (monitor-only): <strong>' + _skippedHoldings + '</strong></div>';
+  _finalHtml += '</div>';
+  if (_eligibleCount === 0) {
+    _finalHtml += '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--ok);">No new-entry candidates found.</div>';
+    _finalHtml += '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);">No new-entry candidates found. Review open positions.</div>';
+    _finalHtml += '<div style="margin-top:6px;"><button class="btn-sm" style="background:var(--ok);color:#000;font-weight:700;font-size:10px;padding:5px 14px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button></div>';
+  } else {
+    _finalHtml += '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--ok);">New candidates saved</div>';
+    _finalHtml += '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);">' + _eligibleCount + ' new-entry candidate(s) from today’s scan are ready for review.</div>';
+    _finalHtml += '<div style="margin-top:6px;"><button class="btn-sm" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:10px;padding:5px 14px;" onclick="focusReviewQueue()">Review Candidates</button></div>';
   }
+  _finalHtml += '</div>';
+
   _drsRenderSteps(_finalHtml);
   if (btn) btn.disabled = false;
+
+  // Auto-refresh every surface so the next action is correct without a manual
+  // refresh: Review Queue -> Today's Review + Review Progress + right panel +
+  // Portfolio Monitoring Workspace visibility.
+  try {
+    await loadReviewQueue();
+    if (_appState.connected) await refreshWorkflowStatus();
+  } catch (eR) {}
   toast('Daily Review Session complete', 'ok');
 }
 
@@ -11613,9 +11671,54 @@ function _updateOvBlockedGridMaxPos(count, openPos, maxPos) {
     '</div>';
 }
 
+// ---------- Daily session outcome (today-scoped routing) ----------
+// Today's Review routes off the latest Daily Review Session outcome, not stale
+// review-queue rows. "Today's saved candidates" = rows created on today's local
+// date. The session outcome (saved count) is persisted per-day so reloads stay
+// consistent and so a session that saved 0 is distinguishable from "no session yet".
+
+function _ptTodayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function _ptIsToday(ts) {
+  if (!ts) return false;
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return false;
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
+function _setDailySessionOutcome(savedCount) {
+  const outcome = { date: _ptTodayStr(), savedCount: savedCount, ranAt: new Date().toISOString() };
+  window._dailySessionOutcome = outcome;
+  try { localStorage.setItem('pt_daily_session_outcome', JSON.stringify(outcome)); } catch (e) {}
+}
+
+function _getDailySessionOutcome() {
+  let o = window._dailySessionOutcome || null;
+  if (!o) {
+    try {
+      const raw = localStorage.getItem('pt_daily_session_outcome');
+      if (raw) o = JSON.parse(raw);
+    } catch (e) { o = null; }
+  }
+  if (!o || o.date !== _ptTodayStr()) return null;
+  return o;
+}
+
+function focusReviewQueue() {
+  const card = document.getElementById('dp-inline-rq-card');
+  if (card) {
+    card.style.display = '';
+    try { card.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+  }
+}
+
 // ---------- Today's Review state machine ----------
 
-function updateTodayReview(total, pending, displayApproved, reviewComplete) {
+function updateTodayReview(ctx) {
   const taskEl = document.getElementById('tr-current-task');
   const nextEl = document.getElementById('tr-next-action');
   const ctxEl = document.getElementById('tr-context');
@@ -11623,35 +11726,51 @@ function updateTodayReview(total, pending, displayApproved, reviewComplete) {
   const resultEl = document.getElementById('tr-portfolio-result');
   if (!taskEl) return;
 
+  const todayTotal = ctx.todayTotal;
+  const todayPending = ctx.todayPending;
+  const todayApproved = ctx.todayApproved;
+  const todayReviewComplete = ctx.todayReviewComplete;
+  const sessionRanToday = ctx.sessionRanToday;
+  const olderCount = ctx.olderCount;
+  const _olderNote = olderCount > 0 ? ' Older review items are not part of today’s new scan.' : '';
+
   let _rpTask = '';
   let _rpNext = '';
+  if (resultEl) resultEl.style.display = 'none';
 
-  if (total === 0) {
+  if (todayTotal === 0 && sessionRanToday) {
+    // Latest session completed today and saved 0 new-entry candidates.
+    _rpTask = 'Monitor Portfolio';
+    _rpNext = 'No new-entry candidates found. Review open positions.';
+    taskEl.textContent = _rpTask;
+    taskEl.style.color = 'var(--ok)';
+    if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
+    if (ctxEl) { ctxEl.textContent = 'No new-entry candidates found.' + _olderNote; ctxEl.style.color = 'var(--label)'; }
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button>';
+  } else if (todayTotal === 0) {
+    // No session run yet today.
     _rpTask = 'Start Daily Review';
     _rpNext = "Prepare today's candidates and portfolio snapshot.";
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--warning)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--text-accent)'; }
-    if (ctxEl) { ctxEl.textContent = ''; }
-    if (resultEl) resultEl.style.display = 'none';
+    if (ctxEl) { ctxEl.textContent = olderCount > 0 ? 'Older review items are not part of today’s new scan.' : ''; ctxEl.style.color = 'var(--label)'; }
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review</button>';
-  } else if (!reviewComplete) {
+  } else if (!todayReviewComplete) {
     _rpTask = 'Review Candidates';
-    _rpNext = 'Approve, watch, or reject the remaining candidates.';
+    _rpNext = "Review the new candidates saved by today's session.";
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--warning)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--text-accent)'; }
-    if (ctxEl) { ctxEl.textContent = pending + ' candidate(s) pending review.'; ctxEl.style.color = 'var(--label)'; }
-    if (resultEl) resultEl.style.display = 'none';
-    if (actionEl) actionEl.innerHTML = '';
-  } else if (displayApproved > 0) {
+    if (ctxEl) { ctxEl.textContent = todayPending + ' candidate(s) pending review. Approve, watch, or reject the remaining candidates.' + _olderNote; ctxEl.style.color = 'var(--label)'; }
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="focusReviewQueue()">Review Candidates</button>';
+  } else if (todayApproved > 0) {
     _rpTask = 'Generate Trade Plan';
     _rpNext = 'Generate a trade plan from approved candidates.';
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
     if (ctxEl) { ctxEl.textContent = 'Creates internal Signal and TradeDecision records only. No orders, trades, fills, broker execution, or position changes.'; ctxEl.style.color = 'var(--label)'; }
-    if (resultEl) resultEl.style.display = 'none';
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:rgba(99,102,241,.25);color:var(--info);border:1px solid rgba(99,102,241,.5);font-weight:700;font-size:11px;padding:7px 18px;" onclick="generateTradePlan(this)">Generate Trade Plan</button>';
   } else {
     _rpTask = 'Monitor Portfolio';
@@ -11659,8 +11778,7 @@ function updateTodayReview(total, pending, displayApproved, reviewComplete) {
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
-    if (ctxEl) { ctxEl.textContent = 'No new trade plan. Monitor open positions.'; ctxEl.style.color = 'var(--text-accent)'; }
-    if (resultEl) resultEl.style.display = 'none';
+    if (ctxEl) { ctxEl.textContent = 'No new trade plan. Monitor open positions.' + _olderNote; ctxEl.style.color = 'var(--text-accent)'; }
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button>';
   }
 
@@ -11688,6 +11806,20 @@ function updateCockpitReviewSummary() {
   const consumed = window._workflowCompletedState ? approved : 0;
   const displayApproved = window._workflowCompletedState ? 0 : approved;
   const reviewComplete = total > 0 && pending === 0;
+
+  // Today-scoped view: the latest Daily Review Session outcome drives Today's
+  // Review, not stale rows saved on prior days. "Today" = created_at on today's
+  // local date. Older rows are surfaced separately under "Older review items".
+  const todays = latest.filter(c => _ptIsToday(c.created_at));
+  const todayTotal = todays.length;
+  const todayApprovedRaw = todays.filter(c => c.review_status === 'APPROVED_FOR_SIGNAL').length;
+  const todayWatching = todays.filter(c => c.review_status === 'WATCHING').length;
+  const todayRejected = todays.filter(c => c.review_status === 'REJECTED').length;
+  const todayApproved = window._workflowCompletedState ? 0 : todayApprovedRaw;
+  const todayPending = todayTotal - todayApprovedRaw - todayWatching - todayRejected;
+  const todayReviewComplete = todayTotal > 0 && todayPending === 0;
+  const olderCount = total - todayTotal;
+  const sessionRanToday = !!_getDailySessionOutcome();
 
   // Update cockpit Step 3 summary grid
   const s3el = document.getElementById('step3-rq-summary');
@@ -11739,55 +11871,50 @@ function updateCockpitReviewSummary() {
   const dpGateStatusCell = document.getElementById('dp-gate-status-cell');
   const dpGateMessage = document.getElementById('dp-gate-message');
   const dpGateNextStep = document.getElementById('dp-gate-next-step');
-  if (dpGatePending) dpGatePending.textContent = total > 0 ? pending : '-';
-  if (dpGateApproved) dpGateApproved.textContent = total > 0 ? displayApproved : '-';
-  if (dpGateWatching) dpGateWatching.textContent = total > 0 ? watching : '-';
-  if (dpGateRejected) dpGateRejected.textContent = total > 0 ? rejected : '-';
-  if (dpGateConsumed) dpGateConsumed.textContent = total > 0 ? consumed : '-';
-  if (total === 0) {
-    if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'No candidates'; dpGateStatusLabel.style.color = 'var(--label)'; }
+  // Review Progress Details is scoped to today's scan (older rows are separate).
+  if (dpGatePending) dpGatePending.textContent = todayPending;
+  if (dpGateApproved) dpGateApproved.textContent = todayApproved;
+  if (dpGateWatching) dpGateWatching.textContent = todayWatching;
+  if (dpGateRejected) dpGateRejected.textContent = todayRejected;
+  if (dpGateConsumed) dpGateConsumed.textContent = window._workflowCompletedState ? todayApprovedRaw : 0;
+  const _olderGateNote = olderCount > 0 ? ' Older review items are not part of today’s new scan.' : '';
+  if (todayTotal === 0) {
+    if (dpGateStatusLabel) { dpGateStatusLabel.textContent = sessionRanToday ? 'No new candidates' : 'No session yet'; dpGateStatusLabel.style.color = 'var(--label)'; }
     if (dpGateStatusCell) dpGateStatusCell.style.background = '';
-    if (dpGateMessage) { dpGateMessage.textContent = 'No candidates loaded. Run Daily Process Preview to generate candidates.'; dpGateMessage.style.background = 'rgba(0,0,0,.12)'; dpGateMessage.style.color = 'var(--label)'; }
-    if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Run Daily Process Preview.';
-  } else if (!reviewComplete) {
+    if (dpGateMessage) {
+      dpGateMessage.innerHTML = '<strong style="color:var(--label);">Today’s saved candidates: 0</strong><br><span style="color:var(--label);font-size:9px;">No candidate review required for today’s scan.' + _olderGateNote + '</span>';
+      dpGateMessage.style.background = 'rgba(0,0,0,.12)';
+      dpGateMessage.style.color = 'var(--label)';
+    }
+    if (dpGateNextStep) dpGateNextStep.textContent = sessionRanToday ? 'Next step: Monitor portfolio -- review open positions.' : 'Next step: Run Daily Review Session.';
+  } else if (!todayReviewComplete) {
     if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Review in progress'; dpGateStatusLabel.style.color = 'var(--warning)'; }
     if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(245,158,11,.08)';
     if (dpGateMessage) {
-      dpGateMessage.innerHTML = '<strong style="color:var(--warning);">Finish reviewing candidates before moving to signals.</strong><br><span style="color:var(--label);font-size:9px;">Signal creation is locked until candidate review is complete. ' + pending + ' candidate(s) still need review.</span>';
+      dpGateMessage.innerHTML = '<strong style="color:var(--warning);">Today’s saved candidates: ' + todayTotal + '</strong><br><span style="color:var(--label);font-size:9px;">' + todayPending + ' candidate(s) from today’s scan still need review. Finish reviewing candidates before moving to signals. Signal creation is locked until candidate review is complete.' + _olderGateNote + '</span>';
       dpGateMessage.style.background = 'rgba(245,158,11,.06)';
       dpGateMessage.style.color = 'var(--warning)';
     }
     if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Review remaining candidates -- use Watch, Reject, or Approve in the Review Queue below.';
-  } else if (displayApproved > 0) {
+  } else if (todayApproved > 0) {
     if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Candidate review complete'; dpGateStatusLabel.style.color = 'var(--ok)'; }
     if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(34,197,94,.08)';
     if (dpGateMessage) {
-      dpGateMessage.innerHTML = '<strong style="color:var(--ok);">Candidate review complete.</strong><br><span style="color:var(--text-secondary);font-size:9px;">Signal creation is available. Create signals from approved candidates. It creates Signal records only - no decisions, orders, trades, or fills.</span>';
+      dpGateMessage.innerHTML = '<strong style="color:var(--ok);">Today’s saved candidates: ' + todayTotal + '</strong><br><span style="color:var(--text-secondary);font-size:9px;">Today’s candidates reviewed. Signal creation is available. Create signals from approved candidates. It creates Signal records only - no decisions, orders, trades, or fills. Generate a trade plan from approved candidates.</span>';
       dpGateMessage.style.background = 'rgba(34,197,94,.06)';
       dpGateMessage.style.color = 'var(--ok)';
     }
     if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Generate Trade Plan from Approved Candidates -- use Trade Plan Workspace below.';
-  } else if (consumed > 0) {
-    if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Candidate review complete'; dpGateStatusLabel.style.color = 'var(--ok)'; }
-    if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(34,197,94,.08)';
-    if (dpGateMessage) {
-      dpGateMessage.innerHTML = '<strong style="color:var(--ok);">Candidate review complete.</strong><br><span style="color:var(--text-secondary);font-size:9px;">Approved candidate(s) consumed by paper order workflow. Monitor portfolio.</span>';
-      dpGateMessage.style.background = 'rgba(34,197,94,.06)';
-      dpGateMessage.style.color = 'var(--ok)';
-    }
-    if (dpGateNextStep) dpGateNextStep.textContent = 'Next step: Monitor portfolio -- review Portfolio tab for open positions.';
   } else {
     const openPos = (window._workflowStatusData && window._workflowStatusData.open_positions) || 0;
     if (dpGateStatusLabel) { dpGateStatusLabel.textContent = 'Candidate review complete'; dpGateStatusLabel.style.color = 'var(--ok)'; }
     if (dpGateStatusCell) dpGateStatusCell.style.background = 'rgba(34,197,94,.08)';
     if (dpGateMessage) {
-      dpGateMessage.innerHTML = openPos > 0
-        ? '<strong style="color:var(--ok);">Candidate review complete.</strong><br><span style="color:var(--text-secondary);font-size:9px;">No candidates approved. Monitor open portfolio positions.</span>'
-        : '<strong style="color:var(--ok);">Candidate review complete.</strong><br><span style="color:var(--text-secondary);font-size:9px;">No candidates approved. Run Daily Review Session to start fresh.</span>';
+      dpGateMessage.innerHTML = '<strong style="color:var(--ok);">Today’s saved candidates: ' + todayTotal + '</strong><br><span style="color:var(--text-secondary);font-size:9px;">Today’s candidates reviewed. No candidates approved. Monitor open positions.</span>';
       dpGateMessage.style.background = 'rgba(34,197,94,.06)';
       dpGateMessage.style.color = 'var(--ok)';
     }
-    if (dpGateNextStep) dpGateNextStep.textContent = openPos > 0 ? 'Next step: Monitor portfolio -- review open positions in the Portfolio tab.' : 'Next step: Run Daily Review Session.';
+    if (dpGateNextStep) dpGateNextStep.textContent = openPos > 0 ? 'Next step: Monitor portfolio -- review open positions in the Portfolio tab.' : 'Next step: Monitor portfolio.';
   }
 
   // Update Trade Plan Workspace locked/available/no-trade state
@@ -11795,22 +11922,26 @@ function updateCockpitReviewSummary() {
   const dpTpAvailable = document.getElementById('dp-tp-available');
   const dpTpNoTrade = document.getElementById('dp-tp-no-trade');
   if (dpTpLocked && dpTpAvailable) {
-    const tpAvailable = reviewComplete && displayApproved > 0;
-    const tpNoTrade = reviewComplete && displayApproved === 0 && total > 0;
-    const tpLocked = !reviewComplete || total === 0;
+    const tpAvailable = todayReviewComplete && todayApproved > 0;
+    const tpNoTrade = todayReviewComplete && todayApproved === 0 && todayTotal > 0;
+    const tpLocked = !todayReviewComplete || todayTotal === 0;
     dpTpLocked.style.display = tpLocked ? '' : 'none';
     dpTpAvailable.style.display = tpAvailable ? '' : 'none';
     if (dpTpNoTrade) dpTpNoTrade.style.display = tpNoTrade ? '' : 'none';
+    // Portfolio Monitoring Workspace stays visible whenever the active task is
+    // Monitor Portfolio: either today's review finished with no approvals, or
+    // the latest session saved 0 new-entry candidates.
+    const monitorActive = tpNoTrade || (todayTotal === 0 && sessionRanToday);
     const dpPmWorkspace = document.getElementById('dp-portfolio-monitor-workspace');
-    if (dpPmWorkspace) dpPmWorkspace.style.display = tpNoTrade ? '' : 'none';
+    if (dpPmWorkspace) dpPmWorkspace.style.display = monitorActive ? '' : 'none';
     // Show Trade Plan Workspace only when tpAvailable (current task)
     const dpTpWorkspace = document.getElementById('dp-trade-plan-workspace');
     if (dpTpWorkspace) dpTpWorkspace.style.display = tpAvailable ? '' : 'none';
-    // Show Review Queue only during active review
+    // Show Review Queue only during active review of today's candidates
     const dpInlineRq = document.getElementById('dp-inline-rq-card');
-    if (dpInlineRq) dpInlineRq.style.display = (total > 0 && !reviewComplete) ? '' : 'none';
-    // Update Today's Review state machine
-    updateTodayReview(total, pending, displayApproved, reviewComplete);
+    if (dpInlineRq) dpInlineRq.style.display = (todayTotal > 0 && !todayReviewComplete) ? '' : 'none';
+    // Update Today's Review state machine from the latest session outcome
+    updateTodayReview({ todayTotal, todayPending, todayApproved, todayReviewComplete, sessionRanToday, olderCount });
   }
 
   // Smart next action: only update when queue has data and workflow is not in completed state

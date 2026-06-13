@@ -28375,3 +28375,131 @@ class TestDailyTradePlanV1UiContent:
         assert 'id="dp-signal-actions-details"' in html
         assert 'id="dp-decision-actions-details"' in html
         assert 'id="dp-order-preview-details"' in html
+
+
+class TestDailyReviewOutcomeConsistencyV1Content:
+    """Daily Review Session Outcome Consistency v1.
+
+    After Start Daily Review completes, Today's Review (and the right-side
+    Action / Safety panel) must route off the latest session outcome, not stale
+    review-queue rows. These checks assert the required UI text and that routing
+    is driven by today's saved-candidate count.
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    @staticmethod
+    def _today_review_fn(html: str) -> str:
+        """Return the source of updateTodayReview() up to the next function decl."""
+        start = html.index("function updateTodayReview(ctx) {")
+        nxt = html.index("\nfunction ", start + 1)
+        return html[start:nxt]
+
+    # --- Required exact UI text ---
+
+    def test_daily_review_complete_present(self) -> None:
+        assert "Daily review complete" in self._read_html()
+
+    def test_no_new_entry_candidates_found_present(self) -> None:
+        assert "No new-entry candidates found." in self._read_html()
+
+    def test_new_candidates_saved_present(self) -> None:
+        assert "New candidates saved" in self._read_html()
+
+    def test_review_candidates_present(self) -> None:
+        assert "Review Candidates" in self._read_html()
+
+    def test_review_open_positions_present(self) -> None:
+        assert "Review Open Positions" in self._read_html()
+
+    def test_no_new_entry_review_open_positions_present(self) -> None:
+        assert "No new-entry candidates found. Review open positions." in self._read_html()
+
+    def test_older_review_items_present(self) -> None:
+        assert "Older review items" in self._read_html()
+
+    def test_older_review_items_note_present(self) -> None:
+        assert "Older review items are not part of today’s new scan." in self._read_html()
+
+    def test_todays_saved_candidates_present(self) -> None:
+        assert "Today’s saved candidates" in self._read_html()
+
+    def test_no_candidate_review_required_present(self) -> None:
+        assert "No candidate review required for today’s scan." in self._read_html()
+
+    # --- Routing is today-scoped, off the session outcome ---
+
+    def test_session_outcome_helpers_present(self) -> None:
+        html = self._read_html()
+        assert "_setDailySessionOutcome" in html
+        assert "_getDailySessionOutcome" in html
+        assert "_ptIsToday" in html
+
+    def test_today_review_uses_session_outcome(self) -> None:
+        fn = self._today_review_fn(self._read_html())
+        assert "sessionRanToday" in fn
+        assert "todayTotal" in fn
+
+    def test_zero_saved_routes_to_monitor_portfolio(self) -> None:
+        fn = self._today_review_fn(self._read_html())
+        # When the latest session saved 0 candidates, the task becomes Monitor
+        # Portfolio with the Review Open Positions action.
+        assert "No new-entry candidates found. Review open positions." in fn
+        assert "runPortfolioMonitorWorkspace" in fn
+
+    def test_saved_routes_to_review_candidates(self) -> None:
+        fn = self._today_review_fn(self._read_html())
+        assert "Review the new candidates saved by today's session." in fn
+        assert "focusReviewQueue" in fn
+
+    def test_older_rows_separated_in_review_queue(self) -> None:
+        html = self._read_html()
+        assert 'id="dp-rq-older"' in html
+        assert "_dpRqRowHtml" in html
+
+    # --- Right-side Action / Safety panel mirrors Today's Review ---
+
+    def test_right_panel_mirrors_today_review(self) -> None:
+        fn = self._today_review_fn(self._read_html())
+        assert "right-current-task" in fn
+        assert "right-next-action" in fn
+
+    def test_right_panel_workflow_language_present(self) -> None:
+        html = self._read_html()
+        assert 'id="right-current-task"' in html
+        assert 'id="right-next-action"' in html
+        assert "Workflow" in html
+
+    # --- "Run Daily Process Preview" is not the main user-facing action ---
+
+    def test_run_daily_process_preview_not_main_action(self) -> None:
+        fn = self._today_review_fn(self._read_html())
+        assert "Run Daily Process Preview" not in fn
+        assert "runPredictionPreview" not in fn
+
+    # --- Preserve existing good behavior ---
+
+    def test_sticky_tabs_css_preserved(self) -> None:
+        assert "position: sticky" in self._read_html()
+
+    def test_advanced_audit_collapsed_by_default(self) -> None:
+        # <details> without an `open` attribute is collapsed by default.
+        assert '<details id="dp-later-steps-details" style="margin-bottom: 6px;">' in self._read_html()
+
+    def test_setup_rerun_collapsed_by_default(self) -> None:
+        assert '<details id="dp-setup-drawer" style="margin-bottom: 6px;">' in self._read_html()
+
+    # --- No browser dialogs ---
+
+    def test_no_alert_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", self._read_html())) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
