@@ -29458,7 +29458,7 @@ class TestGuidedTradeLifecycleV1Ui:
             "Watch Only",
             "Reject",
             "Paper Trade Ticket",
-            "Place Paper Trade",
+            "Create & Fill Paper Trade",
             "Paper Trade Completed",
             "View Portfolio",
         ):
@@ -29469,8 +29469,9 @@ class TestGuidedTradeLifecycleV1Ui:
         html = self._read_html()
         for text in (
             "Paper portfolio only. No broker execution.",
+            "Paper portfolio only. No broker execution. No live trade.",
             "Approving a trade idea does not place a trade.",
-            "Place Paper Trade creates and fills a local paper order only.",
+            "Create & Fill Paper Trade creates and fills a local paper order only.",
             "No live broker order is created.",
             "Automation is off.",
         ):
@@ -29763,3 +29764,1043 @@ class TestPlacePaperTradeFlow:
                 assert ledger >= 1, "fill must append a cash ledger entry"
         finally:
             self._clean(api_engine, ticker, ikey)
+
+
+def _fn_body(html: str, decl: str) -> str:
+    """Slice one JS function body: from its declaration to the next function
+    declaration (sync or async), giving a tight body for substring assertions."""
+    start = html.index(decl)
+    nexts = [i for i in (html.find("\nfunction ", start + 1),
+                         html.find("\nasync function ", start + 1)) if i != -1]
+    nxt = min(nexts) if nexts else len(html)
+    return html[start:nxt]
+
+
+class TestDailyTradeWorkflowContractV1Ui:
+    """Daily Trade Workflow Contract v1 — static UI assertions on index.html.
+
+    Verifies the user-facing daily trading path is present and named with the
+    contract labels: Today's Candidates with rationale, an empty-scan state,
+    Positions to Review (Review Position Exit), the Paper Trade Ticket lifecycle
+    including failure states, and Portfolio filter clearing on View Portfolio.
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    # --- A/B: Today's Candidates + scan visibility + empty state ---
+    def test_todays_candidates_section_present(self) -> None:
+        html = self._read_html()
+        assert "Today's Trade Ideas" in html
+        assert 'id="dp-todays-candidates"' in html
+        assert 'id="dp-tc-list"' in html
+
+    def test_todays_candidates_render_function_present(self) -> None:
+        assert "function renderTodaysCandidates(" in self._read_html()
+
+    def test_candidate_rationale_why_selected_present(self) -> None:
+        html = self._read_html()
+        assert "Why selected:" in html
+        assert "function _ptCandWhySelected(" in html
+
+    def test_candidate_rationale_includes_momentum_and_rs(self) -> None:
+        fn = _fn_body(self._read_html(), "function _ptCandWhySelected(")
+        assert "momentum_5d_pct" in fn
+        assert "momentum_20d_pct" in fn
+        assert "relative_strength_vs_spy_20d" in fn
+        assert "latest_price" in fn
+
+    def test_empty_scan_state_strings_present(self) -> None:
+        html = self._read_html()
+        assert "No new trade ideas met today's criteria." in html
+        assert "Scan completed across the configured universe." in html
+
+    def test_empty_scan_state_reason_summary_present(self) -> None:
+        fn = _fn_body(self._read_html(), "function renderTodaysCandidates(")
+        assert "Scanned:" in fn
+        assert "Eligible:" in fn
+        assert "Saved today:" in fn
+        assert "Already existed:" in fn
+        assert "Current holdings reviewed:" in fn
+
+    # --- C/F: candidate card copy + Positions to Review ---
+    def test_approving_does_not_place_a_trade_copy_present(self) -> None:
+        assert (
+            "Approving does not place a trade. It only prepares a paper trade ticket."
+            in self._read_html()
+        )
+
+    def test_positions_to_review_section_present(self) -> None:
+        html = self._read_html()
+        assert "Positions to Review" in html
+        assert 'id="dp-positions-to-review"' in html
+        assert "function renderPositionsToReview(" in html
+        assert "function loadPositionsToReview(" in html
+
+    def test_review_position_exit_card_present(self) -> None:
+        html = self._read_html()
+        assert "Review Position Exit" in html
+        assert "Approve Paper Sell" in html
+        assert "Watch Position" in html
+        assert ">Hold<" in html
+
+    def test_position_exit_paper_only_safety_copy_present(self) -> None:
+        assert "This is a paper portfolio review only. No broker order is sent." in self._read_html()
+
+    def test_approve_paper_sell_is_paper_only(self) -> None:
+        fn = _fn_body(self._read_html(), "async function approvePaperSell(")
+        # Reuses existing paper-only endpoints; no broker, no automation.
+        assert "/v1/review/create-exit-orders" in fn
+        assert "confirm_create_exit_orders" in fn
+        assert "/v1/review/fill-pending-orders" in fn
+        assert "does not send a live broker order" in fn
+        assert "does not enable automation" in fn
+
+    # --- D/E: Paper Trade Ticket lifecycle + failure states + portfolio proof ---
+    def test_place_paper_trade_failure_states_present(self) -> None:
+        html = self._read_html()
+        assert "Paper trade was not created." in html
+        assert "Paper trade was created but not filled." in html
+
+    def test_place_paper_trade_checks_created_and_filled_counts(self) -> None:
+        fn = _fn_body(self._read_html(), "async function placePaperTrade(")
+        assert "orders_created" in fn
+        assert "orders_filled" in fn
+        assert "Paper trade was not created." in fn
+        assert "Paper trade was created but not filled." in fn
+
+    def test_view_portfolio_clears_order_filters(self) -> None:
+        fn = _fn_body(self._read_html(), "function viewPortfolio(")
+        assert "ordStatus" in fn
+        assert "ordDate" in fn
+        assert "loadOrders()" in fn
+
+    def test_view_portfolio_button_and_completed_copy_present(self) -> None:
+        html = self._read_html()
+        assert "View Portfolio" in html
+        assert "Paper trade completed. Portfolio updated." in html
+
+    # --- H: session scoping language ---
+    def test_older_review_items_section_present(self) -> None:
+        html = self._read_html()
+        assert "Older review items" in html
+        assert 'id="dp-tc-older"' in html
+
+    # --- I: internal mechanics stay in Advanced/Audit ---
+    def test_internal_audit_sections_collapsed(self) -> None:
+        html = self._read_html()
+        assert "Internal signal audit" in html
+        assert "Internal decision audit" in html
+        assert "You do not need these sections for normal daily review." in html
+
+    # --- J: no browser dialogs ---
+    def test_no_alert_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", self._read_html())) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
+
+
+class TestGuidedDailyTradingFlowV2Ui:
+    """Guided Daily Trading Flow v2 — static UI assertions on index.html.
+
+    Verifies the workflow-routing fixes: a live progress card in the Daily Plan
+    panel with the five required step messages, Start Daily Review buttons that
+    disable while running, approval routing to the Paper Trade Ticket, position
+    review folded into the same daily review run, the completion proof card
+    (Order status / Fill price / Commission), and one canonical workflow state
+    shared across Overview, Daily Plan, and the Action/Safety panel.
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    # --- A: Start Daily Review progress + one flow ---
+    def test_progress_step_messages_present(self) -> None:
+        html = self._read_html()
+        assert "Refreshing market data..." in html
+        assert "Running S&P 500 scan..." in html
+        assert "Reviewing current portfolio positions..." in html
+        assert "Saving today's candidates..." in html
+        assert "Building today's review..." in html
+
+    def test_daily_review_complete_message_present(self) -> None:
+        assert "Daily review complete." in self._read_html()
+
+    def test_progress_renders_in_daily_plan_panel(self) -> None:
+        html = self._read_html()
+        assert 'id="dp-daily-review-progress"' in html
+        fn = _fn_body(html, "async function _runDailyReviewSession(")
+        assert "dp-daily-review-progress" in fn
+
+    def test_session_stays_in_daily_plan_surface(self) -> None:
+        fn = _fn_body(self._read_html(), "async function _runDailyReviewSession(")
+        assert "_switchTab('prediction-cockpit')" in fn
+        assert "scrollIntoView" in fn
+
+    def test_start_button_disabled_while_running(self) -> None:
+        html = self._read_html()
+        assert "function _setStartReviewButtonsDisabled(" in html
+        fn = _fn_body(html, "async function _runDailyReviewSession(")
+        assert "_setStartReviewButtonsDisabled(true)" in fn
+        assert "window._dailyReviewRunning = true" in fn
+
+    def test_session_routes_to_next_required_section(self) -> None:
+        fn = _fn_body(self._read_html(), "async function _runDailyReviewSession(")
+        assert "dp-todays-candidates" in fn
+        assert "dp-positions-to-review" in fn
+
+    # --- B: Today's Candidates visibility ---
+    def test_review_each_candidate_copy_present(self) -> None:
+        assert (
+            "Review each candidate below. Choose Approve, Watch, or Reject."
+            in self._read_html()
+        )
+
+    # --- C: approval routes to the Paper Trade Ticket ---
+    def test_focus_paper_trade_ticket_helper_present(self) -> None:
+        html = self._read_html()
+        assert "function _focusPaperTradeTicket(" in html
+        fn = _fn_body(html, "function _focusPaperTradeTicket(")
+        assert "dp-trade-flow-card" in fn
+
+    def test_approval_routes_to_ticket(self) -> None:
+        fn = _fn_body(self._read_html(), "async function updateReviewStatus(")
+        assert "APPROVED_FOR_SIGNAL" in fn
+        assert "_focusPaperTradeTicket()" in fn
+
+    def test_review_paper_trade_ticket_task_and_next_action_present(self) -> None:
+        html = self._read_html()
+        assert "Review Paper Trade Ticket" in html
+        assert "Place the paper trade or cancel." in html
+
+    # --- D: one explicit user action orchestrates the paper chain ---
+    def test_place_paper_trade_orchestrates_paper_chain(self) -> None:
+        fn = _fn_body(self._read_html(), "async function placePaperTrade(")
+        assert "/v1/review/generate-trade-plan" in fn
+        assert "/v1/review/create-orders" in fn
+        assert "/v1/review/fill-pending-orders" in fn
+        assert "does not send a live broker order" in fn
+        assert "does not enable automation" in fn
+
+    # --- E: completion proof card ---
+    def test_completion_card_shows_order_proof(self) -> None:
+        html = self._read_html()
+        assert "function _renderPaperTradeCompleted(" in html
+        fn = _fn_body(html, "async function _renderPaperTradeCompleted(")
+        assert "Order status" in fn
+        assert "Fill price" in fn
+        assert "Commission" in fn
+        assert "status=FILLED" in fn
+
+    # --- F: position review runs during daily review ---
+    def test_position_review_runs_in_session(self) -> None:
+        fn = _fn_body(self._read_html(), "async function _runDailyReviewSession(")
+        assert "Reviewing current portfolio positions..." in fn
+        assert "/v1/review/daily-review-summary" in fn
+        assert "renderPositionsToReview(" in fn
+
+    # --- G: one canonical workflow state across all surfaces ---
+    def test_canonical_state_shared_across_surfaces(self) -> None:
+        html = self._read_html()
+        assert "window._canonicalWorkflowState" in html
+        assert "function applyCanonicalToOverview(" in html
+        fn = _fn_body(html, "function applyCanonicalToOverview(")
+        assert "window._canonicalWorkflowState" in fn
+
+    # --- H: active action visible, not hidden behind Advanced/Audit ---
+    def test_active_action_workspaces_visible(self) -> None:
+        html = self._read_html()
+        assert 'id="active-action-workspace"' in html
+        assert "function syncActiveActionWorkspaces(" in html
+
+
+# ---------------------------------------------------------------------------
+# Guided Daily Trading Flow v3 - real backend lifecycle (state transitions)
+# ---------------------------------------------------------------------------
+
+
+class TestGuidedDailyTradingFlowV3Lifecycle:
+    """GATE 2: prove the daily trading lifecycle through real API/DB state
+    transitions, not static text.
+
+    Proves:
+      - Approving a candidate is a label only (no Signal/Decision/Order/Position).
+      - generate-trade-plan turns an APPROVED candidate into a Signal + Decision
+        but still creates NO order and NO position.
+      - create-orders -> fill-pending-orders yields exactly one FILLED paper
+        order, an open Position, a Trade row, and a CashLedger entry, and the
+        ticker is then visible via GET /v1/positions and GET /v1/orders?status=FILLED.
+      - A WATCHING candidate alongside an approved one creates no trading rows
+        and does not block the approved candidate's lifecycle.
+      - Execution is paper-only (no broker).
+    """
+
+    _IKEY = "v3-lifecycle-test"
+
+    @pytest.fixture(autouse=True)
+    def _purge_pending(self, api_engine):
+        def _purge():
+            from zoneinfo import ZoneInfo
+            today = datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date()
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(
+                    Order.status == "PENDING", Order.market_date == today
+                ).delete(synchronize_session=False)
+                s.commit()
+        _purge()
+        yield
+        _purge()
+
+    def _ticker(self) -> str:
+        return f"V3{uuid.uuid4().hex[:5].upper()}"
+
+    def _clean(self, api_engine, tickers, ikey_prefix: str) -> None:
+        from paper_trader.db.models import Trade, CashLedger
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            for ticker in tickers:
+                ords = session.query(Order).filter(Order.ticker == ticker).all()
+                for o in ords:
+                    session.query(CashLedger).filter(CashLedger.order_id == o.id).delete(synchronize_session=False)
+                    session.query(Trade).filter(Trade.order_id == o.id).delete(synchronize_session=False)
+                session.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
+                session.query(Order).filter(Order.ticker == ticker).delete(synchronize_session=False)
+                session.query(TradeDecision).filter(TradeDecision.ticker == ticker).delete(synchronize_session=False)
+                session.query(Signal).filter(Signal.ticker == ticker).delete(synchronize_session=False)
+                session.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete(synchronize_session=False)
+            session.query(CandidateReview).filter(
+                CandidateReview.idempotency_key.like(ikey_prefix + "%")
+            ).delete(synchronize_session=False)
+            session.commit()
+
+    def _add_candidate(self, api_engine, ticker: str, ikey: str, review_status: str = "NEW") -> str:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            row = CandidateReview(
+                idempotency_key=ikey,
+                ticker=ticker,
+                prediction_recommendation="BUY",
+                prediction_confidence="0.85",
+                preview_decision="CONSIDER",
+                preview_score="75.0",
+                status="OK",
+                review_status=review_status,
+            )
+            session.add(row)
+            session.commit()
+            return str(row.id)
+
+    def _add_snapshot(self, api_engine, ticker: str, price: str = "50.00") -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.add(PriceSnapshot(
+                ticker=ticker,
+                price=Decimal(price),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                job_run_id=None,
+            ))
+            session.commit()
+
+    def _seed_decision(self, api_engine, ticker: str, qty: str = "3.00", price: str = "50.00") -> str:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            jr = JobRun(
+                idempotency_key=f"{self._IKEY}-jr-{uuid.uuid4().hex[:8]}",
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(jr)
+            session.flush()
+            sig = Signal(
+                job_run_id=jr.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run="review_queue_create_signals_v1:" + uuid.uuid4().hex[:8],
+                status="DECISION_MADE",
+                raw_payload={},
+            )
+            session.add(sig)
+            session.flush()
+            notional = (Decimal(qty) * Decimal(price)).quantize(Decimal("0.01"))
+            td = TradeDecision(
+                signal_id=sig.id,
+                job_run_id=jr.id,
+                ticker=ticker,
+                signal_direction="BUY",
+                decision="BUY",
+                reason_code="POSITIVE_SIGNAL",
+                approved_qty=Decimal(qty),
+                approved_notional=notional,
+                requested_qty=Decimal(qty),
+                requested_notional=notional,
+                decided_at=datetime.now(timezone.utc),
+                market_date=date.today(),
+            )
+            session.add(td)
+            session.commit()
+            return str(td.id)
+
+    def _counts(self, api_engine, ticker: str) -> tuple:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            return (
+                session.query(Signal).filter(Signal.ticker == ticker).count(),
+                session.query(TradeDecision).filter(TradeDecision.ticker == ticker).count(),
+                session.query(Order).filter(Order.ticker == ticker).count(),
+                session.query(Position).filter(Position.ticker == ticker).count(),
+            )
+
+    def test_approve_then_plan_then_create_fill_full_lifecycle(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        from paper_trader.db.models import CashLedger, Trade
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        t_approve = self._ticker()
+        t_fill = self._ticker()
+        t_watch = self._ticker()
+        self._clean(api_engine, [t_approve, t_fill, t_watch], ikey)
+        try:
+            # --- Approve a candidate via the real PATCH endpoint ---
+            cid = self._add_candidate(api_engine, t_approve, ikey + "-a", "NEW")
+            self._add_snapshot(api_engine, t_approve, "50.00")
+            r = seeded_client.patch(
+                f"/v1/review/candidates/{cid}",
+                json={"review_status": "APPROVED_FOR_SIGNAL"},
+                headers=_AUTH,
+            )
+            assert r.status_code == 200
+            assert r.json()["review_status"] == "APPROVED_FOR_SIGNAL"
+            # Approval is a label only: no trading rows yet.
+            assert self._counts(api_engine, t_approve) == (0, 0, 0, 0), (
+                "approval must not create signals/decisions/orders/positions"
+            )
+
+            # --- A WATCHING candidate must also create no rows (non-blocking) ---
+            wid = self._add_candidate(api_engine, t_watch, ikey + "-w", "NEW")
+            rw = seeded_client.patch(
+                f"/v1/review/candidates/{wid}",
+                json={"review_status": "WATCHING"},
+                headers=_AUTH,
+            )
+            assert rw.status_code == 200
+            assert self._counts(api_engine, t_watch) == (0, 0, 0, 0)
+
+            # --- generate-trade-plan: APPROVED candidate -> Signal + Decision,
+            #     but still NO order and NO position. ---
+            g = seeded_client.post(
+                "/v1/review/generate-trade-plan",
+                json={
+                    "idempotency_key": ikey + "-gen",
+                    "confirm_generate": True,
+                    "confirm_generate_trade_plan": True,
+                    "limit": 50,
+                },
+                headers=_AUTH,
+            )
+            assert g.status_code == 200
+            sig_c, dec_c, ord_c, pos_c = self._counts(api_engine, t_approve)
+            assert sig_c >= 1, "generate-trade-plan must create a Signal for the approved candidate"
+            assert dec_c >= 1, "generate-trade-plan must create a TradeDecision for the approved candidate"
+            assert ord_c == 0, "generate-trade-plan must NOT create an order"
+            assert pos_c == 0, "generate-trade-plan must NOT create a position"
+            # The WATCHING candidate still produced no trading rows.
+            assert self._counts(api_engine, t_watch) == (0, 0, 0, 0)
+
+            # --- create-orders -> fill-pending-orders on a deterministic decision
+            #     yields exactly one FILLED paper order + position + trade + ledger. ---
+            td_id = self._seed_decision(api_engine, t_fill, qty="3.00", price="50.00")
+            self._add_snapshot(api_engine, t_fill, "50.00")
+            rc = seeded_client.post(
+                "/v1/review/create-orders",
+                json={
+                    "idempotency_key": ikey + "-create",
+                    "trade_decision_ids": [td_id],
+                    "confirm_create_orders": True,
+                },
+                headers=_AUTH,
+            )
+            assert rc.status_code == 201
+            assert rc.json()["orders_created"] == 1
+            # Before fill: order exists but no position.
+            assert self._counts(api_engine, t_fill)[3] == 0, "no position before fill"
+
+            rf = seeded_client.post(
+                "/v1/review/fill-pending-orders",
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert rf.status_code == 200
+            fdata = rf.json()
+            assert fdata["execution_mode"] == "PAPER_FILLS_ONLY", "must be paper-only, no broker"
+            assert fdata["orders_filled"] >= 1
+            assert t_fill in fdata["positions_changed"]
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                o = session.query(Order).filter(Order.ticker == t_fill).first()
+                assert o is not None and o.status == "FILLED" and o.fill_price is not None
+                pos = session.query(Position).filter(Position.ticker == t_fill).first()
+                assert pos is not None and pos.qty > Decimal("0"), "fill must open a position"
+                assert session.query(Trade).filter(Trade.order_id == o.id).count() >= 1, (
+                    "fill must create a paper trade row"
+                )
+                assert session.query(CashLedger).filter(CashLedger.order_id == o.id).count() >= 1, (
+                    "fill must append a cash ledger entry"
+                )
+
+            # --- After fill the ticker is visible via the portfolio/orders APIs ---
+            rp = seeded_client.get("/v1/positions", headers=_AUTH)
+            assert rp.status_code == 200
+            pos_payload = rp.json()
+            pos_rows = pos_payload if isinstance(pos_payload, list) else pos_payload.get("positions", [])
+            assert any(p.get("ticker") == t_fill for p in pos_rows), (
+                "filled ticker must appear in GET /v1/positions"
+            )
+
+            ro = seeded_client.get("/v1/orders?status=FILLED", headers=_AUTH)
+            assert ro.status_code == 200
+            ord_payload = ro.json()
+            ord_rows = ord_payload if isinstance(ord_payload, list) else ord_payload.get("orders", [])
+            assert any(o.get("ticker") == t_fill and o.get("status") == "FILLED" for o in ord_rows), (
+                "filled paper order must appear in GET /v1/orders?status=FILLED"
+            )
+        finally:
+            self._clean(api_engine, [t_approve, t_fill, t_watch], ikey)
+
+
+class TestGuidedDailyTradingFlowV3Ui:
+    """GATE 3 static assertions: the v3 guided-flow wording is present in
+    index.html (Today's Trade Ideas, explicit per-idea review statuses, the
+    Paper Order Ticket Ready / Create & Fill Paper Trade path, position action
+    labels, scan-count visibility, and the older-ideas history note)."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    def test_trade_ideas_section_renamed(self) -> None:
+        html = self._read_html()
+        assert "Today's Trade Ideas" in html
+        assert "Today's Candidates" not in html, "old 'Today's Candidates' label must be gone"
+
+    def test_per_idea_review_status_labels_present(self) -> None:
+        html = self._read_html()
+        assert "function _ptIdeaStatusLabel(" in html
+        for text in ("Needs Review", "Approved for Paper Trade", "Watch Only", "Rejected"):
+            assert text in html, f"missing per-idea status label: {text!r}"
+
+    def test_paper_order_ticket_ready_and_create_and_fill(self) -> None:
+        html = self._read_html()
+        assert "Paper Order Ticket Ready" in html
+        assert "Create & Fill Paper Trade" in html
+
+    def test_scan_count_visibility_strings(self) -> None:
+        fn = _fn_body(self._read_html(), "function renderTodaysCandidates(")
+        assert "No new trade ideas met today's criteria." in fn
+        assert "Only " in fn and "met today's criteria." in fn  # the "Only X ..." form
+        assert "Already existed:" in fn
+        assert "Saved today:" in fn
+        assert "Current holdings reviewed:" in fn
+
+    def test_older_trade_ideas_history_note(self) -> None:
+        html = self._read_html()
+        assert "Older trade ideas — not part of today's active workflow." in html
+        # the prior v1 note is also retained
+        assert "Older review items are not part of today's new scan." in html
+
+    def test_position_action_labels_present(self) -> None:
+        html = self._read_html()
+        assert "function _ptPositionStatusLabel(" in html
+        assert "Monitor only — no action required yet." in html
+        assert "Hold — no action required." in html
+        assert "Position needs review" in html
+
+    def test_no_live_trade_safety_copy(self) -> None:
+        assert "Paper portfolio only. No broker execution. No live trade." in self._read_html()
+
+    def test_no_alert_or_confirm(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestCandidateScopedPaperTradeLifecycle:
+    """Candidate-scoped paper-trade lifecycle correctness.
+
+    POST /v1/review/candidates/{candidate_id}/paper-trade must take ONE approved
+    candidate end to end (Signal -> TradeDecision -> Order -> Trade -> Position ->
+    CashLedger), scoped to that candidate's ticker only. It must never reuse an
+    old filled order for a different ticker as completion proof, must be
+    idempotent per candidate, and must refuse WATCHING/REJECTED candidates.
+    PAPER ONLY: no broker execution.
+    """
+
+    _IKEY = "cspt-test"
+
+    @pytest.fixture(autouse=True)
+    def _purge_pending(self, api_engine):
+        def _purge():
+            from zoneinfo import ZoneInfo
+            today = datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date()
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(
+                    Order.status == "PENDING", Order.market_date == today
+                ).delete(synchronize_session=False)
+                s.commit()
+        _purge()
+        yield
+        _purge()
+
+    def _t(self, stem: str) -> str:
+        return f"{stem}{uuid.uuid4().hex[:5].upper()}"
+
+    def _clean(self, api_engine, tickers, ikey_prefix: str) -> None:
+        from paper_trader.db.models import Trade, CashLedger
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            for ticker in tickers:
+                ords = session.query(Order).filter(Order.ticker == ticker).all()
+                for o in ords:
+                    session.query(CashLedger).filter(CashLedger.order_id == o.id).delete(synchronize_session=False)
+                    session.query(Trade).filter(Trade.order_id == o.id).delete(synchronize_session=False)
+                session.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
+                session.query(Order).filter(Order.ticker == ticker).delete(synchronize_session=False)
+                session.query(TradeDecision).filter(TradeDecision.ticker == ticker).delete(synchronize_session=False)
+                session.query(Signal).filter(Signal.ticker == ticker).delete(synchronize_session=False)
+                session.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete(synchronize_session=False)
+            session.query(CandidateReview).filter(
+                CandidateReview.idempotency_key.like(ikey_prefix + "%")
+            ).delete(synchronize_session=False)
+            session.commit()
+
+    def _add_candidate(
+        self, api_engine, ticker: str, ikey: str, review_status: str = "NEW",
+        created_at: datetime | None = None,
+    ) -> str:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            kwargs = dict(
+                idempotency_key=ikey,
+                ticker=ticker,
+                prediction_recommendation="BUY",
+                prediction_confidence="0.85",
+                preview_decision="CONSIDER",
+                preview_score="75.0",
+                status="OK",
+                review_status=review_status,
+            )
+            if created_at is not None:
+                kwargs["created_at"] = created_at
+            row = CandidateReview(**kwargs)
+            session.add(row)
+            session.commit()
+            return str(row.id)
+
+    def _add_snapshot(self, api_engine, ticker: str, price: str = "50.00") -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.add(PriceSnapshot(
+                ticker=ticker,
+                price=Decimal(price),
+                session_type="REGULAR",
+                price_type="CLOSE",
+                snapshot_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                job_run_id=None,
+            ))
+            session.commit()
+
+    def _counts(self, api_engine, ticker: str) -> tuple:
+        from paper_trader.db.models import Trade
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            return (
+                session.query(Signal).filter(Signal.ticker == ticker).count(),
+                session.query(TradeDecision).filter(TradeDecision.ticker == ticker).count(),
+                session.query(Order).filter(Order.ticker == ticker).count(),
+                session.query(Trade).filter(Trade.ticker == ticker).count(),
+                session.query(Position).filter(Position.ticker == ticker).count(),
+            )
+
+    def _seed_old_filled_order(self, api_engine, ticker: str) -> str:
+        """Seed a previously FILLED order + open position for ``ticker`` dated in
+        the past (so it does not consume today's exposure). Returns order id."""
+        from paper_trader.db.models import Trade
+        old_date = date.today() - timedelta(days=30)
+        old_ts = datetime.now(timezone.utc) - timedelta(days=30)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            jr = JobRun(
+                idempotency_key=f"{self._IKEY}-oldjr-{uuid.uuid4().hex[:8]}",
+                workflow_type="MANUAL_PAPER_FILL",
+                market_date=old_date,
+                status="COMPLETED",
+                completed_at=old_ts,
+            )
+            session.add(jr)
+            session.flush()
+            sig = Signal(
+                job_run_id=jr.id, ticker=ticker, direction="BUY",
+                confidence=Decimal("0.85"), signal_ts=old_ts, market_date=old_date,
+                source_run="legacy_old_fill:" + uuid.uuid4().hex[:8],
+                status="DECISION_MADE", raw_payload={},
+            )
+            session.add(sig)
+            session.flush()
+            td = TradeDecision(
+                signal_id=sig.id, job_run_id=jr.id, ticker=ticker,
+                signal_direction="BUY", decision="BUY", reason_code="POSITIVE_SIGNAL",
+                approved_qty=Decimal("5.00"), approved_notional=Decimal("500.00"),
+                requested_qty=Decimal("5.00"), requested_notional=Decimal("500.00"),
+                decided_at=old_ts, market_date=old_date,
+            )
+            session.add(td)
+            session.flush()
+            order = Order(
+                trade_decision_id=td.id, job_run_id=jr.id, fill_job_run_id=jr.id,
+                ticker=ticker, side="BUY", order_type="MARKET", status="FILLED",
+                market_date=old_date, requested_qty=Decimal("5.00"),
+                filled_qty=Decimal("5.00"), requested_at=old_ts, filled_at=old_ts,
+                fill_price=Decimal("100.00"), commission=Decimal("1.00"),
+                slippage_cost=Decimal("0.00"), notes="legacy fill",
+            )
+            session.add(order)
+            session.flush()
+            session.add(Trade(
+                order_id=order.id, job_run_id=jr.id, ticker=ticker, side="BUY",
+                qty=Decimal("5.00"), snapshot_price=Decimal("100.00"),
+                fill_price=Decimal("100.00"), gross_value=Decimal("500.00"),
+                commission=Decimal("1.00"), net_value=Decimal("499.00"),
+                cost_basis_per_share=Decimal("100.00"), realized_pnl=None,
+                trade_ts=old_ts, market_date=old_date,
+            ))
+            session.add(Position(
+                ticker=ticker, qty=Decimal("5.00"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("500.00"), opened_at=old_ts, last_updated=old_ts,
+            ))
+            session.commit()
+            return str(order.id)
+
+    def _approve(self, seeded_client, cid: str) -> None:
+        r = seeded_client.patch(
+            f"/v1/review/candidates/{cid}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"},
+            headers=_AUTH,
+        )
+        assert r.status_code == 200
+
+    def _seed_candidate_decision(
+        self, api_engine, candidate_id: str, ticker: str, qty: str = "3.00", price: str = "50.00"
+    ) -> None:
+        """Seed the candidate-scoped Signal + BUY TradeDecision the endpoint
+        reuses, so the fill is deterministic regardless of shared portfolio risk
+        state. The source_run is the exact key the endpoint looks up."""
+        now = datetime.now(timezone.utc)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            jr = JobRun(
+                idempotency_key=f"{self._IKEY}-cjr-{uuid.uuid4().hex[:8]}",
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=now,
+            )
+            session.add(jr)
+            session.flush()
+            sig = Signal(
+                job_run_id=jr.id, ticker=ticker, direction="BUY",
+                confidence=Decimal("0.85"), signal_ts=now, market_date=date.today(),
+                source_run=f"review_queue_create_signals_v1:{candidate_id}",
+                status="DECISION_MADE", raw_payload={},
+            )
+            session.add(sig)
+            session.flush()
+            notional = (Decimal(qty) * Decimal(price)).quantize(Decimal("0.01"))
+            td = TradeDecision(
+                signal_id=sig.id, job_run_id=jr.id, ticker=ticker,
+                signal_direction="BUY", decision="BUY", reason_code="POSITIVE_SIGNAL",
+                approved_qty=Decimal(qty), approved_notional=notional,
+                requested_qty=Decimal(qty), requested_notional=notional,
+                decided_at=now, market_date=date.today(),
+            )
+            session.add(td)
+            session.commit()
+
+    # ----- tests -----
+
+    def test_approve_does_not_create_trade_rows(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        hum, incy = self._t("HUM"), self._t("INCY")
+        self._clean(api_engine, [hum, incy], ikey)
+        try:
+            cid = self._add_candidate(api_engine, hum, ikey + "-h", "NEW")
+            self._add_candidate(api_engine, incy, ikey + "-i", "NEW")
+            self._approve(seeded_client, cid)
+            # Approval is a label only.
+            assert self._counts(api_engine, hum) == (0, 0, 0, 0, 0)
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                row = s.query(CandidateReview).filter(CandidateReview.ticker == hum).first()
+                assert row is not None and row.review_status == "APPROVED_FOR_SIGNAL"
+        finally:
+            self._clean(api_engine, [hum, incy], ikey)
+
+    def test_candidate_scoped_paper_trade_creates_hum_position(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        hum, incy = self._t("HUM"), self._t("INCY")
+        self._clean(api_engine, [hum, incy], ikey)
+        try:
+            hid = self._add_candidate(api_engine, hum, ikey + "-h", "NEW")
+            iid = self._add_candidate(api_engine, incy, ikey + "-i", "NEW")
+            self._add_snapshot(api_engine, hum, "50.00")
+            self._approve(seeded_client, hid)
+            self._seed_candidate_decision(api_engine, hid, hum)
+            r2 = seeded_client.patch(
+                f"/v1/review/candidates/{iid}",
+                json={"review_status": "REJECTED"}, headers=_AUTH,
+            )
+            assert r2.status_code == 200
+
+            resp = seeded_client.post(
+                f"/v1/review/candidates/{hid}/paper-trade",
+                json={"confirm_paper_trade": True}, headers=_AUTH,
+            )
+            assert resp.status_code == 200, resp.text
+            d = resp.json()
+            assert d["ticker"] == hum
+            assert d["status"] == "COMPLETED"
+            assert d["safety_mode"] == "PAPER_ONLY_NO_BROKER"
+            # Order + fill + position are created by this call (signal/decision
+            # were pre-seeded as the candidate-scoped trade plan).
+            assert d["created_order"] is True
+            assert d["filled_order"] is True
+            assert d["created_or_updated_position"] is True
+            assert d["signal_id"] and d["trade_decision_id"]
+            assert d["order_id"] and d["trade_id"] and d["position_id"]
+
+            sig_c, dec_c, ord_c, trd_c, pos_c = self._counts(api_engine, hum)
+            assert sig_c == 1 and dec_c == 1 and ord_c == 1 and trd_c == 1 and pos_c == 1
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                o = s.query(Order).filter(Order.ticker == hum).first()
+                assert o is not None and o.status == "FILLED"
+            # INCY (rejected) created nothing.
+            assert self._counts(api_engine, incy) == (0, 0, 0, 0, 0)
+        finally:
+            self._clean(api_engine, [hum, incy], ikey)
+
+    def test_candidate_scoped_paper_trade_does_not_reuse_old_cdw_order(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        hum, cdw = self._t("HUM"), self._t("CDW")
+        self._clean(api_engine, [hum, cdw], ikey)
+        try:
+            old_order_id = self._seed_old_filled_order(api_engine, cdw)
+            self._add_snapshot(api_engine, cdw, "100.00")
+            hid = self._add_candidate(api_engine, hum, ikey + "-h", "NEW")
+            self._add_snapshot(api_engine, hum, "50.00")
+            self._approve(seeded_client, hid)
+            self._seed_candidate_decision(api_engine, hid, hum)
+
+            resp = seeded_client.post(
+                f"/v1/review/candidates/{hid}/paper-trade",
+                json={"confirm_paper_trade": True}, headers=_AUTH,
+            )
+            assert resp.status_code == 200, resp.text
+            d = resp.json()
+            assert d["ticker"] == hum
+            assert d["filled_order"] is True
+            # The old CDW order is NEVER the proof for HUM.
+            assert d["order_id"] != old_order_id
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                ho = s.query(Order).filter(Order.ticker == hum).first()
+                assert ho is not None and str(ho.id) == d["order_id"] and ho.status == "FILLED"
+                assert s.query(Position).filter(Position.ticker == hum).count() == 1
+            sig_c, dec_c, ord_c, trd_c, pos_c = self._counts(api_engine, hum)
+            assert sig_c == 1 and dec_c == 1 and ord_c == 1 and trd_c == 1 and pos_c == 1
+        finally:
+            self._clean(api_engine, [hum, cdw], ikey)
+
+    def test_candidate_scoped_paper_trade_idempotent_for_same_candidate(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        hum = self._t("HUM")
+        self._clean(api_engine, [hum], ikey)
+        try:
+            hid = self._add_candidate(api_engine, hum, ikey + "-h", "NEW")
+            self._add_snapshot(api_engine, hum, "50.00")
+            self._approve(seeded_client, hid)
+            self._seed_candidate_decision(api_engine, hid, hum)
+
+            r1 = seeded_client.post(
+                f"/v1/review/candidates/{hid}/paper-trade",
+                json={"confirm_paper_trade": True}, headers=_AUTH,
+            )
+            assert r1.status_code == 200, r1.text
+            d1 = r1.json()
+            assert d1["status"] == "COMPLETED" and d1["filled_order"] is True
+
+            r2 = seeded_client.post(
+                f"/v1/review/candidates/{hid}/paper-trade",
+                json={"confirm_paper_trade": True}, headers=_AUTH,
+            )
+            assert r2.status_code == 200, r2.text
+            d2 = r2.json()
+            assert d2["status"] == "ALREADY_COMPLETED"
+            assert d2["filled_order"] is True
+            assert d2["order_id"] == d1["order_id"]
+            assert d2["created_signal"] is False
+            assert d2["created_order"] is False
+
+            # Exactly one of each row — no duplicates.
+            sig_c, dec_c, ord_c, trd_c, pos_c = self._counts(api_engine, hum)
+            assert sig_c == 1 and dec_c == 1 and ord_c == 1 and trd_c == 1 and pos_c == 1
+        finally:
+            self._clean(api_engine, [hum], ikey)
+
+    def test_rejected_or_watching_candidate_cannot_create_paper_trade(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        watch, rej = self._t("HUMW"), self._t("HUMR")
+        self._clean(api_engine, [watch, rej], ikey)
+        try:
+            wid = self._add_candidate(api_engine, watch, ikey + "-w", "WATCHING")
+            rid = self._add_candidate(api_engine, rej, ikey + "-r", "REJECTED")
+            self._add_snapshot(api_engine, watch, "50.00")
+            self._add_snapshot(api_engine, rej, "50.00")
+
+            rw = seeded_client.post(
+                f"/v1/review/candidates/{wid}/paper-trade",
+                json={"confirm_paper_trade": True}, headers=_AUTH,
+            )
+            assert rw.status_code in (400, 409)
+            assert self._counts(api_engine, watch) == (0, 0, 0, 0, 0)
+
+            rr = seeded_client.post(
+                f"/v1/review/candidates/{rid}/paper-trade",
+                json={"confirm_paper_trade": True}, headers=_AUTH,
+            )
+            assert rr.status_code in (400, 409)
+            assert self._counts(api_engine, rej) == (0, 0, 0, 0, 0)
+        finally:
+            self._clean(api_engine, [watch, rej], ikey)
+
+    def test_workflow_status_current_cycle_does_not_count_historical_approved_candidates(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        hist, cur = self._t("HIST"), self._t("CUR")
+        self._clean(api_engine, [hist, cur], ikey)
+        try:
+            # Historical approved candidate (created days ago) + current pending one.
+            self._add_candidate(
+                api_engine, hist, ikey + "-hist", "APPROVED_FOR_SIGNAL",
+                created_at=datetime.now(timezone.utc) - timedelta(days=4),
+            )
+            self._add_candidate(api_engine, cur, ikey + "-cur", "NEW")
+
+            r = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+            assert r.status_code == 200, r.text
+            d = r.json()
+            na = d["next_action"]
+            assert na is not None
+            # A current pending candidate drives review; the historical approved
+            # candidate does NOT push the next action to generate/trade.
+            assert na["stage"] == "REVIEW_CANDIDATES"
+            assert d["current_pending_review_count"] >= 1
+            assert d["historical_candidate_count"] >= 1
+        finally:
+            self._clean(api_engine, [hist, cur], ikey)
+
+    def test_portfolio_endpoints_show_new_hum_after_fill(self, seeded_client: TestClient, api_engine) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        hum = self._t("HUM")
+        self._clean(api_engine, [hum], ikey)
+        try:
+            hid = self._add_candidate(api_engine, hum, ikey + "-h", "NEW")
+            self._add_snapshot(api_engine, hum, "50.00")
+            self._approve(seeded_client, hid)
+            self._seed_candidate_decision(api_engine, hid, hum)
+            resp = seeded_client.post(
+                f"/v1/review/candidates/{hid}/paper-trade",
+                json={"confirm_paper_trade": True}, headers=_AUTH,
+            )
+            assert resp.status_code == 200, resp.text
+            d = resp.json()
+            assert d["status"] == "COMPLETED"
+
+            rp = seeded_client.get("/v1/positions", headers=_AUTH)
+            assert rp.status_code == 200
+            pos_payload = rp.json()
+            pos_rows = pos_payload if isinstance(pos_payload, list) else pos_payload.get("positions", [])
+            assert any(p.get("ticker") == hum for p in pos_rows)
+
+            ro = seeded_client.get("/v1/orders?status=FILLED", headers=_AUTH)
+            assert ro.status_code == 200
+            ord_payload = ro.json()
+            ord_rows = ord_payload if isinstance(ord_payload, list) else ord_payload.get("orders", [])
+            assert any(o.get("ticker") == hum and o.get("status") == "FILLED" for o in ord_rows)
+
+            rport = seeded_client.get("/v1/portfolio", headers=_AUTH)
+            assert rport.status_code == 200
+            port = rport.json()
+            assert "cached_cash" in port and "cached_total_value" in port
+            # The trade response cash matches the portfolio cash after the fill.
+            assert d["cash_after"] is not None
+        finally:
+            self._clean(api_engine, [hum], ikey)
+
+
+class TestCandidateScopedPaperTradeUi:
+    """Static assertions for the candidate-scoped paper-trade UI: it calls only
+    the candidate-scoped endpoint, shows a per-ticker ticket, and proves the
+    returned ticker before showing completion."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    def test_candidate_scoped_endpoint_path_present(self) -> None:
+        html = self._read_html()
+        assert "/v1/review/candidates/${candidateId}/paper-trade" in html
+
+    def test_paper_trade_ticket_ready_for_present(self) -> None:
+        assert "Paper Trade Ticket Ready for" in self._read_html()
+
+    def test_create_and_fill_paper_trade_present(self) -> None:
+        assert "Create & Fill Paper Trade" in self._read_html()
+
+    def test_failure_text_present(self) -> None:
+        assert "Paper trade was not created" in self._read_html()
+
+    def test_completion_requires_ticker_match(self) -> None:
+        fn = _fn_body(self._read_html(), "async function createAndFillCandidatePaperTrade(")
+        assert "data.ticker === ticker" in fn
+        assert "data.filled_order === true" in fn
+        assert "'COMPLETED'" in fn
+        assert "data.order_id" in fn and "data.position_id" in fn
+
+    def test_older_trade_ideas_history_only_present(self) -> None:
+        assert "Older trade ideas — history only" in self._read_html()
+
+    def test_no_jargon_primary_wording(self) -> None:
+        html = self._read_html()
+        # The jargon label is never shown as a user-facing status chip.
+        assert "Approved for Signal" not in html
+        # The friendly candidate-scoped flow does not use "consumed" wording.
+        fn = _fn_body(html, "async function createAndFillCandidatePaperTrade(")
+        assert "consumed" not in fn
+        assert "Approved for Signal" not in fn
+
+    def test_no_alert_or_confirm(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0

@@ -86,6 +86,7 @@ from paper_trader.db.models import (
     Position,
     PriceSnapshot,
     Signal,
+    Trade,
     TradeDecision,
 )
 from paper_trader.db.session import get_dedicated_session, get_session
@@ -98,7 +99,7 @@ from paper_trader.engine.prediction_client import (
     normalize_prediction_response_with_error,
 )
 from paper_trader.engine.prediction_strategy import generate_prediction_signals
-from paper_trader.engine.reconciler import run_fill_cycle
+from paper_trader.engine.reconciler import fill_order, refresh_open_positions_cache, run_fill_cycle
 from paper_trader.engine.risk import evaluate_signal
 from paper_trader.engine.scoring import (
     score_candidate_v2 as _score_candidate_v2,
@@ -1621,6 +1622,19 @@ class WorkflowStepStatus(BaseModel):
     reason: str
 
 
+class WorkflowNextAction(BaseModel):
+    """One canonical next action for the guided cockpit.
+
+    Derived from the current cycle (today's candidates + live order/position
+    facts) only. Historical/older approved candidates never drive this object.
+    """
+    stage: str
+    label: str
+    ticker: str | None = None
+    target_candidate_id: str | None = None
+    route: str | None = None
+
+
 class WorkflowStatusResponse(BaseModel):
     """Complete workflow status with counts and step evaluation."""
     review_candidates: ReviewCandidatesCounts
@@ -1631,6 +1645,14 @@ class WorkflowStatusResponse(BaseModel):
     safety: dict[str, bool]
     open_positions: int = 0
     current_cycle_key: str | None = None
+    # --- Current-cycle separation (historical candidates excluded) ---
+    current_pending_review_count: int = 0
+    current_approved_ticket_ready_count: int = 0
+    current_filled_count: int = 0
+    current_rejected_count: int = 0
+    current_watch_count: int = 0
+    historical_candidate_count: int = 0
+    next_action: WorkflowNextAction | None = None
 
 
 class CurrentWorkflowStateResponse(BaseModel):
@@ -1657,6 +1679,49 @@ class CurrentWorkflowStateResponse(BaseModel):
     has_open_positions: bool
     open_position_count: int
     message: str
+
+
+class CandidatePaperTradeRequest(BaseModel):
+    """Request for POST /v1/review/candidates/{candidate_id}/paper-trade.
+
+    The endpoint is the explicit, single-click user action (create + fill one
+    paper trade for one approved candidate). confirm_paper_trade defaults true
+    because the action itself is the confirmation; sending false performs no
+    writes. PAPER ONLY: no broker execution.
+    """
+    confirm_paper_trade: bool = True
+    idempotency_key: str | None = None
+
+
+class CandidatePaperTradeResponse(BaseModel):
+    """Strict, candidate-scoped result of a paper trade.
+
+    Completion proof is scoped to the requested candidate/ticker: the UI must
+    only treat the trade as completed when status == "COMPLETED" (or
+    "ALREADY_COMPLETED"), filled_order is true, and ticker equals the candidate
+    ticker. An old filled order for a different ticker can never appear here.
+    """
+    candidate_id: str
+    ticker: str
+    status: str  # COMPLETED | ALREADY_COMPLETED | BLOCKED | FAILED
+    reason: str
+    signal_id: str | None = None
+    trade_decision_id: str | None = None
+    order_id: str | None = None
+    trade_id: str | None = None
+    position_id: str | None = None
+    side: str | None = None
+    qty: str | None = None
+    fill_price: str | None = None
+    commission: str | None = None
+    cash_after: str | None = None
+    total_value_after: str | None = None
+    safety_mode: str = "PAPER_ONLY_NO_BROKER"
+    created_signal: bool = False
+    created_decision: bool = False
+    created_order: bool = False
+    filled_order: bool = False
+    created_or_updated_position: bool = False
 
 
 class PositionMonitorItem(BaseModel):
@@ -6540,6 +6605,346 @@ async def update_review_candidate_status(
 
 
 @app.post(
+    "/v1/review/candidates/{candidate_id}/paper-trade",
+    response_model=CandidatePaperTradeResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def candidate_scoped_paper_trade(
+    candidate_id: str,
+    body: CandidatePaperTradeRequest | None = None,
+) -> CandidatePaperTradeResponse:
+    """
+    Create and fill ONE paper trade for ONE approved candidate, end to end:
+    CandidateReview -> Signal -> TradeDecision -> Order -> Trade -> Position ->
+    CashLedger -> PortfolioSnapshot.
+
+    PAPER ONLY. No broker execution. No automation. The whole lifecycle is
+    scoped to this candidate's ticker, so an old filled order for a different
+    ticker can never be reported as this candidate's completion proof.
+
+    Behaviour:
+    - 404 if the candidate does not exist.
+    - 409 if the candidate is not APPROVED_FOR_SIGNAL (WATCHING/REJECTED/NEW),
+      or cannot produce a signal (missing/invalid recommendation/confidence).
+    - status="BLOCKED" (HTTP 200) if risk blocks the order (decision is not a
+      sized BUY/SELL). No Order/Trade/Position is created.
+    - status="FAILED" (HTTP 200) if the paper fill cannot complete (e.g. no
+      price snapshot or insufficient cash). The order is left PENDING/FAILED;
+      no position is created.
+    - status="COMPLETED" on success.
+    - Idempotent per candidate: a second call returns status="ALREADY_COMPLETED"
+      with the same row ids — it never creates duplicate signals/orders/trades.
+    """
+    import uuid as uuid_module
+
+    body = body or CandidatePaperTradeRequest()
+
+    # Parse candidate id (invalid -> 404, never matches another ticker)
+    try:
+        candidate_uuid = uuid_module.UUID(candidate_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail=f"Candidate '{candidate_id}' not found.")
+
+    now = datetime.now(timezone.utc)
+    market_date = now.astimezone(_EASTERN).date()
+
+    created_signal = False
+    created_decision = False
+    created_order = False
+
+    with get_dedicated_session() as session:
+        candidate = session.query(CandidateReview).filter(
+            CandidateReview.id == candidate_uuid
+        ).first()
+        if candidate is None:
+            raise HTTPException(status_code=404, detail=f"Candidate '{candidate_id}' not found.")
+
+        # --- Eligibility gates ---
+        if candidate.review_status != "APPROVED_FOR_SIGNAL":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Candidate {candidate.ticker} is '{candidate.review_status}', "
+                    "not APPROVED_FOR_SIGNAL. Approve it for paper trade first."
+                ),
+            )
+        if not body.confirm_paper_trade:
+            raise HTTPException(
+                status_code=422,
+                detail="confirm_paper_trade must be true to create and fill a paper trade.",
+            )
+
+        rec = (candidate.prediction_recommendation or "").upper()
+        if candidate.status != "OK" or rec not in ("BUY", "SELL"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Candidate {candidate.ticker} cannot produce a paper trade "
+                    f"(status={candidate.status}, recommendation={candidate.prediction_recommendation})."
+                ),
+            )
+        try:
+            confidence_decimal = Decimal(candidate.prediction_confidence)
+            if not (Decimal("0") <= confidence_decimal <= Decimal("1")):
+                raise ValueError
+        except Exception:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Candidate {candidate.ticker} has an invalid prediction confidence.",
+            )
+
+        ticker = candidate.ticker
+        direction = rec
+        source_run = f"review_queue_create_signals_v1:{candidate_id}"
+
+        portfolio = get_portfolio(session)
+
+        # --- Reuse any existing rows for THIS candidate (idempotency) ---
+        signal = session.query(Signal).filter(
+            Signal.source_run == source_run,
+            Signal.ticker == ticker,
+            Signal.direction == direction,
+        ).first()
+        decision = None
+        order = None
+        if signal is not None:
+            decision = session.query(TradeDecision).filter(
+                TradeDecision.signal_id == signal.id
+            ).first()
+            if decision is not None:
+                order = session.query(Order).filter(
+                    Order.trade_decision_id == decision.id
+                ).first()
+
+        def _completed(status_str: str, cs: bool, cd: bool, co: bool) -> CandidatePaperTradeResponse:
+            trade = session.query(Trade).filter(
+                Trade.order_id == order.id
+            ).order_by(Trade.trade_ts.desc()).first()
+            position = session.query(Position).filter(
+                Position.ticker == ticker
+            ).first()
+            return CandidatePaperTradeResponse(
+                candidate_id=candidate_id,
+                ticker=ticker,
+                status=status_str,
+                reason="Paper trade filled. Portfolio updated.",
+                signal_id=str(signal.id),
+                trade_decision_id=str(decision.id),
+                order_id=str(order.id),
+                trade_id=str(trade.id) if trade else None,
+                position_id=str(position.id) if position else None,
+                side=order.side,
+                qty=str(order.filled_qty if order.filled_qty is not None else order.requested_qty),
+                fill_price=str(order.fill_price) if order.fill_price is not None else None,
+                commission=str(order.commission) if order.commission is not None else None,
+                cash_after=str(compute_cash(session)),
+                total_value_after=str(portfolio.cached_total_value),
+                safety_mode="PAPER_ONLY_NO_BROKER",
+                created_signal=cs,
+                created_decision=cd,
+                created_order=co,
+                filled_order=True,
+                created_or_updated_position=position is not None,
+            )
+
+        # --- Idempotent replay: already filled for this candidate ---
+        if order is not None and order.status == "FILLED":
+            return _completed("ALREADY_COMPLETED", False, False, False)
+
+        # --- Any write requires a JobRun for the audit trail ---
+        job_run = JobRun(
+            idempotency_key=(
+                body.idempotency_key
+                or f"candidate-paper-trade:{candidate_id}:{uuid_module.uuid4().hex[:8]}"
+            ),
+            workflow_type="CANDIDATE_PAPER_TRADE",
+            market_date=market_date,
+            status=JobRunStatus.RUNNING,
+            started_at=now,
+        )
+        session.add(job_run)
+        session.commit()
+
+        # --- Signal (create or reuse) ---
+        if signal is None:
+            signal = Signal(
+                job_run_id=job_run.id,
+                ticker=ticker,
+                direction=direction,
+                confidence=confidence_decimal,
+                signal_ts=now,
+                market_date=market_date,
+                source_run=source_run,
+                status="RECEIVED",
+                raw_payload={
+                    "source": "candidate_scoped_paper_trade_v1",
+                    "candidate_review_id": candidate_id,
+                },
+            )
+            session.add(signal)
+            session.commit()
+            created_signal = True
+
+        # --- TradeDecision (create or reuse) ---
+        if decision is None:
+            snapshot_price = _latest_price(session, ticker)
+            rd = evaluate_signal(
+                session,
+                portfolio=portfolio,
+                direction=signal.direction,
+                ticker=ticker,
+                confidence=signal.confidence,
+                snapshot_price=snapshot_price,
+                market_date=market_date,
+                now=now,
+            )
+            decision = TradeDecision(
+                signal_id=signal.id,
+                job_run_id=job_run.id,
+                ticker=ticker,
+                signal_direction=signal.direction,
+                decision=rd.decision,
+                reason_code=rd.reason_code,
+                requested_notional=rd.requested_notional if rd.requested_notional > Decimal("0") else None,
+                approved_notional=rd.approved_notional if rd.approved_notional > Decimal("0") else None,
+                requested_qty=rd.requested_qty if rd.requested_qty > Decimal("0") else None,
+                approved_qty=rd.approved_qty if rd.approved_qty > Decimal("0") else None,
+                risk_snapshot=rd.risk_snapshot,
+                sizing_adjustments=rd.sizing_adjustments,
+                decided_at=now,
+                market_date=market_date,
+            )
+            session.add(decision)
+            session.flush()
+            signal.status = "DECISION_MADE"
+            session.add(signal)
+            session.commit()
+            created_decision = True
+
+        # --- Risk block: not a sized BUY/SELL -> no order, no fill ---
+        if decision.decision not in ("BUY", "SELL") or not decision.approved_qty or decision.approved_qty <= Decimal("0"):
+            job_run.status = JobRunStatus.COMPLETED
+            job_run.completed_at = now
+            session.add(job_run)
+            session.commit()
+            return CandidatePaperTradeResponse(
+                candidate_id=candidate_id,
+                ticker=ticker,
+                status="BLOCKED",
+                reason=(
+                    f"Risk blocked this paper trade ({decision.reason_code or decision.decision}). "
+                    "No paper order was created."
+                ),
+                signal_id=str(signal.id),
+                trade_decision_id=str(decision.id),
+                side=direction,
+                created_signal=created_signal,
+                created_decision=created_decision,
+                created_order=False,
+                filled_order=False,
+                created_or_updated_position=False,
+                safety_mode="PAPER_ONLY_NO_BROKER",
+            )
+
+        # --- Order (create or reuse) ---
+        if order is None:
+            order = Order(
+                trade_decision_id=decision.id,
+                job_run_id=job_run.id,
+                fill_job_run_id=None,
+                ticker=ticker,
+                side=decision.decision,
+                order_type="MARKET",
+                status="PENDING",
+                market_date=market_date,
+                requested_qty=decision.approved_qty,
+                filled_qty=None,
+                requested_at=now,
+                notes="Candidate-scoped paper order ticket. No broker execution.",
+            )
+            session.add(order)
+            session.commit()
+            created_order = True
+
+        # --- Fill ONLY this order, under the portfolio advisory lock ---
+        acquired = session.execute(
+            text("SELECT pg_try_advisory_lock(:key)"),
+            {"key": PORTFOLIO_ADVISORY_LOCK_KEY},
+        ).scalar()
+        if not acquired:
+            raise HTTPException(
+                status_code=409,
+                detail="Another portfolio workflow is running. Try again shortly.",
+            )
+        try:
+            fill_result = fill_order(
+                session,
+                order,
+                portfolio=portfolio,
+                job_run_id=job_run.id,
+                now=now,
+                market_date=market_date,
+            )
+            if fill_result == "filled":
+                # Best-effort cache refresh: a missing price on an unrelated open
+                # position must never void this candidate's real, committed fill.
+                try:
+                    refresh_open_positions_cache(session, portfolio, now=now)
+                except (MissingPricesError, ValueError):
+                    pass
+                try:
+                    upsert_post_fill_snapshot(
+                        session,
+                        job_run_id=job_run.id,
+                        market_date=market_date,
+                        now=now,
+                    )
+                except (MissingPricesError, ValueError):
+                    pass
+        finally:
+            try:
+                session.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": PORTFOLIO_ADVISORY_LOCK_KEY},
+                )
+                session.commit()
+            except Exception:
+                session.rollback()
+
+        job_run.status = JobRunStatus.COMPLETED
+        job_run.completed_at = now
+        session.add(job_run)
+        session.commit()
+
+        if fill_result != "filled":
+            session.refresh(order)
+            return CandidatePaperTradeResponse(
+                candidate_id=candidate_id,
+                ticker=ticker,
+                status="FAILED",
+                reason=(
+                    f"Paper order could not be filled ({fill_result}). "
+                    + (order.notes or "")
+                ).strip(),
+                signal_id=str(signal.id),
+                trade_decision_id=str(decision.id),
+                order_id=str(order.id),
+                side=order.side,
+                qty=str(order.requested_qty),
+                created_signal=created_signal,
+                created_decision=created_decision,
+                created_order=created_order,
+                filled_order=False,
+                created_or_updated_position=False,
+                safety_mode="PAPER_ONLY_NO_BROKER",
+            )
+
+        session.refresh(portfolio)
+        return _completed("COMPLETED", created_signal, created_decision, created_order)
+
+
+@app.post(
     "/v1/review/signal-preview",
     response_model=ReviewSignalPreviewResponse,
     status_code=status.HTTP_200_OK,
@@ -8375,6 +8780,64 @@ async def get_workflow_status() -> WorkflowStatusResponse:
                 reason="No order-eligible trade decisions.",
             ))
 
+        # --- Current-cycle separation: only today's candidates + live order/
+        #     position facts drive the canonical next action. Historical
+        #     approved candidates are reported but never selected. ---
+        today = date.today()
+        start_of_day = datetime(today.year, today.month, today.day)
+        today_q = session.query(CandidateReview).filter(
+            CandidateReview.created_at >= start_of_day
+        )
+        today_total = today_q.count()
+        current_pending = today_q.filter(CandidateReview.review_status == "NEW").count()
+        current_approved = today_q.filter(
+            CandidateReview.review_status == "APPROVED_FOR_SIGNAL"
+        ).count()
+        current_rejected = today_q.filter(CandidateReview.review_status == "REJECTED").count()
+        current_watch = today_q.filter(CandidateReview.review_status == "WATCHING").count()
+        historical_count = candidate_total - today_total
+        current_filled = session.query(Order).filter(
+            Order.status == "FILLED", Order.market_date == today
+        ).count()
+        any_pending_orders = session.query(Order).filter(Order.status == "PENDING").count() > 0
+        any_filled_orders = session.query(Order).filter(Order.status == "FILLED").count() > 0
+
+        stage = _derive_workflow_stage(
+            today_pending=current_pending,
+            today_approved=current_approved,
+            order_eligible=order_eligible,
+            has_pending_orders=any_pending_orders,
+            has_filled_orders=any_filled_orders,
+            has_open_positions=open_positions_count > 0,
+            today_total=today_total,
+        )
+        info = _WORKFLOW_STAGE_INFO[stage]
+
+        # Best-effort target ticker/candidate for the current action.
+        target_ticker: str | None = None
+        target_candidate_id: str | None = None
+        if stage == "REVIEW_CANDIDATES":
+            nxt = today_q.filter(CandidateReview.review_status == "NEW").order_by(
+                CandidateReview.created_at.asc()
+            ).first()
+            if nxt is not None:
+                target_ticker = nxt.ticker
+                target_candidate_id = str(nxt.id)
+        elif stage == "FILL_PAPER_ORDER":
+            po = session.query(Order).filter(Order.status == "PENDING").order_by(
+                Order.requested_at.asc()
+            ).first()
+            if po is not None:
+                target_ticker = po.ticker
+
+        next_action = WorkflowNextAction(
+            stage=stage,
+            label=info["primary_button_label"],
+            ticker=target_ticker,
+            target_candidate_id=target_candidate_id,
+            route=info["active_workspace"],
+        )
+
     return WorkflowStatusResponse(
         review_candidates=candidates_counts,
         review_created_signals=signals_counts,
@@ -8384,6 +8847,13 @@ async def get_workflow_status() -> WorkflowStatusResponse:
         safety={"create_orders_enabled": True, "automation_enabled": False},
         open_positions=open_positions_count,
         current_cycle_key=current_cycle_key,
+        current_pending_review_count=current_pending,
+        current_approved_ticket_ready_count=current_approved,
+        current_filled_count=current_filled,
+        current_rejected_count=current_rejected,
+        current_watch_count=current_watch,
+        historical_candidate_count=historical_count,
+        next_action=next_action,
     )
 
 

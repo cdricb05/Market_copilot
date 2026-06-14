@@ -1792,6 +1792,10 @@
           <div id="dp-current-task-safety" style="display:none;"></div>
         </div>
 
+        <!-- Live Daily Review progress: rendered in the main Daily Review panel
+             so the user follows Start Daily Review without tab-dancing to Overview. -->
+        <div id="dp-daily-review-progress" style="display:none; margin-bottom:12px;"></div>
+
         <!-- Active Action Workspace: the single section that shows the current
              required action, ALWAYS directly below Today's Review. Exactly one
              sub-workspace is visible at a time, driven by the canonical state. -->
@@ -1853,11 +1857,39 @@
             <button id="dcc-watch-btn" class="btn" style="flex: 1 1 140px; background: var(--warning); color: #1a1a2e; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('WATCHING')">Watch Only</button>
             <button id="dcc-reject-btn" class="btn" style="flex: 1 1 120px; background: var(--danger); color: #fff; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('REJECTED')">Reject</button>
           </div>
-          <div style="font-size: 9px; color: var(--label); padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 2px; line-height: 1.5;">Review actions only. No signals, decisions, orders, trades, fills, or broker actions are created. Approving a trade idea does not place a trade.</div>
+          <div style="font-size: 9px; color: var(--label); padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 2px; line-height: 1.5;">Review actions only. No signals, decisions, orders, trades, fills, or broker actions are created. Approving a trade idea does not place a trade. Approving does not place a trade. It only prepares a paper trade ticket.</div>
         </div>
           <div style="font-size: 10px; color: var(--text-accent); padding: 6px 10px; background: rgba(245,158,11,.06); border-left: 2px solid var(--warning); border-radius: 0 2px 2px 0; line-height: 1.5;">Choose one action. This records your manual review only. It does not create orders or trades.</div>
         </div>
         <!-- /candidates-to-review-workspace -->
+
+        <!-- Today's Trade Ideas: full scan-result visibility with plain-English rationale -->
+        <div id="dp-todays-candidates" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(245,158,11,.4); margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 13px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Today's Trade Ideas</div>
+              <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+            </div>
+            <span id="dp-tc-count" style="font-size: 10px; color: var(--label); font-weight: 600;"></span>
+          </div>
+          <div id="dp-tc-list"></div>
+          <div id="dp-tc-older"></div>
+        </div>
+
+        <!-- Positions to Review: HOLD / WATCH / REVIEW_FOR_EXIT for existing holdings -->
+        <div id="dp-positions-to-review" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(239,68,68,.35); margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(239,68,68,.2); padding-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 13px; font-weight: 800; color: var(--danger); letter-spacing: .02em;">Positions to Review</div>
+              <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+            </div>
+            <span id="dp-ptr-count" style="font-size: 10px; color: var(--label); font-weight: 600;"></span>
+          </div>
+          <div style="font-size: 9px; color: var(--text-accent); margin-bottom: 6px; line-height: 1.4;">This is a paper portfolio review only. No broker order is sent.</div>
+          <div id="dp-ptr-list"></div>
+        </div>
 
         <!-- Candidate Review Progress Gate (collapsed) -->
         <details style="margin-bottom: 12px;">
@@ -9735,7 +9767,12 @@ async function updateReviewStatus(candidateId, newStatus, reasonCode, note) {
     const result = await parseApiResponse(r);
     if (r.ok) {
       await loadReviewQueue();
-      refreshCockpitAfterAction('Candidate Review');
+      await refreshCockpitAfterAction('Candidate Review');
+      // C: approval immediately routes to the Paper Trade Ticket once the
+      // post-approval stage has advanced. Watch/Reject stay in the candidate list.
+      if (newStatus === 'APPROVED_FOR_SIGNAL') {
+        try { _focusPaperTradeTicket(); } catch (e) {}
+      }
     } else {
       toast(`Failed: ${result.detail}`, 'err');
     }
@@ -10934,6 +10971,7 @@ async function connectDashboardLegacy() {
         loadOrders(),
         loadHistory(),
         loadReviewQueue(),
+        loadPositionsToReview(),
         loadMarketDashboard(),
       ]);
       updateConnectStatus('Connected');
@@ -11219,6 +11257,20 @@ function startDailyReviewSession(btn) {
   panel.classList.add('active');
 }
 
+// Disable every "Start Daily Review" entry point while a session is running so
+// the user cannot launch a second concurrent run (A.5). Matches buttons by their
+// onclick handler (Overview card, Daily Plan workspace, right panel, etc.).
+function _setStartReviewButtonsDisabled(disabled) {
+  try {
+    document.querySelectorAll('button').forEach(function(b) {
+      const oc = b.getAttribute('onclick') || '';
+      if (oc.indexOf('startDailyReviewSession') !== -1 || oc.indexOf("'start_daily_review'") !== -1) {
+        b.disabled = !!disabled;
+      }
+    });
+  } catch (e) {}
+}
+
 function _drsCancel() {
   const panel = document.getElementById('daily-session-panel');
   if (panel) panel.classList.remove('active');
@@ -11233,18 +11285,36 @@ async function _drsConfirm() {
 async function _runDailyReviewSession() {
   const btn = document.getElementById('start-daily-session-btn');
   const progEl = document.getElementById('daily-session-progress');
+  const dpProgEl = document.getElementById('dp-daily-review-progress');
+  // Keep the user in one flow (A): disable every Start Daily Review button,
+  // switch to Daily Plan, and scroll to the live progress card in the main
+  // Daily Review panel. No Overview tab-dancing to watch progress.
+  window._dailyReviewRunning = true;
+  _setStartReviewButtonsDisabled(true);
   if (btn) btn.disabled = true;
   if (progEl) { progEl.style.display = 'block'; progEl.innerHTML = ''; }
+  if (dpProgEl) { dpProgEl.style.display = 'block'; dpProgEl.innerHTML = ''; }
+  try { if (window._switchTab) window._switchTab('prediction-cockpit'); } catch (e) {}
+  try {
+    const _scrollEl = document.getElementById('dp-daily-review-progress') || document.getElementById('dp-current-task-card');
+    if (_scrollEl) _scrollEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {}
+
+  function _drsCleanup() {
+    window._dailyReviewRunning = false;
+    _setStartReviewButtonsDisabled(false);
+    if (btn) btn.disabled = false;
+  }
 
   const steps = [
-    { id: 'mkt',  label: 'Market data refreshed',          status: 'pending', detail: '' },
-    { id: 'pred', label: 'Daily process preview complete',  status: 'pending', detail: '' },
-    { id: 'save', label: 'New-entry candidates saved',      status: 'pending', detail: '' },
-    { id: 'summ', label: 'Daily Review Summary generated',  status: 'pending', detail: '' },
+    { id: 'mkt',  label: 'Refreshing market data...',                status: 'pending', detail: '' },
+    { id: 'pred', label: 'Running S&P 500 scan...',                  status: 'pending', detail: '' },
+    { id: 'pos',  label: 'Reviewing current portfolio positions...', status: 'pending', detail: '' },
+    { id: 'save', label: "Saving today's candidates...",             status: 'pending', detail: '' },
+    { id: 'summ', label: "Building today's review...",               status: 'pending', detail: '' },
   ];
 
   function _drsRenderSteps(extra) {
-    if (!progEl) return;
     const html = steps.map(function(s) {
       const icon = s.status === 'done' ? '&#10003;' : s.status === 'running' ? '&#9675;' : s.status === 'failed' ? '&#10007;' : '&#8212;';
       const clr  = s.status === 'done' ? 'var(--ok)' : s.status === 'running' ? 'var(--info)' : s.status === 'failed' ? 'var(--danger)' : 'var(--label)';
@@ -11254,7 +11324,11 @@ async function _runDailyReviewSession() {
         + (s.detail ? '<span style="font-size:9px;color:var(--text-secondary);">' + escapeHtml(s.detail) + '</span>' : '')
         + '</div>';
     }).join('');
-    progEl.innerHTML = '<div style="padding:8px 10px;background:rgba(0,0,0,.2);border:1px solid var(--border);border-radius:3px;">' + html + (extra || '') + '</div>';
+    const _wrap = '<div style="padding:8px 10px;background:rgba(0,0,0,.2);border:1px solid var(--border);border-radius:3px;">'
+      + '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--warning);margin-bottom:4px;">Daily Review in progress</div>'
+      + html + (extra || '') + '</div>';
+    if (progEl) progEl.innerHTML = _wrap;
+    if (dpProgEl) dpProgEl.innerHTML = _wrap;
   }
 
   function _drsSetStep(id, status, detail) {
@@ -11278,7 +11352,7 @@ async function _runDailyReviewSession() {
     if (!rA.ok) {
       _drsSetStep('mkt', 'failed', (dA.detail || ('HTTP ' + rA.status)));
       toast('Daily session stopped: market refresh failed', 'err');
-      if (btn) btn.disabled = false;
+      _drsCleanup();
       return;
     }
     const snapNote = dA.portfolio_snapshot_created_or_updated ? 'snapshot updated' : 'snapshot unchanged';
@@ -11288,7 +11362,7 @@ async function _runDailyReviewSession() {
   } catch (eA) {
     _drsSetStep('mkt', 'failed', eA.message);
     toast('Daily session stopped: network error', 'err');
-    if (btn) btn.disabled = false;
+    _drsCleanup();
     return;
   }
 
@@ -11317,7 +11391,7 @@ async function _runDailyReviewSession() {
     if (!rB.ok) {
       _drsSetStep('pred', 'failed', (dB.detail || ('HTTP ' + rB.status)));
       toast('Daily session stopped: prediction preview failed', 'err');
-      if (btn) btn.disabled = false;
+      _drsCleanup();
       return;
     }
     window._lastPredictionPreviewData = dB;
@@ -11330,11 +11404,32 @@ async function _runDailyReviewSession() {
   } catch (eB) {
     _drsSetStep('pred', 'failed', eB.message);
     toast('Daily session stopped: prediction preview error', 'err');
-    if (btn) btn.disabled = false;
+    _drsCleanup();
     return;
   }
 
-  // Step C: Save eligible new-entry candidates to Review Queue
+  // Step C: Review current portfolio positions (read-only daily review summary).
+  // This runs holdings review as part of the same daily review pass (F) so the
+  // user never has to trigger a separate, disconnected Watch Position action.
+  // Non-fatal: a positions failure must not abort the candidate flow.
+  _drsSetStep('pos', 'running');
+  try {
+    const rP = await call('GET', '/v1/review/daily-review-summary');
+    if (rP.ok) {
+      const dP = await rP.json();
+      window._lastDailyReviewSummary = dP;
+      _syncDrsToUi(dP);
+      try { renderPositionsToReview(dP); } catch (e) {}
+      const _toReview = (dP.review_for_exit_count || 0) + (dP.watch_count || 0);
+      _drsSetStep('pos', 'done', (dP.open_position_count || 0) + ' open, ' + _toReview + ' to review');
+    } else {
+      _drsSetStep('pos', 'done', 'positions unavailable');
+    }
+  } catch (eP) {
+    _drsSetStep('pos', 'done', 'positions unavailable');
+  }
+
+  // Step D: Save eligible new-entry candidates to Review Queue
   _drsSetStep('save', 'running');
   try {
     const cands = (_candResult.candidate_previews || []).filter(function(c) {
@@ -11378,10 +11473,11 @@ async function _runDailyReviewSession() {
       if (!rC.ok) {
         _drsSetStep('save', 'failed', (dC.detail || ('HTTP ' + rC.status)));
         toast('Daily session stopped: save candidates failed', 'err');
-        if (btn) btn.disabled = false;
+        _drsCleanup();
         return;
       }
       _savedCount = dC.inserted_count || 0;
+      window._drsExistedCount = dC.skipped_existing_count || 0;
       if (window._lastPredictionPreviewData) window._lastPredictionPreviewData._saved = true;
       _drsSetStep('save', 'done', _savedCount + ' saved, ' + (dC.skipped_existing_count || 0) + ' already existed');
       await loadReviewQueue();
@@ -11389,11 +11485,12 @@ async function _runDailyReviewSession() {
   } catch (eC) {
     _drsSetStep('save', 'failed', eC.message);
     toast('Daily session stopped: save candidates error', 'err');
-    if (btn) btn.disabled = false;
+    _drsCleanup();
     return;
   }
 
-  // Step D: Generate Daily Review Summary
+  // Step E: Build today's review (refresh the summary with the just-saved
+  // candidate counts and render every workflow surface).
   _drsSetStep('summ', 'running');
   try {
     const rD = await call('GET', '/v1/review/daily-review-summary');
@@ -11412,14 +11509,22 @@ async function _runDailyReviewSession() {
 
   // Record the latest session outcome so the UI routes off the actual scan
   // result (today saved 0 vs >=1), not stale review-queue rows.
-  _setDailySessionOutcome(_eligibleCount);
+  _setDailySessionOutcome(_eligibleCount, {
+    scanned: _scanned,
+    eligible: _eligibleCount,
+    saved: _savedCount,
+    existed: (window._drsExistedCount != null ? window._drsExistedCount : 0),
+    holdings: (window._lastDailyReviewSummary && window._lastDailyReviewSummary.open_position_count != null)
+      ? window._lastDailyReviewSummary.open_position_count
+      : _skippedHoldings,
+  });
 
   // Final result panel: one clear outcome summary using clear labels (no
   // "actionable"), plus the matching next action.
   const _fd = window._lastDailyReviewSummary;
   let _finalHtml = '';
   _finalHtml += '<div style="margin-top:8px;padding:8px 10px;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.25);border-radius:3px;">';
-  _finalHtml += '<div style="font-size:10px;font-weight:700;color:var(--ok);margin-bottom:5px;text-transform:uppercase;letter-spacing:.07em;">Daily review complete</div>';
+  _finalHtml += '<div style="font-size:10px;font-weight:700;color:var(--ok);margin-bottom:5px;text-transform:uppercase;letter-spacing:.07em;">Daily review complete.</div>';
   _finalHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:5px;">';
   _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Scanned: <strong>' + _scanned + '</strong></div>';
   _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Eligible: <strong>' + _eligibleCount + '</strong></div>';
@@ -11440,7 +11545,7 @@ async function _runDailyReviewSession() {
   _finalHtml += '</div>';
 
   _drsRenderSteps(_finalHtml);
-  if (btn) btn.disabled = false;
+  _drsCleanup();
 
   // Auto-refresh every surface so the next action is correct without a manual
   // refresh: Review Queue -> Today's Review + Review Progress + right panel +
@@ -11449,6 +11554,24 @@ async function _runDailyReviewSession() {
     await loadReviewQueue();
     if (_appState.connected) await refreshWorkflowStatus();
   } catch (eR) {}
+
+  // A.7: route the user to the exact section that needs the next action. No
+  // tab-dancing, no hunting. Candidates first, then position exits/watch, else
+  // the completed Daily Review panel.
+  try {
+    if (window._switchTab) window._switchTab('prediction-cockpit');
+    const _summ = window._lastDailyReviewSummary || {};
+    let _routeTarget;
+    if (_eligibleCount > 0 || _savedCount > 0) {
+      _routeTarget = 'dp-todays-candidates';
+    } else if ((_summ.review_for_exit_count || 0) > 0 || (_summ.watch_count || 0) > 0) {
+      _routeTarget = 'dp-positions-to-review';
+    } else {
+      _routeTarget = 'dp-current-task-card';
+    }
+    const _rt = document.getElementById(_routeTarget);
+    if (_rt) setTimeout(function() { try { _rt.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 150);
+  } catch (e) {}
   toast('Daily Review Session complete', 'ok');
 }
 
@@ -11858,8 +11981,16 @@ function _ptIsToday(ts) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
-function _setDailySessionOutcome(savedCount) {
+function _setDailySessionOutcome(savedCount, details) {
   const outcome = { date: _ptTodayStr(), savedCount: savedCount, ranAt: new Date().toISOString() };
+  if (details && typeof details === 'object') {
+    if (details.scanned != null) outcome.scanned = details.scanned;
+    if (details.eligible != null) outcome.eligible = details.eligible;
+    if (details.saved != null) outcome.saved = details.saved;
+    if (details.existed != null) outcome.existed = details.existed;
+    if (details.blocked != null) outcome.blocked = details.blocked;
+    if (details.holdings != null) outcome.holdings = details.holdings;
+  }
   window._dailySessionOutcome = outcome;
   try { localStorage.setItem('pt_daily_session_outcome', JSON.stringify(outcome)); } catch (e) {}
 }
@@ -11916,6 +12047,25 @@ function dccDecide(status) {
   _showReviewNotePanel(window._dccCurrentId, window._dccCurrentTicker, status);
 }
 
+// After "Approve for Paper Trade", route the user straight to the Paper Trade
+// Ticket so the next action is obvious (C). Switches to Daily Plan, scrolls to
+// the ticket card, and briefly highlights it. The ticket card is rendered by
+// renderTradeFlowCard once the stage advances (todayApproved > 0).
+function _focusPaperTradeTicket() {
+  try { if (window._switchTab) window._switchTab('prediction-cockpit'); } catch (e) {}
+  const el = document.getElementById('dp-trade-flow-card');
+  if (!el || el.style.display === 'none') {
+    const tr = document.getElementById('dp-current-task-card');
+    if (tr) { try { tr.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
+    return;
+  }
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+  const _prev = el.style.boxShadow;
+  el.style.transition = 'box-shadow .2s ease';
+  el.style.boxShadow = '0 0 0 3px rgba(34,197,94,.7)';
+  setTimeout(function() { el.style.boxShadow = _prev; }, 1200);
+}
+
 // Render the single candidate decision card from today's saved candidates.
 // Shows the first candidate still needing review (status NEW). Auto-advances on
 // the next render after a decision is saved (loadReviewQueue ->
@@ -11961,19 +12111,392 @@ function renderCandidateDecisionCard(todays) {
   }
   const reasonEl = document.getElementById('dcc-reason');
   if (reasonEl) {
-    let main = '';
-    const pr = cur.preview_reasons;
-    if (Array.isArray(pr) && pr.length) main = pr.join(', ');
-    else if (typeof pr === 'string' && pr) main = pr;
-    const extras = [];
-    if (cur.prediction_confidence != null && cur.prediction_confidence !== '') extras.push('Confidence: ' + parseFloat(cur.prediction_confidence).toFixed(2));
-    if (cur.expected_return_pct != null && cur.expected_return_pct !== '') extras.push('Expected return: ' + parseFloat(cur.expected_return_pct).toFixed(1) + '%');
-    if (cur.forecast_price_5d != null && cur.forecast_price_5d !== '') extras.push('Forecast 5d: ' + parseFloat(cur.forecast_price_5d).toFixed(2));
-    if (typeof cur.market_context === 'string' && cur.market_context) extras.push('Context: ' + cur.market_context);
-    let combined = main;
-    if (extras.length) combined += (combined ? ' — ' : '') + extras.join('  ·  ');
-    reasonEl.textContent = combined || 'No additional model context available.';
+    reasonEl.textContent = _ptCandWhySelected(cur);
   }
+}
+
+// Plain-English rationale beginning with "Why selected:" plus the available
+// scan/prediction metrics (price, confidence, expected return, momentum, RS).
+function _ptCandRationale(c) {
+  let main = '';
+  const pr = c.preview_reasons;
+  if (Array.isArray(pr) && pr.length) main = pr.join(', ');
+  else if (typeof pr === 'string' && pr) main = pr;
+  if (!main && Array.isArray(c.scan_reason_codes) && c.scan_reason_codes.length) {
+    main = c.scan_reason_codes.map(function(x) { return String(x).replace(/_/g, ' ').toLowerCase(); }).join(', ');
+  }
+  return main || 'ranked by scan score and prediction model';
+}
+
+function _ptCandWhySelected(c) {
+  const extras = [];
+  if (c.latest_price != null && c.latest_price !== '') extras.push('Price: $' + parseFloat(c.latest_price).toFixed(2));
+  if (c.prediction_confidence != null && c.prediction_confidence !== '') extras.push('Confidence: ' + parseFloat(c.prediction_confidence).toFixed(2));
+  if (c.expected_return_pct != null && c.expected_return_pct !== '') extras.push('Expected return: ' + parseFloat(c.expected_return_pct).toFixed(1) + '%');
+  if (c.momentum_5d_pct != null && c.momentum_5d_pct !== '') extras.push('5d momentum: ' + parseFloat(c.momentum_5d_pct).toFixed(1) + '%');
+  if (c.momentum_20d_pct != null && c.momentum_20d_pct !== '') extras.push('20d momentum: ' + parseFloat(c.momentum_20d_pct).toFixed(1) + '%');
+  if (c.relative_strength_vs_spy_20d != null && c.relative_strength_vs_spy_20d !== '') extras.push('RS vs SPY: ' + parseFloat(c.relative_strength_vs_spy_20d).toFixed(1));
+  if (c.forecast_price_5d != null && c.forecast_price_5d !== '') extras.push('Forecast 5d: ' + parseFloat(c.forecast_price_5d).toFixed(2));
+  if (typeof c.market_context === 'string' && c.market_context) extras.push('Context: ' + c.market_context);
+  let combined = 'Why selected: ' + _ptCandRationale(c);
+  if (extras.length) combined += ' — ' + extras.join('  ·  ');
+  return combined;
+}
+
+// Exact per-trade-idea review status label (v3): never shows the internal
+// scan status ("OK"). Returns the user-facing state the spec requires so each
+// idea clearly reads Needs Review / Approved for Paper Trade / Watch Only /
+// Rejected. Returns {text,color} for the card badge.
+function _ptIdeaStatusLabel(c) {
+  // Completion is proven per candidate by the backend paper-trade response,
+  // never inferred from a global flag or an unrelated filled order. Only a
+  // candidate whose own paper trade returned a matching FILLED order shows
+  // "Paper Trade Completed".
+  if (c && window._completedPaperTrades && window._completedPaperTrades.has(c.id)) {
+    return { text: 'Paper Trade Completed', color: 'var(--ok)' };
+  }
+  if (c && window._blockedPaperTrades && window._blockedPaperTrades.has(c.id)) {
+    return { text: 'Blocked by risk', color: 'var(--danger)' };
+  }
+  const s = c ? c.review_status : null;
+  if (s === 'APPROVED_FOR_SIGNAL') return { text: 'Approved for Paper Trade', color: 'var(--ok)' };
+  if (s === 'WATCHING') return { text: 'Watch Only', color: 'var(--warning)' };
+  if (s === 'REJECTED') return { text: 'Rejected', color: 'var(--danger)' };
+  return { text: 'Needs Review', color: 'var(--text-accent)' };
+}
+
+// One compact candidate card for the "Today's Trade Ideas" list.
+function _ptCandCardHtml(c) {
+  const rec = c.prediction_recommendation || c.preview_decision || '-';
+  const recColor = rec === 'BUY' ? 'var(--ok)' : rec === 'SELL' ? 'var(--danger)' : rec === 'HOLD' ? 'var(--text-secondary)' : 'var(--warning)';
+  const score = (c.preview_score != null && c.preview_score !== '') ? parseFloat(c.preview_score).toFixed(1) : '-';
+  const price = (c.latest_price != null && c.latest_price !== '') ? '$' + parseFloat(c.latest_price).toFixed(2) : '-';
+  const conf = (c.prediction_confidence != null && c.prediction_confidence !== '') ? parseFloat(c.prediction_confidence).toFixed(2) : '-';
+  const ret = (c.expected_return_pct != null && c.expected_return_pct !== '') ? parseFloat(c.expected_return_pct).toFixed(1) + '%' : '-';
+  const m5 = (c.momentum_5d_pct != null && c.momentum_5d_pct !== '') ? parseFloat(c.momentum_5d_pct).toFixed(1) + '%' : '-';
+  const m20 = (c.momentum_20d_pct != null && c.momentum_20d_pct !== '') ? parseFloat(c.momentum_20d_pct).toFixed(1) + '%' : '-';
+  const rs = (c.relative_strength_vs_spy_20d != null && c.relative_strength_vs_spy_20d !== '') ? parseFloat(c.relative_strength_vs_spy_20d).toFixed(1) : '-';
+  const _ideaStatus = _ptIdeaStatusLabel(c);
+  function metric(label, val) {
+    return '<div style="text-align:center;"><div style="font-size:8px;color:var(--label);text-transform:uppercase;letter-spacing:.04em;">' + label + '</div><div style="font-size:11px;font-weight:700;color:var(--text-primary);">' + val + '</div></div>';
+  }
+  return '<div style="border:1px solid var(--border);border-radius:3px;padding:7px 9px;margin-bottom:6px;background:rgba(0,0,0,.12);">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'
+    +   '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:14px;font-weight:800;color:var(--text-primary);">' + escapeHtml(c.ticker) + '</span>'
+    +   '<span style="font-size:11px;font-weight:700;color:' + recColor + ';">' + escapeHtml(rec) + '</span></div>'
+    +   '<span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,.06);color:' + _ideaStatus.color + ';">' + escapeHtml(_ideaStatus.text) + '</span>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:5px;">'
+    +   metric('Score', score) + metric('Price', price) + metric('Conf', conf) + metric('Exp. Ret', ret) + metric('5d Mom', m5) + metric('20d Mom', m20) + metric('RS vs SPY', rs)
+    + '</div>'
+    + '<div style="font-size:9px;color:var(--text-secondary);line-height:1.4;"><span style="font-weight:700;color:var(--warning);">Why selected:</span> ' + escapeHtml(_ptCandRationale(c)) + '</div>'
+    + _ptCandTicketHtml(c)
+    + '</div>';
+}
+
+// Candidate-scoped paper-trade ticket / completion / result area shown inline on
+// an approved idea card. The "Create & Fill Paper Trade" button calls ONLY the
+// candidate-scoped endpoint so the action affects this exact ticker.
+function _ptCandTicketHtml(c) {
+  const tk = escapeHtml(c.ticker);
+  const done = !!(window._completedPaperTrades && window._completedPaperTrades.has(c.id));
+  const resultDiv = '<div id="pt-result-' + c.id + '" style="margin-top:6px;"></div>';
+  if (done) {
+    // Completion state survives re-render via the per-candidate result cache.
+    const cached = (window._completedPaperTradeCards && window._completedPaperTradeCards[c.id]) || '';
+    return '<div style="margin-top:6px;">' + cached + '</div>';
+  }
+  if (c.review_status !== 'APPROVED_FOR_SIGNAL') {
+    return resultDiv;
+  }
+  return '<div style="margin-top:7px;border-top:1px dashed var(--border);padding-top:6px;">'
+    + '<div style="font-size:10px;font-weight:800;color:var(--ok);margin-bottom:2px;">Paper Trade Ticket Ready for ' + tk + '</div>'
+    + '<div style="font-size:8px;color:var(--label);margin-bottom:5px;">No broker execution. Paper portfolio only. No live trade.</div>'
+    + '<button class="btn-sm" style="background:var(--ok);color:#06281a;font-weight:800;font-size:10px;padding:5px 12px;" '
+    +   'onclick="createAndFillCandidatePaperTrade(\'' + c.id + '\', \'' + tk + '\', this)">Create &amp; Fill Paper Trade</button>'
+    + resultDiv
+    + '</div>';
+}
+
+// Create and fill ONE paper trade for ONE approved candidate. Calls only the
+// candidate-scoped endpoint and proves completion against the returned ticker
+// before showing "Paper Trade Completed". Uses the styled write-confirm modal,
+// never a native browser dialog.
+async function createAndFillCandidatePaperTrade(candidateId, ticker, btn) {
+  const resultEl = document.getElementById('pt-result-' + candidateId);
+  function fail(msg) {
+    const html = '<div style="margin-top:6px;border:1px solid var(--danger);border-radius:3px;padding:6px 8px;background:rgba(239,68,68,.08);">'
+      + '<div style="font-size:10px;font-weight:800;color:var(--danger);">Paper trade was not created for ' + escapeHtml(ticker) + '. No portfolio position was added.</div>'
+      + '<div style="font-size:9px;color:var(--text-secondary);margin-top:2px;">' + escapeHtml(msg || '') + '</div>'
+      + '</div>';
+    if (resultEl) resultEl.innerHTML = html;
+    (window._blockedPaperTrades = window._blockedPaperTrades || new Set());
+    toast('Paper trade was not created for ' + ticker + '.', 'error');
+  }
+  window._showWriteConfirm({
+    title: 'Create & Fill Paper Trade: ' + ticker,
+    writes: [
+      'Creates a Signal, TradeDecision, and PENDING paper order for ' + ticker,
+      'Fills the paper order locally and opens/updates the ' + ticker + ' position',
+      'Updates portfolio cash, total value, and the local portfolio snapshot',
+    ],
+    doesNotDo: [
+      'does not send a live broker order',
+      'does not execute a live trade',
+      'does not enable automation',
+    ],
+    confirmLabel: 'Create & Fill Paper Trade',
+    onConfirm: async () => {
+      if (btn) { btn.disabled = true; btn.textContent = 'Filling…'; }
+      try {
+        const r = await call('POST', `/v1/review/candidates/${candidateId}/paper-trade`, { confirm_paper_trade: true });
+        const data = await parseApiResponse(r);
+        if (!r.ok) { fail(formatApiError(data)); return; }
+        // Strict, candidate-scoped completion proof. Never trust a global flag
+        // or an unrelated filled order.
+        const ok = data
+          && data.ticker === ticker
+          && data.filled_order === true
+          && (data.status === 'COMPLETED' || data.status === 'ALREADY_COMPLETED')
+          && data.order_id && data.trade_id && data.position_id;
+        if (!ok) {
+          if (data && data.status === 'BLOCKED') {
+            (window._blockedPaperTrades = window._blockedPaperTrades || new Set()).add(candidateId);
+          }
+          fail((data && data.reason) ? data.reason : 'Backend did not confirm a filled paper order for ' + ticker + '.');
+          return;
+        }
+        const card = _ptCompletedCardHtml(data);
+        (window._completedPaperTradeCards = window._completedPaperTradeCards || {})[candidateId] = card;
+        (window._completedPaperTrades = window._completedPaperTrades || new Set()).add(candidateId);
+        if (resultEl) resultEl.innerHTML = card;
+        toast('Paper trade completed for ' + ticker + '. Portfolio updated.', 'success');
+        try { await refreshCockpitAfterAction('Create & Fill Paper Trade'); } catch (e) { /* best-effort */ }
+      } catch (e) {
+        fail(String(e && e.message ? e.message : e));
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Create & Fill Paper Trade'; }
+      }
+    },
+    onCancel: () => {},
+  });
+}
+
+// Build the candidate-scoped "Paper Trade Completed" card from a validated,
+// ticker-matched backend response.
+function _ptCompletedCardHtml(d) {
+  function shortId(v) { return v ? String(v).slice(0, 8) : '-'; }
+  const fp = (d.fill_price != null) ? '$' + parseFloat(d.fill_price).toFixed(2) : '-';
+  const comm = (d.commission != null) ? '$' + parseFloat(d.commission).toFixed(2) : '-';
+  return '<div style="margin-top:6px;border:1px solid var(--ok);border-radius:3px;padding:7px 9px;background:rgba(34,197,94,.08);">'
+    + '<div style="font-size:11px;font-weight:800;color:var(--ok);margin-bottom:4px;">Paper Trade Completed</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:5px;">'
+    +   _ptKV('Ticker', escapeHtml(d.ticker)) + _ptKV('Side', escapeHtml(d.side || '-'))
+    +   _ptKV('Qty', escapeHtml(String(d.qty || '-'))) + _ptKV('Fill', fp)
+    +   _ptKV('Commission', comm) + _ptKV('Order', shortId(d.order_id))
+    +   _ptKV('Trade', shortId(d.trade_id)) + _ptKV('Position', shortId(d.position_id))
+    + '</div>'
+    + '<div style="font-size:9px;color:var(--ok);font-weight:700;margin-bottom:5px;">FILLED &bull; Portfolio updated</div>'
+    + '<button class="btn-sm" style="background:var(--text-accent);color:#fff;font-weight:700;font-size:10px;padding:5px 12px;" onclick="viewPortfolio()">View Portfolio</button>'
+    + '</div>';
+}
+
+function _ptKV(label, val) {
+  return '<div style="text-align:center;"><div style="font-size:8px;color:var(--label);text-transform:uppercase;letter-spacing:.04em;">' + label + '</div><div style="font-size:10px;font-weight:700;color:var(--text-primary);word-break:break-all;">' + val + '</div></div>';
+}
+
+// Render the "Today's Trade Ideas" section: every candidate from the active
+// session with rationale, or a clear empty state with the scan funnel summary.
+// Older review items are surfaced separately under a collapsed section.
+function renderTodaysCandidates(todays, older) {
+  const card = document.getElementById('dp-todays-candidates');
+  const listEl = document.getElementById('dp-tc-list');
+  const olderEl = document.getElementById('dp-tc-older');
+  const countEl = document.getElementById('dp-tc-count');
+  if (!card || !listEl) return;
+  const sessionRanToday = !!_getDailySessionOutcome();
+  const hasToday = todays && todays.length > 0;
+
+  if (!hasToday && !sessionRanToday) {
+    // No candidates and no session run yet today: keep the section hidden so
+    // Start Daily Review drives the workflow.
+    card.style.display = 'none';
+    listEl.innerHTML = '';
+    if (olderEl) olderEl.innerHTML = '';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+
+  card.style.display = '';
+
+  if (!hasToday) {
+    // Session ran today and saved nothing: explicit empty state + scan funnel.
+    if (countEl) countEl.textContent = '';
+    const o = _getDailySessionOutcome() || {};
+    const summ = window._lastDailyReviewSummary || {};
+    const scanned = (o.scanned != null) ? o.scanned : '-';
+    const eligible = (o.eligible != null) ? o.eligible : 0;
+    const saved = (o.saved != null) ? o.saved : 0;
+    const existed = (o.existed != null) ? o.existed : 0;
+    const blocked = (o.blocked != null) ? o.blocked : null;
+    const holdings = (summ.open_position_count != null) ? summ.open_position_count : ((o.holdings != null) ? o.holdings : '-');
+    let html = `<div style="font-size:12px;font-weight:800;color:var(--ok);margin-bottom:3px;">No new trade ideas met today's criteria.</div>`;
+    html += '<div style="font-size:10px;color:var(--text-accent);margin-bottom:6px;">Scan completed across the configured universe.</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:5px;">';
+    html += '<span style="font-size:9px;background:rgba(255,255,255,.07);padding:2px 7px;border-radius:3px;">Scanned: ' + scanned + '</span>';
+    html += '<span style="font-size:9px;background:rgba(255,255,255,.07);padding:2px 7px;border-radius:3px;">Eligible: ' + eligible + '</span>';
+    html += '<span style="font-size:9px;background:rgba(34,197,94,.1);color:var(--ok);padding:2px 7px;border-radius:3px;">Saved today: ' + saved + '</span>';
+    html += '<span style="font-size:9px;background:rgba(251,191,36,.08);color:var(--warning);padding:2px 7px;border-radius:3px;">Already existed: ' + existed + '</span>';
+    if (blocked != null) html += '<span style="font-size:9px;background:rgba(239,68,68,.1);color:var(--danger);padding:2px 7px;border-radius:3px;">Blocked: ' + blocked + '</span>';
+    html += '<span style="font-size:9px;background:rgba(255,255,255,.07);padding:2px 7px;border-radius:3px;">Current holdings reviewed: ' + holdings + '</span>';
+    html += '</div>';
+    listEl.innerHTML = html;
+  } else {
+    const ordered = todays.slice().sort(function(a, b) {
+      return (a.scan_rank != null ? a.scan_rank : 999) - (b.scan_rank != null ? b.scan_rank : 999);
+    });
+    if (countEl) countEl.textContent = ordered.length + ' idea' + (ordered.length === 1 ? '' : 's');
+    listEl.innerHTML = `<div style="font-size:11px;font-weight:800;color:var(--ok);margin-bottom:3px;">Only ${ordered.length} trade idea${ordered.length === 1 ? '' : 's'} met today's criteria.</div>`
+      + '<div style="font-size:10px;color:var(--text-accent);margin-bottom:6px;line-height:1.4;">Review each candidate below. Choose Approve, Watch, or Reject.</div>'
+      + ordered.map(_ptCandCardHtml).join('');
+  }
+
+  if (olderEl) {
+    if (!older || older.length === 0) {
+      olderEl.innerHTML = '';
+    } else {
+      olderEl.innerHTML = '<details style="margin-top:6px;"><summary style="font-size:9px;font-weight:600;color:var(--label);cursor:pointer;user-select:none;padding:4px 0;text-transform:uppercase;letter-spacing:.06em;">Older trade ideas — history only (' + older.length + ')</summary>'
+        + `<div style="font-size:9px;color:var(--label);font-style:italic;margin:4px 0 6px;">Older trade ideas — not part of today's active workflow. Older review items are not part of today's new scan.</div>`
+        + older.map(_ptCandCardHtml).join('') + '</details>';
+    }
+  }
+}
+
+// Exact per-position action label (v3). REVIEW_FOR_EXIT/SELL needs attention;
+// WATCH and HOLD are explicitly "no action required" so the user is never asked
+// to manage a healthy position manually.
+function _ptPositionStatusLabel(rec) {
+  if (rec === 'REVIEW_FOR_EXIT' || rec === 'SELL') return { text: 'Position needs review', color: 'var(--danger)' };
+  if (rec === 'WATCH') return { text: 'Monitor only — no action required yet.', color: 'var(--warning)' };
+  if (rec === 'HOLD') return { text: 'Hold — no action required.', color: 'var(--text-secondary)' };
+  return { text: '', color: 'var(--text-secondary)' };
+}
+
+// One "Review Position Exit" card for an open position flagged WATCH or
+// REVIEW_FOR_EXIT by the daily review summary.
+function _ptPositionExitCardHtml(p) {
+  const isExit = p.recommendation === 'REVIEW_FOR_EXIT';
+  const recColor = isExit ? 'var(--danger)' : 'var(--warning)';
+  const pnlPctNum = parseFloat(p.unrealized_pnl_pct);
+  const pnlPct = (p.unrealized_pnl_pct != null && p.unrealized_pnl_pct !== '') ? pnlPctNum.toFixed(2) + '%' : '-';
+  const pnl = (p.unrealized_pnl != null && p.unrealized_pnl !== '') ? usd(p.unrealized_pnl) : '-';
+  const pnlColor = (!isNaN(pnlPctNum) && pnlPctNum < 0) ? 'var(--danger)' : 'var(--ok)';
+  const thresh = isExit ? 'Below stop-loss threshold (-5% unrealized).' : 'Watch threshold: unrealized loss or concentrated weight (>25%).';
+  const title = isExit ? 'Review Position Exit' : 'Review Position';
+  const tk = escapeHtml(p.ticker);
+  let buttons = '';
+  if (isExit) {
+    buttons += '<button class="btn-sm" style="background:var(--danger);color:#fff;font-weight:700;font-size:10px;padding:5px 12px;" onclick="approvePaperSell(\'' + tk + '\')">Approve Paper Sell</button>';
+  }
+  buttons += '<button class="btn-sm" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:10px;padding:5px 12px;" onclick="watchPosition(\'' + tk + '\', this)">Watch Position</button>';
+  buttons += '<button class="btn-sm" style="background:rgba(255,255,255,.1);color:var(--text-primary);font-weight:700;font-size:10px;padding:5px 12px;" onclick="holdPosition(\'' + tk + '\', this)">Hold</button>';
+  return '<div style="border:1px solid var(--border);border-radius:3px;padding:7px 9px;margin-bottom:6px;background:rgba(0,0,0,.12);">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'
+    +   '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:13px;font-weight:800;color:var(--text-primary);">' + tk + '</span>'
+    +   '<span style="font-size:11px;font-weight:700;color:' + recColor + ';">' + title + '</span></div>'
+    +   '<span style="font-size:10px;font-weight:700;color:' + pnlColor + ';">' + pnlPct + '</span>'
+    + '</div>'
+    + '<div style="font-size:9px;font-weight:800;color:' + _ptPositionStatusLabel(p.recommendation).color + ';margin-bottom:4px;">' + escapeHtml(_ptPositionStatusLabel(p.recommendation).text) + '</div>'
+    + '<div style="font-size:9px;color:var(--text-secondary);line-height:1.4;margin-bottom:6px;">Qty ' + escapeHtml(String(p.qty)) + ' &bull; Unrealized ' + pnl + ' (' + pnlPct + '). ' + thresh + ' Recommendation: ' + escapeHtml(p.recommendation) + '.</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:5px;">' + buttons + '</div>'
+    + '<div style="font-size:8px;color:var(--label);">This is a paper portfolio review only. No broker order is sent.</div>'
+    + '</div>';
+}
+
+// Render the "Positions to Review" section from daily-review-summary data.
+// Shows WATCH and REVIEW_FOR_EXIT positions; hidden when all positions HOLD.
+function renderPositionsToReview(summary) {
+  const card = document.getElementById('dp-positions-to-review');
+  const listEl = document.getElementById('dp-ptr-list');
+  const countEl = document.getElementById('dp-ptr-count');
+  if (!card || !listEl) return;
+  const positions = (summary && Array.isArray(summary.open_positions)) ? summary.open_positions : [];
+  const toReview = positions.filter(function(p) { return p.recommendation === 'REVIEW_FOR_EXIT' || p.recommendation === 'WATCH'; });
+  if (toReview.length === 0) {
+    card.style.display = 'none';
+    listEl.innerHTML = '';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  // Exit candidates first, then watch.
+  toReview.sort(function(a, b) {
+    const ra = a.recommendation === 'REVIEW_FOR_EXIT' ? 0 : 1;
+    const rb = b.recommendation === 'REVIEW_FOR_EXIT' ? 0 : 1;
+    return ra - rb;
+  });
+  card.style.display = '';
+  if (countEl) countEl.textContent = toReview.length + ' position' + (toReview.length === 1 ? '' : 's');
+  const monitorNote = '<div style="font-size:9px;color:var(--text-secondary);line-height:1.4;margin-bottom:6px;">This is monitoring your existing holdings. It does not create orders unless an explicit sell/exit action is approved.</div>';
+  listEl.innerHTML = monitorNote + toReview.map(_ptPositionExitCardHtml).join('');
+}
+
+// Fetch the read-only daily review summary and render Positions to Review.
+async function loadPositionsToReview() {
+  if (!_appState.connected) return;
+  try {
+    const r = await call('GET', '/v1/review/daily-review-summary');
+    if (!r.ok) return;
+    const d = await r.json();
+    window._lastDailyReviewSummary = d;
+    renderPositionsToReview(d);
+  } catch (e) { /* best-effort; section stays hidden */ }
+}
+
+// Approve Paper Sell: creates PENDING paper SELL order tickets for positions
+// flagged REVIEW_FOR_EXIT, then fills them locally. PAPER ONLY, no broker order.
+async function approvePaperSell(ticker) {
+  return new Promise(function(resolve) {
+    window._showWriteConfirm({
+      title: 'Approve Paper Sell',
+      writes: [
+        'Creates PENDING paper SELL order tickets for positions flagged REVIEW_FOR_EXIT',
+        'Fills the paper SELL orders locally and updates positions and cash',
+        'Updates the local portfolio snapshot',
+      ],
+      doesNotDo: [
+        'does not send a live broker order',
+        'does not execute a live trade',
+        'does not enable automation',
+      ],
+      confirmLabel: 'Approve Paper Sell',
+      onConfirm: async () => {
+        try {
+          const c = await call('POST', '/v1/review/create-exit-orders', { confirm_create_exit_orders: true });
+          if (!c.ok) { const e = await parseApiResponse(c); throw new Error(formatApiError(e)); }
+          const f = await call('POST', '/v1/review/fill-pending-orders', { confirm_paper_fill: true });
+          if (!f.ok) { const e = await parseApiResponse(f); throw new Error(formatApiError(e)); }
+          await refreshCockpitAfterAction('Approve Paper Sell');
+          toast('Paper sell completed. Portfolio updated.', 'success');
+        } catch (e) {
+          toast('Approve Paper Sell failed: ' + String(e && e.message ? e.message : e), 'error');
+        }
+        resolve();
+      },
+      onCancel: () => resolve(),
+    });
+  });
+}
+
+// Watch Position / Hold: record a manual review acknowledgement only. No DB
+// writes, no orders, no broker order.
+function watchPosition(ticker, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Watching'; }
+  toast(ticker + ' marked Watch Position. No broker order is sent.', 'info');
+}
+
+function holdPosition(ticker, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Holding'; }
+  toast(ticker + ' marked Hold. No broker order is sent.', 'info');
 }
 
 // ---------- Today's Review state machine ----------
@@ -12076,9 +12599,9 @@ function updateTodayReview(ctx) {
     // longer steps through them one at a time.
     _rpTask = 'Paper Trade Ticket';
     taskEl.textContent = 'Paper Trade Ticket';
-    if (nextEl) { nextEl.textContent = 'Review the paper trade ticket, then Place Paper Trade.'; nextEl.style.color = 'var(--ok)'; }
-    _rightNext = 'Place paper trade or cancel.';
-    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:700;font-size:11px;padding:7px 18px;" onclick="placePaperTrade()">Place Paper Trade</button>';
+    if (nextEl) { nextEl.textContent = 'Paper Order Ticket Ready. Review the ticket, then Create & Fill Paper Trade.'; nextEl.style.color = 'var(--ok)'; }
+    _rightNext = 'Create & Fill Paper Trade or cancel.';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:700;font-size:11px;padding:7px 18px;" onclick="placePaperTrade()">Create & Fill Paper Trade</button>';
     renderTradeFlowCard(_stage);
   } else if (window._workflowCompletedState) {
     // Paper order filled: positions and cash have been updated. Guide the user
@@ -12170,7 +12693,7 @@ function updateTodayReview(ctx) {
     if (_st === 'REVIEW_CANDIDATES') {
       _gtlTask = 'Review Trade Idea'; _gtlNext = 'Approve, Watch, or Reject the current candidate.';
     } else if (_st === 'GENERATE_TRADE_PLAN' || _st === 'CREATE_PAPER_ORDER' || _st === 'FILL_PAPER_ORDER') {
-      _gtlTask = 'Review Paper Trade Ticket'; _gtlNext = 'Place paper trade or cancel.';
+      _gtlTask = 'Review Paper Trade Ticket'; _gtlNext = 'Place the paper trade or cancel.';
     } else if (_st === 'PAPER_TRADE_COMPLETED') {
       _gtlTask = 'View Portfolio'; _gtlNext = 'Review updated position.';
     } else if (_st === 'NO_TRADE_PLAN' || _st === 'MONITOR_PORTFOLIO') {
@@ -12306,15 +12829,15 @@ function renderTradeFlowCard(stage) {
     // the existing endpoints; "Place Paper Trade" runs the whole chain at once.
     if (titleEl) titleEl.textContent = 'Paper Trade Ticket';
     if (stage === 'CREATE_ORDER') {
-      if (statusEl) { statusEl.textContent = 'No order has been created yet. Review the ticket below, then Place Paper Trade.'; statusEl.style.color = 'var(--warning)'; }
+      if (statusEl) { statusEl.textContent = 'Paper Order Ticket Ready. No order has been created yet. Review the ticket below, then Create & Fill Paper Trade.'; statusEl.style.color = 'var(--warning)'; }
     } else if (stage === 'FILL') {
-      if (statusEl) { statusEl.textContent = 'Paper order ticket created. This is still not a trade. Portfolio holdings update only after paper fill. Review the ticket below, then Place Paper Trade.'; statusEl.style.color = 'var(--ok)'; }
+      if (statusEl) { statusEl.textContent = 'Paper order ticket created. This is still not a trade. Portfolio holdings update only after paper fill. Review the ticket below, then Create & Fill Paper Trade.'; statusEl.style.color = 'var(--ok)'; }
     } else {
-      if (statusEl) { statusEl.textContent = 'Review the paper trade ticket below, then Place Paper Trade.'; statusEl.style.color = 'var(--info)'; }
+      if (statusEl) { statusEl.textContent = 'Paper Order Ticket Ready. Review the paper trade ticket below, then Create & Fill Paper Trade.'; statusEl.style.color = 'var(--info)'; }
     }
-    if (safetyEl) safetyEl.textContent = 'Paper portfolio only. No broker execution. Place Paper Trade creates and fills a local paper order only. No live broker order is created. Automation is off.';
+    if (safetyEl) safetyEl.textContent = 'Paper portfolio only. No broker execution. No live trade. Create & Fill Paper Trade creates and fills a local paper order only. No live broker order is created. Automation is off.';
     if (actionEl) {
-      var _ah = '<button id="tf-place-btn" class="btn" style="background:var(--ok);color:#04210f;font-weight:800;font-size:13px;padding:12px 18px;" onclick="placePaperTrade()">Place Paper Trade</button>';
+      var _ah = '<button id="tf-place-btn" class="btn" style="background:var(--ok);color:#04210f;font-weight:800;font-size:13px;padding:12px 18px;" onclick="placePaperTrade()">Create & Fill Paper Trade</button>';
       _ah += '<button class="btn" style="background:rgba(255,255,255,.08);color:var(--text-secondary);font-weight:700;font-size:12px;padding:12px 16px;" onclick="cancelPaperTrade()">Cancel Trade</button>';
       _ah += '<button class="btn" style="background:rgba(255,255,255,.08);color:var(--text-secondary);font-weight:700;font-size:12px;padding:12px 16px;" onclick="backToCandidate()">Back to Candidate</button>';
       _ah += '<details style="width:100%; margin-top:6px;"><summary style="font-size:9px; color:var(--label); cursor:pointer; text-transform:uppercase; letter-spacing:.06em;">Step by step (advanced)</summary>';
@@ -12339,7 +12862,52 @@ function renderTradeFlowCard(stage) {
     if (safetyEl) safetyEl.textContent = 'Paper portfolio only. No live broker execution. Automation off. Manual review.';
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:800;font-size:13px;padding:12px 18px;" onclick="viewPortfolio()">View Portfolio</button>';
     if (rowsEl) rowsEl.innerHTML = '<div style="font-size: 10px; color: var(--text-secondary); padding: 6px 10px; background: rgba(0,0,0,.15); border-radius: 3px; line-height: 1.5;">The paper order was filled. Open the Portfolio tab to see the new holding and updated positions.</div>';
+    // E: completion proof — show the filled paper order (ticker, side, qty,
+    // fill price, commission, order status) right in the completed card.
+    try { _renderPaperTradeCompleted(); } catch (e) {}
   }
+}
+
+// Render the filled paper order(s) inside the Paper Trade Completed card so the
+// user sees concrete proof: ticker, side, qty, Fill price, Commission, Order
+// status. Reads filled orders only — no writes.
+async function _renderPaperTradeCompleted() {
+  const rowsEl = document.getElementById('tf-rows');
+  if (!rowsEl) return;
+  const COMMISSION = 1.00;
+  try {
+    const r = await call('GET', '/v1/orders?status=FILLED');
+    if (r.ok) {
+      const os = await r.json();
+      const orders = Array.isArray(os) ? os.slice() : [];
+      orders.sort(function(a, b) {
+        return new Date(b.filled_at || b.updated_at || b.created_at || 0) - new Date(a.filled_at || a.updated_at || a.created_at || 0);
+      });
+      const recent = orders.slice(0, 5);
+      if (recent.length > 0) {
+        let html = '<div style="overflow-x:auto;border:1px solid var(--border);border-radius:3px;">';
+        html += '<table style="width:100%;border-collapse:collapse;font-size:10px;"><thead><tr style="background:rgba(0,0,0,.3);">';
+        ['Ticker', 'Side', 'Qty', 'Fill price', 'Commission', 'Order status'].forEach(function(h) {
+          html += '<th style="padding:4px 6px;text-align:left;color:var(--label);font-size:9px;">' + h + '</th>';
+        });
+        html += '</tr></thead><tbody>';
+        recent.forEach(function(o) {
+          const sideClr = o.side === 'BUY' ? 'var(--ok)' : o.side === 'SELL' ? 'var(--danger)' : 'var(--text-secondary)';
+          html += '<tr style="border-bottom:1px solid rgba(255,255,255,.05);">';
+          html += '<td style="padding:4px 6px;font-weight:700;">' + escapeHtml(o.ticker || '-') + '</td>';
+          html += '<td style="padding:4px 6px;color:' + sideClr + ';font-weight:700;">' + escapeHtml(o.side || '-') + '</td>';
+          html += '<td style="padding:4px 6px;">' + escapeHtml(String(o.filled_qty || o.requested_qty || '-')) + '</td>';
+          html += '<td style="padding:4px 6px;">' + (o.fill_price ? '$' + escapeHtml(String(o.fill_price)) : '-') + '</td>';
+          html += '<td style="padding:4px 6px;">$' + COMMISSION.toFixed(2) + '</td>';
+          html += '<td style="padding:4px 6px;color:var(--ok);font-weight:700;">' + escapeHtml(o.status || 'FILLED') + '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+        html += '<div style="font-size:10px;color:var(--text-secondary);padding:6px 10px;margin-top:6px;background:rgba(0,0,0,.15);border-radius:3px;line-height:1.5;">The paper order was filled. Open the Portfolio tab to see the new holding and updated positions.</div>';
+        rowsEl.innerHTML = html;
+      }
+    }
+  } catch (e) { /* best-effort; the generic completed message stays */ }
 }
 
 // Render the user-facing Paper Trade Ticket from preview-only data (the cached
@@ -12449,7 +13017,7 @@ async function _renderPaperTradeTicket(stage) {
 async function placePaperTrade() {
   return new Promise(function(resolve) {
     window._showWriteConfirm({
-      title: 'Place Paper Trade',
+      title: 'Create & Fill Paper Trade',
       writes: [
         'Creates a PENDING paper order, then fills it locally',
         'Updates paper portfolio positions and cash',
@@ -12460,7 +13028,7 @@ async function placePaperTrade() {
         'does not execute a live trade',
         'does not enable automation',
       ],
-      confirmLabel: 'Place Paper Trade',
+      confirmLabel: 'Create & Fill Paper Trade',
       onConfirm: async () => {
         const statusEl = document.getElementById('tf-status');
         const pb = document.getElementById('tf-place-btn');
@@ -12486,14 +13054,31 @@ async function placePaperTrade() {
             idempotency_key: 'place-create-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
             confirm_create_orders: true,
           });
-          if (!c.ok) { const e = await parseApiResponse(c); throw new Error(formatApiError(e)); }
+          const cdata = await parseApiResponse(c);
+          if (!c.ok) { throw new Error(formatApiError(cdata)); }
+          const ordersCreated = (cdata && cdata.orders_created) || 0;
           // 3. Fill the paper order locally (updates positions, cash, snapshot).
           if (statusEl) statusEl.textContent = 'Filling paper order...';
           const f = await call('POST', '/v1/review/fill-pending-orders', { confirm_paper_fill: true });
-          if (!f.ok) { const e = await parseApiResponse(f); throw new Error(formatApiError(e)); }
-          // 4. Refresh workflow state so the cockpit advances to Paper Trade Completed.
+          const fdata = await parseApiResponse(f);
+          if (!f.ok) { throw new Error(formatApiError(fdata)); }
+          const ordersFilled = (fdata && fdata.orders_filled) || 0;
+          // 4. Refresh workflow state regardless of outcome so the cockpit reflects reality.
           await refreshCockpitAfterAction('Place Paper Trade');
-          toast('Paper trade completed. Portfolio updated.', 'success');
+          // 5. Report the true outcome. Distinguish "nothing created" from
+          //    "created but not filled" from success.
+          const hadOrder = ordersCreated > 0 || pending > 0;
+          if (!hadOrder && ordersFilled === 0) {
+            if (statusEl) { statusEl.textContent = 'Paper trade was not created.'; statusEl.style.color = 'var(--danger)'; }
+            if (pb) { pb.disabled = false; }
+            toast('Paper trade was not created.', 'error');
+          } else if (ordersFilled === 0) {
+            if (statusEl) { statusEl.textContent = 'Paper trade was created but not filled.'; statusEl.style.color = 'var(--warning)'; }
+            if (pb) { pb.disabled = false; }
+            toast('Paper trade was created but not filled.', 'error');
+          } else {
+            toast('Paper trade completed. Portfolio updated.', 'success');
+          }
         } catch (e) {
           if (pb) { pb.disabled = false; }
           toast('Place Paper Trade failed: ' + String(e && e.message ? e.message : e), 'error');
@@ -12638,6 +13223,12 @@ async function _loadTradeFlowPendingOrders() {
 
 function viewPortfolio() {
   try { if (window._switchTab) window._switchTab('portfolio'); } catch (e) {}
+  // Clear Orders filters so a freshly filled paper order is always visible and
+  // is never hidden behind a stale status/date filter.
+  try {
+    const os = document.getElementById('ordStatus'); if (os) os.value = '';
+    const od = document.getElementById('ordDate'); if (od) od.value = '';
+  } catch (e) {}
   if (_appState.connected) {
     try { loadPositions(); } catch (e) {}
     try { loadOrders(); } catch (e) {}
@@ -12836,6 +13427,16 @@ function updateCockpitReviewSummary() {
     const dpSaDetails = document.getElementById('dp-signal-actions-details');
     if (dpSaDetails) dpSaDetails.open = approved > 0;
   }
+
+  // Today's Trade Ideas: full scan-result visibility with rationale. Older rows
+  // are surfaced separately under a collapsed "Older review items" section.
+  try {
+    renderTodaysCandidates(todays, latest.filter(function(c) { return !_ptIsToday(c.created_at); }));
+  } catch (e) {}
+  // Positions to Review reflects the latest cached daily review summary.
+  try {
+    if (window._lastDailyReviewSummary) renderPositionsToReview(window._lastDailyReviewSummary);
+  } catch (e) {}
 }
 
 async function refreshReviewQueue() {
@@ -12851,6 +13452,7 @@ async function refreshCockpitAfterAction(reason) {
     const _rasEl = document.getElementById('right-action-status');
     if (_rasEl) { _rasEl.textContent = _tsNow; _rasEl.style.color = 'var(--ok)'; }
     updateCockpitReviewSummary();
+    try { loadPositionsToReview(); } catch (e) {}
     updatePortfolioCapacityDisplay();
     updateKpi();
     await refreshWorkflowStatus();
