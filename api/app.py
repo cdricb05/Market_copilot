@@ -1633,6 +1633,32 @@ class WorkflowStatusResponse(BaseModel):
     current_cycle_key: str | None = None
 
 
+class CurrentWorkflowStateResponse(BaseModel):
+    """Canonical read-only workflow state shared by every UI surface.
+
+    Overview, the Daily Plan Today's Review card, the Daily Plan active action
+    workspace, and the right Action / Safety panel all render from this single
+    object so they never disagree on the current task or next action. READ-ONLY:
+    no database writes, no JobRun creation.
+    """
+    stage: str
+    current_task: str
+    next_action: str
+    primary_button_label: str
+    primary_button_action: str
+    active_workspace: str
+    focus_target: str
+    today_candidate_count: int
+    today_pending_review_count: int
+    today_approved_count: int
+    older_candidate_count: int
+    has_pending_orders: bool
+    has_filled_orders: bool
+    has_open_positions: bool
+    open_position_count: int
+    message: str
+
+
 class PositionMonitorItem(BaseModel):
     """Single position result from position monitor preview (PREVIEW ONLY, no DB writes)."""
     ticker: str
@@ -8358,6 +8384,253 @@ async def get_workflow_status() -> WorkflowStatusResponse:
         safety={"create_orders_enabled": True, "automation_enabled": False},
         open_positions=open_positions_count,
         current_cycle_key=current_cycle_key,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Canonical workflow state (Action Discoverability + Guided Workflow v1)
+#
+# One stage, one primary action, used by every UI surface. The stage derivation
+# is a pure function so it is deterministic and unit-testable without a DB; the
+# endpoint feeds it live counts. Trade-flow stages (driven by DB facts) take
+# precedence; today's pending candidates drive review; older candidates never
+# drive the primary action.
+# ---------------------------------------------------------------------------
+
+_WORKFLOW_STAGE_INFO: dict[str, dict[str, str]] = {
+    "NEEDS_DAILY_REVIEW": {
+        "active_workspace": "start_daily_review",
+        "focus_target": "active-action-workspace",
+        "current_task": "Start Daily Review",
+        "next_action": "Start today's daily review.",
+        "primary_button_label": "Start Daily Review",
+        "primary_button_action": "start_daily_review",
+        "message": (
+            "This refreshes market data, prepares today's candidates, and "
+            "updates the portfolio snapshot. It does not create orders or trades."
+        ),
+    },
+    "REVIEW_CANDIDATES": {
+        "active_workspace": "candidates_to_review",
+        "focus_target": "candidates-to-review-workspace",
+        "current_task": "Review Candidates",
+        "next_action": "Go to Daily Plan -> Candidates to Review.",
+        "primary_button_label": "Review Candidates",
+        "primary_button_action": "review_candidates",
+        "message": (
+            "Choose one action. This records your manual review only. It does "
+            "not create orders or trades."
+        ),
+    },
+    "GENERATE_TRADE_PLAN": {
+        "active_workspace": "trade_plan",
+        "focus_target": "trade-plan-workspace",
+        "current_task": "Generate Trade Plan",
+        "next_action": "Generate a trade plan from approved candidates.",
+        "primary_button_label": "Generate Trade Plan",
+        "primary_button_action": "generate_trade_plan",
+        "message": (
+            "This creates internal paper-trading recommendations only. No order "
+            "is created."
+        ),
+    },
+    "CREATE_PAPER_ORDER": {
+        "active_workspace": "paper_order_ticket",
+        "focus_target": "paper-order-ticket-workspace",
+        "current_task": "Create Paper Order Ticket",
+        "next_action": "Create a paper order ticket.",
+        "primary_button_label": "Create Paper Order Ticket",
+        "primary_button_action": "create_paper_order",
+        "message": (
+            "This creates a pending paper order only. No broker order is sent."
+        ),
+    },
+    "FILL_PAPER_ORDER": {
+        "active_workspace": "pending_paper_order",
+        "focus_target": "pending-paper-order-workspace",
+        "current_task": "Fill Paper Order",
+        "next_action": "Fill the paper order.",
+        "primary_button_label": "Fill Paper Order",
+        "primary_button_action": "fill_paper_order",
+        "message": (
+            "This fills the local paper order only. No live trade is executed."
+        ),
+    },
+    "PAPER_TRADE_COMPLETED": {
+        "active_workspace": "paper_trade_completed",
+        "focus_target": "paper-trade-completed-workspace",
+        "current_task": "View Portfolio",
+        "next_action": "Paper trade completed. Portfolio updated.",
+        "primary_button_label": "View Portfolio",
+        "primary_button_action": "open_portfolio",
+        "message": "Paper trade completed. Portfolio updated.",
+    },
+    "MONITOR_PORTFOLIO": {
+        "active_workspace": "portfolio_monitoring",
+        "focus_target": "portfolio-monitoring-workspace",
+        "current_task": "Monitor Portfolio",
+        "next_action": "Review open positions.",
+        "primary_button_label": "Review Open Positions",
+        "primary_button_action": "review_open_positions",
+        "message": "No action required.",
+    },
+    "NO_TRADE_PLAN": {
+        "active_workspace": "portfolio_monitoring",
+        "focus_target": "portfolio-monitoring-workspace",
+        "current_task": "Monitor Portfolio",
+        "next_action": "No approved candidates available for a trade plan.",
+        "primary_button_label": "Review Open Positions",
+        "primary_button_action": "review_open_positions",
+        "message": "No candidates from today's review need action.",
+    },
+}
+
+
+def _derive_workflow_stage(
+    *,
+    today_pending: int,
+    today_approved: int,
+    order_eligible: int,
+    has_pending_orders: bool,
+    has_filled_orders: bool,
+    has_open_positions: bool,
+    today_total: int,
+) -> str:
+    """Pure single-stage derivation used by the canonical workflow state.
+
+    Priority (matches the Daily Plan Today's Review branch order): today's
+    pending candidates must be reviewed first; then a pending paper order must
+    be filled; then an order-eligible decision must become a ticket; then an
+    approved candidate must become a trade plan. Only when nothing today is
+    actionable do we fall back to completed/monitor/needs-review. Older
+    candidates are never an input here, so they can never drive the stage.
+    """
+    if today_pending > 0:
+        return "REVIEW_CANDIDATES"
+    if has_pending_orders:
+        return "FILL_PAPER_ORDER"
+    if order_eligible > 0:
+        return "CREATE_PAPER_ORDER"
+    if today_approved > 0:
+        return "GENERATE_TRADE_PLAN"
+    if has_filled_orders and has_open_positions:
+        return "PAPER_TRADE_COMPLETED"
+    if today_total > 0:
+        return "NO_TRADE_PLAN"
+    if has_open_positions:
+        return "MONITOR_PORTFOLIO"
+    return "NEEDS_DAILY_REVIEW"
+
+
+def _build_workflow_state(
+    *,
+    today_total: int,
+    today_pending: int,
+    today_approved: int,
+    older_count: int,
+    order_eligible: int,
+    pending_orders: int,
+    filled_orders: int,
+    open_positions: int,
+) -> CurrentWorkflowStateResponse:
+    """Assemble the canonical state object from live counts."""
+    stage = _derive_workflow_stage(
+        today_pending=today_pending,
+        today_approved=today_approved,
+        order_eligible=order_eligible,
+        has_pending_orders=pending_orders > 0,
+        has_filled_orders=filled_orders > 0,
+        has_open_positions=open_positions > 0,
+        today_total=today_total,
+    )
+    info = _WORKFLOW_STAGE_INFO[stage]
+    return CurrentWorkflowStateResponse(
+        stage=stage,
+        current_task=info["current_task"],
+        next_action=info["next_action"],
+        primary_button_label=info["primary_button_label"],
+        primary_button_action=info["primary_button_action"],
+        active_workspace=info["active_workspace"],
+        focus_target=info["focus_target"],
+        today_candidate_count=today_total,
+        today_pending_review_count=today_pending,
+        today_approved_count=today_approved,
+        older_candidate_count=older_count,
+        has_pending_orders=pending_orders > 0,
+        has_filled_orders=filled_orders > 0,
+        has_open_positions=open_positions > 0,
+        open_position_count=open_positions,
+        message=info["message"],
+    )
+
+
+@app.get(
+    "/v1/review/current-workflow-state",
+    response_model=CurrentWorkflowStateResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+async def get_current_workflow_state() -> CurrentWorkflowStateResponse:
+    """
+    Canonical read-only workflow state for the guided cockpit.
+
+    READ-ONLY: no database writes, no JobRun creation. Returns the single
+    current stage plus the one primary action every UI surface should render,
+    so Overview, Daily Plan, and the right Action / Safety panel never disagree.
+
+    "Today" is the server local date. Candidates created before today are
+    reported as older_candidate_count and never drive the primary action.
+    """
+    REVIEW_SOURCE_PREFIX = "review_queue_create_signals_v1:"
+    today = date.today()
+    start_of_day = datetime(today.year, today.month, today.day)
+
+    with get_session() as session:
+        total_candidates = session.query(CandidateReview).count()
+        today_q = session.query(CandidateReview).filter(
+            CandidateReview.created_at >= start_of_day
+        )
+        today_total = today_q.count()
+        today_pending = today_q.filter(
+            CandidateReview.review_status == "NEW"
+        ).count()
+        today_approved = today_q.filter(
+            CandidateReview.review_status == "APPROVED_FOR_SIGNAL"
+        ).count()
+        older_count = total_candidates - today_total
+
+        # Order-eligible review-created decisions that do not yet have an order.
+        decision_query = session.query(TradeDecision).join(
+            Signal, Signal.id == TradeDecision.signal_id
+        ).filter(Signal.source_run.startswith(REVIEW_SOURCE_PREFIX))
+        order_eligible = 0
+        for td in decision_query.filter(
+            TradeDecision.decision.in_(["BUY", "SELL"]),
+            TradeDecision.approved_qty > Decimal("0"),
+        ).all():
+            existing = session.query(Order).filter(
+                Order.trade_decision_id == td.id
+            ).first()
+            if existing is None:
+                order_eligible += 1
+
+        pending_orders = session.query(Order).filter(
+            Order.status == "PENDING"
+        ).count()
+        filled_orders = session.query(Order).filter(
+            Order.status == "FILLED"
+        ).count()
+        open_positions = session.query(Position).count()
+
+    return _build_workflow_state(
+        today_total=today_total,
+        today_pending=today_pending,
+        today_approved=today_approved,
+        older_count=older_count,
+        order_eligible=order_eligible,
+        pending_orders=pending_orders,
+        filled_orders=filled_orders,
+        open_positions=open_positions,
     )
 
 

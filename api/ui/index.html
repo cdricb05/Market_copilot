@@ -1512,6 +1512,19 @@
           <div class="kpi-item"><span class="kpi-label">Pending Actions</span><span class="kpi-value" id="kpi-pending">-</span></div>
         </div>
 
+        <!-- Recommended Next Action: canonical workflow state, same source as Daily Plan + right panel -->
+        <div id="overview-next-action-card" style="background: rgba(34,197,94,.07); border: 1px solid rgba(34,197,94,.4); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div>
+              <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ok); margin-bottom: 3px;">Recommended Next Action</div>
+              <div id="ov-na-task" style="font-size: 14px; font-weight: 800; color: var(--text-primary);">Loading…</div>
+              <div id="ov-na-next" style="font-size: 11px; color: var(--text-accent); line-height: 1.4; margin-top: 2px; max-width: 560px;">-</div>
+            </div>
+            <span style="flex: 1;"></span>
+            <button id="ov-na-btn" class="btn" style="background: var(--ok); color: #04210f; font-weight: 800; font-size: 12px; padding: 9px 18px; flex-shrink: 0;" onclick="overviewPrimaryAction(this)">Open Daily Plan</button>
+          </div>
+        </div>
+
         <!-- Daily Review Summary card -->
         <div id="daily-review-summary-card" style="background: rgba(0,0,0,.2); border: 1px solid rgba(59,130,246,.3); border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
@@ -1563,7 +1576,7 @@
               <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;flex-shrink:0;">DB WRITE: PRICES + PORTFOLIO SNAPSHOT ONLY</span>
               <button id="backfill-history-btn" class="btn" style="background: var(--info, #1e90ff); color: #fff; font-weight: 700; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="backfillScreeningHistory(this)">&#8659; Backfill Screening History</button>
               <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;flex-shrink:0;">DB WRITE: HISTORICAL PRICES ONLY</span>
-              <button class="btn" style="background: var(--info); color: white; font-weight: 600; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="window._switchTab('prediction-cockpit')">&#9654; Open Daily Plan</button>
+              <button class="btn" style="background: var(--info); color: white; font-weight: 600; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="openDailyPlanFocused()">&#9654; Open Daily Plan</button>
             </div>
           </div>
           <div id="refresh-snapshot-result" style="display:none;margin:4px 0 6px 0;padding:6px 10px;background:var(--card-bg,#16213e);border:1px solid var(--border,#2a2a4a);border-radius:4px;font-size:11px;color:var(--text-secondary,#a8b4cc);"></div>
@@ -1779,11 +1792,39 @@
           <div id="dp-current-task-safety" style="display:none;"></div>
         </div>
 
+        <!-- Active Action Workspace: the single section that shows the current
+             required action, ALWAYS directly below Today's Review. Exactly one
+             sub-workspace is visible at a time, driven by the canonical state. -->
+        <div id="active-action-workspace">
+
+        <!-- Start Daily Review workspace -->
+        <div id="start-daily-review-workspace" class="compact-card" style="display: none; flex-shrink: 0; border: 2px solid rgba(245,158,11,.5); margin-bottom: 12px; background: rgba(245,158,11,.05);">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 6px;">
+            <div style="font-size: 15px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Start Daily Review</div>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+          </div>
+          <div style="font-size: 11px; color: var(--text-accent); line-height: 1.5; margin-bottom: 10px;">This refreshes market data, prepares today's candidates, and updates the portfolio snapshot. It does not create orders or trades.</div>
+          <button class="btn" style="background: var(--warning); color: #1a1a2e; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="primaryWorkflowAction('start_daily_review', this)">&#9654; Start Daily Review</button>
+        </div>
+
+        <!-- Candidates to Review workspace: wraps the single candidate decision card -->
+        <div id="candidates-to-review-workspace" style="display: none; margin-bottom: 12px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Candidates to Review</div>
+            <span style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .08em;">Review Queue</span>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO TRADES</span>
+          </div>
+          <div id="aaw-older-note" style="display: none; font-size: 9px; color: var(--label); padding: 4px 8px; background: rgba(0,0,0,.12); border-left: 2px solid rgba(255,255,255,.15); border-radius: 0 2px 2px 0; margin-bottom: 8px; line-height: 1.4;">Older review items exist, but they are not part of today's active workflow.</div>
+
         <!-- Daily Candidate Decision Card v1: one candidate, one clear decision -->
         <div id="dp-candidate-decision-card" class="compact-card" style="display: none; flex-shrink: 0; border: 2px solid rgba(245,158,11,.55); margin-bottom: 12px; background: rgba(245,158,11,.05);">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 6px;">
             <div style="display: flex; align-items: baseline; gap: 10px;">
-              <div style="font-size: 15px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Review Candidate</div>
+              <div style="font-size: 15px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Review Trade Idea</div>
               <span id="dcc-progress" style="font-size: 10px; color: var(--label); font-weight: 600;">Candidate 1 of N</span>
             </div>
             <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
@@ -1808,12 +1849,15 @@
           </div>
           <div id="dcc-reason" style="font-size: 10px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.5; padding: 6px 10px; background: rgba(0,0,0,.15); border-radius: 3px;"></div>
           <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
-            <button id="dcc-approve-btn" class="btn" style="flex: 1 1 190px; background: var(--ok); color: #04210f; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('APPROVED_FOR_SIGNAL')">Approve for Trade Plan</button>
+            <button id="dcc-approve-btn" class="btn" style="flex: 1 1 190px; background: var(--ok); color: #04210f; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('APPROVED_FOR_SIGNAL')">Approve for Paper Trade</button>
             <button id="dcc-watch-btn" class="btn" style="flex: 1 1 140px; background: var(--warning); color: #1a1a2e; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('WATCHING')">Watch Only</button>
             <button id="dcc-reject-btn" class="btn" style="flex: 1 1 120px; background: var(--danger); color: #fff; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="dccDecide('REJECTED')">Reject</button>
           </div>
-          <div style="font-size: 9px; color: var(--label); padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 2px; line-height: 1.5;">Review actions only. No signals, decisions, orders, trades, fills, or broker actions are created.</div>
+          <div style="font-size: 9px; color: var(--label); padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 2px; line-height: 1.5;">Review actions only. No signals, decisions, orders, trades, fills, or broker actions are created. Approving a trade idea does not place a trade.</div>
         </div>
+          <div style="font-size: 10px; color: var(--text-accent); padding: 6px 10px; background: rgba(245,158,11,.06); border-left: 2px solid var(--warning); border-radius: 0 2px 2px 0; line-height: 1.5;">Choose one action. This records your manual review only. It does not create orders or trades.</div>
+        </div>
+        <!-- /candidates-to-review-workspace -->
 
         <!-- Candidate Review Progress Gate (collapsed) -->
         <details style="margin-bottom: 12px;">
@@ -1921,6 +1965,34 @@
           </details>
         </div>
 
+        <!-- Paper Order Ticket workspace header (action body is dp-trade-flow-card below) -->
+        <div id="paper-order-ticket-workspace" style="display: none; margin-bottom: 6px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--info); letter-spacing: .02em;">Paper Order Ticket</div>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+          </div>
+          <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5;">This creates a pending paper order only. No broker order is sent.</div>
+        </div>
+
+        <!-- Pending Paper Order workspace header (action body is dp-trade-flow-card below) -->
+        <div id="pending-paper-order-workspace" style="display: none; margin-bottom: 6px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Pending Paper Order</div>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">PAPER FILL ONLY</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO LIVE TRADE</span>
+          </div>
+          <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5;">This fills the local paper order only. No live trade is executed.</div>
+        </div>
+
+        <!-- Paper Trade Completed workspace header (action body is dp-trade-flow-card below) -->
+        <div id="paper-trade-completed-workspace" style="display: none; margin-bottom: 6px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--ok); letter-spacing: .02em;">Paper Trade Completed</div>
+            <span class="badge ok" style="font-size: 7px; padding: 1px 5px;">PAPER PORTFOLIO ONLY</span>
+          </div>
+          <div style="font-size: 11px; color: var(--ok); font-weight: 700; line-height: 1.5;">Paper trade completed. Portfolio updated.</div>
+        </div>
+
         <!-- Guided Trade Plan + Paper Order Flow v1: one stage, one primary action -->
         <div id="dp-trade-flow-card" class="compact-card" style="display: none; flex-shrink: 0; border: 2px solid rgba(99,102,241,.55); margin-bottom: 12px; background: rgba(99,102,241,.05);">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid rgba(99,102,241,.2); padding-bottom: 6px;">
@@ -1932,10 +2004,19 @@
             </div>
           </div>
           <div id="tf-status" style="font-size: 12px; font-weight: 700; margin-bottom: 8px; line-height: 1.5;"></div>
-          <div id="tf-rows" style="margin-bottom: 10px;"></div>
+          <div id="tf-ticket" style="margin-bottom: 10px;"></div>
+          <details style="margin-bottom: 10px;"><summary style="font-size: 9px; color: var(--label); cursor: pointer; text-transform: uppercase; letter-spacing: .06em;">Order detail</summary><div id="tf-rows" style="margin-top: 6px;"></div></details>
           <div id="tf-action" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;"></div>
           <div id="tf-safety" style="font-size: 9px; color: var(--label); padding: 5px 8px; background: rgba(0,0,0,.15); border-radius: 2px; line-height: 1.5;"></div>
         </div>
+
+        <!-- Trade Plan workspace: title + helper wrap the Generate action body -->
+        <div id="trade-plan-workspace" style="display: none; margin-bottom: 6px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--info); letter-spacing: .02em;">Trade Plan</div>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS</span>
+          </div>
+          <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 6px;">This creates internal paper-trading recommendations only. No order is created.</div>
 
         <!-- Trade Plan Workspace (visible only when approved candidates exist) -->
         <div id="dp-trade-plan-workspace" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(99,102,241,.4); margin-bottom: 6px;">
@@ -1988,6 +2069,19 @@
           <div id="dp-tp-result" style="margin-top: 4px;"></div>
           <div id="dp-tp-next-step" style="display: none; font-size: 9px; color: var(--label); padding: 4px 8px; background: rgba(0,0,0,.12); border-radius: 2px; margin-top: 6px; line-height: 1.5;"></div>
         </div>
+        </div>
+        <!-- /trade-plan-workspace -->
+
+        <!-- Portfolio Monitoring workspace: title + status wrap the monitor body -->
+        <div id="portfolio-monitoring-workspace" style="display: none; margin-bottom: 6px;">
+          <div style="display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--ok); letter-spacing: .02em;">Portfolio Monitoring</div>
+            <span class="badge ok" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS</span>
+          </div>
+          <div id="pmw-action-note" style="font-size: 11px; color: var(--text-accent); font-weight: 600; line-height: 1.5; margin-bottom: 6px;">No action required.</div>
+          <div id="pmw-watch-note" style="display: none; font-size: 11px; color: var(--warning); font-weight: 700; line-height: 1.5; margin-bottom: 6px;">Monitor closely. No action required yet.</div>
+          <div id="pmw-no-candidates-note" style="display: none; font-size: 10px; color: var(--label); line-height: 1.5; margin-bottom: 6px;">No candidates from today's review need action.</div>
 
         <!-- Portfolio Monitoring Workspace: shown when review complete and no eligible approved candidates -->
         <div id="dp-portfolio-monitor-workspace" style="display: none; margin-bottom: 6px;">
@@ -2043,6 +2137,10 @@
             </details>
           </div>
         </div>
+        </div>
+        <!-- /portfolio-monitoring-workspace -->
+        </div>
+        <!-- /active-action-workspace -->
 
         <!-- Advanced audit details (collapsed) -->
         <details id="dp-later-steps-details" style="margin-bottom: 6px;">
@@ -3436,12 +3534,13 @@
         <span class="badge warning" style="font-size: 9px; padding: 2px 6px;">NO BROKER EXECUTION</span>
       </div>
     </div>
-    <div class="panel-section" style="border-color: var(--info);">
+    <div class="panel-section" style="border-color: var(--info); cursor: pointer;" onclick="openDailyPlanFocused()" title="Go to the current action in Daily Plan">
       <div class="panel-section-title" style="color: var(--info);">Workflow</div>
       <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 2px;">Current task</div>
       <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 8px;" id="right-current-task">---</div>
       <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 2px;">Next action</div>
       <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4;" id="right-next-action">Connect and load data to begin.</div>
+      <div id="right-review-hint" style="display: none; font-size: 10px; color: var(--warning); font-weight: 700; line-height: 1.4; margin-top: 6px;">Go to Daily Plan → Candidates to Review.</div>
     </div>
     <!-- compat: right-next-step/detail still targeted by other JS; hidden, not primary display -->
     <div style="display:none;"><span id="right-next-step"></span><span id="right-next-step-detail"></span></div>
@@ -4219,6 +4318,13 @@ async function runPortfolioMonitorWorkspace(btn) {
       statusEl.textContent = 'Portfolio monitor preview complete. As of ' + new Date(data.as_of).toLocaleTimeString();
       statusEl.style.color = 'var(--ok)';
     }
+    // Drive the Portfolio Monitoring workspace note: WATCH -> "Monitor closely.
+    // No action required yet."; otherwise "No action required." (preview only).
+    window._monitorHasWatch = (data.watch_count || 0) > 0;
+    const _pmwWatch = document.getElementById('pmw-watch-note');
+    const _pmwAction = document.getElementById('pmw-action-note');
+    if (_pmwWatch) _pmwWatch.style.display = window._monitorHasWatch ? '' : 'none';
+    if (_pmwAction) _pmwAction.style.display = window._monitorHasWatch ? 'none' : '';
     if (summaryCardsEl) {
       summaryCardsEl.style.display = 'flex';
       var pnlNum = parseFloat(data.total_unrealized_pnl);
@@ -11794,7 +11900,8 @@ function focusReviewQueue() {
     if (tr) { try { tr.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
     return;
   }
-  try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+  const _ctrws = document.getElementById('candidates-to-review-workspace') || card;
+  try { _ctrws.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
   const _prevShadow = card.style.boxShadow;
   card.style.transition = 'box-shadow .2s ease';
   card.style.boxShadow = '0 0 0 3px rgba(245,158,11,.75)';
@@ -11962,6 +12069,16 @@ function updateTodayReview(ctx) {
     }
     taskEl.textContent = _rpTask;
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
+    // Guided Trade Lifecycle v1: collapse the post-approval phase into ONE
+    // user-facing Paper Trade Ticket + Place Paper Trade action. The per-stage
+    // labels above (Generate Trade Plan / Create Paper Order Ticket / Fill Paper
+    // Order) remain for internal mechanics + advanced controls, but the user no
+    // longer steps through them one at a time.
+    _rpTask = 'Paper Trade Ticket';
+    taskEl.textContent = 'Paper Trade Ticket';
+    if (nextEl) { nextEl.textContent = 'Review the paper trade ticket, then Place Paper Trade.'; nextEl.style.color = 'var(--ok)'; }
+    _rightNext = 'Place paper trade or cancel.';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:700;font-size:11px;padding:7px 18px;" onclick="placePaperTrade()">Place Paper Trade</button>';
     renderTradeFlowCard(_stage);
   } else if (window._workflowCompletedState) {
     // Paper order filled: positions and cash have been updated. Guide the user
@@ -11993,6 +12110,161 @@ function updateTodayReview(ctx) {
   const _rpNextEl = document.getElementById('right-next-action');
   if (_rpTaskEl) _rpTaskEl.textContent = _rpTask;
   if (_rpNextEl) _rpNextEl.textContent = _rightNext || _rpNext;
+
+  // ----- Action Discoverability + Guided Workflow v1 -----
+  // Derive the one canonical active workspace from the same inputs the branches
+  // above used, then show exactly that workspace directly under Today's Review,
+  // mirror it on Overview, and point the right panel at it. Single source of
+  // truth for every surface — Overview, Daily Plan, and the right panel can
+  // never disagree because they all read window._canonicalWorkflowState.
+  const _wsd = window._workflowStatusData || {};
+  const _wdd = _wsd.review_created_trade_decisions || {};
+  const _wod = _wsd.orders || {};
+  let _aw, _focusTarget, _primaryLabel, _primaryAction, _stageName;
+  if (todayTotal === 0 && sessionRanToday) {
+    _stageName = 'NO_TRADE_PLAN'; _aw = 'portfolio_monitoring'; _focusTarget = 'portfolio-monitoring-workspace';
+    _primaryLabel = 'Review Open Positions'; _primaryAction = 'review_open_positions';
+  } else if (todayTotal === 0) {
+    _stageName = 'NEEDS_DAILY_REVIEW'; _aw = 'start_daily_review'; _focusTarget = 'active-action-workspace';
+    _primaryLabel = 'Start Daily Review'; _primaryAction = 'start_daily_review';
+  } else if (!todayReviewComplete) {
+    _stageName = 'REVIEW_CANDIDATES'; _aw = 'candidates_to_review'; _focusTarget = 'candidates-to-review-workspace';
+    _primaryLabel = 'Review Candidates'; _primaryAction = 'review_candidates';
+  } else if (todayApproved > 0) {
+    if ((_wod.pending || 0) > 0) {
+      _stageName = 'FILL_PAPER_ORDER'; _aw = 'pending_paper_order'; _focusTarget = 'pending-paper-order-workspace';
+      _primaryLabel = 'Fill Paper Order'; _primaryAction = 'fill_paper_order';
+    } else if ((_wdd.order_eligible || 0) > 0) {
+      _stageName = 'CREATE_PAPER_ORDER'; _aw = 'paper_order_ticket'; _focusTarget = 'paper-order-ticket-workspace';
+      _primaryLabel = 'Create Paper Order Ticket'; _primaryAction = 'create_paper_order';
+    } else {
+      _stageName = 'GENERATE_TRADE_PLAN'; _aw = 'trade_plan'; _focusTarget = 'trade-plan-workspace';
+      _primaryLabel = 'Generate Trade Plan'; _primaryAction = 'generate_trade_plan';
+    }
+  } else if (window._workflowCompletedState) {
+    _stageName = 'PAPER_TRADE_COMPLETED'; _aw = 'paper_trade_completed'; _focusTarget = 'paper-trade-completed-workspace';
+    _primaryLabel = 'View Portfolio'; _primaryAction = 'open_portfolio';
+  } else {
+    _stageName = 'NO_TRADE_PLAN'; _aw = 'portfolio_monitoring'; _focusTarget = 'portfolio-monitoring-workspace';
+    _primaryLabel = 'Review Open Positions'; _primaryAction = 'review_open_positions';
+  }
+  window._activeWorkspaceId = _focusTarget;
+  window._canonicalWorkflowState = {
+    stage: _stageName, current_task: _rpTask, next_action: _rpNext,
+    primary_button_label: _primaryLabel, primary_button_action: _primaryAction,
+    active_workspace: _aw, focus_target: _focusTarget, older_candidate_count: olderCount,
+    no_candidates_today: (todayTotal === 0 && sessionRanToday)
+  };
+  try { syncActiveActionWorkspaces(_aw, { olderCount: olderCount, noCandidatesToday: (todayTotal === 0 && sessionRanToday) }); } catch (e) {}
+  try { applyCanonicalToOverview(); } catch (e) {}
+
+  // ----- Guided Trade Lifecycle v1: right Action / Safety panel text -----
+  // The right panel mirrors the single user-facing trade path so it never shows
+  // a conflicting next action: Review Trade Idea -> Review Paper Trade Ticket ->
+  // View Portfolio (or Monitor Portfolio when there is no new trade plan).
+  try {
+    const _rt = document.getElementById('right-current-task');
+    const _rn = document.getElementById('right-next-action');
+    const _st = (window._canonicalWorkflowState || {}).stage;
+    let _gtlTask = null, _gtlNext = null;
+    if (_st === 'REVIEW_CANDIDATES') {
+      _gtlTask = 'Review Trade Idea'; _gtlNext = 'Approve, Watch, or Reject the current candidate.';
+    } else if (_st === 'GENERATE_TRADE_PLAN' || _st === 'CREATE_PAPER_ORDER' || _st === 'FILL_PAPER_ORDER') {
+      _gtlTask = 'Review Paper Trade Ticket'; _gtlNext = 'Place paper trade or cancel.';
+    } else if (_st === 'PAPER_TRADE_COMPLETED') {
+      _gtlTask = 'View Portfolio'; _gtlNext = 'Review updated position.';
+    } else if (_st === 'NO_TRADE_PLAN' || _st === 'MONITOR_PORTFOLIO') {
+      _gtlTask = 'Monitor Portfolio'; _gtlNext = 'No new trade plan. Review open positions.';
+    }
+    if (_gtlTask && _rt) _rt.textContent = _gtlTask;
+    if (_gtlNext && _rn) _rn.textContent = _gtlNext;
+  } catch (e) {}
+}
+
+// ----- Action Discoverability + Guided Workflow v1: shared driver helpers -----
+// One canonical state, one visible active workspace, one primary action surface.
+
+// Show exactly one active action workspace directly under Today's Review and
+// keep the right panel pointing at the same one. The functional cards inside
+// (candidate decision card, trade-flow card, monitor) keep their own logic; we
+// only toggle the titled wrappers so the active section is never buried.
+function syncActiveActionWorkspaces(activeWorkspace, opts) {
+  opts = opts || {};
+  const map = {
+    start_daily_review: 'start-daily-review-workspace',
+    candidates_to_review: 'candidates-to-review-workspace',
+    trade_plan: 'trade-plan-workspace',
+    paper_order_ticket: 'paper-order-ticket-workspace',
+    pending_paper_order: 'pending-paper-order-workspace',
+    paper_trade_completed: 'paper-trade-completed-workspace',
+    portfolio_monitoring: 'portfolio-monitoring-workspace'
+  };
+  const activeId = map[activeWorkspace] || null;
+  Object.keys(map).forEach(function(k) {
+    const el = document.getElementById(map[k]);
+    if (el) el.style.display = (map[k] === activeId) ? '' : 'none';
+  });
+  const olderNote = document.getElementById('aaw-older-note');
+  if (olderNote) olderNote.style.display = ((opts.olderCount || 0) > 0 && activeWorkspace === 'candidates_to_review') ? '' : 'none';
+  // Portfolio monitoring secondary notes.
+  const noCand = document.getElementById('pmw-no-candidates-note');
+  if (noCand) noCand.style.display = (opts.noCandidatesToday && activeWorkspace === 'portfolio_monitoring') ? '' : 'none';
+  const watchNote = document.getElementById('pmw-watch-note');
+  const actionNote = document.getElementById('pmw-action-note');
+  const hasWatch = !!window._monitorHasWatch && activeWorkspace === 'portfolio_monitoring';
+  if (watchNote) watchNote.style.display = hasWatch ? '' : 'none';
+  if (actionNote) actionNote.style.display = (activeWorkspace === 'portfolio_monitoring' && !hasWatch && !opts.noCandidatesToday) ? '' : 'none';
+  // Right-panel hint tells the user exactly where to act during review.
+  const hint = document.getElementById('right-review-hint');
+  if (hint) hint.style.display = (activeWorkspace === 'candidates_to_review') ? '' : 'none';
+}
+
+// Mirror the canonical state onto the Overview Recommended Next Action strip.
+function applyCanonicalToOverview() {
+  const st = window._canonicalWorkflowState;
+  if (!st) return;
+  const taskEl = document.getElementById('ov-na-task');
+  const nextEl = document.getElementById('ov-na-next');
+  const btnEl = document.getElementById('ov-na-btn');
+  if (taskEl) taskEl.textContent = st.current_task || '-';
+  if (nextEl) nextEl.textContent = st.next_action || '-';
+  if (btnEl) btnEl.textContent = st.primary_button_label || 'Open Daily Plan';
+}
+
+// Switch to Daily Plan and scroll/focus the canonical active workspace so the
+// required action is never hidden behind charts or collapsed sections.
+function focusActiveWorkspace(focusTarget) {
+  try { if (window._switchTab) window._switchTab('prediction-cockpit'); } catch (e) {}
+  const el = document.getElementById(focusTarget) || document.getElementById('active-action-workspace');
+  if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
+}
+
+// Overview / right-panel entry point: jump straight to the current action.
+function openDailyPlanFocused() {
+  const st = window._canonicalWorkflowState;
+  const target = (st && st.focus_target) || window._activeWorkspaceId || 'active-action-workspace';
+  if (st && st.active_workspace === 'candidates_to_review') { focusReviewQueue(); return; }
+  focusActiveWorkspace(target);
+}
+
+function overviewPrimaryAction(btn) {
+  openDailyPlanFocused();
+}
+
+// Single primary-action dispatcher used by the guided workspace buttons. Maps
+// canonical action names to the existing (already preview-safe) handlers — no
+// duplicated business logic, no new write paths.
+function primaryWorkflowAction(action, btn) {
+  switch (action) {
+    case 'start_daily_review': return startDailyReviewSession(btn);
+    case 'review_candidates': return focusReviewQueue();
+    case 'generate_trade_plan': return generateTradePlan(btn);
+    case 'create_paper_order': return createOrdersFromDecisions();
+    case 'fill_paper_order': return fillPendingPaperOrders();
+    case 'open_portfolio': return viewPortfolio();
+    case 'review_open_positions': return runPortfolioMonitorWorkspace(btn);
+    default: return;
+  }
 }
 
 // ---------- Guided Trade Plan + Paper Order Flow v1 ----------
@@ -12006,7 +12278,7 @@ function renderTradeFlowCard(stage) {
   const tpWs = document.getElementById('dp-trade-plan-workspace');
   const pmWs = document.getElementById('dp-portfolio-monitor-workspace');
 
-  if (stage !== 'CREATE_ORDER' && stage !== 'FILL' && stage !== 'COMPLETED') {
+  if (stage !== 'GENERATE' && stage !== 'CREATE_ORDER' && stage !== 'FILL' && stage !== 'COMPLETED') {
     card.style.display = 'none';
     card.dataset.stage = '';
     return;
@@ -12025,19 +12297,42 @@ function renderTradeFlowCard(stage) {
   const actionEl = document.getElementById('tf-action');
   const rowsEl = document.getElementById('tf-rows');
 
-  if (stage === 'CREATE_ORDER') {
-    if (titleEl) titleEl.textContent = 'Trade Plan';
-    if (statusEl) { statusEl.textContent = 'No order has been created yet.'; statusEl.style.color = 'var(--warning)'; }
-    if (safetyEl) safetyEl.textContent = 'Creates PENDING paper order tickets only. No trades, fills, positions, cash changes, or broker actions are created.';
-    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#04210f;font-weight:800;font-size:13px;padding:12px 18px;" onclick="createOrdersFromDecisions()">Create Paper Order Ticket</button>';
-    if (transitioned || !Array.isArray(window._lastTradePlanRows)) _loadTradeFlowPlanRows();
-    else _renderTradeFlowPlanRows(window._lastTradePlanRows);
-  } else if (stage === 'FILL') {
-    if (titleEl) titleEl.textContent = 'Paper Order Ticket';
-    if (statusEl) { statusEl.textContent = 'Paper order ticket created.'; statusEl.style.color = 'var(--ok)'; }
-    if (safetyEl) safetyEl.textContent = 'This is still not a trade. Portfolio holdings update only after paper fill. No live broker execution. Automation off.';
-    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:800;font-size:13px;padding:12px 18px;" onclick="fillPendingPaperOrders()">Fill Paper Order</button>';
-    if (transitioned) _loadTradeFlowPendingOrders();
+  if (stage === 'GENERATE' || stage === 'CREATE_ORDER' || stage === 'FILL') {
+    // Guided Trade Lifecycle v1: collapse Generate Trade Plan -> Create Paper
+    // Order Ticket -> Fill Paper Order into ONE user-facing Paper Trade Ticket
+    // with a single "Place Paper Trade" action. The per-stage status strings are
+    // kept (advanced users / internal mechanics), but the user no longer hunts
+    // through three separate steps. The advanced step-by-step buttons below reuse
+    // the existing endpoints; "Place Paper Trade" runs the whole chain at once.
+    if (titleEl) titleEl.textContent = 'Paper Trade Ticket';
+    if (stage === 'CREATE_ORDER') {
+      if (statusEl) { statusEl.textContent = 'No order has been created yet. Review the ticket below, then Place Paper Trade.'; statusEl.style.color = 'var(--warning)'; }
+    } else if (stage === 'FILL') {
+      if (statusEl) { statusEl.textContent = 'Paper order ticket created. This is still not a trade. Portfolio holdings update only after paper fill. Review the ticket below, then Place Paper Trade.'; statusEl.style.color = 'var(--ok)'; }
+    } else {
+      if (statusEl) { statusEl.textContent = 'Review the paper trade ticket below, then Place Paper Trade.'; statusEl.style.color = 'var(--info)'; }
+    }
+    if (safetyEl) safetyEl.textContent = 'Paper portfolio only. No broker execution. Place Paper Trade creates and fills a local paper order only. No live broker order is created. Automation is off.';
+    if (actionEl) {
+      var _ah = '<button id="tf-place-btn" class="btn" style="background:var(--ok);color:#04210f;font-weight:800;font-size:13px;padding:12px 18px;" onclick="placePaperTrade()">Place Paper Trade</button>';
+      _ah += '<button class="btn" style="background:rgba(255,255,255,.08);color:var(--text-secondary);font-weight:700;font-size:12px;padding:12px 16px;" onclick="cancelPaperTrade()">Cancel Trade</button>';
+      _ah += '<button class="btn" style="background:rgba(255,255,255,.08);color:var(--text-secondary);font-weight:700;font-size:12px;padding:12px 16px;" onclick="backToCandidate()">Back to Candidate</button>';
+      _ah += '<details style="width:100%; margin-top:6px;"><summary style="font-size:9px; color:var(--label); cursor:pointer; text-transform:uppercase; letter-spacing:.06em;">Step by step (advanced)</summary>';
+      _ah += '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">';
+      _ah += '<button class="btn-sm" style="background:rgba(99,102,241,.2); color:var(--info); font-size:10px;" onclick="generateTradePlan(this)">Generate Trade Plan</button>';
+      _ah += '<button class="btn-sm" style="background:rgba(34,197,94,.2); color:var(--ok); font-size:10px;" onclick="createOrdersFromDecisions()">Create Paper Order Ticket</button>';
+      _ah += '<button class="btn-sm" style="background:rgba(245,158,11,.2); color:var(--warning); font-size:10px;" onclick="fillPendingPaperOrders()">Fill Paper Order</button>';
+      _ah += '</div></details>';
+      actionEl.innerHTML = _ah;
+    }
+    if (stage === 'FILL') {
+      if (transitioned) _loadTradeFlowPendingOrders();
+    } else if (transitioned || !Array.isArray(window._lastTradePlanRows)) {
+      _loadTradeFlowPlanRows();
+    } else {
+      _renderTradeFlowPlanRows(window._lastTradePlanRows);
+    }
+    _renderPaperTradeTicket(stage);
   } else if (stage === 'COMPLETED') {
     if (titleEl) titleEl.textContent = 'Paper Trade Completed';
     if (statusEl) { statusEl.innerHTML = '<span style="color:var(--ok);font-weight:800;">Paper trade completed.</span> <span style="color:var(--ok);">Portfolio updated.</span>'; }
@@ -12045,6 +12340,200 @@ function renderTradeFlowCard(stage) {
     if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:800;font-size:13px;padding:12px 18px;" onclick="viewPortfolio()">View Portfolio</button>';
     if (rowsEl) rowsEl.innerHTML = '<div style="font-size: 10px; color: var(--text-secondary); padding: 6px 10px; background: rgba(0,0,0,.15); border-radius: 3px; line-height: 1.5;">The paper order was filled. Open the Portfolio tab to see the new holding and updated positions.</div>';
   }
+}
+
+// Render the user-facing Paper Trade Ticket from preview-only data (the cached
+// trade plan rows, or PENDING orders during FILL). PREVIEW ONLY: this reads
+// portfolio cash + open positions to estimate the post-trade impact. It writes
+// nothing. If risk blocked every line, it disables Place Paper Trade.
+async function _renderPaperTradeTicket(stage) {
+  const el = document.getElementById('tf-ticket');
+  if (!el) return;
+  const COMMISSION = 1.00; // flat per-fill paper commission (estimate)
+
+  let lines = [];
+  if (stage === 'FILL') {
+    try {
+      const r = await call('GET', '/v1/orders?status=PENDING');
+      if (r.ok) {
+        const os = await r.json();
+        lines = (Array.isArray(os) ? os : []).map(function(o) {
+          const q = parseFloat(o.requested_qty) || 0;
+          const px = parseFloat(o.fill_price) || 0;
+          const val = o.requested_notional != null ? parseFloat(o.requested_notional) : (q && px ? q * px : 0);
+          return { ticker: o.ticker, action: o.side, qty: o.requested_qty, estimated_cost: val ? val.toFixed(2) : '0.00', risk_status: 'APPROVED' };
+        });
+      }
+    } catch (e) { /* best-effort */ }
+  }
+  if (lines.length === 0) lines = Array.isArray(window._lastTradePlanRows) ? window._lastTradePlanRows : [];
+
+  if (lines.length === 0) {
+    el.innerHTML = '<div style="font-size: 10px; color: var(--label); padding: 8px 10px; background: rgba(0,0,0,.12); border-radius: 3px;">Preparing your paper trade ticket&hellip;</div>';
+    return;
+  }
+
+  const eligible = lines.filter(function(r) { return r.action === 'BUY' || r.action === 'SELL'; });
+  const blocked = lines.filter(function(r) { return r.risk_status && r.risk_status !== 'APPROVED'; });
+
+  if (eligible.length === 0) {
+    const reason = blocked.length ? (blocked[0].risk_reason || 'Risk rules') : 'No order-eligible trade in the current plan.';
+    el.innerHTML = '<div style="padding: 10px; background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.4); border-radius: 3px;">'
+      + '<div style="font-size: 12px; font-weight: 800; color: var(--danger); margin-bottom: 4px;">Trade blocked by risk rules.</div>'
+      + '<div style="font-size: 10px; color: var(--text-secondary);">' + escapeHtml(String(reason)) + '</div></div>';
+    const pb = document.getElementById('tf-place-btn');
+    if (pb) { pb.disabled = true; pb.style.opacity = '0.5'; pb.style.cursor = 'not-allowed'; }
+    return;
+  }
+
+  let cashBefore = null, posCount = null;
+  try {
+    const pr = await call('GET', '/v1/portfolio');
+    if (pr.ok) { const pd = await pr.json(); cashBefore = parseFloat(pd.cached_cash); }
+  } catch (e) { /* best-effort */ }
+  try {
+    const posr = await call('GET', '/v1/positions');
+    if (posr.ok) {
+      const pd = await posr.json();
+      posCount = Array.isArray(pd) ? pd.length : (pd && Array.isArray(pd.positions) ? pd.positions.length : null);
+    }
+  } catch (e) { /* best-effort */ }
+
+  let totalValue = 0;
+  let body = '<div style="overflow-x: auto; border: 1px solid var(--border); border-radius: 3px;">';
+  body += '<table style="width: 100%; border-collapse: collapse; font-size: 10px;"><thead><tr style="background: rgba(0,0,0,.3);">';
+  ['Ticker', 'Side', 'Est. Qty', 'Est. Entry', 'Est. Value', 'Est. Commission', 'Risk'].forEach(function(h) {
+    body += '<th style="padding: 4px 6px; text-align: left; color: var(--label); font-size: 9px;">' + h + '</th>';
+  });
+  body += '</tr></thead><tbody>';
+  eligible.forEach(function(r) {
+    const qty = parseFloat(r.qty) || 0;
+    const val = parseFloat(String(r.estimated_cost).replace(/[^0-9.\-]/g, '')) || 0;
+    const entry = qty > 0 ? (val / qty) : 0;
+    totalValue += val;
+    const sideClr = r.action === 'BUY' ? 'var(--ok)' : 'var(--danger)';
+    const passed = !r.risk_status || r.risk_status === 'APPROVED';
+    body += '<tr style="border-bottom: 1px solid rgba(255,255,255,.05);">';
+    body += '<td style="padding: 4px 6px; font-weight: 700;">' + escapeHtml(r.ticker || '-') + '</td>';
+    body += '<td style="padding: 4px 6px; color: ' + sideClr + '; font-weight: 700;">' + escapeHtml(r.action || '-') + '</td>';
+    body += '<td style="padding: 4px 6px;">' + (qty ? qty : '-') + '</td>';
+    body += '<td style="padding: 4px 6px;">' + (entry ? '$' + entry.toFixed(2) : '-') + '</td>';
+    body += '<td style="padding: 4px 6px;">' + (val ? '$' + val.toFixed(2) : '-') + '</td>';
+    body += '<td style="padding: 4px 6px;">$' + COMMISSION.toFixed(2) + '</td>';
+    body += '<td style="padding: 4px 6px; color: ' + (passed ? 'var(--ok)' : 'var(--danger)') + '; font-weight: 700;">' + (passed ? 'Passed' : 'Blocked') + '</td>';
+    body += '</tr>';
+  });
+  body += '</tbody></table></div>';
+
+  const totalCommission = COMMISSION * eligible.length;
+  const cashAfter = (cashBefore != null) ? (cashBefore - totalValue - totalCommission) : null;
+  const posAfter = (posCount != null) ? (posCount + eligible.length) : null;
+  body += '<div style="display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; padding: 8px 10px; background: rgba(0,0,0,.15); border-radius: 3px; font-size: 10px;">';
+  body += '<div><span style="color: var(--label);">Est. trade value</span><br><strong>$' + totalValue.toFixed(2) + '</strong></div>';
+  body += '<div><span style="color: var(--label);">Est. commission</span><br><strong>$' + totalCommission.toFixed(2) + '</strong></div>';
+  body += '<div><span style="color: var(--label);">Est. cash after trade</span><br><strong>' + (cashAfter != null ? '$' + cashAfter.toFixed(2) : '-') + '</strong></div>';
+  body += '<div><span style="color: var(--label);">Est. position count after</span><br><strong>' + (posAfter != null ? posAfter : '-') + '</strong></div>';
+  body += '<div><span style="color: var(--label);">Risk status</span><br><strong style="color: var(--ok);">Passed</strong></div>';
+  body += '</div>';
+  el.innerHTML = body;
+
+  const pb = document.getElementById('tf-place-btn');
+  if (pb) { pb.disabled = false; pb.style.opacity = ''; pb.style.cursor = ''; }
+}
+
+// Place Paper Trade: the single user-facing action that turns an approved trade
+// idea into a filled paper position. Chains the existing preview-safe endpoints
+// (generate trade plan -> create paper order ticket -> fill paper order) behind
+// one styled confirmation. PAPER ONLY: no broker order, no live trade, no
+// automation. The fill endpoint updates the local portfolio snapshot.
+async function placePaperTrade() {
+  return new Promise(function(resolve) {
+    window._showWriteConfirm({
+      title: 'Place Paper Trade',
+      writes: [
+        'Creates a PENDING paper order, then fills it locally',
+        'Updates paper portfolio positions and cash',
+        'Updates the local portfolio snapshot',
+      ],
+      doesNotDo: [
+        'does not send a live broker order',
+        'does not execute a live trade',
+        'does not enable automation',
+      ],
+      confirmLabel: 'Place Paper Trade',
+      onConfirm: async () => {
+        const statusEl = document.getElementById('tf-status');
+        const pb = document.getElementById('tf-place-btn');
+        if (pb) pb.disabled = true;
+        try {
+          const ws = window._workflowStatusData || {};
+          const eligible = (ws.review_created_trade_decisions || {}).order_eligible || 0;
+          const pending = (ws.orders || {}).pending || 0;
+          // 1. Ensure a trade plan (internal signal + decision) exists.
+          if (eligible === 0 && pending === 0) {
+            if (statusEl) statusEl.textContent = 'Preparing trade plan...';
+            const g = await call('POST', '/v1/review/generate-trade-plan', {
+              idempotency_key: 'place-gen-' + Date.now(),
+              confirm_generate: true,
+              confirm_generate_trade_plan: true,
+              limit: 50,
+            });
+            if (!g.ok) { const e = await parseApiResponse(g); throw new Error(formatApiError(e)); }
+          }
+          // 2. Create the PENDING paper order ticket (idempotent; skips existing).
+          if (statusEl) statusEl.textContent = 'Creating paper order ticket...';
+          const c = await call('POST', '/v1/review/create-orders', {
+            idempotency_key: 'place-create-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            confirm_create_orders: true,
+          });
+          if (!c.ok) { const e = await parseApiResponse(c); throw new Error(formatApiError(e)); }
+          // 3. Fill the paper order locally (updates positions, cash, snapshot).
+          if (statusEl) statusEl.textContent = 'Filling paper order...';
+          const f = await call('POST', '/v1/review/fill-pending-orders', { confirm_paper_fill: true });
+          if (!f.ok) { const e = await parseApiResponse(f); throw new Error(formatApiError(e)); }
+          // 4. Refresh workflow state so the cockpit advances to Paper Trade Completed.
+          await refreshCockpitAfterAction('Place Paper Trade');
+          toast('Paper trade completed. Portfolio updated.', 'success');
+        } catch (e) {
+          if (pb) { pb.disabled = false; }
+          toast('Place Paper Trade failed: ' + String(e && e.message ? e.message : e), 'error');
+        }
+        resolve();
+      },
+      onCancel: () => resolve(),
+    });
+  });
+}
+
+// Cancel Trade: cancels any PENDING paper order ticket and returns to review.
+// PAPER ONLY: no fills, no cash/position changes, no broker order.
+async function cancelPaperTrade() {
+  return new Promise(function(resolve) {
+    window._showWriteConfirm({
+      title: 'Cancel Trade',
+      writes: ['Cancels PENDING paper order tickets for today (if any)'],
+      doesNotDo: [
+        'does not fill any order',
+        'does not change positions or cash',
+        'does not send a broker order',
+      ],
+      confirmLabel: 'Cancel Trade',
+      onConfirm: async () => {
+        try {
+          await call('POST', '/v1/review/cancel-pending-orders', { confirm_cancel_orders: true });
+        } catch (e) { /* best-effort */ }
+        try { await refreshCockpitAfterAction('Cancel Trade'); } catch (e) {}
+        toast('Paper order ticket cancelled. No trade was placed.', 'info');
+        resolve();
+      },
+      onCancel: () => resolve(),
+    });
+  });
+}
+
+// Back to Candidate: returns the user to the Review Trade Idea card.
+function backToCandidate() {
+  try { focusReviewQueue(); } catch (e) {}
 }
 
 function _renderTradeFlowPlanRows(rows) {

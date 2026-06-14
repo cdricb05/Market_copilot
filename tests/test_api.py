@@ -28541,7 +28541,8 @@ class TestDailyCandidateDecisionCardV1Content:
         assert "Candidate 1 of" in self._read_html()
 
     def test_approve_for_trade_plan_present(self) -> None:
-        assert "Approve for Trade Plan" in self._read_html()
+        # Guided Trade Lifecycle v1 renamed this user-facing action.
+        assert "Approve for Paper Trade" in self._read_html()
 
     def test_watch_only_present(self) -> None:
         assert "Watch Only" in self._read_html()
@@ -29103,3 +29104,662 @@ class TestGuidedTradePlanPaperOrderFlowV1Ui:
     def test_no_confirm_calls(self) -> None:
         import re
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
+
+
+class TestCurrentWorkflowStateEndpoint:
+    """Canonical read-only workflow state (Action Discoverability + Guided Workflow v1).
+
+    The stage derivation is a pure function, so the eight required scenarios are
+    asserted deterministically without depending on shared-DB global counts. A
+    separate smoke test exercises the live GET endpoint shape.
+    """
+
+    _VALID_STAGES = {
+        "NEEDS_DAILY_REVIEW", "REVIEW_CANDIDATES", "GENERATE_TRADE_PLAN",
+        "CREATE_PAPER_ORDER", "FILL_PAPER_ORDER", "PAPER_TRADE_COMPLETED",
+        "MONITOR_PORTFOLIO", "NO_TRADE_PLAN",
+    }
+    _VALID_ACTIONS = {
+        "start_daily_review", "review_candidates", "generate_trade_plan",
+        "create_paper_order", "fill_paper_order", "open_portfolio",
+        "review_open_positions",
+    }
+    _VALID_WORKSPACES = {
+        "start_daily_review", "candidates_to_review", "trade_plan",
+        "paper_order_ticket", "pending_paper_order", "portfolio_monitoring",
+        "paper_trade_completed",
+    }
+
+    @staticmethod
+    def _stage(**overrides) -> str:
+        from paper_trader.api.app import _derive_workflow_stage
+        base = dict(
+            today_pending=0, today_approved=0, order_eligible=0,
+            has_pending_orders=False, has_filled_orders=False,
+            has_open_positions=False, today_total=0,
+        )
+        base.update(overrides)
+        return _derive_workflow_stage(**base)
+
+    # --- Scenario 1: no review / no positions ---
+    def test_scenario_needs_daily_review(self) -> None:
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        stage = self._stage()
+        assert stage == "NEEDS_DAILY_REVIEW"
+        info = _WORKFLOW_STAGE_INFO[stage]
+        assert info["active_workspace"] == "start_daily_review"
+        assert info["primary_button_label"] == "Start Daily Review"
+        assert info["primary_button_action"] == "start_daily_review"
+
+    # --- Scenario 2: today has pending candidates (older candidates do not drive) ---
+    def test_scenario_review_candidates(self) -> None:
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        stage = self._stage(today_pending=3, today_total=3)
+        assert stage == "REVIEW_CANDIDATES"
+        info = _WORKFLOW_STAGE_INFO[stage]
+        assert info["active_workspace"] == "candidates_to_review"
+        assert info["primary_button_action"] == "review_candidates"
+
+    def test_older_candidates_do_not_drive_state(self) -> None:
+        # The derivation takes only TODAY's counts -> rows created before today
+        # (older) can never push the stage to REVIEW_CANDIDATES. With nothing
+        # today and no positions the stage falls back to NEEDS_DAILY_REVIEW.
+        assert self._stage(today_pending=0, today_total=0) == "NEEDS_DAILY_REVIEW"
+
+    # --- Scenario 4: review complete with approved candidate ---
+    def test_scenario_generate_trade_plan(self) -> None:
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        stage = self._stage(today_approved=1, today_total=1)
+        assert stage == "GENERATE_TRADE_PLAN"
+        assert _WORKFLOW_STAGE_INFO[stage]["active_workspace"] == "trade_plan"
+
+    # --- Scenario 5: order-eligible decision exists ---
+    def test_scenario_create_paper_order(self) -> None:
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        stage = self._stage(today_approved=1, order_eligible=1, today_total=1)
+        assert stage == "CREATE_PAPER_ORDER"
+        assert _WORKFLOW_STAGE_INFO[stage]["active_workspace"] == "paper_order_ticket"
+        assert _WORKFLOW_STAGE_INFO[stage]["primary_button_label"] == "Create Paper Order Ticket"
+
+    # --- Scenario 6: pending paper order exists ---
+    def test_scenario_fill_paper_order(self) -> None:
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        stage = self._stage(today_approved=1, order_eligible=1, has_pending_orders=True, today_total=1)
+        assert stage == "FILL_PAPER_ORDER"
+        assert _WORKFLOW_STAGE_INFO[stage]["active_workspace"] == "pending_paper_order"
+        assert _WORKFLOW_STAGE_INFO[stage]["primary_button_label"] == "Fill Paper Order"
+
+    # --- Scenario 7: filled order / open position; stale older candidates ignored ---
+    def test_scenario_paper_trade_completed(self) -> None:
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        stage = self._stage(has_filled_orders=True, has_open_positions=True, today_total=0)
+        assert stage == "PAPER_TRADE_COMPLETED"
+        info = _WORKFLOW_STAGE_INFO[stage]
+        assert info["primary_button_label"] == "View Portfolio"
+        assert info["primary_button_action"] == "open_portfolio"
+
+    # --- Scenario 8: open position (WATCH) -> monitor ---
+    def test_scenario_monitor_portfolio(self) -> None:
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        stage = self._stage(has_open_positions=True, today_total=0)
+        assert stage == "MONITOR_PORTFOLIO"
+        info = _WORKFLOW_STAGE_INFO[stage]
+        assert info["primary_button_action"] in ("review_open_positions", "open_portfolio")
+
+    def test_no_trade_plan_when_reviewed_today_none_approved(self) -> None:
+        # Today's candidates all watched/rejected (today_total > 0, none pending,
+        # none approved) and no trade rows -> NO_TRADE_PLAN.
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        stage = self._stage(today_total=2)
+        assert stage == "NO_TRADE_PLAN"
+        assert _WORKFLOW_STAGE_INFO[stage]["message"] == "No candidates from today's review need action."
+
+    # --- Precedence: trade-flow facts beat candidate review ---
+    def test_pending_order_beats_approved_candidates(self) -> None:
+        assert self._stage(today_approved=5, has_pending_orders=True, today_total=5) == "FILL_PAPER_ORDER"
+
+    def test_order_eligible_beats_generate(self) -> None:
+        assert self._stage(today_approved=5, order_eligible=2, today_total=5) == "CREATE_PAPER_ORDER"
+
+    # --- Every stage maps to valid action/workspace metadata ---
+    def test_all_stage_info_is_valid(self) -> None:
+        from paper_trader.api.app import _WORKFLOW_STAGE_INFO
+        assert set(_WORKFLOW_STAGE_INFO) == self._VALID_STAGES
+        for stage, info in _WORKFLOW_STAGE_INFO.items():
+            assert info["primary_button_action"] in self._VALID_ACTIONS
+            assert info["active_workspace"] in self._VALID_WORKSPACES
+            assert info["current_task"] and info["next_action"] and info["message"]
+
+    def test_build_workflow_state_carries_counts(self) -> None:
+        from paper_trader.api.app import _build_workflow_state
+        st = _build_workflow_state(
+            today_total=4, today_pending=2, today_approved=1, older_count=7,
+            order_eligible=0, pending_orders=0, filled_orders=0, open_positions=3,
+        )
+        # today_pending dominates -> REVIEW_CANDIDATES, counts passed through.
+        assert st.stage == "REVIEW_CANDIDATES"
+        assert st.today_candidate_count == 4
+        assert st.today_pending_review_count == 2
+        assert st.today_approved_count == 1
+        assert st.older_candidate_count == 7
+        assert st.has_open_positions is True
+        assert st.open_position_count == 3
+
+    # --- Live endpoint smoke test (read-only, shape only) ---
+    def test_current_workflow_state_endpoint_shape(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.get("/v1/review/current-workflow-state", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        for key in (
+            "stage", "current_task", "next_action", "primary_button_label",
+            "primary_button_action", "active_workspace", "focus_target",
+            "today_candidate_count", "today_pending_review_count",
+            "today_approved_count", "older_candidate_count",
+            "has_pending_orders", "has_filled_orders", "has_open_positions",
+            "open_position_count", "message",
+        ):
+            assert key in data, f"missing canonical state key: {key}"
+        assert data["stage"] in self._VALID_STAGES
+        assert data["primary_button_action"] in self._VALID_ACTIONS
+        assert data["active_workspace"] in self._VALID_WORKSPACES
+
+    def test_current_workflow_state_requires_auth(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.get("/v1/review/current-workflow-state")
+        assert resp.status_code in (401, 403)
+
+
+class TestActionDiscoverabilityGuidedWorkflowV1Ui:
+    """Action Discoverability + Guided Workflow v1 UI.
+
+    The active action workspace sits directly below Today's Review, the required
+    action is visible without hunting, and Overview / Daily Plan / the right
+    Action / Safety panel all read one canonical workflow state.
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    @staticmethod
+    def _fn(html: str, decl: str) -> str:
+        start = html.index(decl)
+        nxt = html.index("\nfunction ", start + 1)
+        return html[start:nxt]
+
+    # --- Required exact UI text ---
+    def test_required_text_present(self) -> None:
+        html = self._read_html()
+        for text in (
+            "Candidates to Review",
+            "Candidate 1 of",
+            "Choose one action. This records your manual review only. It does not create orders or trades.",
+            "Approve for Paper Trade",
+            "Watch Only",
+            "Reject",
+            "Paper trade completed. Portfolio updated.",
+            "View Portfolio",
+            "Older review items exist, but they are not part of today's active workflow.",
+            "No candidates from today's review need action.",
+            "Go to Daily Plan → Candidates to Review.",
+            "You do not need these sections for normal daily review.",
+            "Advanced rerun controls. Usually not needed after Today's Review is loaded.",
+        ):
+            assert text in html, f"missing required UI text: {text!r}"
+
+    def test_per_stage_titles_and_helpers_present(self) -> None:
+        html = self._read_html()
+        for text in (
+            "Start Daily Review",
+            "This refreshes market data, prepares today's candidates, and updates the portfolio snapshot. It does not create orders or trades.",
+            "Trade Plan",
+            "This creates internal paper-trading recommendations only. No order is created.",
+            "Paper Order Ticket",
+            "This creates a pending paper order only. No broker order is sent.",
+            "Pending Paper Order",
+            "This fills the local paper order only. No live trade is executed.",
+            "Portfolio Monitoring",
+            "Monitor closely. No action required yet.",
+            "No action required.",
+        ):
+            assert text in html, f"missing per-stage text: {text!r}"
+
+    # --- Active action workspace IDs exist ---
+    def test_active_action_workspace_ids_present(self) -> None:
+        html = self._read_html()
+        for wid in (
+            "active-action-workspace",
+            "candidates-to-review-workspace",
+            "trade-plan-workspace",
+            "paper-order-ticket-workspace",
+            "pending-paper-order-workspace",
+            "portfolio-monitoring-workspace",
+            "paper-trade-completed-workspace",
+        ):
+            assert f'id="{wid}"' in html, f"missing workspace id: {wid}"
+
+    # --- Active workspace is directly below Today's Review, above Advanced ---
+    def test_active_workspace_directly_below_todays_review(self) -> None:
+        html = self._read_html()
+        i_review = html.index('id="dp-current-task-card"')
+        i_active = html.index('id="active-action-workspace"')
+        i_cands = html.index('id="candidates-to-review-workspace"')
+        i_advanced = html.index('id="dp-later-steps-details"')
+        assert i_review < i_active < i_cands < i_advanced
+
+    # --- Primary action dispatcher supports all canonical actions ---
+    def test_primary_action_handler_supports_all_actions(self) -> None:
+        fn = self._fn(self._read_html(), "function primaryWorkflowAction(")
+        for action in (
+            "start_daily_review", "review_candidates", "generate_trade_plan",
+            "create_paper_order", "fill_paper_order", "open_portfolio",
+            "review_open_positions",
+        ):
+            assert f"'{action}'" in fn, f"primaryWorkflowAction missing case: {action}"
+        # Reuses existing preview-safe handlers (no duplicated write logic).
+        for handler in (
+            "startDailyReviewSession", "focusReviewQueue", "generateTradePlan",
+            "createOrdersFromDecisions", "fillPendingPaperOrders", "viewPortfolio",
+            "runPortfolioMonitorWorkspace",
+        ):
+            assert handler in fn
+
+    # --- One canonical state shared across surfaces ---
+    def test_single_canonical_state_used_by_today_review(self) -> None:
+        fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
+        assert "window._canonicalWorkflowState" in fn
+        assert "syncActiveActionWorkspaces" in fn
+        assert "applyCanonicalToOverview" in fn
+
+    def test_overview_reads_canonical_state(self) -> None:
+        html = self._read_html()
+        assert 'id="overview-next-action-card"' in html
+        assert "function applyCanonicalToOverview(" in html
+        fn = self._fn(html, "function applyCanonicalToOverview(")
+        assert "window._canonicalWorkflowState" in fn
+        assert "ov-na-task" in fn
+
+    def test_sync_workspaces_toggles_all_sections(self) -> None:
+        fn = self._fn(self._read_html(), "function syncActiveActionWorkspaces(")
+        for wid in (
+            "start-daily-review-workspace", "candidates-to-review-workspace",
+            "trade-plan-workspace", "paper-order-ticket-workspace",
+            "pending-paper-order-workspace", "paper-trade-completed-workspace",
+            "portfolio-monitoring-workspace",
+        ):
+            assert wid in fn
+
+    def test_review_candidates_focuses_candidate_card(self) -> None:
+        fn = self._fn(self._read_html(), "function focusReviewQueue(")
+        assert "candidates-to-review-workspace" in fn
+        assert "scrollIntoView" in fn
+
+    def test_right_panel_review_hint_present(self) -> None:
+        html = self._read_html()
+        assert 'id="right-review-hint"' in html
+        assert "function openDailyPlanFocused(" in html
+
+    def test_open_daily_plan_button_focuses_workspace(self) -> None:
+        html = self._read_html()
+        assert 'onclick="openDailyPlanFocused()"' in html
+
+    # --- Sticky tab bar ---
+    def test_sticky_tabs_implemented(self) -> None:
+        html = self._read_html()
+        i_tabbar = html.index(".tab-bar {")
+        block = html[i_tabbar:i_tabbar + 300]
+        assert "position: sticky" in block
+        assert "top: 0" in block
+
+    # --- No browser dialogs ---
+    def test_no_alert_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", self._read_html())) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
+
+
+# ---------------------------------------------------------------------------
+# Guided Trade Lifecycle v1 - single user-facing trade path
+# ---------------------------------------------------------------------------
+
+
+class TestGuidedTradeLifecycleV1Ui:
+    """Guided Trade Lifecycle v1 UI: one visible path -- Review Trade Idea ->
+    Approve for Paper Trade -> Paper Trade Ticket -> Place Paper Trade ->
+    Paper Trade Completed -> View Portfolio. The internal signal/decision/order
+    steps are no longer the primary user-facing labels.
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    @staticmethod
+    def _fn(html: str, decl: str) -> str:
+        start = html.index(decl)
+        nxt = html.index("\nfunction ", start + 1)
+        return html[start:nxt]
+
+    # --- Required user-facing labels (item F) ---
+    def test_user_facing_labels_present(self) -> None:
+        html = self._read_html()
+        for text in (
+            "Start Daily Review",
+            "Review Trade Idea",
+            "Approve for Paper Trade",
+            "Watch Only",
+            "Reject",
+            "Paper Trade Ticket",
+            "Place Paper Trade",
+            "Paper Trade Completed",
+            "View Portfolio",
+        ):
+            assert text in html, f"missing user-facing label: {text!r}"
+
+    # --- Required safety copy (item G) ---
+    def test_required_safety_copy_present(self) -> None:
+        html = self._read_html()
+        for text in (
+            "Paper portfolio only. No broker execution.",
+            "Approving a trade idea does not place a trade.",
+            "Place Paper Trade creates and fills a local paper order only.",
+            "No live broker order is created.",
+            "Automation is off.",
+        ):
+            assert text in html, f"missing safety copy: {text!r}"
+
+    # --- The Place Paper Trade chain exists and reuses paper-only endpoints ---
+    def test_place_paper_trade_handlers_present(self) -> None:
+        html = self._read_html()
+        assert "function placePaperTrade(" in html
+        assert "function cancelPaperTrade(" in html
+        assert "function backToCandidate(" in html
+
+    def test_place_paper_trade_reuses_existing_paper_endpoints(self) -> None:
+        fn = self._fn(self._read_html(), "async function placePaperTrade(")
+        assert "/v1/review/generate-trade-plan" in fn
+        assert "/v1/review/create-orders" in fn
+        assert "/v1/review/fill-pending-orders" in fn
+
+    def test_place_paper_trade_is_paper_only(self) -> None:
+        fn = self._fn(self._read_html(), "async function placePaperTrade(")
+        assert "confirm_paper_fill" in fn
+        assert "does not send a live broker order" in fn
+        assert "does not enable automation" in fn
+
+    # --- Approve still routes through the review-only handler ---
+    def test_approve_button_records_review_only(self) -> None:
+        assert "dccDecide('APPROVED_FOR_SIGNAL')" in self._read_html()
+
+    # --- Right Action / Safety panel states align with the trade path (item D) ---
+    def test_right_panel_states_aligned(self) -> None:
+        fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
+        for text in (
+            "Review Trade Idea",
+            "Review Paper Trade Ticket",
+            "View Portfolio",
+            "Monitor Portfolio",
+        ):
+            assert text in fn, f"right-panel state text missing: {text!r}"
+
+    # --- Today's Review primary action is Place Paper Trade, not the steps ---
+    def test_primary_post_approval_action_is_place_paper_trade(self) -> None:
+        fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
+        assert "placePaperTrade()" in fn
+
+    # --- Internal pipeline stays in Advanced / Audit (collapsed) ---
+    def test_internal_pipeline_collapsed(self) -> None:
+        html = self._read_html()
+        assert '<details id="dp-later-steps-details"' in html
+        assert "You do not need these sections for normal daily review." in html
+
+    # --- No browser dialogs ---
+    def test_no_alert_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", self._read_html())) == 0
+
+    def test_no_confirm_calls(self) -> None:
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
+
+
+class TestPaperTradeTicketUi:
+    """The Paper Trade Ticket surface (Guided Trade Lifecycle v1)."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    @staticmethod
+    def _fn(html: str, decl: str) -> str:
+        start = html.index(decl)
+        nxt = html.index("\nfunction ", start + 1)
+        return html[start:nxt]
+
+    def test_ticket_container_and_button_present(self) -> None:
+        html = self._read_html()
+        assert 'id="tf-ticket"' in html
+        assert 'id="tf-place-btn"' in html
+
+    def test_ticket_renderer_present(self) -> None:
+        assert "async function _renderPaperTradeTicket(" in self._read_html()
+
+    def test_ticket_fields_present(self) -> None:
+        html = self._read_html()
+        for text in (
+            "Est. Qty",
+            "Est. Entry",
+            "Est. Value",
+            "Est. Commission",
+            "Est. cash after trade",
+            "Est. position count after",
+            "Risk status",
+        ):
+            assert text in html, f"missing ticket field: {text!r}"
+
+    def test_ticket_blocked_message_present(self) -> None:
+        assert "Trade blocked by risk rules." in self._read_html()
+
+    def test_ticket_buttons_in_trade_flow_card(self) -> None:
+        fn = self._fn(self._read_html(), "function renderTradeFlowCard(")
+        assert "Paper Trade Ticket" in fn
+        assert "placePaperTrade()" in fn
+        assert "Cancel Trade" in fn
+        assert "Back to Candidate" in fn
+
+
+class TestPlacePaperTradeFlow:
+    """Guided Trade Lifecycle v1 backend write boundaries for the Place Paper
+    Trade chain. Reuses the existing review / create-orders / fill-pending-orders
+    endpoints. Proves:
+      - Approve / Watch / Reject create no trading rows,
+      - the Place Paper Trade chain (create + fill) yields exactly one FILLED
+        paper order, opens a position, and appends a cash ledger entry,
+      - execution is paper-only (no broker).
+    """
+
+    _IKEY_PREFIX = "gtl-v1-test"
+    _REVIEW_SOURCE_PREFIX = "review_queue_create_signals_v1:"
+
+    @pytest.fixture(autouse=True)
+    def _purge_pending(self, api_engine):
+        def _purge():
+            from zoneinfo import ZoneInfo
+            today = datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date()
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(
+                    Order.status == "PENDING", Order.market_date == today
+                ).delete(synchronize_session=False)
+                s.commit()
+        _purge()
+        yield
+        _purge()
+
+    def _ticker(self) -> str:
+        return f"GTL{uuid.uuid4().hex[:4].upper()}"
+
+    def _clean(self, api_engine, ticker: str, ikey_prefix: str) -> None:
+        from paper_trader.db.models import Trade, CashLedger
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            ords = session.query(Order).filter(Order.ticker == ticker).all()
+            for o in ords:
+                session.query(CashLedger).filter(CashLedger.order_id == o.id).delete(synchronize_session=False)
+                session.query(Trade).filter(Trade.order_id == o.id).delete(synchronize_session=False)
+            session.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
+            session.query(Order).filter(Order.ticker == ticker).delete(synchronize_session=False)
+            session.query(TradeDecision).filter(TradeDecision.ticker == ticker).delete(synchronize_session=False)
+            session.query(Signal).filter(Signal.ticker == ticker).delete(synchronize_session=False)
+            session.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete(synchronize_session=False)
+            session.query(CandidateReview).filter(
+                CandidateReview.idempotency_key.like(ikey_prefix + "%")
+            ).delete(synchronize_session=False)
+            session.commit()
+
+    def _add_candidate(self, api_engine, ticker: str, ikey: str, review_status: str) -> str:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            row = CandidateReview(
+                idempotency_key=ikey,
+                ticker=ticker,
+                prediction_recommendation="BUY",
+                prediction_confidence="0.85",
+                preview_decision="CONSIDER",
+                preview_score="75.0",
+                status="OK",
+                review_status=review_status,
+            )
+            session.add(row)
+            session.commit()
+            return str(row.id)
+
+    def _counts(self, api_engine, ticker: str) -> tuple:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            return (
+                session.query(Signal).filter(Signal.ticker == ticker).count(),
+                session.query(TradeDecision).filter(TradeDecision.ticker == ticker).count(),
+                session.query(Order).filter(Order.ticker == ticker).count(),
+                session.query(Position).filter(Position.ticker == ticker).count(),
+            )
+
+    def _seed_decision(self, api_engine, ticker: str, qty: str = "3.00", price: str = "100.00") -> str:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            jr = JobRun(
+                idempotency_key=f"{self._IKEY_PREFIX}-jr-{uuid.uuid4().hex[:8]}",
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=date.today(),
+                status="COMPLETED",
+                completed_at=datetime.now(timezone.utc),
+            )
+            session.add(jr)
+            session.flush()
+            sig = Signal(
+                job_run_id=jr.id,
+                ticker=ticker,
+                direction="BUY",
+                confidence=Decimal("0.85"),
+                signal_ts=datetime.now(timezone.utc),
+                market_date=date.today(),
+                source_run=self._REVIEW_SOURCE_PREFIX + uuid.uuid4().hex[:8],
+                status="DECISION_MADE",
+                raw_payload={},
+            )
+            session.add(sig)
+            session.flush()
+            notional = (Decimal(qty) * Decimal(price)).quantize(Decimal("0.01"))
+            td = TradeDecision(
+                signal_id=sig.id,
+                job_run_id=jr.id,
+                ticker=ticker,
+                signal_direction="BUY",
+                decision="BUY",
+                reason_code="POSITIVE_SIGNAL",
+                approved_qty=Decimal(qty),
+                approved_notional=notional,
+                requested_qty=Decimal(qty),
+                requested_notional=notional,
+                decided_at=datetime.now(timezone.utc),
+                market_date=date.today(),
+            )
+            session.add(td)
+            session.commit()
+            return str(td.id)
+
+    @pytest.mark.parametrize("status_value", ["APPROVED_FOR_SIGNAL", "WATCHING", "REJECTED"])
+    def test_review_decision_creates_no_trading_rows(self, seeded_client: TestClient, api_engine, status_value) -> None:
+        ikey = f"{self._IKEY_PREFIX}-rev-{uuid.uuid4().hex[:6]}"
+        ticker = self._ticker()
+        self._clean(api_engine, ticker, ikey)
+        try:
+            cid = self._add_candidate(api_engine, ticker, ikey, "NEW")
+            resp = seeded_client.patch(
+                f"/v1/review/candidates/{cid}",
+                json={"review_status": status_value},
+                headers=_AUTH,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["review_status"] == status_value
+            assert self._counts(api_engine, ticker) == (0, 0, 0, 0), (
+                f"{status_value} must create no signals/decisions/orders/positions"
+            )
+        finally:
+            self._clean(api_engine, ticker, ikey)
+
+    def test_place_paper_trade_fills_one_order_paper_only(self, seeded_client: TestClient, api_engine) -> None:
+        from paper_trader.db.models import CashLedger, Trade
+        ikey = f"{self._IKEY_PREFIX}-place-{uuid.uuid4().hex[:6]}"
+        ticker = self._ticker()
+        self._clean(api_engine, ticker, ikey)
+        try:
+            td_id = self._seed_decision(api_engine, ticker, qty="3.00", price="100.00")
+            # Place Paper Trade step 2: create the PENDING paper order ticket.
+            rc = seeded_client.post(
+                "/v1/review/create-orders",
+                json={"idempotency_key": ikey + "-c", "trade_decision_ids": [td_id], "confirm_create_orders": True},
+                headers=_AUTH,
+            )
+            assert rc.status_code == 201
+            assert rc.json()["orders_created"] == 1
+            # Price snapshot so the pending order can be priced and filled.
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.add(PriceSnapshot(
+                    ticker=ticker,
+                    price=Decimal("100.00"),
+                    session_type="REGULAR",
+                    price_type="CLOSE",
+                    snapshot_ts=datetime.now(timezone.utc),
+                    market_date=date.today(),
+                    job_run_id=None,
+                ))
+                session.commit()
+            # Place Paper Trade step 3: fill the paper order locally.
+            rf = seeded_client.post(
+                "/v1/review/fill-pending-orders",
+                json={"confirm_paper_fill": True},
+                headers=_AUTH,
+            )
+            assert rf.status_code == 200
+            data = rf.json()
+            assert data["execution_mode"] == "PAPER_FILLS_ONLY", "must be paper-only, no broker"
+            assert data["orders_filled"] >= 1
+            assert ticker in data["positions_changed"]
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                o = session.query(Order).filter(Order.ticker == ticker).first()
+                assert o.status == "FILLED" and o.fill_price is not None
+                pos = session.query(Position).filter(Position.ticker == ticker).first()
+                assert pos is not None and pos.qty > Decimal("0")
+                trades = session.query(Trade).filter(Trade.order_id == o.id).count()
+                assert trades >= 1, "fill must create a paper trade row"
+                ledger = session.query(CashLedger).filter(CashLedger.order_id == o.id).count()
+                assert ledger >= 1, "fill must append a cash ledger entry"
+        finally:
+            self._clean(api_engine, ticker, ikey)
