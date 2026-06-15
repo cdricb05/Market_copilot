@@ -352,27 +352,123 @@ def run_fill_cycle(
             raise
 
     # --- Portfolio cache refresh ---
+    refresh_open_positions_cache(session, portfolio, now=now)
+
+    return counts
+
+
+def refresh_open_positions_cache(
+    session: Session,
+    portfolio: Portfolio,
+    *,
+    now: datetime,
+) -> None:
+    """
+    Recompute and persist portfolio cached_cash / cached_total_value from the
+    current open positions and their latest price snapshots.
+
+    Extracted from run_fill_cycle so a single-order fill (fill_order) can reuse
+    the identical accounting. Raises ValueError if any open position is missing
+    a latest price snapshot. Commits on success.
+    """
     positions = get_open_positions(session)
     if not positions:
         refresh_portfolio_cache(session, portfolio, price_map={}, now=now)
         session.commit()
-    else:
-        price_map: dict[str, Decimal] = {}
-        missing: list[str] = []
-        for pos in positions:
-            price = _latest_price(session, pos.ticker)
-            if price is None:
-                missing.append(pos.ticker)
-            else:
-                price_map[pos.ticker] = price
+        return
 
-        if missing:
-            raise ValueError(
-                f"Cannot refresh portfolio cache: no price snapshot found for "
-                f"open tickers: {missing}"
-            )
+    price_map: dict[str, Decimal] = {}
+    missing: list[str] = []
+    for pos in positions:
+        price = _latest_price(session, pos.ticker)
+        if price is None:
+            missing.append(pos.ticker)
+        else:
+            price_map[pos.ticker] = price
 
-        refresh_portfolio_cache(session, portfolio, price_map=price_map, now=now)
+    if missing:
+        raise ValueError(
+            f"Cannot refresh portfolio cache: no price snapshot found for "
+            f"open tickers: {missing}"
+        )
+
+    refresh_portfolio_cache(session, portfolio, price_map=price_map, now=now)
+    session.commit()
+
+
+def fill_order(
+    session: Session,
+    order: Order,
+    *,
+    portfolio: Portfolio,
+    job_run_id: uuid.UUID,
+    now: datetime,
+    market_date: date,
+) -> str:
+    """
+    Fill a single PENDING paper order. Single-order analogue of the per-order
+    body of run_fill_cycle, used by the candidate-scoped paper-trade endpoint so
+    a paper trade affects only the requested order/ticker.
+
+    Returns one of "filled", "expired", "skipped" (no price snapshot), or
+    "failed" (fill-time precondition such as insufficient cash). Does NOT refresh
+    the portfolio cache — the caller refreshes once via
+    refresh_open_positions_cache. The caller must hold the portfolio advisory
+    lock. PAPER FILL ONLY: no broker execution.
+    """
+    if order.status != OrderStatus.PENDING:
+        return "skipped"
+
+    cfg        = _reconciler_cfg(portfolio)
+    commission = cfg["commission_flat"]
+    ttl_hours  = cfg["order_ttl_hours"]
+    slippage   = Decimal(str(cfg["slippage_bps"])) / Decimal("10000")
+
+    # --- TTL expiry ---
+    ttl_deadline = order.requested_at + timedelta(hours=ttl_hours)
+    if now >= ttl_deadline:
+        order.status = OrderStatus.EXPIRED
+        order.notes  = f"TTL exceeded: expired at {ttl_deadline.isoformat()}."
         session.commit()
+        return "expired"
 
-    return counts
+    # --- Price lookup — leave PENDING if no snapshot exists ---
+    snapshot_price = _latest_price(session, order.ticker)
+    if snapshot_price is None:
+        return "skipped"
+
+    # --- Slippage-adjusted fill price ---
+    if order.side == OrderSide.BUY:
+        fill_price = (snapshot_price * (Decimal("1") + slippage)).quantize(_PRICE)
+    else:
+        fill_price = (snapshot_price * (Decimal("1") - slippage)).quantize(_PRICE)
+
+    # --- Attempt fill with savepoint isolation ---
+    sp = session.begin_nested()
+    try:
+        _do_fill(
+            session,
+            order,
+            portfolio=portfolio,
+            snapshot_price=snapshot_price,
+            fill_price=fill_price,
+            commission=commission,
+            now=now,
+            market_date=market_date,
+            job_run_id=job_run_id,
+        )
+        sp.commit()
+        session.commit()
+        return "filled"
+
+    except ValueError as exc:
+        sp.rollback()
+        order.status = OrderStatus.FAILED
+        order.notes  = str(exc)
+        session.commit()
+        return "failed"
+
+    except Exception:
+        sp.rollback()
+        session.rollback()
+        raise
