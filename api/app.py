@@ -2075,6 +2075,22 @@ class DailyReviewSummaryResponse(BaseModel):
     filled_orders: int
     canceled_orders: int
     no_pending_orders: bool
+    # Current-session (today's) trade-idea separation. Only these drive the
+    # recommended next action; historical candidates are reported separately and
+    # never counted as current actionable work. Mirrors the canonical contract in
+    # /v1/review/workflow-status so every UI surface agrees on the current task.
+    current_session_trade_ideas_total: int = 0
+    current_session_pending_review_count: int = 0
+    current_session_approved_ready_for_paper_trade_count: int = 0
+    current_session_rejected_count: int = 0
+    current_session_watched_count: int = 0
+    historical_trade_ideas_count: int = 0
+    open_positions_count: int = 0
+    pending_paper_orders_count: int = 0
+    # Pending actions = current-session candidates still awaiting review +
+    # pending paper orders + positions flagged for exit review. Reviewed/approved
+    # and historical candidates never inflate this.
+    pending_actions_count: int = 0
     # Next action
     next_action_code: str
     next_action_label: str
@@ -15826,12 +15842,15 @@ def daily_review_summary() -> DailyReviewSummaryResponse:
 
     READ ONLY: zero rows created, zero rows mutated. Safe to call any time.
 
-    Next-action priority:
-        REVIEW_PENDING_ORDERS   — pending_orders > 0
-        REVIEW_POSITION_EXIT    — review_for_exit_count > 0
-        MONITOR_PORTFOLIO       — open positions, no actionable candidates
-        REVIEW_NEW_CANDIDATES   — actionable candidates in queue
-        RUN_DAILY_PROCESS_PREVIEW — nothing actionable
+    Next-action priority (current-session-aware — historical candidates never
+    drive the next action):
+        REVIEW_PENDING_ORDERS     — pending_orders > 0
+        REVIEW_POSITION_EXIT      — review_for_exit_count > 0
+        REVIEW_NEW_CANDIDATES     — today's NEW candidates awaiting review
+        CREATE_FILL_PAPER_TRADE   — today's approved candidate ready for paper trade
+        VIEW_PORTFOLIO            — today's paper trade was filled
+        MONITOR_PORTFOLIO         — open positions, no actionable current-session work
+        RUN_DAILY_PROCESS_PREVIEW — nothing actionable, no open positions
     """
     now = datetime.now(tz=timezone.utc)
 
@@ -15960,7 +15979,60 @@ def daily_review_summary() -> DailyReviewSummaryResponse:
         filled_orders = session.query(Order).filter(Order.status == "FILLED").count()
         canceled_orders = session.query(Order).filter(Order.status == "CANCELLED").count()
 
-    # --- Recommended next action ---
+        # --- Current-session (today's) trade-idea separation ---
+        # Only today's candidates plus live order/position facts drive the
+        # recommended next action. Historical candidates are reported separately
+        # and can never be counted as current actionable work. This mirrors the
+        # canonical contract in /v1/review/workflow-status so every UI surface
+        # agrees on the current task.
+        DRS_REVIEW_SOURCE_PREFIX = "review_queue_create_signals_v1:"
+        today = date.today()
+        start_of_day = datetime(today.year, today.month, today.day)
+        today_cr_q = session.query(CandidateReview).filter(
+            CandidateReview.created_at >= start_of_day
+        )
+        cur_total = today_cr_q.count()
+        cur_pending = today_cr_q.filter(
+            CandidateReview.review_status == "NEW"
+        ).count()
+        cur_rejected = today_cr_q.filter(
+            CandidateReview.review_status == "REJECTED"
+        ).count()
+        cur_watch = today_cr_q.filter(
+            CandidateReview.review_status == "WATCHING"
+        ).count()
+        historical_count = cr_total - cur_total
+
+        # Approved-today rows stay "ready for paper trade" until their own
+        # candidate-scoped signal has a FILLED order. The approval label never
+        # changes after a fill, so ticket-ready vs completed is derived from the
+        # order chain — an unrelated old fill can never mark a current candidate
+        # complete.
+        today_approved_rows = today_cr_q.filter(
+            CandidateReview.review_status == "APPROVED_FOR_SIGNAL"
+        ).all()
+        approved_runs = {
+            f"{DRS_REVIEW_SOURCE_PREFIX}{row.id}" for row in today_approved_rows
+        }
+        completed_runs: set[str] = set()
+        if approved_runs:
+            filled_rows = session.query(Signal.source_run).join(
+                TradeDecision, TradeDecision.signal_id == Signal.id
+            ).join(Order, Order.trade_decision_id == TradeDecision.id).filter(
+                Signal.source_run.in_(list(approved_runs)),
+                Order.status == "FILLED",
+            ).distinct().all()
+            completed_runs = {r[0] for r in filled_rows}
+        cur_completed = len(completed_runs)
+        cur_ready_for_paper_trade = len(today_approved_rows) - cur_completed
+
+    # --- Recommended next action (current-session-aware) ---
+    # Pending actions counts only work that still needs a user decision today:
+    # current-session candidates awaiting review, pending paper orders, and
+    # positions flagged for exit review. Approved-already-reviewed ideas and any
+    # historical candidate never inflate this count.
+    pending_actions_count = cur_pending + pending_orders + review_for_exit_count
+
     if pending_orders > 0:
         next_action_code = "REVIEW_PENDING_ORDERS"
         next_action_label = "Review pending paper orders"
@@ -15969,18 +16041,36 @@ def daily_review_summary() -> DailyReviewSummaryResponse:
         next_action_code = "REVIEW_POSITION_EXIT"
         next_action_label = "Review open positions for possible exit"
         next_action_detail = f"{review_for_exit_count} position(s) below stop-loss threshold (-5%)."
-    elif open_position_count > 0 and cr_actionable == 0:
-        next_action_code = "MONITOR_PORTFOLIO"
-        next_action_label = "Monitor portfolio"
-        next_action_detail = "Open positions are healthy. No new-entry candidates available."
-    elif cr_actionable > 0:
+    elif cur_pending > 0:
         next_action_code = "REVIEW_NEW_CANDIDATES"
         next_action_label = "Review new-entry candidates"
-        next_action_detail = f"{cr_actionable} candidate(s) in review queue (NEW or APPROVED_FOR_SIGNAL)."
+        next_action_detail = (
+            f"{cur_pending} new-entry trade idea(s) from today's scan awaiting review."
+        )
+    elif cur_ready_for_paper_trade > 0:
+        next_action_code = "CREATE_FILL_PAPER_TRADE"
+        next_action_label = "Create & Fill Paper Trade"
+        next_action_detail = (
+            f"{cur_ready_for_paper_trade} approved trade idea(s) from today ready for a paper trade."
+        )
+    elif cur_completed > 0:
+        next_action_code = "VIEW_PORTFOLIO"
+        next_action_label = "View Portfolio"
+        next_action_detail = (
+            "Today's paper trade was filled. Review the updated paper position in Portfolio."
+        )
+    elif open_position_count > 0:
+        next_action_code = "MONITOR_PORTFOLIO"
+        next_action_label = "Monitor portfolio"
+        next_action_detail = (
+            "No actionable trade ideas today. Existing positions were reviewed automatically."
+        )
     else:
         next_action_code = "RUN_DAILY_PROCESS_PREVIEW"
         next_action_label = "Run Daily Process Preview"
-        next_action_detail = "No candidates in queue. Run Daily Process Preview to scan for new opportunities."
+        next_action_detail = (
+            "No actionable trade ideas today. Run Daily Review to scan for new opportunities."
+        )
 
     return DailyReviewSummaryResponse(
         as_of=now,
@@ -16007,6 +16097,16 @@ def daily_review_summary() -> DailyReviewSummaryResponse:
         filled_orders=filled_orders,
         canceled_orders=canceled_orders,
         no_pending_orders=(pending_orders == 0),
+        # Current-session separation (historical candidates excluded)
+        current_session_trade_ideas_total=cur_total,
+        current_session_pending_review_count=cur_pending,
+        current_session_approved_ready_for_paper_trade_count=cur_ready_for_paper_trade,
+        current_session_rejected_count=cur_rejected,
+        current_session_watched_count=cur_watch,
+        historical_trade_ideas_count=historical_count,
+        open_positions_count=open_position_count,
+        pending_paper_orders_count=pending_orders,
+        pending_actions_count=pending_actions_count,
         # Next action
         next_action_code=next_action_code,
         next_action_label=next_action_label,

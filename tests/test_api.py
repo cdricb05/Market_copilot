@@ -23715,10 +23715,14 @@ class TestDailyReviewSummaryEndpoint:
             assert resp.status_code == 200
             data = resp.json()
             assert data["open_position_count"] >= 1
-            assert data["next_action_code"] in ("MONITOR_PORTFOLIO", "REVIEW_PENDING_ORDERS", "REVIEW_POSITION_EXIT", "REVIEW_NEW_CANDIDATES", "RUN_DAILY_PROCESS_PREVIEW")
-            # With a healthy position, no pending orders, and (likely) no actionable candidates,
-            # the next action should be MONITOR_PORTFOLIO.
-            if data["pending_orders"] == 0 and data["review_for_exit_count"] == 0 and data["review_candidates_actionable"] == 0:
+            assert data["next_action_code"] in ("MONITOR_PORTFOLIO", "REVIEW_PENDING_ORDERS", "REVIEW_POSITION_EXIT", "REVIEW_NEW_CANDIDATES", "CREATE_FILL_PAPER_TRADE", "VIEW_PORTFOLIO", "RUN_DAILY_PROCESS_PREVIEW")
+            # With a healthy position, no pending orders, and no current-session
+            # actionable work, the next action should be MONITOR_PORTFOLIO.
+            if (
+                data["pending_orders"] == 0
+                and data["review_for_exit_count"] == 0
+                and data["current_session_trade_ideas_total"] == 0
+            ):
                 assert data["next_action_code"] == "MONITOR_PORTFOLIO"
         finally:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
@@ -23829,7 +23833,7 @@ class TestDailyReviewSummaryEndpoint:
                 session.commit()
 
     def test_review_new_candidates_next_action(self, seeded_client: TestClient, api_engine) -> None:
-        """Actionable candidates + no pending orders → REVIEW_NEW_CANDIDATES."""
+        """Today's NEW (unreviewed) candidate + no pending orders → REVIEW_NEW_CANDIDATES."""
         import uuid as _uuid
         sfx = _uuid.uuid4().hex[:8].upper()
         cr_id = None
@@ -23841,7 +23845,7 @@ class TestDailyReviewSummaryEndpoint:
                     preview_decision="CONSIDER",
                     preview_score="80.0",
                     status="OK",
-                    review_status="APPROVED_FOR_SIGNAL",
+                    review_status="NEW",
                     prediction_recommendation="BUY",
                     prediction_confidence="0.80",
                     expected_return_pct="5.0",
@@ -23855,8 +23859,10 @@ class TestDailyReviewSummaryEndpoint:
             assert resp.status_code == 200
             data = resp.json()
             assert data["review_candidates_actionable"] >= 1
+            assert data["current_session_pending_review_count"] >= 1
             if data["pending_orders"] == 0 and data["review_for_exit_count"] == 0:
                 assert data["next_action_code"] == "REVIEW_NEW_CANDIDATES"
+                assert data["pending_actions_count"] >= 1
         finally:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
                 if cr_id is not None:
@@ -23877,10 +23883,347 @@ class TestDailyReviewSummaryEndpoint:
             "open_positions", "review_candidates_total", "review_candidates_actionable",
             "review_candidates_consumed", "review_candidates_watching", "portfolio_aware",
             "pending_orders", "filled_orders", "canceled_orders", "no_pending_orders",
+            "current_session_trade_ideas_total", "current_session_pending_review_count",
+            "current_session_approved_ready_for_paper_trade_count",
+            "current_session_rejected_count", "current_session_watched_count",
+            "historical_trade_ideas_count", "open_positions_count",
+            "pending_paper_orders_count", "pending_actions_count",
             "next_action_code", "next_action_label", "next_action_detail",
         ]:
             assert field in data, f"Missing field: {field}"
         assert data["portfolio_aware"] is True
+
+    # ------------------------------------------------------------------
+    # Workflow-state contract: current-session vs historical candidates.
+    # These prove the next action and pending-action count are driven only
+    # by today's work, never by old/historical candidates.
+    # ------------------------------------------------------------------
+
+    def test_no_current_session_candidates_does_not_recommend_review(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """An open position + only historical candidates → NOT REVIEW_NEW_CANDIDATES.
+
+        Historical (older-than-today) candidates must never be treated as current
+        actionable work, so the next action falls through to MONITOR_PORTFOLIO.
+        """
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8].upper()
+        cr_id = None
+        old_dt = datetime.now(tz=timezone.utc) - timedelta(days=7)
+        # Baseline (the shared test DB may already hold today's candidates from
+        # other tests, so assert on deltas rather than absolute zeros).
+        base = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                # Historical NEW candidate created a week ago.
+                cr = CandidateReview(
+                    idempotency_key=f"drs-hist-{sfx}",
+                    ticker=f"OLD{sfx[:4]}",
+                    preview_decision="CONSIDER",
+                    preview_score="80.0",
+                    status="OK",
+                    review_status="NEW",
+                    prediction_recommendation="BUY",
+                    prediction_confidence="0.80",
+                    expected_return_pct="5.0",
+                    created_at=old_dt,
+                )
+                session.add(cr)
+                session.flush()
+                cr_id = cr.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            # The historical NEW candidate is reported as history only and never
+            # as current-session work: history +1, current-session pending and
+            # pending actions unchanged.
+            assert data["historical_trade_ideas_count"] == base["historical_trade_ideas_count"] + 1
+            assert data["current_session_pending_review_count"] == base["current_session_pending_review_count"]
+            assert data["pending_actions_count"] == base["pending_actions_count"]
+            # When nothing is current-session actionable, the historical candidate
+            # must not flip the next action to REVIEW_NEW_CANDIDATES.
+            if (
+                base["current_session_pending_review_count"] == 0
+                and data["pending_orders"] == 0
+                and data["review_for_exit_count"] == 0
+            ):
+                assert data["next_action_code"] != "REVIEW_NEW_CANDIDATES"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if cr_id is not None:
+                    session.query(CandidateReview).filter(CandidateReview.id == cr_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_historical_candidates_not_counted_as_pending(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Historical NEW candidates never inflate pending_actions_count."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8].upper()
+        old_dt = datetime.now(tz=timezone.utc) - timedelta(days=30)
+        cr_ids: list = []
+        base = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for i in range(3):
+                    cr = CandidateReview(
+                        idempotency_key=f"drs-histp-{sfx}-{i}",
+                        ticker=f"HP{sfx[:3]}{i}",
+                        preview_decision="CONSIDER",
+                        preview_score="80.0",
+                        status="OK",
+                        review_status="NEW",
+                        prediction_recommendation="BUY",
+                        prediction_confidence="0.80",
+                        expected_return_pct="5.0",
+                        created_at=old_dt,
+                    )
+                    session.add(cr)
+                    session.flush()
+                    cr_ids.append(cr.id)
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            # 3 historical NEW candidates: history +3, current-session pending and
+            # pending actions completely unchanged.
+            assert data["historical_trade_ideas_count"] == base["historical_trade_ideas_count"] + 3
+            assert data["current_session_pending_review_count"] == base["current_session_pending_review_count"]
+            assert data["pending_actions_count"] == base["pending_actions_count"]
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for cid in cr_ids:
+                    session.query(CandidateReview).filter(CandidateReview.id == cid).delete(synchronize_session=False)
+                session.commit()
+
+    def test_current_session_pending_counts_as_pending_action(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Today's NEW candidate counts as a pending action and drives review."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8].upper()
+        cr_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                cr = CandidateReview(
+                    idempotency_key=f"drs-cur-{sfx}",
+                    ticker=f"CUR{sfx[:4]}",
+                    preview_decision="CONSIDER",
+                    preview_score="82.0",
+                    status="OK",
+                    review_status="NEW",
+                    prediction_recommendation="BUY",
+                    prediction_confidence="0.82",
+                    expected_return_pct="6.0",
+                )
+                session.add(cr)
+                session.flush()
+                cr_id = cr.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["current_session_pending_review_count"] >= 1
+            if data["pending_orders"] == 0 and data["review_for_exit_count"] == 0:
+                assert data["next_action_code"] == "REVIEW_NEW_CANDIDATES"
+                assert data["pending_actions_count"] >= 1
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if cr_id is not None:
+                    session.query(CandidateReview).filter(CandidateReview.id == cr_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_pending_actions_zero_after_review_complete(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Reviewing today's idea (NEW -> REJECTED) removes it from pending actions.
+
+        Proven as a transition delta so the shared test DB's pre-existing today
+        candidates do not affect the result: a pending idea adds exactly one
+        pending action; once reviewed (rejected) it adds zero.
+        """
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8].upper()
+        cr_id = None
+        try:
+            base = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                cr = CandidateReview(
+                    idempotency_key=f"drs-done-{sfx}",
+                    ticker=f"DON{sfx[:4]}",
+                    preview_decision="CONSIDER",
+                    preview_score="79.0",
+                    status="OK",
+                    review_status="NEW",
+                    prediction_recommendation="BUY",
+                    prediction_confidence="0.79",
+                    expected_return_pct="5.0",
+                )
+                session.add(cr)
+                session.flush()
+                cr_id = cr.id
+                session.commit()
+
+            # While NEW: +1 pending review and +1 pending action.
+            pending = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            assert pending["current_session_pending_review_count"] == base["current_session_pending_review_count"] + 1
+            assert pending["pending_actions_count"] == base["pending_actions_count"] + 1
+
+            # Review it (reject). Once reviewed, it is no longer a pending action.
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(CandidateReview).filter(
+                    CandidateReview.id == cr_id
+                ).update({"review_status": "REJECTED"}, synchronize_session=False)
+                session.commit()
+
+            done = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            assert done["current_session_pending_review_count"] == base["current_session_pending_review_count"]
+            assert done["pending_actions_count"] == base["pending_actions_count"]
+            assert done["current_session_rejected_count"] == base["current_session_rejected_count"] + 1
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if cr_id is not None:
+                    session.query(CandidateReview).filter(CandidateReview.id == cr_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_next_action_view_portfolio_after_paper_trade_fill(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A today's approved candidate with a FILLED paper trade → VIEW_PORTFOLIO."""
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8].upper()
+        tk = f"FIL{sfx[:4]}"
+        cr_id = None
+        job_id = None
+        sig_id = None
+        td_id = None
+        ord_id = None
+        pos_id = None
+        try:
+            base = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                cr = CandidateReview(
+                    idempotency_key=f"drs-fill-{sfx}",
+                    ticker=tk,
+                    preview_decision="CONSIDER",
+                    preview_score="85.0",
+                    status="OK",
+                    review_status="APPROVED_FOR_SIGNAL",
+                    prediction_recommendation="BUY",
+                    prediction_confidence="0.85",
+                    expected_return_pct="6.0",
+                )
+                session.add(cr)
+                session.flush()
+                cr_id = cr.id
+
+                job = JobRun(
+                    idempotency_key=f"drs-fill-job-{sfx}",
+                    workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                    market_date=date.today(),
+                    status="COMPLETED",
+                    completed_at=datetime.now(timezone.utc),
+                )
+                session.add(job)
+                session.flush()
+                job_id = job.id
+
+                sig = Signal(
+                    job_run_id=job.id,
+                    ticker=tk,
+                    direction="BUY",
+                    confidence=Decimal("0.85"),
+                    signal_ts=datetime.now(timezone.utc),
+                    market_date=date.today(),
+                    source_run=f"review_queue_create_signals_v1:{cr.id}",
+                    status="DECISION_MADE",
+                    raw_payload={},
+                )
+                session.add(sig)
+                session.flush()
+                sig_id = sig.id
+
+                td = TradeDecision(
+                    signal_id=sig.id,
+                    job_run_id=job.id,
+                    ticker=tk,
+                    signal_direction="BUY",
+                    decision="BUY",
+                    approved_qty=Decimal("2"),
+                    approved_notional=Decimal("200.00"),
+                    market_date=date.today(),
+                )
+                session.add(td)
+                session.flush()
+                td_id = td.id
+
+                order = Order(
+                    trade_decision_id=td.id,
+                    job_run_id=job.id,
+                    ticker=tk,
+                    side="BUY",
+                    order_type="MARKET",
+                    status="FILLED",
+                    market_date=date.today(),
+                    requested_qty=Decimal("2"),
+                    filled_qty=Decimal("2"),
+                    filled_at=datetime.now(timezone.utc),
+                    fill_price=Decimal("100.000000"),
+                )
+                session.add(order)
+                session.flush()
+                ord_id = order.id
+
+                pos = Position(
+                    ticker=tk,
+                    qty=Decimal("2"),
+                    avg_cost=Decimal("100.000000"),
+                    cost_basis=Decimal("200.00"),
+                    opened_at=datetime.now(tz=timezone.utc),
+                    last_updated=datetime.now(tz=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            # A filled candidate is "completed", not "ready for paper trade", and
+            # adds nothing to pending review or pending actions.
+            assert data["current_session_approved_ready_for_paper_trade_count"] == base["current_session_approved_ready_for_paper_trade_count"]
+            assert data["current_session_pending_review_count"] == base["current_session_pending_review_count"]
+            assert data["pending_actions_count"] == base["pending_actions_count"]
+            # When there is no higher-priority current-session work, a filled
+            # today's paper trade routes the next action to View Portfolio.
+            if (
+                base["current_session_pending_review_count"] == 0
+                and base["current_session_approved_ready_for_paper_trade_count"] == 0
+                and data["pending_orders"] == 0
+                and data["review_for_exit_count"] == 0
+            ):
+                assert data["next_action_code"] == "VIEW_PORTFOLIO"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id is not None:
+                    session.query(Position).filter(Position.id == pos_id).delete(synchronize_session=False)
+                if ord_id is not None:
+                    session.query(Order).filter(Order.id == ord_id).delete(synchronize_session=False)
+                if td_id is not None:
+                    session.query(TradeDecision).filter(TradeDecision.id == td_id).delete(synchronize_session=False)
+                if sig_id is not None:
+                    session.query(Signal).filter(Signal.id == sig_id).delete(synchronize_session=False)
+                if cr_id is not None:
+                    session.query(CandidateReview).filter(CandidateReview.id == cr_id).delete(synchronize_session=False)
+                if job_id is not None:
+                    session.query(JobRun).filter(JobRun.id == job_id).delete(synchronize_session=False)
+                session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -23898,6 +24241,22 @@ class TestUiStaticContent:
 
     def test_trading_cockpit_overview_present(self) -> None:
         assert "Trading Cockpit Overview" in self._read_html()
+
+    def test_workflow_state_separates_today_from_history(self) -> None:
+        """UI copy distinguishes current-session ideas from history-only ones."""
+        html = self._read_html()
+        assert "Today's Trade Ideas" in html
+        assert "History only" in html
+        assert "No actionable trade ideas today" in html
+
+    def test_derive_workflow_state_contract_present(self) -> None:
+        """A single deriveWorkflowState contract feeds every next-action surface."""
+        import re
+        html = self._read_html()
+        scripts = "\n".join(re.findall(r"<script[^>]*>([\s\S]*?)</script>", html))
+        assert "function deriveWorkflowState" in scripts
+        assert "CREATE_FILL_PAPER_TRADE" in scripts
+        assert "VIEW_PORTFOLIO" in scripts
 
     def test_action_safety_panel_present(self) -> None:
         assert "Action / Safety Panel" in self._read_html()

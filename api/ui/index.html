@@ -5364,7 +5364,16 @@ function showDrawerTab(tabId) {
 }
 
 function updateKpi() {
-  setEl('kpi-pending', (_appState.pendingOrders !== null ? _appState.pendingOrders : '?').toString());
+  // Pending Actions reflects the one workflow-state contract when a daily review
+  // summary is available (current-session work only — historical candidates are
+  // never counted); otherwise fall back to pending paper orders.
+  let pending;
+  if (window._lastDailyReviewSummary) {
+    pending = deriveWorkflowState(window._lastDailyReviewSummary).pendingActions;
+  } else {
+    pending = (_appState.pendingOrders !== null ? _appState.pendingOrders : '?');
+  }
+  setEl('kpi-pending', pending.toString());
   setEl('kpi-positions', (_appState.hasPositions ? '✓' : '-'));
   setEl('kpi-snapshots', (_appState.hasHistory ? '✓' : '-'));
 }
@@ -11488,13 +11497,20 @@ async function generateDailyReviewSummary(btn) {
     }
     html += '</div>';
 
-    // Candidates
+    // Candidates — today's trade ideas drive the workflow; older rows are
+    // history only and never counted as current actionable work.
+    const _candState = deriveWorkflowState(d);
     html += '<div style="background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07); border-radius: 3px; padding: 7px;">';
-    html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--label); margin-bottom: 4px;">Candidates / Review</div>';
-    html += '<div style="font-size: 10px; color: var(--text-secondary);">Total: ' + d.review_candidates_total + '</div>';
-    html += '<div style="font-size: 10px; color: var(--info);">Actionable: ' + d.review_candidates_actionable + '</div>';
-    html += '<div style="font-size: 10px; color: var(--text-secondary);">Watching: ' + d.review_candidates_watching + '</div>';
-    if (d.review_candidates_consumed > 0) html += '<div style="font-size: 10px; color: var(--label);">Consumed: ' + d.review_candidates_consumed + '</div>';
+    html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--label); margin-bottom: 4px;">Today\'s Trade Ideas</div>';
+    if (_candState.currentSessionTradeIdeas === 0) {
+      html += '<div style="font-size: 10px; color: var(--ok);">No actionable trade ideas today.</div>';
+    } else {
+      html += '<div style="font-size: 10px; color: var(--text-secondary);">Today: ' + _candState.currentSessionTradeIdeas + '</div>';
+      html += '<div style="font-size: 10px; color: var(--info);">Pending review: ' + _candState.currentSessionPending + '</div>';
+      if (_candState.currentSessionReadyForPaperTrade > 0) html += '<div style="font-size: 10px; color: var(--info);">Ready for paper trade: ' + _candState.currentSessionReadyForPaperTrade + '</div>';
+      if (_candState.currentSessionWatched > 0) html += '<div style="font-size: 10px; color: var(--warning);">Watched: ' + _candState.currentSessionWatched + '</div>';
+    }
+    html += '<div style="font-size: 9px; color: var(--label); margin-top: 3px;">History only: ' + _candState.historicalTradeIdeas + ' (not part of today\'s workflow)</div>';
     if (d.current_cycle_key) html += '<div style="font-size: 9px; color: var(--label); margin-top: 3px; font-family: monospace; word-break: break-all;">' + escapeHtml(d.current_cycle_key) + '</div>';
     html += '</div>';
 
@@ -11508,13 +11524,14 @@ async function generateDailyReviewSummary(btn) {
 
     html += '</div>';
 
-    // Recommended next action
-    const actionColor = d.next_action_code === 'REVIEW_POSITION_EXIT' ? 'var(--danger)' : d.next_action_code === 'REVIEW_PENDING_ORDERS' ? 'var(--warning)' : d.next_action_code === 'MONITOR_PORTFOLIO' ? 'var(--ok)' : 'var(--info)';
+    // Recommended next action — rendered from the one workflow-state contract so
+    // the summary card never disagrees with the other surfaces.
+    const _wfState = deriveWorkflowState(d);
     html += '<div style="background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.1); border-radius: 3px; padding: 7px;">';
     html += '<div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--label); margin-bottom: 3px;">Recommended next action</div>';
-    html += '<div style="font-size: 12px; font-weight: 700; color: ' + actionColor + '; margin-bottom: 3px;">' + escapeHtml(d.next_action_label) + '</div>';
-    html += '<div style="font-size: 10px; color: var(--text-secondary);">' + escapeHtml(d.next_action_detail) + '</div>';
-    html += '<div style="font-size: 9px; color: var(--label); margin-top: 3px; font-family: monospace; opacity: .7;">' + escapeHtml(d.next_action_code) + '</div>';
+    html += '<div style="font-size: 12px; font-weight: 700; color: ' + _wfState.color + '; margin-bottom: 3px;">' + escapeHtml(_wfState.label) + '</div>';
+    html += '<div style="font-size: 10px; color: var(--text-secondary);">' + escapeHtml(_wfState.detail) + '</div>';
+    html += '<div style="font-size: 9px; color: var(--label); margin-top: 3px; font-family: monospace; opacity: .7;">' + escapeHtml(_wfState.code) + '</div>';
     html += '</div>';
 
     el.innerHTML = html;
@@ -11974,27 +11991,18 @@ function updateDpCurrentTask() {
   const safetyEl = document.getElementById('dp-current-task-safety');
   if (!labelEl) return;
   const d = window._lastDailyReviewSummary;
-  const code = d ? d.next_action_code : null;
-  const colorMap = {
-    'REVIEW_NEW_CANDIDATES': 'var(--info)',
-    'REVIEW_PENDING_ORDERS': 'var(--warning)',
-    'REVIEW_POSITION_EXIT': 'var(--danger)',
-    'MONITOR_PORTFOLIO': 'var(--ok)',
-    'RUN_DAILY_PROCESS_PREVIEW': 'var(--label)',
-  };
-  const safetyMap = {
-    'REVIEW_NEW_CANDIDATES': 'Approving candidates does not create signals or orders.',
-    'REVIEW_PENDING_ORDERS': 'Paper orders only. No broker execution.',
-    'MONITOR_PORTFOLIO': 'No action required. Monitor open positions.',
-    'RUN_DAILY_PROCESS_PREVIEW': 'Go to Overview to run Daily Review Session.',
-  };
-  const displayLabel = d
-    ? (d.next_action_label || (_DRS_ACTION_LABELS[code] || code || 'Run Daily Review Session to begin'))
-    : 'Run Daily Review Session to begin';
-  labelEl.style.color = colorMap[code] || 'var(--info)';
-  labelEl.textContent = displayLabel;
-  if (detailEl) detailEl.textContent = d ? (d.next_action_detail || '') : '';
-  if (safetyEl) safetyEl.textContent = safetyMap[code] || '';
+  if (!d) {
+    labelEl.style.color = 'var(--info)';
+    labelEl.textContent = 'Run Daily Review Session to begin';
+    if (detailEl) detailEl.textContent = '';
+    if (safetyEl) safetyEl.textContent = '';
+    return;
+  }
+  const state = deriveWorkflowState(d);
+  labelEl.style.color = state.color;
+  labelEl.textContent = state.label;
+  if (detailEl) detailEl.textContent = state.detail;
+  if (safetyEl) safetyEl.textContent = state.safety;
 }
 
 // Next-action code to canonical label map (used by _syncDrsToUi and UI static tests)
@@ -12003,23 +12011,82 @@ const _DRS_ACTION_LABELS = {
   'REVIEW_POSITION_EXIT': 'Review open positions for possible exit',
   'MONITOR_PORTFOLIO': 'Monitor portfolio',
   'REVIEW_NEW_CANDIDATES': 'Review new-entry candidates',
+  'CREATE_FILL_PAPER_TRADE': 'Create & Fill Paper Trade',
+  'VIEW_PORTFOLIO': 'View Portfolio',
   'RUN_DAILY_PROCESS_PREVIEW': 'Run Daily Process Preview',
 };
 
+const _DRS_ACTION_COLORS = {
+  'REVIEW_PENDING_ORDERS': 'var(--warning)',
+  'REVIEW_POSITION_EXIT': 'var(--danger)',
+  'REVIEW_NEW_CANDIDATES': 'var(--info)',
+  'CREATE_FILL_PAPER_TRADE': 'var(--info)',
+  'VIEW_PORTFOLIO': 'var(--ok)',
+  'MONITOR_PORTFOLIO': 'var(--ok)',
+  'RUN_DAILY_PROCESS_PREVIEW': 'var(--label)',
+};
+
+const _DRS_ACTION_SAFETY = {
+  'REVIEW_PENDING_ORDERS': 'Paper orders only. No broker execution.',
+  'REVIEW_POSITION_EXIT': 'Review only. No broker order is sent.',
+  'REVIEW_NEW_CANDIDATES': 'Approving candidates does not create signals or orders.',
+  'CREATE_FILL_PAPER_TRADE': 'Paper portfolio only. No broker order is sent.',
+  'VIEW_PORTFOLIO': 'No action required. Review the updated paper position.',
+  'MONITOR_PORTFOLIO': 'No action required. Existing positions were reviewed automatically.',
+  'RUN_DAILY_PROCESS_PREVIEW': 'Go to Overview to run Daily Review Session.',
+};
+
+// THE single workflow-state contract for the UI. Every next-action surface
+// (Overview recommended action, Daily Review Summary card, Daily Plan Today's
+// Review, the right Action / Safety panel, and the Pending Actions KPI) derives
+// from this one function so they can never disagree. Only current-session
+// (today's) work is treated as actionable; historical trade ideas are reported
+// as history/audit only and never drive the next action or the pending count.
+function deriveWorkflowState(summary) {
+  const d = summary || {};
+  const code = d.next_action_code || 'RUN_DAILY_PROCESS_PREVIEW';
+  const label = d.next_action_label || _DRS_ACTION_LABELS[code] || code || 'Start Daily Review';
+  const detail = d.next_action_detail || '';
+  // Pending actions = current-session candidates still awaiting review + pending
+  // paper orders + positions flagged for exit review. Reviewed/approved ideas
+  // and historical candidates never inflate this.
+  const pendingActions = (d.pending_actions_count != null)
+    ? d.pending_actions_count
+    : ((d.current_session_pending_review_count || 0)
+        + (d.pending_paper_orders_count != null ? d.pending_paper_orders_count : (d.pending_orders || 0))
+        + (d.review_for_exit_count || 0));
+  return {
+    code: code,
+    label: label,
+    detail: detail,
+    color: _DRS_ACTION_COLORS[code] || 'var(--info)',
+    safety: _DRS_ACTION_SAFETY[code] || '',
+    pendingActions: pendingActions,
+    currentSessionTradeIdeas: d.current_session_trade_ideas_total || 0,
+    currentSessionPending: d.current_session_pending_review_count || 0,
+    currentSessionReadyForPaperTrade: d.current_session_approved_ready_for_paper_trade_count || 0,
+    currentSessionRejected: d.current_session_rejected_count || 0,
+    currentSessionWatched: d.current_session_watched_count || 0,
+    historicalTradeIdeas: d.historical_trade_ideas_count || 0,
+    openPositions: (d.open_positions_count != null) ? d.open_positions_count : (d.open_position_count || 0),
+  };
+}
+
 function _syncDrsToUi(d) {
   if (!d) return;
+  const state = deriveWorkflowState(d);
   const rnStep = document.getElementById('right-next-step');
   const rnDetail = document.getElementById('right-next-step-detail');
-  if (rnStep) rnStep.textContent = d.next_action_label || (_DRS_ACTION_LABELS[d.next_action_code] || '');
-  if (rnDetail) rnDetail.textContent = d.next_action_detail || '';
+  if (rnStep) rnStep.textContent = state.label;
+  if (rnDetail) rnDetail.textContent = state.detail;
   if (!window._workflowCompletedState && !window._lastPredictionPreviewData) {
     const dpPrimRec = document.getElementById('dp-primary-recommendation');
-    if (dpPrimRec && d.next_action_code !== 'RUN_DAILY_PROCESS_PREVIEW') {
-      const _label = d.next_action_label || (_DRS_ACTION_LABELS[d.next_action_code] || '');
-      dpPrimRec.textContent = _label + '. ' + (d.next_action_detail || '');
+    if (dpPrimRec && state.code !== 'RUN_DAILY_PROCESS_PREVIEW') {
+      dpPrimRec.textContent = state.label + '. ' + state.detail;
     }
   }
   updateDpCurrentTask();
+  updateKpi();
 }
 
 async function refreshWorkflowStatus() {
