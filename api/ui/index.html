@@ -2009,6 +2009,68 @@
         </div>
         <!-- /candidates-to-review-workspace -->
 
+        <!-- Scan Selection Funnel: primary read-only funnel from the configured
+             S&P 500 universe down to actionable trade ideas. Persisted/derived,
+             so it stays visible after a daily scan without re-running prediction. -->
+        <div id="scan-selection-funnel" style="scroll-margin-top: 12px;"></div>
+        <div id="ssf-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(59,130,246,.45); margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; border-bottom: 1px solid rgba(59,130,246,.2); padding-bottom: 5px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 14px; font-weight: 800; color: var(--info); letter-spacing: .02em;">Scan Selection Funnel</div>
+              <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PAPER ORDERS ONLY</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+            </div>
+            <span id="ssf-session" style="font-size: 10px; color: var(--label); font-weight: 600;"></span>
+          </div>
+          <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;">Read-only selection diagnostics &mdash; paper trade only, no broker execution, automation off. Full S&amp;P 500 local screen runs first, then Prediction dispatch is limited to the top-ranked names.</div>
+          <div id="ssf-note" style="font-size: 10px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.45;">Connect and run Daily Review to populate the scan selection funnel.</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Universe Configured</div><div id="ssf-universe" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Price-History Ready</div><div id="ssf-pricehistory" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Locally Screened</div><div id="ssf-screened" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Sent to Prediction</div><div id="ssf-sent" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Predictions Returned</div><div id="ssf-returned" style="font-size: 13px; font-weight: 700; color: var(--label);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(34,197,94,.12); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Active Trade Ideas</div><div id="ssf-active" style="font-size: 15px; font-weight: 800; color: var(--ok);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Existing Positions Reviewed</div><div id="ssf-positions" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+          </div>
+          <div id="ssf-thresholds" style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;"></div>
+          <div id="ssf-capture" style="font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 8px; line-height: 1.4;"></div>
+
+          <!-- Active vs historical separation: active only when current-session ideas need review. -->
+          <div id="ssf-empty" style="display: none; margin-bottom: 8px; padding: 8px 10px; background: rgba(34,197,94,.08); border-left: 2px solid var(--ok); border-radius: 0 3px 3px 0;">
+            <div style="font-size: 12px; font-weight: 800; color: var(--ok); margin-bottom: 3px;">No Active Trade Ideas Today</div>
+            <div style="font-size: 10px; color: var(--text-accent); line-height: 1.45; margin-bottom: 6px;">The full S&amp;P 500 local screen completed and existing positions were reviewed automatically. There are no current-session trade ideas to review.</div>
+            <button class="btn-sm" style="background: var(--ok); color: #04210f; font-weight: 800; font-size: 10px; padding: 5px 14px;" onclick="navigateToPortfolioPositions()">Monitor Portfolio</button>
+          </div>
+          <div id="ssf-active-wrap" style="display: none; margin-bottom: 8px;">
+            <div style="font-size: 11px; font-weight: 800; color: var(--warning); margin-bottom: 4px;">Active Trade Ideas <span id="ssf-active-count" style="color: var(--label); font-weight: 600;"></span></div>
+            <div id="ssf-active-list" style="font-size: 10px; line-height: 1.5;"></div>
+          </div>
+
+          <details id="ssf-excluded-wrap" style="margin-bottom: 4px;">
+            <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .06em;">Why Candidates Were Excluded</summary>
+            <div id="ssf-excluded" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;"></div>
+          </details>
+          <details id="ssf-toplocal-wrap" style="margin-bottom: 4px;">
+            <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .06em;">Top Local Screened Before Prediction</summary>
+            <div id="ssf-toplocal" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; overflow-x: auto;"></div>
+          </details>
+          <details id="ssf-predresults-wrap" style="margin-bottom: 4px;">
+            <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .06em;">Prediction Results and Actionability Gate</summary>
+            <div id="ssf-predresults" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; overflow-x: auto;"></div>
+          </details>
+          <details id="ssf-historical-wrap" style="margin-bottom: 2px;">
+            <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .06em;">Historical Trade Ideas — Not Actionable <span id="ssf-historical-count" style="text-transform: none;"></span></summary>
+            <div id="ssf-historical" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;">Older trade ideas from prior sessions are not actionable today.</div>
+          </details>
+        </div>
+
+        <!-- Audit / Advanced: original live-run "Scan Coverage" card, moved out of the
+             normal Daily Plan workflow but kept for diagnostics. Live-run wiring (renderScanCoverage) is unchanged. -->
+        <details id="dp-scan-coverage-advanced" style="margin-bottom: 12px;">
+          <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .06em;">Audit / Advanced: live-run Scan Coverage detail</summary>
         <!-- Scan Coverage: truthful funnel from universe -> local screen -> prediction -> ideas.
              Prevents presenting a 5-7 name prediction batch as a full S&P 500 scan. -->
         <div id="scan-coverage" style="scroll-margin-top: 12px;"></div>
@@ -2039,6 +2101,8 @@
             <div id="dp-sc-excluded" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;"></div>
           </details>
         </div>
+        </details>
+        <!-- /dp-scan-coverage-advanced -->
 
         <!-- Today's Trade Ideas: full scan-result visibility with plain-English rationale -->
         <div id="actionable-trade-ideas" style="scroll-margin-top: 12px;"></div>
@@ -12576,8 +12640,157 @@ async function refreshWorkflowStatus() {
     // the post-approval stage (Generate -> Create Ticket -> Fill -> Portfolio)
     // advances after each action.
     updateCockpitReviewSummary();
+    // Refresh the read-only Scan Selection Funnel alongside workflow state so the
+    // funnel stays current after every daily-review / review action.
+    loadScanSelectionFunnel();
   } catch (e) {
     console.error('Failed to refresh workflow status:', e);
+  }
+}
+
+// --- Scan Selection Funnel (read-only diagnostics) ---------------------------
+async function loadScanSelectionFunnel() {
+  if (!_appState.connected) return;
+  try {
+    const response = await call('GET', '/v1/review/scan-diagnostics/latest');
+    if (!response.ok) throw new Error('API error: ' + response.status);
+    const d = await response.json();
+    _ssfRender(d);
+  } catch (e) {
+    console.error('Failed to load scan selection funnel:', e);
+  }
+}
+
+function _ssfRender(d) {
+  if (!d) return;
+  function _set(id, val) { const el = document.getElementById(id); if (el) el.textContent = (val != null ? String(val) : '-'); }
+  _set('ssf-universe', d.universe_configured);
+  _set('ssf-pricehistory', d.price_history_ready);
+  _set('ssf-screened', d.locally_screened);
+  _set('ssf-sent', d.sent_to_prediction != null ? d.sent_to_prediction : '-');
+  _set('ssf-active', d.active_trade_ideas);
+  _set('ssf-positions', d.existing_positions_reviewed);
+
+  const retEl = document.getElementById('ssf-returned');
+  if (retEl) {
+    retEl.textContent = d.predictions_returned_captured && d.predictions_returned != null
+      ? String(d.predictions_returned)
+      : 'not captured yet';
+  }
+
+  const sessEl = document.getElementById('ssf-session');
+  if (sessEl) {
+    sessEl.textContent = d.has_latest_session
+      ? ('Latest session: ' + (d.session_id || '-') + (d.market_date ? ('  ·  ' + d.market_date) : ''))
+      : 'No scan session yet';
+  }
+  const noteEl = document.getElementById('ssf-note');
+  if (noteEl) noteEl.textContent = d.funnel_note
+    || 'Full S&P 500 local screen completed. Prediction dispatch is limited to the top-ranked names. Paper trade only - no broker execution.';
+
+  const thEl = document.getElementById('ssf-thresholds');
+  if (thEl && d.thresholds) {
+    const t = d.thresholds;
+    thEl.textContent = 'Actionability thresholds: min score >= ' + t.min_score
+      + ', min confidence >= ' + t.min_confidence
+      + ', min expected 5D return >= ' + t.min_expected_return_pct + '%'
+      + ', min relative strength vs SPY >= ' + t.min_relative_strength_vs_spy
+      + '. Prediction dispatch limit: ' + d.prediction_dispatch_limit + '. ' + (d.prediction_dispatch_explanation || '');
+  }
+  const capEl = document.getElementById('ssf-capture');
+  if (capEl) capEl.textContent = d.capture_note || '';
+
+  // Active vs historical separation.
+  const active = (d.prediction_results || []).filter(function(r) { return r.actionability === 'ACTIVE_TRADE_IDEA'; });
+  const emptyEl = document.getElementById('ssf-empty');
+  const activeWrap = document.getElementById('ssf-active-wrap');
+  const hasActive = (d.active_trade_ideas || 0) > 0;
+  if (emptyEl) emptyEl.style.display = hasActive ? 'none' : '';
+  if (activeWrap) activeWrap.style.display = hasActive ? '' : 'none';
+  if (hasActive) {
+    const cntEl = document.getElementById('ssf-active-count');
+    if (cntEl) cntEl.textContent = '(' + (d.active_trade_ideas || 0) + ')';
+    const listEl = document.getElementById('ssf-active-list');
+    if (listEl) {
+      const rows = active.length ? active : [];
+      listEl.innerHTML = rows.length
+        ? rows.map(function(r) {
+            return '<div style="padding:2px 0;">' + tickerLink(r.ticker)
+              + ' <span style="color:var(--label);">' + escapeHtml(r.reason || '') + '</span></div>';
+          }).join('')
+        : '<div style="color:var(--label);">' + (d.active_trade_ideas || 0) + ' current-session trade idea(s) awaiting review in Candidates to Review.</div>';
+    }
+  }
+
+  // Why candidates were excluded.
+  const exEl = document.getElementById('ssf-excluded');
+  if (exEl) {
+    const rows = d.exclusion_reasons || [];
+    exEl.innerHTML = rows.length
+      ? rows.map(function(r) { return '<div>' + escapeHtml(r.reason) + ': <strong>' + escapeHtml(String(r.count)) + '</strong></div>'; }).join('')
+      : 'No exclusions recorded.';
+  }
+
+  // Top local screened before prediction.
+  const tlEl = document.getElementById('ssf-toplocal');
+  if (tlEl) {
+    const rows = d.top_local_screened || [];
+    if (!rows.length) {
+      tlEl.innerHTML = 'No locally-screened candidates (insufficient price history in the universe).';
+    } else {
+      let h = '<table style="width:100%;border-collapse:collapse;font-size:9px;"><thead><tr style="color:var(--label);text-align:left;">'
+        + '<th style="padding:2px 6px;">#</th><th style="padding:2px 6px;">Ticker</th><th style="padding:2px 6px;">Score</th>'
+        + '<th style="padding:2px 6px;">Mom 20D</th><th style="padding:2px 6px;">RS vs SPY</th><th style="padding:2px 6px;">Sent?</th><th style="padding:2px 6px;">Reason</th></tr></thead><tbody>';
+      h += rows.map(function(r) {
+        return '<tr style="border-top:1px solid rgba(255,255,255,.06);">'
+          + '<td style="padding:2px 6px;">' + escapeHtml(String(r.rank)) + '</td>'
+          + '<td style="padding:2px 6px;">' + tickerLink(r.ticker) + '</td>'
+          + '<td style="padding:2px 6px;">' + escapeHtml(r.score != null ? String(r.score) : '-') + '</td>'
+          + '<td style="padding:2px 6px;">' + escapeHtml(r.momentum_20d_pct != null ? String(r.momentum_20d_pct) : '-') + '</td>'
+          + '<td style="padding:2px 6px;">' + escapeHtml(r.relative_strength_vs_spy_20d != null ? String(r.relative_strength_vs_spy_20d) : '-') + '</td>'
+          + '<td style="padding:2px 6px;color:' + (r.sent_to_prediction ? 'var(--ok)' : 'var(--label)') + ';">' + (r.sent_to_prediction ? 'YES' : 'no') + '</td>'
+          + '<td style="padding:2px 6px;color:var(--label);">' + escapeHtml(r.reason || '') + '</td></tr>';
+      }).join('');
+      h += '</tbody></table>';
+      tlEl.innerHTML = h;
+    }
+  }
+
+  // Prediction results and actionability gate.
+  const prEl = document.getElementById('ssf-predresults');
+  if (prEl) {
+    const rows = d.prediction_results || [];
+    if (!rows.length) {
+      prEl.innerHTML = 'No saved prediction results for the latest session yet.';
+    } else {
+      let h = '<table style="width:100%;border-collapse:collapse;font-size:9px;"><thead><tr style="color:var(--label);text-align:left;">'
+        + '<th style="padding:2px 6px;">Ticker</th><th style="padding:2px 6px;">Pred</th><th style="padding:2px 6px;">Conf</th>'
+        + '<th style="padding:2px 6px;">Exp Ret</th><th style="padding:2px 6px;">Score</th><th style="padding:2px 6px;">Actionability</th><th style="padding:2px 6px;">Reason</th></tr></thead><tbody>';
+      h += rows.map(function(r) {
+        const isActive = r.actionability === 'ACTIVE_TRADE_IDEA';
+        const col = isActive ? 'var(--ok)' : (r.actionability === 'REJECTED' ? 'var(--danger)' : 'var(--label)');
+        return '<tr style="border-top:1px solid rgba(255,255,255,.06);">'
+          + '<td style="padding:2px 6px;">' + tickerLink(r.ticker) + '</td>'
+          + '<td style="padding:2px 6px;">' + escapeHtml(r.prediction != null ? String(r.prediction) : '-') + '</td>'
+          + '<td style="padding:2px 6px;">' + escapeHtml(r.confidence != null ? String(r.confidence) : '-') + '</td>'
+          + '<td style="padding:2px 6px;">' + escapeHtml(r.expected_return_pct != null ? String(r.expected_return_pct) : '-') + '</td>'
+          + '<td style="padding:2px 6px;">' + escapeHtml(r.score != null ? String(r.score) : '-') + '</td>'
+          + '<td style="padding:2px 6px;color:' + col + ';font-weight:700;">' + escapeHtml(r.actionability) + '</td>'
+          + '<td style="padding:2px 6px;color:var(--label);">' + escapeHtml(r.reason || '') + '</td></tr>';
+      }).join('');
+      h += '</tbody></table>';
+      prEl.innerHTML = h;
+    }
+  }
+
+  // Historical trade ideas count.
+  const histCnt = document.getElementById('ssf-historical-count');
+  if (histCnt) histCnt.textContent = '(' + (d.historical_trade_ideas || 0) + ')';
+  const histEl = document.getElementById('ssf-historical');
+  if (histEl) {
+    histEl.textContent = (d.historical_trade_ideas || 0) > 0
+      ? (d.historical_trade_ideas + ' older trade idea(s) from prior sessions. These are not actionable today.')
+      : 'No historical trade ideas. Older trade ideas from prior sessions would appear here as not actionable.';
   }
 }
 

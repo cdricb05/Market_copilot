@@ -2097,6 +2097,203 @@ class DailyReviewSummaryResponse(BaseModel):
     next_action_detail: str
 
 
+# ---------------------------------------------------------------------------
+# Scan Selection Funnel diagnostics (read-only; no DB writes, no GCP calls).
+# Explains how the configured universe is reduced to actionable trade ideas and
+# strictly separates the latest session's active ideas from historical ones.
+# ---------------------------------------------------------------------------
+
+
+class ScanFunnelExclusionReason(BaseModel):
+    """One exclusion reason and how many names it accounts for."""
+    reason: str
+    count: int
+
+
+class ScanFunnelTopLocal(BaseModel):
+    """A locally-screened candidate row shown before prediction dispatch."""
+    rank: int
+    ticker: str
+    score: str | None = None
+    momentum_5d_pct: str | None = None
+    momentum_20d_pct: str | None = None
+    relative_strength_vs_spy_20d: str | None = None
+    sent_to_prediction: bool
+    reason: str
+
+
+class ScanFunnelThresholds(BaseModel):
+    """Actual actionability thresholds (code defaults), not invented values."""
+    min_score: float
+    min_confidence: float
+    min_expected_return_pct: float
+    min_relative_strength_vs_spy: float
+
+
+class ScanFunnelPredictionResult(BaseModel):
+    """A persisted latest-session prediction result and its actionability gate."""
+    ticker: str
+    prediction: str | None = None
+    confidence: str | None = None
+    expected_return_pct: str | None = None
+    score: str | None = None
+    actionability: str
+    reason: str
+    review_status: str
+    is_current_session: bool
+
+
+class ScanDiagnosticsLatestResponse(BaseModel):
+    """Response from GET /v1/review/scan-diagnostics/latest (READ ONLY, no DB writes, no GCP)."""
+    # Safety flags
+    preview_only: bool = True
+    writes_performed: bool = False
+    no_signals_created: bool = True
+    no_decisions_created: bool = True
+    no_orders_created: bool = True
+    no_trades_created: bool = True
+    no_broker_execution: bool = True
+    no_automation: bool = True
+    # Session identity
+    session_id: str | None = None
+    market_date: str | None = None
+    as_of: datetime
+    has_latest_session: bool
+    # Funnel counts. Universe/screen are computed live read-only (real). Prediction-
+    # middle counts are not persisted per session and are clearly labeled.
+    universe_configured: int
+    price_history_ready: int
+    locally_screened: int
+    prediction_dispatch_limit: int
+    sent_to_prediction: int | None = None
+    sent_to_prediction_captured: bool = False
+    predictions_returned: int | None = None
+    predictions_returned_captured: bool = False
+    active_trade_ideas: int
+    watch_below_threshold: int
+    rejected_blocked: int
+    existing_positions_reviewed: int
+    already_in_portfolio: int
+    historical_trade_ideas: int
+    # Thresholds + plain-English explanations
+    thresholds: ScanFunnelThresholds
+    prediction_dispatch_explanation: str
+    capture_note: str
+    funnel_note: str
+    # Detail tables
+    exclusion_reasons: list[ScanFunnelExclusionReason]
+    top_local_screened: list[ScanFunnelTopLocal]
+    prediction_results: list[ScanFunnelPredictionResult]
+
+
+# ---------------------------------------------------------------------------
+# Quant Model Methodology contract (GET /v1/model/methodology)
+# Read-only model-governance / transparency layer. Describes exactly what the
+# current local pre-screen + remote prediction layers actually do today, what
+# is missing, and the target quant-grade architecture. NO faked features.
+# ---------------------------------------------------------------------------
+
+class ModelFeatureDescriptor(BaseModel):
+    """One model feature, with honest availability/usage flags."""
+    name: str
+    source: str | None = None
+    available: bool
+    used_today: bool
+    purpose: str
+
+
+class ModelLayerLocalPrescreen(BaseModel):
+    """Current Layer 1 — local S&P 500 technical pre-screen."""
+    description: str
+    current_features: list[ModelFeatureDescriptor]
+    current_formula_summary: str
+    current_limitations: list[str]
+
+
+class ModelLayerPrediction(BaseModel):
+    """Current Layer 2 — remote GCP prediction service (black box to Paper Trader)."""
+    description: str
+    runs_on: str
+    dispatch_policy: str
+    dispatch_limit: int
+    current_inputs_known_to_paper_trader: list[str]
+    current_outputs: list[str]
+    current_limitations: list[str]
+
+
+class ModelActionabilityGate(BaseModel):
+    """Current actionability gate thresholds (actual code defaults)."""
+    current_thresholds: ScanFunnelThresholds
+    description: str
+    why_a_buy_may_be_rejected: list[str]
+
+
+class ModelCurrentState(BaseModel):
+    local_prescreen: ModelLayerLocalPrescreen
+    prediction_layer: ModelLayerPrediction
+    actionability_gate: ModelActionabilityGate
+
+
+class ModelTargetLocalPrescreenV2(BaseModel):
+    purpose: str
+    feature_families: list[str]
+    must_be_point_in_time: bool = True
+    must_be_backtested: bool = True
+
+
+class ModelTargetRemotePredictionV2(BaseModel):
+    purpose: str
+    target_outputs: list[str]
+
+
+class ModelTargetPortfolioConstruction(BaseModel):
+    purpose: str
+    future_methods: list[str]
+
+
+class ModelTargetArchitecture(BaseModel):
+    local_prescreen_v2: ModelTargetLocalPrescreenV2
+    remote_prediction_v2: ModelTargetRemotePredictionV2
+    portfolio_construction: ModelTargetPortfolioConstruction
+
+
+class ModelDataReadinessRow(BaseModel):
+    feature_family: str
+    available_now: bool
+    data_source: str | None = None
+    status: str
+    rule: str
+
+
+class ModelRoadmapPhase(BaseModel):
+    phase: int
+    name: str
+    status: str
+
+
+class ModelMethodologyResponse(BaseModel):
+    """Response from GET /v1/model/methodology (READ ONLY, no DB writes, no GCP, no external calls)."""
+    # Safety flags
+    preview_only: bool = True
+    writes_performed: bool = False
+    no_signals_created: bool = True
+    no_decisions_created: bool = True
+    no_orders_created: bool = True
+    no_trades_created: bool = True
+    no_broker_execution: bool = True
+    no_automation: bool = True
+    no_remote_prediction_call: bool = True
+    no_external_data_call: bool = True
+    # Contract
+    model_contract_version: str = "quant_model_contract_v1"
+    as_of: datetime
+    honesty_note: str
+    current_state: ModelCurrentState
+    target_quant_architecture: ModelTargetArchitecture
+    data_readiness: list[ModelDataReadinessRow]
+    implementation_roadmap: list[ModelRoadmapPhase]
+
+
 class WeakestPositionDetail(BaseModel):
     """A position with unrealized P&L data for rotation analysis."""
     ticker: str
@@ -16111,6 +16308,223 @@ def daily_review_summary() -> DailyReviewSummaryResponse:
         next_action_code=next_action_code,
         next_action_label=next_action_label,
         next_action_detail=next_action_detail,
+    )
+
+
+@app.get(
+    "/v1/review/scan-diagnostics/latest",
+    response_model=ScanDiagnosticsLatestResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
+    """
+    GET /v1/review/scan-diagnostics/latest — Read-only scan selection funnel.
+
+    Explains how the configured S&P 500 universe is reduced to actionable trade
+    ideas, and strictly separates the latest session's active trade ideas from
+    historical (no-longer-actionable) ones.
+
+    READ ONLY: zero rows created, zero rows mutated, no broker execution, no GCP
+    prediction calls, no automation.
+
+    Data sources (honest, no faked precision):
+        - Universe / price-history / local-screen counts and the "top local
+          screened" table are computed live read-only via the local screener
+          (no remote prediction service is contacted).
+        - Active vs. historical trade ideas, the per-ticker prediction results,
+          and existing-positions-reviewed come from persisted CandidateReview /
+          Position rows. "Today" (created today) drives actionability; everything
+          older is historical and never actionable.
+        - Per-session prediction dispatch / returned counts are not persisted, so
+          they are clearly labeled "not captured yet" rather than invented.
+    """
+    now = datetime.now(tz=timezone.utc)
+
+    from paper_trader.engine.market_screener import scan_market as scan_market_fn
+    from paper_trader.engine.universe import get_sp500_universe
+
+    # Actual configured defaults from the live prediction-candidates contract —
+    # never invented numbers.
+    _req_fields = MarketScanPredictionCandidatesRequest.model_fields
+    dispatch_limit = int(_req_fields["prediction_top_n"].default)
+    min_price_points = int(_req_fields["min_price_points"].default)
+    _table_top_n = 25
+
+    universe_tickers = get_sp500_universe()
+    universe_configured = len(universe_tickers)
+
+    # --- Live read-only local screen (no remote prediction service) ---
+    with get_dedicated_session() as screen_session:
+        screened, skipped, _scan_date = scan_market_fn(
+            session=screen_session,
+            universe="SP500",
+            top_n=_table_top_n,
+            min_price_points=min_price_points,
+        )
+
+    skipped_by_reason: dict[str, int] = {}
+    for s in skipped:
+        skipped_by_reason[s.reason] = skipped_by_reason.get(s.reason, 0) + 1
+    _insufficient = skipped_by_reason.get("INSUFFICIENT_PRICE_HISTORY", 0)
+    _no_data = skipped_by_reason.get("NO_PRICE_DATA", 0)
+
+    locally_screened = max(0, universe_configured - len(skipped))
+    price_history_ready = max(0, universe_configured - _insufficient - _no_data)
+
+    # Top local screened table (ranked, capped). Names within the dispatch limit
+    # would be sent to prediction first; the rest are cut by the top-N rule.
+    top_local_screened: list[ScanFunnelTopLocal] = []
+    for c in screened:
+        _sent = c.rank <= dispatch_limit
+        top_local_screened.append(ScanFunnelTopLocal(
+            rank=c.rank,
+            ticker=c.ticker,
+            score=c.score,
+            momentum_5d_pct=c.momentum_5d_pct,
+            momentum_20d_pct=c.momentum_20d_pct,
+            relative_strength_vs_spy_20d=c.relative_strength_vs_spy_20d,
+            sent_to_prediction=_sent,
+            reason="TOP_LOCAL_RANK" if _sent else "NOT_IN_TOP_LOCAL_RANK",
+        ))
+
+    # Exclusion reasons: local-screen skips + the top-N dispatch cut.
+    exclusion_reasons: list[ScanFunnelExclusionReason] = [
+        ScanFunnelExclusionReason(reason=r, count=n)
+        for r, n in sorted(skipped_by_reason.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+    _not_in_rank = max(0, locally_screened - dispatch_limit)
+    if _not_in_rank:
+        exclusion_reasons.append(
+            ScanFunnelExclusionReason(reason="NOT_IN_TOP_LOCAL_RANK", count=_not_in_rank)
+        )
+
+    # --- Persisted session state (active vs. historical) ---
+    today = date.today()
+    start_of_day = datetime(today.year, today.month, today.day)
+
+    with get_session() as session:
+        existing_positions_reviewed = session.query(Position).count()
+
+        cr_total = session.query(CandidateReview).count()
+        today_q = session.query(CandidateReview).filter(
+            CandidateReview.created_at >= start_of_day
+        )
+        cur_total = today_q.count()
+        active_trade_ideas = today_q.filter(
+            CandidateReview.review_status == "NEW"
+        ).count()
+        watch_below_threshold = today_q.filter(
+            CandidateReview.review_status == "WATCHING"
+        ).count()
+        rejected_blocked = today_q.filter(
+            CandidateReview.review_status == "REJECTED"
+        ).count()
+        historical_trade_ideas = max(0, cr_total - cur_total)
+
+        latest_row = session.query(
+            CandidateReview.idempotency_key, CandidateReview.created_at
+        ).order_by(CandidateReview.created_at.desc()).first()
+        session_id = latest_row[0] if latest_row else None
+        latest_created = latest_row[1] if latest_row else None
+        market_date = str(latest_created.date()) if latest_created is not None else None
+        has_latest_session = session_id is not None
+
+        prediction_results: list[ScanFunnelPredictionResult] = []
+        if session_id is not None:
+            latest_rows = session.query(CandidateReview).filter(
+                CandidateReview.idempotency_key == session_id
+            ).order_by(CandidateReview.created_at.desc()).all()
+            for row in latest_rows:
+                # row.created_at is tz-aware; compare on date to match the "today"
+                # session boundary without mixing naive/aware datetimes.
+                is_current = row.created_at is not None and row.created_at.date() >= today
+                rs = row.review_status
+                if not is_current:
+                    actionability = "HISTORICAL_NOT_ACTIONABLE"
+                    reason = "From a prior session - not actionable today."
+                elif rs == "NEW":
+                    actionability = "ACTIVE_TRADE_IDEA"
+                    reason = "Awaiting your review."
+                elif rs == "APPROVED_FOR_SIGNAL":
+                    actionability = "APPROVED"
+                    reason = "Approved - ready for a paper trade ticket."
+                elif rs == "WATCHING":
+                    actionability = "WATCH_ONLY"
+                    reason = "On watch - below action threshold."
+                elif rs == "REJECTED":
+                    actionability = "REJECTED"
+                    reason = "Rejected in review."
+                else:
+                    actionability = "OTHER"
+                    reason = rs
+                prediction_results.append(ScanFunnelPredictionResult(
+                    ticker=row.ticker,
+                    prediction=row.prediction_recommendation,
+                    confidence=row.prediction_confidence,
+                    expected_return_pct=row.expected_return_pct,
+                    score=row.preview_score,
+                    actionability=actionability,
+                    reason=reason,
+                    review_status=rs,
+                    is_current_session=is_current,
+                ))
+
+    # Planned dispatch (top-N ranked names + current holdings). The actual count
+    # sent on the last live run is not persisted, so this is labeled as planned.
+    sent_to_prediction = min(dispatch_limit, locally_screened) + existing_positions_reviewed
+
+    dispatch_explanation = (
+        f"Prediction is run on the top {dispatch_limit} locally ranked names plus "
+        f"current holdings, not every S&P 500 ticker. The prediction service is remote, "
+        f"so prediction dispatch is deliberately limited."
+    )
+    funnel_note = (
+        f"Full S&P 500 local screen completed: {locally_screened} of {universe_configured} "
+        f"names had enough price history. Prediction dispatch was run only on the top "
+        f"{dispatch_limit} ranked names plus current holdings because the prediction "
+        f"service is remote. This is selection coverage, not a failure to scan the S&P 500. "
+        f"Paper trade only - no broker execution."
+    )
+    capture_note = (
+        "Universe, price-history, local-screen and top-ranked figures are computed live "
+        "and exact. Per-session prediction dispatch and predictions-returned counts are "
+        "not captured yet, so 'Sent to Prediction' shows the configured dispatch plan and "
+        "'Predictions Returned' is not captured yet; the actionability gate below reflects "
+        "the saved trade ideas from the latest session."
+    )
+
+    return ScanDiagnosticsLatestResponse(
+        session_id=session_id,
+        market_date=market_date,
+        as_of=now,
+        has_latest_session=has_latest_session,
+        universe_configured=universe_configured,
+        price_history_ready=price_history_ready,
+        locally_screened=locally_screened,
+        prediction_dispatch_limit=dispatch_limit,
+        sent_to_prediction=sent_to_prediction,
+        sent_to_prediction_captured=False,
+        predictions_returned=None,
+        predictions_returned_captured=False,
+        active_trade_ideas=active_trade_ideas,
+        watch_below_threshold=watch_below_threshold,
+        rejected_blocked=rejected_blocked,
+        existing_positions_reviewed=existing_positions_reviewed,
+        already_in_portfolio=existing_positions_reviewed,
+        historical_trade_ideas=historical_trade_ideas,
+        thresholds=ScanFunnelThresholds(
+            min_score=DEFAULT_MIN_ACTIONABLE_SCORE,
+            min_confidence=DEFAULT_MIN_CONFIDENCE,
+            min_expected_return_pct=DEFAULT_MIN_EXPECTED_RETURN_PCT,
+            min_relative_strength_vs_spy=DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY,
+        ),
+        prediction_dispatch_explanation=dispatch_explanation,
+        capture_note=capture_note,
+        funnel_note=funnel_note,
+        exclusion_reasons=exclusion_reasons,
+        top_local_screened=top_local_screened,
+        prediction_results=prediction_results,
     )
 
 

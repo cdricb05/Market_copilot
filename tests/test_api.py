@@ -24796,6 +24796,234 @@ class TestPortfolioAnalyticsEndpoint:
 # Static UI content assertions — reads index.html directly (no HTTP needed)
 # ---------------------------------------------------------------------------
 
+class TestScanDiagnosticsLatestEndpoint:
+    """GET /v1/review/scan-diagnostics/latest — read-only scan selection funnel.
+
+    The endpoint aggregates ALL CandidateReview / Position rows globally, and the
+    module-scoped shared test DB accumulates rows across test classes. So tests
+    here either (a) assert only structural/threshold facts, (b) use before/after
+    deltas, or (c) non-destructively save → clear → assert → restore the rows they
+    need to control. They never assert global absolute counts.
+    """
+
+    _ENDPOINT = "/v1/review/scan-diagnostics/latest"
+
+    @staticmethod
+    def _sfx() -> str:
+        import uuid as _uuid
+        return _uuid.uuid4().hex[:6].upper()
+
+    @staticmethod
+    def _save_and_clear_candidate_reviews(session) -> list[dict]:
+        """Capture all CandidateReview rows as plain dicts, then delete them."""
+        from sqlalchemy import inspect as _sa_inspect
+        col_keys = [c.key for c in _sa_inspect(CandidateReview).mapper.column_attrs]
+        saved = [
+            {k: getattr(r, k) for k in col_keys}
+            for r in session.execute(select(CandidateReview)).scalars().all()
+        ]
+        session.query(CandidateReview).delete(synchronize_session=False)
+        return saved
+
+    def test_requires_auth(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.get(self._ENDPOINT)
+        assert resp.status_code in (401, 403)
+
+    def test_read_only_does_not_create_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Calling the endpoint creates/mutates zero rows and reports safety flags."""
+        from sqlalchemy import func as _f
+
+        def _counts(session) -> dict:
+            return {
+                "signals": session.execute(select(_f.count()).select_from(Signal)).scalar_one(),
+                "decisions": session.execute(select(_f.count()).select_from(TradeDecision)).scalar_one(),
+                "orders": session.execute(select(_f.count()).select_from(Order)).scalar_one(),
+                "positions": session.execute(select(_f.count()).select_from(Position)).scalar_one(),
+                "candidates": session.execute(select(_f.count()).select_from(CandidateReview)).scalar_one(),
+            }
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            before = _counts(session)
+
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            after = _counts(session)
+
+        assert before == after
+        assert data["writes_performed"] is False
+        assert data["preview_only"] is True
+        assert data["no_broker_execution"] is True
+        assert data["no_orders_created"] is True
+        assert data["no_automation"] is True
+
+    def test_required_funnel_fields_present(self, seeded_client: TestClient) -> None:
+        """The response carries the full funnel contract with sane bounds."""
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        d = resp.json()
+        for key in (
+            "session_id", "market_date", "as_of", "has_latest_session",
+            "universe_configured", "price_history_ready", "locally_screened",
+            "prediction_dispatch_limit", "sent_to_prediction", "predictions_returned",
+            "active_trade_ideas", "watch_below_threshold", "rejected_blocked",
+            "existing_positions_reviewed", "already_in_portfolio",
+            "historical_trade_ideas", "thresholds", "prediction_dispatch_explanation",
+            "exclusion_reasons", "top_local_screened", "prediction_results",
+        ):
+            assert key in d, f"missing field: {key}"
+        # The configured S&P 500 universe is loaded; screen counts are bounded by it.
+        assert d["universe_configured"] > 0
+        assert 0 <= d["locally_screened"] <= d["universe_configured"]
+        assert 0 <= d["price_history_ready"] <= d["universe_configured"]
+        assert isinstance(d["exclusion_reasons"], list)
+        assert isinstance(d["top_local_screened"], list)
+        assert isinstance(d["prediction_results"], list)
+
+    def test_thresholds_and_explanation_present(self, seeded_client: TestClient) -> None:
+        """Thresholds reflect the actual code defaults; explanation is present."""
+        from paper_trader.api.app import (
+            DEFAULT_MIN_ACTIONABLE_SCORE, DEFAULT_MIN_CONFIDENCE,
+            DEFAULT_MIN_EXPECTED_RETURN_PCT, DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY,
+        )
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        d = resp.json()
+        t = d["thresholds"]
+        assert float(t["min_score"]) == DEFAULT_MIN_ACTIONABLE_SCORE
+        assert float(t["min_confidence"]) == DEFAULT_MIN_CONFIDENCE
+        assert float(t["min_expected_return_pct"]) == DEFAULT_MIN_EXPECTED_RETURN_PCT
+        assert float(t["min_relative_strength_vs_spy"]) == DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY
+        assert isinstance(d["prediction_dispatch_explanation"], str)
+        assert d["prediction_dispatch_explanation"].strip() != ""
+        assert d["prediction_dispatch_limit"] >= 1
+
+    def test_existing_positions_reviewed_tracks_positions(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """existing_positions_reviewed == already_in_portfolio and tracks Position count."""
+        sfx = self._sfx()
+        tk = f"SDP{sfx[:3]}"
+        pos_id = None
+        try:
+            base = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            assert base["existing_positions_reviewed"] == base["already_in_portfolio"]
+            base_reviewed = base["existing_positions_reviewed"]
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                pos = Position(
+                    ticker=tk, qty=Decimal("3"),
+                    avg_cost=Decimal("100.000000"), cost_basis=Decimal("300.00"),
+                    opened_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    last_updated=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+                session.commit()
+
+            after = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            assert after["existing_positions_reviewed"] == base_reviewed + 1
+            assert after["already_in_portfolio"] == after["existing_positions_reviewed"]
+        finally:
+            if pos_id is not None:
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                    obj = session.get(Position, pos_id)
+                    if obj is not None:
+                        session.delete(obj)
+                    session.commit()
+
+    def test_active_separated_from_historical(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A current-session NEW idea is active; a prior-session one is historical only."""
+        sfx = self._sfx()
+        tk_today = f"SAT{sfx[:3]}"
+        tk_old = f"SAO{sfx[:3]}"
+        saved: list[dict] = []
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                saved = self._save_and_clear_candidate_reviews(session)
+                # Today's NEW idea: let created_at default to now() (today).
+                session.add(CandidateReview(
+                    idempotency_key=f"ssf-today-{sfx}", ticker=tk_today,
+                    preview_decision="CONSIDER", preview_score="90.0",
+                    prediction_recommendation="BUY", prediction_confidence="0.90",
+                    expected_return_pct="2.5", review_status="NEW", status="OK",
+                ))
+                # Prior-session NEW idea, explicitly dated in the past.
+                session.add(CandidateReview(
+                    idempotency_key=f"ssf-old-{sfx}", ticker=tk_old,
+                    preview_decision="CONSIDER", preview_score="88.0",
+                    prediction_recommendation="BUY", prediction_confidence="0.88",
+                    expected_return_pct="3.0", review_status="NEW", status="OK",
+                    created_at=datetime(2020, 1, 2, 12, 0, tzinfo=timezone.utc),
+                ))
+                session.commit()
+
+            d = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            # Only today's idea is active; the old one is historical, never active.
+            assert d["active_trade_ideas"] == 1
+            assert d["historical_trade_ideas"] == 1
+            assert d["has_latest_session"] is True
+            # Latest session = today's key; its row is an ACTIVE_TRADE_IDEA.
+            tickers = {r["ticker"]: r for r in d["prediction_results"]}
+            assert tk_today in tickers
+            assert tickers[tk_today]["actionability"] == "ACTIVE_TRADE_IDEA"
+            assert tickers[tk_today]["is_current_session"] is True
+            assert tk_old not in tickers  # different (older) session
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(CandidateReview).delete(synchronize_session=False)
+                for cols in saved:
+                    session.add(CandidateReview(**cols))
+                session.commit()
+
+    def test_zero_active_state_keeps_historical_not_actionable(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """With no current-session ideas, active==0 and a prior idea stays historical.
+
+        Verifies the contract that a historical candidate is never marked as a
+        current required action.
+        """
+        sfx = self._sfx()
+        tk_old = f"SZH{sfx[:3]}"
+        saved: list[dict] = []
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                saved = self._save_and_clear_candidate_reviews(session)
+                # Only a prior-session idea exists — nothing dated today.
+                session.add(CandidateReview(
+                    idempotency_key=f"ssf-zero-old-{sfx}", ticker=tk_old,
+                    preview_decision="CONSIDER", preview_score="87.0",
+                    prediction_recommendation="BUY", prediction_confidence="0.87",
+                    expected_return_pct="2.0", review_status="NEW", status="OK",
+                    created_at=datetime(2020, 1, 3, 12, 0, tzinfo=timezone.utc),
+                ))
+                session.commit()
+
+            d = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            assert d["active_trade_ideas"] == 0
+            assert d["historical_trade_ideas"] == 1
+            assert d["has_latest_session"] is True
+            # The prior idea is the latest session, but flagged not actionable.
+            tickers = {r["ticker"]: r for r in d["prediction_results"]}
+            assert tk_old in tickers
+            assert tickers[tk_old]["actionability"] == "HISTORICAL_NOT_ACTIONABLE"
+            assert tickers[tk_old]["is_current_session"] is False
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                session.query(CandidateReview).delete(synchronize_session=False)
+                for cols in saved:
+                    session.add(CandidateReview(**cols))
+                session.commit()
+
+
 class TestUiStaticContent:
     """Verify key static strings are present in the UI HTML file."""
 
@@ -24880,6 +25108,39 @@ class TestUiStaticContent:
         assert "function tickerLink" in scripts
         # Still no native browser dialogs.
         import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
+
+    def test_scan_selection_funnel_section_present(self) -> None:
+        """The Scan Selection Funnel section and its sub-sections exist in the UI."""
+        html = self._read_html()
+        assert "Scan Selection Funnel" in html
+        assert "Full S&P 500 local screen" in html
+        assert "Prediction dispatch" in html
+        assert "Sent to Prediction" in html
+        assert "Why Candidates Were Excluded" in html
+        assert "Top Local Screened Before Prediction" in html
+        assert "Prediction Results and Actionability Gate" in html
+        assert "Active Trade Ideas" in html
+        assert "Historical Trade Ideas — Not Actionable" in html
+        assert "No Active Trade Ideas Today" in html
+        assert "/v1/review/scan-diagnostics/latest" in html
+        scripts = self._scripts()
+        assert "function loadScanSelectionFunnel" in scripts
+
+    def test_scan_selection_funnel_is_read_only_safe(self) -> None:
+        """The funnel keeps safety language visible and uses no native dialogs."""
+        import re
+        html = self._read_html()
+        assert "paper trade only" in html
+        assert "no broker execution" in html
+        assert "MANUAL REVIEW" in html
+        assert "AUTOMATION OFF" in html
+        # The old live-run Scan Coverage card is preserved (wiring intact) but moved
+        # into an Audit / Advanced details section.
+        assert 'id="dp-scan-coverage-advanced"' in html
+        assert "function renderScanCoverage" in self._scripts()
+        scripts = self._scripts()
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
 
