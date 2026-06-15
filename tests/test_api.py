@@ -31596,3 +31596,222 @@ class TestWorkflowNavigationContractUiV1:
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestTradeLedgerEndpointV1:
+    """Read-only Paper Trade Ledger contract: GET /v1/trades.
+
+    The ledger exposes filled paper trades with lifecycle linkage
+    (Trade -> Order.trade_decision_id). It must never write to the DB and must
+    never touch a broker.
+    """
+
+    _ENDPOINT = "/v1/trades"
+
+    def _seed_filled_trade(self, api_engine, suffix: str, *, side: str = "BUY"):
+        """Seed Signal -> TradeDecision -> Order(FILLED) -> Trade. Returns ids."""
+        from paper_trader.db.models import Trade
+        md = date.today()
+        ticker = f"LED{suffix[:5]}".upper()
+        now = datetime.now(timezone.utc)
+        qty = Decimal("3.00000000")
+        price = Decimal("150.00")
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            jr = JobRun(
+                idempotency_key=f"ledger-jr-{suffix}",
+                workflow_type="REVIEW_QUEUE_CREATE_ORDERS",
+                market_date=md, status="COMPLETED", completed_at=now,
+            )
+            s.add(jr)
+            s.flush()
+            sig = Signal(
+                job_run_id=jr.id, ticker=ticker, direction=side,
+                confidence=Decimal("0.85"), signal_ts=now, market_date=md,
+                source_run=f"ledger:{suffix}", status="RECEIVED", raw_payload={},
+            )
+            s.add(sig)
+            s.flush()
+            td = TradeDecision(
+                signal_id=sig.id, job_run_id=jr.id, ticker=ticker,
+                signal_direction=side, decision=side, reason_code=None,
+                approved_qty=qty, approved_notional=(qty * price).quantize(Decimal("0.01")),
+                requested_qty=qty, requested_notional=(qty * price).quantize(Decimal("0.01")),
+                decided_at=now, market_date=md,
+            )
+            s.add(td)
+            s.flush()
+            order = Order(
+                trade_decision_id=td.id, job_run_id=jr.id, ticker=ticker, side=side,
+                order_type="MARKET", status="FILLED", market_date=md,
+                requested_qty=qty, filled_qty=qty, requested_at=now, filled_at=now,
+                fill_price=price, commission=Decimal("1.00"),
+                notes="Paper order ticket — review workflow. No broker execution.",
+            )
+            s.add(order)
+            s.flush()
+            tr = Trade(
+                order_id=order.id, job_run_id=jr.id, ticker=ticker, side=side,
+                qty=qty, snapshot_price=price, fill_price=price,
+                gross_value=(qty * price).quantize(Decimal("0.01")),
+                commission=Decimal("1.00"),
+                net_value=(qty * price + Decimal("1.00")).quantize(Decimal("0.01")),
+                cost_basis_per_share=price, realized_pnl=None,
+                trade_ts=now, market_date=md,
+            )
+            s.add(tr)
+            s.commit()
+            return str(tr.id), str(order.id), str(td.id), ticker
+
+    def _cleanup(self, api_engine, ticker: str) -> None:
+        from paper_trader.db.models import Trade
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.query(Trade).filter(Trade.ticker == ticker).delete(synchronize_session=False)
+            s.query(Order).filter(Order.ticker == ticker).delete(synchronize_session=False)
+            s.query(TradeDecision).filter(TradeDecision.ticker == ticker).delete(synchronize_session=False)
+            s.query(Signal).filter(Signal.ticker == ticker).delete(synchronize_session=False)
+            s.commit()
+
+    def test_unauthorized_returns_401(self, seeded_client: TestClient) -> None:
+        assert seeded_client.get(self._ENDPOINT).status_code == 401
+
+    def test_ledger_returns_filled_paper_trades(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        sfx = uuid.uuid4().hex[:8]
+        tr_id, order_id, td_id, ticker = self._seed_filled_trade(api_engine, sfx)
+        try:
+            r = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert r.status_code == 200, r.text
+            rows = r.json()
+            mine = [t for t in rows if t["id"] == tr_id]
+            assert len(mine) == 1
+            t = mine[0]
+            assert t["ticker"] == ticker
+            assert t["status"] == "FILLED"
+            assert "no broker execution" in t["notes"].lower()
+        finally:
+            self._cleanup(api_engine, ticker)
+
+    def test_ledger_includes_lifecycle_and_fill_fields(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        sfx = uuid.uuid4().hex[:8]
+        tr_id, order_id, td_id, ticker = self._seed_filled_trade(api_engine, sfx)
+        try:
+            rows = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()
+            t = next(t for t in rows if t["id"] == tr_id)
+            for field in (
+                "ticker", "side", "qty", "fill_price", "gross_value",
+                "commission", "net_value", "trade_ts", "market_date",
+                "order_id", "order_short_id", "trade_decision_id",
+                "trade_decision_short_id", "short_id", "status",
+            ):
+                assert field in t, f"missing ledger field: {field}"
+            # Lifecycle linkage: trade -> order -> trade_decision.
+            assert t["order_id"] == order_id
+            assert t["trade_decision_id"] == td_id
+            assert t["order_short_id"] == order_id[:8]
+            assert t["trade_decision_short_id"] == td_id[:8]
+        finally:
+            self._cleanup(api_engine, ticker)
+
+    def test_ledger_is_read_only(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        from paper_trader.db.models import Trade
+        sfx = uuid.uuid4().hex[:8]
+        tr_id, order_id, td_id, ticker = self._seed_filled_trade(api_engine, sfx)
+        try:
+            def _counts():
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                    return (
+                        s.query(Trade).count(),
+                        s.query(Order).count(),
+                        s.query(Position).count(),
+                    )
+            before = _counts()
+            for _ in range(3):
+                assert seeded_client.get(self._ENDPOINT, headers=_AUTH).status_code == 200
+            assert _counts() == before
+        finally:
+            self._cleanup(api_engine, ticker)
+
+    def test_ledger_ticker_filter(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        sfx = uuid.uuid4().hex[:8]
+        tr_id, order_id, td_id, ticker = self._seed_filled_trade(api_engine, sfx)
+        try:
+            rows = seeded_client.get(
+                f"{self._ENDPOINT}?ticker={ticker.lower()}", headers=_AUTH
+            ).json()
+            assert rows, "ticker filter returned nothing"
+            assert all(t["ticker"] == ticker for t in rows)
+        finally:
+            self._cleanup(api_engine, ticker)
+
+    def test_portfolio_returns_positions_after_fill(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        # /v1/portfolio stays healthy and /v1/positions reflects a held position
+        # alongside trades in the ledger.
+        ticker = f"PFL{uuid.uuid4().hex[:5]}".upper()
+        now = datetime.now(timezone.utc)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+            s.add(Position(
+                ticker=ticker, qty=Decimal("2.00"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("200.00"), opened_at=now, last_updated=now,
+            ))
+            s.commit()
+        try:
+            assert seeded_client.get("/v1/portfolio", headers=_AUTH).status_code == 200
+            positions = seeded_client.get("/v1/positions", headers=_AUTH).json()
+            assert any(p["ticker"] == ticker for p in positions)
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
+                s.commit()
+
+
+class TestPortfolioTradeLedgerUiV1:
+    """Portfolio & Trade Ledger cockpit UI static contract."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    def test_paper_trade_ledger_present(self) -> None:
+        assert "Paper Trade Ledger" in self._read_html()
+
+    def test_filled_paper_trades_copy_present(self) -> None:
+        assert "These are filled paper trades. No broker execution." in self._read_html()
+
+    def test_orders_vs_trades_distinction_present(self) -> None:
+        html = self._read_html()
+        assert "Orders are paper execution tickets" in html
+        assert "Trades are filled paper executions" in html
+
+    def test_open_positions_anchor_present(self) -> None:
+        assert 'id="open-positions"' in self._read_html()
+
+    def test_view_portfolio_navigation_targets_open_positions(self) -> None:
+        html = self._read_html()
+        fn = _fn_body(html, "function navigateToPortfolioPositions(")
+        assert "open-positions" in fn
+        assert "loadTradeLedger()" in fn
+
+    def test_summary_strip_and_ledger_loader_present(self) -> None:
+        html = self._read_html()
+        assert 'id="ps-total-value"' in html
+        assert 'id="ps-filled-trades"' in html
+        assert "async function loadTradeLedger(" in html
+        assert "'/v1/trades?limit=200'" in html
+
+    def test_no_browser_dialogs(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0

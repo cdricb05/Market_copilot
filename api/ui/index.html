@@ -1060,6 +1060,26 @@
     .step-e-disabled {
       opacity: 0.65;
     }
+    .portfolio-summary-strip .ps-kpi {
+      flex: 1 1 140px;
+      min-width: 130px;
+      background: rgba(0,0,0,.18);
+      border: 1px solid var(--border, #2a2a3e);
+      border-radius: 4px;
+      padding: 6px 10px;
+    }
+    .portfolio-summary-strip .ps-kpi-label {
+      font-size: 9px;
+      color: var(--label);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 3px;
+    }
+    .portfolio-summary-strip .ps-kpi-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
     /* --- Visual Redesign v3 --- */
     .overview-cmd-section {
       border-top: 1px solid var(--border);
@@ -2952,22 +2972,50 @@
       <!-- TAB 4: PORTFOLIO -->
       <div id="tab-portfolio" class="tab-content">
 
+        <!-- Portfolio & Trade Ledger header + safety -->
+        <div class="card" style="margin-bottom:10px;padding:10px 14px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div class="card-title" style="margin:0;">Portfolio &amp; Trade Ledger</div>
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PAPER ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">AUTOMATION OFF</span>
+          </div>
+          <div style="font-size:9px;color:var(--label);margin-top:4px;">
+            No live broker orders. Automation off. Open Positions are current holdings created by filled paper trades.
+          </div>
+          <!-- Portfolio Summary strip: 8 KPIs in one row -->
+          <div class="portfolio-summary-strip" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+            <div class="ps-kpi"><div class="ps-kpi-label">Total Value</div><div class="ps-kpi-value" id="ps-total-value">-</div></div>
+            <div class="ps-kpi"><div class="ps-kpi-label">Cash</div><div class="ps-kpi-value" id="ps-cash">-</div></div>
+            <div class="ps-kpi"><div class="ps-kpi-label">Positions Value</div><div class="ps-kpi-value" id="ps-positions-value">-</div></div>
+            <div class="ps-kpi"><div class="ps-kpi-label">Total Return</div><div class="ps-kpi-value" id="ps-total-return">-</div></div>
+            <div class="ps-kpi"><div class="ps-kpi-label">Unrealized P&amp;L</div><div class="ps-kpi-value" id="ps-unrlzd-pnl">-</div></div>
+            <div class="ps-kpi"><div class="ps-kpi-label">Open Positions</div><div class="ps-kpi-value" id="ps-open-positions">-</div></div>
+            <div class="ps-kpi"><div class="ps-kpi-label">Filled Paper Trades</div><div class="ps-kpi-value" id="ps-filled-trades">-</div></div>
+            <div class="ps-kpi"><div class="ps-kpi-label">Pending Paper Orders</div><div class="ps-kpi-value" id="ps-pending-orders">-</div></div>
+          </div>
+        </div>
+
         <!-- Portfolio cockpit: Open Positions (left) + Orders (right) -->
         <div class="portfolio-cockpit-grid">
 
           <!-- Open Positions -->
           <div class="card" id="open-positions" style="scroll-margin-top: 12px;">
             <div class="card-title">Open Positions</div>
+            <div style="font-size:9px;color:var(--label);margin-bottom:6px;">
+              Current holdings created by filled paper trades. Status is a read-only recommendation.
+            </div>
             <div class="table-wrap scroll-table">
               <table>
                 <thead>
                   <tr>
-                    <th>Ticker</th><th>Qty</th><th>Avg Cost</th>
-                    <th>Cost Basis</th><th>Opened</th><th>Updated</th>
+                    <th>Ticker</th><th>Qty</th><th>Avg Cost</th><th>Latest Px</th>
+                    <th>Market Value</th><th>Cost Basis</th><th>Unrlzd P&amp;L</th>
+                    <th>P&amp;L %</th><th>Weight %</th><th>Opened</th><th>Updated</th><th>Status</th>
                   </tr>
                 </thead>
                 <tbody id="posTbody">
-                  <tr><td colspan="6" class="empty">Connect to load</td></tr>
+                  <tr><td colspan="12" class="empty">Connect to load</td></tr>
                 </tbody>
               </table>
             </div>
@@ -2975,7 +3023,13 @@
 
           <!-- Orders -->
           <div class="card">
-            <div class="card-title">Orders <span id="ordCount" class="row-count"></span></div>
+            <div class="card-title">Paper Orders <span id="ordCount" class="row-count"></span></div>
+            <div style="font-size:9px;color:var(--label);margin-bottom:6px;">
+              Orders are paper execution tickets. Trades are filled paper executions. Shows pending and filled orders.
+            </div>
+            <div id="ord-filter-note" style="display:none;font-size:9px;color:var(--warning);margin-bottom:6px;">
+              Filters are hiding existing orders. Clear filters to see all.
+            </div>
             <div class="filters">
               <select id="ordStatus" onchange="loadOrders()">
                 <option value="">All statuses</option>
@@ -3004,9 +3058,39 @@
 
         </div><!-- end portfolio-cockpit-grid -->
 
-        <!-- Performance History (full width) -->
+        <!-- Paper Trade Ledger (full width, directly below positions) -->
+        <div class="card" id="paper-trade-ledger" style="scroll-margin-top: 12px;">
+          <div class="card-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            Paper Trade Ledger <span id="ledgerCount" class="row-count"></span>
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PAPER ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
+          </div>
+          <div style="font-size:9px;color:var(--label);margin-bottom:6px;">
+            These are filled paper trades. No broker execution. Each trade traces its originating decision and order.
+            Orders are paper execution tickets. Trades are filled paper executions.
+          </div>
+          <div class="table-wrap scroll-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th><th>Side</th><th>Qty</th><th>Fill Px</th>
+                  <th>Gross</th><th>Commission</th><th>Net</th><th>Realized P&amp;L</th>
+                  <th>Filled At</th><th>Date</th><th>Decision</th><th>Order</th>
+                  <th>Trade</th><th>Status</th><th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="ledgerTbody">
+                <tr><td colspan="15" class="empty">Connect to load</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Performance History (full width, secondary) -->
         <div class="card">
-          <div class="card-title">Performance History <span id="histCount" class="row-count"></span></div>
+          <div class="card-title">Performance History <span id="histCount" class="row-count"></span>
+            <span style="font-size:9px;color:var(--label);font-weight:400;margin-left:6px;">(secondary — daily snapshots)</span>
+          </div>
           <div class="filters">
             <input type="date" id="histStart">
             <span style="color: var(--label); font-size:11px;">to</span>
@@ -5050,6 +5134,13 @@ window.paperTraderPostAuthLoad = async function paperTraderPostAuthLoad() {
     }
 
     try {
+      await loadPortfolioSummary();
+    } catch (e) {
+      failedLoaders.push('portfolio-summary');
+      console.error('Portfolio summary load error:', e);
+    }
+
+    try {
       await loadPositions();
     } catch (e) {
       failedLoaders.push('positions');
@@ -5061,6 +5152,13 @@ window.paperTraderPostAuthLoad = async function paperTraderPostAuthLoad() {
     } catch (e) {
       failedLoaders.push('orders');
       console.error('Orders load error:', e);
+    }
+
+    try {
+      await loadTradeLedger();
+    } catch (e) {
+      failedLoaders.push('trade-ledger');
+      console.error('Trade ledger load error:', e);
     }
 
     try {
@@ -5312,11 +5410,22 @@ function updatePortfolioCapacityDisplay() {
   } catch(e) {}
 }
 
+// Read-only status chip for a position recommendation. HOLD / WATCH /
+// REVIEW_FOR_EXIT come from the daily-review-summary; no orders are implied.
+function positionStatusChip(rec) {
+  if (!rec) return '<span style="color:var(--label);">-</span>';
+  const r = String(rec).toUpperCase();
+  let color = 'var(--warning)';
+  if (r === 'HOLD') color = 'var(--ok)';
+  else if (r === 'REVIEW_FOR_EXIT') color = 'var(--danger)';
+  return `<span style="color:${color};font-weight:600;">${escapeHtml(r)}</span>`;
+}
+
 async function loadPositions() {
   const r = await call('GET', '/v1/positions');
   const tb = document.getElementById('posTbody');
   if (!r.ok) {
-    tb.innerHTML = `<tr><td colspan="6" class="empty">${httpErr(r.status)}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="12" class="empty">${httpErr(r.status)}</td></tr>`;
     return;
   }
   const rows = await r.json();
@@ -5324,18 +5433,56 @@ async function loadPositions() {
   _appState.positionCount = rows.length;
   updatePortfolioCapacityDisplay();
   if (!rows.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="empty">No open positions</td></tr>';
+    tb.innerHTML = '<tr><td colspan="12" class="empty">No open positions</td></tr>';
+    updatePortfolioSummary();
+    updateKpi();
     return;
   }
-  tb.innerHTML = rows.map(p => `
+  // Read-only enrichment from the daily review summary (P&L + recommendation).
+  // Latest price / market value / weight are derived honestly from cost basis
+  // and the summary's unrealized P&L; shown as "-" when unavailable.
+  const summary = window._lastDailyReviewSummary;
+  const enrich = {};
+  if (summary && Array.isArray(summary.open_positions)) {
+    summary.open_positions.forEach(function(sp) { enrich[String(sp.ticker).toUpperCase()] = sp; });
+  }
+  let positionsTotal = 0;
+  const computed = rows.map(function(p) {
+    const e = enrich[String(p.ticker).toUpperCase()];
+    const qty = parseFloat(p.qty);
+    const costBasis = parseFloat(p.cost_basis);
+    let upnl = null, upnlPct = null, mv = null, latest = null;
+    if (e && e.unrealized_pnl != null && !isNaN(parseFloat(e.unrealized_pnl))) {
+      upnl = parseFloat(e.unrealized_pnl);
+      mv = costBasis + upnl;
+      if (qty) latest = mv / qty;
+      positionsTotal += mv;
+    }
+    if (e && e.unrealized_pnl_pct != null && !isNaN(parseFloat(e.unrealized_pnl_pct))) {
+      upnlPct = parseFloat(e.unrealized_pnl_pct);
+    }
+    return { p: p, e: e, upnl: upnl, upnlPct: upnlPct, mv: mv, latest: latest };
+  });
+  tb.innerHTML = computed.map(function(c) {
+    const p = c.p;
+    const weight = (c.mv != null && positionsTotal > 0) ? (c.mv / positionsTotal * 100) : null;
+    return `
     <tr>
-      <td><strong>${p.ticker}</strong></td>
+      <td><strong>${escapeHtml(p.ticker)}</strong></td>
       <td>${p.qty}</td>
       <td>${usd(p.avg_cost)}</td>
+      <td>${c.latest != null ? usd(c.latest) : '-'}</td>
+      <td>${c.mv != null ? usd(c.mv) : '-'}</td>
       <td>${usd(p.cost_basis)}</td>
+      <td>${c.upnl != null ? signHtml(c.upnl, usd) : '-'}</td>
+      <td>${c.upnlPct != null ? signHtml(c.upnlPct, function(v){return Number(v).toFixed(2)+'%';}) : '-'}</td>
+      <td>${weight != null ? weight.toFixed(1) + '%' : '-'}</td>
       <td>${fmtDate(p.opened_at)}</td>
       <td>${fmtDate(p.last_updated)}</td>
-    </tr>`).join('');
+      <td>${positionStatusChip(c.e ? c.e.recommendation : null)}</td>
+    </tr>`;
+  }).join('');
+  updatePortfolioSummary();
   updateKpi();
 }
 
@@ -5355,6 +5502,11 @@ async function loadOrders() {
   }
   const rows = await r.json();
   countEl.textContent = `(${rows.length})`;
+  const hasFilter = !!(status || date);
+  // Surface a clear note whenever a filter is active so orders are never
+  // hidden unexpectedly.
+  const noteEl = document.getElementById('ord-filter-note');
+  if (noteEl) noteEl.style.display = hasFilter ? '' : 'none';
   if (!status && !date) {
     _appState.pendingOrders = rows.filter(o => o.status === 'PENDING').length;
     _appState.filledOrders = rows.filter(o => o.status === 'FILLED').length;
@@ -5363,8 +5515,8 @@ async function loadOrders() {
     _appState.filledOrders = null;
   }
   if (!rows.length) {
-    const hasFilter = status || date;
     tb.innerHTML = `<tr><td colspan="8" class="empty">${hasFilter ? 'No orders matching filters' : 'No orders'}</td></tr>`;
+    updatePortfolioSummary();
     updateKpi();
     return;
   }
@@ -5379,7 +5531,88 @@ async function loadOrders() {
       <td>${o.commission != null ? usd(o.commission) : '-'}</td>
       <td style="color: var(--label); font-size:11px;">${o.notes ?? ''}</td>
     </tr>`).join('');
+  updatePortfolioSummary();
   updateKpi();
+}
+
+// ---------- Paper Trade Ledger ----------
+
+// Load the read-only Paper Trade Ledger (filled paper trades). Answers
+// "Where is my trade?" by showing each filled paper execution with its
+// originating decision/order linkage. READ ONLY: no DB writes.
+async function loadTradeLedger() {
+  const tb = document.getElementById('ledgerTbody');
+  const countEl = document.getElementById('ledgerCount');
+  if (!tb) return;
+  const r = await call('GET', '/v1/trades?limit=200');
+  if (!r.ok) {
+    tb.innerHTML = `<tr><td colspan="15" class="empty">${httpErr(r.status)}</td></tr>`;
+    if (countEl) countEl.textContent = '';
+    window._tradeLedgerCount = null;
+    updatePortfolioSummary();
+    return;
+  }
+  const rows = await r.json();
+  window._tradeLedgerCount = rows.length;
+  if (countEl) countEl.textContent = `(${rows.length})`;
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="15" class="empty">No paper trades yet. Filled paper orders appear here.</td></tr>';
+    updatePortfolioSummary();
+    return;
+  }
+  tb.innerHTML = rows.map(function(t) {
+    return `
+    <tr>
+      <td><strong>${escapeHtml(t.ticker)}</strong></td>
+      <td>${escapeHtml(t.side)}</td>
+      <td>${t.qty}</td>
+      <td>${usd(t.fill_price)}</td>
+      <td>${usd(t.gross_value)}</td>
+      <td>${usd(t.commission)}</td>
+      <td>${usd(t.net_value)}</td>
+      <td>${t.realized_pnl != null ? signHtml(t.realized_pnl, usd) : '-'}</td>
+      <td>${fmtDate(t.trade_ts)}</td>
+      <td>${fmtDate(t.market_date)}</td>
+      <td title="${escapeHtml(t.trade_decision_id || 'not available')}" style="font-family:monospace;font-size:10px;">${t.trade_decision_short_id ? escapeHtml(t.trade_decision_short_id) : '<span style="color:var(--label);">n/a</span>'}</td>
+      <td title="${escapeHtml(t.order_id || '')}" style="font-family:monospace;font-size:10px;">${escapeHtml(t.order_short_id)}</td>
+      <td title="${escapeHtml(t.id || '')}" style="font-family:monospace;font-size:10px;">${escapeHtml(t.short_id)}</td>
+      <td>${statusChip(t.status)}</td>
+      <td style="color: var(--label); font-size:10px;">${escapeHtml(t.notes || '')}</td>
+    </tr>`;
+  }).join('');
+  updatePortfolioSummary();
+}
+
+// ---------- Portfolio Summary strip ----------
+
+// Render the 8-KPI summary strip from already-loaded read-only data
+// (daily-review-summary for value/P&L, ledger + orders for counts).
+function updatePortfolioSummary() {
+  const s = window._lastDailyReviewSummary || {};
+  const set = function(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = val;
+  };
+  set('ps-total-value', s.total_value != null ? usd(s.total_value) : '-');
+  set('ps-cash', s.cash != null ? usd(s.cash) : '-');
+  set('ps-positions-value', s.positions_value != null ? usd(s.positions_value) : '-');
+  set('ps-total-return', s.total_return_pct != null ? signHtml(s.total_return_pct, function(v){return Number(v).toFixed(2)+'%';}) : '-');
+  set('ps-unrlzd-pnl', s.unrealized_pnl != null ? signHtml(s.unrealized_pnl, usd) : '-');
+  const posCount = (s.open_position_count != null) ? s.open_position_count
+    : (_appState.positionCount != null ? _appState.positionCount : '-');
+  set('ps-open-positions', String(posCount));
+  set('ps-filled-trades', window._tradeLedgerCount != null ? String(window._tradeLedgerCount) : '-');
+  set('ps-pending-orders', _appState.pendingOrders != null ? String(_appState.pendingOrders) : '-');
+}
+
+// Fetch the read-only daily review summary, then refresh the summary strip.
+async function loadPortfolioSummary() {
+  if (!_appState.connected) return;
+  try {
+    const r = await call('GET', '/v1/review/daily-review-summary');
+    if (r.ok) { window._lastDailyReviewSummary = await r.json(); }
+  } catch (e) { /* best-effort */ }
+  updatePortfolioSummary();
 }
 
 function histParams() {
@@ -12951,8 +13184,14 @@ function navigateToPortfolioPositions() {
     const od = document.getElementById('ordDate'); if (od) od.value = '';
   } catch (e) {}
   if (window._appState && window._appState.connected) {
-    try { loadPositions(); } catch (e) {}
-    try { loadOrders(); } catch (e) {}
+    // Load the summary first so Open Positions render enriched (P&L / status),
+    // then refresh orders and the Paper Trade Ledger.
+    (async function () {
+      try { await loadPortfolioSummary(); } catch (e) {}
+      try { await loadPositions(); } catch (e) {}
+      try { loadOrders(); } catch (e) {}
+      try { loadTradeLedger(); } catch (e) {}
+    })();
   }
   setTimeout(function () { focusSection('open-positions'); }, 60);
   // Right-panel last-action feedback so the user sees where they landed.
@@ -13480,8 +13719,12 @@ function viewPortfolio() {
     const od = document.getElementById('ordDate'); if (od) od.value = '';
   } catch (e) {}
   if (_appState.connected) {
-    try { loadPositions(); } catch (e) {}
-    try { loadOrders(); } catch (e) {}
+    (async function () {
+      try { await loadPortfolioSummary(); } catch (e) {}
+      try { await loadPositions(); } catch (e) {}
+      try { loadOrders(); } catch (e) {}
+      try { loadTradeLedger(); } catch (e) {}
+    })();
   }
   // Focus the Open Positions section and report where the user landed so every
   // "View Portfolio" CTA behaves identically to navigateToPortfolioPositions().
@@ -13710,6 +13953,12 @@ async function refreshCockpitAfterAction(reason) {
     if (_rasEl) { _rasEl.textContent = _tsNow; _rasEl.style.color = 'var(--ok)'; }
     updateCockpitReviewSummary();
     try { loadPositionsToReview(); } catch (e) {}
+    // Refresh Portfolio tab data so Open Positions, the Paper Trade Ledger, and
+    // the summary strip reflect any new fill immediately.
+    try { await loadPortfolioSummary(); } catch (e) {}
+    try { await loadPositions(); } catch (e) {}
+    try { loadOrders(); } catch (e) {}
+    try { loadTradeLedger(); } catch (e) {}
     updatePortfolioCapacityDisplay();
     updateKpi();
     await refreshWorkflowStatus();

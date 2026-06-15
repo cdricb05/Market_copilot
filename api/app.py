@@ -379,6 +379,33 @@ class OrderOut(BaseModel):
     notes: str | None
 
 
+class TradeOut(BaseModel):
+    """A filled paper trade (READ ONLY). One row per executed paper fill.
+
+    Trade lifecycle linking: Trade.order_id -> Order, and Order.trade_decision_id
+    -> TradeDecision. trade_decision_id may be null only if the originating order
+    relationship is unavailable; it is never invented.
+    """
+    id: str
+    short_id: str
+    order_id: str
+    order_short_id: str
+    trade_decision_id: str | None
+    trade_decision_short_id: str | None
+    ticker: str
+    side: str
+    qty: str
+    fill_price: str
+    gross_value: str
+    commission: str
+    net_value: str
+    realized_pnl: str | None
+    trade_ts: datetime
+    market_date: date
+    status: str
+    notes: str
+
+
 class SnapshotOut(BaseModel):
     id: str
     market_date: date
@@ -3963,6 +3990,71 @@ def list_orders(
             )
             for o in orders
         ]
+
+
+@app.get(
+    "/v1/trades",
+    response_model=list[TradeOut],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def list_trades(
+    limit: int = Query(default=200, ge=1, le=1000),
+    ticker: str | None = Query(default=None),
+) -> list[TradeOut]:
+    """
+    List filled paper trades, most recent first (READ ONLY).
+
+    This is the Paper Trade Ledger: one row per executed paper fill. Each trade
+    is joined to its Order to expose the originating trade_decision_id for
+    lifecycle tracing (Candidate -> Decision -> Order -> Trade -> Position).
+
+    READ ONLY: no DB writes, no order/trade/position creation, no broker
+    execution. All trades returned are paper fills from the local database.
+
+    Optional filters:
+        limit  — max rows to return (default 200, 1..1000)
+        ticker — restrict to a single ticker (case-insensitive)
+    """
+    with get_session() as session:
+        stmt = (
+            select(Trade, Order.trade_decision_id)
+            .join(Order, Trade.order_id == Order.id)
+            .order_by(Trade.trade_ts.desc())
+        )
+        if ticker:
+            stmt = stmt.where(Trade.ticker == ticker.strip().upper())
+        stmt = stmt.limit(limit)
+        rows = session.execute(stmt).all()
+        out: list[TradeOut] = []
+        for tr, decision_id in rows:
+            out.append(
+                TradeOut(
+                    id=str(tr.id),
+                    short_id=str(tr.id)[:8],
+                    order_id=str(tr.order_id),
+                    order_short_id=str(tr.order_id)[:8],
+                    trade_decision_id=str(decision_id) if decision_id else None,
+                    trade_decision_short_id=(
+                        str(decision_id)[:8] if decision_id else None
+                    ),
+                    ticker=tr.ticker,
+                    side=tr.side,
+                    qty=str(tr.qty),
+                    fill_price=str(tr.fill_price),
+                    gross_value=str(tr.gross_value),
+                    commission=str(tr.commission),
+                    net_value=str(tr.net_value),
+                    realized_pnl=(
+                        str(tr.realized_pnl) if tr.realized_pnl is not None else None
+                    ),
+                    trade_ts=tr.trade_ts,
+                    market_date=tr.market_date,
+                    status="FILLED",
+                    notes="Paper only - no broker execution",
+                )
+            )
+        return out
 
 
 @app.get(
