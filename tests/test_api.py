@@ -24226,6 +24226,317 @@ class TestDailyReviewSummaryEndpoint:
                 session.commit()
 
 
+class TestTickerDetailEndpoint:
+    """GET /v1/ticker-detail/{ticker} — read-only aggregated ticker detail."""
+
+    _ENDPOINT = "/v1/ticker-detail/{}"
+
+    @staticmethod
+    def _sfx() -> str:
+        import uuid as _uuid
+        return _uuid.uuid4().hex[:6].upper()
+
+    def test_requires_auth(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.get(self._ENDPOINT.format("AAPL"))
+        assert resp.status_code in (401, 403)
+
+    def test_unknown_ticker_returns_empty_sections(self, seeded_client: TestClient) -> None:
+        """A ticker with no data returns 200 with null sections and NO_DATA status."""
+        tk = f"ZNON{self._sfx()[:4]}"
+        resp = seeded_client.get(self._ENDPOINT.format(tk), headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ticker"] == tk
+        assert data["app_status"] == "NO_DATA"
+        assert data["market"] is None
+        assert data["position"] is None
+        assert data["selection"] is None
+        assert data["latest_order"] is None
+        assert data["has_position"] is False
+        assert data["guidance"]["explanation"]
+
+    def test_market_snapshot_fields_when_price_data_exists(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Two snapshots on different dates yield latest price, previous close, change."""
+        tk = f"MKT{self._sfx()[:4]}"
+        ids = []
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                older = PriceSnapshot(
+                    ticker=tk, price=Decimal("100.000000"),
+                    session_type="REGULAR", price_type="CLOSE",
+                    snapshot_ts=datetime(2025, 1, 10, 21, 0, tzinfo=timezone.utc),
+                    market_date=date(2025, 1, 10),
+                )
+                newer = PriceSnapshot(
+                    ticker=tk, price=Decimal("110.000000"),
+                    session_type="REGULAR", price_type="CLOSE",
+                    snapshot_ts=datetime(2025, 1, 11, 21, 0, tzinfo=timezone.utc),
+                    market_date=date(2025, 1, 11),
+                )
+                session.add_all([older, newer])
+                session.flush()
+                ids = [older.id, newer.id]
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT.format(tk), headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["has_market_data"] is True
+            m = data["market"]
+            assert m is not None
+            assert float(m["latest_price"]) == 110.0
+            assert m["latest_price_date"] == "2025-01-11"
+            assert float(m["previous_close"]) == 100.0
+            assert m["previous_close_date"] == "2025-01-10"
+            assert float(m["change"]) == 10.0
+            assert float(m["change_pct"]) == 10.0
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for pid in ids:
+                    session.query(PriceSnapshot).filter(
+                        PriceSnapshot.id == pid
+                    ).delete(synchronize_session=False)
+                session.commit()
+
+    def test_position_fields_when_held(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A held ticker reports POSITION_OPEN with mark-to-market P&L fields."""
+        tk = f"POS{self._sfx()[:4]}"
+        pos_id = None
+        snap_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                snap = PriceSnapshot(
+                    ticker=tk, price=Decimal("110.000000"),
+                    session_type="REGULAR", price_type="CLOSE",
+                    snapshot_ts=datetime(2025, 1, 12, 21, 0, tzinfo=timezone.utc),
+                    market_date=date(2025, 1, 12),
+                )
+                session.add(snap)
+                pos = Position(
+                    ticker=tk, qty=Decimal("2"),
+                    avg_cost=Decimal("100.000000"), cost_basis=Decimal("200.00"),
+                    opened_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    last_updated=datetime(2025, 1, 12, tzinfo=timezone.utc),
+                )
+                session.add(pos)
+                session.flush()
+                pos_id = pos.id
+                snap_id = snap.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT.format(tk), headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["app_status"] == "POSITION_OPEN"
+            assert data["has_position"] is True
+            p = data["position"]
+            assert p is not None
+            assert float(p["qty"]) == 2.0
+            assert float(p["avg_cost"]) == 100.0
+            assert float(p["cost_basis"]) == 200.0
+            assert float(p["market_value"]) == 220.0
+            assert float(p["unrealized_pnl"]) == 20.0
+            assert float(p["unrealized_pnl_pct"]) == 10.0
+            # Healthy position → HOLD guidance.
+            assert data["recommendation"] == "HOLD"
+            assert "HOLD" in data["guidance"]["explanation"]
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if pos_id is not None:
+                    session.query(Position).filter(
+                        Position.id == pos_id
+                    ).delete(synchronize_session=False)
+                if snap_id is not None:
+                    session.query(PriceSnapshot).filter(
+                        PriceSnapshot.id == snap_id
+                    ).delete(synchronize_session=False)
+                session.commit()
+
+    def test_order_trade_lineage_when_order_exists(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A filled paper order + trade is surfaced as order/trade lineage."""
+        from paper_trader.db.models import Trade
+        sfx = self._sfx()
+        tk = f"LIN{sfx[:4]}"
+        job_id = sig_id = td_id = ord_id = trade_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                job = JobRun(
+                    idempotency_key=f"td-lineage-job-{sfx}",
+                    workflow_type="REVIEW_QUEUE_CREATE_SIGNALS",
+                    market_date=date.today(), status="COMPLETED",
+                    completed_at=datetime.now(timezone.utc),
+                )
+                session.add(job)
+                session.flush()
+                job_id = job.id
+                sig = Signal(
+                    job_run_id=job.id, ticker=tk, direction="BUY",
+                    confidence=Decimal("0.85"), signal_ts=datetime.now(timezone.utc),
+                    market_date=date.today(), source_run=f"td-lineage-{sfx}",
+                    status="DECISION_MADE", raw_payload={},
+                )
+                session.add(sig)
+                session.flush()
+                sig_id = sig.id
+                td = TradeDecision(
+                    signal_id=sig.id, job_run_id=job.id, ticker=tk,
+                    signal_direction="BUY", decision="BUY",
+                    approved_qty=Decimal("2"), approved_notional=Decimal("200.00"),
+                    market_date=date.today(),
+                )
+                session.add(td)
+                session.flush()
+                td_id = td.id
+                order = Order(
+                    trade_decision_id=td.id, job_run_id=job.id, ticker=tk,
+                    side="BUY", order_type="MARKET", status="FILLED",
+                    market_date=date.today(), requested_qty=Decimal("2"),
+                    filled_qty=Decimal("2"), filled_at=datetime.now(timezone.utc),
+                    fill_price=Decimal("100.000000"), commission=Decimal("1.00"),
+                )
+                session.add(order)
+                session.flush()
+                ord_id = order.id
+                trade = Trade(
+                    order_id=order.id, job_run_id=job.id, ticker=tk, side="BUY",
+                    qty=Decimal("2"), snapshot_price=Decimal("100.000000"),
+                    fill_price=Decimal("100.000000"), gross_value=Decimal("200.00"),
+                    commission=Decimal("1.00"), net_value=Decimal("201.00"),
+                    cost_basis_per_share=Decimal("100.000000"),
+                    trade_ts=datetime.now(timezone.utc), market_date=date.today(),
+                )
+                session.add(trade)
+                session.flush()
+                trade_id = trade.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT.format(tk), headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["has_order"] is True
+            o = data["latest_order"]
+            assert o is not None
+            assert o["status"] == "FILLED"
+            assert o["side"] == "BUY"
+            assert float(o["fill_price"]) == 100.0
+            assert float(o["commission"]) == 1.0
+            assert o["order_short_id"] == str(ord_id)[:8]
+            assert o["trade_short_id"] == str(trade_id)[:8]
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if trade_id is not None:
+                    session.query(Trade).filter(Trade.id == trade_id).delete(synchronize_session=False)
+                if ord_id is not None:
+                    session.query(Order).filter(Order.id == ord_id).delete(synchronize_session=False)
+                if td_id is not None:
+                    session.query(TradeDecision).filter(TradeDecision.id == td_id).delete(synchronize_session=False)
+                if sig_id is not None:
+                    session.query(Signal).filter(Signal.id == sig_id).delete(synchronize_session=False)
+                if job_id is not None:
+                    session.query(JobRun).filter(JobRun.id == job_id).delete(synchronize_session=False)
+                session.commit()
+
+    def test_candidate_trade_idea_rationale(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """A NEW candidate with no position is a TRADE_IDEA with selection rationale."""
+        sfx = self._sfx()
+        tk = f"IDEA{sfx[:3]}"
+        cr_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                cr = CandidateReview(
+                    idempotency_key=f"td-idea-{sfx}", ticker=tk,
+                    preview_decision="CONSIDER", preview_score="86.0",
+                    status="OK", review_status="NEW",
+                    prediction_recommendation="BUY", prediction_confidence="0.90",
+                    expected_return_pct="5.5", forecast_price_5d="120.00",
+                    relative_strength_vs_spy_20d="12.0", momentum_5d_pct="2.0",
+                    momentum_20d_pct="8.0",
+                    scan_reason_codes=["POSITIVE_20D_MOMENTUM", "OUTPERFORMING_SPY"],
+                    preview_reasons=["Strong model signal", "Outperforming SPY"],
+                )
+                session.add(cr)
+                session.flush()
+                cr_id = cr.id
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT.format(tk), headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["app_status"] == "TRADE_IDEA"
+            assert data["has_candidate"] is True
+            s = data["selection"]
+            assert s is not None
+            assert s["prediction_recommendation"] == "BUY"
+            assert float(s["expected_return_pct"]) == 5.5
+            assert s["why_selected"]
+            assert data["recommendation"] == "BUY"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if cr_id is not None:
+                    session.query(CandidateReview).filter(
+                        CandidateReview.id == cr_id
+                    ).delete(synchronize_session=False)
+                session.commit()
+
+    def test_read_only_does_not_create_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Fetching ticker detail must not create signals/decisions/orders/trades/fills/cash."""
+        from paper_trader.db.models import CashLedger, Trade
+        tk = f"RDO{self._sfx()[:4]}"
+        snap_id = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                snap = PriceSnapshot(
+                    ticker=tk, price=Decimal("55.000000"),
+                    session_type="REGULAR", price_type="CLOSE",
+                    snapshot_ts=datetime(2025, 1, 13, 21, 0, tzinfo=timezone.utc),
+                    market_date=date(2025, 1, 13),
+                )
+                session.add(snap)
+                session.flush()
+                snap_id = snap.id
+                session.commit()
+
+            def _counts() -> dict:
+                with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                    from sqlalchemy import func as _f
+                    return {
+                        "signals": session.query(_f.count(Signal.id)).scalar(),
+                        "decisions": session.query(_f.count(TradeDecision.id)).scalar(),
+                        "orders": session.query(_f.count(Order.id)).scalar(),
+                        "trades": session.query(_f.count(Trade.id)).scalar(),
+                        "positions": session.query(_f.count(Position.id)).scalar(),
+                        "cash": session.query(_f.count(CashLedger.id)).scalar(),
+                        "candidates": session.query(_f.count(CandidateReview.id)).scalar(),
+                    }
+
+            before = _counts()
+            resp = seeded_client.get(self._ENDPOINT.format(tk), headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["writes_performed"] is False
+            assert data["no_broker_execution"] is True
+            assert data["preview_only"] is True
+            after = _counts()
+            assert after == before
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                if snap_id is not None:
+                    session.query(PriceSnapshot).filter(
+                        PriceSnapshot.id == snap_id
+                    ).delete(synchronize_session=False)
+                session.commit()
+
+
 # ---------------------------------------------------------------------------
 # Static UI content assertions — reads index.html directly (no HTTP needed)
 # ---------------------------------------------------------------------------
@@ -24257,6 +24568,38 @@ class TestUiStaticContent:
         assert "function deriveWorkflowState" in scripts
         assert "CREATE_FILL_PAPER_TRADE" in scripts
         assert "VIEW_PORTFOLIO" in scripts
+
+    def test_ticker_detail_drawer_markers_present(self) -> None:
+        """The read-only Ticker Detail drawer and its open/close hooks exist."""
+        html = self._read_html()
+        assert 'id="ticker-detail-drawer"' in html
+        assert "Ticker Detail" in html
+        assert "/v1/ticker-detail/" in html
+        scripts = self._scripts()
+        assert "function openTickerDetail" in scripts
+        assert "function closeTickerDetail" in scripts
+        assert "function tickerLink" in scripts
+
+    def test_ticker_detail_drawer_is_read_only_safe(self) -> None:
+        """The drawer keeps safety badges visible and uses no native dialogs."""
+        import re
+        html = self._read_html()
+        # Safety badges live in the drawer header.
+        assert "PAPER ONLY" in html
+        assert "NO BROKER EXECUTION" in html
+        assert "AUTOMATION OFF" in html
+        # No native browser dialogs anywhere in the UI.
+        scripts = self._scripts()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
+
+    @staticmethod
+    def _scripts() -> str:
+        import re
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        html = html_path.read_text(encoding="utf-8", errors="ignore")
+        return "\n".join(re.findall(r"<script[^>]*>([\s\S]*?)</script>", html))
 
     def test_action_safety_panel_present(self) -> None:
         assert "Action / Safety Panel" in self._read_html()

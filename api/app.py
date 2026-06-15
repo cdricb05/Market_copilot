@@ -16342,6 +16342,433 @@ async def create_exit_orders(
 
 
 # ---------------------------------------------------------------------------
+# Ticker detail (read-only aggregation)
+# ---------------------------------------------------------------------------
+
+class TickerDetailMarket(BaseModel):
+    latest_price: str | None = None
+    latest_price_date: str | None = None
+    latest_session_type: str | None = None
+    latest_price_type: str | None = None
+    previous_close: str | None = None
+    previous_close_date: str | None = None
+    change: str | None = None
+    change_pct: str | None = None
+
+
+class TickerDetailSelection(BaseModel):
+    candidate_id: str | None = None
+    review_status: str | None = None
+    preview_decision: str | None = None
+    preview_score: str | None = None
+    prediction_recommendation: str | None = None
+    prediction_confidence: str | None = None
+    expected_return_pct: str | None = None
+    forecast_price_5d: str | None = None
+    relative_strength_vs_spy_20d: str | None = None
+    momentum_5d_pct: str | None = None
+    momentum_20d_pct: str | None = None
+    scan_rank: str | None = None
+    scan_score: str | None = None
+    market_context: str | None = None
+    scan_reason_codes: list[str] | None = None
+    preview_reasons: list[str] | None = None
+    why_selected: str | None = None
+    why_excluded: str | None = None
+    created_at: datetime | None = None
+
+
+class TickerDetailPosition(BaseModel):
+    qty: str
+    avg_cost: str
+    cost_basis: str
+    latest_price: str | None = None
+    market_value: str | None = None
+    unrealized_pnl: str | None = None
+    unrealized_pnl_pct: str | None = None
+    portfolio_weight_pct: str | None = None
+    opened_at: datetime
+    last_updated: datetime
+
+
+class TickerDetailOrder(BaseModel):
+    order_id: str
+    order_short_id: str
+    trade_id: str | None = None
+    trade_short_id: str | None = None
+    status: str
+    side: str
+    qty: str
+    fill_price: str | None = None
+    commission: str | None = None
+    requested_at: datetime
+    filled_at: datetime | None = None
+    market_date: date
+    notes: str | None = None
+
+
+class TickerDetailGuidance(BaseModel):
+    recommendation: str | None = None
+    reason_code: str | None = None
+    explanation: str
+
+
+class TickerDetailResponse(BaseModel):
+    ticker: str
+    app_status: str
+    recommendation: str | None = None
+    has_position: bool = False
+    has_candidate: bool = False
+    has_order: bool = False
+    has_market_data: bool = False
+    market: TickerDetailMarket | None = None
+    selection: TickerDetailSelection | None = None
+    position: TickerDetailPosition | None = None
+    latest_order: TickerDetailOrder | None = None
+    guidance: TickerDetailGuidance
+    # Read-only safety contract
+    preview_only: bool = True
+    writes_performed: bool = False
+    no_broker_execution: bool = True
+    no_orders_created: bool = True
+    no_automation: bool = True
+
+
+@app.get(
+    "/v1/ticker-detail/{ticker}",
+    response_model=TickerDetailResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def ticker_detail(ticker: str) -> TickerDetailResponse:
+    """
+    GET /v1/ticker-detail/{ticker} — Read-only aggregated detail for ONE ticker.
+
+    PREVIEW / ANALYSIS ONLY. Aggregates existing data only:
+        - latest price / previous close from price_snapshots
+        - latest candidate review / trade-idea rationale (if present)
+        - open position (if held) with mark-to-market P&L and portfolio weight
+        - latest related paper order + trade lineage (if present)
+        - monitor recommendation (HOLD / WATCH / REVIEW_FOR_EXIT) for held positions
+
+    This endpoint never creates signals, decisions, orders, trades, fills,
+    positions, or cash ledger rows. No broker execution. No automation.
+    Sections gracefully return null/empty when a ticker has no data.
+    """
+    symbol = (ticker or "").strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=422, detail="Ticker must not be empty.")
+
+    with get_session() as session:
+        # --- Market snapshot (latest price + previous-day close) ---
+        latest_snap = session.execute(
+            select(PriceSnapshot)
+            .where(PriceSnapshot.ticker == symbol)
+            .order_by(PriceSnapshot.snapshot_ts.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        market: TickerDetailMarket | None = None
+        has_market_data = False
+        if latest_snap is not None:
+            has_market_data = True
+            latest_price_val = Decimal(str(latest_snap.price))
+            prev_snap = session.execute(
+                select(PriceSnapshot)
+                .where(PriceSnapshot.ticker == symbol)
+                .where(PriceSnapshot.market_date < latest_snap.market_date)
+                .order_by(PriceSnapshot.snapshot_ts.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            prev_close: str | None = None
+            prev_close_date: str | None = None
+            change_str: str | None = None
+            change_pct_str: str | None = None
+            if prev_snap is not None:
+                prev_val = Decimal(str(prev_snap.price))
+                prev_close = str(prev_val)
+                prev_close_date = prev_snap.market_date.isoformat()
+                change_abs = latest_price_val - prev_val
+                change_str = str(change_abs.quantize(Decimal("0.000001")))
+                if prev_val != Decimal("0"):
+                    change_pct_str = str(
+                        (change_abs / prev_val * Decimal("100")).quantize(Decimal("0.01"))
+                    )
+            market = TickerDetailMarket(
+                latest_price=str(latest_price_val),
+                latest_price_date=latest_snap.market_date.isoformat(),
+                latest_session_type=latest_snap.session_type,
+                latest_price_type=latest_snap.price_type,
+                previous_close=prev_close,
+                previous_close_date=prev_close_date,
+                change=change_str,
+                change_pct=change_pct_str,
+            )
+
+        # --- Open position (if held) + monitor recommendation ---
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        cached_total_value: Decimal | None = None
+        if portfolio is not None and portfolio.cached_total_value:
+            cached_total_value = Decimal(str(portfolio.cached_total_value))
+
+        pos = session.execute(
+            select(Position).where(Position.ticker == symbol)
+        ).scalar_one_or_none()
+
+        position_out: TickerDetailPosition | None = None
+        monitor_recommendation: str | None = None
+        monitor_reason_code: str | None = None
+        monitor_explanation: str | None = None
+        if pos is not None:
+            qty = Decimal(str(pos.qty))
+            cost_basis = Decimal(str(pos.cost_basis))
+            latest_price_pos = _latest_price(session, symbol)
+            mv_str = upnl_str = upnl_pct_str = weight_str = None
+            if latest_price_pos is not None:
+                market_value = qty * latest_price_pos
+                unrealized_pnl = market_value - cost_basis
+                unrealized_pnl_pct = (
+                    unrealized_pnl / cost_basis * Decimal("100")
+                    if cost_basis != Decimal("0") else Decimal("0")
+                )
+                weight_pct: Decimal | None = None
+                if cached_total_value is not None and cached_total_value > Decimal("0"):
+                    weight_pct = market_value / cached_total_value * Decimal("100")
+                mv_str = str(market_value.quantize(Decimal("0.01")))
+                upnl_str = str(unrealized_pnl.quantize(Decimal("0.01")))
+                upnl_pct_str = str(unrealized_pnl_pct.quantize(Decimal("0.01")))
+                weight_str = (
+                    str(weight_pct.quantize(Decimal("0.01")))
+                    if weight_pct is not None else None
+                )
+
+                upnl_pct_float = float(unrealized_pnl_pct)
+                weight_pct_float = float(weight_pct) if weight_pct is not None else 0.0
+                if upnl_pct_float <= -5.0:
+                    monitor_recommendation = "REVIEW_FOR_EXIT"
+                    monitor_reason_code = "STOP_LOSS_REVIEW"
+                    monitor_explanation = (
+                        f"REVIEW_FOR_EXIT: Unrealized P&L of {upnl_pct_float:.1f}% is below the "
+                        f"stop-loss review threshold (-5.0%). Review before creating any "
+                        f"sell/exit action."
+                    )
+                elif upnl_pct_float <= -2.0:
+                    monitor_recommendation = "WATCH"
+                    monitor_reason_code = "WATCH_LOSS_THRESHOLD"
+                    monitor_explanation = (
+                        f"WATCH: Unrealized loss of {upnl_pct_float:.1f}% is in the watch range "
+                        f"(-2.0% to -5.0%). Monitor closely."
+                    )
+                elif weight_pct is not None and weight_pct_float > 25.0:
+                    monitor_recommendation = "WATCH"
+                    monitor_reason_code = "HIGH_CONCENTRATION"
+                    monitor_explanation = (
+                        f"WATCH: Portfolio weight of {weight_pct_float:.1f}% exceeds the "
+                        f"concentration threshold (25.0%). Monitor closely."
+                    )
+                else:
+                    monitor_recommendation = "HOLD"
+                    monitor_reason_code = "HEALTHY_POSITION"
+                    monitor_explanation = (
+                        "HOLD: Position is within healthy parameters. No exit action required."
+                    )
+            else:
+                monitor_recommendation = "WATCH"
+                monitor_reason_code = "PRICE_MISSING"
+                monitor_explanation = (
+                    "WATCH: Latest price unavailable; position cannot be fully evaluated."
+                )
+            position_out = TickerDetailPosition(
+                qty=str(qty),
+                avg_cost=str(pos.avg_cost),
+                cost_basis=str(cost_basis),
+                latest_price=str(latest_price_pos) if latest_price_pos is not None else None,
+                market_value=mv_str,
+                unrealized_pnl=upnl_str,
+                unrealized_pnl_pct=upnl_pct_str,
+                portfolio_weight_pct=weight_str,
+                opened_at=pos.opened_at,
+                last_updated=pos.last_updated,
+            )
+
+        # --- Candidate / trade-idea rationale (most recent for ticker) ---
+        cand = session.execute(
+            select(CandidateReview)
+            .where(CandidateReview.ticker == symbol)
+            .order_by(CandidateReview.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        selection_out: TickerDetailSelection | None = None
+        if cand is not None:
+            reasons: list[str] = []
+            if cand.preview_reasons:
+                reasons = [str(r) for r in cand.preview_reasons]
+            elif cand.scan_reason_codes:
+                reasons = [str(r) for r in cand.scan_reason_codes]
+            why_selected: str | None = None
+            if reasons:
+                why_selected = "; ".join(reasons)
+            elif cand.preview_decision == "CONSIDER":
+                why_selected = "Candidate passed the local screen and prediction preview."
+            why_excluded: str | None = None
+            if cand.review_status == "REJECTED":
+                why_excluded = "Marked REJECTED in review. Not part of actionable trade ideas."
+            elif cand.preview_decision == "REJECT":
+                why_excluded = "Preview decision REJECT: did not meet the consider threshold."
+            elif cand.preview_decision == "WATCH":
+                why_excluded = "Preview decision WATCH: monitor only, not actionable yet."
+            selection_out = TickerDetailSelection(
+                candidate_id=str(cand.id),
+                review_status=cand.review_status,
+                preview_decision=cand.preview_decision,
+                preview_score=cand.preview_score,
+                prediction_recommendation=cand.prediction_recommendation,
+                prediction_confidence=cand.prediction_confidence,
+                expected_return_pct=cand.expected_return_pct,
+                forecast_price_5d=cand.forecast_price_5d,
+                relative_strength_vs_spy_20d=cand.relative_strength_vs_spy_20d,
+                momentum_5d_pct=cand.momentum_5d_pct,
+                momentum_20d_pct=cand.momentum_20d_pct,
+                scan_rank=cand.scan_rank,
+                scan_score=cand.scan_score,
+                market_context=cand.market_context,
+                scan_reason_codes=(
+                    [str(r) for r in cand.scan_reason_codes]
+                    if cand.scan_reason_codes else None
+                ),
+                preview_reasons=(
+                    [str(r) for r in cand.preview_reasons]
+                    if cand.preview_reasons else None
+                ),
+                why_selected=why_selected,
+                why_excluded=why_excluded,
+                created_at=cand.created_at,
+            )
+
+        # --- Order / trade lineage (most recent order for ticker) ---
+        order = session.execute(
+            select(Order)
+            .where(Order.ticker == symbol)
+            .order_by(Order.requested_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        latest_order_out: TickerDetailOrder | None = None
+        if order is not None:
+            trade = session.execute(
+                select(Trade)
+                .where(Trade.order_id == order.id)
+                .order_by(Trade.trade_ts.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            latest_order_out = TickerDetailOrder(
+                order_id=str(order.id),
+                order_short_id=str(order.id)[:8],
+                trade_id=str(trade.id) if trade is not None else None,
+                trade_short_id=str(trade.id)[:8] if trade is not None else None,
+                status=order.status,
+                side=order.side,
+                qty=str(
+                    order.filled_qty if order.filled_qty is not None else order.requested_qty
+                ),
+                fill_price=str(order.fill_price) if order.fill_price is not None else None,
+                commission=str(order.commission) if order.commission is not None else None,
+                requested_at=order.requested_at,
+                filled_at=order.filled_at,
+                market_date=order.market_date,
+                notes=order.notes,
+            )
+
+        # --- App status + top-level recommendation ---
+        has_position = position_out is not None
+        has_candidate = selection_out is not None
+        has_order = latest_order_out is not None
+        order_filled = has_order and latest_order_out.status == "FILLED"
+
+        if has_position:
+            app_status = "POSITION_OPEN"
+        elif has_candidate:
+            app_status = "TRADE_IDEA"
+        elif order_filled:
+            app_status = "ORDER_FILLED"
+        elif has_market_data:
+            app_status = "MONITOR_ONLY"
+        else:
+            app_status = "NO_DATA"
+
+        recommendation: str | None
+        if monitor_recommendation is not None:
+            recommendation = monitor_recommendation
+        elif has_candidate:
+            if cand.review_status == "REJECTED":
+                recommendation = "REJECTED"
+            else:
+                recommendation = cand.prediction_recommendation or cand.preview_decision
+        else:
+            recommendation = None
+
+        # --- Current decision guidance ---
+        if monitor_explanation is not None:
+            guidance = TickerDetailGuidance(
+                recommendation=monitor_recommendation,
+                reason_code=monitor_reason_code,
+                explanation=monitor_explanation,
+            )
+        elif has_candidate:
+            if cand.review_status == "REJECTED":
+                expl = "REJECTED: This trade idea was rejected in review. No action required."
+            elif cand.review_status == "APPROVED_FOR_SIGNAL":
+                expl = (
+                    "APPROVED_FOR_SIGNAL (label only): Approved for a paper trade ticket. "
+                    "No live order is sent. Review before creating & filling a paper trade."
+                )
+            elif cand.review_status == "WATCHING":
+                expl = "WATCH: Marked as watching. Monitor before any action."
+            else:
+                rec_label = cand.prediction_recommendation or cand.preview_decision or "REVIEW"
+                expl = (
+                    f"{rec_label}: New trade idea from the latest scan. "
+                    f"Review before approving."
+                )
+            guidance = TickerDetailGuidance(
+                recommendation=recommendation,
+                reason_code=cand.review_status,
+                explanation=expl,
+            )
+        else:
+            guidance = TickerDetailGuidance(
+                recommendation=None,
+                reason_code="MONITOR_ONLY" if has_market_data else "NO_DATA",
+                explanation=(
+                    "No active trade idea or open position for this ticker. Monitor only."
+                    if has_market_data
+                    else "No data available for this ticker yet."
+                ),
+            )
+
+        return TickerDetailResponse(
+            ticker=symbol,
+            app_status=app_status,
+            recommendation=recommendation,
+            has_position=has_position,
+            has_candidate=has_candidate,
+            has_order=has_order,
+            has_market_data=has_market_data,
+            market=market,
+            selection=selection_out,
+            position=position_out,
+            latest_order=latest_order_out,
+            guidance=guidance,
+            preview_only=True,
+            writes_performed=False,
+            no_broker_execution=True,
+            no_orders_created=True,
+            no_automation=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
 

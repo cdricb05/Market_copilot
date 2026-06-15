@@ -791,6 +791,111 @@
       color: white;
     }
 
+    /* Clickable ticker affordance — subtle, does not clutter compact tables. */
+    .ticker-link {
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 2px;
+      text-decoration-color: var(--label);
+      transition: color .12s ease;
+    }
+    .ticker-link:hover {
+      color: var(--text-accent);
+      text-decoration-color: var(--text-accent);
+    }
+
+    /* Ticker Detail drawer — read-only analysis panel (not an action workflow). */
+    .td-drawer-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,.55);
+      display: none;
+      z-index: 980;
+    }
+    .td-drawer-overlay.active { display: block; }
+    .td-drawer {
+      position: fixed;
+      top: 0; right: 0;
+      height: 100%;
+      width: 420px;
+      max-width: 92vw;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border);
+      box-shadow: -6px 0 24px rgba(0,0,0,.5);
+      transform: translateX(100%);
+      transition: transform .18s ease;
+      display: flex;
+      flex-direction: column;
+      z-index: 981;
+    }
+    .td-drawer.active { transform: translateX(0); }
+    .td-drawer-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      flex: 0 0 auto;
+    }
+    .td-drawer-body {
+      padding: 12px 16px 24px;
+      overflow-y: auto;
+      flex: 1 1 auto;
+    }
+    .td-close {
+      background: rgba(255,255,255,.08);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      width: 26px; height: 26px;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .td-close:hover { background: rgba(255,255,255,.16); }
+    .td-section {
+      margin-top: 14px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+    .td-section-title {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--label);
+      margin-bottom: 8px;
+    }
+    .td-kv-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px 10px;
+    }
+    .td-kv .td-k {
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--label);
+    }
+    .td-kv .td-v {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
+      word-break: break-word;
+    }
+    .td-badge {
+      display: inline-block;
+      font-size: 8px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: 2px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      color: var(--text-accent);
+      margin: 2px 4px 0 0;
+    }
+
     .panel-section {
       margin-bottom: 12px;
       padding-bottom: 10px;
@@ -3888,6 +3993,26 @@
   </div>
 </div>
 
+<!-- Ticker Detail drawer — read-only analysis/detail panel (no orders, no automation). -->
+<div id="ticker-detail-overlay" class="td-drawer-overlay" onclick="closeTickerDetail()"></div>
+<div id="ticker-detail-drawer" class="td-drawer" role="dialog" aria-modal="true" aria-labelledby="td-title">
+  <div class="td-drawer-header">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+      <div>
+        <div id="td-title" style="font-size:15px;font-weight:800;color:var(--text-primary);">Ticker Detail</div>
+        <div id="td-status-line" style="font-size:10px;font-weight:700;color:var(--text-accent);margin-top:3px;"></div>
+      </div>
+      <button class="td-close" onclick="closeTickerDetail()" title="Close (Esc)" aria-label="Close">&times;</button>
+    </div>
+    <div style="margin-top:8px;">
+      <span class="td-badge" style="color:var(--ok);border-color:var(--ok);">PAPER ONLY</span>
+      <span class="td-badge" style="color:var(--warning);border-color:var(--warning);">NO BROKER EXECUTION</span>
+      <span class="td-badge" style="color:var(--warning);border-color:var(--warning);">AUTOMATION OFF</span>
+    </div>
+  </div>
+  <div id="ticker-detail-body" class="td-drawer-body"></div>
+</div>
+
 <!-- Core Tab & Alert Functions -->
 <script>
 window._switchTab = function(tabName) {
@@ -4381,6 +4506,192 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 }
+
+// ---------- Ticker Detail drawer (read-only analysis panel) ----------
+
+// Render a clickable ticker affordance used across all ticker surfaces.
+// Read-only: opens the analysis drawer, never triggers an action/workflow.
+function tickerLink(ticker, extraStyle) {
+  const t = escapeHtml(ticker);
+  const style = extraStyle ? (' style="' + extraStyle + '"') : '';
+  return '<span class="ticker-link"' + style + ' title="View ticker detail" onclick="openTickerDetail(\'' + t + '\')">' + t + '</span>';
+}
+
+function _tdKV(label, val) {
+  return '<div class="td-kv"><div class="td-k">' + escapeHtml(label) + '</div><div class="td-v">' + (val == null || val === '' ? '-' : val) + '</div></div>';
+}
+
+function _tdAppStatusLabel(code) {
+  return ({
+    TRADE_IDEA: 'TRADE IDEA',
+    POSITION_OPEN: 'POSITION OPEN',
+    ORDER_FILLED: 'ORDER FILLED',
+    MONITOR_ONLY: 'MONITOR ONLY',
+    NO_DATA: 'NO DATA',
+  })[code] || (code || 'NO DATA');
+}
+
+function _tdRecColor(rec) {
+  if (rec === 'BUY') return 'var(--ok)';
+  if (rec === 'SELL' || rec === 'REJECTED' || rec === 'REVIEW_FOR_EXIT') return 'var(--danger)';
+  if (rec === 'HOLD') return 'var(--text-secondary)';
+  return 'var(--warning)';
+}
+
+function _tdNum(v, digits, suffix) {
+  if (v == null || v === '') return '-';
+  const n = parseFloat(v);
+  if (isNaN(n)) return escapeHtml(String(v));
+  return n.toFixed(digits == null ? 2 : digits) + (suffix || '');
+}
+
+function _tdRenderDetail(d) {
+  const rec = d.recommendation || null;
+  const statusLabel = _tdAppStatusLabel(d.app_status);
+  const sl = document.getElementById('td-status-line');
+  if (sl) {
+    sl.innerHTML = escapeHtml(statusLabel)
+      + (rec ? ' &middot; <span style="color:' + _tdRecColor(rec) + ';">' + escapeHtml(rec) + '</span>' : '');
+  }
+  let html = '';
+
+  // B. Market snapshot
+  const m = d.market;
+  html += '<div class="td-section" style="border-top:none;padding-top:0;"><div class="td-section-title">Market Snapshot</div>';
+  if (m) {
+    const chg = (m.change != null) ? signHtml(m.change, function(v){return _tdNum(v, 2);}) : '-';
+    const chgPct = (m.change_pct != null) ? signHtml(m.change_pct, function(v){return _tdNum(v, 2, '%');}) : '-';
+    html += '<div class="td-kv-grid">'
+      + _tdKV('Latest price', m.latest_price != null ? usd(m.latest_price) : '-')
+      + _tdKV('Previous close', m.previous_close != null ? usd(m.previous_close) : '-')
+      + _tdKV('Daily change', chg)
+      + _tdKV('Daily change %', chgPct)
+      + _tdKV('Latest price date', fmtDate(m.latest_price_date))
+      + _tdKV('Prev close date', fmtDate(m.previous_close_date))
+      + '</div>';
+  } else {
+    html += '<div style="font-size:11px;color:var(--label);">No price snapshot available for this ticker.</div>';
+  }
+  html += '</div>';
+
+  // C. Prediction / selection rationale
+  const s = d.selection;
+  html += '<div class="td-section"><div class="td-section-title">Prediction &amp; Selection Rationale</div>';
+  if (s) {
+    html += '<div class="td-kv-grid">'
+      + _tdKV('Recommendation', s.prediction_recommendation ? '<span style="color:' + _tdRecColor(s.prediction_recommendation) + ';">' + escapeHtml(s.prediction_recommendation) + '</span>' : '-')
+      + _tdKV('Confidence', _tdNum(s.prediction_confidence, 2))
+      + _tdKV('Expected 5d return', _tdNum(s.expected_return_pct, 2, '%'))
+      + _tdKV('Forecast 5d price', s.forecast_price_5d != null && s.forecast_price_5d !== '' ? usd(s.forecast_price_5d) : '-')
+      + _tdKV('Rel. strength vs SPY', _tdNum(s.relative_strength_vs_spy_20d, 2))
+      + _tdKV('5-day momentum', _tdNum(s.momentum_5d_pct, 2, '%'))
+      + _tdKV('20-day momentum', _tdNum(s.momentum_20d_pct, 2, '%'))
+      + _tdKV('Preview decision', escapeHtml(s.preview_decision || '-'))
+      + '</div>';
+    if (s.why_selected) {
+      html += '<div style="font-size:10px;color:var(--text-secondary);line-height:1.5;margin-top:8px;"><span style="font-weight:800;color:var(--ok);">Why selected:</span> ' + escapeHtml(s.why_selected) + '</div>';
+    }
+    if (s.why_excluded) {
+      html += '<div style="font-size:10px;color:var(--text-secondary);line-height:1.5;margin-top:5px;"><span style="font-weight:800;color:var(--warning);">Why excluded / not actionable:</span> ' + escapeHtml(s.why_excluded) + '</div>';
+    }
+  } else {
+    html += '<div style="font-size:11px;color:var(--label);">No trade-idea or selection history for this ticker.</div>';
+  }
+  html += '</div>';
+
+  // D. Position details (if held)
+  const p = d.position;
+  if (p) {
+    html += '<div class="td-section"><div class="td-section-title">Position Details</div><div class="td-kv-grid">'
+      + _tdKV('Quantity', escapeHtml(String(p.qty)))
+      + _tdKV('Average cost', usd(p.avg_cost))
+      + _tdKV('Cost basis', usd(p.cost_basis))
+      + _tdKV('Market value', p.market_value != null ? usd(p.market_value) : '-')
+      + _tdKV('Unrealized P&L', p.unrealized_pnl != null ? signHtml(p.unrealized_pnl, usd) : '-')
+      + _tdKV('Unrealized P&L %', p.unrealized_pnl_pct != null ? signHtml(p.unrealized_pnl_pct, function(v){return _tdNum(v, 2, '%');}) : '-')
+      + _tdKV('Portfolio weight', p.portfolio_weight_pct != null ? _tdNum(p.portfolio_weight_pct, 2, '%') : '-')
+      + _tdKV('Opened', fmtDate(p.opened_at))
+      + _tdKV('Last updated', fmtDate(p.last_updated))
+      + '</div></div>';
+  }
+
+  // E. Paper order / trade lineage
+  const o = d.latest_order;
+  if (o) {
+    html += '<div class="td-section"><div class="td-section-title">Paper Order / Trade Lineage</div><div class="td-kv-grid">'
+      + _tdKV('Order status', statusChip(o.status))
+      + _tdKV('Side', escapeHtml(o.side))
+      + _tdKV('Quantity', escapeHtml(String(o.qty)))
+      + _tdKV('Fill price', o.fill_price != null ? usd(o.fill_price) : '-')
+      + _tdKV('Commission', o.commission != null ? usd(o.commission) : '-')
+      + _tdKV('Filled date', fmtDate(o.filled_at))
+      + _tdKV('Order ID', '<span style="font-family:monospace;font-size:10px;" title="' + escapeHtml(o.order_id) + '">' + escapeHtml(o.order_short_id) + '</span>')
+      + _tdKV('Trade ID', o.trade_short_id ? '<span style="font-family:monospace;font-size:10px;" title="' + escapeHtml(o.trade_id) + '">' + escapeHtml(o.trade_short_id) + '</span>' : '-')
+      + '</div>';
+    if (o.notes) {
+      html += '<div style="font-size:9px;color:var(--label);margin-top:6px;line-height:1.4;">' + escapeHtml(o.notes) + '</div>';
+    }
+    html += '</div>';
+  }
+
+  // F. Current decision guidance
+  const g = d.guidance || {};
+  html += '<div class="td-section"><div class="td-section-title">Current Decision Guidance</div>';
+  if (g.recommendation) {
+    html += '<div style="font-size:12px;font-weight:800;color:' + _tdRecColor(g.recommendation) + ';margin-bottom:4px;">' + escapeHtml(g.recommendation) + (g.reason_code ? ' <span style="font-size:9px;font-weight:700;color:var(--label);">(' + escapeHtml(g.reason_code) + ')</span>' : '') + '</div>';
+  }
+  html += '<div style="font-size:11px;color:var(--text-secondary);line-height:1.5;">' + escapeHtml(g.explanation || 'No guidance available.') + '</div>';
+  html += '<div style="font-size:8px;color:var(--label);margin-top:8px;font-style:italic;">Analysis only. This panel never sends a broker order, fills a trade, or enables automation.</div>';
+  html += '</div>';
+
+  return html;
+}
+
+// Open the read-only Ticker Detail drawer for a ticker. Aggregates existing
+// data via GET /v1/ticker-detail/{ticker}. No DB writes, no broker execution.
+async function openTickerDetail(ticker) {
+  const overlay = document.getElementById('ticker-detail-overlay');
+  const drawer = document.getElementById('ticker-detail-drawer');
+  const titleEl = document.getElementById('td-title');
+  const bodyEl = document.getElementById('ticker-detail-body');
+  if (!overlay || !drawer || !bodyEl) return;
+  const sym = String(ticker || '').toUpperCase();
+  if (titleEl) titleEl.textContent = 'Ticker Detail: ' + sym;
+  const slEl = document.getElementById('td-status-line');
+  if (slEl) slEl.textContent = '';
+  bodyEl.innerHTML = '<div style="font-size:11px;color:var(--label);padding:12px 0;">Loading ' + escapeHtml(sym) + '…</div>';
+  overlay.classList.add('active');
+  drawer.classList.add('active');
+  try {
+    const r = await call('GET', '/v1/ticker-detail/' + encodeURIComponent(sym));
+    if (!r.ok) {
+      bodyEl.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:12px 0;">' + escapeHtml(httpErr(r.status)) + '</div>';
+      return;
+    }
+    const data = await r.json();
+    bodyEl.innerHTML = _tdRenderDetail(data);
+  } catch (e) {
+    bodyEl.innerHTML = '<div style="font-size:11px;color:var(--danger);padding:12px 0;">Failed to load detail: ' + escapeHtml(String(e && e.message ? e.message : e)) + '</div>';
+  }
+}
+
+function closeTickerDetail() {
+  const overlay = document.getElementById('ticker-detail-overlay');
+  const drawer = document.getElementById('ticker-detail-drawer');
+  if (overlay) overlay.classList.remove('active');
+  if (drawer) drawer.classList.remove('active');
+}
+
+// Escape key closes the drawer.
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    const drawer = document.getElementById('ticker-detail-drawer');
+    if (drawer && drawer.classList.contains('active')) closeTickerDetail();
+  }
+});
+window.openTickerDetail = openTickerDetail;
+window.closeTickerDetail = closeTickerDetail;
+window.tickerLink = tickerLink;
 
 function parseApiResponse(r) {
   try {
@@ -5497,7 +5808,7 @@ async function loadPositions() {
     const weight = (c.mv != null && positionsTotal > 0) ? (c.mv / positionsTotal * 100) : null;
     return `
     <tr>
-      <td><strong>${escapeHtml(p.ticker)}</strong></td>
+      <td><strong>${tickerLink(p.ticker)}</strong></td>
       <td>${p.qty}</td>
       <td>${usd(p.avg_cost)}</td>
       <td>${c.latest != null ? usd(c.latest) : '-'}</td>
@@ -5551,7 +5862,7 @@ async function loadOrders() {
   }
   tb.innerHTML = rows.map(o => `
     <tr>
-      <td><strong>${o.ticker}</strong></td>
+      <td><strong>${tickerLink(o.ticker)}</strong></td>
       <td>${o.side}</td>
       <td>${statusChip(o.status)}</td>
       <td>${fmtDate(o.market_date)}</td>
@@ -5592,7 +5903,7 @@ async function loadTradeLedger() {
   tb.innerHTML = rows.map(function(t) {
     return `
     <tr>
-      <td><strong>${escapeHtml(t.ticker)}</strong></td>
+      <td><strong>${tickerLink(t.ticker)}</strong></td>
       <td>${escapeHtml(t.side)}</td>
       <td>${t.qty}</td>
       <td>${usd(t.fill_price)}</td>
@@ -9552,7 +9863,7 @@ function renderReviewQueue(candidates) {
       actionHtml = `<button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'WATCHING')" style="padding:3px 6px;margin-right:2px;background:var(--text-accent);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Watch</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'REJECTED')" style="padding:3px 6px;margin-right:2px;background:var(--danger);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;">Reject</button><button onclick="_showReviewNotePanel('${c.id}', '${escapeHtml(c.ticker)}', 'APPROVED_FOR_SIGNAL')" style="padding:3px 6px;background:var(--ok);color:white;border:none;border-radius:2px;font-weight:600;font-size:9px;cursor:pointer;" title="Approved for signal (label only, no trade)">Approve</button>`;
     }
     return `<tr>
-      <td><strong>${escapeHtml(c.ticker)}</strong></td>
+      <td><strong>${tickerLink(c.ticker)}</strong></td>
       <td style="color:${statusColor};font-weight:600;font-size:10px;">${escapeHtml(statusLabel)}${reasonBadge}${noteBadge}</td>
       <td style="color:${decisionColor};font-weight:600;">${escapeHtml(c.preview_decision)}</td>
       <td style="text-align:right;font-weight:600;">${parseFloat(c.preview_score).toFixed(1)}</td>
@@ -12640,7 +12951,7 @@ function _ptCandCardHtml(c, historyOnly) {
   }
   return '<div style="border:1px solid var(--border);border-radius:3px;padding:7px 9px;margin-bottom:6px;background:rgba(0,0,0,.12);">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'
-    +   '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:14px;font-weight:800;color:var(--text-primary);">' + escapeHtml(c.ticker) + '</span>'
+    +   '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:14px;font-weight:800;color:var(--text-primary);">' + tickerLink(c.ticker) + '</span>'
     +   '<span style="font-size:11px;font-weight:700;color:' + recColor + ';">' + escapeHtml(rec) + '</span></div>'
     +   '<span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,.06);color:' + _ideaStatus.color + ';">' + escapeHtml(_ideaStatus.text) + '</span>'
     + '</div>'
@@ -12922,7 +13233,7 @@ function _ptPositionExitCardHtml(p) {
   const monitorNote = '<div style="font-size:8px;color:var(--label);line-height:1.4;margin-bottom:5px;">Position monitoring runs automatically. No separate Watch action is required &mdash; the old manual <em>Watch Position</em> action has been removed.</div>';
   return '<div style="border:1px solid var(--border);border-radius:3px;padding:7px 9px;margin-bottom:6px;background:rgba(0,0,0,.12);">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'
-    +   '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:13px;font-weight:800;color:var(--text-primary);">' + tk + '</span>'
+    +   '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:13px;font-weight:800;color:var(--text-primary);">' + tickerLink(p.ticker) + '</span>'
     +   '<span style="font-size:11px;font-weight:700;color:' + recColor + ';">' + title + '</span></div>'
     +   '<span style="font-size:10px;font-weight:700;color:' + pnlColor + ';">' + pnlPct + '</span>'
     + '</div>'
