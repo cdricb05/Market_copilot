@@ -31135,3 +31135,242 @@ class TestDailyWorkflowStateUiContractV1:
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestScanCoverageContractV1:
+    """Backend contract: GET market-scan/prediction-candidates exposes a truthful
+    scan_coverage funnel + candidate_quality thresholds, and weak candidates are
+    classified WATCH/BELOW_THRESHOLD rather than ACTIONABLE_TRADE_IDEA."""
+
+    _SCAN_COVERAGE_KEYS = (
+        "universe_name", "configured_universe_count", "price_history_ready_count",
+        "locally_screened_count", "prediction_requested_count", "prediction_returned_count",
+        "prediction_failed_count", "actionable_trade_ideas_count", "watch_only_count",
+        "rejected_count", "already_held_count", "blocked_by_risk_count",
+        "excluded_reason_counts", "coverage_note",
+    )
+    _QUALITY_KEYS = (
+        "min_actionable_score", "min_confidence", "min_expected_return_pct",
+        "min_relative_strength_vs_spy", "explanation",
+    )
+
+    @staticmethod
+    def _mock_scan_two():
+        from paper_trader.engine.market_screener import CandidateScore
+
+        def mock_scan(session, tickers=None, **kwargs):
+            return [
+                CandidateScore(
+                    rank=1, ticker="AAPL", score="5.23", latest_price="150.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="2.50", momentum_20d_pct="5.00",
+                    volatility_20d_pct="2.15", relative_strength_vs_spy_20d="1.23",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+                CandidateScore(
+                    rank=2, ticker="MSFT", score="4.10", latest_price="200.00",
+                    latest_market_date="2025-01-14", price_count=25,
+                    momentum_5d_pct="1.50", momentum_20d_pct="3.00",
+                    volatility_20d_pct="2.00", relative_strength_vs_spy_20d="0.80",
+                    reason_codes=["POSITIVE_20D_MOMENTUM"],
+                ),
+            ], [], date(2025, 1, 14)
+
+        return mock_scan
+
+    @staticmethod
+    def _mock_fetch_buy(confidence: str, d5_change_pct: str, ticker: str = "AAPL"):
+        async def mock_fetch(tickers, api_url, timeout_seconds, max_concurrency=4):
+            return (
+                [{
+                    "ticker": ticker, "current_price": "150.00",
+                    "ensemble_day5": "157.50", "d5_change_pct": d5_change_pct,
+                    "confidence": confidence, "recommendation": "BUY",
+                    "per_model_summary": {},
+                }],
+                [],
+            )
+        return mock_fetch
+
+    def _post(self, client, monkeypatch, *, tickers, prediction_top_n,
+              mock_fetch, ikey, extra=None):
+        monkeypatch.setattr(
+            "paper_trader.engine.market_screener.scan_market", self._mock_scan_two()
+        )
+        monkeypatch.setattr(
+            "paper_trader.api.app.fetch_predictions_for_tickers", mock_fetch
+        )
+        body = {
+            "idempotency_key": ikey,
+            "universe": "SP500", "tickers": tickers,
+            "benchmark_ticker": "SPY", "lookback_days": 20,
+            "top_n": 5, "min_price_points": 5, "prediction_top_n": prediction_top_n,
+            "include_current_positions_for_prediction": False,
+            "dry_run": True, "submit_signals": False,
+            "run_risk": False, "create_orders": False,
+        }
+        if extra:
+            body.update(extra)
+        resp = client.post(
+            "/v1/strategy/market-scan/prediction-candidates", json=body, headers=_AUTH,
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def test_scan_coverage_and_quality_present_with_all_counts(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        data = self._post(
+            market_scan_prediction_seeded_client, monkeypatch,
+            tickers=["AAPL", "MSFT"], prediction_top_n=2,
+            mock_fetch=self._mock_fetch_buy("90.0", "5.00"),
+            ikey="scov-all-001",
+        )
+        assert "scan_coverage" in data
+        sc = data["scan_coverage"]
+        for k in self._SCAN_COVERAGE_KEYS:
+            assert k in sc, f"scan_coverage missing {k}"
+        assert "candidate_quality" in data
+        for k in self._QUALITY_KEYS:
+            assert k in data["candidate_quality"], f"candidate_quality missing {k}"
+        assert isinstance(sc["excluded_reason_counts"], dict)
+        assert "locally screened" in sc["coverage_note"].lower()
+
+    def test_locally_screened_not_limited_to_prediction_batch(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        data = self._post(
+            market_scan_prediction_seeded_client, monkeypatch,
+            tickers=["AAPL", "MSFT"], prediction_top_n=1,
+            mock_fetch=self._mock_fetch_buy("90.0", "5.00"),
+            ikey="scov-screen-001",
+        )
+        sc = data["scan_coverage"]
+        assert sc["locally_screened_count"] == 2
+        assert sc["prediction_requested_count"] == 1
+        assert sc["locally_screened_count"] > sc["prediction_requested_count"]
+
+    def test_strong_candidate_is_actionable(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        data = self._post(
+            market_scan_prediction_seeded_client, monkeypatch,
+            tickers=["AAPL"], prediction_top_n=1,
+            mock_fetch=self._mock_fetch_buy("90.0", "5.00"),
+            ikey="scov-strong-001",
+        )
+        aapl = next(p for p in data["candidate_previews"] if p["ticker"] == "AAPL")
+        assert aapl["actionability"] == "ACTIONABLE_TRADE_IDEA"
+        assert data["scan_coverage"]["actionable_trade_ideas_count"] >= 1
+        assert aapl["threshold_pass_fail"]["confidence"] is True
+        assert aapl["threshold_pass_fail"]["score"] is True
+
+    def test_low_confidence_candidate_not_actionable(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        data = self._post(
+            market_scan_prediction_seeded_client, monkeypatch,
+            tickers=["AAPL"], prediction_top_n=1,
+            mock_fetch=self._mock_fetch_buy("60.0", "5.00"),
+            ikey="scov-lowconf-001",
+        )
+        aapl = next(p for p in data["candidate_previews"] if p["ticker"] == "AAPL")
+        assert aapl["actionability"] != "ACTIONABLE_TRADE_IDEA"
+        assert aapl["actionability"] in ("WATCH_ONLY", "BELOW_THRESHOLD")
+        assert data["scan_coverage"]["actionable_trade_ideas_count"] == 0
+
+    def test_weak_buy_becomes_watch_or_below_threshold(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        data = self._post(
+            market_scan_prediction_seeded_client, monkeypatch,
+            tickers=["AAPL"], prediction_top_n=1,
+            mock_fetch=self._mock_fetch_buy("70.0", "0.50"),
+            ikey="scov-weak-001",
+        )
+        aapl = next(p for p in data["candidate_previews"] if p["ticker"] == "AAPL")
+        assert aapl["actionability"] in ("WATCH_ONLY", "BELOW_THRESHOLD")
+        assert "SCORE_BELOW_THRESHOLD" in aapl["reason_codes"]
+        assert float(aapl["preview_score"]) < data["candidate_quality"]["min_actionable_score"]
+        assert data["scan_coverage"]["actionable_trade_ideas_count"] == 0
+
+    def test_excluded_reason_counts_explains_exclusions(
+        self, market_scan_prediction_seeded_client: TestClient, monkeypatch
+    ) -> None:
+        data = self._post(
+            market_scan_prediction_seeded_client, monkeypatch,
+            tickers=["AAPL", "MSFT"], prediction_top_n=1,
+            mock_fetch=self._mock_fetch_buy("70.0", "0.50"),
+            ikey="scov-excl-001",
+        )
+        sc = data["scan_coverage"]
+        assert sc["excluded_reason_counts"].get("NOT_SENT_TO_PREDICTION_TOP_N_CUTOFF", 0) >= 1
+
+
+class TestScanCoverageUiContractV1:
+    """Static assertions: the Daily Plan exposes a truthful Scan Coverage funnel,
+    buckets ideas by actionability, and never presents the small prediction batch
+    as a full S&P 500 scan."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    def test_scan_coverage_section_present(self) -> None:
+        html = self._read_html()
+        assert "Scan Coverage" in html
+        assert 'id="dp-scan-coverage"' in html
+        assert 'id="scan-coverage"' in html
+
+    def test_scan_coverage_funnel_labels_present(self) -> None:
+        html = self._read_html()
+        for label in (
+            "Universe configured", "Price-history ready", "Locally screened",
+            "Sent to prediction", "Predictions returned", "Actionable trade ideas",
+            "Watch / below threshold", "Rejected / blocked", "Existing positions reviewed",
+        ):
+            assert label in html, f"missing funnel label: {label}"
+
+    def test_render_scan_coverage_function_present(self) -> None:
+        html = self._read_html()
+        assert "function renderScanCoverage(" in html
+        fn = _fn_body(html, "function renderScanCoverage(")
+        assert "scan_coverage" in fn
+        assert "candidate_quality" in fn
+
+    def test_no_actionable_ideas_message_present(self) -> None:
+        assert "No actionable trade ideas today" in self._read_html()
+
+    def test_actionable_trade_ideas_anchor_present(self) -> None:
+        assert 'id="actionable-trade-ideas"' in self._read_html()
+
+    def test_positions_reviewed_anchor_present(self) -> None:
+        assert 'id="positions-reviewed"' in self._read_html()
+
+    def test_daily_review_renders_scan_coverage(self) -> None:
+        html = self._read_html()
+        fn = _fn_body(html, "async function _runDailyReviewSession(")
+        assert "renderScanCoverage(" in fn
+        assert "screened" in fn and "actionable" in fn
+
+    def test_daily_review_saves_only_actionable_ideas(self) -> None:
+        html = self._read_html()
+        fn = _fn_body(html, "async function _runDailyReviewSession(")
+        assert "ACTIONABLE_TRADE_IDEA" in fn
+
+    def test_no_visible_watch_position_button(self) -> None:
+        html = self._read_html()
+        assert ">Watch Position</button>" not in html
+        assert 'onclick="watchPosition' not in html
+
+    def test_history_only_bucket_present(self) -> None:
+        assert "Older trade ideas — history only" in self._read_html()
+
+    def test_no_alert_or_confirm(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0

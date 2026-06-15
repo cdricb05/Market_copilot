@@ -529,6 +529,28 @@ class NormalizedPrediction(BaseModel):
     reason: str
 
 
+# ---------------------------------------------------------------------------
+# Candidate quality thresholds (Scan Coverage + Candidate Quality contract).
+#
+# SCAN COVERAGE NOTE (do not regress): The local screener (engine/market_screener)
+# evaluates the FULL configured universe — every ticker with enough price history
+# is scored locally. Only the top `prediction_top_n` ranked clean candidates (plus
+# any current holdings) are sent to the remote GCP prediction service, because the
+# prediction service is rate/throughput constrained. That is why the GCP prediction
+# batch is small (~5-7 names) even though the local scan covers the whole universe.
+# The Scan Coverage funnel exists to report this truthfully: "Full universe was
+# locally screened. Prediction was run on the top N ranked names." Never present the
+# small GCP prediction batch as if it were the full S&P 500 scan.
+#
+# A candidate must clear EVERY threshold below to be an ACTIONABLE_TRADE_IDEA.
+# Anything that falls short is WATCH_ONLY / BELOW_THRESHOLD, never actionable.
+# This is what stops a weak BUY (e.g. preview_score 75.5) from being recommended.
+DEFAULT_MIN_ACTIONABLE_SCORE = 85.0      # preview_score scale is 0-100
+DEFAULT_MIN_CONFIDENCE = 0.85            # prediction confidence, 0-1
+DEFAULT_MIN_EXPECTED_RETURN_PCT = 1.0    # forecast 5D return, percent
+DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY = 0.0  # must not lag SPY (>= 0)
+
+
 class CandidatePreview(BaseModel):
     """Enriched candidate preview combining scan and prediction context."""
     ticker: str
@@ -580,6 +602,13 @@ class CandidatePreview(BaseModel):
 
     # Phase 4C per-component score breakdown (always populated)
     score_breakdown: dict[str, Any] | None = None
+
+    # Scan Coverage + Candidate Quality contract: truthful actionability label.
+    # ACTIONABLE_TRADE_IDEA | WATCH_ONLY | BELOW_THRESHOLD | REJECTED | ALREADY_HELD
+    actionability: str = "WATCH_ONLY"
+    reason_summary: str = ""
+    reason_codes: list[str] = Field(default_factory=list)
+    threshold_pass_fail: dict[str, bool] = Field(default_factory=dict)
 
 
 class FetchAndRunPredictionResponse(BaseModel):
@@ -633,6 +662,26 @@ class MarketScanPredictionCandidatesRequest(BaseModel):
         ge=1,
         le=100,
         description="Select top N candidates for prediction fetching.",
+    )
+    min_actionable_score: float = Field(
+        default=DEFAULT_MIN_ACTIONABLE_SCORE,
+        ge=0,
+        le=100,
+        description="Minimum preview score (0-100) for ACTIONABLE_TRADE_IDEA.",
+    )
+    min_actionable_confidence: float = Field(
+        default=DEFAULT_MIN_CONFIDENCE,
+        ge=0,
+        le=1,
+        description="Minimum prediction confidence (0-1) for ACTIONABLE_TRADE_IDEA.",
+    )
+    min_expected_return_pct: float = Field(
+        default=DEFAULT_MIN_EXPECTED_RETURN_PCT,
+        description="Minimum expected 5D return (percent) for ACTIONABLE_TRADE_IDEA.",
+    )
+    min_relative_strength_vs_spy: float = Field(
+        default=DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY,
+        description="Minimum relative strength vs SPY for ACTIONABLE_TRADE_IDEA.",
     )
     include_current_positions_for_prediction: bool = Field(
         default=True,
@@ -804,12 +853,48 @@ class ScoringProfileComparisonOut(BaseModel):
     safety_counts: dict[str, int]
 
 
+class ScanCoverageOut(BaseModel):
+    """
+    Truthful scan-coverage funnel for the daily review.
+
+    Distinguishes how much of the universe was screened LOCALLY (full universe)
+    from how many names were actually sent to the remote prediction service
+    (top-N ranked subset), so the UI never claims a 7-name batch is a full
+    S&P 500 scan.
+    """
+    universe_name: str
+    configured_universe_count: int
+    price_history_ready_count: int
+    locally_screened_count: int
+    prediction_requested_count: int
+    prediction_returned_count: int
+    prediction_failed_count: int
+    actionable_trade_ideas_count: int
+    watch_only_count: int
+    rejected_count: int
+    already_held_count: int
+    blocked_by_risk_count: int = 0
+    excluded_reason_counts: dict[str, int] = Field(default_factory=dict)
+    coverage_note: str
+
+
+class CandidateQualityOut(BaseModel):
+    """Quality thresholds a candidate must clear to be an actionable trade idea."""
+    min_actionable_score: float
+    min_confidence: float
+    min_expected_return_pct: float
+    min_relative_strength_vs_spy: float
+    explanation: str
+
+
 class MarketScanPredictionCandidatesResponse(BaseModel):
     """Response from market scan + prediction candidate preview endpoint."""
     idempotency_key: str
     dry_run: bool
     execution_mode: str
     scan: ScanSummaryOut
+    scan_coverage: ScanCoverageOut
+    candidate_quality: CandidateQualityOut
     candidate_funnel: CandidateFunnelOut
     selected_tickers: list[str]
     predictions_fetched: int
@@ -5463,6 +5548,128 @@ _PROFILE_EXPLANATIONS: dict[str, str] = {
 }
 _SKIPPED_SAMPLE_LIMIT = 25
 
+_CANDIDATE_QUALITY_EXPLANATION = (
+    "A candidate is an ACTIONABLE_TRADE_IDEA only if its preview score, prediction "
+    "confidence, expected 5D return, and relative strength vs SPY all clear the "
+    "thresholds below. Candidates that fall short are shown as WATCH / below "
+    "threshold, not as actionable BUYs."
+)
+
+
+def _classify_candidate_actionability(
+    *,
+    candidate_type: str | None,
+    is_current_holding: bool,
+    status: str,
+    preview_decision: str,
+    preview_score: str | None,
+    prediction_confidence: str | None,
+    expected_return_pct: str | None,
+    relative_strength_vs_spy_20d: str | None,
+    min_score: float,
+    min_confidence: float,
+    min_expected_return_pct: float,
+    min_relative_strength: float,
+) -> tuple[str, str, list[str], dict[str, bool]]:
+    """
+    Classify a candidate's actionability for the Scan Coverage contract.
+
+    Returns (actionability, reason_summary, reason_codes, threshold_pass_fail).
+
+    actionability is one of:
+        ACTIONABLE_TRADE_IDEA | WATCH_ONLY | BELOW_THRESHOLD | REJECTED | ALREADY_HELD
+
+    This does NOT change review-queue eligibility semantics; it is an additive,
+    truthful quality label so the UI can bucket ideas and so weak BUYs never
+    appear as actionable.
+    """
+    def _f(v: str | None) -> float | None:
+        try:
+            return float(v) if v is not None and v != "" else None
+        except (ValueError, TypeError):
+            return None
+
+    # Held positions are monitored automatically — never a new actionable BUY.
+    if is_current_holding or candidate_type == "CURRENT_HOLDING_MONITOR":
+        return (
+            "ALREADY_HELD",
+            "Already held — monitored automatically in Positions Reviewed.",
+            ["ALREADY_HELD"],
+            {},
+        )
+
+    # No usable prediction or an explicit reject → REJECTED.
+    if status != "OK" or preview_decision == "REJECT":
+        reason = (
+            "Prediction unavailable." if status != "OK"
+            else "Rejected by preview decision (SELL or negative outlook)."
+        )
+        return ("REJECTED", reason, ["REJECTED"], {})
+
+    score = _f(preview_score)
+    conf = _f(prediction_confidence)
+    ret = _f(expected_return_pct)
+    rs = _f(relative_strength_vs_spy_20d)
+
+    score_pass = score is not None and score >= min_score
+    conf_pass = conf is not None and conf >= min_confidence
+    ret_pass = ret is not None and ret >= min_expected_return_pct
+    # Relative strength is acceptable when unknown (None) or not lagging SPY.
+    rs_pass = rs is None or rs >= min_relative_strength
+
+    threshold_pass_fail = {
+        "score": bool(score_pass),
+        "confidence": bool(conf_pass),
+        "expected_return": bool(ret_pass),
+        "relative_strength": bool(rs_pass),
+    }
+
+    reason_codes: list[str] = []
+    fail_bits: list[str] = []
+    if not score_pass:
+        reason_codes.append("SCORE_BELOW_THRESHOLD")
+        fail_bits.append(
+            f"Score {preview_score if preview_score is not None else 'n/a'} "
+            f"below actionable threshold {min_score:g}"
+        )
+    if not conf_pass:
+        reason_codes.append("CONFIDENCE_BELOW_THRESHOLD")
+        fail_bits.append(
+            f"Confidence {prediction_confidence if prediction_confidence is not None else 'n/a'} "
+            f"below {min_confidence:g}"
+        )
+    if not ret_pass:
+        reason_codes.append("EXPECTED_RETURN_BELOW_THRESHOLD")
+        fail_bits.append(
+            f"Expected return {expected_return_pct if expected_return_pct is not None else 'n/a'}% "
+            f"below {min_expected_return_pct:g}%"
+        )
+    if not rs_pass:
+        reason_codes.append("RELATIVE_STRENGTH_BELOW_THRESHOLD")
+        fail_bits.append(
+            f"Relative strength {relative_strength_vs_spy_20d} below {min_relative_strength:g}"
+        )
+
+    all_pass = score_pass and conf_pass and ret_pass and rs_pass
+    if all_pass and preview_decision == "CONSIDER":
+        return (
+            "ACTIONABLE_TRADE_IDEA",
+            "Passes all quality thresholds (score, confidence, return, relative strength).",
+            ["PASSES_ALL_THRESHOLDS"],
+            threshold_pass_fail,
+        )
+
+    # CONSIDER but failed a threshold → explicitly below threshold; otherwise watch.
+    if preview_decision == "CONSIDER":
+        actionability = "BELOW_THRESHOLD"
+        summary = "Below actionable threshold. " + "; ".join(fail_bits) + "."
+    else:
+        actionability = "WATCH_ONLY"
+        summary = "Watch only — not a strong enough signal to act on yet."
+        if fail_bits:
+            summary += " " + "; ".join(fail_bits) + "."
+    return (actionability, summary, reason_codes or ["WATCH"], threshold_pass_fail)
+
 
 def _cand_to_score_dict(cand: Any) -> dict:
     """Build a score_candidate_v2 input dict from a CandidateReview ORM object.
@@ -5967,6 +6174,22 @@ async def market_scan_prediction_candidates(
             else:
                 _rq_reason = "OTHER"
 
+        # Scan Coverage + Candidate Quality: truthful actionability classification.
+        _actionability, _reason_summary, _reason_codes, _threshold_pf = _classify_candidate_actionability(
+            candidate_type=_candidate_type,
+            is_current_holding=is_holding,
+            status=status,
+            preview_decision=preview_decision,
+            preview_score=preview_score,
+            prediction_confidence=prediction_confidence,
+            expected_return_pct=expected_return_pct,
+            relative_strength_vs_spy_20d=relative_strength_vs_spy_20d,
+            min_score=body.min_actionable_score,
+            min_confidence=body.min_actionable_confidence,
+            min_expected_return_pct=body.min_expected_return_pct,
+            min_relative_strength=body.min_relative_strength_vs_spy,
+        )
+
         # Build preview row
         preview = CandidatePreview(
             ticker=selected_ticker,
@@ -5998,6 +6221,10 @@ async def market_scan_prediction_candidates(
             open_position_qty=str(_open_positions_map[selected_ticker.upper()].qty) if selected_ticker.upper() in _open_positions_map else None,
             open_position_avg_cost=str(_open_positions_map[selected_ticker.upper()].avg_cost) if selected_ticker.upper() in _open_positions_map else None,
             holding_action_hint="Monitor in Position Review" if is_holding else None,
+            actionability=_actionability,
+            reason_summary=_reason_summary,
+            reason_codes=_reason_codes,
+            threshold_pass_fail=_threshold_pf,
         )
         candidate_previews.append(preview)
 
@@ -6308,6 +6535,61 @@ async def market_scan_prediction_candidates(
         ],
     )
 
+    # Scan Coverage + Candidate Quality contract.
+    # locally_screened_count reflects the FULL local screen (universe minus skipped),
+    # NOT the small GCP prediction batch — that distinction is the whole point.
+    _actionable_count = sum(1 for p in candidate_previews if p.actionability == "ACTIONABLE_TRADE_IDEA")
+    _watch_count = sum(
+        1 for p in candidate_previews if p.actionability in ("WATCH_ONLY", "BELOW_THRESHOLD")
+    )
+    _rejected_count = sum(1 for p in candidate_previews if p.actionability == "REJECTED")
+    _already_held_count = sum(1 for p in candidate_previews if p.actionability == "ALREADY_HELD")
+
+    # excluded_reason_counts: why universe names did not become actionable ideas.
+    _excluded_reason_counts: dict[str, int] = dict(skipped_by_reason)
+    _not_sent_n = len(not_sent_candidates)
+    if _not_sent_n:
+        _excluded_reason_counts["NOT_SENT_TO_PREDICTION_TOP_N_CUTOFF"] = _not_sent_n
+    if _watch_count:
+        _excluded_reason_counts["WATCH_OR_BELOW_THRESHOLD"] = _watch_count
+    if _rejected_count:
+        _excluded_reason_counts["REJECTED"] = _rejected_count
+    if all_prediction_failures:
+        _excluded_reason_counts["PREDICTION_FAILED"] = len(all_prediction_failures)
+
+    _coverage_note = (
+        f"Full universe was locally screened ({len(universe_tickers) - len(skipped)} of "
+        f"{len(universe_tickers)} names had enough price history). Prediction was run on the "
+        f"top {body.prediction_top_n} ranked names"
+        + (f" plus {len(holdings_injected)} current holding(s)" if holdings_injected else "")
+        + ". This is not a full S&P 500 prediction run."
+    )
+
+    scan_coverage = ScanCoverageOut(
+        universe_name=body.universe,
+        configured_universe_count=len(universe_tickers),
+        price_history_ready_count=candidate_funnel.price_history_ready_count,
+        locally_screened_count=len(universe_tickers) - len(skipped),
+        prediction_requested_count=len(selected_tickers),
+        prediction_returned_count=len(normalized_predictions),
+        prediction_failed_count=len(all_prediction_failures),
+        actionable_trade_ideas_count=_actionable_count,
+        watch_only_count=_watch_count,
+        rejected_count=_rejected_count,
+        already_held_count=_already_held_count,
+        blocked_by_risk_count=0,
+        excluded_reason_counts=_excluded_reason_counts,
+        coverage_note=_coverage_note,
+    )
+
+    candidate_quality = CandidateQualityOut(
+        min_actionable_score=body.min_actionable_score,
+        min_confidence=body.min_actionable_confidence,
+        min_expected_return_pct=body.min_expected_return_pct,
+        min_relative_strength_vs_spy=body.min_relative_strength_vs_spy,
+        explanation=_CANDIDATE_QUALITY_EXPLANATION,
+    )
+
     # Prepare response (no database writes, no workflow execution)
     return MarketScanPredictionCandidatesResponse(
         idempotency_key=body.idempotency_key,
@@ -6321,6 +6603,8 @@ async def market_scan_prediction_candidates(
             skipped_count=len(skipped),
             candidate_count=len(clean_candidates),
         ),
+        scan_coverage=scan_coverage,
+        candidate_quality=candidate_quality,
         candidate_funnel=candidate_funnel,
         selected_tickers=selected_tickers,
         predictions_fetched=len(fetched_responses),

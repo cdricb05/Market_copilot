@@ -1864,7 +1864,39 @@
         </div>
         <!-- /candidates-to-review-workspace -->
 
+        <!-- Scan Coverage: truthful funnel from universe -> local screen -> prediction -> ideas.
+             Prevents presenting a 5-7 name prediction batch as a full S&P 500 scan. -->
+        <div id="scan-coverage" style="scroll-margin-top: 12px;"></div>
+        <div id="dp-scan-coverage" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(59,130,246,.4); margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(59,130,246,.2); padding-bottom: 4px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div style="font-size: 13px; font-weight: 800; color: var(--info); letter-spacing: .02em;">Scan Coverage</div>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS</span>
+            </div>
+            <span id="dp-sc-date" style="font-size: 10px; color: var(--label); font-weight: 600;"></span>
+          </div>
+          <div id="dp-sc-note" style="font-size: 9px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.4;"></div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Universe configured</div><div id="dp-sc-universe" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Price-history ready</div><div id="dp-sc-pricehistory" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Locally screened</div><div id="dp-sc-screened" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Sent to prediction</div><div id="dp-sc-sent" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Predictions returned</div><div id="dp-sc-returned" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(34,197,94,.1); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Actionable trade ideas</div><div id="dp-sc-actionable" style="font-size: 15px; font-weight: 800; color: var(--ok);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(251,191,36,.08); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Watch / below threshold</div><div id="dp-sc-watch" style="font-size: 15px; font-weight: 800; color: var(--warning);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(239,68,68,.08); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Rejected / blocked</div><div id="dp-sc-rejected" style="font-size: 15px; font-weight: 800; color: var(--danger);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Existing positions reviewed</div><div id="dp-sc-held" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+          </div>
+          <div id="dp-sc-quality" style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;"></div>
+          <details id="dp-sc-excluded-wrap" style="margin-bottom: 4px;">
+            <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .06em;">Why candidates were excluded</summary>
+            <div id="dp-sc-excluded" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;"></div>
+          </details>
+        </div>
+
         <!-- Today's Trade Ideas: full scan-result visibility with plain-English rationale -->
+        <div id="actionable-trade-ideas" style="scroll-margin-top: 12px;"></div>
         <div id="today-trade-ideas" style="scroll-margin-top: 12px;"></div>
         <div id="dp-todays-candidates" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(245,158,11,.4); margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
@@ -1879,7 +1911,9 @@
           <div id="dp-tc-older"></div>
         </div>
 
-        <!-- Positions to Review: HOLD / WATCH / REVIEW_FOR_EXIT for existing holdings -->
+        <!-- Positions to Review: HOLD / WATCH / REVIEW_FOR_EXIT for existing holdings.
+             Existing positions are always reviewed automatically during Daily Review. -->
+        <div id="positions-reviewed" style="scroll-margin-top: 12px;"></div>
         <div id="positions-to-review" style="scroll-margin-top: 12px;"></div>
         <div id="dp-positions-to-review" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(239,68,68,.35); margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(239,68,68,.2); padding-bottom: 4px;">
@@ -11401,11 +11435,19 @@ async function _runDailyReviewSession() {
     }
     window._lastPredictionPreviewData = dB;
     _candResult = dB;
-    const _total    = (dB.candidate_previews || []).length;
-    const _eligible = (dB.candidate_previews || []).filter(function(c) { return c.eligible_for_review_queue === true; }).length;
-    _skippedHoldings = (dB.candidate_previews || []).filter(function(c) { return c.candidate_type === 'CURRENT_HOLDING_MONITOR'; }).length;
-    _scanned = _total;
-    _drsSetStep('pred', 'done', _total + ' scanned, ' + _eligible + ' eligible');
+    try { renderScanCoverage(dB); } catch (e) {}
+    // Use the truthful scan-coverage funnel for the step label, not the small
+    // prediction batch size. "Screened" is the full local universe screen.
+    const _sc = dB.scan_coverage || {};
+    const _previewRows = (dB.candidate_previews || []);
+    const _screened   = (_sc.locally_screened_count != null) ? _sc.locally_screened_count : _previewRows.length;
+    const _predicted  = (_sc.prediction_requested_count != null) ? _sc.prediction_requested_count : _previewRows.length;
+    const _actionable = (_sc.actionable_trade_ideas_count != null)
+      ? _sc.actionable_trade_ideas_count
+      : _previewRows.filter(function(c) { return c.actionability === 'ACTIONABLE_TRADE_IDEA'; }).length;
+    _skippedHoldings = _previewRows.filter(function(c) { return c.candidate_type === 'CURRENT_HOLDING_MONITOR'; }).length;
+    _scanned = _screened;
+    _drsSetStep('pred', 'done', _screened + ' screened, ' + _predicted + ' predicted, ' + _actionable + ' actionable');
   } catch (eB) {
     _drsSetStep('pred', 'failed', eB.message);
     toast('Daily session stopped: prediction preview error', 'err');
@@ -11437,7 +11479,14 @@ async function _runDailyReviewSession() {
   // Step D: Save eligible new-entry candidates to Review Queue
   _drsSetStep('save', 'running');
   try {
+    // Save only ACTIONABLE_TRADE_IDEA candidates to the review queue. A weak BUY
+    // (below the quality thresholds) is WATCH/BELOW_THRESHOLD and must NOT become
+    // a current actionable workflow item. Falls back to legacy eligibility when the
+    // backend response predates the actionability field.
     const cands = (_candResult.candidate_previews || []).filter(function(c) {
+      if (c.actionability !== undefined && c.actionability !== null) {
+        return c.actionability === 'ACTIONABLE_TRADE_IDEA';
+      }
       return c.eligible_for_review_queue === true ||
         (c.eligible_for_review_queue === undefined && c.preview_decision === 'CONSIDER' && c.candidate_type !== 'CURRENT_HOLDING_MONITOR');
     });
@@ -12320,6 +12369,52 @@ function _ptKV(label, val) {
 // Render the "Today's Trade Ideas" section: every candidate from the active
 // session with rationale, or a clear empty state with the scan funnel summary.
 // Older review items are surfaced separately under a collapsed section.
+// Render the "Scan Coverage" funnel from the market-scan/prediction-candidates
+// response. Shows the truthful universe -> local screen -> prediction -> ideas
+// funnel so the UI never claims a 5-7 name prediction batch is a full S&P 500 scan.
+function renderScanCoverage(data) {
+  const card = document.getElementById('dp-scan-coverage');
+  if (!card) return;
+  const sc = (data && data.scan_coverage) || null;
+  if (!sc) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const q = (data && data.candidate_quality) || {};
+  function _set(id, val) { const el = document.getElementById(id); if (el) el.textContent = (val != null ? String(val) : '-'); }
+  _set('dp-sc-universe', sc.configured_universe_count);
+  _set('dp-sc-pricehistory', sc.price_history_ready_count);
+  _set('dp-sc-screened', sc.locally_screened_count);
+  _set('dp-sc-sent', sc.prediction_requested_count);
+  _set('dp-sc-returned', sc.prediction_returned_count);
+  _set('dp-sc-actionable', sc.actionable_trade_ideas_count);
+  _set('dp-sc-watch', sc.watch_only_count);
+  _set('dp-sc-rejected', sc.rejected_count);
+  _set('dp-sc-held', sc.already_held_count);
+  const noteEl = document.getElementById('dp-sc-note');
+  if (noteEl) {
+    let note = sc.coverage_note || '';
+    if ((sc.actionable_trade_ideas_count || 0) === 0) {
+      note = 'No actionable trade ideas today. Full scan completed. Review positions. ' + note;
+    }
+    noteEl.textContent = note;
+  }
+  const qEl = document.getElementById('dp-sc-quality');
+  if (qEl && q.min_actionable_score != null) {
+    qEl.textContent = 'Actionable thresholds: score >= ' + q.min_actionable_score
+      + ', confidence >= ' + q.min_confidence
+      + ', expected 5D return >= ' + q.min_expected_return_pct + '%'
+      + ', relative strength vs SPY >= ' + q.min_relative_strength_vs_spy + '. '
+      + (q.explanation || '');
+  }
+  const exEl = document.getElementById('dp-sc-excluded');
+  if (exEl) {
+    const rc = sc.excluded_reason_counts || {};
+    const keys = Object.keys(rc);
+    exEl.innerHTML = keys.length === 0
+      ? 'No exclusions recorded.'
+      : keys.map(function(k) { return '<div>' + escapeHtml(k) + ': ' + escapeHtml(String(rc[k])) + '</div>'; }).join('');
+  }
+}
+
 function renderTodaysCandidates(todays, older) {
   const card = document.getElementById('dp-todays-candidates');
   const listEl = document.getElementById('dp-tc-list');
