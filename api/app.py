@@ -9402,19 +9402,18 @@ _CANONICAL_DAILY_STAGE_INFO: dict[str, dict] = {
         ),
         "button_label": "View Portfolio",
         "target_tab": "portfolio",
-        "target_anchor": "positions-to-review",
+        "target_anchor": "open-positions",
         "requires_user_action": False,
     },
     "MONITOR_PORTFOLIO": {
         "title": "Monitor Portfolio",
         "description": (
-            "No trade ideas need action right now. Existing positions are "
-            "monitored automatically during Daily Review. No separate Watch "
-            "action is required."
+            "No actionable trade ideas today. Existing positions were reviewed "
+            "automatically. Review Portfolio."
         ),
-        "button_label": "Monitor Portfolio",
-        "target_tab": "daily-plan",
-        "target_anchor": "positions-to-review",
+        "button_label": "View Portfolio",
+        "target_tab": "portfolio",
+        "target_anchor": "open-positions",
         "requires_user_action": False,
     },
 }

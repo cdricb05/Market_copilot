@@ -1539,7 +1539,7 @@
             <span style="font-size: 8px; color: var(--warning); padding: 1px 5px; border-radius: 2px; background: rgba(245,158,11,.08);">MANUAL REVIEW</span>
             <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">AUDIT / ADVANCED</span>
             <span style="flex: 1;"></span>
-            <button class="btn-sm" style="background: rgba(255,255,255,.08); color: var(--text-accent); font-weight: 600; font-size: 9px; padding: 4px 10px; flex-shrink: 0;" onclick="generateDailyReviewSummary(this)" title="Read-only snapshot refresh. The Daily Review Session already generates this summary.">Refresh summary snapshot</button>
+            <button class="btn-sm" style="background: rgba(255,255,255,.08); color: var(--text-accent); font-weight: 600; font-size: 9px; padding: 4px 10px; flex-shrink: 0;" onclick="generateDailyReviewSummary(this)" title="Read-only snapshot refresh. The Daily Review Session already generates this summary.">Refresh Read-Only Summary</button>
           </div>
           <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 5px;">Read-only summary &mdash; no signals, no decisions, no orders, no fills. This is not the next action; the Daily Review Session generates the summary for you.</div>
           <div id="daily-review-summary-result" style="display: none;"></div>
@@ -2956,7 +2956,7 @@
         <div class="portfolio-cockpit-grid">
 
           <!-- Open Positions -->
-          <div class="card">
+          <div class="card" id="open-positions" style="scroll-margin-top: 12px;">
             <div class="card-title">Open Positions</div>
             <div class="table-wrap scroll-table">
               <table>
@@ -12227,7 +12227,7 @@ function _ptIdeaStatusLabel(c) {
 }
 
 // One compact candidate card for the "Today's Trade Ideas" list.
-function _ptCandCardHtml(c) {
+function _ptCandCardHtml(c, historyOnly) {
   const rec = c.prediction_recommendation || c.preview_decision || '-';
   const recColor = rec === 'BUY' ? 'var(--ok)' : rec === 'SELL' ? 'var(--danger)' : rec === 'HOLD' ? 'var(--text-secondary)' : 'var(--warning)';
   const score = (c.preview_score != null && c.preview_score !== '') ? parseFloat(c.preview_score).toFixed(1) : '-';
@@ -12251,7 +12251,11 @@ function _ptCandCardHtml(c) {
     +   metric('Score', score) + metric('Price', price) + metric('Conf', conf) + metric('Exp. Ret', ret) + metric('5d Mom', m5) + metric('20d Mom', m20) + metric('RS vs SPY', rs)
     + '</div>'
     + '<div style="font-size:9px;color:var(--text-secondary);line-height:1.4;"><span style="font-weight:700;color:var(--warning);">Why selected:</span> ' + escapeHtml(_ptCandRationale(c)) + '</div>'
-    + _ptCandTicketHtml(c)
+    // Older / history-only ideas never expose a primary action button (item A).
+    // They show a read-only marker instead of the Create & Fill Paper Trade ticket.
+    + (historyOnly
+        ? '<div style="font-size:8px;color:var(--label);font-style:italic;margin-top:6px;">History only — not part of today\'s active workflow. No actions available.</div>'
+        : _ptCandTicketHtml(c))
     + '</div>';
 }
 
@@ -12447,8 +12451,17 @@ function renderTodaysCandidates(todays, older) {
     const existed = (o.existed != null) ? o.existed : 0;
     const blocked = (o.blocked != null) ? o.blocked : null;
     const holdings = (summ.open_position_count != null) ? summ.open_position_count : ((o.holdings != null) ? o.holdings : '-');
-    let html = `<div style="font-size:12px;font-weight:800;color:var(--ok);margin-bottom:3px;">No new trade ideas met today's criteria.</div>`;
+    let html = `<div style="font-size:12px;font-weight:800;color:var(--ok);margin-bottom:3px;">No actionable trade ideas today</div>`;
+    // The four canonical no-actionable lines (item B). One source of truth so the
+    // Daily Plan empty state matches the Overview / right-panel next action.
+    html += '<ul style="margin:2px 0 6px 0;padding-left:16px;font-size:10px;color:var(--text-accent);line-height:1.5;">'
+      + '<li>No actionable trade ideas today</li>'
+      + '<li>Full universe screened locally</li>'
+      + '<li>Prediction ran on top-N ranked names</li>'
+      + '<li>Existing positions reviewed automatically</li>'
+      + '</ul>';
     html += '<div style="font-size:10px;color:var(--text-accent);margin-bottom:6px;">Scan completed across the configured universe.</div>';
+    html += '<div style="margin-bottom:6px;"><button class="btn-sm" style="background:var(--ok);color:#04210f;font-weight:800;font-size:10px;padding:5px 14px;" onclick="navigateToPortfolioPositions()">View Portfolio</button></div>';
     html += '<div style="display:flex;flex-wrap:wrap;gap:5px;">';
     html += '<span style="font-size:9px;background:rgba(255,255,255,.07);padding:2px 7px;border-radius:3px;">Scanned: ' + scanned + '</span>';
     html += '<span style="font-size:9px;background:rgba(255,255,255,.07);padding:2px 7px;border-radius:3px;">Eligible: ' + eligible + '</span>';
@@ -12465,16 +12478,16 @@ function renderTodaysCandidates(todays, older) {
     if (countEl) countEl.textContent = ordered.length + ' idea' + (ordered.length === 1 ? '' : 's');
     listEl.innerHTML = `<div style="font-size:11px;font-weight:800;color:var(--ok);margin-bottom:3px;">Only ${ordered.length} trade idea${ordered.length === 1 ? '' : 's'} met today's criteria.</div>`
       + '<div style="font-size:10px;color:var(--text-accent);margin-bottom:6px;line-height:1.4;">Review each candidate below. Choose Approve, Watch, or Reject.</div>'
-      + ordered.map(_ptCandCardHtml).join('');
+      + ordered.map(function (c) { return _ptCandCardHtml(c, false); }).join('');
   }
 
   if (olderEl) {
     if (!older || older.length === 0) {
       olderEl.innerHTML = '';
     } else {
-      olderEl.innerHTML = '<details style="margin-top:6px;"><summary style="font-size:9px;font-weight:600;color:var(--label);cursor:pointer;user-select:none;padding:4px 0;text-transform:uppercase;letter-spacing:.06em;">Older trade ideas — history only (' + older.length + ')</summary>'
+      olderEl.innerHTML = '<details style="margin-top:6px;"><summary style="font-size:9px;font-weight:600;color:var(--label);cursor:pointer;user-select:none;padding:4px 0;text-transform:uppercase;letter-spacing:.06em;">Older Trade Ideas — History Only (' + older.length + ')</summary>'
         + `<div style="font-size:9px;color:var(--label);font-style:italic;margin:4px 0 6px;">Older trade ideas — not part of today's active workflow. Older review items are not part of today's new scan.</div>`
-        + older.map(_ptCandCardHtml).join('') + '</details>';
+        + older.map(function (c) { return _ptCandCardHtml(c, true); }).join('') + '</details>';
     }
   }
 }
@@ -12637,15 +12650,16 @@ function updateTodayReview(ctx) {
   if (resultEl) resultEl.style.display = 'none';
 
   if (todayTotal === 0 && sessionRanToday) {
-    // Latest session completed today and saved 0 new-entry candidates.
+    // Latest session completed today and saved 0 actionable trade ideas. The
+    // next action is to review the Portfolio, not a separate monitoring step.
     _rpTask = 'Monitor Portfolio';
-    _rpNext = 'No new-entry candidates found. Review open positions.';
-    _rightNext = 'Review open positions.';
+    _rpNext = 'No actionable trade ideas today. Existing positions were reviewed automatically. Review Portfolio.';
+    _rightNext = 'No actionable trade ideas today. Existing positions were reviewed automatically. Review Portfolio.';
     taskEl.textContent = _rpTask;
     taskEl.style.color = 'var(--ok)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--ok)'; }
-    if (ctxEl) { ctxEl.textContent = 'No new-entry candidates found.' + _olderNote; ctxEl.style.color = 'var(--label)'; }
-    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button>';
+    if (ctxEl) { ctxEl.textContent = 'Existing positions were reviewed automatically.' + _olderNote; ctxEl.style.color = 'var(--label)'; }
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--ok);color:#000;font-weight:700;font-size:11px;padding:7px 18px;" onclick="navigateToPortfolioPositions()">View Portfolio</button>';
     renderTradeFlowCard('HIDE');
   } else if (todayTotal === 0) {
     // No session run yet today.
@@ -12827,7 +12841,7 @@ function updateTodayReview(ctx) {
     } else if (_st === 'PAPER_TRADE_COMPLETED') {
       _gtlTask = 'View Portfolio'; _gtlNext = 'Review updated position.';
     } else if (_st === 'NO_TRADE_PLAN' || _st === 'MONITOR_PORTFOLIO') {
-      _gtlTask = 'Monitor Portfolio'; _gtlNext = 'No new trade plan. Review open positions.';
+      _gtlTask = 'Monitor Portfolio'; _gtlNext = 'No actionable trade ideas today. Existing positions were reviewed automatically. Review Portfolio.';
     }
     if (_gtlTask && _rt) _rt.textContent = _gtlTask;
     if (_gtlNext && _rn) _rn.textContent = _gtlNext;
@@ -12903,6 +12917,59 @@ function applyCanonicalToActionPanel() {
   if (btnEl) btnEl.textContent = st.button_label || st.primary_button_label || 'Go to next action';
 }
 
+// ----- Single navigation contract (item C + G) -----
+// One set of helpers every CTA reuses so Overview, Today's Review, the right
+// Action / Safety panel, and the daily-review completion buttons all land in
+// the same place. Read-only navigation: no DB writes, no orders, no automation.
+
+// Switch the visible tab using the same toggler the sidebar/top tabs use.
+function switchToTab(tabName) {
+  try { if (window._switchTab) window._switchTab(tabName); } catch (e) {}
+}
+
+// Scroll a section into view and briefly highlight it so the target is never
+// hidden behind charts or collapsed sections.
+function focusSection(sectionId) {
+  const el = document.getElementById(sectionId);
+  if (!el) return;
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+  try {
+    el.style.transition = 'box-shadow .25s ease';
+    el.style.boxShadow = '0 0 0 2px var(--ok)';
+    setTimeout(function () { el.style.boxShadow = ''; }, 1200);
+  } catch (e) {}
+}
+
+// Navigate to the Portfolio tab and focus the Open Positions section. Used by
+// every "View Portfolio" / "Review Open Positions" / "Monitor Portfolio" CTA so
+// the user is never trapped on Daily Plan. Clears stale Orders filters so a
+// freshly filled paper order is always visible.
+function navigateToPortfolioPositions() {
+  switchToTab('portfolio');
+  try {
+    const os = document.getElementById('ordStatus'); if (os) os.value = '';
+    const od = document.getElementById('ordDate'); if (od) od.value = '';
+  } catch (e) {}
+  if (window._appState && window._appState.connected) {
+    try { loadPositions(); } catch (e) {}
+    try { loadOrders(); } catch (e) {}
+  }
+  setTimeout(function () { focusSection('open-positions'); }, 60);
+  // Right-panel last-action feedback so the user sees where they landed.
+  try {
+    const rn = document.getElementById('right-next-action');
+    if (rn) rn.textContent = 'Showing Portfolio — Open Positions.';
+    const rs = document.getElementById('right-action-status');
+    if (rs) { rs.textContent = new Date().toLocaleTimeString(); rs.style.color = 'var(--ok)'; }
+  } catch (e) {}
+}
+
+// Navigate to the Daily Plan and focus the active Today's Trade Ideas section.
+function navigateToDailyTradeIdeas() {
+  switchToTab('prediction-cockpit');
+  setTimeout(function () { focusSection('today-trade-ideas'); }, 60);
+}
+
 // Map a canonical target_tab token to the actual tab id used by _switchTab.
 function _canonicalTabId(targetTab) {
   if (targetTab === 'portfolio') return 'portfolio';
@@ -12918,6 +12985,11 @@ function navigateToCanonicalTarget() {
   const st = window._canonicalWorkflowState || {};
   const tab = _canonicalTabId(st.target_tab || 'daily-plan');
   const anchor = st.target_anchor || st.focus_target || 'active-action-workspace';
+  // Portfolio destinations route through the one Portfolio helper (focuses Open
+  // Positions, clears Orders filters, updates the right panel). Daily-plan trade
+  // ideas route through the dedicated helper. Both keep one navigation contract.
+  if (tab === 'portfolio') { navigateToPortfolioPositions(); return; }
+  if (tab === 'prediction-cockpit' && anchor === 'today-trade-ideas') { navigateToDailyTradeIdeas(); return; }
   try { if (window._switchTab) window._switchTab(tab); } catch (e) {}
   const doScroll = function() {
     const el = document.getElementById(anchor)
@@ -12963,7 +13035,7 @@ function primaryWorkflowAction(action, btn) {
     case 'create_paper_order': return createOrdersFromDecisions();
     case 'fill_paper_order': return fillPendingPaperOrders();
     case 'open_portfolio': return viewPortfolio();
-    case 'review_open_positions': return runPortfolioMonitorWorkspace(btn);
+    case 'review_open_positions': return navigateToPortfolioPositions();
     default: return;
   }
 }
@@ -13411,6 +13483,13 @@ function viewPortfolio() {
     try { loadPositions(); } catch (e) {}
     try { loadOrders(); } catch (e) {}
   }
+  // Focus the Open Positions section and report where the user landed so every
+  // "View Portfolio" CTA behaves identically to navigateToPortfolioPositions().
+  setTimeout(function () { focusSection('open-positions'); }, 60);
+  try {
+    const rn = document.getElementById('right-next-action');
+    if (rn) rn.textContent = 'Showing Portfolio — Open Positions.';
+  } catch (e) {}
 }
 
 function updateCockpitReviewSummary() {
