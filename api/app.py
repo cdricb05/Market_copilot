@@ -91,6 +91,11 @@ from paper_trader.db.models import (
 )
 from paper_trader.db.session import get_dedicated_session, get_session
 from paper_trader.engine.market_data import fetch_latest_prices, fetch_historical_prices, fetch_market_indicator_latest, fetch_fred_latest_series
+
+try:
+    import yfinance as _yf
+except ImportError:
+    _yf = None
 from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import compute_cash, get_open_positions, get_portfolio
 from paper_trader.engine.prediction_client import (
@@ -466,12 +471,15 @@ class MarketIndicator(BaseModel):
     label: str
     symbol: str | None = None
     value: str | None = None
+    previous_close: str | None = None
+    previous_close_date: str | None = None
     change: str | None = None
     change_pct: str | None = None
     source: str
     available: bool
     as_of: str | None = None
     status: str | None = None
+    freshness_label: str | None = None
 
 
 class MarketIndicatorPlaceholder(BaseModel):
@@ -483,6 +491,11 @@ class MarketIndicatorPlaceholder(BaseModel):
     as_of: str | None = None
     status: str | None = None
     source: str | None = None
+    change: str | None = None
+    change_pct: str | None = None
+    previous_value: str | None = None
+    previous_as_of: str | None = None
+    freshness_label: str | None = None
 
 
 class MarketIndicatorsResponse(BaseModel):
@@ -14811,6 +14824,145 @@ async def cancel_pending_paper_orders(
             )
 
 
+def _batch_indicator_changes(symbols: list[str]) -> dict[str, dict]:
+    """
+    Batch-fetch 5 days of daily history for market indicator symbols to compute
+    absolute and percentage change vs the previous close.
+    Returns {symbol: {previous_close, change, change_pct}} for available symbols.
+    Fails gracefully — any exception returns {}.
+    Read-only, no DB access, no broker APIs.
+    """
+    if _yf is None or not symbols:
+        return {}
+    try:
+        data = _yf.download(
+            " ".join(symbols),
+            period="5d",
+            interval="1d",
+            progress=False,
+            threads=False,
+            auto_adjust=False,
+        )
+        if data is None or len(data) == 0:
+            return {}
+        try:
+            close_data = data["Close"]
+        except (KeyError, TypeError):
+            return {}
+
+        result: dict[str, dict] = {}
+        for symbol in symbols:
+            try:
+                if hasattr(close_data, "columns"):
+                    if symbol not in close_data.columns:
+                        continue
+                    series = close_data[symbol].dropna()
+                else:
+                    series = close_data.dropna() if hasattr(close_data, "dropna") else close_data
+
+                if len(series) < 2:
+                    continue
+
+                last_two = series.tail(2)
+                prev_idx = last_two.index[0]
+                prev_val = float(last_two.iloc[0])
+                curr_val = float(last_two.iloc[1])
+
+                if prev_val <= 0 or curr_val <= 0:
+                    continue
+
+                change_abs = curr_val - prev_val
+                change_pct = (change_abs / prev_val) * 100
+
+                if hasattr(prev_idx, "date"):
+                    prev_date: str = prev_idx.date().isoformat()
+                else:
+                    prev_date = str(prev_idx)[:10]
+
+                result[symbol] = {
+                    "previous_close": str(Decimal(str(round(prev_val, 6)))),
+                    "previous_close_date": prev_date,
+                    "change": str(Decimal(str(round(change_abs, 6)))),
+                    "change_pct": str(Decimal(str(round(change_pct, 6)))),
+                }
+            except Exception:
+                continue
+
+        return result
+    except Exception:
+        return {}
+
+
+def _batch_fred_with_prior(series_map: dict[str, str], api_key: str | None) -> dict[str, dict | None]:
+    """
+    Fetch latest two valid FRED observations per series for prior-observation comparison.
+    Returns {key: {value, as_of, status[, change, change_pct, previous_value, previous_as_of]}} or {key: None}.
+    Read-only, no DB. Uses stdlib urllib only — no new dependencies.
+    Gracefully fails: any per-series exception returns None for that key.
+    """
+    if not api_key:
+        return {key: None for key in series_map}
+    import json as _json
+    import urllib.parse as _urlparse
+    import urllib.request as _urlreq
+    results: dict[str, dict | None] = {}
+    for key, series_id in series_map.items():
+        try:
+            params = _urlparse.urlencode({
+                "series_id": series_id,
+                "api_key": api_key,
+                "file_type": "json",
+                "sort_order": "desc",
+                "limit": "10",
+            })
+            url = f"https://api.stlouisfed.org/fred/series/observations?{params}"
+            req = _urlreq.Request(url)
+            with _urlreq.urlopen(req, timeout=10) as resp:
+                payload = _json.loads(resp.read().decode("utf-8"))
+            valid_obs: list[dict] = []
+            for obs in payload.get("observations", []):
+                val_str = obs.get("value", ".")
+                if not val_str or val_str == ".":
+                    continue
+                try:
+                    price_f = float(val_str)
+                    valid_obs.append({
+                        "value": str(Decimal(str(price_f))),
+                        "as_of": obs.get("date", "")[:10],
+                    })
+                except (ValueError, TypeError):
+                    continue
+                if len(valid_obs) == 2:
+                    break
+            if not valid_obs:
+                results[key] = None
+                continue
+            latest = valid_obs[0]
+            entry: dict = {
+                "value": latest["value"],
+                "as_of": latest["as_of"],
+                "status": f"FRED latest observation {latest['as_of']}",
+            }
+            if len(valid_obs) >= 2:
+                prior = valid_obs[1]
+                try:
+                    curr_f = float(latest["value"])
+                    prev_f = float(prior["value"])
+                    if prev_f != 0:
+                        change_abs = curr_f - prev_f
+                        change_pct = (change_abs / prev_f) * 100
+                        entry["previous_value"] = prior["value"]
+                        entry["previous_as_of"] = prior["as_of"]
+                        entry["change"] = str(Decimal(str(round(change_abs, 6))))
+                        entry["change_pct"] = str(Decimal(str(round(change_pct, 6))))
+                except Exception:
+                    pass
+            results[key] = entry
+        except Exception:
+            results[key] = None
+    return results
+
+
 @app.get(
     "/v1/market/indicators",
     response_model=MarketIndicatorsResponse,
@@ -14854,11 +15006,15 @@ def get_market_indicators() -> MarketIndicatorsResponse:
     # Create lookup by symbol
     price_map = {p["ticker"]: p["price"] for p in successful_prices}
 
+    # Fetch change vs previous close for all symbols in a single 5d batch download
+    change_map = _batch_indicator_changes(symbols)
+
     # Build indicators list; fall back to per-symbol history for any batch miss
     now_str = datetime.now(timezone.utc).isoformat()
     indicators = []
 
     for key, label, symbol in indicator_config:
+        chg = change_map.get(symbol, {})
         if symbol in price_map:
             indicators.append(
                 MarketIndicator(
@@ -14866,12 +15022,15 @@ def get_market_indicators() -> MarketIndicatorsResponse:
                     label=label,
                     symbol=symbol,
                     value=price_map[symbol],
-                    change=None,
-                    change_pct=None,
+                    previous_close=chg.get("previous_close"),
+                    previous_close_date=chg.get("previous_close_date"),
+                    change=chg.get("change"),
+                    change_pct=chg.get("change_pct"),
                     source="yfinance",
                     available=True,
                     as_of=now_str,
                     status="yfinance live",
+                    freshness_label="LATEST LOADED",
                 )
             )
         else:
@@ -14884,12 +15043,15 @@ def get_market_indicators() -> MarketIndicatorsResponse:
                         label=label,
                         symbol=symbol,
                         value=hist["value"],
-                        change=None,
-                        change_pct=None,
+                        previous_close=chg.get("previous_close"),
+                        previous_close_date=chg.get("previous_close_date"),
+                        change=chg.get("change"),
+                        change_pct=chg.get("change_pct"),
                         source="yfinance",
                         available=True,
                         as_of=hist["as_of"],
                         status=hist["status"],
+                        freshness_label="CLOSE",
                     )
                 )
             else:
@@ -14899,18 +15061,21 @@ def get_market_indicators() -> MarketIndicatorsResponse:
                         label=label,
                         symbol=symbol,
                         value=None,
+                        previous_close=None,
+                        previous_close_date=None,
                         change=None,
                         change_pct=None,
                         source="yfinance",
                         available=False,
                         as_of=None,
                         status="yfinance unavailable",
+                        freshness_label="UNAVAILABLE",
                     )
                 )
 
-    # Fetch FRED macro indicators
+    # Fetch FRED macro indicators (latest + prior observation for change computation)
     fred_api_key = get_settings().fred_api_key
-    fred_results = fetch_fred_latest_series(
+    fred_results = _batch_fred_with_prior(
         {k: v[1] for k, v in _FRED_SERIES.items()},
         fred_api_key,
     )
@@ -14929,6 +15094,11 @@ def get_market_indicators() -> MarketIndicatorsResponse:
                     as_of=fred_data["as_of"],
                     status=fred_data["status"],
                     source="fred",
+                    change=fred_data.get("change"),
+                    change_pct=fred_data.get("change_pct"),
+                    previous_value=fred_data.get("previous_value"),
+                    previous_as_of=fred_data.get("previous_as_of"),
+                    freshness_label="FRED OBS",
                 )
             )
         else:
@@ -14939,6 +15109,7 @@ def get_market_indicators() -> MarketIndicatorsResponse:
                     label=label,
                     available=False,
                     reason=reason,
+                    freshness_label="UNAVAILABLE",
                 )
             )
 

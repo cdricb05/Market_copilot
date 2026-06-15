@@ -25630,7 +25630,8 @@ class TestMarketIndicatorsEndpoint:
 
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
-        monkeypatch.setattr(app, "fetch_fred_latest_series", lambda series_map, api_key: {k: None for k in series_map})
+        monkeypatch.setattr(app, "_batch_fred_with_prior", lambda series_map, api_key: {k: None for k in series_map})
+        monkeypatch.setattr(app, "_batch_indicator_changes", lambda symbols: {})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -25681,6 +25682,7 @@ class TestMarketIndicatorsEndpoint:
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
         monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
+        monkeypatch.setattr(app, "_batch_indicator_changes", lambda symbols: {})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -25729,6 +25731,7 @@ class TestMarketIndicatorsEndpoint:
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
         monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
+        monkeypatch.setattr(app, "_batch_indicator_changes", lambda symbols: {})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -25760,7 +25763,8 @@ class TestMarketIndicatorsEndpoint:
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
         monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
-        monkeypatch.setattr(app, "fetch_fred_latest_series", lambda series_map, api_key: {k: None for k in series_map})
+        monkeypatch.setattr(app, "_batch_fred_with_prior", lambda series_map, api_key: {k: None for k in series_map})
+        monkeypatch.setattr(app, "_batch_indicator_changes", lambda symbols: {})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -25787,6 +25791,7 @@ class TestMarketIndicatorsEndpoint:
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
         monkeypatch.setattr(app, "fetch_market_indicator_latest", mock_fetch_market_indicator_latest)
+        monkeypatch.setattr(app, "_batch_indicator_changes", lambda symbols: {})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -25823,7 +25828,8 @@ class TestMarketIndicatorsEndpoint:
 
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
-        monkeypatch.setattr(app, "fetch_fred_latest_series", mock_fred_no_key)
+        monkeypatch.setattr(app, "_batch_fred_with_prior", mock_fred_no_key)
+        monkeypatch.setattr(app, "_batch_indicator_changes", lambda symbols: {})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -25874,7 +25880,8 @@ class TestMarketIndicatorsEndpoint:
 
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
-        monkeypatch.setattr(app, "fetch_fred_latest_series", mock_fred_data)
+        monkeypatch.setattr(app, "_batch_fred_with_prior", mock_fred_data)
+        monkeypatch.setattr(app, "_batch_indicator_changes", lambda symbols: {})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -25918,7 +25925,8 @@ class TestMarketIndicatorsEndpoint:
 
         from paper_trader.api import app
         monkeypatch.setattr(app, "fetch_latest_prices", mock_fetch_latest_prices)
-        monkeypatch.setattr(app, "fetch_fred_latest_series", mock_fred_network_error)
+        monkeypatch.setattr(app, "_batch_fred_with_prior", mock_fred_network_error)
+        monkeypatch.setattr(app, "_batch_indicator_changes", lambda symbols: {})
 
         resp = seeded_client.get("/v1/market/indicators", headers={"X-API-Key": _TEST_API_KEY})
         assert resp.status_code == 200
@@ -31771,6 +31779,279 @@ class TestTradeLedgerEndpointV1:
             with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
                 s.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
                 s.commit()
+
+
+class TestMarketIndicatorChangeFieldsV1:
+    """Test that GET /v1/market/indicators returns change vs previous close fields."""
+
+    def test_change_fields_populated_when_change_data_available(self, seeded_client: TestClient, monkeypatch) -> None:
+        """When _batch_indicator_changes returns data, change/change_pct/previous_close are in response."""
+        def mock_prices(tickers):
+            return [
+                {"ticker": "^GSPC", "price": "5444.44"},
+                {"ticker": "^IXIC", "price": "18200.00"},
+                {"ticker": "^DJI",  "price": "42200.50"},
+                {"ticker": "^VIX",  "price": "17.68"},
+                {"ticker": "EURUSD=X", "price": "1.0950"},
+                {"ticker": "GC=F",  "price": "4238.80"},
+                {"ticker": "BZ=F",  "price": "87.30"},
+                {"ticker": "CL=F",  "price": "78.50"},
+            ], []
+
+        def mock_changes(symbols):
+            return {
+                "^GSPC": {"previous_close": "5432.10", "change": "12.34",  "change_pct": "0.227333"},
+                "^VIX":  {"previous_close": "17.24",   "change": "0.44",   "change_pct": "2.552553"},
+                "GC=F":  {"previous_close": "4247.00", "change": "-8.20",  "change_pct": "-0.193086"},
+            }
+
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(_app, "fetch_latest_prices", mock_prices)
+        monkeypatch.setattr(_app, "_batch_fred_with_prior", lambda sm, k: {key: None for key in sm})
+        monkeypatch.setattr(_app, "_batch_indicator_changes", mock_changes)
+
+        resp = seeded_client.get("/v1/market/indicators", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        indicators = data["indicators"]
+
+        sp500 = next(i for i in indicators if i["key"] == "sp500")
+        assert sp500["change"] == "12.34"
+        assert sp500["change_pct"] == "0.227333"
+        assert sp500["previous_close"] == "5432.10"
+
+        vix = next(i for i in indicators if i["key"] == "vix")
+        assert vix["change"] == "0.44"
+        assert vix["change_pct"] == "2.552553"
+
+        gold = next(i for i in indicators if i["key"] == "gold")
+        assert gold["change"] == "-8.20"
+        assert gold["change_pct"] == "-0.193086"
+        assert gold["previous_close"] == "4247.00"
+
+        eurusd = next(i for i in indicators if i["key"] == "eurusd")
+        assert eurusd["change"] is None
+        assert eurusd["change_pct"] is None
+        assert eurusd["previous_close"] is None
+
+    def test_change_fields_null_when_change_data_unavailable(self, seeded_client: TestClient, monkeypatch) -> None:
+        """When _batch_indicator_changes returns {}, all change fields are null."""
+        def mock_prices(tickers):
+            return [{"ticker": "^GSPC", "price": "5432.10"}], [
+                {"ticker": t, "reason": "No data"} for t in tickers if t != "^GSPC"
+            ]
+
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(_app, "fetch_latest_prices", mock_prices)
+        monkeypatch.setattr(_app, "_batch_fred_with_prior", lambda sm, k: {key: None for key in sm})
+        monkeypatch.setattr(_app, "_batch_indicator_changes", lambda symbols: {})
+        monkeypatch.setattr(_app, "fetch_market_indicator_latest", lambda s: None)
+
+        resp = seeded_client.get("/v1/market/indicators", headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        sp500 = next(i for i in data["indicators"] if i["key"] == "sp500")
+        assert sp500["available"] is True
+        assert sp500["change"] is None
+        assert sp500["change_pct"] is None
+        assert sp500["previous_close"] is None
+
+    def test_change_fields_present_in_all_indicators(self, seeded_client: TestClient, monkeypatch) -> None:
+        """All indicator objects include the previous_close, change, change_pct keys."""
+        def mock_prices(tickers):
+            return [], [{"ticker": t, "reason": "No data"} for t in tickers]
+
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(_app, "fetch_latest_prices", mock_prices)
+        monkeypatch.setattr(_app, "fetch_market_indicator_latest", lambda s: None)
+        monkeypatch.setattr(_app, "_batch_fred_with_prior", lambda sm, k: {key: None for key in sm})
+        monkeypatch.setattr(_app, "_batch_indicator_changes", lambda symbols: {})
+
+        resp = seeded_client.get("/v1/market/indicators", headers=_AUTH)
+        assert resp.status_code == 200
+        for ind in resp.json()["indicators"]:
+            assert "previous_close" in ind
+            assert "change" in ind
+            assert "change_pct" in ind
+
+    def test_ui_contains_change_element_css_and_formatter(self) -> None:
+        """UI static: .ov-mkt-change CSS, change divs, and formatMarketIndicatorChange function exist."""
+        from pathlib import Path
+        html = Path("api/ui/index.html").read_text(encoding="utf-8", errors="ignore")
+        assert "ov-mkt-change" in html
+        assert 'class="ov-mkt-change"' in html
+        assert "formatMarketIndicatorChange" in html
+
+    def test_ui_change_formatter_handles_signed_values(self) -> None:
+        """UI static: change formatter sign logic and change_pct reference are present."""
+        from pathlib import Path
+        html = Path("api/ui/index.html").read_text(encoding="utf-8", errors="ignore")
+        fn_start = html.find("function formatMarketIndicatorChange(")
+        assert fn_start != -1, "formatMarketIndicatorChange not found"
+        fn_end = html.find("\n}", fn_start)
+        fn_body = html[fn_start:fn_end]
+        assert ("chg >= 0" in fn_body or "chg > 0" in fn_body)
+        assert "change_pct" in fn_body
+
+    def test_previous_close_date_returned_when_available(self, seeded_client: TestClient, monkeypatch) -> None:
+        """When _batch_indicator_changes returns previous_close_date, it appears in the response."""
+        def mock_prices(tickers):
+            return [{"ticker": "^GSPC", "price": "5444.44"}], [
+                {"ticker": t, "reason": "No data"} for t in tickers if t != "^GSPC"
+            ]
+
+        def mock_changes(symbols):
+            return {
+                "^GSPC": {
+                    "previous_close": "5432.10",
+                    "previous_close_date": "2026-06-13",
+                    "change": "12.34",
+                    "change_pct": "0.227333",
+                },
+            }
+
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(_app, "fetch_latest_prices", mock_prices)
+        monkeypatch.setattr(_app, "fetch_market_indicator_latest", lambda s: None)
+        monkeypatch.setattr(_app, "_batch_fred_with_prior", lambda sm, k: {key: None for key in sm})
+        monkeypatch.setattr(_app, "_batch_indicator_changes", mock_changes)
+
+        resp = seeded_client.get("/v1/market/indicators", headers=_AUTH)
+        assert resp.status_code == 200
+        indicators = resp.json()["indicators"]
+        sp500 = next(i for i in indicators if i["key"] == "sp500")
+        assert sp500["previous_close_date"] == "2026-06-13"
+        assert sp500["change"] == "12.34"
+        assert sp500["previous_close"] == "5432.10"
+
+    def test_freshness_label_latest_loaded_for_batch_success(self, seeded_client: TestClient, monkeypatch) -> None:
+        """Batch-fetched yfinance indicators get freshness_label = 'LATEST LOADED'."""
+        def mock_prices(tickers):
+            return [{"ticker": "^GSPC", "price": "5444.44"}], [
+                {"ticker": t, "reason": "No data"} for t in tickers if t != "^GSPC"
+            ]
+
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(_app, "fetch_latest_prices", mock_prices)
+        monkeypatch.setattr(_app, "fetch_market_indicator_latest", lambda s: None)
+        monkeypatch.setattr(_app, "_batch_fred_with_prior", lambda sm, k: {key: None for key in sm})
+        monkeypatch.setattr(_app, "_batch_indicator_changes", lambda symbols: {})
+
+        resp = seeded_client.get("/v1/market/indicators", headers=_AUTH)
+        assert resp.status_code == 200
+        sp500 = next(i for i in resp.json()["indicators"] if i["key"] == "sp500")
+        assert sp500["freshness_label"] == "LATEST LOADED"
+
+    def test_freshness_label_close_for_history_fallback(self, seeded_client: TestClient, monkeypatch) -> None:
+        """History-fallback yfinance indicators get freshness_label = 'CLOSE'."""
+        def mock_prices(tickers):
+            return [], [{"ticker": t, "reason": "No data"} for t in tickers]
+
+        def mock_hist(symbol):
+            return {"value": "5432.10", "as_of": "2026-06-13", "status": "yfinance last close 2026-06-13"}
+
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(_app, "fetch_latest_prices", mock_prices)
+        monkeypatch.setattr(_app, "fetch_market_indicator_latest", mock_hist)
+        monkeypatch.setattr(_app, "_batch_fred_with_prior", lambda sm, k: {key: None for key in sm})
+        monkeypatch.setattr(_app, "_batch_indicator_changes", lambda symbols: {})
+
+        resp = seeded_client.get("/v1/market/indicators", headers=_AUTH)
+        assert resp.status_code == 200
+        sp500 = next(i for i in resp.json()["indicators"] if i["key"] == "sp500")
+        assert sp500["freshness_label"] == "CLOSE"
+
+    def test_fred_placeholder_includes_prior_obs_change_fields(self, seeded_client: TestClient, monkeypatch) -> None:
+        """FRED placeholder includes change, change_pct, previous_as_of when prior observation available."""
+        def mock_prices(tickers):
+            return [], [{"ticker": t, "reason": "No data"} for t in tickers]
+
+        def mock_fred(series_map, api_key):
+            return {
+                "us10y": {
+                    "value": "4.23",
+                    "as_of": "2026-06-12",
+                    "status": "FRED latest observation 2026-06-12",
+                    "previous_value": "4.18",
+                    "previous_as_of": "2026-06-11",
+                    "change": "0.05",
+                    "change_pct": "1.196172",
+                },
+                "us2y": {"value": "4.71", "as_of": "2026-06-12", "status": "FRED latest observation 2026-06-12"},
+                "cpi_latest": {"value": "315.61", "as_of": "2026-04-01", "status": "FRED latest observation 2026-04-01"},
+                "fed_funds": {"value": "5.33", "as_of": "2026-05-01", "status": "FRED latest observation 2026-05-01"},
+                "sofr": {"value": "5.31", "as_of": "2026-06-12", "status": "FRED latest observation 2026-06-12"},
+            }
+
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(_app, "fetch_latest_prices", mock_prices)
+        monkeypatch.setattr(_app, "fetch_market_indicator_latest", lambda s: None)
+        monkeypatch.setattr(_app, "_batch_fred_with_prior", mock_fred)
+        monkeypatch.setattr(_app, "_batch_indicator_changes", lambda symbols: {})
+
+        resp = seeded_client.get("/v1/market/indicators", headers=_AUTH)
+        assert resp.status_code == 200
+        placeholders = resp.json()["placeholders"]
+
+        us10y = next(p for p in placeholders if p["key"] == "us10y")
+        assert us10y["available"] is True
+        assert us10y["change"] == "0.05"
+        assert us10y["change_pct"] == "1.196172"
+        assert us10y["previous_value"] == "4.18"
+        assert us10y["previous_as_of"] == "2026-06-11"
+        assert us10y["freshness_label"] == "FRED OBS"
+
+        us2y = next(p for p in placeholders if p["key"] == "us2y")
+        assert us2y["change"] is None
+        assert us2y["previous_as_of"] is None
+
+    def test_fred_placeholder_no_prior_when_unavailable(self, seeded_client: TestClient, monkeypatch) -> None:
+        """FRED placeholder has null change fields when no prior observation in response."""
+        def mock_prices(tickers):
+            return [], [{"ticker": t, "reason": "No data"} for t in tickers]
+
+        def mock_fred(series_map, api_key):
+            return {
+                k: {"value": "4.23", "as_of": "2026-06-12", "status": "FRED latest observation 2026-06-12"}
+                for k in series_map
+            }
+
+        from paper_trader.api import app as _app
+        monkeypatch.setattr(_app, "fetch_latest_prices", mock_prices)
+        monkeypatch.setattr(_app, "fetch_market_indicator_latest", lambda s: None)
+        monkeypatch.setattr(_app, "_batch_fred_with_prior", mock_fred)
+        monkeypatch.setattr(_app, "_batch_indicator_changes", lambda symbols: {})
+
+        resp = seeded_client.get("/v1/market/indicators", headers=_AUTH)
+        assert resp.status_code == 200
+        for p in resp.json()["placeholders"]:
+            assert p["change"] is None
+            assert p["change_pct"] is None
+            assert p["previous_as_of"] is None
+            assert p["freshness_label"] == "FRED OBS"
+
+    def test_ui_contains_compare_date_element_and_format_helper(self) -> None:
+        """UI static: .ov-mkt-compare-date div, formatShortDate function, and prior obs reference present."""
+        from pathlib import Path
+        html = Path("api/ui/index.html").read_text(encoding="utf-8", errors="ignore")
+        assert "ov-mkt-compare-date" in html
+        assert 'class="ov-mkt-compare-date"' in html
+        assert "formatShortDate" in html
+        assert "previous_as_of" in html or "prior obs" in html
+
+    def test_ui_no_live_badge_literal_for_market_indicators(self) -> None:
+        """UI static: badge code uses freshness_label / 'LATEST LOADED' instead of hardcoded 'LIVE'."""
+        from pathlib import Path
+        html = Path("api/ui/index.html").read_text(encoding="utf-8", errors="ignore")
+        fn_start = html.find("async function loadMarketDashboard(")
+        assert fn_start != -1, "loadMarketDashboard not found"
+        fn_end = html.find("\nasync function ", fn_start + 1)
+        if fn_end == -1:
+            fn_end = html.find("\nfunction ", fn_start + 1)
+        fn_body = html[fn_start:fn_end] if fn_end != -1 else html[fn_start:fn_start + 10000]
+        assert "freshness_label" in fn_body
+        assert "LATEST LOADED" in fn_body
+        assert "badgeEl.textContent = 'LIVE'" not in fn_body
 
 
 class TestPortfolioTradeLedgerUiV1:

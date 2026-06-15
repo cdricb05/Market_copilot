@@ -1234,7 +1234,7 @@
       border: 1px solid var(--border);
       border-radius: 3px;
       padding: 12px 14px;
-      min-height: 82px;
+      min-height: 110px;
     }
     .ov-market-card.available {
       border-color: rgba(34,197,94,.3);
@@ -1275,6 +1275,26 @@
     .ov-mkt-badge.live { background: rgba(34,197,94,.18); color: var(--ok); }
     .ov-mkt-badge.unavailable { background: rgba(239,68,68,.12); color: var(--danger); }
     .ov-mkt-badge.pending { background: rgba(245,158,11,.12); color: var(--warning); }
+    .ov-mkt-change {
+      font-size: 11px;
+      font-family: 'Monaco', monospace;
+      line-height: 1.2;
+      margin-top: 2px;
+      min-height: 14px;
+    }
+    .ov-mkt-change.pos { color: var(--ok); }
+    .ov-mkt-change.neg { color: var(--danger); }
+    .ov-mkt-change.neutral { color: var(--label); opacity: 0.7; }
+    .ov-mkt-badge.quote { background: rgba(56,189,248,.18); color: var(--info, #38bdf8); }
+    .ov-mkt-badge.fred-obs { background: rgba(168,85,247,.18); color: #a855f7; }
+    .ov-mkt-compare-date {
+      font-size: 9px;
+      color: var(--label);
+      opacity: 0.75;
+      margin-top: 1px;
+      min-height: 11px;
+      line-height: 1.2;
+    }
     .badge.danger { background: rgba(239,68,68,.12); color: var(--danger); border-color: var(--danger); }
     .dp-rotation-card { border-color: rgba(245,158,11,.35) !important; }
   </style>
@@ -1612,31 +1632,31 @@
             <div class="ov-mkt-group">
               <div class="ov-mkt-group-label">Equity / Volatility</div>
               <div class="ov-mkt-group-cards">
-                <div class="ov-market-card" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
               </div>
             </div>
             <!-- Group: FX / Commodities -->
             <div class="ov-mkt-group">
               <div class="ov-mkt-group-label">FX / Commodities</div>
               <div class="ov-mkt-group-cards">
-                <div class="ov-market-card" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="wti"><div class="ov-mkt-label">WTI</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="wti"><div class="ov-mkt-label">WTI</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
               </div>
             </div>
             <!-- Group: Rates / Macro -->
             <div class="ov-mkt-group rates-group">
               <div class="ov-mkt-group-label">Rates / Macro</div>
               <div class="ov-mkt-group-cards">
-                <div class="ov-market-card" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="cpi_latest"><div class="ov-mkt-label">CPI latest</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="fed_funds"><div class="ov-mkt-label">Fed Funds</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
-                <div class="ov-market-card" data-key="sofr"><div class="ov-mkt-label">SOFR</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="cpi_latest"><div class="ov-mkt-label">CPI latest</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="fed_funds"><div class="ov-mkt-label">Fed Funds</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
+                <div class="ov-market-card" data-key="sofr"><div class="ov-mkt-label">SOFR</div><div class="ov-mkt-value">Latest unavailable</div><div class="ov-mkt-change"></div><div class="ov-mkt-compare-date"></div><div class="ov-mkt-status">Source pending</div><div class="ov-mkt-badge pending">pending</div></div>
               </div>
             </div>
           </div>
@@ -5659,6 +5679,16 @@ async function loadHistory() {
   updateKpi();
 }
 
+function formatShortDate(iso) {
+  if (!iso) return '';
+  const parts = iso.split('-');
+  if (parts.length < 3) return iso;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const m = parseInt(parts[1], 10) - 1;
+  if (m < 0 || m > 11) return iso;
+  return months[m] + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
+}
+
 function formatFredValue(key, value) {
   const val = parseFloat(value);
   if (isNaN(val)) return String(value);
@@ -5693,6 +5723,20 @@ function formatMarketIndicatorValue(indicator) {
     return val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   }
   return indicator.value;
+}
+
+function formatMarketIndicatorChange(indicator, key) {
+  if (!indicator.change || !indicator.change_pct) return null;
+  const chg = parseFloat(indicator.change);
+  const pct = parseFloat(indicator.change_pct);
+  if (isNaN(chg) || isNaN(pct)) return null;
+  const dec = (key === 'eurusd') ? 4 : 2;
+  const fmtChg = (chg >= 0 ? '+' : '') + chg.toFixed(dec);
+  const fmtPct = (pct >= 0 ? '+' : '') + pct.toFixed(2);
+  return {
+    text: fmtChg + ' (' + fmtPct + '%)',
+    cls: chg > 0 ? 'pos' : (chg < 0 ? 'neg' : 'neutral')
+  };
 }
 
 async function refreshMarketSnapshot(btn) {
@@ -5821,18 +5865,40 @@ async function loadMarketDashboard() {
         const statusEl = cardEl.querySelector('.ov-mkt-status');
         const badgeEl = cardEl.querySelector('.ov-mkt-badge');
 
+        const changeEl = cardEl.querySelector('.ov-mkt-change');
+        const compareDateEl = cardEl.querySelector('.ov-mkt-compare-date');
         if (indicator.available && indicator.value) {
           valueEl.textContent = formatMarketIndicatorValue(indicator);
           const statusText = indicator.status || indicator.source;
           statusEl.textContent = statusText;
           const isHistorical = statusText.includes('last close');
           if (badgeEl) {
-            if (isHistorical) {
+            const fl = indicator.freshness_label;
+            if (fl === 'CLOSE' || isHistorical) {
               badgeEl.textContent = 'CLOSE';
               badgeEl.className = 'ov-mkt-badge pending';
             } else {
-              badgeEl.textContent = 'LIVE';
-              badgeEl.className = 'ov-mkt-badge live';
+              badgeEl.textContent = fl || 'LATEST LOADED';
+              badgeEl.className = 'ov-mkt-badge quote';
+            }
+          }
+          if (changeEl) {
+            const chgData = formatMarketIndicatorChange(indicator, cardId);
+            if (chgData) {
+              changeEl.textContent = chgData.text;
+              changeEl.className = 'ov-mkt-change ' + chgData.cls;
+            } else {
+              changeEl.textContent = '';
+              changeEl.className = 'ov-mkt-change neutral';
+            }
+          }
+          if (compareDateEl) {
+            if (indicator.previous_close_date) {
+              compareDateEl.textContent = 'vs previous close ' + formatShortDate(indicator.previous_close_date);
+            } else if (indicator.change || indicator.change_pct) {
+              compareDateEl.textContent = 'vs previous close date unavailable';
+            } else {
+              compareDateEl.textContent = '';
             }
           }
           cardEl.classList.add('available');
@@ -5844,6 +5910,8 @@ async function loadMarketDashboard() {
             badgeEl.textContent = 'UNAVAILABLE';
             badgeEl.className = 'ov-mkt-badge unavailable';
           }
+          if (changeEl) { changeEl.textContent = ''; changeEl.className = 'ov-mkt-change neutral'; }
+          if (compareDateEl) { compareDateEl.textContent = ''; }
           cardEl.classList.remove('available');
         }
       }
@@ -5859,22 +5927,51 @@ async function loadMarketDashboard() {
         const valueEl = cardEl.querySelector('.ov-mkt-value');
         const statusEl = cardEl.querySelector('.ov-mkt-status');
         const badgeEl = cardEl.querySelector('.ov-mkt-badge');
+        const changeEl = cardEl.querySelector('.ov-mkt-change');
+        const compareDateEl = cardEl.querySelector('.ov-mkt-compare-date');
 
         if (placeholder.available && placeholder.value) {
           valueEl.textContent = formatFredValue(placeholder.key, placeholder.value);
-          statusEl.textContent = placeholder.status || placeholder.source || 'FRED';
+          statusEl.textContent = placeholder.as_of ? ('latest obs ' + formatShortDate(placeholder.as_of)) : (placeholder.status || placeholder.source || 'FRED');
           if (badgeEl) {
-            badgeEl.textContent = 'FRED';
-            badgeEl.className = 'ov-mkt-badge pending';
+            badgeEl.textContent = placeholder.freshness_label || 'FRED OBS';
+            badgeEl.className = 'ov-mkt-badge fred-obs';
+          }
+          if (changeEl) {
+            if (placeholder.change && placeholder.change_pct) {
+              const chg = parseFloat(placeholder.change);
+              const pct = parseFloat(placeholder.change_pct);
+              if (!isNaN(chg) && !isNaN(pct)) {
+                const fmtChg = (chg >= 0 ? '+' : '') + chg.toFixed(2);
+                const fmtPct = (pct >= 0 ? '+' : '') + pct.toFixed(2);
+                changeEl.textContent = fmtChg + ' (' + fmtPct + '%)';
+                changeEl.className = 'ov-mkt-change ' + (chg > 0 ? 'pos' : (chg < 0 ? 'neg' : 'neutral'));
+              } else {
+                changeEl.textContent = '';
+                changeEl.className = 'ov-mkt-change neutral';
+              }
+            } else {
+              changeEl.textContent = '';
+              changeEl.className = 'ov-mkt-change neutral';
+            }
+          }
+          if (compareDateEl) {
+            if (placeholder.previous_as_of) {
+              compareDateEl.textContent = 'vs prior observation ' + formatShortDate(placeholder.previous_as_of);
+            } else {
+              compareDateEl.textContent = 'prior observation unavailable';
+            }
           }
           cardEl.classList.add('available');
         } else {
           valueEl.textContent = 'Not available';
           statusEl.textContent = placeholder.reason || 'unavailable';
           if (badgeEl) {
-            badgeEl.textContent = 'PENDING';
-            badgeEl.className = 'ov-mkt-badge pending';
+            badgeEl.textContent = 'UNAVAILABLE';
+            badgeEl.className = 'ov-mkt-badge unavailable';
           }
+          if (changeEl) { changeEl.textContent = ''; changeEl.className = 'ov-mkt-change neutral'; }
+          if (compareDateEl) { compareDateEl.textContent = ''; }
         }
       }
     }
