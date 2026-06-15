@@ -1537,10 +1537,11 @@
             <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">NO FILLS</span>
             <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">NO BROKER EXECUTION</span>
             <span style="font-size: 8px; color: var(--warning); padding: 1px 5px; border-radius: 2px; background: rgba(245,158,11,.08);">MANUAL REVIEW</span>
+            <span style="font-size: 8px; color: var(--label); padding: 1px 5px; border-radius: 2px; background: rgba(255,255,255,.04);">AUDIT / ADVANCED</span>
             <span style="flex: 1;"></span>
-            <button class="btn" style="background: var(--info); color: white; font-weight: 600; font-size: 10px; padding: 5px 14px; flex-shrink: 0;" onclick="generateDailyReviewSummary(this)">Generate Daily Review Summary</button>
+            <button class="btn-sm" style="background: rgba(255,255,255,.08); color: var(--text-accent); font-weight: 600; font-size: 9px; padding: 4px 10px; flex-shrink: 0;" onclick="generateDailyReviewSummary(this)" title="Read-only snapshot refresh. The Daily Review Session already generates this summary.">Refresh summary snapshot</button>
           </div>
-          <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 5px;">Read-only summary &mdash; no signals, no decisions, no orders, no fills.</div>
+          <div style="font-size: 9px; color: var(--text-secondary); margin-bottom: 5px;">Read-only summary &mdash; no signals, no decisions, no orders, no fills. This is not the next action; the Daily Review Session generates the summary for you.</div>
           <div id="daily-review-summary-result" style="display: none;"></div>
         </div>
 
@@ -1864,6 +1865,7 @@
         <!-- /candidates-to-review-workspace -->
 
         <!-- Today's Trade Ideas: full scan-result visibility with plain-English rationale -->
+        <div id="today-trade-ideas" style="scroll-margin-top: 12px;"></div>
         <div id="dp-todays-candidates" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(245,158,11,.4); margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 4px;">
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -1878,6 +1880,7 @@
         </div>
 
         <!-- Positions to Review: HOLD / WATCH / REVIEW_FOR_EXIT for existing holdings -->
+        <div id="positions-to-review" style="scroll-margin-top: 12px;"></div>
         <div id="dp-positions-to-review" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(239,68,68,.35); margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(239,68,68,.2); padding-bottom: 4px;">
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
@@ -1888,6 +1891,7 @@
             <span id="dp-ptr-count" style="font-size: 10px; color: var(--label); font-weight: 600;"></span>
           </div>
           <div style="font-size: 9px; color: var(--text-accent); margin-bottom: 6px; line-height: 1.4;">This is a paper portfolio review only. No broker order is sent.</div>
+          <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;">Position monitoring runs automatically as part of Daily Review. No separate Watch action is required &mdash; the labels below are read-only status, not buttons you must click.</div>
           <div id="dp-ptr-list"></div>
         </div>
 
@@ -3573,6 +3577,7 @@
       <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 2px;">Next action</div>
       <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4;" id="right-next-action">Connect and load data to begin.</div>
       <div id="right-review-hint" style="display: none; font-size: 10px; color: var(--warning); font-weight: 700; line-height: 1.4; margin-top: 6px;">Go to Daily Plan → Candidates to Review.</div>
+      <button id="right-primary-action-btn" class="btn-sm" style="margin-top: 8px; width: 100%; background: var(--ok); color: #04210f; font-weight: 800; font-size: 10px; padding: 6px 10px;" onclick="event.stopPropagation(); navigateToCanonicalTarget();">Go to next action</button>
     </div>
     <!-- compat: right-next-step/detail still targeted by other JS; hidden, not primary display -->
     <div style="display:none;"><span id="right-next-step"></span><span id="right-next-step-detail"></span></div>
@@ -11555,23 +11560,30 @@ async function _runDailyReviewSession() {
     if (_appState.connected) await refreshWorkflowStatus();
   } catch (eR) {}
 
-  // A.7: route the user to the exact section that needs the next action. No
-  // tab-dancing, no hunting. Candidates first, then position exits/watch, else
-  // the completed Daily Review panel.
-  try {
-    if (window._switchTab) window._switchTab('prediction-cockpit');
-    const _summ = window._lastDailyReviewSummary || {};
-    let _routeTarget;
-    if (_eligibleCount > 0 || _savedCount > 0) {
-      _routeTarget = 'dp-todays-candidates';
-    } else if ((_summ.review_for_exit_count || 0) > 0 || (_summ.watch_count || 0) > 0) {
-      _routeTarget = 'dp-positions-to-review';
-    } else {
-      _routeTarget = 'dp-current-task-card';
-    }
-    const _rt = document.getElementById(_routeTarget);
-    if (_rt) setTimeout(function() { try { _rt.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 150);
-  } catch (e) {}
+  // Route the user to the exact section that needs the next action using the
+  // ONE canonical contract (target_tab + target_anchor), refreshed just above:
+  // candidates -> #today-trade-ideas, positions -> #positions-to-review, etc.
+  // If the canonical state has not populated yet, fall back to the nearby
+  // Daily Plan cards (same destinations, no separate routing brain).
+  const _cz = window._canonicalWorkflowState || {};
+  if (_cz.target_anchor) {
+    try { navigateToCanonicalTarget(); } catch (e) {}
+  } else {
+    try {
+      if (window._switchTab) window._switchTab('prediction-cockpit');
+      const _summ = window._lastDailyReviewSummary || {};
+      let _routeTarget;
+      if (_eligibleCount > 0 || _savedCount > 0) {
+        _routeTarget = 'dp-todays-candidates';
+      } else if ((_summ.review_for_exit_count || 0) > 0 || (_summ.watch_count || 0) > 0) {
+        _routeTarget = 'dp-positions-to-review';
+      } else {
+        _routeTarget = 'dp-current-task-card';
+      }
+      const _rt = document.getElementById(_routeTarget);
+      if (_rt) setTimeout(function() { try { _rt.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 150);
+    } catch (e) {}
+  }
   toast('Daily Review Session complete', 'ok');
 }
 
@@ -12398,8 +12410,11 @@ function _ptPositionExitCardHtml(p) {
   if (isExit) {
     buttons += '<button class="btn-sm" style="background:var(--danger);color:#fff;font-weight:700;font-size:10px;padding:5px 12px;" onclick="approvePaperSell(\'' + tk + '\')">Approve Paper Sell</button>';
   }
-  buttons += '<button class="btn-sm" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:10px;padding:5px 12px;" onclick="watchPosition(\'' + tk + '\', this)">Watch Position</button>';
+  // Position monitoring runs automatically during Daily Review. The old manual
+  // "Watch Position" button is intentionally NOT a primary action here; the
+  // status label above already shows Monitor / Watch range / Exit review / Hold.
   buttons += '<button class="btn-sm" style="background:rgba(255,255,255,.1);color:var(--text-primary);font-weight:700;font-size:10px;padding:5px 12px;" onclick="holdPosition(\'' + tk + '\', this)">Hold</button>';
+  const monitorNote = '<div style="font-size:8px;color:var(--label);line-height:1.4;margin-bottom:5px;">Position monitoring runs automatically. No separate Watch action is required &mdash; the old manual <em>Watch Position</em> action has been removed.</div>';
   return '<div style="border:1px solid var(--border);border-radius:3px;padding:7px 9px;margin-bottom:6px;background:rgba(0,0,0,.12);">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">'
     +   '<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:13px;font-weight:800;color:var(--text-primary);">' + tk + '</span>'
@@ -12408,6 +12423,7 @@ function _ptPositionExitCardHtml(p) {
     + '</div>'
     + '<div style="font-size:9px;font-weight:800;color:' + _ptPositionStatusLabel(p.recommendation).color + ';margin-bottom:4px;">' + escapeHtml(_ptPositionStatusLabel(p.recommendation).text) + '</div>'
     + '<div style="font-size:9px;color:var(--text-secondary);line-height:1.4;margin-bottom:6px;">Qty ' + escapeHtml(String(p.qty)) + ' &bull; Unrealized ' + pnl + ' (' + pnlPct + '). ' + thresh + ' Recommendation: ' + escapeHtml(p.recommendation) + '.</div>'
+    + monitorNote
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:5px;">' + buttons + '</div>'
     + '<div style="font-size:8px;color:var(--label);">This is a paper portfolio review only. No broker order is sent.</div>'
     + '</div>';
@@ -12672,14 +12688,33 @@ function updateTodayReview(ctx) {
     _primaryLabel = 'Review Open Positions'; _primaryAction = 'review_open_positions';
   }
   window._activeWorkspaceId = _focusTarget;
+  // Backend canonical next_action contract (single source of truth for stage /
+  // tab / anchor). The client-side _stageName above stays for the legacy
+  // workspace toggling, but the navigable target_tab + target_anchor always
+  // come from the backend so Overview, Daily Plan, and the right panel scroll
+  // to the exact same place.
+  const _na = _wsd.next_action || {};
   window._canonicalWorkflowState = {
     stage: _stageName, current_task: _rpTask, next_action: _rpNext,
     primary_button_label: _primaryLabel, primary_button_action: _primaryAction,
     active_workspace: _aw, focus_target: _focusTarget, older_candidate_count: olderCount,
-    no_candidates_today: (todayTotal === 0 && sessionRanToday)
+    no_candidates_today: (todayTotal === 0 && sessionRanToday),
+    // canonical contract fields from the backend
+    canonical_stage: _na.stage || null,
+    title: _na.title || null,
+    description: _na.description || null,
+    button_label: _na.button_label || null,
+    target_tab: _na.target_tab || 'daily-plan',
+    target_anchor: _na.target_anchor || _focusTarget,
+    requires_user_action: _na.requires_user_action === true,
+    target_ticker: _na.target_ticker || _na.ticker || null,
+    target_candidate_id: _na.target_candidate_id || null,
+    current_trade_idea_count: _na.current_trade_idea_count || 0,
+    historical_trade_idea_count: _na.historical_trade_idea_count || 0
   };
   try { syncActiveActionWorkspaces(_aw, { olderCount: olderCount, noCandidatesToday: (todayTotal === 0 && sessionRanToday) }); } catch (e) {}
   try { applyCanonicalToOverview(); } catch (e) {}
+  try { applyCanonicalToActionPanel(); } catch (e) {}
 
   // ----- Guided Trade Lifecycle v1: right Action / Safety panel text -----
   // The right panel mirrors the single user-facing trade path so it never shows
@@ -12742,6 +12777,12 @@ function syncActiveActionWorkspaces(activeWorkspace, opts) {
   if (hint) hint.style.display = (activeWorkspace === 'candidates_to_review') ? '' : 'none';
 }
 
+// Read-only accessor for the one canonical daily-workflow state object that
+// Overview, Daily Plan, and the Action / Safety panel all render from.
+function canonicalDailyWorkflowState() {
+  return window._canonicalWorkflowState || null;
+}
+
 // Mirror the canonical state onto the Overview Recommended Next Action strip.
 function applyCanonicalToOverview() {
   const st = window._canonicalWorkflowState;
@@ -12749,9 +12790,53 @@ function applyCanonicalToOverview() {
   const taskEl = document.getElementById('ov-na-task');
   const nextEl = document.getElementById('ov-na-next');
   const btnEl = document.getElementById('ov-na-btn');
-  if (taskEl) taskEl.textContent = st.current_task || '-';
-  if (nextEl) nextEl.textContent = st.next_action || '-';
-  if (btnEl) btnEl.textContent = st.primary_button_label || 'Open Daily Plan';
+  if (taskEl) taskEl.textContent = st.title || st.current_task || '-';
+  if (nextEl) nextEl.textContent = st.description || st.next_action || '-';
+  if (btnEl) btnEl.textContent = st.button_label || st.primary_button_label || 'Open Daily Plan';
+}
+
+// Mirror the canonical state onto the right-side Action / Safety panel so its
+// next-action text and primary button point at the same target as Overview.
+function applyCanonicalToActionPanel() {
+  const st = window._canonicalWorkflowState;
+  if (!st) return;
+  const taskEl = document.getElementById('right-current-task');
+  const nextEl = document.getElementById('right-next-action');
+  const btnEl = document.getElementById('right-primary-action-btn');
+  if (taskEl && st.title) taskEl.textContent = st.title;
+  if (nextEl && st.description) nextEl.textContent = st.description;
+  if (btnEl) btnEl.textContent = st.button_label || st.primary_button_label || 'Go to next action';
+}
+
+// Map a canonical target_tab token to the actual tab id used by _switchTab.
+function _canonicalTabId(targetTab) {
+  if (targetTab === 'portfolio') return 'portfolio';
+  if (targetTab === 'overview') return 'overview';
+  return 'prediction-cockpit'; // 'daily-plan'
+}
+
+// Canonical navigation: switch to the canonical target_tab, scroll to the
+// canonical target_anchor, and briefly highlight it so the required action is
+// never hidden behind charts or collapsed sections. Used by every "go to next
+// action" button so they all land in the same place.
+function navigateToCanonicalTarget() {
+  const st = window._canonicalWorkflowState || {};
+  const tab = _canonicalTabId(st.target_tab || 'daily-plan');
+  const anchor = st.target_anchor || st.focus_target || 'active-action-workspace';
+  try { if (window._switchTab) window._switchTab(tab); } catch (e) {}
+  const doScroll = function() {
+    const el = document.getElementById(anchor)
+      || document.getElementById(st.focus_target || '')
+      || document.getElementById('active-action-workspace');
+    if (!el) return;
+    try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+    try {
+      el.style.transition = 'box-shadow .25s ease';
+      el.style.boxShadow = '0 0 0 2px var(--ok)';
+      setTimeout(function() { el.style.boxShadow = ''; }, 1200);
+    } catch (e) {}
+  };
+  setTimeout(doScroll, 60);
 }
 
 // Switch to Daily Plan and scroll/focus the canonical active workspace so the
@@ -12762,16 +12847,14 @@ function focusActiveWorkspace(focusTarget) {
   if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
 }
 
-// Overview / right-panel entry point: jump straight to the current action.
+// Overview / right-panel entry point: jump straight to the current action using
+// the canonical target_tab + target_anchor from the backend contract.
 function openDailyPlanFocused() {
-  const st = window._canonicalWorkflowState;
-  const target = (st && st.focus_target) || window._activeWorkspaceId || 'active-action-workspace';
-  if (st && st.active_workspace === 'candidates_to_review') { focusReviewQueue(); return; }
-  focusActiveWorkspace(target);
+  navigateToCanonicalTarget();
 }
 
 function overviewPrimaryAction(btn) {
-  openDailyPlanFocused();
+  navigateToCanonicalTarget();
 }
 
 // Single primary-action dispatcher used by the guided workspace buttons. Maps

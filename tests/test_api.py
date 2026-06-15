@@ -30709,8 +30709,9 @@ class TestCandidateScopedPaperTradeLifecycle:
             na = d["next_action"]
             assert na is not None
             # A current pending candidate drives review; the historical approved
-            # candidate does NOT push the next action to generate/trade.
-            assert na["stage"] == "REVIEW_CANDIDATES"
+            # candidate does NOT push the next action to create/fill a trade.
+            # Canonical stage name is REVIEW_TRADE_IDEAS.
+            assert na["stage"] == "REVIEW_TRADE_IDEAS"
             assert d["current_pending_review_count"] >= 1
             assert d["historical_candidate_count"] >= 1
         finally:
@@ -30798,6 +30799,336 @@ class TestCandidateScopedPaperTradeUi:
         fn = _fn_body(html, "async function createAndFillCandidatePaperTrade(")
         assert "consumed" not in fn
         assert "Approved for Signal" not in fn
+
+    def test_no_alert_or_confirm(self) -> None:
+        import re
+        html = self._read_html()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+class TestDailyWorkflowStateContractV1:
+    """One canonical daily-workflow state contract on /v1/review/workflow-status.
+
+    next_action carries the five canonical stages (START_DAILY_REVIEW,
+    REVIEW_TRADE_IDEAS, CREATE_FILL_PAPER_TRADE, VIEW_PORTFOLIO,
+    MONITOR_PORTFOLIO) plus stage/title/description/button_label/target_tab/
+    target_anchor/requires_user_action. Only current-cycle (today's) facts drive
+    the stage; historical candidates are reported separately and never drive it.
+    PAPER ONLY: read-only endpoint, no broker execution.
+    """
+
+    _IKEY = "dwsc-test"
+
+    @pytest.fixture(autouse=True)
+    def _purge_current(self, api_engine):
+        """Remove today's NEW/APPROVED candidates + today's pending orders so the
+        current-cycle assertions are deterministic regardless of test ordering."""
+        def _purge():
+            today = date.today()
+            start = datetime(today.year, today.month, today.day)
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as s:
+                s.query(Order).filter(
+                    Order.status == "PENDING", Order.market_date == today
+                ).delete(synchronize_session=False)
+                s.query(CandidateReview).filter(
+                    CandidateReview.created_at >= start,
+                    CandidateReview.review_status.in_(["NEW", "APPROVED_FOR_SIGNAL"]),
+                ).delete(synchronize_session=False)
+                s.commit()
+        _purge()
+        yield
+        _purge()
+
+    def _t(self, stem: str) -> str:
+        return f"{stem}{uuid.uuid4().hex[:5].upper()}"
+
+    def _clean(self, api_engine, tickers, ikey_prefix: str) -> None:
+        from paper_trader.db.models import Trade, CashLedger
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            for ticker in tickers:
+                for o in session.query(Order).filter(Order.ticker == ticker).all():
+                    session.query(CashLedger).filter(CashLedger.order_id == o.id).delete(synchronize_session=False)
+                    session.query(Trade).filter(Trade.order_id == o.id).delete(synchronize_session=False)
+                session.query(Position).filter(Position.ticker == ticker).delete(synchronize_session=False)
+                session.query(Order).filter(Order.ticker == ticker).delete(synchronize_session=False)
+                session.query(TradeDecision).filter(TradeDecision.ticker == ticker).delete(synchronize_session=False)
+                session.query(Signal).filter(Signal.ticker == ticker).delete(synchronize_session=False)
+                session.query(PriceSnapshot).filter(PriceSnapshot.ticker == ticker).delete(synchronize_session=False)
+            session.query(CandidateReview).filter(
+                CandidateReview.idempotency_key.like(ikey_prefix + "%")
+            ).delete(synchronize_session=False)
+            session.commit()
+
+    def _add_candidate(
+        self, api_engine, ticker: str, ikey: str, review_status: str = "NEW",
+        created_at: datetime | None = None,
+    ) -> str:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            kwargs = dict(
+                idempotency_key=ikey, ticker=ticker,
+                prediction_recommendation="BUY", prediction_confidence="0.85",
+                preview_decision="CONSIDER", preview_score="75.0",
+                status="OK", review_status=review_status,
+            )
+            if created_at is not None:
+                kwargs["created_at"] = created_at
+            row = CandidateReview(**kwargs)
+            session.add(row)
+            session.commit()
+            return str(row.id)
+
+    def _add_snapshot(self, api_engine, ticker: str, price: str = "50.00") -> None:
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.add(PriceSnapshot(
+                ticker=ticker, price=Decimal(price), session_type="REGULAR",
+                price_type="CLOSE", snapshot_ts=datetime.now(timezone.utc),
+                market_date=date.today(), job_run_id=None,
+            ))
+            session.commit()
+
+    def _seed_position(self, api_engine, ticker: str) -> None:
+        now = datetime.now(timezone.utc)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            session.add(Position(
+                ticker=ticker, qty=Decimal("4.00"), avg_cost=Decimal("100.00"),
+                cost_basis=Decimal("400.00"), opened_at=now, last_updated=now,
+            ))
+            session.commit()
+
+    def _seed_candidate_decision(
+        self, api_engine, candidate_id: str, ticker: str,
+        qty: str = "3.00", price: str = "50.00",
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            jr = JobRun(
+                idempotency_key=f"{self._IKEY}-cjr-{uuid.uuid4().hex[:8]}",
+                workflow_type="REVIEW_QUEUE_CREATE_DECISIONS",
+                market_date=date.today(), status="COMPLETED", completed_at=now,
+            )
+            session.add(jr)
+            session.flush()
+            sig = Signal(
+                job_run_id=jr.id, ticker=ticker, direction="BUY",
+                confidence=Decimal("0.85"), signal_ts=now, market_date=date.today(),
+                source_run=f"review_queue_create_signals_v1:{candidate_id}",
+                status="DECISION_MADE", raw_payload={},
+            )
+            session.add(sig)
+            session.flush()
+            notional = (Decimal(qty) * Decimal(price)).quantize(Decimal("0.01"))
+            td = TradeDecision(
+                signal_id=sig.id, job_run_id=jr.id, ticker=ticker,
+                signal_direction="BUY", decision="BUY", reason_code="POSITIVE_SIGNAL",
+                approved_qty=Decimal(qty), approved_notional=notional,
+                requested_qty=Decimal(qty), requested_notional=notional,
+                decided_at=now, market_date=date.today(),
+            )
+            session.add(td)
+            session.commit()
+
+    def _approve(self, seeded_client, cid: str) -> None:
+        r = seeded_client.patch(
+            f"/v1/review/candidates/{cid}",
+            json={"review_status": "APPROVED_FOR_SIGNAL"}, headers=_AUTH,
+        )
+        assert r.status_code == 200
+
+    def _next_action(self, seeded_client) -> dict:
+        r = seeded_client.get("/v1/review/workflow-status", headers=_AUTH)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        na = body["next_action"]
+        assert na is not None
+        for key in (
+            "stage", "title", "description", "button_label",
+            "target_tab", "target_anchor", "requires_user_action",
+        ):
+            assert key in na, f"next_action missing canonical key: {key}"
+        return body
+
+    # ----- tests -----
+
+    def test_no_current_scan_with_open_position_drives_monitor_portfolio(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        tk = self._t("MON")
+        self._clean(api_engine, [tk], ikey)
+        try:
+            self._seed_position(api_engine, tk)
+            body = self._next_action(seeded_client)
+            na = body["next_action"]
+            assert na["stage"] == "MONITOR_PORTFOLIO"
+            assert na["requires_user_action"] is False
+            assert body["current_pending_review_count"] == 0
+        finally:
+            self._clean(api_engine, [tk], ikey)
+
+    def test_current_pending_candidate_drives_review_trade_ideas(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        tk = self._t("REV")
+        self._clean(api_engine, [tk], ikey)
+        try:
+            self._add_candidate(api_engine, tk, ikey + "-n", "NEW")
+            body = self._next_action(seeded_client)
+            na = body["next_action"]
+            assert na["stage"] == "REVIEW_TRADE_IDEAS"
+            assert na["target_tab"] == "daily-plan"
+            assert na["target_anchor"] == "today-trade-ideas"
+            assert na["requires_user_action"] is True
+            assert body["current_pending_review_count"] >= 1
+        finally:
+            self._clean(api_engine, [tk], ikey)
+
+    def test_approved_candidate_drives_create_fill_paper_trade(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        tk = self._t("APP")
+        self._clean(api_engine, [tk], ikey)
+        try:
+            self._add_candidate(api_engine, tk, ikey + "-a", "APPROVED_FOR_SIGNAL")
+            body = self._next_action(seeded_client)
+            na = body["next_action"]
+            assert na["stage"] == "CREATE_FILL_PAPER_TRADE"
+            assert na["target_ticker"] == tk
+            assert tk in na["title"]
+            assert body["current_approved_ticket_ready_count"] >= 1
+        finally:
+            self._clean(api_engine, [tk], ikey)
+
+    def test_filled_paper_trade_drives_view_portfolio_with_portfolio_target(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        tk = self._t("FILL")
+        self._clean(api_engine, [tk], ikey)
+        try:
+            cid = self._add_candidate(api_engine, tk, ikey + "-f", "NEW")
+            self._add_snapshot(api_engine, tk, "50.00")
+            self._approve(seeded_client, cid)
+            self._seed_candidate_decision(api_engine, cid, tk)
+            r = seeded_client.post(
+                f"/v1/review/candidates/{cid}/paper-trade",
+                json={"confirm_paper_trade": True}, headers=_AUTH,
+            )
+            assert r.status_code == 200, r.text
+            assert r.json()["status"] == "COMPLETED"
+
+            body = self._next_action(seeded_client)
+            na = body["next_action"]
+            assert na["stage"] == "VIEW_PORTFOLIO"
+            assert na["target_tab"] == "portfolio"
+            assert body["current_filled_count"] >= 1
+            assert body["current_approved_ticket_ready_count"] == 0
+        finally:
+            self._clean(api_engine, [tk], ikey)
+
+    def test_historical_candidates_do_not_drive_next_action(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        ikey = f"{self._IKEY}-{uuid.uuid4().hex[:6]}"
+        hist = self._t("HIST")
+        self._clean(api_engine, [hist], ikey)
+        try:
+            self._add_candidate(
+                api_engine, hist, ikey + "-h", "APPROVED_FOR_SIGNAL",
+                created_at=datetime.now(timezone.utc) - timedelta(days=4),
+            )
+            body = self._next_action(seeded_client)
+            na = body["next_action"]
+            assert na["stage"] in ("MONITOR_PORTFOLIO", "START_DAILY_REVIEW")
+            assert na["stage"] not in ("REVIEW_TRADE_IDEAS", "CREATE_FILL_PAPER_TRADE")
+            assert body["current_pending_review_count"] == 0
+            assert body["current_approved_ticket_ready_count"] == 0
+            assert body["historical_candidate_count"] >= 1
+        finally:
+            self._clean(api_engine, [hist], ikey)
+
+
+class TestDailyWorkflowStateUiContractV1:
+    """Static assertions: every next-action surface renders from ONE canonical
+    state object and a single navigation helper, the required anchors exist, and
+    position monitoring is presented as automatic/read-only (no Watch button)."""
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        return (Path(__file__).parent.parent / "api" / "ui" / "index.html").read_text(
+            encoding="utf-8", errors="ignore"
+        )
+
+    def test_canonical_state_function_present(self) -> None:
+        html = self._read_html()
+        assert "function canonicalDailyWorkflowState(" in html
+        assert "window._canonicalWorkflowState" in html
+
+    def test_overview_renders_from_canonical_state(self) -> None:
+        html = self._read_html()
+        assert "function applyCanonicalToOverview(" in html
+        fn = _fn_body(html, "function applyCanonicalToOverview(")
+        assert "_canonicalWorkflowState" in fn
+        assert "ov-na-btn" in fn
+
+    def test_action_safety_panel_renders_from_canonical_state(self) -> None:
+        html = self._read_html()
+        assert "function applyCanonicalToActionPanel(" in html
+        fn = _fn_body(html, "function applyCanonicalToActionPanel(")
+        assert "_canonicalWorkflowState" in fn
+        assert "right-current-task" in fn and "right-next-action" in fn
+
+    def test_daily_plan_top_action_uses_canonical_state(self) -> None:
+        html = self._read_html()
+        assert "window._canonicalWorkflowState = {" in html
+        assert "_na.target_anchor" in html and "_na.target_tab" in html
+
+    def test_today_trade_ideas_anchor_present(self) -> None:
+        assert 'id="today-trade-ideas"' in self._read_html()
+
+    def test_positions_to_review_anchor_present(self) -> None:
+        assert 'id="positions-to-review"' in self._read_html()
+
+    def test_history_only_label_present(self) -> None:
+        assert "Older trade ideas — history only" in self._read_html()
+
+    def test_automatic_monitoring_copy_present(self) -> None:
+        html = self._read_html()
+        assert "Position monitoring runs automatically" in html
+        assert "No separate Watch action is required" in html
+
+    def test_navigation_helper_switches_tab_and_scrolls(self) -> None:
+        html = self._read_html()
+        assert "function navigateToCanonicalTarget(" in html
+        fn = _fn_body(html, "function navigateToCanonicalTarget(")
+        assert "target_anchor" in fn
+        assert "target_tab" in fn or "_canonicalTabId" in fn
+        assert "_switchTab" in fn
+        assert "scrollIntoView" in fn
+
+    def test_overview_cta_routes_to_canonical_target(self) -> None:
+        html = self._read_html()
+        assert 'onclick="overviewPrimaryAction(this)"' in html
+        fn = _fn_body(html, "function overviewPrimaryAction(")
+        assert "navigateToCanonicalTarget" in fn
+
+    def test_action_panel_primary_button_routes_to_canonical_target(self) -> None:
+        html = self._read_html()
+        assert 'id="right-primary-action-btn"' in html
+        assert "navigateToCanonicalTarget()" in html
+
+    def test_watch_position_not_a_primary_button(self) -> None:
+        html = self._read_html()
+        assert ">Watch Position</button>" not in html
+        assert 'onclick="watchPosition' not in html
+
+    def test_generate_summary_not_a_primary_overview_cta(self) -> None:
+        html = self._read_html()
+        assert ">Generate Daily Review Summary</button>" not in html
+        assert "Refresh summary snapshot" in html
 
     def test_no_alert_or_confirm(self) -> None:
         import re

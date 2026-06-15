@@ -1625,14 +1625,44 @@ class WorkflowStepStatus(BaseModel):
 class WorkflowNextAction(BaseModel):
     """One canonical next action for the guided cockpit.
 
+    This is THE single daily-workflow state contract. Every next-action surface
+    (Overview recommended action, Daily Plan Today's Review, the Action / Safety
+    panel, and the candidate/portfolio section visibility) renders from this one
+    object, so they can never disagree about the current task.
+
     Derived from the current cycle (today's candidates + live order/position
-    facts) only. Historical/older approved candidates never drive this object.
+    facts) only. Historical/older approved candidates never drive this object
+    and are reported separately as ``historical_trade_idea_count``.
+
+    stage is one of:
+      START_DAILY_REVIEW | REVIEW_TRADE_IDEAS | CREATE_FILL_PAPER_TRADE
+      | VIEW_PORTFOLIO | MONITOR_PORTFOLIO
     """
     stage: str
-    label: str
+    title: str
+    description: str = ""
+    button_label: str = ""
+    target_tab: str = "daily-plan"      # overview | daily-plan | portfolio
+    target_anchor: str = "active-action-workspace"  # DOM id to scroll/focus
+    requires_user_action: bool = False
+    # --- Back-compat aliases (older UI/JS referenced these names) ---
+    label: str = ""
+    detail: str = ""
+    primary_button_label: str = ""
+    # --- Deep-link target for the specific current candidate ---
     ticker: str | None = None
     target_candidate_id: str | None = None
+    target_ticker: str | None = None
     route: str | None = None
+    # --- Current-cycle counts (historical excluded) ---
+    current_cycle_key: str | None = None
+    current_trade_idea_count: int = 0
+    current_pending_review_count: int = 0
+    current_ticket_ready_count: int = 0
+    current_filled_count: int = 0
+    current_watch_count: int = 0
+    current_rejected_count: int = 0
+    historical_trade_idea_count: int = 0
 
 
 class WorkflowStatusResponse(BaseModel):
@@ -8790,52 +8820,95 @@ async def get_workflow_status() -> WorkflowStatusResponse:
         )
         today_total = today_q.count()
         current_pending = today_q.filter(CandidateReview.review_status == "NEW").count()
-        current_approved = today_q.filter(
-            CandidateReview.review_status == "APPROVED_FOR_SIGNAL"
-        ).count()
         current_rejected = today_q.filter(CandidateReview.review_status == "REJECTED").count()
         current_watch = today_q.filter(CandidateReview.review_status == "WATCHING").count()
         historical_count = candidate_total - today_total
-        current_filled = session.query(Order).filter(
-            Order.status == "FILLED", Order.market_date == today
-        ).count()
-        any_pending_orders = session.query(Order).filter(Order.status == "PENDING").count() > 0
-        any_filled_orders = session.query(Order).filter(Order.status == "FILLED").count() > 0
 
-        stage = _derive_workflow_stage(
+        # Candidate-scoped completion: an approved current candidate is
+        # "completed" once its own candidate-scoped signal has a FILLED order
+        # (review_queue_create_signals_v1:{candidate_id}). The approval label
+        # itself never changes after a fill, so ticket-ready vs completed is
+        # derived from the order chain, never from review_status alone. This is
+        # what stops an old/unrelated filled order from being mistaken for the
+        # current candidate's completion.
+        today_approved_rows = today_q.filter(
+            CandidateReview.review_status == "APPROVED_FOR_SIGNAL"
+        ).all()
+        approved_source_runs = {
+            f"{REVIEW_SOURCE_PREFIX}{row.id}": row for row in today_approved_rows
+        }
+        completed_source_runs: set[str] = set()
+        if approved_source_runs:
+            filled_runs = session.query(Signal.source_run).join(
+                TradeDecision, TradeDecision.signal_id == Signal.id
+            ).join(Order, Order.trade_decision_id == TradeDecision.id).filter(
+                Signal.source_run.in_(list(approved_source_runs.keys())),
+                Order.status == "FILLED",
+            ).distinct().all()
+            completed_source_runs = {r[0] for r in filled_runs}
+        today_completed = len(completed_source_runs)
+        today_ticket_ready = len(today_approved_rows) - today_completed
+
+        canonical_stage = _canonical_daily_stage(
             today_pending=current_pending,
-            today_approved=current_approved,
-            order_eligible=order_eligible,
-            has_pending_orders=any_pending_orders,
-            has_filled_orders=any_filled_orders,
+            today_ticket_ready=today_ticket_ready,
+            today_completed=today_completed,
             has_open_positions=open_positions_count > 0,
-            today_total=today_total,
         )
-        info = _WORKFLOW_STAGE_INFO[stage]
+        cinfo = _CANONICAL_DAILY_STAGE_INFO[canonical_stage]
 
-        # Best-effort target ticker/candidate for the current action.
+        # Best-effort target ticker/candidate for the current action. Pick the
+        # specific current candidate the action points to so the UI can deep-link
+        # to exactly that row instead of a historical one.
         target_ticker: str | None = None
         target_candidate_id: str | None = None
-        if stage == "REVIEW_CANDIDATES":
+        if canonical_stage == "REVIEW_TRADE_IDEAS":
             nxt = today_q.filter(CandidateReview.review_status == "NEW").order_by(
                 CandidateReview.created_at.asc()
             ).first()
             if nxt is not None:
-                target_ticker = nxt.ticker
-                target_candidate_id = str(nxt.id)
-        elif stage == "FILL_PAPER_ORDER":
-            po = session.query(Order).filter(Order.status == "PENDING").order_by(
-                Order.requested_at.asc()
-            ).first()
-            if po is not None:
-                target_ticker = po.ticker
+                target_ticker, target_candidate_id = nxt.ticker, str(nxt.id)
+        elif canonical_stage == "CREATE_FILL_PAPER_TRADE":
+            for row in sorted(today_approved_rows, key=lambda r: r.created_at):
+                if f"{REVIEW_SOURCE_PREFIX}{row.id}" not in completed_source_runs:
+                    target_ticker, target_candidate_id = row.ticker, str(row.id)
+                    break
+        elif canonical_stage == "VIEW_PORTFOLIO":
+            for row in today_approved_rows:
+                if f"{REVIEW_SOURCE_PREFIX}{row.id}" in completed_source_runs:
+                    target_ticker, target_candidate_id = row.ticker, str(row.id)
+                    break
+
+        title = cinfo["title"]
+        if target_ticker and canonical_stage == "CREATE_FILL_PAPER_TRADE":
+            title = f"Create & Fill Paper Trade: {target_ticker}"
+        elif target_ticker and canonical_stage == "VIEW_PORTFOLIO":
+            title = f"View Portfolio: {target_ticker} filled"
 
         next_action = WorkflowNextAction(
-            stage=stage,
-            label=info["primary_button_label"],
+            stage=canonical_stage,
+            title=title,
+            description=cinfo["description"],
+            button_label=cinfo["button_label"],
+            target_tab=cinfo["target_tab"],
+            target_anchor=cinfo["target_anchor"],
+            requires_user_action=cinfo["requires_user_action"],
+            # back-compat aliases
+            label=title,
+            detail=cinfo["description"],
+            primary_button_label=cinfo["button_label"],
             ticker=target_ticker,
             target_candidate_id=target_candidate_id,
-            route=info["active_workspace"],
+            target_ticker=target_ticker,
+            route=cinfo["target_anchor"],
+            current_cycle_key=current_cycle_key,
+            current_trade_idea_count=today_total,
+            current_pending_review_count=current_pending,
+            current_ticket_ready_count=today_ticket_ready,
+            current_filled_count=today_completed,
+            current_watch_count=current_watch,
+            current_rejected_count=current_rejected,
+            historical_trade_idea_count=historical_count,
         )
 
     return WorkflowStatusResponse(
@@ -8848,8 +8921,8 @@ async def get_workflow_status() -> WorkflowStatusResponse:
         open_positions=open_positions_count,
         current_cycle_key=current_cycle_key,
         current_pending_review_count=current_pending,
-        current_approved_ticket_ready_count=current_approved,
-        current_filled_count=current_filled,
+        current_approved_ticket_ready_count=today_ticket_ready,
+        current_filled_count=today_completed,
         current_rejected_count=current_rejected,
         current_watch_count=current_watch,
         historical_candidate_count=historical_count,
@@ -8990,6 +9063,103 @@ def _derive_workflow_stage(
     if has_open_positions:
         return "MONITOR_PORTFOLIO"
     return "NEEDS_DAILY_REVIEW"
+
+
+# ---------------------------------------------------------------------------
+# Canonical daily-workflow state contract (single next-action source).
+#
+# The candidate-scoped paper-trade endpoint collapses the old generate -> create
+# -> fill chain into ONE "Create & Fill Paper Trade" action, so the user-facing
+# workflow now has exactly five stages. _canonical_daily_stage is the single
+# pure derivation feeding the WorkflowNextAction object that every UI surface
+# renders from. Only current-cycle (today's) facts are inputs; historical
+# candidates are reported separately and can never select a stage.
+# ---------------------------------------------------------------------------
+
+_CANONICAL_DAILY_STAGE_INFO: dict[str, dict] = {
+    "START_DAILY_REVIEW": {
+        "title": "Start Daily Review",
+        "description": (
+            "Begin today's review to scan for new trade ideas and refresh the "
+            "portfolio snapshot. This creates no orders and no trades."
+        ),
+        "button_label": "Start Daily Review",
+        "target_tab": "daily-plan",
+        "target_anchor": "active-action-workspace",
+        "requires_user_action": True,
+    },
+    "REVIEW_TRADE_IDEAS": {
+        "title": "Review Trade Ideas",
+        "description": (
+            "Today's scan produced trade ideas that need review. Approve, Watch, "
+            "or Reject each one. This records your manual review only."
+        ),
+        "button_label": "Review Trade Ideas",
+        "target_tab": "daily-plan",
+        "target_anchor": "today-trade-ideas",
+        "requires_user_action": True,
+    },
+    "CREATE_FILL_PAPER_TRADE": {
+        "title": "Create & Fill Paper Trade",
+        "description": (
+            "An approved trade idea is ready. Create and fill its paper trade. "
+            "Paper portfolio only - no broker order is sent."
+        ),
+        "button_label": "Create & Fill Paper Trade",
+        "target_tab": "daily-plan",
+        "target_anchor": "today-trade-ideas",
+        "requires_user_action": True,
+    },
+    "VIEW_PORTFOLIO": {
+        "title": "View Portfolio",
+        "description": (
+            "The paper trade was filled. Review the updated paper position and "
+            "cash in Portfolio."
+        ),
+        "button_label": "View Portfolio",
+        "target_tab": "portfolio",
+        "target_anchor": "positions-to-review",
+        "requires_user_action": False,
+    },
+    "MONITOR_PORTFOLIO": {
+        "title": "Monitor Portfolio",
+        "description": (
+            "No trade ideas need action right now. Existing positions are "
+            "monitored automatically during Daily Review. No separate Watch "
+            "action is required."
+        ),
+        "button_label": "Monitor Portfolio",
+        "target_tab": "daily-plan",
+        "target_anchor": "positions-to-review",
+        "requires_user_action": False,
+    },
+}
+
+
+def _canonical_daily_stage(
+    *,
+    today_pending: int,
+    today_ticket_ready: int,
+    today_completed: int,
+    has_open_positions: bool,
+) -> str:
+    """Pure five-stage derivation for the canonical daily-workflow contract.
+
+    Priority: a current trade idea still needing review is the first action;
+    then an approved idea that has not been paper-filled; then a freshly filled
+    paper trade to view; then portfolio monitoring; otherwise start the review.
+    Inputs are current-cycle (today's) only, so older candidates never select a
+    stage.
+    """
+    if today_pending > 0:
+        return "REVIEW_TRADE_IDEAS"
+    if today_ticket_ready > 0:
+        return "CREATE_FILL_PAPER_TRADE"
+    if today_completed > 0:
+        return "VIEW_PORTFOLIO"
+    if has_open_positions:
+        return "MONITOR_PORTFOLIO"
+    return "START_DAILY_REVIEW"
 
 
 def _build_workflow_state(
