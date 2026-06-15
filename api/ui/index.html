@@ -2067,6 +2067,55 @@
           </details>
         </div>
 
+        <!-- Quant Model Methodology: read-only model-governance / transparency card.
+             Explains honestly what Layer 1 (local pre-screen) and Layer 2 (remote GCP
+             prediction) actually do today, the actionability gate, the target quant
+             architecture, data readiness, and the roadmap. No tuning, no faked features. -->
+        <details id="qmm-card" class="compact-card" style="flex-shrink: 0; border-color: rgba(168,85,247,.4); margin-bottom: 12px;">
+          <summary style="cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span style="font-size: 14px; font-weight: 800; color: var(--info); letter-spacing: .02em;">Quant Model Methodology</span>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+          </summary>
+          <div style="font-size: 9px; color: var(--label); margin: 6px 0 8px; line-height: 1.4;">Read-only model contract &mdash; paper trade only, no broker execution. Honest view of what exists today vs what a quant-grade model needs. No feature is shown as active unless real point-in-time data backs it.</div>
+          <div id="qmm-honesty" style="font-size: 10px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.45;">Connect to load the model methodology contract.</div>
+
+          <!-- 1. Local Layer -->
+          <div style="font-size: 11px; font-weight: 800; color: var(--text-primary); margin: 8px 0 3px; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 2px;">Current Layer 1: Local S&amp;P 500 Pre-Screen</div>
+          <div id="qmm-local-desc" style="font-size: 9px; color: var(--text-secondary); line-height: 1.45; margin-bottom: 4px;"></div>
+          <div id="qmm-local-formula" style="font-size: 9px; color: var(--label); font-family: monospace; line-height: 1.4; margin-bottom: 4px;"></div>
+          <div id="qmm-local-features" style="font-size: 9px; color: var(--text-secondary); margin-bottom: 4px; overflow-x: auto;"></div>
+          <details style="margin-bottom: 6px;"><summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; text-transform: uppercase; letter-spacing: .06em;">Current limitations</summary><div id="qmm-local-limits" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;"></div></details>
+
+          <!-- 2. Remote Layer -->
+          <div style="font-size: 11px; font-weight: 800; color: var(--text-primary); margin: 8px 0 3px; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 2px;">Current Layer 2: Remote GCP Prediction</div>
+          <div id="qmm-pred-desc" style="font-size: 9px; color: var(--text-secondary); line-height: 1.45; margin-bottom: 4px;"></div>
+          <div id="qmm-pred-dispatch" style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 4px;"></div>
+          <div id="qmm-pred-io" style="font-size: 9px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 4px;"></div>
+          <details style="margin-bottom: 6px;"><summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; text-transform: uppercase; letter-spacing: .06em;">Current limitations</summary><div id="qmm-pred-limits" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;"></div></details>
+
+          <!-- 3. Actionability Gate -->
+          <div style="font-size: 11px; font-weight: 800; color: var(--text-primary); margin: 8px 0 3px; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 2px;">Actionability Gate</div>
+          <div id="qmm-gate-thresholds" style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 4px;"></div>
+          <div id="qmm-gate-desc" style="font-size: 9px; color: var(--text-secondary); line-height: 1.45; margin-bottom: 4px;"></div>
+          <div id="qmm-gate-reject" style="font-size: 9px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 4px;"></div>
+
+          <!-- 4. Target Architecture -->
+          <div style="font-size: 11px; font-weight: 800; color: var(--text-primary); margin: 8px 0 3px; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 2px;">Target Quant Architecture</div>
+          <div id="qmm-target" style="font-size: 9px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 4px;"></div>
+          <div style="font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 6px;">A future quant-grade model must use point-in-time data and walk-forward validation. No feature is added unless it is sourced, timestamped, testable, and backtestable.</div>
+
+          <!-- 5. Data Readiness -->
+          <div style="font-size: 11px; font-weight: 800; color: var(--text-primary); margin: 8px 0 3px; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 2px;">Data Readiness</div>
+          <div style="font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;">Missing feature families carry a strict rule: Do not fake this feature. They stay off until a real, sourced, timestamped data feed exists.</div>
+          <div id="qmm-data-readiness" style="font-size: 9px; color: var(--text-secondary); margin-bottom: 6px; overflow-x: auto;"></div>
+
+          <!-- 6. Roadmap -->
+          <div style="font-size: 11px; font-weight: 800; color: var(--text-primary); margin: 8px 0 3px; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 2px;">Implementation Roadmap</div>
+          <div id="qmm-roadmap" style="font-size: 9px; color: var(--text-secondary); line-height: 1.6;"></div>
+        </details>
+
         <!-- Audit / Advanced: original live-run "Scan Coverage" card, moved out of the
              normal Daily Plan workflow but kept for diagnostics. Live-run wiring (renderScanCoverage) is unchanged. -->
         <details id="dp-scan-coverage-advanced" style="margin-bottom: 12px;">
@@ -12643,6 +12692,8 @@ async function refreshWorkflowStatus() {
     // Refresh the read-only Scan Selection Funnel alongside workflow state so the
     // funnel stays current after every daily-review / review action.
     loadScanSelectionFunnel();
+    // Load the read-only Quant Model Methodology contract (static; loads once).
+    loadQuantModelMethodology();
   } catch (e) {
     console.error('Failed to refresh workflow status:', e);
   }
@@ -12791,6 +12842,130 @@ function _ssfRender(d) {
     histEl.textContent = (d.historical_trade_ideas || 0) > 0
       ? (d.historical_trade_ideas + ' older trade idea(s) from prior sessions. These are not actionable today.')
       : 'No historical trade ideas. Older trade ideas from prior sessions would appear here as not actionable.';
+  }
+}
+
+// --- Quant Model Methodology (read-only model-governance contract) -----------
+let _qmmLoaded = false;
+async function loadQuantModelMethodology() {
+  if (!_appState.connected) return;
+  // Static contract - load once per connected session.
+  if (_qmmLoaded) return;
+  try {
+    const response = await call('GET', '/v1/model/methodology');
+    if (!response.ok) throw new Error('API error: ' + response.status);
+    const d = await response.json();
+    _qmmRender(d);
+    _qmmLoaded = true;
+  } catch (e) {
+    console.error('Failed to load quant model methodology:', e);
+  }
+}
+
+function _qmmRender(d) {
+  if (!d) return;
+  function _txt(id, val) { const el = document.getElementById(id); if (el) el.textContent = (val != null ? String(val) : ''); }
+  function _list(arr) {
+    if (!arr || !arr.length) return '<div style="color:var(--label);">None.</div>';
+    return arr.map(function(x) { return '<div style="padding:1px 0;">&bull; ' + escapeHtml(String(x)) + '</div>'; }).join('');
+  }
+  const cs = d.current_state || {};
+  const lp = cs.local_prescreen || {};
+  const pl = cs.prediction_layer || {};
+  const gate = cs.actionability_gate || {};
+  const tgt = d.target_quant_architecture || {};
+
+  _txt('qmm-honesty', d.honesty_note || '');
+
+  // Layer 1 - local pre-screen
+  _txt('qmm-local-desc', lp.description
+    || 'Current Layer 1: Local S&P 500 Pre-Screen is a first-pass technical/momentum ranking over stored prices only.');
+  _txt('qmm-local-formula', lp.current_formula_summary || '');
+  const lfEl = document.getElementById('qmm-local-features');
+  if (lfEl) {
+    const rows = lp.current_features || [];
+    let h = '<table style="width:100%;border-collapse:collapse;font-size:9px;"><thead><tr style="color:var(--label);text-align:left;">'
+      + '<th style="padding:2px 6px;">Feature</th><th style="padding:2px 6px;">Source</th><th style="padding:2px 6px;">Available</th><th style="padding:2px 6px;">Used today</th><th style="padding:2px 6px;">Purpose</th></tr></thead><tbody>';
+    h += rows.map(function(f) {
+      const col = f.available ? 'var(--ok)' : 'var(--label)';
+      return '<tr style="border-top:1px solid rgba(255,255,255,.06);">'
+        + '<td style="padding:2px 6px;">' + escapeHtml(f.name) + '</td>'
+        + '<td style="padding:2px 6px;color:var(--label);">' + escapeHtml(f.source != null ? String(f.source) : 'none') + '</td>'
+        + '<td style="padding:2px 6px;color:' + col + ';">' + (f.available ? 'yes' : 'no') + '</td>'
+        + '<td style="padding:2px 6px;color:' + col + ';">' + (f.used_today ? 'yes' : 'no') + '</td>'
+        + '<td style="padding:2px 6px;color:var(--label);">' + escapeHtml(f.purpose || '') + '</td></tr>';
+    }).join('');
+    h += '</tbody></table>';
+    lfEl.innerHTML = h;
+  }
+  const llEl = document.getElementById('qmm-local-limits');
+  if (llEl) llEl.innerHTML = _list(lp.current_limitations);
+
+  // Layer 2 - remote prediction
+  _txt('qmm-pred-desc', pl.description || '');
+  const pdEl = document.getElementById('qmm-pred-dispatch');
+  if (pdEl) pdEl.textContent = 'Runs on: ' + (pl.runs_on || '-') + '. Dispatch policy: ' + (pl.dispatch_policy || '-')
+    + ' (limit ' + (pl.dispatch_limit != null ? pl.dispatch_limit : '-') + ').';
+  const ioEl = document.getElementById('qmm-pred-io');
+  if (ioEl) {
+    ioEl.innerHTML = '<div><strong>Inputs known to Paper Trader:</strong></div>' + _list(pl.current_inputs_known_to_paper_trader)
+      + '<div style="margin-top:3px;"><strong>Outputs:</strong></div>' + _list(pl.current_outputs);
+  }
+  const plimEl = document.getElementById('qmm-pred-limits');
+  if (plimEl) plimEl.innerHTML = _list(pl.current_limitations);
+
+  // Actionability gate
+  const gtEl = document.getElementById('qmm-gate-thresholds');
+  if (gtEl && gate.current_thresholds) {
+    const t = gate.current_thresholds;
+    gtEl.textContent = 'min score >= ' + t.min_score + ', min confidence >= ' + t.min_confidence
+      + ', min expected 5D return >= ' + t.min_expected_return_pct + '%, min relative strength vs SPY >= ' + t.min_relative_strength_vs_spy + '.';
+  }
+  _txt('qmm-gate-desc', gate.description || '');
+  const grEl = document.getElementById('qmm-gate-reject');
+  if (grEl) grEl.innerHTML = '<div><strong>Why a BUY prediction may still be rejected or non-actionable:</strong></div>' + _list(gate.why_a_buy_may_be_rejected);
+
+  // Target architecture
+  const tEl = document.getElementById('qmm-target');
+  if (tEl) {
+    const lp2 = tgt.local_prescreen_v2 || {};
+    const rp2 = tgt.remote_prediction_v2 || {};
+    const pc = tgt.portfolio_construction || {};
+    let h = '<div><strong>Local pre-screen v2 feature families</strong> (point-in-time, backtested):</div>' + _list(lp2.feature_families);
+    h += '<div style="margin-top:3px;"><strong>Remote prediction v2 target outputs:</strong></div>' + _list(rp2.target_outputs);
+    h += '<div style="margin-top:3px;"><strong>Portfolio construction methods:</strong></div>' + _list(pc.future_methods);
+    tEl.innerHTML = h;
+  }
+
+  // Data readiness
+  const drEl = document.getElementById('qmm-data-readiness');
+  if (drEl) {
+    const rows = d.data_readiness || [];
+    let h = '<table style="width:100%;border-collapse:collapse;font-size:9px;"><thead><tr style="color:var(--label);text-align:left;">'
+      + '<th style="padding:2px 6px;">Feature family</th><th style="padding:2px 6px;">Available now</th><th style="padding:2px 6px;">Source</th><th style="padding:2px 6px;">Status</th><th style="padding:2px 6px;">Rule</th></tr></thead><tbody>';
+    h += rows.map(function(r) {
+      const col = r.available_now ? 'var(--ok)' : 'var(--warning)';
+      return '<tr style="border-top:1px solid rgba(255,255,255,.06);">'
+        + '<td style="padding:2px 6px;">' + escapeHtml(r.feature_family) + '</td>'
+        + '<td style="padding:2px 6px;color:' + col + ';font-weight:700;">' + (r.available_now ? 'yes' : 'no') + '</td>'
+        + '<td style="padding:2px 6px;color:var(--label);">' + escapeHtml(r.data_source != null ? String(r.data_source) : 'none') + '</td>'
+        + '<td style="padding:2px 6px;color:var(--label);">' + escapeHtml(r.status) + '</td>'
+        + '<td style="padding:2px 6px;color:var(--label);">' + escapeHtml(r.rule) + '</td></tr>';
+    }).join('');
+    h += '</tbody></table>';
+    drEl.innerHTML = h;
+  }
+
+  // Roadmap
+  const rmEl = document.getElementById('qmm-roadmap');
+  if (rmEl) {
+    const rows = d.implementation_roadmap || [];
+    rmEl.innerHTML = rows.map(function(p) {
+      const isNow = (p.status || '').toLowerCase() === 'this task';
+      const col = isNow ? 'var(--ok)' : 'var(--label)';
+      return '<div style="padding:1px 0;"><strong>Phase ' + escapeHtml(String(p.phase)) + ':</strong> ' + escapeHtml(p.name)
+        + ' <span style="color:' + col + ';">[' + escapeHtml(p.status) + ']</span></div>';
+    }).join('');
   }
 }
 

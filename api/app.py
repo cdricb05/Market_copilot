@@ -16528,6 +16528,310 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
     )
 
 
+@app.get(
+    "/v1/model/methodology",
+    response_model=ModelMethodologyResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def model_methodology() -> ModelMethodologyResponse:
+    """
+    GET /v1/model/methodology - Read-only Quant Model Contract v1.
+
+    Transparency / model-governance endpoint. Documents exactly what the current
+    two-layer model does today (local technical pre-screen + remote GCP
+    prediction), what the actionability gate requires, and the target quant-grade
+    architecture, with an honest data-readiness ledger.
+
+    READ ONLY: zero rows created/mutated, no broker execution, NO remote GCP
+    prediction call, NO external web/news/sentiment call, no automation.
+
+    Honesty rules enforced here (no faked precision):
+        - Threshold values are read from the actual code constants, never invented.
+        - Only price-derived features are marked available/used_today; news,
+          sentiment, seasonality, macro, sector, volume, and event risk are marked
+          NOT available with rule "Do not fake this feature." until a real,
+          sourced, timestamped data feed exists in the codebase.
+        - The remote prediction layer is described as a black box from Paper
+          Trader's perspective (only ticker is sent; only a point estimate +
+          confidence come back).
+    """
+    now = datetime.now(tz=timezone.utc)
+
+    # Actual configured dispatch default - read from the live request contract,
+    # never hardcoded.
+    dispatch_limit = int(
+        MarketScanPredictionCandidatesRequest.model_fields["prediction_top_n"].default
+    )
+
+    # --- Layer 1: local technical pre-screen (engine/market_screener.py) ---
+    local_features = [
+        ModelFeatureDescriptor(
+            name="5-day momentum",
+            source="price_snapshots (CLOSE, REGULAR)",
+            available=True,
+            used_today=True,
+            purpose="short-term trend",
+        ),
+        ModelFeatureDescriptor(
+            name="20-day momentum",
+            source="price_snapshots (CLOSE, REGULAR)",
+            available=True,
+            used_today=True,
+            purpose="primary trend / ranking weight",
+        ),
+        ModelFeatureDescriptor(
+            name="20-day volatility",
+            source="price_snapshots (stdev of daily returns)",
+            available=True,
+            used_today=True,
+            purpose="downside / high-volatility penalty",
+        ),
+        ModelFeatureDescriptor(
+            name="Relative strength vs SPY (20d)",
+            source="benchmark_prices (SPY)",
+            available=True,
+            used_today=True,
+            purpose="relative strength vs market",
+        ),
+        ModelFeatureDescriptor(
+            name="Volume / liquidity",
+            source=None,
+            available=False,
+            used_today=False,
+            purpose="tradability (target only - no volume data stored yet)",
+        ),
+        ModelFeatureDescriptor(
+            name="Sector / industry",
+            source=None,
+            available=False,
+            used_today=False,
+            purpose="sector normalization / rotation (target only)",
+        ),
+        ModelFeatureDescriptor(
+            name="Fundamentals / market cap / beta",
+            source=None,
+            available=False,
+            used_today=False,
+            purpose="quality and risk context (target only)",
+        ),
+    ]
+    local_prescreen = ModelLayerLocalPrescreen(
+        description=(
+            "Current local pre-screen is a first-pass technical/momentum ranking of the "
+            "configured S&P 500 universe using only stored daily CLOSE prices. It ranks "
+            "names before any remote prediction dispatch. It is NOT yet quant-grade: no "
+            "point-in-time validation, no sector/liquidity normalization, no risk model."
+        ),
+        current_features=local_features,
+        current_formula_summary=(
+            "score = 0.3 * max(0, momentum_5d_pct) + 0.4 * max(0, momentum_20d_pct) "
+            "+ 0.3 * max(0, relative_strength_vs_spy_20d); then if 20d volatility > 5%, "
+            "score is multiplied by (1 - volatility_20d/100). Only positive momentum and "
+            "positive relative strength contribute. Extreme moves are flagged "
+            "DATA_QUALITY_OUTLIER and excluded."
+        ),
+        current_limitations=[
+            "Price-only: no volume, liquidity, sector, fundamentals, beta, or market cap.",
+            "No sector normalization or sector-rotation awareness yet.",
+            "No market regime, breadth, or volatility-regime context yet.",
+            "No news/sentiment data yet.",
+            "No seasonality or earnings/event calendar yet.",
+            "Not point-in-time validated and not backtested; rankings are not walk-forward tested.",
+        ],
+    )
+
+    # --- Layer 2: remote GCP prediction (black box) ---
+    prediction_layer = ModelLayerPrediction(
+        description=(
+            "Current remote prediction layer is treated as a black-box prediction service "
+            "from the Paper Trader perspective. Paper Trader sends only a ticker symbol and "
+            "receives a 5-day point estimate plus a confidence value; it does not see the "
+            "model internals, features, or training data."
+        ),
+        runs_on="remote GCP prediction service through http://127.0.0.1:9000 (local tunnel)",
+        dispatch_policy="top locally ranked names plus current holdings",
+        dispatch_limit=dispatch_limit,
+        current_inputs_known_to_paper_trader=[
+            "ticker symbol only (POST /predict_all_models/ with {\"ticker\": ...})",
+        ],
+        current_outputs=[
+            "recommendation (BUY/SELL/HOLD)",
+            "confidence (0-1, normalized from 0-100)",
+            "expected_return_pct (5-day)",
+            "forecast_price_5d (if available)",
+            "per-model consensus votes and rationale text",
+        ],
+        current_limitations=[
+            f"Only the top {dispatch_limit} locally ranked names plus current holdings are "
+            "sent, because the prediction service is remote - not the full S&P 500.",
+            "Black box: Paper Trader does not know the model's features or training window.",
+            "Point estimate plus confidence only - no prediction interval, no downside risk, "
+            "no probability of positive return, no calibration.",
+            "No guarantee the remote model uses point-in-time data or walk-forward validation.",
+        ],
+    )
+
+    # --- Actionability gate (actual code thresholds) ---
+    actionability_gate = ModelActionabilityGate(
+        current_thresholds=ScanFunnelThresholds(
+            min_score=DEFAULT_MIN_ACTIONABLE_SCORE,
+            min_confidence=DEFAULT_MIN_CONFIDENCE,
+            min_expected_return_pct=DEFAULT_MIN_EXPECTED_RETURN_PCT,
+            min_relative_strength_vs_spy=DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY,
+        ),
+        description=(
+            "After prediction, each candidate must clear every threshold to be shown as an "
+            "Active Trade Idea. Held positions are monitored automatically and are never new "
+            "BUYs; candidates with no usable prediction or a SELL/negative outlook are rejected."
+        ),
+        why_a_buy_may_be_rejected=[
+            f"Score below the actionable threshold ({DEFAULT_MIN_ACTIONABLE_SCORE:g}).",
+            f"Confidence below {DEFAULT_MIN_CONFIDENCE:g}.",
+            f"Expected 5-day return below {DEFAULT_MIN_EXPECTED_RETURN_PCT:g}%.",
+            f"Relative strength vs SPY below {DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY:g} "
+            "(lagging the market); unknown relative strength is allowed.",
+            "Already held: monitored automatically, not surfaced as a new BUY.",
+        ],
+    )
+
+    current_state = ModelCurrentState(
+        local_prescreen=local_prescreen,
+        prediction_layer=prediction_layer,
+        actionability_gate=actionability_gate,
+    )
+
+    # --- Target quant-grade architecture (aspirational; clearly future) ---
+    target = ModelTargetArchitecture(
+        local_prescreen_v2=ModelTargetLocalPrescreenV2(
+            purpose="Rank the full S&P 500 universe before remote prediction dispatch.",
+            feature_families=[
+                "trend and momentum",
+                "relative strength and sector rotation",
+                "volatility and downside risk",
+                "liquidity and tradability",
+                "market regime and breadth",
+                "seasonality",
+                "earnings and event risk",
+                "news and sentiment",
+                "macro sensitivity",
+                "portfolio fit and concentration",
+            ],
+            must_be_point_in_time=True,
+            must_be_backtested=True,
+        ),
+        remote_prediction_v2=ModelTargetRemotePredictionV2(
+            purpose="Estimate a forward return distribution, not just BUY/HOLD/SELL.",
+            target_outputs=[
+                "expected return",
+                "confidence / calibration",
+                "prediction interval",
+                "downside risk",
+                "probability of positive return",
+                "risk-adjusted expected return",
+                "model drivers",
+            ],
+        ),
+        portfolio_construction=ModelTargetPortfolioConstruction(
+            purpose="Convert trade ideas into position sizes and portfolio decisions.",
+            future_methods=[
+                "risk budget",
+                "max position cap",
+                "sector exposure cap",
+                "correlation-aware sizing",
+                "cash allocation",
+                "drawdown control",
+            ],
+        ),
+    )
+
+    # --- Data readiness ledger (honest: missing features carry a no-fake rule) ---
+    _DO_NOT_FAKE = "Do not fake this feature."
+    data_readiness = [
+        ModelDataReadinessRow(
+            feature_family="price history",
+            available_now=True,
+            data_source="price_snapshots",
+            status="available",
+            rule="Use stored point-in-time CLOSE prices only.",
+        ),
+        ModelDataReadinessRow(
+            feature_family="relative strength vs benchmark",
+            available_now=True,
+            data_source="benchmark_prices (SPY)",
+            status="available",
+            rule="Use stored benchmark prices only.",
+        ),
+        ModelDataReadinessRow(
+            feature_family="volume / liquidity",
+            available_now=False,
+            data_source=None,
+            status="missing_real_data_source",
+            rule=_DO_NOT_FAKE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="sector / industry",
+            available_now=False,
+            data_source=None,
+            status="missing_real_data_source",
+            rule=_DO_NOT_FAKE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="macro conditions",
+            available_now=False,
+            data_source=None,
+            status="missing_real_data_source",
+            rule=_DO_NOT_FAKE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="news sentiment",
+            available_now=False,
+            data_source=None,
+            status="missing_real_data_source",
+            rule=_DO_NOT_FAKE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="seasonality",
+            available_now=False,
+            data_source=None,
+            status="missing_real_data_source",
+            rule=_DO_NOT_FAKE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="earnings / event risk",
+            available_now=False,
+            data_source=None,
+            status="missing_real_data_source",
+            rule=_DO_NOT_FAKE,
+        ),
+    ]
+
+    roadmap = [
+        ModelRoadmapPhase(phase=1, name="Transparency and model contract", status="this task"),
+        ModelRoadmapPhase(phase=2, name="Local quant pre-screen v2 using existing price data only", status="next"),
+        ModelRoadmapPhase(phase=3, name="Backtesting and calibration harness", status="future"),
+        ModelRoadmapPhase(phase=4, name="External data integrations: news, sentiment, events, macro", status="future"),
+        ModelRoadmapPhase(phase=5, name="Remote GCP model upgrade", status="future"),
+    ]
+
+    return ModelMethodologyResponse(
+        as_of=now,
+        honesty_note=(
+            "This is a transparency contract, not a claim of quant-grade implementation. "
+            "Current local pre-screen is a first-pass technical/momentum ranking; the remote "
+            "prediction layer is a black box from Paper Trader's perspective. "
+            "News, sentiment, seasonality, macro, and event risk are target features, not "
+            "active features, until real point-in-time data exists in the codebase. No feature "
+            "should be added unless it is sourced, timestamped, testable, and backtestable with "
+            "walk-forward validation. Paper trade only - no broker execution."
+        ),
+        current_state=current_state,
+        target_quant_architecture=target,
+        data_readiness=data_readiness,
+        implementation_roadmap=roadmap,
+    )
+
+
 @app.post(
     "/v1/review/create-exit-orders",
     response_model=CreateExitOrdersResponse,

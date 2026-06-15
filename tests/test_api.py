@@ -25024,6 +25024,147 @@ class TestScanDiagnosticsLatestEndpoint:
                 session.commit()
 
 
+class TestModelMethodologyEndpoint:
+    """GET /v1/model/methodology - read-only Quant Model Contract v1.
+
+    Pure transparency endpoint: it returns a static-but-code-sourced description
+    of the current two-layer model, the target quant architecture, data readiness,
+    and roadmap. It performs no DB writes and never calls the remote prediction
+    service, so these tests assert structure, honesty rules, and code-sourced
+    thresholds without depending on any seeded rows.
+    """
+
+    _ENDPOINT = "/v1/model/methodology"
+
+    def test_requires_auth(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.get(self._ENDPOINT)
+        assert resp.status_code in (401, 403)
+
+    def test_read_only_does_not_create_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Calling the endpoint creates/mutates zero rows and reports safety flags."""
+        from sqlalchemy import func as _f
+        from paper_trader.db.models import Trade as _Trade
+
+        def _counts(session) -> dict:
+            return {
+                "signals": session.execute(select(_f.count()).select_from(Signal)).scalar_one(),
+                "decisions": session.execute(select(_f.count()).select_from(TradeDecision)).scalar_one(),
+                "orders": session.execute(select(_f.count()).select_from(Order)).scalar_one(),
+                "positions": session.execute(select(_f.count()).select_from(Position)).scalar_one(),
+                "candidates": session.execute(select(_f.count()).select_from(CandidateReview)).scalar_one(),
+                "trades": session.execute(select(_f.count()).select_from(_Trade)).scalar_one(),
+            }
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            before = _counts(session)
+
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        d = resp.json()
+
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            after = _counts(session)
+
+        assert before == after
+        assert d["writes_performed"] is False
+        assert d["preview_only"] is True
+        assert d["no_broker_execution"] is True
+        assert d["no_automation"] is True
+        assert d["no_remote_prediction_call"] is True
+        assert d["no_external_data_call"] is True
+
+    def test_required_contract_keys_present(self, seeded_client: TestClient) -> None:
+        """The methodology contract carries every required top-level and nested key."""
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d["model_contract_version"] == "quant_model_contract_v1"
+        for key in (
+            "current_state", "target_quant_architecture",
+            "data_readiness", "implementation_roadmap",
+        ):
+            assert key in d, f"missing field: {key}"
+        cs = d["current_state"]
+        assert "local_prescreen" in cs
+        assert "prediction_layer" in cs
+        assert "actionability_gate" in cs
+        # Local layer carries features + a real formula summary + limitations.
+        lp = cs["local_prescreen"]
+        assert isinstance(lp["current_features"], list) and lp["current_features"]
+        assert isinstance(lp["current_formula_summary"], str) and lp["current_formula_summary"].strip()
+        assert isinstance(lp["current_limitations"], list) and lp["current_limitations"]
+        # Prediction layer describes the remote dispatch and known I/O.
+        pl = cs["prediction_layer"]
+        assert "remote" in pl["runs_on"].lower() or "gcp" in pl["runs_on"].lower()
+        assert isinstance(pl["current_inputs_known_to_paper_trader"], list)
+        assert isinstance(pl["current_outputs"], list) and pl["current_outputs"]
+        # Target architecture has the three forward-looking blocks.
+        tgt = d["target_quant_architecture"]
+        assert "local_prescreen_v2" in tgt
+        assert "remote_prediction_v2" in tgt
+        assert "portfolio_construction" in tgt
+        assert tgt["local_prescreen_v2"]["must_be_point_in_time"] is True
+        assert tgt["local_prescreen_v2"]["must_be_backtested"] is True
+        # Roadmap: phase 1 is this task.
+        roadmap = d["implementation_roadmap"]
+        assert isinstance(roadmap, list) and len(roadmap) >= 1
+        phase1 = next(p for p in roadmap if p["phase"] == 1)
+        assert phase1["status"] == "this task"
+
+    def test_future_features_marked_missing_not_faked(self, seeded_client: TestClient) -> None:
+        """News/sentiment/seasonality/event risk are flagged missing with a no-fake rule."""
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        d = resp.json()
+        readiness = {r["feature_family"]: r for r in d["data_readiness"]}
+        for fam in ("news sentiment", "seasonality", "earnings / event risk"):
+            assert fam in readiness, f"missing data_readiness family: {fam}"
+            row = readiness[fam]
+            assert row["available_now"] is False
+            assert row["data_source"] is None
+            assert row["status"] == "missing_real_data_source"
+            assert row["rule"] == "Do not fake this feature."
+        # Price history, by contrast, is genuinely available.
+        assert readiness["price history"]["available_now"] is True
+        # No local feature claims to use a missing family today.
+        lp = d["current_state"]["local_prescreen"]
+        for feat in lp["current_features"]:
+            if not feat["available"]:
+                assert feat["used_today"] is False
+
+    def test_thresholds_match_code_constants(self, seeded_client: TestClient) -> None:
+        """Actionability thresholds reflect the actual code defaults, not invented values."""
+        from paper_trader.api.app import (
+            DEFAULT_MIN_ACTIONABLE_SCORE, DEFAULT_MIN_CONFIDENCE,
+            DEFAULT_MIN_EXPECTED_RETURN_PCT, DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY,
+        )
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        gate = resp.json()["current_state"]["actionability_gate"]
+        t = gate["current_thresholds"]
+        assert float(t["min_score"]) == DEFAULT_MIN_ACTIONABLE_SCORE
+        assert float(t["min_confidence"]) == DEFAULT_MIN_CONFIDENCE
+        assert float(t["min_expected_return_pct"]) == DEFAULT_MIN_EXPECTED_RETURN_PCT
+        assert float(t["min_relative_strength_vs_spy"]) == DEFAULT_MIN_RELATIVE_STRENGTH_VS_SPY
+        assert isinstance(gate["why_a_buy_may_be_rejected"], list) and gate["why_a_buy_may_be_rejected"]
+
+    def test_does_not_call_remote_prediction_service(
+        self, seeded_client: TestClient, monkeypatch
+    ) -> None:
+        """The endpoint never contacts the remote GCP prediction service."""
+        import paper_trader.api.app as app_module
+
+        def _boom(*args, **kwargs):
+            raise AssertionError("model/methodology must not call the prediction service")
+
+        monkeypatch.setattr(app_module, "fetch_predictions_for_tickers", _boom)
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        assert resp.json()["no_remote_prediction_call"] is True
+
+
 class TestUiStaticContent:
     """Verify key static strings are present in the UI HTML file."""
 
@@ -25140,6 +25281,38 @@ class TestUiStaticContent:
         # into an Audit / Advanced details section.
         assert 'id="dp-scan-coverage-advanced"' in html
         assert "function renderScanCoverage" in self._scripts()
+        scripts = self._scripts()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
+
+    def test_quant_model_methodology_section_present(self) -> None:
+        """The Quant Model Methodology section and its six sub-sections exist in the UI."""
+        html = self._read_html()
+        assert "Quant Model Methodology" in html
+        assert "Local S&P 500 Pre-Screen" in html
+        assert "Remote GCP Prediction" in html
+        assert "Actionability Gate" in html
+        assert "Target Quant Architecture" in html
+        assert "Data Readiness" in html
+        assert "Current limitations" in html
+        assert "/v1/model/methodology" in html
+        scripts = self._scripts()
+        assert "function loadQuantModelMethodology" in scripts
+
+    def test_quant_model_methodology_is_honest_and_read_only_safe(self) -> None:
+        """The methodology card states the no-fake rule, quant requirements, and safety."""
+        import re
+        html = self._read_html()
+        # Honesty / governance language.
+        assert "Do not fake this feature" in html
+        assert "point-in-time" in html
+        assert "walk-forward validation" in html
+        # Safety language stays visible.
+        assert "paper trade only" in html
+        assert "no broker execution" in html
+        assert "MANUAL REVIEW" in html
+        assert "AUTOMATION OFF" in html
+        # Read-only: no native browser dialogs anywhere.
         scripts = self._scripts()
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
