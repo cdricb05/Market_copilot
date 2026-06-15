@@ -24537,6 +24537,261 @@ class TestTickerDetailEndpoint:
                 session.commit()
 
 
+class TestPortfolioAnalyticsEndpoint:
+    """GET /v1/portfolio/analytics — read-only portfolio-level analytics & risk."""
+
+    _ENDPOINT = "/v1/portfolio/analytics"
+
+    @staticmethod
+    def _sfx() -> str:
+        import uuid as _uuid
+        return _uuid.uuid4().hex[:6].upper()
+
+    @staticmethod
+    def _set_portfolio_cash(session, cash: Decimal, total: Decimal) -> tuple:
+        """Set the (single) portfolio's cached cash/total, returning the old values."""
+        pf = session.execute(select(Portfolio)).scalar_one()
+        old = (Decimal(str(pf.cached_cash)), Decimal(str(pf.cached_total_value)))
+        pf.cached_cash = cash
+        pf.cached_total_value = total
+        session.add(pf)
+        return old
+
+    @staticmethod
+    def _restore_portfolio_cash(session, old: tuple) -> None:
+        pf = session.execute(select(Portfolio)).scalar_one()
+        pf.cached_cash = old[0]
+        pf.cached_total_value = old[1]
+        session.add(pf)
+
+    def test_requires_auth(self, seeded_client: TestClient) -> None:
+        resp = seeded_client.get(self._ENDPOINT)
+        assert resp.status_code in (401, 403)
+
+    def test_empty_state_when_no_positions(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """With no open positions the analytics report a calm empty state.
+
+        The shared test DB may hold positions from other tests; this test
+        non-destructively saves, clears, asserts, then restores them.
+        """
+        from sqlalchemy import inspect as _sa_inspect
+        saved: list[dict] = []
+        old = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                old = self._set_portfolio_cash(
+                    session, Decimal("10000.00"), Decimal("10000.00")
+                )
+                col_keys = [c.key for c in _sa_inspect(Position).mapper.column_attrs]
+                for p in session.execute(select(Position)).scalars().all():
+                    saved.append({k: getattr(p, k) for k in col_keys})
+                session.query(Position).delete(synchronize_session=False)
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["has_positions"] is False
+            assert data["open_position_count"] == 0
+            assert data["positions"] == []
+            # All cash, nothing invested.
+            assert float(data["allocation"]["invested_pct"]) == 0.0
+            assert float(data["allocation"]["cash_pct"]) == 100.0
+            assert data["risk"]["hold_count"] == 0
+            assert data["risk"]["watch_count"] == 0
+            assert data["risk"]["review_for_exit_count"] == 0
+            assert data["risk"]["message"] == "No open positions."
+            assert data["capacity"]["can_open_new"] is True
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for cols in saved:
+                    session.add(Position(**cols))
+                if old is not None:
+                    self._restore_portfolio_cash(session, old)
+                session.commit()
+
+    def test_exposure_cash_invested_percentages(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Cash %, per-ticker exposure weight, and concentration are computed correctly.
+
+        Assertions are scoped to this test's own tickers (the shared DB may hold
+        other positions). cash_pct depends only on the portfolio row, so it is
+        deterministic; per-row weight = market_value / cached_total_value.
+        """
+        sfx = self._sfx()
+        tk_a = f"ALA{sfx[:3]}"   # 20% weight, flat P&L -> HOLD
+        tk_b = f"ALB{sfx[:3]}"   # 40% weight, flat P&L -> WATCH/HIGH_CONCENTRATION
+        ids: list = []
+        old = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                # cash 4000 of a 10000 total -> cash_pct 40.00 (portfolio-only math).
+                old = self._set_portfolio_cash(
+                    session, Decimal("4000.00"), Decimal("10000.00")
+                )
+                for tk, qty in ((tk_a, 20), (tk_b, 40)):
+                    snap = PriceSnapshot(
+                        ticker=tk, price=Decimal("100.000000"),
+                        session_type="REGULAR", price_type="CLOSE",
+                        snapshot_ts=datetime(2025, 2, 1, 21, 0, tzinfo=timezone.utc),
+                        market_date=date(2025, 2, 1),
+                    )
+                    session.add(snap)
+                    pos = Position(
+                        ticker=tk, qty=Decimal(str(qty)),
+                        avg_cost=Decimal("100.000000"),
+                        cost_basis=Decimal(str(qty * 100)),
+                        opened_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                        last_updated=datetime(2025, 2, 1, tzinfo=timezone.utc),
+                    )
+                    session.add(pos)
+                    session.flush()
+                    ids.append(("snap", snap.id))
+                    ids.append(("pos", pos.id))
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["has_positions"] is True
+            a = data["allocation"]
+            # Cash % is portfolio-only and deterministic: 4000 / 10000 = 40%.
+            assert float(a["cash_pct"]) == 40.0
+            # invested_pct is self-consistent with positions_value / total_value.
+            total_v = float(a["total_value"])
+            pv = float(a["positions_value"])
+            assert abs(float(a["invested_pct"]) - (pv / total_v * 100.0)) < 0.1
+            # A 40%-weight position must raise the concentration warning.
+            assert a["concentration_warning"] is True
+            # Per-ticker exposure weights = market_value / cached_total_value.
+            rows = {p["ticker"]: p for p in data["positions"]}
+            assert tk_a in rows and tk_b in rows
+            assert float(rows[tk_a]["market_value"]) == 2000.0
+            assert float(rows[tk_a]["portfolio_weight_pct"]) == 20.0
+            assert rows[tk_a]["recommendation"] == "HOLD"
+            assert float(rows[tk_b]["market_value"]) == 4000.0
+            assert float(rows[tk_b]["portfolio_weight_pct"]) == 40.0
+            assert rows[tk_b]["recommendation"] == "WATCH"
+            assert rows[tk_b]["reason_code"] == "HIGH_CONCENTRATION"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for kind, _id in ids:
+                    model = PriceSnapshot if kind == "snap" else Position
+                    session.query(model).filter(model.id == _id).delete(
+                        synchronize_session=False
+                    )
+                if old is not None:
+                    self._restore_portfolio_cash(session, old)
+                session.commit()
+
+    def test_hold_watch_review_counts_use_monitor_rules(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """HOLD / WATCH / REVIEW_FOR_EXIT counts follow the same monitor thresholds.
+
+        Counts are validated as deltas against a baseline so other positions in
+        the shared DB do not affect the result; total_value is held constant
+        across the baseline and post-insert reads so existing rows reclassify
+        identically.
+        """
+        sfx = self._sfx()
+        tk_h = f"RKH{sfx[:3]}"   # +5% -> HOLD
+        tk_w = f"RKW{sfx[:3]}"   # -3% -> WATCH
+        tk_r = f"RKR{sfx[:3]}"   # -6% -> REVIEW_FOR_EXIT
+        ids: list = []
+        old = None
+        try:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                # Hold total at 10000 (each new position weight ~10%, < 25%).
+                old = self._set_portfolio_cash(
+                    session, Decimal("7040.00"), Decimal("10000.00")
+                )
+                session.commit()
+
+            base = seeded_client.get(self._ENDPOINT, headers=_AUTH).json()["risk"]
+
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for tk, price in ((tk_h, "105"), (tk_w, "97"), (tk_r, "94")):
+                    snap = PriceSnapshot(
+                        ticker=tk, price=Decimal(price + ".000000"),
+                        session_type="REGULAR", price_type="CLOSE",
+                        snapshot_ts=datetime(2025, 2, 2, 21, 0, tzinfo=timezone.utc),
+                        market_date=date(2025, 2, 2),
+                    )
+                    session.add(snap)
+                    pos = Position(
+                        ticker=tk, qty=Decimal("10"),
+                        avg_cost=Decimal("100.000000"), cost_basis=Decimal("1000.00"),
+                        opened_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                        last_updated=datetime(2025, 2, 2, tzinfo=timezone.utc),
+                    )
+                    session.add(pos)
+                    session.flush()
+                    ids.append(("snap", snap.id))
+                    ids.append(("pos", pos.id))
+                session.commit()
+
+            resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+            assert resp.status_code == 200
+            data = resp.json()
+            risk = data["risk"]
+            # My three positions add exactly one of each classification.
+            assert risk["hold_count"] - base["hold_count"] == 1
+            assert risk["watch_count"] - base["watch_count"] == 1
+            assert risk["review_for_exit_count"] - base["review_for_exit_count"] == 1
+            # At least one REVIEW_FOR_EXIT exists -> exit-review message.
+            assert "Exit review required" in risk["message"]
+            # Per-row recommendations match the rule outcomes for my tickers.
+            by_ticker = {p["ticker"]: p["recommendation"] for p in data["positions"]}
+            assert by_ticker[tk_h] == "HOLD"
+            assert by_ticker[tk_w] == "WATCH"
+            assert by_ticker[tk_r] == "REVIEW_FOR_EXIT"
+        finally:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                for kind, _id in ids:
+                    model = PriceSnapshot if kind == "snap" else Position
+                    session.query(model).filter(model.id == _id).delete(
+                        synchronize_session=False
+                    )
+                if old is not None:
+                    self._restore_portfolio_cash(session, old)
+                session.commit()
+
+    def test_read_only_does_not_create_rows(
+        self, seeded_client: TestClient, api_engine
+    ) -> None:
+        """Fetching analytics must not create signals/decisions/orders/trades/fills/cash."""
+        from paper_trader.db.models import CashLedger, Trade
+
+        def _counts() -> dict:
+            with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+                from sqlalchemy import func as _f
+                return {
+                    "signals": session.query(_f.count(Signal.id)).scalar(),
+                    "decisions": session.query(_f.count(TradeDecision.id)).scalar(),
+                    "orders": session.query(_f.count(Order.id)).scalar(),
+                    "trades": session.query(_f.count(Trade.id)).scalar(),
+                    "positions": session.query(_f.count(Position.id)).scalar(),
+                    "cash": session.query(_f.count(CashLedger.id)).scalar(),
+                    "candidates": session.query(_f.count(CandidateReview.id)).scalar(),
+                }
+
+        before = _counts()
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["writes_performed"] is False
+        assert data["no_broker_execution"] is True
+        assert data["no_orders_created"] is True
+        assert data["no_automation"] is True
+        assert data["preview_only"] is True
+        after = _counts()
+        assert after == before
+
+
 # ---------------------------------------------------------------------------
 # Static UI content assertions — reads index.html directly (no HTTP needed)
 # ---------------------------------------------------------------------------
@@ -24600,6 +24855,33 @@ class TestUiStaticContent:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         html = html_path.read_text(encoding="utf-8", errors="ignore")
         return "\n".join(re.findall(r"<script[^>]*>([\s\S]*?)</script>", html))
+
+    def test_portfolio_analytics_section_present(self) -> None:
+        """The Portfolio Analytics section and its sub-sections exist in the UI."""
+        html = self._read_html()
+        assert 'id="portfolio-analytics-card"' in html
+        assert "Portfolio Analytics" in html
+        assert "Exposure by Ticker" in html
+        assert "P&L by Ticker" in html
+        assert "Portfolio Capacity" in html
+        assert "Risk / Monitor Summary" in html
+        assert "/v1/portfolio/analytics" in html
+        scripts = self._scripts()
+        assert "function loadPortfolioAnalytics" in scripts
+
+    def test_portfolio_analytics_is_read_only_safe(self) -> None:
+        """The analytics section keeps safety badges visible and reuses ticker drawer."""
+        html = self._read_html()
+        assert "PREVIEW ONLY" in html
+        assert "NO ORDERS" in html
+        assert "AUTOMATION OFF" in html
+        # Exposure rows reuse the existing read-only ticker detail drawer.
+        scripts = self._scripts()
+        assert "function tickerLink" in scripts
+        # Still no native browser dialogs.
+        import re
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
 
     def test_action_safety_panel_present(self) -> None:
         assert "Action / Safety Panel" in self._read_html()

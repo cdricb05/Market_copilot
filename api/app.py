@@ -16769,6 +16769,330 @@ def ticker_detail(ticker: str) -> TickerDetailResponse:
 
 
 # ---------------------------------------------------------------------------
+# Portfolio analytics (read-only aggregation)
+# ---------------------------------------------------------------------------
+
+class PortfolioAnalyticsPosition(BaseModel):
+    ticker: str
+    qty: str
+    avg_cost: str
+    cost_basis: str
+    latest_price: str | None = None
+    market_value: str | None = None
+    unrealized_pnl: str | None = None
+    unrealized_pnl_pct: str | None = None
+    portfolio_weight_pct: str | None = None
+    recommendation: str
+    reason_code: str
+    explanation: str
+
+
+class PortfolioAnalyticsAllocation(BaseModel):
+    total_value: str
+    cash: str
+    positions_value: str
+    cash_pct: str
+    invested_pct: str
+    open_position_count: int
+    max_positions: int
+    available_slots: int
+    largest_position_ticker: str | None = None
+    largest_position_weight_pct: str | None = None
+    concentration_warning: bool = False
+
+
+class PortfolioAnalyticsRisk(BaseModel):
+    hold_count: int
+    watch_count: int
+    review_for_exit_count: int
+    message: str
+
+
+class PortfolioAnalyticsCapacity(BaseModel):
+    total_value: str
+    cash: str
+    positions_value: str
+    max_positions: int
+    open_positions: int
+    available_slots: int
+    can_open_new: bool
+    message: str
+
+
+class PortfolioAnalyticsResponse(BaseModel):
+    as_of: datetime
+    has_positions: bool
+    open_position_count: int
+    total_positions_value: str
+    total_unrealized_pnl: str
+    allocation: PortfolioAnalyticsAllocation
+    positions: list[PortfolioAnalyticsPosition]
+    risk: PortfolioAnalyticsRisk
+    capacity: PortfolioAnalyticsCapacity
+    # Read-only safety contract
+    preview_only: bool = True
+    writes_performed: bool = False
+    no_broker_execution: bool = True
+    no_orders_created: bool = True
+    no_automation: bool = True
+
+
+@app.get(
+    "/v1/portfolio/analytics",
+    response_model=PortfolioAnalyticsResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def portfolio_analytics() -> PortfolioAnalyticsResponse:
+    """
+    GET /v1/portfolio/analytics — Read-only portfolio-level analytics & risk roll-up.
+
+    PREVIEW / ANALYSIS ONLY. Aggregates existing data only:
+        - allocation: cash %, invested %, position count vs max, available slots,
+          largest position weight + concentration warning (>25%)
+        - exposure & P&L by ticker (market value, weight, unrealized P&L %)
+        - risk roll-up: HOLD / WATCH / REVIEW_FOR_EXIT counts using the SAME rules
+          as /v1/review/position-monitor-preview
+        - capacity: total value, cash, positions value, slots, can-open-new verdict
+
+    Reuses the v1 monitor rules:
+        REVIEW_FOR_EXIT  if unrealized_pnl_pct <= -5.0%
+        WATCH            if unrealized_pnl_pct <= -2.0%
+        WATCH            if portfolio_weight_pct > 25.0%
+        HOLD             otherwise
+        WATCH/PRICE_MISSING when the latest price is unavailable
+
+    This endpoint never creates signals, decisions, orders, trades, fills,
+    positions, or cash ledger rows. No broker execution. No automation.
+    """
+    now = datetime.now(tz=timezone.utc)
+
+    with get_session() as session:
+        portfolio = session.execute(select(Portfolio)).scalar_one_or_none()
+        if portfolio is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Portfolio not seeded. Run scripts/seed.py first.",
+            )
+
+        cash = Decimal(str(portfolio.cached_cash))
+        total_value = Decimal(str(portfolio.cached_total_value))
+        cfg_max = int(
+            (portfolio.config or {}).get("max_positions", get_settings().max_positions)
+        )
+
+        positions = session.execute(
+            select(Position).order_by(Position.opened_at)
+        ).scalars().all()
+
+        items: list[PortfolioAnalyticsPosition] = []
+        total_positions_value = Decimal("0")
+        total_unrealized_pnl = Decimal("0")
+        hold_count = 0
+        watch_count = 0
+        review_for_exit_count = 0
+        largest_ticker: str | None = None
+        largest_weight: Decimal | None = None
+
+        for pos in positions:
+            qty = Decimal(str(pos.qty))
+            cost_basis = Decimal(str(pos.cost_basis))
+            latest_price = _latest_price(session, pos.ticker)
+
+            mv_str = upnl_str = upnl_pct_str = weight_str = None
+            latest_str = str(latest_price) if latest_price is not None else None
+            recommendation: str
+            reason_code: str
+            explanation: str
+
+            if latest_price is None:
+                recommendation = "WATCH"
+                reason_code = "PRICE_MISSING"
+                explanation = (
+                    "Latest price unavailable; position cannot be fully evaluated."
+                )
+                watch_count += 1
+            else:
+                market_value = qty * latest_price
+                unrealized_pnl = market_value - cost_basis
+                unrealized_pnl_pct = (
+                    unrealized_pnl / cost_basis * Decimal("100")
+                    if cost_basis != Decimal("0") else Decimal("0")
+                )
+                total_positions_value += market_value
+                total_unrealized_pnl += unrealized_pnl
+
+                weight_pct: Decimal | None = None
+                if total_value > Decimal("0"):
+                    weight_pct = market_value / total_value * Decimal("100")
+
+                mv_str = str(market_value.quantize(Decimal("0.01")))
+                upnl_str = str(unrealized_pnl.quantize(Decimal("0.01")))
+                upnl_pct_str = str(unrealized_pnl_pct.quantize(Decimal("0.01")))
+                weight_str = (
+                    str(weight_pct.quantize(Decimal("0.01")))
+                    if weight_pct is not None else None
+                )
+
+                if weight_pct is not None and (
+                    largest_weight is None or weight_pct > largest_weight
+                ):
+                    largest_weight = weight_pct
+                    largest_ticker = pos.ticker
+
+                upnl_pct_float = float(unrealized_pnl_pct)
+                weight_pct_float = float(weight_pct) if weight_pct is not None else 0.0
+                if upnl_pct_float <= -5.0:
+                    recommendation = "REVIEW_FOR_EXIT"
+                    reason_code = "STOP_LOSS_REVIEW"
+                    explanation = (
+                        f"Unrealized P&L of {upnl_pct_float:.1f}% is below the "
+                        f"stop-loss review threshold (-5.0%). Manual review recommended."
+                    )
+                    review_for_exit_count += 1
+                elif upnl_pct_float <= -2.0:
+                    recommendation = "WATCH"
+                    reason_code = "WATCH_LOSS_THRESHOLD"
+                    explanation = (
+                        f"Unrealized P&L of {upnl_pct_float:.1f}% is in the watch range "
+                        f"(-2.0% to -5.0%). Monitor closely."
+                    )
+                    watch_count += 1
+                elif weight_pct is not None and weight_pct_float > 25.0:
+                    recommendation = "WATCH"
+                    reason_code = "HIGH_CONCENTRATION"
+                    explanation = (
+                        f"Portfolio weight of {weight_pct_float:.1f}% exceeds the "
+                        f"concentration threshold (25.0%). Consider position sizing."
+                    )
+                    watch_count += 1
+                else:
+                    recommendation = "HOLD"
+                    reason_code = "HEALTHY_POSITION"
+                    explanation = (
+                        "Position is within healthy parameters. No action required."
+                    )
+                    hold_count += 1
+
+            items.append(PortfolioAnalyticsPosition(
+                ticker=pos.ticker,
+                qty=str(qty),
+                avg_cost=str(pos.avg_cost),
+                cost_basis=str(cost_basis),
+                latest_price=latest_str,
+                market_value=mv_str,
+                unrealized_pnl=upnl_str,
+                unrealized_pnl_pct=upnl_pct_str,
+                portfolio_weight_pct=weight_str,
+                recommendation=recommendation,
+                reason_code=reason_code,
+                explanation=explanation,
+            ))
+
+        # Sort exposure rows by portfolio weight descending (largest exposure first).
+        def _weight_key(it: PortfolioAnalyticsPosition) -> Decimal:
+            return Decimal(it.portfolio_weight_pct) if it.portfolio_weight_pct else Decimal("0")
+
+        items.sort(key=_weight_key, reverse=True)
+
+        open_count = len(positions)
+        available_slots = max(0, cfg_max - open_count)
+        positions_value = total_positions_value
+
+        if total_value > Decimal("0"):
+            cash_pct = (cash / total_value * Decimal("100")).quantize(Decimal("0.01"))
+            invested_pct = (
+                positions_value / total_value * Decimal("100")
+            ).quantize(Decimal("0.01"))
+        else:
+            cash_pct = Decimal("0.00")
+            invested_pct = Decimal("0.00")
+
+        concentration_warning = bool(
+            largest_weight is not None and largest_weight > Decimal("25.0")
+        )
+
+        allocation = PortfolioAnalyticsAllocation(
+            total_value=str(total_value.quantize(Decimal("0.01"))),
+            cash=str(cash.quantize(Decimal("0.01"))),
+            positions_value=str(positions_value.quantize(Decimal("0.01"))),
+            cash_pct=str(cash_pct),
+            invested_pct=str(invested_pct),
+            open_position_count=open_count,
+            max_positions=cfg_max,
+            available_slots=available_slots,
+            largest_position_ticker=largest_ticker,
+            largest_position_weight_pct=(
+                str(largest_weight.quantize(Decimal("0.01")))
+                if largest_weight is not None else None
+            ),
+            concentration_warning=concentration_warning,
+        )
+
+        if review_for_exit_count > 0:
+            risk_message = (
+                f"Exit review required for {review_for_exit_count} position(s)."
+            )
+        elif watch_count > 0:
+            risk_message = f"Watch required for {watch_count} position(s)."
+        elif open_count > 0:
+            risk_message = "Portfolio healthy. Monitor only."
+        else:
+            risk_message = "No open positions."
+
+        risk = PortfolioAnalyticsRisk(
+            hold_count=hold_count,
+            watch_count=watch_count,
+            review_for_exit_count=review_for_exit_count,
+            message=risk_message,
+        )
+
+        can_open_new = available_slots > 0
+        if open_count == 0:
+            capacity_message = (
+                f"No open positions. Capacity for up to {cfg_max} paper position(s)."
+            )
+        elif can_open_new:
+            capacity_message = (
+                f"{available_slots} slot(s) free. New paper trades possible "
+                f"(capacity only — manual review still required)."
+            )
+        else:
+            capacity_message = (
+                "No new BUY capacity. Portfolio is at max positions; free a slot "
+                "or consider a rotation."
+            )
+
+        capacity = PortfolioAnalyticsCapacity(
+            total_value=str(total_value.quantize(Decimal("0.01"))),
+            cash=str(cash.quantize(Decimal("0.01"))),
+            positions_value=str(positions_value.quantize(Decimal("0.01"))),
+            max_positions=cfg_max,
+            open_positions=open_count,
+            available_slots=available_slots,
+            can_open_new=can_open_new,
+            message=capacity_message,
+        )
+
+        return PortfolioAnalyticsResponse(
+            as_of=now,
+            has_positions=open_count > 0,
+            open_position_count=open_count,
+            total_positions_value=str(total_positions_value.quantize(Decimal("0.01"))),
+            total_unrealized_pnl=str(total_unrealized_pnl.quantize(Decimal("0.01"))),
+            allocation=allocation,
+            positions=items,
+            risk=risk,
+            capacity=capacity,
+            preview_only=True,
+            writes_performed=False,
+            no_broker_execution=True,
+            no_orders_created=True,
+            no_automation=True,
+        )
+
+
+# ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
 
