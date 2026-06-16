@@ -762,6 +762,24 @@ class MarketScanPredictionCandidatesRequest(BaseModel):
         default=False,
         description="V1: must be false. No orders created.",
     )
+    daily_session_id: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "Optional Daily Review session identifier. When supplied, each "
+            "captured prediction_runs row is stamped with it so the Scan "
+            "Selection Funnel can report real per-session capture counts. "
+            "Observational only — never creates signals, orders, or trades."
+        ),
+    )
+    capture_source: str = Field(
+        default="MARKET_SCAN",
+        max_length=30,
+        description=(
+            "Capture context recorded on prediction_runs rows: "
+            "DAILY_REVIEW | PREDICTION_PREVIEW | MARKET_SCAN."
+        ),
+    )
 
     @field_validator("scoring_profile")
     @classmethod
@@ -1178,6 +1196,8 @@ class PredictionRunOut(BaseModel):
     """
     id: str
     ticker: str
+    daily_session_id: str | None
+    source: str | None
     request_ts: datetime
     response_ts: datetime | None
     latency_ms: int | None
@@ -2210,6 +2230,12 @@ class ScanDiagnosticsLatestResponse(BaseModel):
     sent_to_prediction_captured: bool = False
     predictions_returned: int | None = None
     predictions_returned_captured: bool = False
+    # Per-session prediction capture linkage (prediction_runs.daily_session_id).
+    predictions_captured: int | None = None
+    prediction_errors_captured: int = 0
+    capture_session_linked: bool = False
+    capture_status: str = "NOT_CAPTURED_YET"
+    capture_status_message: str = ""
     active_trade_ideas: int
     watch_below_threshold: int
     rejected_blocked: int
@@ -3586,13 +3612,24 @@ async def _fetch_predictions_with_optional_capture(*args, capture: list[dict] | 
     return await func(*args, **kwargs)
 
 
-def _persist_prediction_runs(capture_records: list[dict]) -> int:
+def _persist_prediction_runs(
+    capture_records: list[dict],
+    *,
+    daily_session_id: str | None = None,
+    source: str | None = None,
+) -> int:
     """
     Persist captured GCP prediction calls into the local prediction_runs table.
 
     Purely observational audit side-channel (see PredictionRun docstring and
     docs/prediction_service_audit_v1.md). Writing these rows never creates a
     signal, decision, order, trade, fill, or broker action.
+
+    ``daily_session_id`` / ``source`` link each captured row back to the Daily
+    Review session (or other dispatch context) that produced it, so the Scan
+    Selection Funnel can report real per-session capture counts instead of
+    timestamp guessing. They are stamped onto each record (when not already
+    present) before the pure value mapping runs.
 
     Best-effort and fully isolated: any capture/persistence failure is swallowed
     so it can never break the prediction preview / fetch-and-run workflow. Each
@@ -3609,6 +3646,10 @@ def _persist_prediction_runs(capture_records: list[dict]) -> int:
         with get_session() as session:
             for cap in capture_records:
                 try:
+                    if daily_session_id is not None and not cap.get("daily_session_id"):
+                        cap["daily_session_id"] = daily_session_id
+                    if source is not None and not cap.get("source"):
+                        cap["source"] = source
                     values = build_prediction_run_values(cap)
                     if not values.get("ticker"):
                         continue
@@ -5008,7 +5049,7 @@ async def fetch_and_run_prediction_strategy(
         )
     except Exception as exc:
         # Persist whatever was captured before the fetch blew up (read-only audit).
-        _persist_prediction_runs(_prediction_capture)
+        _persist_prediction_runs(_prediction_capture, source="PREDICTION_PREVIEW")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch predictions: {str(exc)}",
@@ -5016,7 +5057,7 @@ async def fetch_and_run_prediction_strategy(
 
     # Capture every prediction call (success and failure) into the local
     # prediction_runs store. Observational only — creates no signals/orders/trades.
-    _persist_prediction_runs(_prediction_capture)
+    _persist_prediction_runs(_prediction_capture, source="PREDICTION_PREVIEW")
 
     fetched_count = len(fetched_responses)
     failed_count = len(fetch_failures)
@@ -6395,7 +6436,11 @@ async def market_scan_prediction_candidates(
                 capture=_prediction_capture,
             )
         except Exception as exc:
-            _persist_prediction_runs(_prediction_capture)
+            _persist_prediction_runs(
+                _prediction_capture,
+                daily_session_id=body.daily_session_id,
+                source=body.capture_source,
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to fetch predictions: {str(exc)}",
@@ -6403,7 +6448,13 @@ async def market_scan_prediction_candidates(
 
     # Capture every prediction call (success and failure) into the local
     # prediction_runs store. Observational only — creates no signals/orders/trades.
-    _persist_prediction_runs(_prediction_capture)
+    # Stamp the Daily Review session id/context so the Scan Selection Funnel can
+    # report real per-session capture counts.
+    _persist_prediction_runs(
+        _prediction_capture,
+        daily_session_id=body.daily_session_id,
+        source=body.capture_source,
+    )
 
     _prediction_elapsed_ms = int(
         (datetime.now(timezone.utc) - _t_fetch_start).total_seconds() * 1000
@@ -16605,9 +16656,67 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
                     is_current_session=is_current,
                 ))
 
+        # --- Prediction capture linkage (observational; read-only SELECT) ---
+        # Link the latest session to the prediction_runs it dispatched via the
+        # shared daily_session_id, so the funnel reports REAL per-session capture
+        # counts instead of timestamp guessing. Counting these rows creates no
+        # signals/decisions/orders/trades and makes no GCP call.
+        captured_runs: list[PredictionRun] = []
+        if session_id is not None:
+            captured_runs = session.query(PredictionRun).filter(
+                PredictionRun.daily_session_id == session_id
+            ).all()
+        any_prediction_runs_exist = (
+            session.query(PredictionRun.id).first() is not None
+        )
+
     # Planned dispatch (top-N ranked names + current holdings). The actual count
     # sent on the last live run is not persisted, so this is labeled as planned.
-    sent_to_prediction = min(dispatch_limit, locally_screened) + existing_positions_reviewed
+    planned_sent_to_prediction = min(dispatch_limit, locally_screened) + existing_positions_reviewed
+
+    # --- Resolve per-session prediction capture status -----------------------
+    # captured_runs / any_prediction_runs_exist were computed read-only above.
+    capture_count = len(captured_runs)
+    capture_errors = sum(1 for r in captured_runs if r.error)
+    capture_returned = capture_count - capture_errors
+    capture_session_linked = capture_count > 0
+
+    if capture_count > 0:
+        sent_to_prediction = capture_count
+        sent_to_prediction_captured = True
+        predictions_returned: int | None = capture_returned
+        predictions_returned_captured = True
+        predictions_captured: int | None = capture_count
+        if capture_errors >= capture_count:
+            capture_status = "DISPATCH_FAILED"
+            capture_status_message = (
+                f"Prediction dispatch failed ({capture_errors} error"
+                f"{'s' if capture_errors != 1 else ''}). See captured runs."
+            )
+        elif active_trade_ideas == 0:
+            capture_status = "NONE_PASSED_GATE"
+            capture_status_message = (
+                "Predictions captured, but none passed the actionability gate."
+            )
+        else:
+            capture_status = "CAPTURED"
+            capture_status_message = (
+                f"{capture_returned} prediction"
+                f"{'s' if capture_returned != 1 else ''} captured for this session."
+            )
+    else:
+        # No capture rows linked to this session.
+        sent_to_prediction = planned_sent_to_prediction
+        sent_to_prediction_captured = False
+        predictions_returned = None
+        predictions_returned_captured = False
+        predictions_captured = None
+        if has_latest_session and any_prediction_runs_exist:
+            capture_status = "OLDER_SESSION_NO_CAPTURE"
+            capture_status_message = "Not captured for this older session."
+        else:
+            capture_status = "NOT_CAPTURED_YET"
+            capture_status_message = "Not captured yet."
 
     dispatch_explanation = (
         f"Prediction is run on the top {dispatch_limit} locally ranked names plus "
@@ -16621,13 +16730,20 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
         f"service is remote. This is selection coverage, not a failure to scan the S&P 500. "
         f"Paper trade only - no broker execution."
     )
-    capture_note = (
-        "Universe, price-history, local-screen and top-ranked figures are computed live "
-        "and exact. Per-session prediction dispatch and predictions-returned counts are "
-        "not captured yet, so 'Sent to Prediction' shows the configured dispatch plan and "
-        "'Predictions Returned' is not captured yet; the actionability gate below reflects "
-        "the saved trade ideas from the latest session."
-    )
+    if capture_session_linked:
+        capture_note = (
+            "Universe, price-history, local-screen and top-ranked figures are computed live "
+            "and exact. 'Sent to Prediction' and 'Predictions Captured' below are the REAL "
+            f"counts for this session ({capture_status_message}). The actionability gate "
+            "reflects the saved trade ideas from the latest session."
+        )
+    else:
+        capture_note = (
+            "Universe, price-history, local-screen and top-ranked figures are computed live "
+            "and exact. " + capture_status_message + " 'Sent to Prediction' shows the "
+            "configured dispatch plan; the actionability gate below reflects the saved trade "
+            "ideas from the latest session."
+        )
 
     return ScanDiagnosticsLatestResponse(
         session_id=session_id,
@@ -16639,9 +16755,14 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
         locally_screened=locally_screened,
         prediction_dispatch_limit=dispatch_limit,
         sent_to_prediction=sent_to_prediction,
-        sent_to_prediction_captured=False,
-        predictions_returned=None,
-        predictions_returned_captured=False,
+        sent_to_prediction_captured=sent_to_prediction_captured,
+        predictions_returned=predictions_returned,
+        predictions_returned_captured=predictions_returned_captured,
+        predictions_captured=predictions_captured,
+        prediction_errors_captured=capture_errors,
+        capture_session_linked=capture_session_linked,
+        capture_status=capture_status,
+        capture_status_message=capture_status_message,
         active_trade_ideas=active_trade_ideas,
         watch_below_threshold=watch_below_threshold,
         rejected_blocked=rejected_blocked,
@@ -16672,6 +16793,14 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
 def list_prediction_runs(
     limit: int = Query(50, ge=1, le=500, description="Maximum number of rows to return."),
     ticker: str | None = Query(None, description="Optional ticker filter (case-insensitive)."),
+    daily_session_id: str | None = Query(
+        None,
+        description="Optional Daily Review session id filter (exact match).",
+    ),
+    source: str | None = Query(
+        None,
+        description="Optional capture-source filter (DAILY_REVIEW | PREDICTION_PREVIEW | MARKET_SCAN).",
+    ),
 ) -> PredictionRunListResponse:
     """
     GET /v1/model/prediction-runs - Read-only capture store of GCP prediction calls.
@@ -16687,11 +16816,17 @@ def list_prediction_runs(
     GCP call, and triggers no automation. Default limit is 50.
     """
     ticker_filter = ticker.strip().upper() if ticker and ticker.strip() else None
+    session_filter = daily_session_id.strip() if daily_session_id and daily_session_id.strip() else None
+    source_filter = source.strip().upper() if source and source.strip() else None
 
     with get_session() as session:
         query = session.query(PredictionRun)
         if ticker_filter:
             query = query.filter(PredictionRun.ticker == ticker_filter)
+        if session_filter:
+            query = query.filter(PredictionRun.daily_session_id == session_filter)
+        if source_filter:
+            query = query.filter(PredictionRun.source == source_filter)
         rows = (
             query.order_by(PredictionRun.created_at.desc())
             .limit(limit)
@@ -16702,6 +16837,8 @@ def list_prediction_runs(
             PredictionRunOut(
                 id=str(row.id),
                 ticker=row.ticker,
+                daily_session_id=row.daily_session_id,
+                source=row.source,
                 request_ts=row.request_ts,
                 response_ts=row.response_ts,
                 latency_ms=row.latency_ms,

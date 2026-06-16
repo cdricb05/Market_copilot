@@ -25285,6 +25285,70 @@ class TestUiStaticContent:
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
 
+    # --- Daily Review Navigation + Prediction Capture Session Linkage v1 ----
+
+    def test_daily_plan_has_primary_start_daily_review(self) -> None:
+        """Daily Plan exposes a primary Start Daily Review CTA, not only Overview."""
+        html = self._read_html()
+        assert "Start Daily Review" in html
+        # Daily Plan ('prediction-cockpit') workspace drives the workflow itself.
+        assert "primaryWorkflowAction('start_daily_review'" in html
+
+    def test_overview_is_not_the_only_start_daily_review(self) -> None:
+        """The Overview shortcut is not the only entry point to the workflow."""
+        scripts = self._scripts()
+        # Daily Plan completion + workspace both rely on startDailyReviewSession,
+        # not on switching to Overview to begin.
+        assert "function startDailyReviewSession" in scripts or "startDailyReviewSession" in scripts
+
+    def test_funnel_uses_session_aware_capture_status(self) -> None:
+        """The funnel renders capture_status (no bare 'not captured yet' fallback)."""
+        html = self._read_html()
+        scripts = self._scripts()
+        assert "Predictions Captured" in html
+        assert 'id="ssf-captured"' in html
+        assert "capture_status" in scripts
+        assert "capture_status_message" in scripts
+        assert "Predictions captured, but none passed the actionability gate" not in scripts  # backend-owned copy
+        # The clear session-aware gate copy is surfaced from the backend message,
+        # not hard-coded as the only label.
+
+    def test_view_captured_predictions_cta_present(self) -> None:
+        """A 'View Captured Predictions' CTA jumps to the Audit capture store."""
+        html = self._read_html()
+        scripts = self._scripts()
+        assert "View Captured Predictions" in html
+        assert "function viewCapturedPredictions" in scripts
+        assert "audit-advanced" in scripts
+        assert 'id="prediction-run-capture-card"' in html
+
+    def test_prediction_capture_table_has_session_and_source(self) -> None:
+        """The read-only capture table surfaces session + source and supports filtering."""
+        html = self._read_html()
+        scripts = self._scripts()
+        assert 'id="pred-runs-session-filter"' in html
+        assert "daily_session_id=" in scripts
+        # Session + Source column headers present.
+        assert ">Session<" in html
+        assert ">Source<" in html
+
+    def test_no_auto_portfolio_switch_after_daily_review(self) -> None:
+        """Completion routing stays on Daily Plan (no auto navigateToCanonicalTarget)."""
+        scripts = self._scripts()
+        # The completion handler keeps the user on the Daily Plan cockpit.
+        assert "Keep the user IN Daily Plan after a Daily Review completes" in scripts
+
+    def test_capture_views_keep_safety_and_no_dialogs(self) -> None:
+        """Capture/funnel additions keep safety badges and use no native dialogs."""
+        import re
+        html = self._read_html()
+        scripts = self._scripts()
+        assert "READ ONLY" in html
+        assert "NO BROKER EXECUTION" in html
+        assert "AUTOMATION OFF" in html
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
+
     def test_quant_model_methodology_section_present(self) -> None:
         """The Quant Model Methodology section and its six sub-sections exist in the UI."""
         html = self._read_html()
@@ -29848,7 +29912,12 @@ class TestDailyReviewOutcomeConsistencyV1Content:
         assert "Review Open Positions" in self._read_html()
 
     def test_no_new_entry_review_open_positions_present(self) -> None:
-        assert "No new-entry candidates found. Review open positions." in self._read_html()
+        # v1 navigation/linkage update: the completion copy now explains that
+        # existing positions were monitored, and the user stays on Daily Plan.
+        assert (
+            "No new-entry candidates found. Existing positions were monitored automatically."
+            in self._read_html()
+        )
 
     def test_older_review_items_present(self) -> None:
         assert "Older review items" in self._read_html()
@@ -33654,3 +33723,210 @@ class TestPredictionRunCapture:
     def test_get_prediction_runs_requires_auth(self, client):
         r = client.get("/v1/model/prediction-runs")
         assert r.status_code in (401, 403)
+
+    # --- Daily Review session linkage (migration 0005) ---------------------
+
+    def test_build_values_carries_session_and_source(self):
+        """build_prediction_run_values surfaces daily_session_id / source from the capture."""
+        from paper_trader.engine.prediction_client import build_prediction_run_values
+
+        cap = self._success_capture("CAPSRC")
+        cap["daily_session_id"] = "daily-session-2026-06-15-0930"
+        cap["source"] = "DAILY_REVIEW"
+        values = build_prediction_run_values(cap)
+        assert values["daily_session_id"] == "daily-session-2026-06-15-0930"
+        assert values["source"] == "DAILY_REVIEW"
+
+    def test_persist_stamps_session_and_source(self, client, api_engine):
+        """_persist_prediction_runs(..., daily_session_id=, source=) writes the columns."""
+        from paper_trader.api.app import _persist_prediction_runs
+
+        key = "daily-session-LINK01"
+        written = _persist_prediction_runs(
+            [self._success_capture("CAPLNK")],
+            daily_session_id=key,
+            source="DAILY_REVIEW",
+        )
+        assert written == 1
+        with Session(api_engine, expire_on_commit=False) as s:
+            row = s.query(PredictionRun).filter(PredictionRun.ticker == "CAPLNK").one()
+            assert row.daily_session_id == key
+            assert row.source == "DAILY_REVIEW"
+
+    def test_persist_session_kwargs_best_effort(self, monkeypatch):
+        """A persistence failure with the new kwargs is swallowed (never raises)."""
+        import paper_trader.api.app as app_mod
+
+        def _boom(*a, **k):
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(app_mod, "get_session", _boom)
+        # Must not raise even though the session blows up.
+        written = app_mod._persist_prediction_runs(
+            [self._success_capture("CAPBOOM")],
+            daily_session_id="daily-session-X",
+            source="DAILY_REVIEW",
+        )
+        assert written == 0
+
+    def test_get_prediction_runs_exposes_session_and_source(self, client):
+        from paper_trader.api.app import _persist_prediction_runs
+
+        _persist_prediction_runs(
+            [self._success_capture("CAPOUT")],
+            daily_session_id="daily-session-OUT01",
+            source="DAILY_REVIEW",
+        )
+        r = client.get("/v1/model/prediction-runs?ticker=CAPOUT", headers=_AUTH)
+        assert r.status_code == 200
+        runs = r.json()["runs"]
+        assert runs and all("daily_session_id" in run and "source" in run for run in runs)
+        match = next(run for run in runs if run["ticker"] == "CAPOUT")
+        assert match["daily_session_id"] == "daily-session-OUT01"
+        assert match["source"] == "DAILY_REVIEW"
+
+    def test_get_prediction_runs_session_filter(self, client):
+        from paper_trader.api.app import _persist_prediction_runs
+
+        key = "daily-session-FILT99"
+        _persist_prediction_runs(
+            [self._success_capture("CAPF1")],
+            daily_session_id=key, source="DAILY_REVIEW",
+        )
+        _persist_prediction_runs(
+            [self._success_capture("CAPF2")],
+            daily_session_id="daily-session-OTHER", source="DAILY_REVIEW",
+        )
+        r = client.get(
+            f"/v1/model/prediction-runs?daily_session_id={key}", headers=_AUTH
+        )
+        assert r.status_code == 200
+        runs = r.json()["runs"]
+        assert runs and all(run["daily_session_id"] == key for run in runs)
+        assert {run["ticker"] for run in runs} == {"CAPF1"}
+
+    def test_get_prediction_runs_source_filter(self, client):
+        from paper_trader.api.app import _persist_prediction_runs
+
+        _persist_prediction_runs(
+            [self._success_capture("CAPSRCFILT")],
+            daily_session_id="daily-session-SRC01", source="PREDICTION_PREVIEW",
+        )
+        r = client.get(
+            "/v1/model/prediction-runs?source=prediction_preview", headers=_AUTH
+        )
+        assert r.status_code == 200
+        runs = r.json()["runs"]
+        assert all(run["source"] == "PREDICTION_PREVIEW" for run in runs)
+        assert any(run["ticker"] == "CAPSRCFILT" for run in runs)
+
+
+class TestScanDiagnosticsCaptureLinkage:
+    """Scan Selection Funnel reports REAL per-session prediction capture counts.
+
+    Linkage is exact (prediction_runs.daily_session_id == latest
+    CandidateReview.idempotency_key), never timestamp guessing. All read-only:
+    counting capture rows creates no signals/decisions/orders/trades.
+    """
+
+    _ENDPOINT = "/v1/review/scan-diagnostics/latest"
+
+    @staticmethod
+    def _sfx() -> str:
+        import uuid as _uuid
+        return _uuid.uuid4().hex[:8]
+
+    @staticmethod
+    def _save_and_clear_candidate_reviews(session) -> list[dict]:
+        from sqlalchemy import inspect as _sa_inspect
+        col_keys = [c.key for c in _sa_inspect(CandidateReview).mapper.column_attrs]
+        saved = [
+            {k: getattr(r, k) for k in col_keys}
+            for r in session.execute(select(CandidateReview)).scalars().all()
+        ]
+        session.query(CandidateReview).delete(synchronize_session=False)
+        return saved
+
+    def _capture_row(self, ticker, session_id, *, error=False):
+        now = datetime.now(timezone.utc)
+        return PredictionRun(
+            ticker=ticker,
+            daily_session_id=session_id,
+            source="DAILY_REVIEW",
+            request_ts=now,
+            response_ts=now,
+            latency_ms=20,
+            prediction_service_url="http://127.0.0.1:9000/predict_all_models/",
+            request_payload={"ticker": ticker},
+            http_status=None if error else 200,
+            raw_response=None if error else {"ticker": ticker},
+            error=error,
+            error_message="timeout" if error else None,
+        )
+
+    def _run(self, seeded_client, api_engine, *, review_status, error_rows):
+        """Seed one session + capture rows, return the funnel JSON. Restores DB."""
+        sfx = self._sfx()
+        key = f"daily-session-{sfx}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            saved = self._save_and_clear_candidate_reviews(session)
+            try:
+                session.add(CandidateReview(
+                    idempotency_key=key, ticker=f"CAP{sfx[:3].upper()}",
+                    prediction_recommendation="BUY", prediction_confidence="0.85",
+                    expected_return_pct="5.0", preview_decision="CONSIDER",
+                    preview_score="85.0", review_status=review_status, status="OK",
+                ))
+                for i in range(2):
+                    session.add(self._capture_row(f"CAPX{i}{sfx[:2].upper()}", key, error=error_rows))
+                session.commit()
+
+                resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+                assert resp.status_code == 200
+                data = resp.json()
+            finally:
+                session.query(PredictionRun).filter(
+                    PredictionRun.daily_session_id == key
+                ).delete(synchronize_session=False)
+                session.query(CandidateReview).filter(
+                    CandidateReview.idempotency_key == key
+                ).delete(synchronize_session=False)
+                for rowdict in saved:
+                    session.add(CandidateReview(**rowdict))
+                session.commit()
+        return data, key
+
+    def test_captured_with_active_idea(self, seeded_client, api_engine):
+        data, key = self._run(
+            seeded_client, api_engine, review_status="NEW", error_rows=False
+        )
+        assert data["session_id"] == key
+        assert data["capture_session_linked"] is True
+        assert data["predictions_captured"] == 2
+        assert data["sent_to_prediction"] == 2
+        assert data["sent_to_prediction_captured"] is True
+        assert data["predictions_returned"] == 2
+        assert data["predictions_returned_captured"] is True
+        assert data["capture_status"] == "CAPTURED"
+        # Never the misleading bare label when rows are linked.
+        assert "not captured yet" not in data["capture_status_message"].lower()
+
+    def test_captured_but_none_passed_gate(self, seeded_client, api_engine):
+        data, key = self._run(
+            seeded_client, api_engine, review_status="WATCHING", error_rows=False
+        )
+        assert data["predictions_captured"] == 2
+        assert data["active_trade_ideas"] == 0
+        assert data["capture_status"] == "NONE_PASSED_GATE"
+        assert data["capture_status_message"] == (
+            "Predictions captured, but none passed the actionability gate."
+        )
+
+    def test_dispatch_failed(self, seeded_client, api_engine):
+        data, key = self._run(
+            seeded_client, api_engine, review_status="NEW", error_rows=True
+        )
+        assert data["predictions_captured"] == 2
+        assert data["prediction_errors_captured"] == 2
+        assert data["capture_status"] == "DISPATCH_FAILED"
+        assert data["predictions_returned"] == 0

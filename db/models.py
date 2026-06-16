@@ -1261,6 +1261,7 @@ class PredictionRun(Base):
         Index("ix_prediction_runs_ticker", "ticker"),
         Index("ix_prediction_runs_created_at", "created_at"),
         Index("ix_prediction_runs_ticker_created_at", "ticker", "created_at"),
+        Index("ix_prediction_runs_daily_session_id", "daily_session_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1272,6 +1273,25 @@ class PredictionRun(Base):
         String(20),
         nullable=False,
         comment="Stock ticker symbol Paper Trader requested a prediction for.",
+    )
+
+    # --- Daily Review session linkage (observational; no FKs) ---
+    daily_session_id: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment=(
+            "Daily Review session identifier this run was dispatched under "
+            "(matches the CandidateReview idempotency_key for the session). "
+            "Null for legacy rows or ad-hoc dispatches."
+        ),
+    )
+    source: Mapped[Optional[str]] = mapped_column(
+        String(30),
+        nullable=True,
+        comment=(
+            "Capture context: DAILY_REVIEW | PREDICTION_PREVIEW | MARKET_SCAN. "
+            "Null for legacy rows."
+        ),
     )
 
     # --- Request / response timing ---

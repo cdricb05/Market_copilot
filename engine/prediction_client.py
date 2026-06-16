@@ -211,6 +211,10 @@ def build_prediction_run_values(capture: dict) -> dict[str, Any]:
 
     values: dict[str, Any] = {
         "ticker": (capture.get("ticker") or "").upper() or None,
+        # Daily Review session linkage (stamped by the persistence layer when the
+        # dispatch belongs to a session/context). Observational only.
+        "daily_session_id": capture.get("daily_session_id"),
+        "source": capture.get("source"),
         "request_ts": capture.get("request_ts"),
         "response_ts": capture.get("response_ts"),
         "latency_ms": capture.get("latency_ms"),

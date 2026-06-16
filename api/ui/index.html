@@ -2031,11 +2031,16 @@
             <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Price-History Ready</div><div id="ssf-pricehistory" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
             <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Locally Screened</div><div id="ssf-screened" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
             <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Sent to Prediction</div><div id="ssf-sent" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
+            <div class="sc-cell" style="flex: 1 1 110px; background: rgba(59,130,246,.12); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Predictions Captured</div><div id="ssf-captured" style="font-size: 15px; font-weight: 800; color: var(--info);">-</div></div>
             <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Predictions Returned</div><div id="ssf-returned" style="font-size: 13px; font-weight: 700; color: var(--label);">-</div></div>
             <div class="sc-cell" style="flex: 1 1 110px; background: rgba(34,197,94,.12); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Active Trade Ideas</div><div id="ssf-active" style="font-size: 15px; font-weight: 800; color: var(--ok);">-</div></div>
             <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Existing Positions Reviewed</div><div id="ssf-positions" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
           </div>
           <div id="ssf-thresholds" style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;"></div>
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+            <div id="ssf-capture-status" style="font-size: 10px; font-weight: 700; color: var(--label); line-height: 1.4;"></div>
+            <button id="ssf-view-captured" class="btn-sm" style="background: rgba(59,130,246,.18); color: var(--info); font-weight: 700; font-size: 9px; padding: 4px 10px;" onclick="viewCapturedPredictions(window._lastScanFunnelSessionId)" title="Read-only: open the Prediction Run Capture evidence store in Audit / Advanced.">View Captured Predictions &rarr; Audit</button>
+          </div>
           <div id="ssf-capture" style="font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 8px; line-height: 1.4;"></div>
 
           <!-- Active vs historical separation: active only when current-session ideas need review. -->
@@ -3907,7 +3912,7 @@
         </div>
 
         <!-- Prediction Run Capture (read-only evidence store) -->
-        <div class="card">
+        <div class="card" id="prediction-run-capture-card">
           <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
             <div class="card-title" style="margin:0;">Prediction Run Capture</div>
             <span class="badge ok" style="font-size:8px; padding:1px 6px;">READ ONLY</span>
@@ -3923,8 +3928,11 @@
           </div>
           <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px; flex-wrap:wrap;">
             <input id="pred-runs-ticker-filter" placeholder="Filter ticker (optional)" class="mono"
-                   style="font-size:10px; padding:3px 6px; width:160px;">
+                   style="font-size:10px; padding:3px 6px; width:140px;">
+            <input id="pred-runs-session-filter" placeholder="Filter session id (optional)" class="mono"
+                   style="font-size:10px; padding:3px 6px; width:220px;">
             <button class="btn-sm" style="font-size:9px; padding:3px 8px;" onclick="loadPredictionRuns(this)">Refresh</button>
+            <button class="btn-sm" style="font-size:9px; padding:3px 8px; background:rgba(255,255,255,.06);" onclick="clearPredictionRunFilters(this)">Clear Filters</button>
             <span id="pred-runs-status" style="font-size:9px; color:var(--label);"></span>
           </div>
           <div style="overflow-x:auto;">
@@ -3933,6 +3941,8 @@
                 <tr style="color:var(--label); text-align:left;">
                   <th style="padding:4px 6px;">Time</th>
                   <th style="padding:4px 6px;">Ticker</th>
+                  <th style="padding:4px 6px;">Session</th>
+                  <th style="padding:4px 6px;">Source</th>
                   <th style="padding:4px 6px;">Recommendation</th>
                   <th style="padding:4px 6px;">Confidence</th>
                   <th style="padding:4px 6px;">Exp. return</th>
@@ -3943,7 +3953,7 @@
                 </tr>
               </thead>
               <tbody id="pred-runs-tbody">
-                <tr><td colspan="9" style="padding:10px; text-align:center; color:var(--label); font-style:italic; font-size:10px;">Connect and click Refresh to load captured prediction runs.</td></tr>
+                <tr><td colspan="11" style="padding:10px; text-align:center; color:var(--label); font-style:italic; font-size:10px;">Connect and click Refresh to load captured prediction runs.</td></tr>
               </tbody>
             </table>
           </div>
@@ -12322,6 +12332,17 @@ async function _runDailyReviewSession() {
     if (btn) btn.disabled = false;
   }
 
+  // One shared session id for the whole Daily Review pass. It is sent on the
+  // prediction dispatch (stamped onto each captured prediction_runs row as
+  // daily_session_id) AND used as the candidate-save idempotency_key, so the
+  // Scan Selection Funnel can link captured predictions to this exact session.
+  const _now0 = new Date();
+  const _dailySessionId = 'daily-session-' + _now0.getFullYear() + '-'
+    + String(_now0.getMonth() + 1).padStart(2, '0') + '-'
+    + String(_now0.getDate()).padStart(2, '0') + '-'
+    + String(_now0.getHours()).padStart(2, '0') + String(_now0.getMinutes()).padStart(2, '0');
+  window._lastDailySessionId = _dailySessionId;
+
   const steps = [
     { id: 'mkt',  label: 'Refreshing market data...',                status: 'pending', detail: '' },
     { id: 'pred', label: 'Running S&P 500 scan...',                  status: 'pending', detail: '' },
@@ -12401,6 +12422,9 @@ async function _runDailyReviewSession() {
       submit_signals: false,
       run_risk: false,
       create_orders: false,
+      // Link captured prediction_runs rows to this Daily Review session.
+      daily_session_id: _dailySessionId,
+      capture_source: 'DAILY_REVIEW',
     };
     const rB = await call('POST', '/v1/strategy/market-scan/prediction-candidates', predBody);
     const dB = await rB.json();
@@ -12471,8 +12495,10 @@ async function _runDailyReviewSession() {
     if (cands.length === 0) {
       _drsSetStep('save', 'done', 'no eligible candidates');
     } else {
-      const now = new Date();
-      const ikey = 'daily-session-' + now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0') + '-' + String(now.getHours()).padStart(2,'0') + String(now.getMinutes()).padStart(2,'0');
+      // Reuse the one Daily Review session id so the funnel's session_id
+      // (latest CandidateReview.idempotency_key) matches the daily_session_id
+      // stamped on the captured prediction_runs rows above.
+      const ikey = _dailySessionId;
       const payload = {
         idempotency_key: ikey,
         candidates: cands.map(function(c) {
@@ -12565,9 +12591,9 @@ async function _runDailyReviewSession() {
   if (_skippedHoldings > 0) _finalHtml += '<div style="font-size:10px;color:var(--text-accent);">Holdings (monitor-only): <strong>' + _skippedHoldings + '</strong></div>';
   _finalHtml += '</div>';
   if (_eligibleCount === 0) {
-    _finalHtml += '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--ok);">No new-entry candidates found.</div>';
-    _finalHtml += '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);">No new-entry candidates found. Review open positions.</div>';
-    _finalHtml += '<div style="margin-top:6px;"><button class="btn-sm" style="background:var(--ok);color:#000;font-weight:700;font-size:10px;padding:5px 14px;" onclick="runPortfolioMonitorWorkspace(this)">Review Open Positions</button></div>';
+    _finalHtml += '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--ok);">No actionable trade ideas.</div>';
+    _finalHtml += '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);">No new-entry candidates found. Existing positions were monitored automatically.<br>Next step: monitor portfolio, or start a new Daily Review when ready.</div>';
+    _finalHtml += '<div style="margin-top:6px;"><button class="btn-sm" style="background:var(--ok);color:#000;font-weight:700;font-size:10px;padding:5px 14px;" onclick="navigateToPortfolioPositions()">Review Open Positions &rarr; Portfolio</button></div>';
   } else {
     _finalHtml += '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--ok);">New candidates saved</div>';
     _finalHtml += '<div style="margin-top:2px;font-size:10px;color:var(--text-secondary);">' + _eligibleCount + ' new-entry candidate(s) from today’s scan are ready for review.</div>';
@@ -12586,30 +12612,36 @@ async function _runDailyReviewSession() {
     if (_appState.connected) await refreshWorkflowStatus();
   } catch (eR) {}
 
-  // Route the user to the exact section that needs the next action using the
-  // ONE canonical contract (target_tab + target_anchor), refreshed just above:
-  // candidates -> #today-trade-ideas, positions -> #positions-to-review, etc.
-  // If the canonical state has not populated yet, fall back to the nearby
-  // Daily Plan cards (same destinations, no separate routing brain).
-  const _cz = window._canonicalWorkflowState || {};
-  if (_cz.target_anchor) {
-    try { navigateToCanonicalTarget(); } catch (e) {}
-  } else {
-    try {
-      if (window._switchTab) window._switchTab('prediction-cockpit');
-      const _summ = window._lastDailyReviewSummary || {};
-      let _routeTarget;
-      if (_eligibleCount > 0 || _savedCount > 0) {
-        _routeTarget = 'dp-todays-candidates';
-      } else if ((_summ.review_for_exit_count || 0) > 0 || (_summ.watch_count || 0) > 0) {
-        _routeTarget = 'dp-positions-to-review';
-      } else {
-        _routeTarget = 'dp-current-task-card';
-      }
-      const _rt = document.getElementById(_routeTarget);
-      if (_rt) setTimeout(function() { try { _rt.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 150);
-    } catch (e) {}
-  }
+  // Keep the user IN Daily Plan after a Daily Review completes — never auto-switch
+  // to Portfolio just because no candidates were found. We always stay on the
+  // Daily Plan ('prediction-cockpit') tab and scroll/focus the relevant in-tab
+  // result area. Portfolio opens only when the user explicitly clicks
+  // "Review Open Positions" / "View Portfolio".
+  try {
+    if (window._switchTab) window._switchTab('prediction-cockpit');
+    const _summ = window._lastDailyReviewSummary || {};
+    let _routeTarget;
+    if (_eligibleCount > 0 || _savedCount > 0) {
+      // New actionable candidates saved -> focus Candidates to Review.
+      _routeTarget = 'dp-todays-candidates';
+    } else if ((_summ.review_for_exit_count || 0) > 0 || (_summ.watch_count || 0) > 0) {
+      // No new candidates but positions were monitored -> focus Portfolio Monitoring.
+      _routeTarget = 'dp-positions-to-review';
+    } else {
+      // Nothing actionable -> focus the Daily Review Complete / current-task area.
+      _routeTarget = 'dp-current-task-card';
+    }
+    const _rt = document.getElementById(_routeTarget)
+      || document.getElementById('dp-current-task-card');
+    if (_rt) setTimeout(function() {
+      try {
+        _rt.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        _rt.style.transition = 'box-shadow .25s ease';
+        _rt.style.boxShadow = '0 0 0 2px var(--ok)';
+        setTimeout(function() { _rt.style.boxShadow = ''; }, 1200);
+      } catch (e) {}
+    }, 150);
+  } catch (e) {}
   toast('Daily Review Session complete', 'ok');
 }
 
@@ -12765,11 +12797,47 @@ function _ssfRender(d) {
   _set('ssf-active', d.active_trade_ideas);
   _set('ssf-positions', d.existing_positions_reviewed);
 
+  // Remember the session id so "View Captured Predictions" can filter by it.
+  window._lastScanFunnelSessionId = d.session_id || null;
+
+  // Predictions Captured: real per-session count when linked, else a clear,
+  // session-aware label (never a misleading bare "not captured yet").
+  const capturedCellEl = document.getElementById('ssf-captured');
+  if (capturedCellEl) {
+    if (d.predictions_captured != null) {
+      capturedCellEl.textContent = String(d.predictions_captured);
+      capturedCellEl.style.color = 'var(--info)';
+    } else {
+      capturedCellEl.textContent = '-';
+      capturedCellEl.style.color = 'var(--label)';
+    }
+  }
+
+  // Session-aware capture status line (the misleading "not captured yet" only
+  // appears when there genuinely is no capture for the session).
+  const capStatusEl = document.getElementById('ssf-capture-status');
+  if (capStatusEl) {
+    const _status = d.capture_status || 'NOT_CAPTURED_YET';
+    const _msg = d.capture_status_message || 'Not captured yet.';
+    capStatusEl.textContent = 'Capture: ' + _msg;
+    if (_status === 'CAPTURED') capStatusEl.style.color = 'var(--ok)';
+    else if (_status === 'NONE_PASSED_GATE') capStatusEl.style.color = 'var(--warning)';
+    else if (_status === 'DISPATCH_FAILED') capStatusEl.style.color = 'var(--danger)';
+    else capStatusEl.style.color = 'var(--label)';
+  }
+  // Hide the jump button until there is a session worth inspecting.
+  const viewBtn = document.getElementById('ssf-view-captured');
+  if (viewBtn) viewBtn.style.display = d.has_latest_session ? '' : 'none';
+
   const retEl = document.getElementById('ssf-returned');
   if (retEl) {
-    retEl.textContent = d.predictions_returned_captured && d.predictions_returned != null
-      ? String(d.predictions_returned)
-      : 'not captured yet';
+    if (d.predictions_returned_captured && d.predictions_returned != null) {
+      retEl.textContent = String(d.predictions_returned);
+      retEl.style.color = 'var(--ok)';
+    } else {
+      retEl.textContent = d.capture_status_message || 'not captured yet';
+      retEl.style.color = 'var(--label)';
+    }
   }
 
   const sessEl = document.getElementById('ssf-session');
@@ -12898,23 +12966,28 @@ async function loadPredictionRuns(btn) {
   const tbody = document.getElementById('pred-runs-tbody');
   const statusEl = document.getElementById('pred-runs-status');
   const filterEl = document.getElementById('pred-runs-ticker-filter');
+  const sessionEl = document.getElementById('pred-runs-session-filter');
   const ticker = filterEl && filterEl.value ? filterEl.value.trim().toUpperCase() : '';
+  const sessionId = sessionEl && sessionEl.value ? sessionEl.value.trim() : '';
   if (btn) btn.disabled = true;
   if (statusEl) statusEl.textContent = 'Loading...';
   try {
     let path = '/v1/model/prediction-runs?limit=50';
     if (ticker) path += '&ticker=' + encodeURIComponent(ticker);
+    if (sessionId) path += '&daily_session_id=' + encodeURIComponent(sessionId);
     const response = await call('GET', path);
     if (!response.ok) throw new Error('API error: ' + response.status);
     const data = await response.json();
     const runs = (data && data.runs) || [];
     if (!runs.length) {
-      tbody.innerHTML = '<tr><td colspan="9" style="padding:10px; text-align:center; color:var(--label); font-style:italic; font-size:10px;">No prediction runs captured yet.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" style="padding:10px; text-align:center; color:var(--label); font-style:italic; font-size:10px;">No prediction runs captured' + (sessionId ? ' for this session' : ' yet') + '.</td></tr>';
       if (statusEl) statusEl.textContent = '0 runs';
       return;
     }
     tbody.innerHTML = runs.map(function(r) {
       const ts = r.created_at ? new Date(r.created_at).toLocaleString() : '-';
+      const sess = (r.daily_session_id != null && r.daily_session_id !== '') ? r.daily_session_id : '-';
+      const src = (r.source != null && r.source !== '') ? r.source : '-';
       const rec = r.normalized_recommendation || '-';
       const conf = (r.normalized_confidence != null && r.normalized_confidence !== '') ? r.normalized_confidence : '-';
       const exp = (r.normalized_expected_return_pct != null && r.normalized_expected_return_pct !== '') ? (r.normalized_expected_return_pct + '%') : '-';
@@ -12934,6 +13007,8 @@ async function loadPredictionRuns(btn) {
       return '<tr style="border-top:1px solid rgba(255,255,255,.06);">'
         + '<td style="padding:4px 6px; white-space:nowrap;">' + escapeHtml(ts) + '</td>'
         + '<td style="padding:4px 6px;" class="mono">' + escapeHtml(String(r.ticker || '-')) + '</td>'
+        + '<td style="padding:4px 6px; white-space:nowrap;" class="mono">' + escapeHtml(String(sess)) + '</td>'
+        + '<td style="padding:4px 6px;">' + escapeHtml(String(src)) + '</td>'
         + '<td style="padding:4px 6px;">' + escapeHtml(String(rec)) + '</td>'
         + '<td style="padding:4px 6px;" class="mono">' + escapeHtml(String(conf)) + '</td>'
         + '<td style="padding:4px 6px;" class="mono">' + escapeHtml(String(exp)) + '</td>'
@@ -12946,11 +13021,40 @@ async function loadPredictionRuns(btn) {
     if (statusEl) statusEl.textContent = runs.length + ' run' + (runs.length === 1 ? '' : 's');
   } catch (e) {
     console.error('Failed to load prediction runs:', e);
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="padding:10px; text-align:center; color:var(--danger); font-size:10px;">Failed to load prediction runs.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="padding:10px; text-align:center; color:var(--danger); font-size:10px;">Failed to load prediction runs.</td></tr>';
     if (statusEl) statusEl.textContent = 'Error';
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+// Clear the Prediction Run Capture filters and reload (read-only).
+function clearPredictionRunFilters(btn) {
+  const f = document.getElementById('pred-runs-ticker-filter'); if (f) f.value = '';
+  const s = document.getElementById('pred-runs-session-filter'); if (s) s.value = '';
+  loadPredictionRuns(btn);
+}
+
+// Scan Selection Funnel -> Audit / Advanced jump. Opens the read-only Prediction
+// Run Capture evidence store, filters it to the given Daily Review session id
+// (so the user sees exactly the runs captured for the session in the funnel),
+// and scrolls to / highlights the capture card. No DB writes, no GCP call.
+function viewCapturedPredictions(sessionId) {
+  try { if (window._switchTab) window._switchTab('audit-advanced'); } catch (e) {}
+  const sessEl = document.getElementById('pred-runs-session-filter');
+  const tickEl = document.getElementById('pred-runs-ticker-filter');
+  if (tickEl) tickEl.value = '';
+  if (sessEl) sessEl.value = sessionId ? String(sessionId) : '';
+  try { loadPredictionRuns(null); } catch (e) {}
+  const card = document.getElementById('prediction-run-capture-card');
+  if (card) setTimeout(function() {
+    try {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      card.style.transition = 'box-shadow .25s ease';
+      card.style.boxShadow = '0 0 0 2px var(--info)';
+      setTimeout(function() { card.style.boxShadow = ''; }, 1200);
+    } catch (e) {}
+  }, 80);
 }
 
 // --- Quant Model Methodology (read-only model-governance contract) -----------
