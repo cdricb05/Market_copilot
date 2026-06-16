@@ -1906,6 +1906,49 @@
           <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">NO BROKER EXECUTION</span>
         </div>
 
+        <!-- Daily Review Control: the always-visible primary workflow action at the
+             top of the Daily Plan cockpit. It NEVER hides behind state — the single
+             primary button is always present (Start Daily Review / Daily Review
+             Running... / Run New Daily Review), so the user can always run or rerun
+             the Daily Review without scrolling or hunting an accordion. -->
+        <div id="dp-review-control-card" class="compact-card" style="flex-shrink: 0; border: 2px solid rgba(245,158,11,.55); background: rgba(245,158,11,.06); margin-bottom: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 6px;">
+            <div style="font-size: 17px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Daily Review</div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 9px; color: var(--label); text-transform: uppercase; letter-spacing: .07em;">Status</span>
+              <span id="drc-status" style="font-size: 11px; font-weight: 800; color: var(--label);">Ready to run</span>
+            </div>
+            <span style="flex: 1;"></span>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+            <span class="badge ok" style="font-size: 7px; padding: 1px 5px;">PAPER ORDERS ONLY</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+          </div>
+          <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 10px;">Runs the full S&amp;P 500 local scan and the remote prediction dispatch, then reviews existing positions. It does not create orders, trades, or fills.</div>
+          <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+            <button id="drc-primary-btn" class="btn" style="background: var(--warning); color: #1a1a2e; font-weight: 800; font-size: 13px; padding: 12px 20px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review</button>
+            <div id="drc-last-run" style="font-size: 10px; color: var(--label); line-height: 1.4;"></div>
+          </div>
+        </div>
+
+        <!-- Daily Review Complete: durable, consolidated result of the latest Daily
+             Review (survives beyond the transient progress-steps log). Shows the
+             plain-English outcome and an EXPLICIT-only Portfolio link. Hidden until a
+             review has run today. -->
+        <div id="dp-review-complete-card" class="compact-card" style="display: none; flex-shrink: 0; border: 2px solid rgba(34,197,94,.45); background: rgba(34,197,94,.06); margin-bottom: 12px; scroll-margin-top: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; border-bottom: 1px solid rgba(34,197,94,.2); padding-bottom: 6px;">
+            <div style="font-size: 16px; font-weight: 800; color: var(--ok); letter-spacing: .02em;">Daily Review Complete</div>
+            <span style="flex: 1;"></span>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
+            <span class="badge ok" style="font-size: 7px; padding: 1px 5px;">PAPER ORDERS ONLY</span>
+            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
+            <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
+          </div>
+          <div id="drc-facts" style="display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 8px; font-size: 11px; color: var(--text-accent);"></div>
+          <div id="drc-message" style="font-size: 11px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 10px;"></div>
+          <div id="drc-action" style="display: flex; gap: 10px; flex-wrap: wrap;"></div>
+        </div>
+
         <!-- Review Workspace: primary full-width header -->
         <div id="dp-current-task-card" style="background: rgba(59,130,246,.07); border: 2px solid rgba(59,130,246,.45); border-radius: 6px; padding: 14px 18px; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
@@ -2042,6 +2085,13 @@
             <button id="ssf-view-captured" class="btn-sm" style="background: rgba(59,130,246,.18); color: var(--info); font-weight: 700; font-size: 9px; padding: 4px 10px;" onclick="viewCapturedPredictions(window._lastScanFunnelSessionId)" title="Read-only: open the Prediction Run Capture evidence store in Audit / Advanced.">View Captured Predictions &rarr; Audit</button>
           </div>
           <div id="ssf-capture" style="font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 8px; line-height: 1.4;"></div>
+
+          <!-- Session linkage detail: read-only diagnostics so a session mismatch is
+               explainable without timestamp guessing. Collapsed by default. -->
+          <details id="ssf-linkage-detail" style="margin-bottom: 8px;">
+            <summary style="font-size: 9px; font-weight: 600; color: var(--label); cursor: pointer; user-select: none; text-transform: uppercase; letter-spacing: .06em;">Session linkage detail</summary>
+            <div id="ssf-linkage-detail-body" style="font-size: 9px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;"></div>
+          </details>
 
           <!-- Active vs historical separation: active only when current-session ideas need review. -->
           <div id="ssf-empty" style="display: none; margin-bottom: 8px; padding: 8px 10px; background: rgba(34,197,94,.08); border-left: 2px solid var(--ok); border-radius: 0 3px 3px 0;">
@@ -2181,14 +2231,15 @@
         <div id="dp-positions-to-review" class="compact-card" style="display: none; flex-shrink: 0; border-color: rgba(239,68,68,.35); margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; border-bottom: 1px solid rgba(239,68,68,.2); padding-bottom: 4px;">
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <div style="font-size: 13px; font-weight: 800; color: var(--danger); letter-spacing: .02em;">Positions to Review</div>
+              <div style="font-size: 13px; font-weight: 800; color: var(--info); letter-spacing: .02em;">Portfolio Monitoring</div>
+              <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">READ ONLY</span>
               <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">MANUAL REVIEW</span>
               <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
             </div>
             <span id="dp-ptr-count" style="font-size: 10px; color: var(--label); font-weight: 600;"></span>
           </div>
-          <div style="font-size: 9px; color: var(--text-accent); margin-bottom: 6px; line-height: 1.4;">This is a paper portfolio review only. No broker order is sent.</div>
-          <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;">Position monitoring runs automatically as part of Daily Review. No separate Watch action is required &mdash; the labels below are read-only status, not buttons you must click.</div>
+          <div style="font-size: 9px; color: var(--text-accent); margin-bottom: 6px; line-height: 1.4;">Existing positions were monitored automatically. This is a read-only paper portfolio review — no broker order is sent.</div>
+          <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;">No manual action is required unless a position breaches review-for-exit rules. The HOLD / WATCH labels below are read-only status badges, not buttons you must click.</div>
           <div id="dp-ptr-list"></div>
         </div>
 
@@ -4219,6 +4270,13 @@ window._switchTab = function(tabName) {
 
   if (tabName === 'review-queue' && window._appState?.connected) {
     loadReviewQueue();
+  }
+
+  // Daily Plan: keep the always-visible Daily Review Control + durable Complete
+  // cards correct whenever the cockpit is opened (independent of connection).
+  if (tabName === 'prediction-cockpit') {
+    try { renderDailyReviewControl(); } catch (e) {}
+    try { renderDailyReviewComplete(); } catch (e) {}
   }
 };
 
@@ -12316,6 +12374,10 @@ async function _runDailyReviewSession() {
   // switch to Daily Plan, and scroll to the live progress card in the main
   // Daily Review panel. No Overview tab-dancing to watch progress.
   window._dailyReviewRunning = true;
+  // A fresh Daily Review supersedes any prior "Paper Trade Completed" state so a
+  // stale completion cannot dominate the cockpit as today's active task (req #4).
+  window._workflowCompletedState = false;
+  try { renderDailyReviewControl(); } catch (e) {}
   _setStartReviewButtonsDisabled(true);
   if (btn) btn.disabled = true;
   if (progEl) { progEl.style.display = 'block'; progEl.innerHTML = ''; }
@@ -12326,10 +12388,22 @@ async function _runDailyReviewSession() {
     if (_scrollEl) _scrollEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {}
 
-  function _drsCleanup() {
+  function _drsCleanup(errored) {
     window._dailyReviewRunning = false;
     _setStartReviewButtonsDisabled(false);
     if (btn) btn.disabled = false;
+    if (errored) {
+      // Record an error outcome so the always-visible Daily Review Control card
+      // reflects the failure (status "Error", button "Run New Daily Review").
+      try {
+        const _eo = { date: _ptTodayStr(), error: true, ranAt: new Date().toISOString() };
+        window._dailySessionOutcome = _eo;
+        try { localStorage.setItem('pt_daily_session_outcome', JSON.stringify(_eo)); } catch (e) {}
+      } catch (e) {}
+      const _cc = document.getElementById('dp-review-complete-card');
+      if (_cc) _cc.style.display = 'none';
+    }
+    try { renderDailyReviewControl(); } catch (e) {}
   }
 
   // One shared session id for the whole Daily Review pass. It is sent on the
@@ -12389,7 +12463,7 @@ async function _runDailyReviewSession() {
     if (!rA.ok) {
       _drsSetStep('mkt', 'failed', (dA.detail || ('HTTP ' + rA.status)));
       toast('Daily session stopped: market refresh failed', 'err');
-      _drsCleanup();
+      _drsCleanup(true);
       return;
     }
     const snapNote = dA.portfolio_snapshot_created_or_updated ? 'snapshot updated' : 'snapshot unchanged';
@@ -12399,7 +12473,7 @@ async function _runDailyReviewSession() {
   } catch (eA) {
     _drsSetStep('mkt', 'failed', eA.message);
     toast('Daily session stopped: network error', 'err');
-    _drsCleanup();
+    _drsCleanup(true);
     return;
   }
 
@@ -12431,7 +12505,7 @@ async function _runDailyReviewSession() {
     if (!rB.ok) {
       _drsSetStep('pred', 'failed', (dB.detail || ('HTTP ' + rB.status)));
       toast('Daily session stopped: prediction preview failed', 'err');
-      _drsCleanup();
+      _drsCleanup(true);
       return;
     }
     window._lastPredictionPreviewData = dB;
@@ -12452,7 +12526,7 @@ async function _runDailyReviewSession() {
   } catch (eB) {
     _drsSetStep('pred', 'failed', eB.message);
     toast('Daily session stopped: prediction preview error', 'err');
-    _drsCleanup();
+    _drsCleanup(true);
     return;
   }
 
@@ -12530,7 +12604,7 @@ async function _runDailyReviewSession() {
       if (!rC.ok) {
         _drsSetStep('save', 'failed', (dC.detail || ('HTTP ' + rC.status)));
         toast('Daily session stopped: save candidates failed', 'err');
-        _drsCleanup();
+        _drsCleanup(true);
         return;
       }
       _savedCount = dC.inserted_count || 0;
@@ -12542,7 +12616,7 @@ async function _runDailyReviewSession() {
   } catch (eC) {
     _drsSetStep('save', 'failed', eC.message);
     toast('Daily session stopped: save candidates error', 'err');
-    _drsCleanup();
+    _drsCleanup(true);
     return;
   }
 
@@ -12606,11 +12680,18 @@ async function _runDailyReviewSession() {
 
   // Auto-refresh every surface so the next action is correct without a manual
   // refresh: Review Queue -> Today's Review + Review Progress + right panel +
-  // Portfolio Monitoring Workspace visibility.
+  // Portfolio Monitoring Workspace visibility. Also refresh the Scan Selection
+  // Funnel so the durable result card can show REAL per-session sent/captured.
   try {
     await loadReviewQueue();
+    if (_appState.connected) await loadScanSelectionFunnel();
     if (_appState.connected) await refreshWorkflowStatus();
   } catch (eR) {}
+
+  // Populate the durable Daily Review Complete card and refresh the always-visible
+  // control card so the cockpit shows one clear, consolidated outcome.
+  try { renderDailyReviewControl(); } catch (e) {}
+  try { renderDailyReviewComplete(); } catch (e) {}
 
   // Keep the user IN Daily Plan after a Daily Review completes — never auto-switch
   // to Portfolio just because no candidates were found. We always stay on the
@@ -12619,19 +12700,10 @@ async function _runDailyReviewSession() {
   // "Review Open Positions" / "View Portfolio".
   try {
     if (window._switchTab) window._switchTab('prediction-cockpit');
-    const _summ = window._lastDailyReviewSummary || {};
-    let _routeTarget;
-    if (_eligibleCount > 0 || _savedCount > 0) {
-      // New actionable candidates saved -> focus Candidates to Review.
-      _routeTarget = 'dp-todays-candidates';
-    } else if ((_summ.review_for_exit_count || 0) > 0 || (_summ.watch_count || 0) > 0) {
-      // No new candidates but positions were monitored -> focus Portfolio Monitoring.
-      _routeTarget = 'dp-positions-to-review';
-    } else {
-      // Nothing actionable -> focus the Daily Review Complete / current-task area.
-      _routeTarget = 'dp-current-task-card';
-    }
-    const _rt = document.getElementById(_routeTarget)
+    // Always focus the durable Daily Review Complete card — the single,
+    // consolidated outcome. We never auto-focus "Positions to Review" as if it
+    // were the main task, and never auto-switch to Portfolio (req #2/#3/#4).
+    const _rt = document.getElementById('dp-review-complete-card')
       || document.getElementById('dp-current-task-card');
     if (_rt) setTimeout(function() {
       try {
@@ -12769,6 +12841,10 @@ async function refreshWorkflowStatus() {
     loadScanSelectionFunnel();
     // Load the read-only Quant Model Methodology contract (static; loads once).
     loadQuantModelMethodology();
+    // Keep the always-visible Daily Review Control + durable Complete cards correct
+    // on every refresh (page load, tab switch, post-action), not only after a run.
+    try { renderDailyReviewControl(); } catch (e2) {}
+    try { renderDailyReviewComplete(); } catch (e2) {}
   } catch (e) {
     console.error('Failed to refresh workflow status:', e);
   }
@@ -12789,6 +12865,9 @@ async function loadScanSelectionFunnel() {
 
 function _ssfRender(d) {
   if (!d) return;
+  // Cache the latest funnel payload so the Daily Review Complete card can show
+  // the REAL per-session sent/captured counts (read-only; no extra fetch).
+  window._lastScanFunnelData = d;
   function _set(id, val) { const el = document.getElementById(id); if (el) el.textContent = (val != null ? String(val) : '-'); }
   _set('ssf-universe', d.universe_configured);
   _set('ssf-pricehistory', d.price_history_ready);
@@ -12861,6 +12940,26 @@ function _ssfRender(d) {
   }
   const capEl = document.getElementById('ssf-capture');
   if (capEl) capEl.textContent = d.capture_note || '';
+
+  // Session linkage detail (collapsed, read-only). Surfaces exactly which session
+  // id is displayed, which prediction-run session id was resolved, the candidate
+  // review idempotency key, and how many prediction_runs matched — so a mismatch
+  // is diagnosable without timestamp guessing.
+  const linkEl = document.getElementById('ssf-linkage-detail-body');
+  if (linkEl) {
+    const _rows = [
+      ['Displayed session id', d.session_id],
+      ['Prediction run session id', d.prediction_run_session_id],
+      ['Candidate review idempotency key', d.candidate_review_idempotency_key],
+      ['prediction_runs matched count', d.prediction_runs_matched_count],
+    ];
+    linkEl.innerHTML = _rows.map(function(r) {
+      const v = (r[1] != null && r[1] !== '') ? String(r[1]) : '—';
+      return '<div style="display:flex;gap:8px;padding:1px 0;"><span style="color:var(--label);min-width:210px;">'
+        + escapeHtml(r[0]) + '</span><span class="mono" style="color:var(--text-secondary);word-break:break-all;">'
+        + escapeHtml(v) + '</span></div>';
+    }).join('');
+  }
 
   // Active vs historical separation.
   const active = (d.prediction_results || []).filter(function(r) { return r.actionability === 'ACTIVE_TRADE_IDEA'; });
@@ -13537,6 +13636,101 @@ function _getDailySessionOutcome() {
   }
   if (!o || o.date !== _ptTodayStr()) return null;
   return o;
+}
+
+// ----- Daily Plan Workflow Clarity v2: Daily Review Control + Complete cards -----
+// The Daily Review Control card owns the single, always-visible primary workflow
+// action (Start / Running / Run New). It is driven only by run state + today's
+// recorded outcome, so it is correct on page load, on tab switch, and after a run.
+function renderDailyReviewControl() {
+  const statusEl = document.getElementById('drc-status');
+  const btn = document.getElementById('drc-primary-btn');
+  const lastEl = document.getElementById('drc-last-run');
+  if (!statusEl || !btn) return;
+  const outcome = _getDailySessionOutcome();
+  if (window._dailyReviewRunning) {
+    statusEl.textContent = 'Running';
+    statusEl.style.color = 'var(--info)';
+    btn.disabled = true;
+    btn.innerHTML = 'Daily Review Running…';
+  } else if (outcome && outcome.error) {
+    statusEl.textContent = 'Error';
+    statusEl.style.color = 'var(--danger)';
+    btn.disabled = false;
+    btn.innerHTML = '&#9654; Run New Daily Review';
+  } else if (outcome) {
+    statusEl.textContent = 'Complete';
+    statusEl.style.color = 'var(--ok)';
+    btn.disabled = false;
+    btn.innerHTML = '&#9654; Run New Daily Review';
+  } else {
+    statusEl.textContent = 'Ready to run';
+    statusEl.style.color = 'var(--label)';
+    btn.disabled = false;
+    btn.innerHTML = '&#9654; Start Daily Review';
+  }
+  if (lastEl) {
+    if (outcome) {
+      let _t = '';
+      try { _t = new Date(outcome.ranAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch (e) { _t = ''; }
+      const parts = [];
+      if (_t) parts.push('Last run ' + _t);
+      if (outcome.scanned != null) parts.push('Scanned ' + outcome.scanned);
+      if (outcome.eligible != null) parts.push('Trade ideas ' + outcome.eligible);
+      if (outcome.holdings != null) parts.push('Positions reviewed ' + outcome.holdings);
+      lastEl.textContent = parts.join('  ·  ');
+    } else {
+      lastEl.textContent = 'No Daily Review has run yet today.';
+    }
+  }
+}
+
+// Durable, consolidated Daily Review result. Survives beyond the transient
+// progress-steps log so the user always has a clear outcome. Sent/captured come
+// from the latest funnel diagnostics when available; everything else from the
+// recorded outcome. READ-ONLY surface — its only action is an explicit Portfolio
+// link (never an automatic tab switch).
+function renderDailyReviewComplete(outcome) {
+  const card = document.getElementById('dp-review-complete-card');
+  if (!card) return;
+  outcome = outcome || _getDailySessionOutcome();
+  if (!outcome) { card.style.display = 'none'; return; }
+  const factsEl = document.getElementById('drc-facts');
+  const msgEl = document.getElementById('drc-message');
+  const actEl = document.getElementById('drc-action');
+  const ideas = (outcome.eligible != null) ? outcome.eligible : 0;
+  const ssf = window._lastScanFunnelData || {};
+  const sent = (ssf.sent_to_prediction != null) ? ssf.sent_to_prediction : null;
+  const captured = (ssf.predictions_captured != null) ? ssf.predictions_captured : null;
+  if (factsEl) {
+    const facts = [];
+    facts.push(['Scanned', (outcome.scanned != null ? outcome.scanned : '—')]);
+    if (sent != null) facts.push(['Sent to prediction', sent]);
+    if (captured != null) facts.push(['Predictions captured', captured]);
+    facts.push(['Trade ideas', ideas]);
+    if (outcome.holdings != null) facts.push(['Open positions reviewed', outcome.holdings]);
+    factsEl.innerHTML = facts.map(function(f) {
+      return '<span><span style="color:var(--label);">' + escapeHtml(f[0]) + '</span> <strong style="color:var(--text-primary);">' + escapeHtml(String(f[1])) + '</strong></span>';
+    }).join('');
+  }
+  if (msgEl) {
+    if (ideas === 0) {
+      msgEl.innerHTML = '<strong style="color:var(--ok);">S&amp;P 500 local scan completed.</strong><br>'
+        + 'No new trade ideas need review today. The S&amp;P 500 local scan completed, the prediction dispatch completed, and existing positions were monitored. No manual trade action is required.';
+    } else {
+      msgEl.innerHTML = '<strong style="color:var(--ok);">S&amp;P 500 local scan completed.</strong><br>'
+        + ideas + ' new-entry trade idea(s) from today’s scan are ready for your manual review.';
+    }
+  }
+  if (actEl) {
+    if (ideas === 0) {
+      actEl.innerHTML = '<button class="btn-sm" style="background:rgba(34,197,94,.18);color:var(--ok);font-weight:800;font-size:11px;padding:7px 16px;" onclick="navigateToPortfolioPositions()">View Portfolio</button>';
+    } else {
+      actEl.innerHTML = '<button class="btn-sm" style="background:var(--warning);color:#1a1a2e;font-weight:800;font-size:11px;padding:7px 16px;" onclick="focusReviewQueue()">Review Candidates</button>'
+        + '<button class="btn-sm" style="background:rgba(34,197,94,.18);color:var(--ok);font-weight:700;font-size:11px;padding:7px 16px;" onclick="navigateToPortfolioPositions()">View Portfolio</button>';
+    }
+  }
+  card.style.display = '';
 }
 
 // User-facing review status labels (item 7: avoid raw APPROVED_FOR_SIGNAL in

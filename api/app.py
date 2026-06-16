@@ -2236,6 +2236,11 @@ class ScanDiagnosticsLatestResponse(BaseModel):
     capture_session_linked: bool = False
     capture_status: str = "NOT_CAPTURED_YET"
     capture_status_message: str = ""
+    # Read-only session-linkage diagnostics (back the collapsed "Session linkage
+    # detail" in the funnel). No signals/decisions/orders/trades — observational.
+    candidate_review_idempotency_key: str | None = None
+    prediction_run_session_id: str | None = None
+    prediction_runs_matched_count: int = 0
     active_trade_ideas: int
     watch_below_threshold: int
     rejected_blocked: int
@@ -16611,8 +16616,35 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
         latest_row = session.query(
             CandidateReview.idempotency_key, CandidateReview.created_at
         ).order_by(CandidateReview.created_at.desc()).first()
-        session_id = latest_row[0] if latest_row else None
-        latest_created = latest_row[1] if latest_row else None
+        candidate_review_session_id = latest_row[0] if latest_row else None
+        candidate_review_created = latest_row[1] if latest_row else None
+
+        # Resolve the authoritative latest Daily Review session. A 0-candidate
+        # run saves NO CandidateReview row, so the newest CandidateReview can be
+        # an OLDER session and would never match the new daily_session_id stamped
+        # on the captured prediction_runs. Prefer the most recent DAILY_REVIEW
+        # prediction-run session when it is at least as recent as the latest
+        # CandidateReview, so the funnel links the just-run session correctly.
+        # READ ONLY: one indexed SELECT, no rows created/mutated.
+        latest_pred_row = session.query(
+            PredictionRun.daily_session_id, PredictionRun.created_at
+        ).filter(
+            PredictionRun.source == "DAILY_REVIEW",
+            PredictionRun.daily_session_id.isnot(None),
+        ).order_by(PredictionRun.created_at.desc()).first()
+        prediction_run_session_id = latest_pred_row[0] if latest_pred_row else None
+        prediction_run_created = latest_pred_row[1] if latest_pred_row else None
+
+        session_id = candidate_review_session_id
+        latest_created = candidate_review_created
+        if prediction_run_session_id is not None and (
+            candidate_review_created is None
+            or (prediction_run_created is not None
+                and prediction_run_created >= candidate_review_created)
+        ):
+            session_id = prediction_run_session_id
+            latest_created = prediction_run_created
+
         market_date = str(latest_created.date()) if latest_created is not None else None
         has_latest_session = session_id is not None
 
@@ -16696,7 +16728,9 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
         elif active_trade_ideas == 0:
             capture_status = "NONE_PASSED_GATE"
             capture_status_message = (
-                "Predictions captured, but none passed the actionability gate."
+                f"{capture_returned} prediction"
+                f"{'s' if capture_returned != 1 else ''} captured. "
+                "None passed the actionability gate."
             )
         else:
             capture_status = "CAPTURED"
@@ -16763,6 +16797,9 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
         capture_session_linked=capture_session_linked,
         capture_status=capture_status,
         capture_status_message=capture_status_message,
+        candidate_review_idempotency_key=candidate_review_session_id,
+        prediction_run_session_id=prediction_run_session_id,
+        prediction_runs_matched_count=capture_count,
         active_trade_ideas=active_trade_ideas,
         watch_below_threshold=watch_below_threshold,
         rejected_blocked=rejected_blocked,

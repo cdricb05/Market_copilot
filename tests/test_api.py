@@ -25349,6 +25349,91 @@ class TestUiStaticContent:
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
 
+    # --- Daily Plan Workflow Clarity v2 ------------------------------------
+
+    def test_daily_review_control_card_present(self) -> None:
+        """An always-visible Daily Review Control card owns the primary action."""
+        html = self._read_html()
+        scripts = self._scripts()
+        assert 'id="dp-review-control-card"' in html
+        assert ">Daily Review<" in html
+        assert "Start Daily Review" in html
+        # The single primary button cycles through Start / Running / Run New.
+        assert "Run New Daily Review" in scripts
+        assert "Daily Review Running" in scripts
+        assert "function renderDailyReviewControl" in scripts
+
+    def test_daily_review_complete_card_present(self) -> None:
+        """A durable, consolidated Daily Review Complete card exists with the
+        exact no-action message and an explicit Portfolio link."""
+        html = self._read_html()
+        scripts = self._scripts()
+        assert 'id="dp-review-complete-card"' in html
+        assert "Daily Review Complete" in html
+        assert "function renderDailyReviewComplete" in scripts
+        # The exact plain-English no-action outcome copy (req #2). The source uses
+        # the &amp; entity for the ampersand, so assert around it.
+        assert "No new trade ideas need review today." in scripts
+        assert (
+            " local scan completed, the prediction dispatch completed, and "
+            "existing positions were monitored. No manual trade action is required."
+        ) in scripts
+        # Portfolio opens only on an explicit click, never auto-switch.
+        assert "navigateToPortfolioPositions()" in scripts
+
+    def test_fresh_review_clears_completed_state(self) -> None:
+        """A new Daily Review supersedes a prior Paper Trade Completed state so it
+        is not presented as today's active task (req #4)."""
+        scripts = self._scripts()
+        assert "window._workflowCompletedState = false;" in scripts
+
+    def test_completion_focuses_durable_result_not_positions(self) -> None:
+        """Completion focuses the durable Complete card, not Positions to Review."""
+        scripts = self._scripts()
+        assert "dp-review-complete-card" in scripts
+        # Routing no longer targets the positions list as the main result.
+        assert "_routeTarget = 'dp-positions-to-review'" not in scripts
+
+    def test_portfolio_monitoring_reframe_present(self) -> None:
+        """The read-only holdings section is reframed as Portfolio Monitoring."""
+        html = self._read_html()
+        assert "Portfolio Monitoring" in html
+        assert "Existing positions were monitored automatically." in html
+        assert "No manual action is required unless a position breaches" in html
+
+    def test_funnel_none_passed_gate_count_message(self) -> None:
+        """The none-passed-gate funnel copy is count-bearing (req #5/#8)."""
+        # Backend owns the count-bearing string; assert the template shape exists.
+        import re
+        from pathlib import Path
+        app_path = Path(__file__).parent.parent / "api" / "app.py"
+        app_src = app_path.read_text(encoding="utf-8", errors="ignore")
+        assert "None passed the actionability gate." in app_src
+        assert "prediction" in app_src and "captured. " in app_src
+
+    def test_funnel_session_linkage_detail_present(self) -> None:
+        """A collapsed, read-only Session linkage detail block exists in the funnel."""
+        html = self._read_html()
+        scripts = self._scripts()
+        assert 'id="ssf-linkage-detail"' in html
+        assert "Session linkage detail" in html
+        assert "prediction_run_session_id" in scripts
+        assert "candidate_review_idempotency_key" in scripts
+        assert "prediction_runs matched count" in scripts
+
+    def test_v2_cards_keep_safety_and_no_dialogs(self) -> None:
+        """The new v2 cards keep safety badges and use no native dialogs."""
+        import re
+        html = self._read_html()
+        scripts = self._scripts()
+        # Safety badges live on both new cards.
+        assert "PAPER ORDERS ONLY" in html
+        assert "MANUAL REVIEW" in html
+        assert "AUTOMATION OFF" in html
+        assert "NO BROKER EXECUTION" in html
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
+
     def test_quant_model_methodology_section_present(self) -> None:
         """The Quant Model Methodology section and its six sub-sections exist in the UI."""
         html = self._read_html()
@@ -31448,10 +31533,12 @@ class TestGuidedDailyTradingFlowV2Ui:
         assert "_setStartReviewButtonsDisabled(true)" in fn
         assert "window._dailyReviewRunning = true" in fn
 
-    def test_session_routes_to_next_required_section(self) -> None:
+    def test_session_routes_to_durable_complete_card(self) -> None:
+        # Workflow Clarity v2: completion focuses the durable Daily Review Complete
+        # card and never auto-focuses Positions to Review as the main result (req #2).
         fn = _fn_body(self._read_html(), "async function _runDailyReviewSession(")
-        assert "dp-todays-candidates" in fn
-        assert "dp-positions-to-review" in fn
+        assert "dp-review-complete-card" in fn
+        assert "_routeTarget = 'dp-positions-to-review'" not in fn
 
     # --- B: Today's Candidates visibility ---
     def test_review_each_candidate_copy_present(self) -> None:
@@ -33918,8 +34005,9 @@ class TestScanDiagnosticsCaptureLinkage:
         assert data["predictions_captured"] == 2
         assert data["active_trade_ideas"] == 0
         assert data["capture_status"] == "NONE_PASSED_GATE"
+        # Count-bearing message (req #5/#8): the captured number is stated.
         assert data["capture_status_message"] == (
-            "Predictions captured, but none passed the actionability gate."
+            "2 predictions captured. None passed the actionability gate."
         )
 
     def test_dispatch_failed(self, seeded_client, api_engine):
@@ -33930,3 +34018,66 @@ class TestScanDiagnosticsCaptureLinkage:
         assert data["prediction_errors_captured"] == 2
         assert data["capture_status"] == "DISPATCH_FAILED"
         assert data["predictions_returned"] == 0
+
+    def test_zero_candidate_session_links_via_prediction_runs(
+        self, seeded_client, api_engine
+    ):
+        """A 0-candidate Daily Review saves NO CandidateReview, but its captured
+        prediction_runs still become the resolved latest session via the newer
+        daily_session_id — instead of falling back to a stale CandidateReview.
+
+        This is the v2 funnel fix: "7 predictions captured. None passed the
+        actionability gate." linked to the just-run session, not "Not captured
+        for this older session."
+        """
+        sfx = self._sfx()
+        new_key = f"daily-session-NEW-{sfx}"
+        old_key = f"daily-session-OLD-{sfx}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            saved = self._save_and_clear_candidate_reviews(session)
+            try:
+                # Older candidate review from a prior session (created in the past).
+                old_cr = CandidateReview(
+                    idempotency_key=old_key, ticker=f"OLD{sfx[:3].upper()}",
+                    prediction_recommendation="BUY", prediction_confidence="0.85",
+                    expected_return_pct="5.0", preview_decision="CONSIDER",
+                    preview_score="85.0", review_status="REJECTED", status="OK",
+                )
+                session.add(old_cr)
+                session.flush()
+                old_cr.created_at = datetime.now(timezone.utc) - timedelta(days=2)
+                # The just-run session captured 7 predictions but saved 0 candidates.
+                for i in range(7):
+                    session.add(self._capture_row(
+                        f"NEW{i}{sfx[:2].upper()}", new_key, error=False
+                    ))
+                session.commit()
+
+                resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+                assert resp.status_code == 200
+                data = resp.json()
+            finally:
+                session.query(PredictionRun).filter(
+                    PredictionRun.daily_session_id == new_key
+                ).delete(synchronize_session=False)
+                session.query(CandidateReview).filter(
+                    CandidateReview.idempotency_key == old_key
+                ).delete(synchronize_session=False)
+                for rowdict in saved:
+                    session.add(CandidateReview(**rowdict))
+                session.commit()
+
+        # The newer DAILY_REVIEW prediction-run session wins over the stale CR.
+        assert data["session_id"] == new_key
+        assert data["prediction_run_session_id"] == new_key
+        assert data["candidate_review_idempotency_key"] == old_key
+        assert data["prediction_runs_matched_count"] == 7
+        assert data["predictions_captured"] == 7
+        assert data["predictions_returned"] == 7
+        assert data["capture_session_linked"] is True
+        assert data["active_trade_ideas"] == 0
+        assert data["capture_status"] == "NONE_PASSED_GATE"
+        assert "7 predictions captured" in data["capture_status_message"]
+        assert "None passed the actionability gate." in data["capture_status_message"]
+        # Never the misleading older-session label when the session is linked.
+        assert "older session" not in data["capture_status_message"].lower()
