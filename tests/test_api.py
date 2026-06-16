@@ -58,7 +58,7 @@ from sqlalchemy.orm import Session
 from paper_trader.api.app import app
 from paper_trader.config import get_settings
 from paper_trader.constants import CashEntryType, JobRunStatus, WorkflowType
-from paper_trader.db.models import Base, BenchmarkPrice, CandidateReview, JobRun, Order, Portfolio, PortfolioSnapshot, Position, PriceSnapshot, Signal, TradeDecision
+from paper_trader.db.models import Base, BenchmarkPrice, CandidateReview, JobRun, Order, Portfolio, PortfolioSnapshot, Position, PredictionRun, PriceSnapshot, Signal, Trade, TradeDecision
 from paper_trader.db.session import reset_engine_state
 from paper_trader.engine.portfolio import append_cash_entry, open_position
 
@@ -33514,3 +33514,143 @@ class TestPortfolioTradeLedgerUiV1:
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", html)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Prediction Run Capture v1 — local evidence store of GCP prediction calls.
+#
+# Persisting a capture writes ONLY prediction_runs rows; it never creates a
+# signal, decision, order, trade, or fill. The read-only endpoint returns the
+# most recent captured runs.
+# ---------------------------------------------------------------------------
+
+class TestPredictionRunCapture:
+    """Prediction-run capture persistence + read-only GET endpoint."""
+
+    @staticmethod
+    def _success_capture(ticker: str) -> dict:
+        now = datetime.now(timezone.utc)
+        return {
+            "ticker": ticker,
+            "endpoint_url": "http://127.0.0.1:9000/predict_all_models/",
+            "request_payload": {"ticker": ticker},
+            "request_ts": now,
+            "response_ts": now,
+            "latency_ms": 42,
+            "http_status": 200,
+            "raw_response": {
+                "ticker": ticker,
+                "current_price": "150.50",
+                "ensemble_day5": "155.75",
+                "d5_change_pct": "3.48",
+                "confidence": "87.5",
+                "recommendation": "Buy",
+                "rationale": ["Models agree"],
+                "per_model_summary": [{"model": "Drift", "direction": "Up"}],
+                "ran_models": ["Drift", "LinearTrend"],
+                "skipped_models": [],
+                "model_errors": {},
+            },
+            "error": False,
+            "error_message": None,
+        }
+
+    @staticmethod
+    def _error_capture(ticker: str) -> dict:
+        now = datetime.now(timezone.utc)
+        return {
+            "ticker": ticker,
+            "endpoint_url": "http://127.0.0.1:9000/predict_all_models/",
+            "request_payload": {"ticker": ticker},
+            "request_ts": now,
+            "response_ts": now,
+            "latency_ms": 11,
+            "http_status": None,
+            "raw_response": None,
+            "error": True,
+            "error_message": "Request timeout (>30s)",
+        }
+
+    @staticmethod
+    def _counts(api_engine) -> dict:
+        with Session(api_engine, expire_on_commit=False) as s:
+            return {
+                "signals": s.query(Signal).count(),
+                "decisions": s.query(TradeDecision).count(),
+                "orders": s.query(Order).count(),
+                "trades": s.query(Trade).count(),
+                "runs": s.query(PredictionRun).count(),
+            }
+
+    def test_successful_prediction_is_persisted_no_trading_side_effects(self, client, api_engine):
+        from paper_trader.api.app import _persist_prediction_runs
+
+        before = self._counts(api_engine)
+        written = _persist_prediction_runs([self._success_capture("CAPAAA")])
+        assert written == 1
+
+        after = self._counts(api_engine)
+        assert after["runs"] == before["runs"] + 1
+        # Capture is observational: zero signals / decisions / orders / trades created.
+        assert after["signals"] == before["signals"]
+        assert after["decisions"] == before["decisions"]
+        assert after["orders"] == before["orders"]
+        assert after["trades"] == before["trades"]
+
+        with Session(api_engine, expire_on_commit=False) as s:
+            row = s.query(PredictionRun).filter(PredictionRun.ticker == "CAPAAA").one()
+            assert row.error is False
+            assert row.normalized_recommendation == "BUY"
+            assert row.normalized_confidence == "0.875"
+            assert row.normalized_forecast_price_5d == "155.75"
+            assert row.normalized_expected_return_pct == "3.48"
+            assert row.model_consensus == {"Drift": "BUY"}
+            assert row.ran_models == ["Drift", "LinearTrend"]
+            assert row.request_payload == {"ticker": "CAPAAA"}
+            assert row.raw_response["recommendation"] == "Buy"
+            assert row.latency_ms == 42
+            # The GCP service exposes no version today -> stored null, honestly.
+            assert row.service_version is None
+
+    def test_failed_prediction_is_persisted(self, client, api_engine):
+        from paper_trader.api.app import _persist_prediction_runs
+
+        written = _persist_prediction_runs([self._error_capture("CAPERR")])
+        assert written == 1
+        with Session(api_engine, expire_on_commit=False) as s:
+            row = s.query(PredictionRun).filter(PredictionRun.ticker == "CAPERR").one()
+            assert row.error is True
+            assert "timeout" in (row.error_message or "").lower()
+            assert row.raw_response is None
+            assert row.normalized_recommendation is None
+
+    def test_get_prediction_runs_returns_recent(self, client):
+        from paper_trader.api.app import _persist_prediction_runs
+
+        _persist_prediction_runs([self._success_capture("CAPGET")])
+        r = client.get("/v1/model/prediction-runs", headers=_AUTH)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["limit"] == 50
+        assert isinstance(data["runs"], list)
+        assert data["count"] == len(data["runs"])
+        tickers = [run["ticker"] for run in data["runs"]]
+        assert "CAPGET" in tickers
+        # newest-first ordering
+        created = [run["created_at"] for run in data["runs"]]
+        assert created == sorted(created, reverse=True)
+
+    def test_get_prediction_runs_ticker_filter(self, client):
+        from paper_trader.api.app import _persist_prediction_runs
+
+        _persist_prediction_runs([self._success_capture("CAPFIL")])
+        r = client.get("/v1/model/prediction-runs?ticker=capfil", headers=_AUTH)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ticker"] == "CAPFIL"
+        assert len(data["runs"]) >= 1
+        assert all(run["ticker"] == "CAPFIL" for run in data["runs"])
+
+    def test_get_prediction_runs_requires_auth(self, client):
+        r = client.get("/v1/model/prediction-runs")
+        assert r.status_code in (401, 403)

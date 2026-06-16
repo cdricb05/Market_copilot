@@ -12,12 +12,14 @@ Tests focus on:
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from paper_trader.engine.prediction_client import (
+    build_prediction_run_values,
     fetch_predictions_for_tickers,
     normalize_prediction_response,
 )
@@ -822,3 +824,254 @@ class TestConcurrentFetch:
         # With asyncio.sleep(0) yielding between acquire and release, peak should
         # not exceed max_concurrent+1 (scheduling granularity allows slight overrun)
         assert peak_concurrent <= max_concurrent + 1
+
+
+# ---------------------------------------------------------------------------
+# Prediction-run capture tests (local evidence store instrumentation)
+# ---------------------------------------------------------------------------
+
+def _make_capture_response(ticker: str, *, extra: dict | None = None) -> MagicMock:
+    """Mock httpx response with status_code, for capture tests."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.raise_for_status = MagicMock()
+    payload = {
+        "ticker": ticker,
+        "current_price": "150.50",
+        "ensemble_day5": "155.75",
+        "d5_change_pct": "3.48",
+        "confidence": "87.5",
+        "recommendation": "Buy",
+        "rationale": ["Models agree"],
+        "per_model_summary": [{"model": "Drift", "direction": "Up"}],
+        "ran_models": ["Drift", "LinearTrend"],
+        "skipped_models": [],
+        "model_errors": {},
+    }
+    if extra:
+        payload.update(extra)
+    resp.json = MagicMock(return_value=payload)
+    return resp
+
+
+class TestPredictionRunCaptureInstrumentation:
+    """fetch_predictions_for_tickers(capture=...) records observational evidence."""
+
+    def test_capture_records_each_successful_call(self):
+        tickers = ["AAPL", "MSFT"]
+
+        async def _mock_post(url, json=None, **kwargs):
+            return _make_capture_response(json["ticker"])
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_mock_post)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        capture: list[dict] = []
+        with patch("paper_trader.engine.prediction_client.httpx") as mock_httpx:
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = Exception
+            mock_httpx.HTTPStatusError = Exception
+            mock_httpx.RequestError = Exception
+
+            successful, failures = asyncio.run(
+                fetch_predictions_for_tickers(
+                    tickers, "http://localhost:9000", capture=capture
+                )
+            )
+
+        assert failures == []
+        assert len(successful) == 2
+        assert len(capture) == 2
+        by_ticker = {c["ticker"]: c for c in capture}
+        assert set(by_ticker) == {"AAPL", "MSFT"}
+        for c in capture:
+            assert c["error"] is False
+            assert c["error_message"] is None
+            assert c["raw_response"] is not None
+            assert c["request_payload"] == {"ticker": c["ticker"]}
+            assert c["endpoint_url"].endswith("/predict_all_models/")
+            assert c["latency_ms"] is not None and c["latency_ms"] >= 0
+            assert c["request_ts"] is not None
+
+    def test_capture_records_fetch_failure(self):
+        import httpx as real_httpx
+
+        async def _mock_post(url, json=None, **kwargs):
+            raise real_httpx.TimeoutException("timeout")
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_mock_post)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        capture: list[dict] = []
+        with patch("paper_trader.engine.prediction_client.httpx") as mock_httpx:
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = real_httpx.TimeoutException
+            mock_httpx.HTTPStatusError = real_httpx.HTTPStatusError
+            mock_httpx.RequestError = real_httpx.RequestError
+
+            successful, failures = asyncio.run(
+                fetch_predictions_for_tickers(
+                    ["FAIL"], "http://localhost:9000", capture=capture
+                )
+            )
+
+        assert successful == []
+        assert len(failures) == 1
+        assert len(capture) == 1
+        c = capture[0]
+        assert c["ticker"] == "FAIL"
+        assert c["error"] is True
+        assert c["raw_response"] is None
+        assert "timeout" in c["error_message"].lower()
+
+    def test_capture_records_service_error_response(self):
+        """HTTP 200 with an 'error' key is recorded as an error, raw kept."""
+
+        async def _mock_post(url, json=None, **kwargs):
+            return _make_capture_response(
+                json["ticker"], extra={"error": "no data for ticker"}
+            )
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_mock_post)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        capture: list[dict] = []
+        with patch("paper_trader.engine.prediction_client.httpx") as mock_httpx:
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = Exception
+            mock_httpx.HTTPStatusError = Exception
+            mock_httpx.RequestError = Exception
+
+            asyncio.run(
+                fetch_predictions_for_tickers(
+                    ["AAPL"], "http://localhost:9000", capture=capture
+                )
+            )
+
+        assert len(capture) == 1
+        c = capture[0]
+        assert c["error"] is True
+        assert c["raw_response"]["error"] == "no data for ticker"
+        assert c["error_message"] == "no data for ticker"
+
+    def test_capture_none_is_no_op(self):
+        """Default capture=None changes nothing and does not raise."""
+
+        async def _mock_post(url, json=None, **kwargs):
+            return _make_capture_response(json["ticker"])
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=_mock_post)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("paper_trader.engine.prediction_client.httpx") as mock_httpx:
+            mock_httpx.AsyncClient.return_value = mock_client
+            mock_httpx.TimeoutException = Exception
+            mock_httpx.HTTPStatusError = Exception
+            mock_httpx.RequestError = Exception
+
+            successful, failures = asyncio.run(
+                fetch_predictions_for_tickers(["AAPL"], "http://localhost:9000")
+            )
+
+        assert len(successful) == 1
+        assert failures == []
+
+
+class TestBuildPredictionRunValues:
+    """build_prediction_run_values() maps a capture record to column values."""
+
+    def _success_capture(self, ticker: str = "AAPL", extra: dict | None = None) -> dict:
+        now = datetime(2026, 6, 15, tzinfo=timezone.utc)
+        raw = {
+            "ticker": ticker,
+            "current_price": "150.50",
+            "ensemble_day5": "155.75",
+            "d5_change_pct": "3.48",
+            "confidence": "87.5",
+            "recommendation": "Buy",
+            "rationale": ["Models agree"],
+            "per_model_summary": [{"model": "Drift", "direction": "Up"}],
+            "ran_models": ["Drift", "LinearTrend"],
+            "skipped_models": ["Prophet"],
+            "model_errors": {"ETS": "timeout"},
+        }
+        if extra:
+            raw.update(extra)
+        return {
+            "ticker": ticker,
+            "endpoint_url": "http://127.0.0.1:9000/predict_all_models/",
+            "request_payload": {"ticker": ticker},
+            "request_ts": now,
+            "response_ts": now,
+            "latency_ms": 42,
+            "http_status": 200,
+            "raw_response": raw,
+            "error": False,
+            "error_message": None,
+        }
+
+    def test_success_record_normalizes_and_extracts_diagnostics(self):
+        values = build_prediction_run_values(self._success_capture("AAPL"))
+        assert values["ticker"] == "AAPL"
+        assert values["error"] is False
+        assert values["normalized_recommendation"] == "BUY"
+        assert values["normalized_confidence"] == "0.875"
+        assert values["normalized_expected_return_pct"] == "3.48"
+        assert values["normalized_forecast_price_5d"] == "155.75"
+        assert values["model_consensus"] == {"Drift": "BUY"}
+        assert values["ran_models"] == ["Drift", "LinearTrend"]
+        assert values["skipped_models"] == ["Prophet"]
+        assert values["model_errors"] == {"ETS": "timeout"}
+        assert values["latency_ms"] == 42
+        assert values["request_payload"] == {"ticker": "AAPL"}
+        # The GCP service exposes no version in its response today.
+        assert values["service_version"] is None
+
+    def test_failed_record_has_no_normalized_fields(self):
+        now = datetime(2026, 6, 15, tzinfo=timezone.utc)
+        cap = {
+            "ticker": "ZZZ",
+            "endpoint_url": "http://127.0.0.1:9000/predict_all_models/",
+            "request_payload": {"ticker": "ZZZ"},
+            "request_ts": now,
+            "response_ts": now,
+            "latency_ms": 11,
+            "http_status": None,
+            "raw_response": None,
+            "error": True,
+            "error_message": "Request timeout (>30s)",
+        }
+        values = build_prediction_run_values(cap)
+        assert values["error"] is True
+        assert values["error_message"] == "Request timeout (>30s)"
+        assert values["raw_response"] is None
+        assert values["normalized_recommendation"] is None
+        assert values["normalized_confidence"] is None
+        assert values["model_consensus"] is None
+        assert values["ran_models"] is None
+
+    def test_service_error_keeps_raw_without_normalizing(self):
+        cap = self._success_capture("AAPL", extra={"error": "no data"})
+        cap["error"] = True
+        cap["error_message"] = "no data"
+        values = build_prediction_run_values(cap)
+        assert values["error"] is True
+        assert values["raw_response"]["error"] == "no data"
+        # diagnostics still extracted even on a service error
+        assert values["ran_models"] == ["Drift", "LinearTrend"]
+        # but no normalized recommendation is derived from an error response
+        assert values["normalized_recommendation"] is None
+
+    def test_service_version_extracted_when_present(self):
+        values = build_prediction_run_values(
+            self._success_capture("AAPL", extra={"service_version": "8751e35"})
+        )
+        assert values["service_version"] == "8751e35"

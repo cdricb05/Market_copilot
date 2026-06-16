@@ -1220,3 +1220,165 @@ class CandidateReview(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+# ---------------------------------------------------------------------------
+# prediction_runs
+# ---------------------------------------------------------------------------
+
+class PredictionRun(Base):
+    """
+    Append-only capture log of every call Paper Trader makes to the remote GCP
+    prediction service.
+
+    One row per (ticker, prediction request) the local backend issues. This is
+    the raw evidence store the audit (docs/prediction_service_audit_v1.md)
+    flagged as missing: without it Paper Trader cannot calibrate, backtest, or
+    compare remote model versions over time.
+
+    PURELY OBSERVATIONAL / READ-DOWNSTREAM:
+        Writing a PredictionRun row never creates a Signal, TradeDecision,
+        Order, Trade, or fill, and never calls a broker. It records what the
+        remote service returned; it does not act on it. Capture failures are
+        swallowed by the caller so they can never break the prediction preview
+        workflow.
+
+        No FKs: this table is decoupled from the trading lifecycle on purpose.
+
+    Secrets policy:
+        prediction_service_url stores only the URL (e.g.
+        'http://127.0.0.1:9000/predict_all_models/'). No API keys, headers, or
+        credentials are ever stored. The request payload Paper Trader sends is
+        only {"ticker": <symbol>}.
+
+    Numeric normalized_* fields are stored as String to match the existing
+    candidate_reviews convention and to preserve the exact value Paper Trader
+    derived without re-introducing float drift.
+    """
+
+    __tablename__ = "prediction_runs"
+    __table_args__ = (
+        Index("ix_prediction_runs_ticker", "ticker"),
+        Index("ix_prediction_runs_created_at", "created_at"),
+        Index("ix_prediction_runs_ticker_created_at", "ticker", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    ticker: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        comment="Stock ticker symbol Paper Trader requested a prediction for.",
+    )
+
+    # --- Request / response timing ---
+    request_ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        comment="When Paper Trader issued the prediction request (UTC).",
+    )
+    response_ts: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the response (or failure) was observed. Null if never observed.",
+    )
+    latency_ms: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Round-trip latency in milliseconds. Null if not measured.",
+    )
+
+    # --- Request provenance (no secrets) ---
+    prediction_service_url: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="Endpoint URL used. URL only; never contains API keys or credentials.",
+    )
+    request_payload: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Exact JSON body Paper Trader sent, e.g. {'ticker': 'AAPL'}.",
+    )
+    http_status: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="HTTP status code observed, when available.",
+    )
+
+    # --- Raw response evidence ---
+    raw_response: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Full raw JSON response from the prediction service. Null on hard fetch failure.",
+    )
+
+    # --- Normalized fields (Paper Trader prediction contract) ---
+    normalized_recommendation: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="BUY | SELL | HOLD after normalization. Null if normalization failed.",
+    )
+    normalized_confidence: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Confidence (0-1) as Decimal string. Null if normalization failed.",
+    )
+    normalized_expected_return_pct: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Expected 5-day return percent as Decimal string. Null if unavailable.",
+    )
+    normalized_forecast_price_5d: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="5-day forecast price as Decimal string. Null if unavailable.",
+    )
+    model_consensus: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Normalized per-model votes derived from per_model_summary, e.g. {'Drift': 'BUY'}.",
+    )
+
+    # --- Remote execution diagnostics (if the service reports them) ---
+    ran_models: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="ran_models from the raw response, if present. Else null.",
+    )
+    skipped_models: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="skipped_models from the raw response, if present. Else null.",
+    )
+    model_errors: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="model_errors from the raw response, if present. Else null.",
+    )
+    service_version: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Remote model/service version if the response/config exposes it. Null if missing (the GCP service does not expose it in the response today).",
+    )
+
+    # --- Failure flags ---
+    error: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="True if the prediction failed (fetch error or service-reported error key).",
+    )
+    error_message: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Human-readable failure reason. Null on success.",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

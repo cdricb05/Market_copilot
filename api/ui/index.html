@@ -3906,6 +3906,49 @@
           </div>
         </div>
 
+        <!-- Prediction Run Capture (read-only evidence store) -->
+        <div class="card">
+          <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
+            <div class="card-title" style="margin:0;">Prediction Run Capture</div>
+            <span class="badge ok" style="font-size:8px; padding:1px 6px;">READ ONLY</span>
+            <span class="badge neutral" style="font-size:8px; padding:1px 6px;">NO ORDERS</span>
+            <span class="badge neutral" style="font-size:8px; padding:1px 6px;">NO TRADES</span>
+            <span class="badge neutral" style="font-size:8px; padding:1px 6px;">NO BROKER EXECUTION</span>
+            <span class="badge neutral" style="font-size:8px; padding:1px 6px;">AUTOMATION OFF</span>
+          </div>
+          <div style="font-size:9px; color:var(--label); margin-bottom:8px; line-height:1.45;">
+            Local evidence store: every prediction Paper Trader fetches from the remote GCP service is recorded here
+            (request payload, raw response, normalized fields, latency, errors). Capturing a run never creates a signal,
+            decision, order, trade, or broker action. Newest first.
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px; flex-wrap:wrap;">
+            <input id="pred-runs-ticker-filter" placeholder="Filter ticker (optional)" class="mono"
+                   style="font-size:10px; padding:3px 6px; width:160px;">
+            <button class="btn-sm" style="font-size:9px; padding:3px 8px;" onclick="loadPredictionRuns(this)">Refresh</button>
+            <span id="pred-runs-status" style="font-size:9px; color:var(--label);"></span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:9px;">
+              <thead>
+                <tr style="color:var(--label); text-align:left;">
+                  <th style="padding:4px 6px;">Time</th>
+                  <th style="padding:4px 6px;">Ticker</th>
+                  <th style="padding:4px 6px;">Recommendation</th>
+                  <th style="padding:4px 6px;">Confidence</th>
+                  <th style="padding:4px 6px;">Exp. return</th>
+                  <th style="padding:4px 6px;">Forecast 5d</th>
+                  <th style="padding:4px 6px;">Latency</th>
+                  <th style="padding:4px 6px;">Status</th>
+                  <th style="padding:4px 6px;">Raw</th>
+                </tr>
+              </thead>
+              <tbody id="pred-runs-tbody">
+                <tr><td colspan="9" style="padding:10px; text-align:center; color:var(--label); font-style:italic; font-size:10px;">Connect and click Refresh to load captured prediction runs.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- UI Runtime Status (developer diagnostics) -->
         <div class="card">
           <div class="card-title">UI Runtime Status</div>
@@ -12842,6 +12885,71 @@ function _ssfRender(d) {
     histEl.textContent = (d.historical_trade_ideas || 0) > 0
       ? (d.historical_trade_ideas + ' older trade idea(s) from prior sessions. These are not actionable today.')
       : 'No historical trade ideas. Older trade ideas from prior sessions would appear here as not actionable.';
+  }
+}
+
+// --- Prediction Run Capture (read-only evidence store) -----------------------
+async function loadPredictionRuns(btn) {
+  if (!_appState.connected) {
+    const s = document.getElementById('pred-runs-status');
+    if (s) s.textContent = 'Connect first.';
+    return;
+  }
+  const tbody = document.getElementById('pred-runs-tbody');
+  const statusEl = document.getElementById('pred-runs-status');
+  const filterEl = document.getElementById('pred-runs-ticker-filter');
+  const ticker = filterEl && filterEl.value ? filterEl.value.trim().toUpperCase() : '';
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = 'Loading...';
+  try {
+    let path = '/v1/model/prediction-runs?limit=50';
+    if (ticker) path += '&ticker=' + encodeURIComponent(ticker);
+    const response = await call('GET', path);
+    if (!response.ok) throw new Error('API error: ' + response.status);
+    const data = await response.json();
+    const runs = (data && data.runs) || [];
+    if (!runs.length) {
+      tbody.innerHTML = '<tr><td colspan="9" style="padding:10px; text-align:center; color:var(--label); font-style:italic; font-size:10px;">No prediction runs captured yet.</td></tr>';
+      if (statusEl) statusEl.textContent = '0 runs';
+      return;
+    }
+    tbody.innerHTML = runs.map(function(r) {
+      const ts = r.created_at ? new Date(r.created_at).toLocaleString() : '-';
+      const rec = r.normalized_recommendation || '-';
+      const conf = (r.normalized_confidence != null && r.normalized_confidence !== '') ? r.normalized_confidence : '-';
+      const exp = (r.normalized_expected_return_pct != null && r.normalized_expected_return_pct !== '') ? (r.normalized_expected_return_pct + '%') : '-';
+      const fc = (r.normalized_forecast_price_5d != null && r.normalized_forecast_price_5d !== '') ? r.normalized_forecast_price_5d : '-';
+      const lat = (r.latency_ms != null) ? (r.latency_ms + ' ms') : '-';
+      let statusCell;
+      if (r.error) {
+        statusCell = '<span style="color:var(--danger);">ERROR' + (r.error_message ? ': ' + escapeHtml(String(r.error_message)) : '') + '</span>';
+      } else {
+        statusCell = '<span style="color:var(--ok);">OK' + (r.http_status != null ? ' (' + r.http_status + ')' : '') + '</span>';
+      }
+      let rawJson = '';
+      try { rawJson = JSON.stringify(r.raw_response != null ? r.raw_response : {}, null, 2); } catch (e) { rawJson = '(unserializable)'; }
+      const rawCell = '<details><summary style="cursor:pointer; color:var(--text-accent);">view</summary>'
+        + '<pre style="max-width:520px; max-height:240px; overflow:auto; white-space:pre-wrap; word-break:break-word; font-size:8px; background:rgba(0,0,0,.18); padding:6px; border-radius:2px; margin:4px 0;">'
+        + escapeHtml(rawJson) + '</pre></details>';
+      return '<tr style="border-top:1px solid rgba(255,255,255,.06);">'
+        + '<td style="padding:4px 6px; white-space:nowrap;">' + escapeHtml(ts) + '</td>'
+        + '<td style="padding:4px 6px;" class="mono">' + escapeHtml(String(r.ticker || '-')) + '</td>'
+        + '<td style="padding:4px 6px;">' + escapeHtml(String(rec)) + '</td>'
+        + '<td style="padding:4px 6px;" class="mono">' + escapeHtml(String(conf)) + '</td>'
+        + '<td style="padding:4px 6px;" class="mono">' + escapeHtml(String(exp)) + '</td>'
+        + '<td style="padding:4px 6px;" class="mono">' + escapeHtml(String(fc)) + '</td>'
+        + '<td style="padding:4px 6px;" class="mono">' + escapeHtml(String(lat)) + '</td>'
+        + '<td style="padding:4px 6px;">' + statusCell + '</td>'
+        + '<td style="padding:4px 6px;">' + rawCell + '</td>'
+        + '</tr>';
+    }).join('');
+    if (statusEl) statusEl.textContent = runs.length + ' run' + (runs.length === 1 ? '' : 's');
+  } catch (e) {
+    console.error('Failed to load prediction runs:', e);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="padding:10px; text-align:center; color:var(--danger); font-size:10px;">Failed to load prediction runs.</td></tr>';
+    if (statusEl) statusEl.textContent = 'Error';
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

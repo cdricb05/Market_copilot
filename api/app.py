@@ -53,6 +53,7 @@ UTC timestamp converted to US/Eastern, never trusted from the caller.
 from __future__ import annotations
 
 import csv
+import inspect
 import io
 import pathlib
 from datetime import date, datetime, timezone
@@ -84,6 +85,7 @@ from paper_trader.db.models import (
     Portfolio,
     PortfolioSnapshot,
     Position,
+    PredictionRun,
     PriceSnapshot,
     Signal,
     Trade,
@@ -99,6 +101,7 @@ except ImportError:
 from paper_trader.engine.market_hours import is_weekday
 from paper_trader.engine.portfolio import compute_cash, get_open_positions, get_portfolio
 from paper_trader.engine.prediction_client import (
+    build_prediction_run_values,
     fetch_predictions_for_tickers,
     normalize_prediction_response,
     normalize_prediction_response_with_error,
@@ -1164,6 +1167,44 @@ class CandidateReviewOut(BaseModel):
     review_note: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class PredictionRunOut(BaseModel):
+    """
+    One captured GCP prediction call (read-only audit row from prediction_runs).
+
+    Observational only: this row is evidence of what the remote service returned.
+    Reading or returning it creates no signals, decisions, orders, or trades.
+    """
+    id: str
+    ticker: str
+    request_ts: datetime
+    response_ts: datetime | None
+    latency_ms: int | None
+    prediction_service_url: str | None
+    request_payload: dict | None
+    http_status: int | None
+    raw_response: dict | None
+    normalized_recommendation: str | None
+    normalized_confidence: str | None
+    normalized_expected_return_pct: str | None
+    normalized_forecast_price_5d: str | None
+    model_consensus: dict | None
+    ran_models: Any | None
+    skipped_models: Any | None
+    model_errors: Any | None
+    service_version: str | None
+    error: bool
+    error_message: str | None
+    created_at: datetime
+
+
+class PredictionRunListResponse(BaseModel):
+    """Response from GET /v1/model/prediction-runs (READ ONLY)."""
+    runs: list[PredictionRunOut]
+    count: int
+    limit: int
+    ticker: str | None = None
 
 
 class CandidateReviewSaveResponse(BaseModel):
@@ -3505,6 +3546,84 @@ def _now_and_date() -> tuple[datetime, date]:
     return now, now.astimezone(_EASTERN).date()
 
 
+async def _fetch_predictions_with_optional_capture(*args, capture: list[dict] | None, **kwargs):
+    """
+    Call ``fetch_predictions_for_tickers`` passing ``capture`` only when the
+    bound callable actually accepts it.
+
+    The real engine implementation accepts a ``capture`` keyword (prediction-run
+    audit side-channel). Tests, however, frequently monkeypatch
+    ``fetch_predictions_for_tickers`` with simpler mocks that do not accept it.
+    Rather than edit every such mock, this wrapper detects support for the
+    keyword (via :func:`inspect.signature`) and omits it when unsupported.
+
+    The fallback is narrowly scoped: it only retries without ``capture`` when a
+    ``TypeError`` is specifically about an unexpected ``capture`` keyword, so it
+    never hides an unrelated ``TypeError`` raised inside the fetch itself.
+    """
+    func = fetch_predictions_for_tickers
+    supports_capture = True
+    try:
+        sig = inspect.signature(func)
+        params = sig.parameters
+        supports_capture = "capture" in params or any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+        )
+    except (TypeError, ValueError):
+        # Signature could not be introspected; fall back to runtime detection.
+        supports_capture = True
+
+    if supports_capture:
+        try:
+            return await func(*args, capture=capture, **kwargs)
+        except TypeError as exc:
+            msg = str(exc)
+            if "unexpected keyword argument" in msg and "capture" in msg:
+                # Callable (e.g. a test mock) doesn't accept capture; retry without it.
+                return await func(*args, **kwargs)
+            raise
+
+    return await func(*args, **kwargs)
+
+
+def _persist_prediction_runs(capture_records: list[dict]) -> int:
+    """
+    Persist captured GCP prediction calls into the local prediction_runs table.
+
+    Purely observational audit side-channel (see PredictionRun docstring and
+    docs/prediction_service_audit_v1.md). Writing these rows never creates a
+    signal, decision, order, trade, fill, or broker action.
+
+    Best-effort and fully isolated: any capture/persistence failure is swallowed
+    so it can never break the prediction preview / fetch-and-run workflow. Each
+    row is written in its own nested transaction so one malformed record cannot
+    discard the rest of the batch.
+
+    Returns the number of rows successfully written.
+    """
+    if not capture_records:
+        return 0
+
+    written = 0
+    try:
+        with get_session() as session:
+            for cap in capture_records:
+                try:
+                    values = build_prediction_run_values(cap)
+                    if not values.get("ticker"):
+                        continue
+                    with session.begin_nested():
+                        session.add(PredictionRun(**values))
+                    written += 1
+                except Exception:
+                    # Skip this single record; the savepoint is already rolled back.
+                    continue
+    except Exception:
+        # Never propagate capture failures into the trading workflow.
+        return written
+    return written
+
+
 def _get_screening_readiness_data(session) -> dict:
     """Query screening readiness from the database. Returns a plain dict."""
     ticker_counts_rows = session.execute(
@@ -4879,17 +4998,25 @@ async def fetch_and_run_prediction_strategy(
     settings = get_settings()
 
     # Fetch predictions from external API
+    _prediction_capture: list[dict] = []
     try:
-        fetched_responses, fetch_failures = await fetch_predictions_for_tickers(
+        fetched_responses, fetch_failures = await _fetch_predictions_with_optional_capture(
             tickers=body.tickers,
             api_url=settings.stock_prediction_api_url,
             timeout_seconds=settings.stock_prediction_api_timeout_seconds,
+            capture=_prediction_capture,
         )
     except Exception as exc:
+        # Persist whatever was captured before the fetch blew up (read-only audit).
+        _persist_prediction_runs(_prediction_capture)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch predictions: {str(exc)}",
         )
+
+    # Capture every prediction call (success and failure) into the local
+    # prediction_runs store. Observational only — creates no signals/orders/trades.
+    _persist_prediction_runs(_prediction_capture)
 
     fetched_count = len(fetched_responses)
     failed_count = len(fetch_failures)
@@ -6255,21 +6382,28 @@ async def market_scan_prediction_candidates(
     # Fetch predictions for selected tickers (bounded concurrency)
     fetched_responses = []
     fetch_failures = []
+    _prediction_capture: list[dict] = []
     _t_fetch_start = datetime.now(timezone.utc)
 
     if selected_tickers:
         try:
-            fetched_responses, fetch_failures = await fetch_predictions_for_tickers(
+            fetched_responses, fetch_failures = await _fetch_predictions_with_optional_capture(
                 tickers=selected_tickers,
                 api_url=settings.stock_prediction_api_url,
                 timeout_seconds=settings.stock_prediction_api_timeout_seconds,
                 max_concurrency=body.max_prediction_concurrency,
+                capture=_prediction_capture,
             )
         except Exception as exc:
+            _persist_prediction_runs(_prediction_capture)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to fetch predictions: {str(exc)}",
             )
+
+    # Capture every prediction call (success and failure) into the local
+    # prediction_runs store. Observational only — creates no signals/orders/trades.
+    _persist_prediction_runs(_prediction_capture)
 
     _prediction_elapsed_ms = int(
         (datetime.now(timezone.utc) - _t_fetch_start).total_seconds() * 1000
@@ -6337,17 +6471,18 @@ async def market_scan_prediction_candidates(
         candidate = selected_candidates_map.get(selected_ticker)
         normalized = normalized_by_ticker.get(selected_ticker)
 
-        # Determine status
+        # Determine status (local; named candidate_status to avoid shadowing
+        # the FastAPI `status` module used for HTTP_* codes elsewhere here).
         if selected_ticker in failed_fetch_map:
-            status = "FAILED_FETCH"
+            candidate_status = "FAILED_FETCH"
         elif selected_ticker in failed_norm_map:
-            status = "FAILED_NORMALIZATION"
+            candidate_status = "FAILED_NORMALIZATION"
         elif selected_ticker in missing_pred_map:
-            status = "MISSING_PREDICTION"
+            candidate_status = "MISSING_PREDICTION"
         elif normalized:
-            status = "OK"
+            candidate_status = "OK"
         else:
-            status = "MISSING_PREDICTION"
+            candidate_status = "MISSING_PREDICTION"
 
         # Extract scan data
         scan_rank = candidate.rank if candidate else None
@@ -6367,11 +6502,11 @@ async def market_scan_prediction_candidates(
 
         # Determine preview decision and reasons
         preview_decision, preview_reasons = _determine_preview_decision(
-            normalized, status, expected_return_pct
+            normalized, candidate_status, expected_return_pct
         )
 
         # Add scan context to reasons if available
-        if status == "OK" and preview_decision != "REJECT":
+        if candidate_status == "OK" and preview_decision != "REJECT":
             if relative_strength_vs_spy_20d:
                 try:
                     from decimal import Decimal
@@ -6396,7 +6531,7 @@ async def market_scan_prediction_candidates(
             scan_score,
             relative_strength_vs_spy_20d,
             momentum_20d_pct,
-            status,
+            candidate_status,
         )
 
         # Phase 4A: explainability fields
@@ -6411,7 +6546,7 @@ async def market_scan_prediction_candidates(
 
         # Top score drivers
         _top_drivers: list[str] = []
-        if status == "OK" and normalized:
+        if candidate_status == "OK" and normalized:
             try:
                 _exp = float(normalized.get("expected_return_pct", "0") or "0")
                 if _exp > 0:
@@ -6426,7 +6561,7 @@ async def market_scan_prediction_candidates(
                     _top_drivers.append("moderate_confidence")
             except (ValueError, TypeError):
                 pass
-        elif status != "OK":
+        elif candidate_status != "OK":
             _top_drivers.append("missing_prediction")
 
         if relative_strength_vs_spy_20d:
@@ -6454,8 +6589,8 @@ async def market_scan_prediction_candidates(
 
         # Skip or warning reason
         _skip_warn: str | None = None
-        if status != "OK":
-            _skip_warn = f"PREDICTION_{status}"
+        if candidate_status != "OK":
+            _skip_warn = f"PREDICTION_{candidate_status}"
         elif normalized and prediction_recommendation == "SELL":
             _skip_warn = "SELL_RECOMMENDATION"
         elif normalized:
@@ -6487,7 +6622,7 @@ async def market_scan_prediction_candidates(
                 _rq_reason = "WATCH_ONLY"
             elif preview_decision == "REJECT":
                 _rq_reason = "REJECTED"
-            elif status != "OK":
+            elif candidate_status != "OK":
                 _rq_reason = "MISSING_PREDICTION"
             else:
                 _rq_reason = "OTHER"
@@ -6496,7 +6631,7 @@ async def market_scan_prediction_candidates(
         _actionability, _reason_summary, _reason_codes, _threshold_pf = _classify_candidate_actionability(
             candidate_type=_candidate_type,
             is_current_holding=is_holding,
-            status=status,
+            status=candidate_status,
             preview_decision=preview_decision,
             preview_score=preview_score,
             prediction_confidence=prediction_confidence,
@@ -6526,9 +6661,9 @@ async def market_scan_prediction_candidates(
             preview_decision=preview_decision,
             preview_score=preview_score,
             preview_reasons=preview_reasons,
-            status=status,
+            status=candidate_status,
             price_history_points=price_history_points,
-            prediction_status=status,
+            prediction_status=candidate_status,
             selected_for_gcp_reason=selected_for_gcp_reason,
             top_score_drivers=_top_drivers,
             skip_or_warning_reason=_skip_warn,
@@ -16525,6 +16660,76 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
         exclusion_reasons=exclusion_reasons,
         top_local_screened=top_local_screened,
         prediction_results=prediction_results,
+    )
+
+
+@app.get(
+    "/v1/model/prediction-runs",
+    response_model=PredictionRunListResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def list_prediction_runs(
+    limit: int = Query(50, ge=1, le=500, description="Maximum number of rows to return."),
+    ticker: str | None = Query(None, description="Optional ticker filter (case-insensitive)."),
+) -> PredictionRunListResponse:
+    """
+    GET /v1/model/prediction-runs - Read-only capture store of GCP prediction calls.
+
+    Returns the most recent prediction_runs rows (newest first), each recording
+    what Paper Trader sent to the remote prediction service and what came back:
+    request/response timing, the URL used (no secrets), the request payload, the
+    raw response JSON, normalized recommendation/confidence/expected-return/
+    forecast, model consensus, remote execution diagnostics, and any error.
+
+    READ ONLY: this endpoint only reads prediction_runs. It creates no signals,
+    trade decisions, orders, trades, fills, or broker actions, makes no remote
+    GCP call, and triggers no automation. Default limit is 50.
+    """
+    ticker_filter = ticker.strip().upper() if ticker and ticker.strip() else None
+
+    with get_session() as session:
+        query = session.query(PredictionRun)
+        if ticker_filter:
+            query = query.filter(PredictionRun.ticker == ticker_filter)
+        rows = (
+            query.order_by(PredictionRun.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+        runs = [
+            PredictionRunOut(
+                id=str(row.id),
+                ticker=row.ticker,
+                request_ts=row.request_ts,
+                response_ts=row.response_ts,
+                latency_ms=row.latency_ms,
+                prediction_service_url=row.prediction_service_url,
+                request_payload=row.request_payload,
+                http_status=row.http_status,
+                raw_response=row.raw_response,
+                normalized_recommendation=row.normalized_recommendation,
+                normalized_confidence=row.normalized_confidence,
+                normalized_expected_return_pct=row.normalized_expected_return_pct,
+                normalized_forecast_price_5d=row.normalized_forecast_price_5d,
+                model_consensus=row.model_consensus,
+                ran_models=row.ran_models,
+                skipped_models=row.skipped_models,
+                model_errors=row.model_errors,
+                service_version=row.service_version,
+                error=row.error,
+                error_message=row.error_message,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
+
+    return PredictionRunListResponse(
+        runs=runs,
+        count=len(runs),
+        limit=limit,
+        ticker=ticker_filter,
     )
 
 

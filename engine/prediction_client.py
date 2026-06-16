@@ -15,6 +15,8 @@ Design principles:
 from __future__ import annotations
 
 import asyncio
+import time
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -29,6 +31,7 @@ async def fetch_predictions_for_tickers(
     api_url: str,
     timeout_seconds: int = 30,
     max_concurrency: int = 4,
+    capture: list[dict] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Fetch predictions from external stock prediction API for a batch of tickers.
@@ -38,6 +41,10 @@ async def fetch_predictions_for_tickers(
         api_url: Base URL of the prediction service (e.g., http://127.0.0.1:9000).
         timeout_seconds: HTTP request timeout in seconds.
         max_concurrency: Maximum number of in-flight requests at once (default 4).
+        capture: Optional mutable list. When provided, one capture record dict is
+            appended per ticker (request/response timing, URL, payload, raw
+            response or error). Used by the local prediction-run capture store.
+            When None (default) no capture work is done and behavior is unchanged.
 
     Returns:
         (successful_predictions, failures)
@@ -50,15 +57,23 @@ async def fetch_predictions_for_tickers(
         - Requests run concurrently up to max_concurrency via asyncio.Semaphore.
         - Returns raw responses (not normalized) — caller must call normalize_prediction_response().
         - Network errors, timeouts, and service errors are caught and returned as failures.
+        - Capture is best-effort and purely observational; it never alters fetch
+          results and never raises.
     """
     if not tickers:
         return [], []
 
     if httpx is None:
-        return [], [{"ticker": t.upper(), "reason": "httpx not installed"} for t in tickers]
+        reason = "httpx not installed"
+        for t in tickers:
+            _append_capture(capture, t.upper(), endpoint=None, error=True, reason=reason)
+        return [], [{"ticker": t.upper(), "reason": reason} for t in tickers]
 
     if not api_url:
-        return [], [{"ticker": t.upper(), "reason": "STOCK_PREDICTION_API_URL not configured"} for t in tickers]
+        reason = "STOCK_PREDICTION_API_URL not configured"
+        for t in tickers:
+            _append_capture(capture, t.upper(), endpoint=None, error=True, reason=reason)
+        return [], [{"ticker": t.upper(), "reason": reason} for t in tickers]
 
     normalized_tickers = [t.upper() for t in tickers]
     endpoint = f"{api_url.rstrip('/')}/predict_all_models/"
@@ -69,26 +84,57 @@ async def fetch_predictions_for_tickers(
 
     async def _fetch_one(ticker: str, client: "httpx.AsyncClient") -> None:
         async with semaphore:
+            request_ts = datetime.now(timezone.utc)
+            _t0 = time.perf_counter()
+            http_status: int | None = None
             try:
                 response = await client.post(endpoint, json={"ticker": ticker})
+                http_status = getattr(response, "status_code", None)
                 response.raise_for_status()
                 data = response.json()
                 if "ticker" not in data:
                     data["ticker"] = ticker
                 successful_by_ticker[ticker] = data
+                # The remote service signals model/data failures with HTTP 200
+                # plus an "error" key, not a non-2xx status. Surface that.
+                service_error = data.get("error") if isinstance(data, dict) else None
+                _append_capture(
+                    capture, ticker, endpoint=endpoint, started=_t0,
+                    request_ts=request_ts, http_status=http_status,
+                    raw_response=data,
+                    error=bool(service_error),
+                    reason=str(service_error) if service_error else None,
+                )
             except httpx.TimeoutException:
-                failed[ticker] = f"Request timeout (>{timeout_seconds}s)"
+                reason = f"Request timeout (>{timeout_seconds}s)"
+                failed[ticker] = reason
+                _append_capture(capture, ticker, endpoint=endpoint, started=_t0,
+                                request_ts=request_ts, http_status=http_status,
+                                error=True, reason=reason)
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
-                    failed[ticker] = "Ticker not found (404)"
-                elif e.response.status_code == 503:
-                    failed[ticker] = "Prediction service unavailable (503)"
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
+                if status_code == 404:
+                    reason = "Ticker not found (404)"
+                elif status_code == 503:
+                    reason = "Prediction service unavailable (503)"
                 else:
-                    failed[ticker] = f"HTTP {e.response.status_code}"
+                    reason = f"HTTP {status_code}"
+                failed[ticker] = reason
+                _append_capture(capture, ticker, endpoint=endpoint, started=_t0,
+                                request_ts=request_ts, http_status=status_code,
+                                error=True, reason=reason)
             except httpx.RequestError as e:
-                failed[ticker] = f"Connection error: {str(e)[:50]}"
+                reason = f"Connection error: {str(e)[:50]}"
+                failed[ticker] = reason
+                _append_capture(capture, ticker, endpoint=endpoint, started=_t0,
+                                request_ts=request_ts, http_status=http_status,
+                                error=True, reason=reason)
             except Exception as e:
-                failed[ticker] = f"Failed to fetch: {str(e)[:50]}"
+                reason = f"Failed to fetch: {str(e)[:50]}"
+                failed[ticker] = reason
+                _append_capture(capture, ticker, endpoint=endpoint, started=_t0,
+                                request_ts=request_ts, http_status=http_status,
+                                error=True, reason=reason)
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         await asyncio.gather(*[_fetch_one(t, client) for t in normalized_tickers])
@@ -97,6 +143,118 @@ async def fetch_predictions_for_tickers(
     successful = [successful_by_ticker[t] for t in normalized_tickers if t in successful_by_ticker]
     failures = [{"ticker": t, "reason": r} for t, r in failed.items()]
     return successful, failures
+
+
+def _append_capture(
+    capture: list[dict] | None,
+    ticker: str,
+    *,
+    endpoint: str | None,
+    started: float | None = None,
+    request_ts: "datetime | None" = None,
+    http_status: int | None = None,
+    raw_response: dict | None = None,
+    error: bool = False,
+    reason: str | None = None,
+) -> None:
+    """
+    Append a single capture record to the capture list, if one was provided.
+
+    Best-effort and silent: capture is an observational side-channel for the
+    local prediction-run store. It must never raise into the fetch path.
+    """
+    if capture is None:
+        return
+    try:
+        response_ts = datetime.now(timezone.utc)
+        latency_ms = int((time.perf_counter() - started) * 1000) if started is not None else None
+        capture.append(
+            {
+                "ticker": ticker,
+                "endpoint_url": endpoint,
+                "request_payload": {"ticker": ticker},
+                "request_ts": request_ts or response_ts,
+                "response_ts": response_ts,
+                "latency_ms": latency_ms,
+                "http_status": http_status,
+                "raw_response": raw_response if isinstance(raw_response, dict) else None,
+                "error": bool(error),
+                "error_message": reason,
+            }
+        )
+    except Exception:
+        # Never let capture bookkeeping break a fetch.
+        return
+
+
+def build_prediction_run_values(capture: dict) -> dict[str, Any]:
+    """
+    Convert one fetch capture record into a flat dict of prediction_runs column
+    values (normalized fields resolved, diagnostics extracted).
+
+    Pure / no DB, no I/O: the caller turns this dict into a PredictionRun ORM row
+    and persists it. Keeps the DB layer out of the engine module and makes the
+    mapping unit-testable.
+
+    Normalization:
+        - Successful, non-error raw responses are run through
+          normalize_prediction_response_with_error(); the resulting
+          recommendation/confidence/expected_return/forecast/model_consensus are
+          stored. If normalization fails, those fields are left null.
+    Diagnostics (ran_models / skipped_models / model_errors / version) are copied
+    straight from the raw response when present, else null. The current GCP
+    service does not expose a service/model version in its response, so
+    service_version is typically null and that absence is recorded honestly.
+    """
+    raw = capture.get("raw_response")
+    raw = raw if isinstance(raw, dict) else None
+
+    values: dict[str, Any] = {
+        "ticker": (capture.get("ticker") or "").upper() or None,
+        "request_ts": capture.get("request_ts"),
+        "response_ts": capture.get("response_ts"),
+        "latency_ms": capture.get("latency_ms"),
+        "prediction_service_url": capture.get("endpoint_url"),
+        "request_payload": capture.get("request_payload"),
+        "http_status": capture.get("http_status"),
+        "raw_response": raw,
+        "normalized_recommendation": None,
+        "normalized_confidence": None,
+        "normalized_expected_return_pct": None,
+        "normalized_forecast_price_5d": None,
+        "model_consensus": None,
+        "ran_models": None,
+        "skipped_models": None,
+        "model_errors": None,
+        "service_version": None,
+        "error": bool(capture.get("error")),
+        "error_message": capture.get("error_message"),
+    }
+
+    if raw is not None:
+        # Diagnostics may be present even on a service-reported error response.
+        values["ran_models"] = raw.get("ran_models")
+        values["skipped_models"] = raw.get("skipped_models")
+        values["model_errors"] = raw.get("model_errors")
+        version = (
+            raw.get("service_version")
+            or raw.get("model_version")
+            or raw.get("version")
+            or raw.get("commit")
+        )
+        values["service_version"] = str(version) if version else None
+
+        # Only attempt normalization on a non-error response.
+        if not raw.get("error"):
+            normalized, _err = normalize_prediction_response_with_error(raw)
+            if normalized:
+                values["normalized_recommendation"] = normalized.get("recommendation")
+                values["normalized_confidence"] = normalized.get("confidence")
+                values["normalized_expected_return_pct"] = normalized.get("expected_return_pct")
+                values["normalized_forecast_price_5d"] = normalized.get("forecast_price_5d")
+                values["model_consensus"] = normalized.get("model_consensus")
+
+    return values
 
 
 def normalize_prediction_response(raw: dict[str, Any] | None) -> dict[str, Any] | None:
