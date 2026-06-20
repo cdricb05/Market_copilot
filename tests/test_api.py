@@ -28312,6 +28312,86 @@ class TestUiCandidatePreviewPanelContent:
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", region)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", region)) == 0
 
+    # ----- Phase 4-G hardening -----------------------------------------------
+
+    def test_diagnostics_object_exposed_on_window(self) -> None:
+        """A read-only diagnostics object is published on window for debugging."""
+        js = self._panel_js()
+        assert "window._candidatePreviewStatus" in js
+
+    def test_diagnostics_object_has_required_keys(self) -> None:
+        js = self._panel_js()
+        for key in (
+            "loaded",
+            "loading",
+            "error",
+            "candidate_id",
+            "badge_count",
+            "no_go_count",
+            "last_loaded_at",
+        ):
+            assert key in js, f"diagnostics object missing key: {key}"
+
+    def test_load_status_line_and_states_present(self) -> None:
+        """The panel exposes a status line covering all four load states."""
+        markup = self._panel_markup()
+        assert 'id="cp-status-line"' in markup
+        assert 'id="cp-load-status"' in markup
+        js = self._panel_js()
+        for state in ("Not loaded", "Loading", "Loaded", "Error"):
+            assert state in (markup + js), f"missing load state label: {state}"
+
+    def test_last_loaded_timestamp_element_present(self) -> None:
+        markup = self._panel_markup()
+        assert 'id="cp-last-loaded"' in markup
+        js = self._panel_js()
+        # The timestamp is populated on a successful load.
+        assert "last_loaded_at" in js
+        assert "_cpNowStamp" in js
+
+    def test_refresh_button_disabled_while_loading(self) -> None:
+        """The refresh button is explicitly disabled during the in-flight fetch."""
+        js = self._panel_js()
+        assert "cp-refresh-btn" in js
+        assert "refreshBtn.disabled = true" in js
+        assert "refreshBtn.disabled = false" in js
+
+    def test_success_sets_loaded_true(self) -> None:
+        js = self._panel_js()
+        assert "loaded: true" in js
+
+    def test_failure_sets_safe_error_message(self) -> None:
+        """On failure the diagnostics error holds a safe user-facing string."""
+        js = self._panel_js()
+        # The error path updates the diagnostics with the message variable.
+        assert "error: msg" in js
+        assert "Could not load research candidate preview." in js
+
+    def test_hardening_keeps_banner_and_badges_visible(self) -> None:
+        """Hardening must not remove the always-visible banner or badges."""
+        markup = self._panel_markup()
+        assert 'id="cp-badges"' in markup
+        assert 'id="cp-safety-banner"' in markup
+        # Banner/badges are not display:none (always visible).
+        assert "cp-badges" in markup and "cp-safety-banner" in markup
+
+    def test_hardening_introduces_no_post_or_forbidden_action(self) -> None:
+        """The hardening additions stay read-only and preview-only."""
+        region = (self._panel_markup() + "\n" + self._panel_js())
+        assert "call('POST'" not in region
+        lower = region.lower()
+        for needle in (
+            "create order",
+            "createorder",
+            "/v1/orders",
+            "/v1/signals",
+            "/v1/decisions",
+            "enable_automation",
+            "fetch_predictions",
+            "/v1/predict",
+        ):
+            assert needle not in lower, f"hardening introduces forbidden surface: {needle!r}"
+
 
 class TestUiDailyPlanSignalActionsContent:
     """Verify Signal Actions card and wiring are present in index.html."""

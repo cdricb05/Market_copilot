@@ -3621,6 +3621,12 @@
             Research candidate preview only. No orders, no automation, no broker execution, no live portfolio weights.
           </div>
 
+          <!-- Load-status line (Phase 4-G hardening) — read-only diagnostics surface. -->
+          <div id="cp-status-line" style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:11px;margin-bottom:10px;color:var(--text-accent);">
+            <span>Status: <span id="cp-load-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
+            <span>Last loaded: <span id="cp-last-loaded" class="mono" style="color:var(--text-primary);">—</span></span>
+          </div>
+
           <!-- Loading state -->
           <div id="cp-loading" style="display:none;color:var(--text-accent);font-size:12px;padding:8px 0;">Loading research candidate preview…</div>
 
@@ -4849,6 +4855,39 @@ function escapeHtml(value) {
 // service. It only reads the already-normalized preview payload.
 window._candidatePreviewLoaded = false;
 
+// Phase 4-G hardening: read-only diagnostics object for the candidate preview
+// panel. Purely observational — it triggers no orders, signals, decisions,
+// automation, live weights, or prediction calls. Exposed on window so the panel
+// is easy to debug from the console and from browser acceptance checks.
+window._candidatePreviewStatus = {
+  loaded: false,
+  loading: false,
+  error: null,
+  candidate_id: null,
+  badge_count: 0,
+  no_go_count: 0,
+  last_loaded_at: null,
+};
+
+// Map the diagnostics state to the visible status word (Not loaded | Loading |
+// Loaded | Error) and keep the status line / last-loaded timestamp in sync.
+function _cpRenderStatusLine() {
+  const s = window._candidatePreviewStatus;
+  let label = 'Not loaded';
+  if (s.loading) label = 'Loading';
+  else if (s.error) label = 'Error';
+  else if (s.loaded) label = 'Loaded';
+  const statusEl = document.getElementById('cp-load-status');
+  if (statusEl) statusEl.textContent = label;
+  const lastEl = document.getElementById('cp-last-loaded');
+  if (lastEl) lastEl.textContent = s.last_loaded_at ? String(s.last_loaded_at) : '—';
+}
+
+function _cpUpdateStatus(partial) {
+  Object.assign(window._candidatePreviewStatus, partial || {});
+  _cpRenderStatusLine();
+}
+
 function _cpSetState(state) {
   // state: 'loading' | 'error' | 'data'
   const loading = document.getElementById('cp-loading');
@@ -4876,7 +4915,13 @@ function _cpText(id, value) {
 }
 
 async function loadCandidatePreview(btn) {
+  // Disable the clicked control (Refresh/Retry) AND always the panel refresh
+  // button while the read-only fetch is in flight, then re-enable both. This
+  // covers the auto-load path (no btn passed) too. (Phase 4-G req #4.)
+  const refreshBtn = document.getElementById('cp-refresh-btn');
   if (btn) btn.disabled = true;
+  if (refreshBtn) refreshBtn.disabled = true;
+  _cpUpdateStatus({ loading: true, error: null });
   _cpSetState('loading');
   try {
     // Read-only GET via the shared API helper (injects X-API-Key). Never POST.
@@ -4892,13 +4937,37 @@ async function loadCandidatePreview(btn) {
     const data = await resp.json();
     renderCandidatePreview(data);
     window._candidatePreviewLoaded = true;
+    const badges = Array.isArray(data.safety_badges) ? data.safety_badges.length : 0;
+    const noGo = Array.isArray(data.no_go_items) ? data.no_go_items.length : 0;
+    _cpUpdateStatus({
+      loaded: true,
+      loading: false,
+      error: null,
+      candidate_id: data.candidate_id || null,
+      badge_count: badges,
+      no_go_count: noGo,
+      last_loaded_at: _cpNowStamp(),
+    });
     _cpSetState('data');
   } catch (err) {
+    // Safe, user-facing message only (the endpoint already strips stack traces).
+    const msg = (err && err.message) ? err.message : 'Could not load research candidate preview.';
     const d = document.getElementById('cp-error-detail');
-    if (d) d.textContent = (err && err.message) ? err.message : 'Unknown error';
+    if (d) d.textContent = msg;
+    _cpUpdateStatus({ loaded: false, loading: false, error: msg });
     _cpSetState('error');
   } finally {
     if (btn) btn.disabled = false;
+    if (refreshBtn) refreshBtn.disabled = false;
+  }
+}
+
+// Human-readable local timestamp for the "last loaded" line / diagnostics.
+function _cpNowStamp() {
+  try {
+    return new Date().toLocaleString();
+  } catch (e) {
+    return '';
   }
 }
 
