@@ -43,6 +43,7 @@ Endpoints:
     POST /v1/review/position-review-preview — one-click consolidated position review: monitor+signal+decision+order layers (PREVIEW ONLY, read-only, no DB writes)
     POST /v1/review/create-exit-orders     — create PENDING SELL paper order tickets for REVIEW_FOR_EXIT positions (confirmation required, no broker execution)
     GET  /v1/review/daily-review-summary   — read-only daily operating summary: portfolio + positions + candidates + orders + next action (no DB writes)
+    GET  /v1/research/candidate-preview     — read-only Phase 4-B non-production candidate preview (PREVIEW ONLY, no DB writes, no orders, no automation, no prediction call)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -123,6 +124,10 @@ from paper_trader.engine.scoring import (
 from paper_trader.engine.strategy import generate_signals
 from paper_trader.workflows.decision import run_decision_workflow, _latest_price
 from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow, upsert_post_fill_snapshot
+from paper_trader.api.research_candidate_preview import (
+    CandidatePreviewError,
+    load_candidate_preview,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -3968,6 +3973,37 @@ def auth_check() -> AuthCheckOut:
         authenticated=True,
         service=_SERVICE_NAME,
     )
+
+
+@app.get(
+    "/v1/research/candidate-preview",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_candidate_preview() -> dict:
+    """
+    Read-only preview of the Phase 4-B non-production research candidate.
+
+    Requires a valid X-API-Key header. Returns the normalized, preview-only
+    payload produced by ``load_candidate_preview`` (Phase 4-D): candidate
+    identity, evidence summary, strategy/risk/failure-mode side-cars, no-go
+    items, safety badges, and the always-on safety flags.
+
+    This endpoint is strictly read-only. It writes no database rows, creates no
+    signals / trade decisions / orders, runs no automation, and calls neither
+    the prediction service nor any market-data provider — it only reads the
+    local Phase 4-B candidate package files.
+
+    If the candidate package is missing, incomplete, or not preview-ready,
+    responds with HTTP 503 and a clear detail message (never a stack trace).
+    """
+    try:
+        return load_candidate_preview()
+    except CandidatePreviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Candidate preview unavailable: {exc}",
+        ) from exc
 
 
 def _check_prediction_healthz(

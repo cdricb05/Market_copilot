@@ -364,11 +364,21 @@ def test_loader_writes_no_files_in_source() -> None:
     assert '"a"' not in src and "'a'" not in src
 
 
-def test_app_not_wired_to_loader() -> None:
-    """Phase 4-D adds no route: app.py must not reference the loader yet."""
+def test_app_wires_loader_read_only() -> None:
+    """Phase 4-E wires the loader into app.py as a single read-only GET route.
+
+    The app may import and call the loader, but it must not turn the preview
+    into a write/order/automation path: the route is a GET, and the loader is
+    never used to create signals / trade decisions / orders.
+    """
     app_src = _APP_PATH.read_text(encoding="utf-8")
-    assert "research_candidate_preview" not in app_src
-    assert "load_candidate_preview" not in app_src
+    # Phase 4-E: the loader is now referenced and exposed via a GET endpoint.
+    assert "load_candidate_preview" in app_src
+    assert "/v1/research/candidate-preview" in app_src
+    # The candidate-preview route is read-only: declared with @app.get, never
+    # @app.post. Confirm the path is introduced by a GET decorator block.
+    assert '@app.get(\n    "/v1/research/candidate-preview"' in app_src
+    assert '@app.post(\n    "/v1/research/candidate-preview"' not in app_src
 
 
 def test_ui_not_referenced_by_loader() -> None:
