@@ -28151,6 +28151,168 @@ class TestUiDailyPlanV2Content:
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
 
 
+class TestUiCandidatePreviewPanelContent:
+    """Phase 4-F: read-only Research Candidate Preview panel in index.html.
+
+    These are static-content assertions over api/ui/index.html — no HTTP needed.
+    They verify the panel markup, the 11 safety badges, the safety banner, the
+    required candidate/evidence fields, the loading/error/refresh states, and
+    that the panel introduces no order/signal/decision/automation/prediction
+    surface (it stays preview-only and read-only).
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    @classmethod
+    def _panel_markup(cls) -> str:
+        """The panel's HTML markup (from #cp-panel up to the next card)."""
+        html = cls._read_html()
+        start = html.index('id="cp-panel"')
+        end = html.index("<!-- Execution Workflow -->", start)
+        return html[start:end]
+
+    @classmethod
+    def _panel_js(cls) -> str:
+        """The panel's JS block, delimited by explicit START/END sentinels."""
+        html = cls._read_html()
+        start = html.index("Research Candidate Preview (Phase 4-F) START")
+        end = html.index("Research Candidate Preview (Phase 4-F) END")
+        return html[start:end]
+
+    def test_panel_markup_present(self) -> None:
+        html = self._read_html()
+        assert 'id="cp-panel"' in html
+        assert "Research Candidate Preview" in html
+
+    def test_panel_calls_readonly_endpoint(self) -> None:
+        """Panel fetches the Phase 4-E read-only endpoint via the GET helper."""
+        js = self._panel_js()
+        assert "/v1/research/candidate-preview" in js
+        assert "call('GET', '/v1/research/candidate-preview')" in js
+
+    def test_all_eleven_safety_badges_present(self) -> None:
+        markup = self._panel_markup()
+        for badge in (
+            "PREVIEW ONLY",
+            "NON-PRODUCTION CANDIDATE",
+            "RESEARCH ONLY",
+            "NO ORDERS",
+            "NO BROKER EXECUTION",
+            "NO AUTOMATION",
+            "NO LIVE PORTFOLIO WEIGHTS",
+            "MANUAL REVIEW REQUIRED",
+            "OVERLAPPING LABEL WARNING",
+            "SURVIVORSHIP BIAS WARNING",
+            "2024 DRAWDOWN WARNING",
+        ):
+            assert badge in markup, f"missing safety badge in panel: {badge}"
+
+    def test_safety_banner_present(self) -> None:
+        assert (
+            "Research candidate preview only. No orders, no automation, "
+            "no broker execution, no live portfolio weights."
+            in self._panel_markup()
+        )
+
+    def test_core_identity_fields_present(self) -> None:
+        markup = self._panel_markup()
+        for el_id in (
+            "cp-candidate-name",
+            "cp-candidate-id",
+            "cp-model-name",
+            "cp-horizon",
+            "cp-strategy-name",
+            "cp-recommendation",
+        ):
+            assert f'id="{el_id}"' in markup, f"missing identity field: {el_id}"
+
+    def test_key_evidence_fields_present(self) -> None:
+        markup = self._panel_markup()
+        for metric in (
+            "annualized_return_at_25bps",
+            "sharpe_at_25bps",
+            "max_drawdown_at_25bps",
+            "average_turnover",
+            "average_holdings",
+        ):
+            assert f'id="cp-ev-{metric}"' in markup, f"missing evidence metric: {metric}"
+            # The JS also reads the key off evidence_summary by name.
+            assert metric in self._panel_js(), f"evidence key not read in JS: {metric}"
+
+    def test_failure_modes_and_no_go_sections_present(self) -> None:
+        markup = self._panel_markup()
+        assert "Known Failure Modes" in markup
+        assert 'id="cp-failure-modes"' in markup
+        assert "No-Go Items" in markup
+        assert 'id="cp-no-go-items"' in markup
+
+    def test_loading_error_and_refresh_states_present(self) -> None:
+        markup = self._panel_markup()
+        assert 'id="cp-loading"' in markup
+        assert 'id="cp-error"' in markup
+        assert 'id="cp-refresh-btn"' in markup
+        assert "Refresh Preview" in markup
+
+    def test_render_and_loader_functions_defined(self) -> None:
+        html = self._read_html()
+        assert "function loadCandidatePreview(" in html
+        assert "function renderCandidatePreview(" in html
+
+    def test_panel_creates_no_orders_or_actions(self) -> None:
+        """The panel must not introduce any order/signal/decision/fill surface."""
+        region = (self._panel_markup() + "\n" + self._panel_js()).lower()
+        for needle in (
+            "create order",
+            "createorder",
+            "submitorder",
+            "submit signal",
+            "submitsignal",
+            "createdecision",
+            "create decision",
+            "runfill",
+            "place_order",
+            "/v1/orders",
+            "/v1/signals",
+            "/v1/decisions",
+        ):
+            assert needle not in region, f"panel introduces forbidden action: {needle!r}"
+
+    def test_panel_has_no_automation_or_prediction_call(self) -> None:
+        region = (self._panel_markup() + "\n" + self._panel_js()).lower()
+        for needle in (
+            "enable_automation",
+            "automation_on",
+            "fetch_predictions",
+            "prediction_client",
+            "/v1/predict",
+            "/v1/research/predict",
+        ):
+            assert needle not in region, f"panel references forbidden call: {needle!r}"
+
+    def test_panel_is_read_only_no_post(self) -> None:
+        """The panel issues only a GET; it must not POST anywhere."""
+        js = self._panel_js()
+        assert "call('POST'" not in js
+        assert "call(\"POST\"" not in js
+        assert "method: 'POST'" not in js
+
+    def test_panel_adds_no_migration_or_model_artifact(self) -> None:
+        """UI-only change: no migration or model-artifact creation in the panel."""
+        region = (self._panel_markup() + "\n" + self._panel_js()).lower()
+        for needle in ("migration", "alembic", ".pkl", "joblib", "model_artifact", "train_model"):
+            assert needle not in region, f"panel references forbidden artifact: {needle!r}"
+
+    def test_panel_uses_no_alert_or_confirm(self) -> None:
+        import re
+        region = self._panel_markup() + "\n" + self._panel_js()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", region)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", region)) == 0
+
+
 class TestUiDailyPlanSignalActionsContent:
     """Verify Signal Actions card and wiring are present in index.html."""
 

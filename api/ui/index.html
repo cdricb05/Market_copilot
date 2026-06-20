@@ -3592,6 +3592,92 @@
       <!-- TAB 5: AUDIT / ADVANCED -->
       <div id="tab-audit-advanced" class="tab-content">
 
+        <!-- Research Candidate Preview (Phase 4-F) — read-only, non-production research artifact.
+             Renders GET /v1/research/candidate-preview. PREVIEW ONLY: no orders, no signals,
+             no trade decisions, no automation, no prediction-service call, no DB writes. -->
+        <div class="card" id="cp-panel" style="margin-bottom:14px;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+            <span>Research Candidate Preview</span>
+            <button class="btn-sm" id="cp-refresh-btn" onclick="loadCandidatePreview(this)">Refresh Preview</button>
+          </div>
+
+          <!-- Always-visible safety badges (11) -->
+          <div id="cp-badges" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NON-PRODUCTION CANDIDATE</span>
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">RESEARCH ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO AUTOMATION</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO LIVE PORTFOLIO WEIGHTS</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW REQUIRED</span>
+            <span class="safety-badge" style="background:#7d6608;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">OVERLAPPING LABEL WARNING</span>
+            <span class="safety-badge" style="background:#7d6608;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">SURVIVORSHIP BIAS WARNING</span>
+            <span class="safety-badge" style="background:#7d6608;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">2024 DRAWDOWN WARNING</span>
+          </div>
+
+          <!-- Prominent safety banner (always visible) -->
+          <div id="cp-safety-banner" style="background:rgba(239,68,68,.1);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:8px 10px;font-size:11px;font-weight:600;margin-bottom:12px;">
+            Research candidate preview only. No orders, no automation, no broker execution, no live portfolio weights.
+          </div>
+
+          <!-- Loading state -->
+          <div id="cp-loading" style="display:none;color:var(--text-accent);font-size:12px;padding:8px 0;">Loading research candidate preview…</div>
+
+          <!-- Error state -->
+          <div id="cp-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-bottom:10px;">
+            <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:6px;">Could not load research candidate preview.</div>
+            <div id="cp-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+            <button class="btn-sm" style="margin-top:8px;" onclick="loadCandidatePreview(this)">Retry</button>
+          </div>
+
+          <!-- Data body -->
+          <div id="cp-body" style="display:none;">
+            <div style="margin-bottom:12px;">
+              <div style="font-size:13px;font-weight:700;color:var(--text-primary);" id="cp-candidate-name">—</div>
+              <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:11px;margin-top:4px;color:var(--text-accent);">
+                <span>Candidate ID: <span class="mono" id="cp-candidate-id" style="color:var(--text-primary);">—</span></span>
+                <span>Recommendation: <span class="mono" id="cp-recommendation" style="color:var(--text-primary);">—</span></span>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:14px;align-items:start;">
+              <!-- Identity -->
+              <div>
+                <div class="card-title" style="border:none;margin-bottom:6px;padding:0;">Candidate Identity</div>
+                <div class="kpi-grid" style="grid-template-columns:1fr 1fr;">
+                  <div class="kpi-item"><span class="kpi-label">Model</span><span class="kpi-value mono" id="cp-model-name" style="font-size:11px;">—</span></div>
+                  <div class="kpi-item"><span class="kpi-label">Horizon</span><span class="kpi-value" id="cp-horizon">—</span></div>
+                  <div class="kpi-item"><span class="kpi-label">Strategy</span><span class="kpi-value mono" id="cp-strategy-name" style="font-size:11px;">—</span></div>
+                </div>
+              </div>
+              <!-- Key evidence -->
+              <div>
+                <div class="card-title" style="border:none;margin-bottom:6px;padding:0;">Key Evidence (net of 25 bps costs)</div>
+                <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr);">
+                  <div class="kpi-item"><span class="kpi-label">Ann. Return</span><span class="kpi-value" id="cp-ev-annualized_return_at_25bps">—</span></div>
+                  <div class="kpi-item"><span class="kpi-label">Sharpe</span><span class="kpi-value" id="cp-ev-sharpe_at_25bps">—</span></div>
+                  <div class="kpi-item"><span class="kpi-label">Max Drawdown</span><span class="kpi-value" id="cp-ev-max_drawdown_at_25bps">—</span></div>
+                  <div class="kpi-item"><span class="kpi-label">Avg Turnover</span><span class="kpi-value" id="cp-ev-average_turnover">—</span></div>
+                  <div class="kpi-item"><span class="kpi-label">Avg Holdings</span><span class="kpi-value" id="cp-ev-average_holdings">—</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Known failure modes summary -->
+            <div style="margin-top:14px;">
+              <div class="card-title" style="border:none;margin-bottom:6px;padding:0;">Known Failure Modes</div>
+              <ul id="cp-failure-modes" style="margin:0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+            </div>
+
+            <!-- No-go items summary -->
+            <div style="margin-top:14px;">
+              <div class="card-title" style="border:none;margin-bottom:6px;padding:0;">No-Go Items</div>
+              <ul id="cp-no-go-items" style="margin:0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+            </div>
+          </div>
+        </div>
+
         <!-- Execution Workflow -->
         <div class="card">
           <div class="section-title">Execution Workflow</div>
@@ -4272,6 +4358,13 @@ window._switchTab = function(tabName) {
     loadReviewQueue();
   }
 
+  // Audit / Advanced: lazy-load the read-only research candidate preview the
+  // first time the tab is opened while connected. The panel's Refresh Preview
+  // button can reload it on demand. (Badges + safety banner show regardless.)
+  if (tabName === 'audit-advanced' && window._appState?.connected && !window._candidatePreviewLoaded) {
+    try { loadCandidatePreview(); } catch (e) {}
+  }
+
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
   // cards correct whenever the cockpit is opened (independent of connection).
   if (tabName === 'prediction-cockpit') {
@@ -4747,6 +4840,115 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 }
+
+// ===== Research Candidate Preview (Phase 4-F) START =====
+// Read-only panel for the Phase 4-B non-production research candidate. It fetches
+// GET /v1/research/candidate-preview (read-only, X-API-Key) and renders it.
+// PREVIEW ONLY: it creates no orders, signals, or trade decisions, enables no
+// automation, computes no live portfolio weights, and never calls the prediction
+// service. It only reads the already-normalized preview payload.
+window._candidatePreviewLoaded = false;
+
+function _cpSetState(state) {
+  // state: 'loading' | 'error' | 'data'
+  const loading = document.getElementById('cp-loading');
+  const errorEl = document.getElementById('cp-error');
+  const body = document.getElementById('cp-body');
+  if (loading) loading.style.display = state === 'loading' ? 'block' : 'none';
+  if (errorEl) errorEl.style.display = state === 'error' ? 'block' : 'none';
+  if (body) body.style.display = state === 'data' ? 'block' : 'none';
+}
+
+function _cpFmtPct(v) {
+  if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '—';
+  return (Number(v) * 100).toFixed(2) + '%';
+}
+
+function _cpFmtNum(v, digits = 2) {
+  if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '—';
+  return Number(v).toFixed(digits);
+}
+
+function _cpText(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = (value === null || value === undefined || value === '') ? '—' : String(value);
+}
+
+async function loadCandidatePreview(btn) {
+  if (btn) btn.disabled = true;
+  _cpSetState('loading');
+  try {
+    // Read-only GET via the shared API helper (injects X-API-Key). Never POST.
+    const resp = await call('GET', '/v1/research/candidate-preview');
+    if (!resp.ok) {
+      let detail = 'HTTP ' + resp.status;
+      try {
+        const j = await resp.json();
+        if (j && j.detail) detail = j.detail;
+      } catch (e) { /* non-JSON error body */ }
+      throw new Error(detail);
+    }
+    const data = await resp.json();
+    renderCandidatePreview(data);
+    window._candidatePreviewLoaded = true;
+    _cpSetState('data');
+  } catch (err) {
+    const d = document.getElementById('cp-error-detail');
+    if (d) d.textContent = (err && err.message) ? err.message : 'Unknown error';
+    _cpSetState('error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderCandidatePreview(data) {
+  data = data || {};
+  _cpText('cp-candidate-name', data.candidate_name);
+  _cpText('cp-candidate-id', data.candidate_id);
+  _cpText('cp-recommendation', data.recommendation);
+  _cpText('cp-model-name', data.model_name);
+  _cpText('cp-horizon', data.horizon);
+  _cpText('cp-strategy-name', data.strategy_name);
+
+  const ev = data.evidence_summary || {};
+  _cpText('cp-ev-annualized_return_at_25bps', _cpFmtPct(ev.annualized_return_at_25bps));
+  _cpText('cp-ev-sharpe_at_25bps', _cpFmtNum(ev.sharpe_at_25bps));
+  _cpText('cp-ev-max_drawdown_at_25bps', _cpFmtPct(ev.max_drawdown_at_25bps));
+  _cpText('cp-ev-average_turnover', _cpFmtNum(ev.average_turnover));
+  _cpText('cp-ev-average_holdings', _cpFmtNum(ev.average_holdings, 1));
+
+  const fmUl = document.getElementById('cp-failure-modes');
+  if (fmUl) {
+    const rows = Array.isArray(data.known_failure_modes) ? data.known_failure_modes : [];
+    if (!rows.length) {
+      fmUl.innerHTML = '<li>No failure modes listed.</li>';
+    } else {
+      fmUl.innerHTML = rows.map(r => {
+        const name = r.failure_mode || r.name || (Object.values(r)[0] ?? '');
+        const sev = r.severity ? (' [' + r.severity + ']') : '';
+        const note = r.note ? (' — ' + r.note) : '';
+        return '<li><strong>' + escapeHtml(name) + '</strong>' + escapeHtml(sev + note) + '</li>';
+      }).join('');
+    }
+  }
+
+  const ngUl = document.getElementById('cp-no-go-items');
+  if (ngUl) {
+    const rows = Array.isArray(data.no_go_items) ? data.no_go_items : [];
+    if (!rows.length) {
+      ngUl.innerHTML = '<li>No no-go items listed.</li>';
+    } else {
+      ngUl.innerHTML = rows.map(r => {
+        const name = r.no_go_item || r.name || (Object.values(r)[0] ?? '');
+        const enf = (r.enforced !== undefined && r.enforced !== '') ? (' [enforced: ' + r.enforced + ']') : '';
+        const note = r.note ? (' — ' + r.note) : '';
+        return '<li><strong>' + escapeHtml(name) + '</strong>' + escapeHtml(enf + note) + '</li>';
+      }).join('');
+    }
+  }
+}
+// ===== Research Candidate Preview (Phase 4-F) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 
