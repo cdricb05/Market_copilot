@@ -3684,6 +3684,118 @@
           </div>
         </div>
 
+        <!-- Current Alpha Paper Test (Phase 13-B) START — read-only preview of the
+             committed Phase 13-A current champion alpha (composite_sn) package.
+             Renders GET /v1/research/current-alpha/preview. PREVIEW ONLY / PAPER TEST
+             ONLY: creates no orders, no signals, no trade decisions, no automation,
+             no broker execution, no prediction-service call, no DB writes. -->
+        <div class="card" id="ca-panel" style="margin-bottom:14px;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+            <span>Current Alpha Paper Test</span>
+            <button class="btn-sm" id="ca-load-btn" onclick="loadCurrentAlphaPreview(this)">Load Current Alpha Preview</button>
+          </div>
+
+          <!-- Always-visible safety badges (6) -->
+          <div id="ca-badges" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO AUTOMATION</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW ONLY</span>
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PAPER TEST ONLY</span>
+          </div>
+
+          <!-- Prominent safety banner (always visible) -->
+          <div id="ca-safety-banner" style="background:rgba(239,68,68,.1);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:8px 10px;font-size:11px;font-weight:600;margin-bottom:12px;">
+            Preview only. This creates no orders, no signals, and no trade decisions. Manual review only — a paper test, not live trading.
+          </div>
+
+          <!-- Load-status line — read-only diagnostics surface. -->
+          <div id="ca-status-line" style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:11px;margin-bottom:10px;color:var(--text-accent);">
+            <span>Status: <span id="ca-load-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
+            <span>Last loaded: <span id="ca-last-loaded" class="mono" style="color:var(--text-primary);">—</span></span>
+          </div>
+
+          <!-- Loading state -->
+          <div id="ca-loading" style="display:none;color:var(--text-accent);font-size:12px;padding:8px 0;">Loading current alpha paper-test preview…</div>
+
+          <!-- Error state — surfaces the exact "run Phase 13-A first" guidance. -->
+          <div id="ca-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-bottom:10px;">
+            <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:6px;">Phase 13-A package not found. Run Phase 13-A in the research repo first.</div>
+            <div id="ca-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+            <button class="btn-sm" style="margin-top:8px;" onclick="loadCurrentAlphaPreview(this)">Retry</button>
+          </div>
+
+          <!-- Data body -->
+          <div id="ca-body" style="display:none;">
+            <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:baseline;margin-bottom:10px;">
+              <div style="font-size:13px;font-weight:700;color:var(--text-primary);">Alpha: <span class="mono" id="ca-alpha-name">—</span></div>
+              <div style="font-size:11px;color:var(--text-accent);">Signal date: <span class="mono" id="ca-signal-date" style="color:var(--text-primary);">—</span></div>
+              <div style="font-size:11px;color:var(--text-accent);">Cross-section month: <span class="mono" id="ca-cross-section-month" style="color:var(--text-primary);">—</span></div>
+              <div style="font-size:11px;color:var(--text-accent);">Ranked tickers: <span class="mono" id="ca-n-ranked" style="color:var(--text-primary);">—</span></div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:baseline;margin-bottom:12px;">
+              <div style="font-size:11px;color:var(--text-accent);">Decision: <span class="mono" id="ca-decision" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div style="font-size:11px;color:var(--text-accent);">Go / No-Go: <span class="mono" id="ca-go-no-go" style="color:var(--text-primary);font-weight:700;">—</span></div>
+            </div>
+
+            <!-- Top 10 candidates (quick read) -->
+            <div style="margin-bottom:12px;">
+              <div class="card-title" style="border:none;margin-bottom:6px;padding:0;">Top 10 Candidates</div>
+              <div id="ca-top10" class="mono" style="font-size:12px;color:var(--text-primary);word-break:break-word;">—</div>
+            </div>
+
+            <!-- Caveats / warnings -->
+            <div style="margin-bottom:12px;">
+              <div class="card-title" style="border:none;margin-bottom:6px;padding:0;">Caveats / Warnings</div>
+              <ul id="ca-caveats" style="margin:0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+            </div>
+
+            <!-- Top 25 table -->
+            <div style="margin-bottom:12px;">
+              <div class="card-title" style="border:none;margin-bottom:6px;padding:0;">Top 25 Candidates</div>
+              <div id="ca-top25-table" class="compact-scroll-region" style="max-height:280px;overflow:auto;font-size:11px;"></div>
+            </div>
+
+            <!-- Top 50 table (compact, scrollable) -->
+            <details style="margin-bottom:10px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Top 50 Candidates</summary>
+              <div id="ca-top50-table" class="compact-scroll-region" style="max-height:280px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+            </details>
+
+            <!-- Bottom 25 avoid diagnostic (collapsed) -->
+            <details style="margin-bottom:10px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Bottom 25 — Avoid (short-only diagnostic, NOT a live recommendation)</summary>
+              <div id="ca-bottom25-table" class="compact-scroll-region" style="max-height:240px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+            </details>
+
+            <!-- Sector exposure (collapsed) -->
+            <details style="margin-bottom:10px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Sector Exposure</summary>
+              <div id="ca-sector-exposure-table" style="font-size:11px;margin-top:6px;"></div>
+            </details>
+
+            <!-- Risk limits (collapsed) -->
+            <details style="margin-bottom:10px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Risk Limits</summary>
+              <div id="ca-risk-limits-table" style="font-size:11px;margin-top:6px;"></div>
+            </details>
+
+            <!-- Go / No-Go scorecard (collapsed) -->
+            <details style="margin-bottom:10px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Go / No-Go Scorecard</summary>
+              <div id="ca-scorecard-table" style="font-size:11px;margin-top:6px;"></div>
+            </details>
+
+            <!-- Source files (collapsed, read-only provenance) -->
+            <details style="margin-bottom:4px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Source Files (read-only)</summary>
+              <ul id="ca-source-files" style="margin:6px 0 0;padding-left:18px;font-size:10px;color:var(--text-accent);line-height:1.6;word-break:break-all;"></ul>
+            </details>
+          </div>
+        </div>
+        <!-- Current Alpha Paper Test (Phase 13-B) END -->
+
         <!-- Execution Workflow -->
         <div class="card">
           <div class="section-title">Execution Workflow</div>
@@ -4371,6 +4483,14 @@ window._switchTab = function(tabName) {
     try { loadCandidatePreview(); } catch (e) {}
   }
 
+  // Audit / Advanced: also lazy-load the read-only Current Alpha Paper Test
+  // preview (Phase 13-B) the first time the tab is opened while connected. The
+  // "Load Current Alpha Preview" button reloads it on demand. (Badges + safety
+  // banner show regardless of load state.)
+  if (tabName === 'audit-advanced' && window._appState?.connected && !window._currentAlphaPreviewLoaded) {
+    try { loadCurrentAlphaPreview(); } catch (e) {}
+  }
+
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
   // cards correct whenever the cockpit is opened (independent of connection).
   if (tabName === 'prediction-cockpit') {
@@ -5018,6 +5138,219 @@ function renderCandidatePreview(data) {
   }
 }
 // ===== Research Candidate Preview (Phase 4-F) END =====
+
+// ===== Current Alpha Paper Test (Phase 13-B) START =====
+// Read-only panel for the committed Phase 13-A current champion alpha
+// (composite_sn) paper-test package. It fetches GET
+// /v1/research/current-alpha/preview (read-only, X-API-Key) and renders it.
+// PREVIEW ONLY / PAPER TEST ONLY: it creates no orders, no signals, and no
+// trade decisions, enables no automation, connects to no broker, and never
+// calls the prediction service. It only reads the already-normalized payload.
+window._currentAlphaPreviewLoaded = false;
+
+// Read-only diagnostics object for the current-alpha panel. Purely
+// observational — it triggers no orders, signals, decisions, automation, or
+// prediction calls. Exposed on window for console + browser-acceptance checks.
+window._currentAlphaPreviewStatus = {
+  loaded: false,
+  loading: false,
+  error: null,
+  decision: null,
+  badge_count: 0,
+  n_ranked: null,
+  last_loaded_at: null,
+};
+
+function _caRenderStatusLine() {
+  const s = window._currentAlphaPreviewStatus;
+  let label = 'Not loaded';
+  if (s.loading) label = 'Loading';
+  else if (s.error) label = 'Error';
+  else if (s.loaded) label = 'Loaded';
+  const statusEl = document.getElementById('ca-load-status');
+  if (statusEl) statusEl.textContent = label;
+  const lastEl = document.getElementById('ca-last-loaded');
+  if (lastEl) lastEl.textContent = s.last_loaded_at ? String(s.last_loaded_at) : '—';
+}
+
+function _caUpdateStatus(partial) {
+  Object.assign(window._currentAlphaPreviewStatus, partial || {});
+  _caRenderStatusLine();
+}
+
+function _caSetState(state) {
+  // state: 'loading' | 'error' | 'data'
+  const loading = document.getElementById('ca-loading');
+  const errorEl = document.getElementById('ca-error');
+  const body = document.getElementById('ca-body');
+  if (loading) loading.style.display = state === 'loading' ? 'block' : 'none';
+  if (errorEl) errorEl.style.display = state === 'error' ? 'block' : 'none';
+  if (body) body.style.display = state === 'data' ? 'block' : 'none';
+}
+
+function _caFmtNum(v, digits = 4) {
+  if (v === null || v === undefined || v === '' || isNaN(Number(v))) return String(v ?? '—');
+  return Number(v).toFixed(digits);
+}
+
+function _caText(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = (value === null || value === undefined || value === '') ? '—' : String(value);
+}
+
+function _caNowStamp() {
+  try {
+    return new Date().toLocaleString();
+  } catch (e) {
+    return '';
+  }
+}
+
+// Build a compact HTML table from an array of row objects for the given columns.
+// columns: [{ key, label }]. Numeric-looking cells are lightly formatted; every
+// value is escaped. This renders only — it performs no action.
+function _caBuildTable(rows, columns) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return '<div style="color:var(--text-accent);font-style:italic;">No rows.</div>';
+  }
+  const numericKeys = new Set(['composite_sn', 'fcf_leg_z', 'accruals_leg_z', 'weight_pct']);
+  const head = columns.map(c => '<th style="text-align:left;padding:2px 8px 2px 0;position:sticky;top:0;background:var(--bg-elevated,#111);">' + escapeHtml(c.label) + '</th>').join('');
+  const body = rows.map(r => {
+    const tds = columns.map(c => {
+      let v = r[c.key];
+      if (numericKeys.has(c.key) && v !== undefined && v !== '' && !isNaN(Number(v))) {
+        v = _caFmtNum(v, c.key === 'weight_pct' ? 1 : 4);
+      }
+      return '<td class="mono" style="padding:2px 8px 2px 0;white-space:nowrap;">' + escapeHtml(v === undefined || v === null ? '' : String(v)) + '</td>';
+    }).join('');
+    return '<tr>' + tds + '</tr>';
+  }).join('');
+  return '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+async function loadCurrentAlphaPreview(btn) {
+  const loadBtn = document.getElementById('ca-load-btn');
+  if (btn) btn.disabled = true;
+  if (loadBtn) loadBtn.disabled = true;
+  _caUpdateStatus({ loading: true, error: null });
+  _caSetState('loading');
+  try {
+    // Read-only GET via the shared API helper (injects X-API-Key). Never POST.
+    const resp = await call('GET', '/v1/research/current-alpha/preview');
+    if (!resp.ok) {
+      let detail = 'HTTP ' + resp.status;
+      try {
+        const j = await resp.json();
+        if (j && j.detail) detail = j.detail;
+      } catch (e) { /* non-JSON error body */ }
+      throw new Error(detail);
+    }
+    const data = await resp.json();
+    renderCurrentAlphaPreview(data);
+    window._currentAlphaPreviewLoaded = true;
+    const badges = Array.isArray(data.safety_badges) ? data.safety_badges.length : 0;
+    _caUpdateStatus({
+      loaded: true,
+      loading: false,
+      error: null,
+      decision: data.decision || null,
+      badge_count: badges,
+      n_ranked: (data.n_ranked !== undefined ? data.n_ranked : null),
+      last_loaded_at: _caNowStamp(),
+    });
+    _caSetState('data');
+  } catch (err) {
+    // Safe, user-facing message only (the endpoint already strips stack traces).
+    // The error card headline already tells the user to run Phase 13-A first.
+    const msg = (err && err.message) ? err.message : 'Could not load current alpha preview.';
+    const d = document.getElementById('ca-error-detail');
+    if (d) d.textContent = msg;
+    _caUpdateStatus({ loaded: false, loading: false, error: msg });
+    _caSetState('error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (loadBtn) loadBtn.disabled = false;
+  }
+}
+
+function renderCurrentAlphaPreview(data) {
+  data = data || {};
+  _caText('ca-alpha-name', data.alpha_name);
+  _caText('ca-signal-date', data.signal_date);
+  _caText('ca-cross-section-month', data.cross_section_month);
+  _caText('ca-n-ranked', data.n_ranked);
+  _caText('ca-decision', data.decision);
+  _caText('ca-go-no-go', data.go_no_go);
+
+  const top10 = Array.isArray(data.top10_tickers) ? data.top10_tickers : [];
+  _caText('ca-top10', top10.length ? top10.join('  ') : '—');
+
+  const caveatsUl = document.getElementById('ca-caveats');
+  if (caveatsUl) {
+    const rows = Array.isArray(data.caveats) ? data.caveats : [];
+    caveatsUl.innerHTML = rows.length
+      ? rows.map(c => '<li>' + escapeHtml(String(c)) + '</li>').join('')
+      : '<li>No caveats reported.</li>';
+  }
+
+  const candCols = [
+    { key: 'rank', label: '#' },
+    { key: 'ticker', label: 'Ticker' },
+    { key: 'sector', label: 'Sector' },
+    { key: 'composite_sn', label: 'composite_sn' },
+    { key: 'fcf_leg_z', label: 'FCF z' },
+    { key: 'accruals_leg_z', label: 'Accruals z' },
+    { key: 'has_local_price', label: 'Px?' },
+  ];
+  const bottomCols = [
+    { key: 'rank_from_bottom', label: '#' },
+    { key: 'ticker', label: 'Ticker' },
+    { key: 'sector', label: 'Sector' },
+    { key: 'composite_sn', label: 'composite_sn' },
+    { key: 'has_local_price', label: 'Px?' },
+  ];
+  const sectorCols = [
+    { key: 'book', label: 'Book' },
+    { key: 'sector', label: 'Sector' },
+    { key: 'n_names', label: 'Names' },
+    { key: 'weight_pct', label: 'Weight %' },
+    { key: 'flag', label: 'Flag' },
+  ];
+  const riskCols = [
+    { key: 'limit', label: 'Limit' },
+    { key: 'value', label: 'Value' },
+    { key: 'enforcement', label: 'Enforcement' },
+    { key: 'note', label: 'Note' },
+  ];
+  const scoreCols = [
+    { key: 'criterion', label: 'Criterion' },
+    { key: 'status', label: 'Status' },
+    { key: 'value', label: 'Value' },
+    { key: 'threshold', label: 'Threshold' },
+    { key: 'note', label: 'Note' },
+  ];
+
+  const setTable = (id, rows, cols) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = _caBuildTable(Array.isArray(rows) ? rows : [], cols);
+  };
+  setTable('ca-top25-table', data.top25_candidates, candCols);
+  setTable('ca-top50-table', data.top50_candidates, candCols);
+  setTable('ca-bottom25-table', data.bottom25_avoid, bottomCols);
+  setTable('ca-sector-exposure-table', data.sector_exposure, sectorCols);
+  setTable('ca-risk-limits-table', data.risk_limits, riskCols);
+  setTable('ca-scorecard-table', data.go_no_go_scorecard, scoreCols);
+
+  const srcUl = document.getElementById('ca-source-files');
+  if (srcUl) {
+    const files = Array.isArray(data.source_file_paths) ? data.source_file_paths : [];
+    srcUl.innerHTML = files.length
+      ? files.map(f => '<li>' + escapeHtml(String(f)) + '</li>').join('')
+      : '<li>—</li>';
+  }
+}
+// ===== Current Alpha Paper Test (Phase 13-B) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 

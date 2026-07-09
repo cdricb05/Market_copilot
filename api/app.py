@@ -44,6 +44,7 @@ Endpoints:
     POST /v1/review/create-exit-orders     — create PENDING SELL paper order tickets for REVIEW_FOR_EXIT positions (confirmation required, no broker execution)
     GET  /v1/review/daily-review-summary   — read-only daily operating summary: portfolio + positions + candidates + orders + next action (no DB writes)
     GET  /v1/research/candidate-preview     — read-only Phase 4-B non-production candidate preview (PREVIEW ONLY, no DB writes, no orders, no automation, no prediction call)
+    GET  /v1/research/current-alpha/preview — read-only Phase 13-A current champion alpha (composite_sn) paper-test preview (PREVIEW ONLY, PAPER TEST ONLY, no DB writes, no orders, no broker, no automation, no prediction/provider call)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -127,6 +128,10 @@ from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_wor
 from paper_trader.api.research_candidate_preview import (
     CandidatePreviewError,
     load_candidate_preview,
+)
+from paper_trader.api.current_alpha_preview import (
+    CurrentAlphaPreviewError,
+    load_current_alpha_preview,
 )
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -4003,6 +4008,40 @@ def research_candidate_preview() -> dict:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Candidate preview unavailable: {exc}",
+        ) from exc
+
+
+@app.get(
+    "/v1/research/current-alpha/preview",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_preview() -> dict:
+    """
+    Read-only preview of the Phase 13-A current champion alpha paper-test package.
+
+    Requires a valid X-API-Key header. Returns the normalized, preview-only
+    payload produced by ``load_current_alpha_preview`` (Phase 13-B): the champion
+    alpha name (composite_sn), decision, go/no-go, signal date, cross-section
+    month, ranked count, the top-25 / top-50 candidate books, the bottom-25 avoid
+    diagnostic, sector exposure, risk limits, the go/no-go scorecard, caveats,
+    source file paths, and the six enforced safety badges.
+
+    This endpoint is strictly read-only and paper-test only. It reads only the
+    local Phase 13-A package files; it writes no database rows, creates no
+    signals / trade decisions / orders, runs no automation, connects to no
+    broker, and calls neither the prediction service nor any external data
+    provider (no Nasdaq / Intrinio / FMP).
+
+    If the Phase 13-A package is missing or incomplete, responds with HTTP 503
+    and a clear detail message (never a stack trace).
+    """
+    try:
+        return load_current_alpha_preview()
+    except CurrentAlphaPreviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Current alpha preview unavailable: {exc}",
         ) from exc
 
 

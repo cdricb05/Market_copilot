@@ -28393,6 +28393,179 @@ class TestUiCandidatePreviewPanelContent:
             assert needle not in lower, f"hardening introduces forbidden surface: {needle!r}"
 
 
+class TestUiCurrentAlphaPreviewPanelContent:
+    """Phase 13-B: read-only "Current Alpha Paper Test" panel in index.html.
+
+    Static-content assertions over api/ui/index.html — no HTTP needed. They
+    verify the panel markup, the six safety badges, the safety banner, the
+    "Load Current Alpha Preview" button + read-only endpoint call, the core
+    display fields, the candidate tables, the missing-package message, and that
+    the panel introduces no order/signal/decision/automation/prediction surface
+    and no POST (it stays preview-only, paper-test only, and read-only).
+    """
+
+    _START = "Current Alpha Paper Test (Phase 13-B) START"
+    _END = "Current Alpha Paper Test (Phase 13-B) END"
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    @classmethod
+    def _panel_markup(cls) -> str:
+        """The panel's HTML markup (from #ca-panel up to the END sentinel)."""
+        html = cls._read_html()
+        start = html.index('id="ca-panel"')
+        end = html.index(cls._END, start)
+        return html[start:end]
+
+    @classmethod
+    def _panel_js(cls) -> str:
+        """The panel's JS block, delimited by explicit START/END sentinels."""
+        html = cls._read_html()
+        # The second occurrence of the START marker begins the JS block; the
+        # first is the HTML comment. Use the JS sentinel line specifically.
+        start = html.index("// ===== " + cls._START)
+        end = html.index("// ===== " + cls._END)
+        return html[start:end]
+
+    def test_panel_markup_present(self) -> None:
+        html = self._read_html()
+        assert 'id="ca-panel"' in html
+        assert "Current Alpha Paper Test" in html
+
+    def test_panel_has_load_button(self) -> None:
+        markup = self._panel_markup()
+        assert 'id="ca-load-btn"' in markup
+        assert "Load Current Alpha Preview" in markup
+
+    def test_panel_calls_readonly_endpoint(self) -> None:
+        js = self._panel_js()
+        assert "/v1/research/current-alpha/preview" in js
+        assert "call('GET', '/v1/research/current-alpha/preview')" in js
+
+    def test_all_six_safety_badges_present(self) -> None:
+        markup = self._panel_markup()
+        for badge in (
+            "PREVIEW ONLY",
+            "NO ORDERS",
+            "NO BROKER",
+            "NO AUTOMATION",
+            "MANUAL REVIEW ONLY",
+            "PAPER TEST ONLY",
+        ):
+            assert badge in markup, f"missing safety badge in panel: {badge}"
+
+    def test_safety_banner_present(self) -> None:
+        assert (
+            "Preview only. This creates no orders, no signals, and no trade "
+            "decisions. Manual review only" in self._panel_markup()
+        )
+
+    def test_core_display_fields_present(self) -> None:
+        markup = self._panel_markup()
+        for el_id in (
+            "ca-alpha-name",
+            "ca-signal-date",
+            "ca-cross-section-month",
+            "ca-decision",
+            "ca-go-no-go",
+            "ca-n-ranked",
+            "ca-top10",
+            "ca-caveats",
+        ):
+            assert f'id="{el_id}"' in markup, f"missing display field: {el_id}"
+
+    def test_candidate_tables_present(self) -> None:
+        markup = self._panel_markup()
+        for el_id in (
+            "ca-top25-table",
+            "ca-top50-table",
+            "ca-bottom25-table",
+            "ca-sector-exposure-table",
+            "ca-risk-limits-table",
+            "ca-scorecard-table",
+            "ca-source-files",
+        ):
+            assert f'id="{el_id}"' in markup, f"missing table container: {el_id}"
+
+    def test_alpha_name_read_from_payload(self) -> None:
+        """The alpha name (composite_sn) is read from the payload at render."""
+        js = self._panel_js()
+        assert "data.alpha_name" in js
+
+    def test_missing_package_message_present(self) -> None:
+        markup = self._panel_markup()
+        assert (
+            "Phase 13-A package not found. Run Phase 13-A in the research repo first."
+            in markup
+        )
+
+    def test_loading_error_and_status_states_present(self) -> None:
+        markup = self._panel_markup()
+        assert 'id="ca-loading"' in markup
+        assert 'id="ca-error"' in markup
+        assert 'id="ca-status-line"' in markup
+        assert 'id="ca-load-status"' in markup
+        js = self._panel_js()
+        for state in ("Not loaded", "Loading", "Loaded", "Error"):
+            assert state in (markup + js), f"missing load state label: {state}"
+
+    def test_render_and_loader_functions_defined(self) -> None:
+        html = self._read_html()
+        assert "function loadCurrentAlphaPreview(" in html
+        assert "function renderCurrentAlphaPreview(" in html
+
+    def test_diagnostics_object_exposed_on_window(self) -> None:
+        js = self._panel_js()
+        assert "window._currentAlphaPreviewStatus" in js
+        for key in ("loaded", "loading", "error", "decision", "badge_count",
+                    "n_ranked", "last_loaded_at"):
+            assert key in js, f"diagnostics object missing key: {key}"
+
+    def test_panel_is_read_only_no_post(self) -> None:
+        js = self._panel_js()
+        assert "call('POST'" not in js
+        assert 'call("POST"' not in js
+        assert "method: 'POST'" not in js
+
+    def test_panel_creates_no_orders_signals_or_actions(self) -> None:
+        region = (self._panel_markup() + "\n" + self._panel_js()).lower()
+        for needle in (
+            "create order",
+            "createorder",
+            "submitorder",
+            "submitsignal",
+            "createdecision",
+            "create decision",
+            "place_order",
+            "/v1/orders",
+            "/v1/signals",
+            "/v1/decisions",
+        ):
+            assert needle not in region, f"panel introduces forbidden action: {needle!r}"
+
+    def test_panel_has_no_automation_or_prediction_call(self) -> None:
+        region = (self._panel_markup() + "\n" + self._panel_js()).lower()
+        for needle in (
+            "enable_automation",
+            "automation_on",
+            "fetch_predictions",
+            "prediction_client",
+            "/v1/predict",
+            "/v1/research/predict",
+        ):
+            assert needle not in region, f"panel references forbidden call: {needle!r}"
+
+    def test_panel_uses_no_alert_or_confirm(self) -> None:
+        import re
+        region = self._panel_markup() + "\n" + self._panel_js()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", region)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", region)) == 0
+
+
 class TestUiDailyPlanSignalActionsContent:
     """Verify Signal Actions card and wiring are present in index.html."""
 
