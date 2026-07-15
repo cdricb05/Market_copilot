@@ -45,6 +45,9 @@ Endpoints:
     GET  /v1/review/daily-review-summary   — read-only daily operating summary: portfolio + positions + candidates + orders + next action (no DB writes)
     GET  /v1/research/candidate-preview     — read-only Phase 4-B non-production candidate preview (PREVIEW ONLY, no DB writes, no orders, no automation, no prediction call)
     GET  /v1/research/current-alpha/preview — read-only Phase 13-A current champion alpha (composite_sn) paper-test preview (PREVIEW ONLY, PAPER TEST ONLY, no DB writes, no orders, no broker, no automation, no prediction/provider call)
+    GET  /v1/research/current-alpha/pnl     — read-only Phase 13-C daily paper PnL for the champion book (PREVIEW ONLY, PAPER TEST ONLY, no DB writes, no orders, no broker, no automation, no prediction/provider call)
+    GET  /v1/research/current-alpha/actions-preview — read-only Phase 13-D paper-only action plan (ADD/WAIT/AVOID_PREVIEW, every row NO_ORDER; no DB writes, no orders, no broker, no automation)
+    GET  /v1/research/current-alpha/rebalance-simulator — read-only Phase 13-E rebalance-frequency simulator (quarterly simulated from the frozen panel; daily rejected; no external calls)
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -132,6 +135,11 @@ from paper_trader.api.research_candidate_preview import (
 from paper_trader.api.current_alpha_preview import (
     CurrentAlphaPreviewError,
     load_current_alpha_preview,
+)
+from paper_trader.api.current_alpha_operations import (
+    load_current_alpha_actions_preview,
+    load_current_alpha_pnl,
+    load_current_alpha_rebalance_simulation,
 )
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -4042,6 +4050,95 @@ def research_current_alpha_preview() -> dict:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Current alpha preview unavailable: {exc}",
+        ) from exc
+
+
+@app.get(
+    "/v1/research/current-alpha/pnl",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_pnl() -> dict:
+    """
+    Read-only Phase 13-C daily paper PnL for the current champion alpha book.
+
+    Requires a valid X-API-Key header. Computes the top-25 / top-50 paper PnL
+    summary (covered / missing counts, average and median paper return, best and
+    worst performers, hit rate, per-name rows) plus the 1w / 1m / 2m / 63d
+    checkpoint plan, from the committed Phase 13-A paper-portfolio CSVs. The
+    ``paper_return_pct`` values are already marked from owned local EOD prices.
+
+    Strictly read-only and paper-test only: it writes no database rows, creates
+    no signals / trade decisions / orders, runs no automation, connects to no
+    broker, and calls neither the prediction service nor any external data
+    provider. Missing / incomplete package -> HTTP 503 (never a stack trace).
+    """
+    try:
+        return load_current_alpha_pnl()
+    except CurrentAlphaPreviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Current alpha PnL unavailable: {exc}",
+        ) from exc
+
+
+@app.get(
+    "/v1/research/current-alpha/actions-preview",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_actions_preview() -> dict:
+    """
+    Read-only Phase 13-D paper-only action plan for the current champion alpha.
+
+    Requires a valid X-API-Key header. Derives an INITIAL paper action plan from
+    the Phase 13-A package: priced top names -> ADD_PREVIEW, unpriced top names ->
+    WAIT_FOR_PRICE_PREVIEW, bottom-25 diagnostic -> AVOID_PREVIEW. Every row
+    carries ``order_action = NO_ORDER``.
+
+    These are paper-only preview actions: no order is created, no signal is
+    created, no trade decision is created, manual review is required. The handler
+    writes no database rows, runs no automation, connects to no broker, and calls
+    neither the prediction service nor any external provider. Missing / incomplete
+    package -> HTTP 503 (never a stack trace).
+    """
+    try:
+        return load_current_alpha_actions_preview()
+    except CurrentAlphaPreviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Current alpha action preview unavailable: {exc}",
+        ) from exc
+
+
+@app.get(
+    "/v1/research/current-alpha/rebalance-simulator",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_rebalance_simulator() -> dict:
+    """
+    Read-only Phase 13-E rebalance-frequency simulator for the champion alpha.
+
+    Requires a valid X-API-Key header. Evaluates whether daily / weekly / monthly
+    / quarterly operation makes sense. The quarterly cadence is genuinely
+    backtested (EW long-only top-25 / top-50) from the frozen Phase 10-L scored
+    panel; daily is rejected and weekly / monthly are marked not-justified-by-
+    signal-frequency rather than fabricated. Daily monitoring stays valid; daily
+    trading is not recommended.
+
+    Robust and read-only: a missing / too-thin panel yields a controlled
+    ``SIMULATION_INSUFFICIENT_DATA`` result with warnings (never a crash). It
+    writes no database rows, creates no signals / trade decisions / orders, runs
+    no automation, connects to no broker, and calls neither the prediction service
+    nor any external provider. Missing Phase 13-A package -> HTTP 503.
+    """
+    try:
+        return load_current_alpha_rebalance_simulation()
+    except CurrentAlphaPreviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Current alpha rebalance simulation unavailable: {exc}",
         ) from exc
 
 

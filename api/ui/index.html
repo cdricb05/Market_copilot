@@ -3793,6 +3793,147 @@
               <ul id="ca-source-files" style="margin:6px 0 0;padding-left:18px;font-size:10px;color:var(--text-accent);line-height:1.6;word-break:break-all;"></ul>
             </details>
           </div>
+
+          <!-- Daily Alpha Operations (Phase 13-CDE) START — read-only daily paper
+               PnL, paper-only action preview, and rebalance-frequency simulator on
+               the committed Phase 13-A package. GET-only:
+               /v1/research/current-alpha/pnl, /actions-preview, /rebalance-simulator.
+               Monitoring + simulation only. No orders, no broker, no automation; this
+               does not create signals, does not create trade decisions, and does not
+               execute trades; no DB writes; no prediction/provider call. -->
+          <div id="cao-panel" style="margin-top:16px;border-top:1px solid var(--border,#333);padding-top:14px;">
+            <div class="card-title" style="border:none;padding:0;margin-bottom:8px;">Daily Alpha Operations</div>
+
+            <!-- Extended safety badges (9) -->
+            <div id="cao-badges" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+              <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+              <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PAPER TEST ONLY</span>
+              <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+              <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER</span>
+              <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO AUTOMATION</span>
+              <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW ONLY</span>
+              <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT CREATE SIGNALS</span>
+              <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT CREATE TRADE DECISIONS</span>
+              <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT EXECUTE TRADES</span>
+            </div>
+
+            <!-- Prominent safety banner (always visible) -->
+            <div id="cao-safety-banner" style="background:rgba(239,68,68,.1);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:8px 10px;font-size:11px;font-weight:600;margin-bottom:12px;">
+              Monitoring and simulation only. No orders. No broker. No automation. This does not create signals, does not create trade decisions, and does not execute trades. Manual review only — a paper test, not live trading.
+            </div>
+
+            <!-- Operation buttons (each calls a single read-only GET endpoint) -->
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+              <button class="btn-sm" id="cao-pnl-btn" onclick="loadAlphaPnl(this)">Load Alpha PnL</button>
+              <button class="btn-sm" id="cao-actions-btn" onclick="loadAlphaActionPreview(this)">Load Action Preview</button>
+              <button class="btn-sm" id="cao-sim-btn" onclick="runRebalanceSimulator(this)">Run Rebalance Simulator</button>
+            </div>
+            <div id="cao-status-line" style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-bottom:6px;color:var(--text-accent);">
+              <span>PnL: <span id="cao-pnl-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
+              <span>Actions: <span id="cao-actions-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
+              <span>Simulator: <span id="cao-sim-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
+            </div>
+
+            <!-- ===================== (A) Daily Paper PnL ===================== -->
+            <div id="cao-pnl-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-top:8px;">
+              <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:4px;">Phase 13-A package not found. Run Phase 13-A in the research repo first.</div>
+              <div id="cao-pnl-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+            </div>
+            <div id="cao-pnl-section" style="display:none;margin-top:10px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;font-size:12px;">Daily Paper PnL <span class="mono" style="font-weight:400;color:var(--text-accent);">(marked from owned local EOD prices — no live market call)</span></div>
+              <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
+                <div style="flex:1;min-width:260px;border:1px solid var(--border,#333);border-radius:4px;padding:8px 10px;">
+                  <div style="font-size:11px;font-weight:700;color:var(--text-primary);margin-bottom:4px;">TOP 25 (equal-weight long-only)</div>
+                  <div class="mono" style="font-size:11px;color:var(--text-accent);line-height:1.7;">
+                    Avg return: <span id="cao-top25-avg" style="color:var(--text-primary);font-weight:700;">—</span> ·
+                    Median: <span id="cao-top25-median" style="color:var(--text-primary);">—</span><br>
+                    Covered: <span id="cao-top25-cov" style="color:var(--text-primary);">—</span> ·
+                    Hit rate: <span id="cao-top25-hit" style="color:var(--text-primary);">—</span> ·
+                    Up/Down: <span id="cao-top25-updown" style="color:var(--text-primary);">—</span>
+                  </div>
+                </div>
+                <div style="flex:1;min-width:260px;border:1px solid var(--border,#333);border-radius:4px;padding:8px 10px;">
+                  <div style="font-size:11px;font-weight:700;color:var(--text-primary);margin-bottom:4px;">TOP 50 (equal-weight long-only)</div>
+                  <div class="mono" style="font-size:11px;color:var(--text-accent);line-height:1.7;">
+                    Avg return: <span id="cao-top50-avg" style="color:var(--text-primary);font-weight:700;">—</span> ·
+                    Median: <span id="cao-top50-median" style="color:var(--text-primary);">—</span><br>
+                    Covered: <span id="cao-top50-cov" style="color:var(--text-primary);">—</span> ·
+                    Hit rate: <span id="cao-top50-hit" style="color:var(--text-primary);">—</span> ·
+                    Up/Down: <span id="cao-top50-updown" style="color:var(--text-primary);">—</span>
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
+                <div style="flex:1;min-width:260px;"><div style="font-size:11px;font-weight:600;color:var(--positive,#2ecc71);margin-bottom:2px;">Best 5</div><div id="cao-pnl-best" class="mono" style="font-size:11px;color:var(--text-primary);">—</div></div>
+                <div style="flex:1;min-width:260px;"><div style="font-size:11px;font-weight:600;color:var(--danger,#e74c3c);margin-bottom:2px;">Worst 5</div><div id="cao-pnl-worst" class="mono" style="font-size:11px;color:var(--text-primary);">—</div></div>
+              </div>
+              <div style="margin-bottom:8px;">
+                <div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:2px;">Checkpoint plan</div>
+                <div id="cao-checkpoints" class="mono" style="font-size:11px;color:var(--text-accent);">—</div>
+              </div>
+              <div style="margin-bottom:8px;">
+                <div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:2px;">Caveats</div>
+                <ul id="cao-pnl-caveats" style="margin:0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+              </div>
+              <details style="margin-bottom:4px;">
+                <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Individual returns — Top 25</summary>
+                <div id="cao-pnl-table" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+              </details>
+              <details style="margin-bottom:4px;">
+                <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Individual returns — Top 50</summary>
+                <div id="cao-pnl-table50" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+              </details>
+            </div>
+
+            <!-- ===================== (B) Action Preview ===================== -->
+            <div id="cao-actions-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-top:8px;">
+              <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:4px;">Phase 13-A package not found. Run Phase 13-A in the research repo first.</div>
+              <div id="cao-actions-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+            </div>
+            <div id="cao-actions-section" style="display:none;margin-top:14px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;font-size:12px;">Action Preview <span class="mono" style="font-weight:400;color:var(--text-accent);">(every row is NO_ORDER)</span></div>
+              <div id="cao-actions-counts" class="mono" style="font-size:11px;color:var(--text-primary);margin-bottom:6px;">—</div>
+              <div id="cao-actions-notice" style="background:rgba(239,68,68,.08);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:7px 9px;font-size:11px;font-weight:600;margin-bottom:8px;">—</div>
+              <details style="margin-bottom:4px;" open>
+                <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Top 25 action plan</summary>
+                <div id="cao-top25-actions-table" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+              </details>
+              <details style="margin-bottom:4px;">
+                <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Top 50 action plan</summary>
+                <div id="cao-top50-actions-table" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+              </details>
+              <details style="margin-bottom:4px;">
+                <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Avoid list (short-only diagnostic — NOT a live recommendation)</summary>
+                <div id="cao-avoid-table" class="compact-scroll-region" style="max-height:240px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+              </details>
+            </div>
+
+            <!-- ================ (C) Rebalance Frequency Simulator ================ -->
+            <div id="cao-sim-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-top:8px;">
+              <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:4px;">Phase 13-A package not found. Run Phase 13-A in the research repo first.</div>
+              <div id="cao-sim-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+            </div>
+            <div id="cao-sim-section" style="display:none;margin-top:14px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;font-size:12px;">Rebalance Frequency Simulator</div>
+              <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:6px;font-size:11px;color:var(--text-accent);">
+                <span>Recommendation: <span id="cao-sim-recommendation" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></span>
+                <span>Status: <span id="cao-sim-status-val" class="mono" style="color:var(--text-primary);">—</span></span>
+                <span>Signal refresh: <span id="cao-sim-refresh" class="mono" style="color:var(--text-primary);">—</span> trading days</span>
+                <span>Periods: <span id="cao-sim-periods" class="mono" style="color:var(--text-primary);">—</span></span>
+              </div>
+              <div id="cao-daily-verdict" style="background:rgba(239,68,68,.08);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:7px 9px;font-size:11px;font-weight:600;margin-bottom:8px;">
+                Daily trading: NOT RECOMMENDED — daily rebalance is rejected for a quarterly fundamental signal. Daily monitoring: VALID.
+              </div>
+              <div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:2px;">Frequency overview</div>
+              <div id="cao-sim-freq-table" class="compact-scroll-region" style="max-height:200px;overflow:auto;font-size:11px;margin-bottom:8px;"></div>
+              <div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:2px;">Quarterly backtest (frozen panel, equal-weight long-only)</div>
+              <div id="cao-sim-quarterly-table" class="compact-scroll-region" style="max-height:200px;overflow:auto;font-size:11px;margin-bottom:8px;"></div>
+              <div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:2px;">Explanation</div>
+              <div id="cao-sim-explanation" style="font-size:11px;color:var(--text-accent);line-height:1.6;">—</div>
+              <ul id="cao-sim-warnings" style="margin:6px 0 0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+            </div>
+          </div>
+          <!-- Daily Alpha Operations (Phase 13-CDE) END -->
         </div>
         <!-- Current Alpha Paper Test (Phase 13-B) END -->
 
@@ -5351,6 +5492,264 @@ function renderCurrentAlphaPreview(data) {
   }
 }
 // ===== Current Alpha Paper Test (Phase 13-B) END =====
+
+// ===== Daily Alpha Operations (Phase 13-CDE) START =====
+// Read-only daily-operations cockpit for the current champion alpha. Three
+// buttons each fetch ONE read-only GET endpoint and render it:
+//   Load Alpha PnL          -> GET /v1/research/current-alpha/pnl
+//   Load Action Preview     -> GET /v1/research/current-alpha/actions-preview
+//   Run Rebalance Simulator -> GET /v1/research/current-alpha/rebalance-simulator
+// Monitoring + simulation only. It creates no orders, no signals, and no trade
+// decisions, executes no trades, enables no automation, connects to no broker,
+// and never calls the prediction service. No blocking browser dialogs. GET only.
+window._alphaOpsStatus = {
+  pnl: { loaded: false, loading: false, error: null, last_loaded_at: null },
+  actions: { loaded: false, loading: false, error: null, last_loaded_at: null },
+  sim: { loaded: false, loading: false, error: null, last_loaded_at: null },
+};
+
+function _caoText(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = (value === null || value === undefined || value === '') ? '—' : String(value);
+}
+
+function _caoNow() {
+  try { return new Date().toLocaleString(); } catch (e) { return ''; }
+}
+
+function _caoPct(v) {
+  if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  return (n > 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+// Generic escaped table builder. Render-only; performs no action.
+function _caoTable(rows, cols) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return '<div style="color:var(--text-accent);font-style:italic;">No rows.</div>';
+  }
+  const head = cols.map(c => '<th style="text-align:left;padding:2px 8px 2px 0;position:sticky;top:0;background:var(--bg-elevated,#111);">' + escapeHtml(c.label) + '</th>').join('');
+  const body = rows.map(r => {
+    const tds = cols.map(c => {
+      const v = r[c.key];
+      return '<td class="mono" style="padding:2px 8px 2px 0;white-space:nowrap;">' + escapeHtml(v === undefined || v === null ? '' : String(v)) + '</td>';
+    }).join('');
+    return '<tr>' + tds + '</tr>';
+  }).join('');
+  return '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+async function _caoRun(btn, btnId, statusId, key, url, sectionId, errorId, errDetailId, renderFn) {
+  const b = document.getElementById(btnId);
+  if (btn) btn.disabled = true;
+  if (b) b.disabled = true;
+  _caoText(statusId, 'Loading');
+  window._alphaOpsStatus[key].loading = true;
+  window._alphaOpsStatus[key].error = null;
+  const sec = document.getElementById(sectionId);
+  const err = document.getElementById(errorId);
+  if (err) err.style.display = 'none';
+  try {
+    // Read-only GET via the shared API helper (injects X-API-Key). Never POST.
+    const resp = await call('GET', url);
+    if (!resp.ok) {
+      let detail = 'HTTP ' + resp.status;
+      try { const j = await resp.json(); if (j && j.detail) detail = j.detail; } catch (e) { /* non-JSON */ }
+      throw new Error(detail);
+    }
+    const data = await resp.json();
+    renderFn(data);
+    if (sec) sec.style.display = 'block';
+    _caoText(statusId, 'Loaded');
+    window._alphaOpsStatus[key].loaded = true;
+    window._alphaOpsStatus[key].loading = false;
+    window._alphaOpsStatus[key].last_loaded_at = _caoNow();
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : 'Could not load.';
+    const d = document.getElementById(errDetailId);
+    if (d) d.textContent = msg;
+    if (err) err.style.display = 'block';
+    if (sec) sec.style.display = 'none';
+    _caoText(statusId, 'Error');
+    window._alphaOpsStatus[key].error = msg;
+    window._alphaOpsStatus[key].loading = false;
+    window._alphaOpsStatus[key].loaded = false;
+  } finally {
+    if (btn) btn.disabled = false;
+    if (b) b.disabled = false;
+  }
+}
+
+async function loadAlphaPnl(btn) {
+  return _caoRun(btn, 'cao-pnl-btn', 'cao-pnl-status', 'pnl',
+    '/v1/research/current-alpha/pnl',
+    'cao-pnl-section', 'cao-pnl-error', 'cao-pnl-error-detail', renderAlphaPnl);
+}
+
+async function loadAlphaActionPreview(btn) {
+  return _caoRun(btn, 'cao-actions-btn', 'cao-actions-status', 'actions',
+    '/v1/research/current-alpha/actions-preview',
+    'cao-actions-section', 'cao-actions-error', 'cao-actions-error-detail', renderAlphaActionPreview);
+}
+
+async function runRebalanceSimulator(btn) {
+  return _caoRun(btn, 'cao-sim-btn', 'cao-sim-status', 'sim',
+    '/v1/research/current-alpha/rebalance-simulator',
+    'cao-sim-section', 'cao-sim-error', 'cao-sim-error-detail', renderRebalanceSimulator);
+}
+
+function _caoBookSummary(prefix, book) {
+  book = book || {};
+  _caoText(prefix + '-avg', _caoPct(book.average_paper_return_pct));
+  _caoText(prefix + '-median', _caoPct(book.median_paper_return_pct));
+  const total = (Number(book.covered_count || 0) + Number(book.missing_count || 0));
+  _caoText(prefix + '-cov', (book.covered_count ?? '—') + '/' + total);
+  _caoText(prefix + '-hit', (book.hit_rate_pct === null || book.hit_rate_pct === undefined) ? '—' : (book.hit_rate_pct + '%'));
+  _caoText(prefix + '-updown', (book.n_up ?? '—') + ' / ' + (book.n_down ?? '—'));
+}
+
+function _caoPerfList(items) {
+  if (!Array.isArray(items) || !items.length) return '—';
+  return items.map(x => escapeHtml(x.ticker) + ' ' + _caoPct(x.paper_return_pct)).join('   ');
+}
+
+function renderAlphaPnl(data) {
+  data = data || {};
+  _caoBookSummary('cao-top25', data.top25);
+  _caoBookSummary('cao-top50', data.top50);
+
+  const bestEl = document.getElementById('cao-pnl-best');
+  if (bestEl) bestEl.innerHTML = _caoPerfList((data.top25 || {}).best_performers);
+  const worstEl = document.getElementById('cao-pnl-worst');
+  if (worstEl) worstEl.innerHTML = _caoPerfList((data.top25 || {}).worst_performers);
+
+  const chk = document.getElementById('cao-checkpoints');
+  if (chk) {
+    const rows = Array.isArray(data.checkpoint_plan) ? data.checkpoint_plan : [];
+    chk.innerHTML = rows.length
+      ? rows.map(c => escapeHtml(c.label + ': ' + (c.approx_target_date || '—') + ' [' + c.status + ']')).join('  ·  ')
+      : '—';
+  }
+
+  const cav = document.getElementById('cao-pnl-caveats');
+  if (cav) {
+    const rows = Array.isArray(data.caveats) ? data.caveats : [];
+    cav.innerHTML = rows.length
+      ? rows.map(c => '<li>' + escapeHtml(String(c)) + '</li>').join('')
+      : '<li>No caveats reported.</li>';
+  }
+
+  const pnlCols = [
+    { key: 'ticker', label: 'Ticker' },
+    { key: 'sector', label: 'Sector' },
+    { key: 'entry_price', label: 'Entry' },
+    { key: 'current_price', label: 'Current' },
+    { key: 'paper_return_pct', label: 'Return %' },
+    { key: 'price_status', label: 'Status' },
+  ];
+  const t25 = document.getElementById('cao-pnl-table');
+  if (t25) t25.innerHTML = _caoTable((data.top25 || {}).rows || [], pnlCols);
+  const t50 = document.getElementById('cao-pnl-table50');
+  if (t50) t50.innerHTML = _caoTable((data.top50 || {}).rows || [], pnlCols);
+}
+
+function renderAlphaActionPreview(data) {
+  data = data || {};
+  const counts = data.counts_by_action_type || {};
+  const order = ['ADD_PREVIEW', 'WAIT_FOR_PRICE_PREVIEW', 'AVOID_PREVIEW', 'HOLD_PREVIEW', 'REMOVE_PREVIEW', 'REBALANCE_PREVIEW'];
+  const countsEl = document.getElementById('cao-actions-counts');
+  if (countsEl) countsEl.textContent = order.map(k => k + ': ' + (counts[k] ?? 0)).join('   ·   ');
+  _caoText('cao-actions-notice', data.explicit_notice);
+
+  const actionCols = [
+    { key: 'action_type', label: 'Action' },
+    { key: 'ticker', label: 'Ticker' },
+    { key: 'source_rank', label: 'Rank' },
+    { key: 'composite_sn', label: 'composite_sn' },
+    { key: 'reason', label: 'Reason' },
+    { key: 'safety_note', label: 'Safety note' },
+    { key: 'order_action', label: 'Order action' },
+  ];
+  const set = (id, rows) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = _caoTable(Array.isArray(rows) ? rows : [], actionCols);
+  };
+  set('cao-top25-actions-table', data.top25_action_plan);
+  set('cao-top50-actions-table', data.top50_action_plan);
+  set('cao-avoid-table', data.avoid_list);
+}
+
+function renderRebalanceSimulator(data) {
+  data = data || {};
+  _caoText('cao-sim-recommendation', data.recommendation);
+  _caoText('cao-sim-status-val', data.simulation_status);
+  _caoText('cao-sim-refresh', data.signal_refresh_trading_days);
+  const freqs = data.frequencies || {};
+  const q = freqs.quarterly || {};
+  _caoText('cao-sim-periods', (q.top25 && q.top25.n_periods != null) ? q.top25.n_periods : '—');
+
+  // Frequency overview
+  const overviewRows = ['daily', 'weekly', 'monthly', 'quarterly'].map(name => {
+    const f = freqs[name] || {};
+    return {
+      frequency: name,
+      status: f.status || '—',
+      verdict: f.verdict || '—',
+      events_per_year: (f.rebalance_events_per_year != null ? f.rebalance_events_per_year : '—'),
+      supported: (f.supported_by_signal_frequency ? 'yes' : 'no'),
+    };
+  });
+  const overviewCols = [
+    { key: 'frequency', label: 'Frequency' },
+    { key: 'status', label: 'Status' },
+    { key: 'verdict', label: 'Verdict' },
+    { key: 'events_per_year', label: 'Events/yr' },
+    { key: 'supported', label: 'Justified?' },
+  ];
+  const ov = document.getElementById('cao-sim-freq-table');
+  if (ov) ov.innerHTML = _caoTable(overviewRows, overviewCols);
+
+  // Quarterly backtest detail (top25 vs top50)
+  const mkRow = (label, m) => {
+    m = m || {};
+    return {
+      book: label,
+      n_periods: (m.n_periods != null ? m.n_periods : '—'),
+      avg: _caoPct(m.avg_return_pct),
+      cumulative: _caoPct(m.cumulative_return_pct),
+      net25: _caoPct(m.net_cumulative_25bps_pct),
+      net50: _caoPct(m.net_cumulative_50bps_pct),
+      max_dd: _caoPct(m.max_drawdown_pct),
+      hit: (m.hit_rate_pct != null ? m.hit_rate_pct + '%' : '—'),
+      turnover: (m.turnover != null ? m.turnover : '—'),
+      coverage: (m.coverage_count != null ? m.coverage_count : '—'),
+    };
+  };
+  const qRows = [mkRow('Top-25', q.top25), mkRow('Top-50', q.top50)];
+  const qCols = [
+    { key: 'book', label: 'Book' },
+    { key: 'n_periods', label: 'Periods' },
+    { key: 'avg', label: 'Avg/qtr' },
+    { key: 'cumulative', label: 'Cumulative' },
+    { key: 'net25', label: 'Net @25bps' },
+    { key: 'net50', label: 'Net @50bps' },
+    { key: 'max_dd', label: 'Max DD' },
+    { key: 'hit', label: 'Hit rate' },
+    { key: 'turnover', label: 'Turnover' },
+    { key: 'coverage', label: 'Coverage' },
+  ];
+  const qt = document.getElementById('cao-sim-quarterly-table');
+  if (qt) qt.innerHTML = _caoTable(qRows, qCols);
+
+  _caoText('cao-sim-explanation', data.explanation);
+  const warn = document.getElementById('cao-sim-warnings');
+  if (warn) {
+    const rows = Array.isArray(data.warnings) ? data.warnings : [];
+    warn.innerHTML = rows.map(w => '<li>' + escapeHtml(String(w)) + '</li>').join('');
+  }
+}
+// ===== Daily Alpha Operations (Phase 13-CDE) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 

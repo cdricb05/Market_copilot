@@ -28566,6 +28566,133 @@ class TestUiCurrentAlphaPreviewPanelContent:
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", region)) == 0
 
 
+class TestUiDailyAlphaOperationsPanelContent:
+    """Phase 13-F: the "Daily Alpha Operations" subsection in index.html.
+
+    Static-content assertions over api/ui/index.html — no HTTP needed. Verify the
+    subsection markup, the three GET-only buttons, the extended safety language,
+    the PnL / action-preview / rebalance-simulator display surfaces, the render
+    functions and diagnostics object, and that the subsection introduces no
+    order/signal/decision/automation surface, no POST, and no alert()/confirm().
+    """
+
+    _START = "Daily Alpha Operations (Phase 13-CDE) START"
+    _END = "Daily Alpha Operations (Phase 13-CDE) END"
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    @classmethod
+    def _markup(cls) -> str:
+        html = cls._read_html()
+        start = html.index('id="cao-panel"')
+        end = html.index(cls._END, start)
+        return html[start:end]
+
+    @classmethod
+    def _js(cls) -> str:
+        html = cls._read_html()
+        start = html.index("// ===== " + cls._START)
+        end = html.index("// ===== " + cls._END)
+        return html[start:end]
+
+    def test_subsection_present(self) -> None:
+        html = self._read_html()
+        assert 'id="cao-panel"' in html
+        assert "Daily Alpha Operations" in html
+
+    def test_three_buttons_present(self) -> None:
+        markup = self._markup()
+        for bid in ("cao-pnl-btn", "cao-actions-btn", "cao-sim-btn"):
+            assert f'id="{bid}"' in markup, f"missing button: {bid}"
+        for label in ("Load Alpha PnL", "Load Action Preview", "Run Rebalance Simulator"):
+            assert label in markup, f"missing button label: {label}"
+
+    def test_buttons_call_readonly_get_endpoints(self) -> None:
+        js = self._js()
+        # All three loaders route through the shared helper, which does GET only.
+        assert "call('GET', url)" in js
+        assert "call('POST'" not in js and 'call("POST"' not in js
+        for path in ("/v1/research/current-alpha/pnl",
+                     "/v1/research/current-alpha/actions-preview",
+                     "/v1/research/current-alpha/rebalance-simulator"):
+            assert f"'{path}'" in js, f"missing endpoint reference: {path}"
+
+    def test_required_safety_language_present(self) -> None:
+        markup = self._markup()
+        for phrase in (
+            "PREVIEW ONLY", "PAPER TEST ONLY", "NO ORDERS", "NO BROKER",
+            "NO AUTOMATION", "MANUAL REVIEW ONLY", "DOES NOT CREATE SIGNALS",
+            "DOES NOT CREATE TRADE DECISIONS", "DOES NOT EXECUTE TRADES",
+        ):
+            assert phrase in markup, f"missing required safety language: {phrase}"
+
+    def test_pnl_display_fields_present(self) -> None:
+        markup = self._markup()
+        for el_id in ("cao-top25-avg", "cao-top50-avg", "cao-top25-cov",
+                      "cao-top25-hit", "cao-pnl-best", "cao-pnl-worst",
+                      "cao-checkpoints", "cao-pnl-caveats", "cao-pnl-table"):
+            assert f'id="{el_id}"' in markup, f"missing PnL field: {el_id}"
+
+    def test_action_display_fields_present(self) -> None:
+        markup = self._markup()
+        for el_id in ("cao-actions-counts", "cao-actions-notice",
+                      "cao-top25-actions-table", "cao-top50-actions-table",
+                      "cao-avoid-table"):
+            assert f'id="{el_id}"' in markup, f"missing action field: {el_id}"
+
+    def test_simulator_display_fields_present(self) -> None:
+        markup = self._markup()
+        for el_id in ("cao-sim-recommendation", "cao-sim-refresh",
+                      "cao-sim-freq-table", "cao-sim-quarterly-table",
+                      "cao-sim-explanation", "cao-daily-verdict"):
+            assert f'id="{el_id}"' in markup, f"missing simulator field: {el_id}"
+
+    def test_daily_trading_rejected_language(self) -> None:
+        markup = self._markup()
+        # The daily-trading rejection + monitoring-valid distinction is stated in
+        # the markup banner; the per-frequency verdict itself is data-driven.
+        assert "NOT RECOMMENDED" in markup
+        assert "Daily monitoring: VALID" in markup
+        assert "rejected" in markup.lower()
+
+    def test_render_and_loader_functions_defined(self) -> None:
+        html = self._read_html()
+        for fn in ("function loadAlphaPnl(", "function loadAlphaActionPreview(",
+                   "function runRebalanceSimulator(", "function renderAlphaPnl(",
+                   "function renderAlphaActionPreview(", "function renderRebalanceSimulator("):
+            assert fn in html, f"missing JS function: {fn}"
+
+    def test_diagnostics_object_exposed(self) -> None:
+        js = self._js()
+        assert "window._alphaOpsStatus" in js
+        for key in ("pnl", "actions", "sim"):
+            assert key in js, f"diagnostics object missing key: {key}"
+
+    def test_no_post_and_no_forbidden_action_surface(self) -> None:
+        region = (self._markup() + "\n" + self._js()).lower()
+        for needle in ("call('post'", 'call("post"', "method: 'post'",
+                       "create order", "createorder", "submitorder", "submitsignal",
+                       "createdecision", "create decision", "place_order",
+                       "/v1/orders", "/v1/signals", "/v1/decisions"):
+            assert needle not in region, f"subsection introduces forbidden surface: {needle!r}"
+
+    def test_no_automation_or_prediction_call(self) -> None:
+        region = (self._markup() + "\n" + self._js()).lower()
+        for needle in ("enable_automation", "automation_on", "fetch_predictions",
+                       "prediction_client", "/v1/predict"):
+            assert needle not in region, f"subsection references forbidden call: {needle!r}"
+
+    def test_no_alert_or_confirm(self) -> None:
+        import re
+        region = self._markup() + "\n" + self._js()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", region)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", region)) == 0
+
+
 class TestUiDailyPlanSignalActionsContent:
     """Verify Signal Actions card and wiring are present in index.html."""
 
