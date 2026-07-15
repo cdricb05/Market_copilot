@@ -34868,3 +34868,21 @@ class TestUiDailyAlphaRunPanelContent:
         js = self._js()
         assert not re.search(r"(?<![A-Za-z0-9_])alert\s*\(", js)
         assert not re.search(r"(?<![A-Za-z0-9_])confirm\s*\(", js)
+
+    def test_distinguishes_current_run_from_latest_valid_mark(self) -> None:
+        # The panel must present the CURRENT RUN result and the LATEST VALID PRICE MARK
+        # as two distinct labels (the process-boundary fix, surfaced to the user).
+        markup = self._markup()
+        assert "LAST RUN RESULT" in markup
+        assert "LATEST VALID PRICE MARK" in markup
+        assert 'id="cad-last-run-result"' in markup
+        assert 'id="cad-valid-mark-date"' in markup
+
+    def test_required_same_date_and_blocked_messages(self) -> None:
+        # The required same-date and blocked run messages, verbatim, in the panel JS.
+        js = self._js()
+        assert "NO NEW COMPLETED EOD DATE — NO SNAPSHOT ADDED" in js
+        assert "DAILY REFRESH BLOCKED — LAST VALID MARK PRESERVED" in js
+        # driven by the current-run status fields (not the financial manifest)
+        assert "last_run_result" in js
+        assert "latest_valid_mark_date" in js

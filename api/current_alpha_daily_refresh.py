@@ -74,6 +74,12 @@ DEFAULT_TIMEOUT_SECONDS = 300
 #: Books this manual action ensures + marks.
 _BOOK_SIZES = (25, 50)
 
+#: The research runner's CURRENT RUN STATUS artifact. This is the authoritative
+#: cross-process signal for what the just-launched runner did — distinct from
+#: refresh_manifest.json, which is the latest VALID financial mark and does NOT change
+#: on a no-new / blocked run. We read THIS file for the current-run result.
+RUN_STATUS_REL = Path("latest") / "last_run_status.json"
+
 DAILY_REFRESH_SAFETY_BADGES = (
     "MANUAL DAILY REFRESH",
     "PAPER TEST ONLY",
@@ -85,11 +91,14 @@ DAILY_REFRESH_SAFETY_BADGES = (
     "DOES NOT EXECUTE TRADES",
 )
 
-#: Refresh-result enums that mean "do not add a paper snapshot".
-_NO_SNAPSHOT_RESULTS = {
-    "NO_NEW_MARK_DATE", "BLOCKED_EODHD_KEY", "BLOCKED_EODHD_ENTITLEMENT",
-    "BLOCKED_EODHD_RATE_LIMIT", "BLOCKED_PROVIDER_ERROR", "BLOCKED_SCHEMA_ERROR",
+#: Blocked refresh-result enums (current run could not produce a mark).
+_BLOCKED_RESULTS = {
+    "BLOCKED_EODHD_KEY", "BLOCKED_EODHD_ENTITLEMENT", "BLOCKED_EODHD_RATE_LIMIT",
+    "BLOCKED_PROVIDER_ERROR", "BLOCKED_SCHEMA_ERROR",
 }
+
+#: Refresh-result enums that mean "do not add a paper snapshot".
+_NO_SNAPSHOT_RESULTS = {"NO_NEW_MARK_DATE"} | _BLOCKED_RESULTS
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +192,28 @@ def _redact_secret(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _read_latest_manifest(mark_dir: Path) -> Optional[dict[str, Any]]:
+    """The latest VALID financial mark (preserved across no-new / blocked runs)."""
     data, _err = _read_json_file(mark_dir / "latest" / "refresh_manifest.json")
     return data if isinstance(data, dict) else None
+
+
+def _read_last_run_status(mark_dir: Path) -> Optional[dict[str, Any]]:
+    """The CURRENT RUN STATUS of the just-launched runner (last_run_status.json).
+
+    This — NOT refresh_manifest.json — decides snapshot behaviour: the manifest is the
+    latest valid financial mark and is intentionally unchanged on a no-new / blocked run,
+    so inferring the current run's outcome from it is the exact bug this fixes.
+    """
+    data, _err = _read_json_file(mark_dir / RUN_STATUS_REL)
+    return data if isinstance(data, dict) else None
+
+
+def _sanitized_run_status(rs: dict[str, Any]) -> dict[str, Any]:
+    keys = ("refresh_result", "last_run_at", "reference_today", "mark_date_observed",
+            "previous_valid_mark_date", "new_mark_date", "blocked", "blocked_message",
+            "latest_valid_mark_available", "latest_valid_mark_date", "price_source",
+            "order_action_all")
+    return {k: rs.get(k) for k in keys if k in rs}
 
 
 def _read_latest_book_summaries(mark_dir: Path) -> Optional[dict[str, Any]]:
@@ -241,8 +270,13 @@ def run_current_alpha_daily_refresh(
     else:
         launch = _launch_refresh(py, runner, marks_root, audit, repo, timeout)
 
-    manifest = _read_latest_manifest(marks_root)
-    if manifest is None:
+    # --- 2. read the CURRENT RUN STATUS (NOT the financial manifest) ---------
+    # The Python return value of the research runner cannot cross the subprocess
+    # boundary, so we read latest/last_run_status.json for what THIS run did. The
+    # financial refresh_manifest.json is the latest VALID mark and is deliberately
+    # unchanged on a no-new / blocked run — inferring the run outcome from it is the bug.
+    run_status = _read_last_run_status(marks_root)
+    if run_status is None:
         payload = {
             "status": "REFRESH_UNAVAILABLE",
             "action": "NO_SNAPSHOT",
@@ -250,37 +284,82 @@ def run_current_alpha_daily_refresh(
             "refresh": _sanitized_launch(launch),
             "snapshots": {},
             "guidance": (launch.get("error")
-                         or "the daily mark refresh produced no manifest; check the "
-                            "research runner and the EODHD entitlement."),
+                         or "the daily mark refresh produced no run-status artifact "
+                            "(latest/last_run_status.json); check the research runner "
+                            "and the EODHD entitlement."),
             "warnings": warnings,
             "loaded_at": run_at,
         }
         payload.update(_safety_block())
         return payload
 
-    refresh_result = manifest.get("refresh_result")
-    sanitized = _sanitized_manifest(manifest)
+    refresh_result = run_status.get("refresh_result")
+    blocked = bool(run_status.get("blocked")) or refresh_result in _BLOCKED_RESULTS
+    new_mark = bool(run_status.get("new_mark_date"))
+    latest_valid_available = bool(run_status.get("latest_valid_mark_available"))
+    latest_valid_date = run_status.get("latest_valid_mark_date")
+    sanitized_status = _sanitized_run_status(run_status)
 
-    # --- 2. decide whether to snapshot --------------------------------------
-    if refresh_result in _NO_SNAPSHOT_RESULTS:
-        reason = ("no new completed EOD price date (paper PnL was not advanced)"
-                  if refresh_result == "NO_NEW_MARK_DATE"
-                  else "the market-data refresh was blocked (%s)" % refresh_result)
+    # --- 2a. blocked current run -> no snapshot; last valid mark preserved ----
+    if blocked:
         payload = {
             "status": refresh_result,
             "action": "NO_SNAPSHOT",
             "refresh_result": refresh_result,
+            "blocked": True,
+            "blocked_message": run_status.get("blocked_message"),
             "refresh": _sanitized_launch(launch),
-            "manifest": sanitized,
+            "run_status": sanitized_status,
             "snapshots": {},
-            "guidance": "No snapshot was added: %s." % reason,
+            "latest_valid_mark_available": latest_valid_available,
+            "latest_valid_mark_date": latest_valid_date,
+            "guidance": ("Daily refresh blocked (%s). No snapshot was added; the last "
+                         "valid financial mark is preserved unchanged." % refresh_result),
             "warnings": warnings,
             "loaded_at": run_at,
         }
         payload.update(_safety_block())
         return payload
 
-    # --- 3. mark TOP 25 + TOP 50 independently (by explicit book_id) ---------
+    # --- 2b. no new completed EOD date -> no snapshot ------------------------
+    if (not new_mark) or refresh_result == "NO_NEW_MARK_DATE":
+        payload = {
+            "status": "NO_NEW_MARK_DATE",
+            "action": "NO_SNAPSHOT",
+            "refresh_result": "NO_NEW_MARK_DATE",
+            "refresh": _sanitized_launch(launch),
+            "run_status": sanitized_status,
+            "snapshots": {},
+            "latest_valid_mark_available": latest_valid_available,
+            "latest_valid_mark_date": latest_valid_date,
+            "guidance": ("No snapshot was added: no new completed EOD price date (paper "
+                         "PnL was not advanced). The last valid financial mark is preserved."),
+            "warnings": warnings,
+            "loaded_at": run_at,
+        }
+        payload.update(_safety_block())
+        return payload
+
+    # --- 3. valid NEW financial mark -> read it + snapshot both books --------
+    manifest = _read_latest_manifest(marks_root)
+    if manifest is None:
+        payload = {
+            "status": "REFRESH_UNAVAILABLE",
+            "action": "NO_SNAPSHOT",
+            "refresh_result": refresh_result,
+            "refresh": _sanitized_launch(launch),
+            "run_status": sanitized_status,
+            "snapshots": {},
+            "guidance": ("The run reported a new mark but no financial mark artifact was "
+                         "found; check the research runner."),
+            "warnings": warnings,
+            "loaded_at": run_at,
+        }
+        payload.update(_safety_block())
+        return payload
+    sanitized = _sanitized_manifest(manifest)
+
+    # --- 3a. mark TOP 25 + TOP 50 independently (by explicit book_id) --------
     snapshots: dict[str, Any] = {}
     for size in _BOOK_SIZES:
         key = "top%d" % size
@@ -310,7 +389,10 @@ def run_current_alpha_daily_refresh(
         "refresh_result": refresh_result,
         "mark_date": manifest.get("mark_date"),
         "previous_mark_date": manifest.get("previous_mark_date"),
+        "latest_valid_mark_available": True,
+        "latest_valid_mark_date": manifest.get("mark_date"),
         "refresh": _sanitized_launch(launch),
+        "run_status": sanitized_status,
         "manifest": sanitized,
         "snapshots": snapshots,
         "warnings": warnings,
@@ -404,10 +486,22 @@ def load_current_alpha_daily_status(
     mark_dir: Optional[Union[str, Path]] = None,
     research_repo_dir: Optional[Union[str, Path]] = None,
 ) -> dict[str, Any]:
-    """Read-only daily operating status: latest mark, freshness, universe identity,
-    TOP 25 / TOP 50 book summaries + SPY benchmark, and each book's history status."""
+    """Read-only daily operating status.
+
+    Reports two DISTINCT things explicitly (never conflated):
+      * CURRENT RUN STATUS  — what the most recent daily refresh did
+        (last_run_result / last_run_at / last_run_blocked / last_run_blocked_message),
+        read from last_run_status.json.
+      * LATEST VALID FINANCIAL MARK — the last good completed-EOD mark still on disk
+        (latest_valid_mark_* + the TOP 25 / TOP 50 book summaries + SPY benchmark), read
+        from refresh_manifest.json / book_summaries.json and preserved across no-new and
+        blocked runs.
+    Plus the audited universe identity (S&P 500 shadow shown separately) and each book's
+    PnL-history status. Reads only local files: no orders / signals / decisions / DB.
+    """
     repo = _resolve_research_repo_dir(research_repo_dir)
     marks_root = _resolve_daily_mark_dir(mark_dir)
+    run_status = _read_last_run_status(marks_root)
     manifest = _read_latest_manifest(marks_root)
     summaries = _read_latest_book_summaries(marks_root)
 
@@ -415,59 +509,84 @@ def load_current_alpha_daily_status(
     top25_hist = _history_status(book_dir, 25)
     top50_hist = _history_status(book_dir, 50)
 
-    if manifest is None:
-        payload = {
-            "status": "NO_DAILY_REFRESH_YET",
-            "data_source": MARK_SOURCE_FALLBACK,
-            "last_refresh_status": None,
-            "last_refresh_run_at": None,
-            "latest_completed_eod_date": None,
-            "mark_freshness_status": "UNKNOWN_MARK_AGE",
-            "universe_identity": universe,
-            "top25": None,
-            "top50": None,
-            "spy_benchmark": None,
-            "top25_history": top25_hist,
-            "top50_history": top50_hist,
-            "warnings": [
-                "No Phase 13-G daily mark artifact yet. Click RUN DAILY ALPHA REFRESH "
-                "to fetch fresh completed EOD prices and mark the paper books."
-            ],
-            "guidance": "Run the manual daily refresh to populate current marks.",
-            "loaded_at": _iso_now(),
-        }
-        payload.update(_safety_block())
-        return payload
+    # --- CURRENT RUN STATUS (may differ from the latest valid mark) ----------
+    if run_status is not None:
+        last_run_result = run_status.get("refresh_result")
+        last_run_at = run_status.get("last_run_at")
+        last_run_blocked = bool(run_status.get("blocked"))
+        last_run_blocked_message = run_status.get("blocked_message")
+    else:
+        last_run_result = None
+        last_run_at = (manifest or {}).get("last_refresh_run_at")
+        last_run_blocked = False
+        last_run_blocked_message = None
 
-    mark_date = manifest.get("mark_date")
-    observation_date = _today_iso()
-    mark_age, freshness = _mark_freshness(mark_date, observation_date)
-    benchmark = (summaries or {}).get("benchmark") or manifest.get("benchmark_summary_preview")
-
+    # --- LATEST VALID FINANCIAL MARK -----------------------------------------
+    valid_mark_available = bool(
+        isinstance(manifest, dict) and manifest.get("mark_date") and not manifest.get("blocked"))
+    valid_mark_date = manifest.get("mark_date") if valid_mark_available else None
+    mark_age = None
+    freshness = "UNKNOWN_MARK_AGE"
+    top25 = top50 = benchmark = None
     warnings: list[str] = []
-    for size, book in (("top25", (summaries or {}).get("top25")),
-                       ("top50", (summaries or {}).get("top50"))):
-        if isinstance(book, dict) and book.get("coverage_status") == "INSUFFICIENT_COVERAGE_REJECT":
+
+    if valid_mark_available:
+        observation_date = _today_iso()
+        mark_age, freshness = _mark_freshness(valid_mark_date, observation_date)
+        benchmark = (summaries or {}).get("benchmark") or manifest.get("benchmark_summary_preview")
+        top25 = (summaries or {}).get("top25")
+        top50 = (summaries or {}).get("top50")
+        for size, book in (("top25", top25), ("top50", top50)):
+            if isinstance(book, dict) and book.get("coverage_status") == "INSUFFICIENT_COVERAGE_REJECT":
+                warnings.append(
+                    "%s coverage is below 90%%: full-book PnL is not claimed for this mark."
+                    % size.upper())
+        if freshness in ("STALE_MARK_WARNING", "STALE_MARK_REJECT"):
             warnings.append(
-                "%s coverage is below 90%%: full-book PnL is not claimed for this mark."
-                % size.upper())
-    if freshness in ("STALE_MARK_WARNING", "STALE_MARK_REJECT"):
+                "The latest completed EOD mark is %s calendar days old; run the daily "
+                "refresh for a current mark." % mark_age)
+
+    # --- current-run informational warnings (do not hide the preserved mark) --
+    if last_run_blocked:
         warnings.append(
-            "The latest completed EOD mark is %s calendar days old; run the daily "
-            "refresh for a current mark." % mark_age)
+            "The most recent daily refresh was BLOCKED (%s); no snapshot was added and the "
+            "last valid financial mark is preserved." % last_run_result)
+    elif last_run_result == "NO_NEW_MARK_DATE":
+        warnings.append(
+            "The most recent daily refresh found no new completed EOD date; no snapshot "
+            "was added.")
+
+    if not valid_mark_available and run_status is None:
+        warnings.append(
+            "No Phase 13-G daily mark artifact yet. Click RUN DAILY ALPHA REFRESH to fetch "
+            "fresh completed EOD prices and mark the paper books.")
+        status = "NO_DAILY_REFRESH_YET"
+    else:
+        status = "DAILY_STATUS_READY"
 
     payload = {
-        "status": "DAILY_STATUS_READY",
-        "data_source": MARK_SOURCE_DAILY,
-        "last_refresh_status": manifest.get("refresh_result"),
-        "last_refresh_run_at": manifest.get("last_refresh_run_at"),
-        "latest_completed_eod_date": mark_date,
+        "status": status,
+        "data_source": MARK_SOURCE_DAILY if valid_mark_available else MARK_SOURCE_FALLBACK,
+        # --- CURRENT RUN STATUS (distinct from the latest valid mark) ---
+        "last_run_result": last_run_result,
+        "last_run_at": last_run_at,
+        "last_run_blocked": last_run_blocked,
+        "last_run_blocked_message": last_run_blocked_message,
+        # --- LATEST VALID FINANCIAL MARK ---
+        "latest_valid_mark_available": valid_mark_available,
+        "latest_valid_mark_date": valid_mark_date,
+        "latest_valid_mark_source": MARK_SOURCE_DAILY if valid_mark_available else None,
+        "latest_valid_mark_freshness": freshness,
+        # --- back-compat aliases (existing UI / callers) ---
+        "last_refresh_status": last_run_result,
+        "last_refresh_run_at": last_run_at,
+        "latest_completed_eod_date": valid_mark_date,
         "mark_age_calendar_days": mark_age,
         "mark_freshness_status": freshness,
-        "price_source": manifest.get("price_source"),
+        "price_source": manifest.get("price_source") if valid_mark_available else None,
         "universe_identity": universe,
-        "top25": (summaries or {}).get("top25"),
-        "top50": (summaries or {}).get("top50"),
+        "top25": top25,
+        "top50": top50,
         "spy_benchmark": benchmark,
         "top25_history": top25_hist,
         "top50_history": top50_hist,

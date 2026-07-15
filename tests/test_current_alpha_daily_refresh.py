@@ -32,11 +32,39 @@ _MODULE_PATH = _REPO_ROOT / "api" / "current_alpha_daily_refresh.py"
 _TICKERS = ["AAA", "BBB", "CCC", "DDD"]
 
 
+def _write_run_status_artifact(latest_dir: Path, result: str, mark_date: str,
+                               prev: str | None) -> None:
+    """Write the synthetic CURRENT RUN STATUS artifact (last_run_status.json) — the
+    process-boundary signal the orchestrator reads (NOT refresh_manifest.json)."""
+    blocked = result.startswith("BLOCKED_")
+    new_mark = result in ("REFRESH_OK_NEW_MARK_DATE", "PARTIAL_COVERAGE", "INSUFFICIENT_COVERAGE")
+    if blocked:
+        lv_date, lv_avail, observed = prev, (prev is not None), None
+    else:
+        lv_date, lv_avail, observed = mark_date, True, mark_date
+    (latest_dir / "last_run_status.json").write_text(json.dumps({
+        "phase": "13-G", "artifact": "current_run_status", "refresh_result": result,
+        "last_run_at": "2026-07-15T00:00:00+00:00", "reference_today": "2026-07-15",
+        "mark_date_observed": observed, "previous_valid_mark_date": prev,
+        "new_mark_date": new_mark, "blocked": blocked,
+        "blocked_message": ("provider stop: %s" % result) if blocked else None,
+        "latest_valid_mark_available": lv_avail, "latest_valid_mark_date": lv_date,
+        "price_source": "EODHD_LIVE_EOD(adjusted_close)",
+        "creates_orders": False, "creates_automation": False,
+        "creates_broker_connection": False, "wrote_to_paper_trader": False,
+        "live_trading": False, "order_action_all": "NO_ORDER",
+    }), encoding="utf-8")
+
+
 def _write_daily_artifact(mark_dir: Path, *, mark_date: str = "2026-07-14", pct: float = 5.0,
                           spy_ret: float = 1.0, refresh_result: str = "REFRESH_OK_NEW_MARK_DATE",
-                          prev: str | None = None) -> None:
+                          prev: str | None = None, run_status_result: str | None = None) -> None:
     """Write a synthetic Phase 13-G latest/ mark artifact matching the ops fixture book
-    (composite_sn, signal 2026-05-22, tickers AAA..DDD)."""
+    (composite_sn, signal 2026-05-22, tickers AAA..DDD).
+
+    ``refresh_result`` stamps the FINANCIAL manifest (the latest valid mark).
+    ``run_status_result`` (default = ``refresh_result``) stamps the CURRENT RUN STATUS
+    file — pass it to model a NO_NEW / BLOCKED current run over a preserved valid mark."""
     latest = mark_dir / "latest"
     latest.mkdir(parents=True, exist_ok=True)
     marks = [{
@@ -81,6 +109,7 @@ def _write_daily_artifact(mark_dir: Path, *, mark_date: str = "2026-07-14", pct:
         "book_summaries_preview": [_book(25), _book(50)],
         "last_refresh_run_at": "2026-07-15T00:00:00+00:00",
     }), encoding="utf-8")
+    _write_run_status_artifact(latest, run_status_result or refresh_result, mark_date, prev)
 
 
 def _launcher(**kwargs):
@@ -196,6 +225,75 @@ def test_no_manifest_is_controlled(env):
     assert r["snapshots"] == {}
 
 
+def test_no_run_status_artifact_is_controlled(env):
+    """A manifest without last_run_status.json (e.g. a pre-fix artifact) must NOT be
+    treated as a fresh run — the orchestrator refuses to infer the run result from the
+    financial manifest."""
+    def _manifest_only_launcher(py, runner, marks_root, audit, repo, timeout):
+        _write_daily_artifact(Path(marks_root))
+        (Path(marks_root) / "latest" / "last_run_status.json").unlink()
+        return {"launched": True, "returncode": 0, "stderr_tail": ""}
+    r = run_current_alpha_daily_refresh(
+        commit=True, book_dir=env["store"], mark_dir=env["marks"], package_dir=env["pkg"],
+        launcher=_manifest_only_launcher)
+    assert r["status"] == "REFRESH_UNAVAILABLE"
+    assert r["action"] == "NO_SNAPSHOT"
+    assert r["snapshots"] == {}
+
+
+# --------------------------------------------------------------------------- #
+# Process-boundary contract: the CURRENT RUN result (last_run_status.json) — NOT the
+# preserved financial mark (refresh_manifest.json) — drives snapshot behaviour.
+# --------------------------------------------------------------------------- #
+def test_no_new_current_run_over_prior_valid_mark_no_snapshot(env):
+    # Financial manifest = a valid REFRESH_OK mark; current run status = NO_NEW_MARK_DATE.
+    r = run_current_alpha_daily_refresh(
+        commit=True, book_dir=env["store"], mark_dir=env["marks"], package_dir=env["pkg"],
+        launcher=_launcher(run_status_result="NO_NEW_MARK_DATE", mark_date="2026-07-14"))
+    assert r["status"] == "NO_NEW_MARK_DATE"
+    assert r["action"] == "NO_SNAPSHOT"
+    assert r["refresh_result"] == "NO_NEW_MARK_DATE"
+    assert r["snapshots"] == {}
+    # the preserved valid mark is still advertised
+    assert r["latest_valid_mark_available"] is True
+    assert r["latest_valid_mark_date"] == "2026-07-14"
+    # paper store never written
+    assert not (env["store"] / "pnl_snapshots.json").is_file()
+
+
+def test_blocked_current_run_over_prior_valid_mark_preserves_mark(env):
+    # Financial manifest = a valid REFRESH_OK mark; current run status = BLOCKED_*.
+    r = run_current_alpha_daily_refresh(
+        commit=True, book_dir=env["store"], mark_dir=env["marks"], package_dir=env["pkg"],
+        launcher=_launcher(run_status_result="BLOCKED_EODHD_ENTITLEMENT",
+                           mark_date="2026-07-14", prev="2026-07-14"))
+    assert r["status"] == "BLOCKED_EODHD_ENTITLEMENT"
+    assert r["action"] == "NO_SNAPSHOT"
+    assert r["refresh_result"] == "BLOCKED_EODHD_ENTITLEMENT"
+    assert r["blocked"] is True
+    assert r["snapshots"] == {}
+    # the last valid financial mark is still available (not hidden by the blocked run)
+    assert r["latest_valid_mark_available"] is True
+    assert r["latest_valid_mark_date"] == "2026-07-14"
+    assert not (env["store"] / "pnl_snapshots.json").is_file()
+
+
+def test_no_new_current_run_leaves_prior_history_intact(env):
+    # First a real new mark snapshots both books; then a NO_NEW current run must not add
+    # to either book's paper history.
+    run_current_alpha_daily_refresh(commit=True, book_dir=env["store"], mark_dir=env["marks"],
+                                    package_dir=env["pkg"], launcher=_launcher(mark_date="2026-07-14"))
+    second = run_current_alpha_daily_refresh(
+        commit=True, book_dir=env["store"], mark_dir=env["marks"], package_dir=env["pkg"],
+        launcher=_launcher(run_status_result="NO_NEW_MARK_DATE", mark_date="2026-07-14"))
+    assert second["action"] == "NO_SNAPSHOT"
+    assert second["snapshots"] == {}
+    status = load_current_alpha_daily_status(book_dir=env["store"], mark_dir=env["marks"],
+                                             research_repo_dir=env["repo"])
+    assert status["top25_history"]["n_snapshots"] == 1
+    assert status["top50_history"]["n_snapshots"] == 1
+
+
 # --------------------------------------------------------------------------- #
 # Daily marks preferred over the Phase 13-A fallback
 # --------------------------------------------------------------------------- #
@@ -292,3 +390,26 @@ def test_daily_status_no_refresh_yet(env):
     assert status["status"] == "NO_DAILY_REFRESH_YET"
     assert status["data_source"] == "PHASE13A_STALE_FALLBACK"
     assert status["no_orders"] is True
+
+
+def test_daily_status_separates_current_run_from_valid_mark(env):
+    """A BLOCKED current run over a preserved valid mark: daily-status reports the
+    blocked CURRENT RUN AND the preserved LATEST VALID FINANCIAL MARK, distinctly."""
+    _write_audit(env["repo"])
+    # valid financial mark on disk + a blocked current run status
+    _write_daily_artifact(env["marks"], run_status_result="BLOCKED_EODHD_RATE_LIMIT",
+                          mark_date="2026-07-14", prev="2026-07-14")
+    status = load_current_alpha_daily_status(
+        book_dir=env["store"], mark_dir=env["marks"], research_repo_dir=env["repo"])
+    # CURRENT RUN STATUS
+    assert status["last_run_result"] == "BLOCKED_EODHD_RATE_LIMIT"
+    assert status["last_run_blocked"] is True
+    assert status["last_run_blocked_message"]
+    # LATEST VALID FINANCIAL MARK preserved + still shown
+    assert status["latest_valid_mark_available"] is True
+    assert status["latest_valid_mark_date"] == "2026-07-14"
+    assert status["latest_valid_mark_source"] == "PHASE13G_DAILY_REFRESH"
+    assert status["top25"]["coverage_status"] == "FULL_COVERAGE"
+    assert status["spy_benchmark"]["return_since_signal_pct"] == pytest.approx(1.0)
+    # a warning explains the blocked run without hiding the mark
+    assert any("BLOCKED" in w for w in status["warnings"])

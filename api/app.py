@@ -4299,10 +4299,13 @@ def research_current_alpha_daily_refresh(
 
     Synchronously launches the Phase 13-G research runner (a live READ-ONLY EODHD
     end-of-day mark refresh) with ``subprocess.run(argument_list, shell=False, ...)``
-    — the EODHD API key is never passed on the command line — then marks the TOP 25
-    and TOP 50 paper books against the fresh mark artifact. With ``commit=false``
-    (default) it previews (no paper-store writes); with ``commit=true`` it ensures
-    both books exist and appends one snapshot per book for a new price date. A
+    — the EODHD API key is never passed on the command line — then decides snapshot
+    behaviour from the runner's CURRENT RUN STATUS artifact (last_run_status.json), not
+    from the latest valid financial mark. Only a run reporting a genuinely NEW completed
+    EOD mark marks the TOP 25 and TOP 50 paper books; a NO_NEW_MARK_DATE or BLOCKED_* run
+    returns action ``NO_SNAPSHOT`` with empty ``snapshots`` and reports the preserved last
+    valid mark. With ``commit=false`` (default) a new-mark run previews (no paper-store
+    writes); ``commit=true`` appends one snapshot per book for the new price date. A
     same-price-date rerun adds no duplicate snapshot.
 
     This is NOT automation and NOT scheduling. It creates no orders, no broker
@@ -4323,13 +4326,15 @@ def research_current_alpha_daily_status() -> dict:
     """
     Read-only Phase 13-G/H daily operating status for the champion paper books.
 
-    Returns the last refresh status + run time, the latest completed EOD mark date and
-    its freshness, the audited CURRENT CHAMPION universe identity (and the S&P 500
-    shadow, shown separately — never merged), the TOP 25 / TOP 50 book summaries with
-    the SPY benchmark and excess return, and each book's PnL-history status. Reads only
-    the local mark artifact + the local paper store: no database rows, no orders /
-    signals / trade decisions, no automation, no broker, no prediction / provider call.
-    Never returns a stack trace.
+    Reports the CURRENT RUN STATUS (last_run_result / last_run_at / last_run_blocked)
+    and the LATEST VALID FINANCIAL MARK (latest_valid_mark_date + its freshness + the
+    TOP 25 / TOP 50 book summaries with the SPY benchmark and excess return) as two
+    distinct concepts — a no-new or blocked run never hides the preserved valid mark.
+    Also returns the audited CURRENT CHAMPION universe identity (and the S&P 500 shadow,
+    shown separately — never merged) and each book's PnL-history status. Reads only the
+    local mark artifact + the local paper store: no database rows, no orders / signals /
+    trade decisions, no automation, no broker, no prediction / provider call. Never
+    returns a stack trace.
     """
     return load_current_alpha_daily_status()
 

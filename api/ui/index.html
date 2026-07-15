@@ -4104,13 +4104,22 @@
           <!-- Action result banner -->
           <div id="cad-action-result" style="display:none;border-radius:3px;padding:7px 9px;font-size:11px;font-weight:600;margin:6px 0;"></div>
 
-          <!-- Operating status row -->
-          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;color:var(--text-accent);">
-            <span>Last daily run: <span id="cad-last-run" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></span>
-            <span>Latest price mark: <span id="cad-mark-date" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></span>
-            <span>Price source: <span id="cad-price-source" class="mono" style="color:var(--text-primary);">—</span></span>
-            <span>Mark freshness: <span id="cad-freshness" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></span>
-            <span>Data source: <span id="cad-data-source" class="mono" style="color:var(--text-primary);">—</span></span>
+          <!-- Operating status: CURRENT RUN STATUS vs LATEST VALID FINANCIAL MARK,
+               kept explicitly distinct (a same-date / blocked run never overwrites the
+               displayed valid financial mark). -->
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="flex:1;min-width:320px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">CURRENT RUN STATUS</div>
+              <div>LAST RUN RESULT: <span id="cad-last-run-result" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div style="color:var(--text-accent);">Last daily run: <span id="cad-last-run" class="mono" style="color:var(--text-primary);">—</span></div>
+              <div id="cad-run-note" style="color:var(--text-accent);margin-top:2px;"></div>
+            </div>
+            <div style="flex:1;min-width:320px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">LATEST VALID FINANCIAL MARK</div>
+              <div>LATEST VALID PRICE MARK: <span id="cad-valid-mark-date" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div style="color:var(--text-accent);">Latest price mark: <span id="cad-mark-date" class="mono" style="color:var(--text-primary);">—</span> · Mark freshness: <span id="cad-freshness" class="mono" style="color:var(--text-primary);">—</span></div>
+              <div style="color:var(--text-accent);">Price source: <span id="cad-price-source" class="mono" style="color:var(--text-primary);">—</span> · Data source: <span id="cad-data-source" class="mono" style="color:var(--text-primary);">—</span></div>
+            </div>
           </div>
 
           <!-- Universe identity (actual audited universe; S&P 500 shadow shown separately) -->
@@ -6483,7 +6492,25 @@ function _cadRenderUniverse(ui) {
 
 function _cadRenderStatus(data) {
   if (!data) return;
-  _cadText('cad-last-run', data.last_refresh_run_at || '—');
+  // CURRENT RUN STATUS — what the most recent daily refresh did (distinct from the
+  // latest valid financial mark, which a no-new / blocked run never overwrites).
+  _cadText('cad-last-run-result', data.last_run_result || '—');
+  _cadText('cad-last-run', data.last_run_at || data.last_refresh_run_at || '—');
+  const note = document.getElementById('cad-run-note');
+  if (note) {
+    if (data.last_run_blocked) {
+      note.textContent = 'DAILY REFRESH BLOCKED — LAST VALID MARK PRESERVED'
+        + (data.last_run_blocked_message ? (' (' + data.last_run_blocked_message + ')') : '');
+      note.style.color = 'var(--danger,#e74c3c)';
+    } else if (data.last_run_result === 'NO_NEW_MARK_DATE') {
+      note.textContent = 'NO NEW COMPLETED EOD DATE — NO SNAPSHOT ADDED';
+      note.style.color = 'var(--warning,#eab308)';
+    } else {
+      note.textContent = '';
+    }
+  }
+  // LATEST VALID FINANCIAL MARK — the last good completed-EOD mark still on disk.
+  _cadText('cad-valid-mark-date', data.latest_valid_mark_date || data.latest_completed_eod_date || '—');
   _cadText('cad-mark-date', data.latest_completed_eod_date || '—');
   _cadText('cad-price-source', data.price_source || data.data_source || '—');
   _cadText('cad-freshness', _cadFreshnessLabel(data.mark_freshness_status)
@@ -6524,16 +6551,23 @@ async function runDailyAlphaRefresh(btn) {
   try {
     const data = await _cadFetch(btn, 'POST', '/v1/research/current-alpha/daily-refresh', { commit: true });
     window._dailyAlphaState.last_refresh = data.refresh_result || data.status;
-    if (data.status === 'DAILY_REFRESH_COMPLETE') {
+    const rr = data.refresh_result || '';
+    const isBlocked = rr.indexOf('BLOCKED_') === 0;
+    const isNoNew = (rr === 'NO_NEW_MARK_DATE') || (data.status === 'NO_NEW_MARK_DATE');
+    if (isBlocked) {
+      _cadActionResult('DAILY REFRESH BLOCKED — LAST VALID MARK PRESERVED. Result: ' + rr
+        + '. Latest valid mark: ' + (data.latest_valid_mark_date || 'none') + '. No snapshot added.', 'warn');
+    } else if (isNoNew) {
+      _cadActionResult('NO NEW COMPLETED EOD DATE — NO SNAPSHOT ADDED. Paper PnL was not advanced; latest valid mark '
+        + (data.latest_valid_mark_date || 'unchanged') + ' preserved.', 'warn');
+    } else if (data.status === 'DAILY_REFRESH_COMPLETE') {
       const t25 = (data.snapshots && data.snapshots.top25) || {};
       const skipped = t25.action === 'SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE';
       if (skipped) {
-        _cadActionResult('NO NEW PRICE DATE — SNAPSHOT NOT ADDED. Paper PnL was not advanced (same completed EOD mark).', 'warn');
+        _cadActionResult('NO NEW COMPLETED EOD DATE — NO SNAPSHOT ADDED (same completed EOD mark).', 'warn');
       } else {
         _cadActionResult('DAILY REFRESH COMPLETE — TOP 25 & TOP 50 marked at ' + (data.mark_date || 'latest') + '. No orders. No automation.', 'ok');
       }
-    } else if (data.refresh_result === 'NO_NEW_MARK_DATE') {
-      _cadActionResult('NO NEW PRICE DATE — the latest completed EOD mark is unchanged; no snapshot added.', 'warn');
     } else {
       _cadActionResult('Refresh result: ' + (data.refresh_result || data.status) + (data.guidance ? (' — ' + data.guidance) : ''), 'warn');
     }

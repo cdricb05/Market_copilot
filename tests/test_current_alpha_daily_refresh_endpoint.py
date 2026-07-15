@@ -107,6 +107,34 @@ def test_daily_refresh_preview_default(client: TestClient, env: dict):
     assert not (env["store"] / "pnl_snapshots.json").is_file()
 
 
+def test_daily_refresh_no_new_current_run_returns_no_snapshot(client: TestClient, env: dict):
+    # rewrite the pre-seeded artifact: valid financial mark, but a NO_NEW current run
+    _write_daily_artifact(env["marks"], run_status_result="NO_NEW_MARK_DATE",
+                          mark_date="2026-07-14")
+    body = client.post(_REFRESH, headers=_AUTH, json={"commit": True}).json()
+    assert body["status"] == "NO_NEW_MARK_DATE"
+    assert body["action"] == "NO_SNAPSHOT"
+    assert body["refresh_result"] == "NO_NEW_MARK_DATE"
+    assert body["snapshots"] == {}
+    assert body["latest_valid_mark_available"] is True
+    assert body["latest_valid_mark_date"] == "2026-07-14"
+    assert body["no_orders"] is True
+    assert not (env["store"] / "pnl_snapshots.json").is_file()
+
+
+def test_daily_refresh_blocked_current_run_preserves_mark(client: TestClient, env: dict):
+    _write_daily_artifact(env["marks"], run_status_result="BLOCKED_EODHD_ENTITLEMENT",
+                          mark_date="2026-07-14", prev="2026-07-14")
+    body = client.post(_REFRESH, headers=_AUTH, json={"commit": True}).json()
+    assert body["status"] == "BLOCKED_EODHD_ENTITLEMENT"
+    assert body["action"] == "NO_SNAPSHOT"
+    assert body["refresh_result"] == "BLOCKED_EODHD_ENTITLEMENT"
+    assert body["snapshots"] == {}
+    assert body["latest_valid_mark_available"] is True
+    assert body["latest_valid_mark_date"] == "2026-07-14"
+    assert not (env["store"] / "pnl_snapshots.json").is_file()
+
+
 # --------------------------------------------------------------------------- #
 # GET daily-status
 # --------------------------------------------------------------------------- #
@@ -137,6 +165,18 @@ def test_daily_status_after_refresh_shows_history(client: TestClient, env: dict)
     assert body["top25_history"]["n_snapshots"] == 1
     assert body["top50_history"]["n_snapshots"] == 1
     assert body["top25_history"]["selected_book_id"] != body["top50_history"]["selected_book_id"]
+
+
+def test_daily_status_exposes_current_run_and_valid_mark_fields(client: TestClient, env: dict):
+    body = client.get(_STATUS, headers=_AUTH).json()
+    # both concepts are surfaced explicitly and distinctly
+    for k in ("last_run_result", "last_run_at", "last_run_blocked", "last_run_blocked_message",
+              "latest_valid_mark_available", "latest_valid_mark_date", "latest_valid_mark_source",
+              "latest_valid_mark_freshness"):
+        assert k in body, f"missing daily-status field: {k}"
+    assert body["latest_valid_mark_available"] is True
+    assert body["latest_valid_mark_date"] == "2026-07-14"
+    assert body["last_run_blocked"] is False
 
 
 # --------------------------------------------------------------------------- #
