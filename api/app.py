@@ -48,6 +48,10 @@ Endpoints:
     GET  /v1/research/current-alpha/pnl     — read-only Phase 13-C daily paper PnL for the champion book (PREVIEW ONLY, PAPER TEST ONLY, no DB writes, no orders, no broker, no automation, no prediction/provider call)
     GET  /v1/research/current-alpha/actions-preview — read-only Phase 13-D paper-only action plan (ADD/WAIT/AVOID_PREVIEW, every row NO_ORDER; no DB writes, no orders, no broker, no automation)
     GET  /v1/research/current-alpha/rebalance-simulator — read-only Phase 13-E rebalance-frequency simulator (quarterly simulated from the frozen panel; daily rejected; no external calls)
+    GET  /v1/research/current-alpha/book    — read-only Phase 13-F persisted paper book (local JSON store; PREVIEW ONLY, PAPER TEST ONLY, no DB writes, no orders, no broker, no automation)
+    POST /v1/research/current-alpha/book/preview-create — Phase 13-F preview (commit=false, writes nothing) or save (commit=true, writes only the local paper_book.json); no orders/signals/decisions/broker/automation/DB
+    GET  /v1/research/current-alpha/book/pnl-history — read-only Phase 13-F paper-book PnL history over time (local JSON store; no DB writes, no orders, no broker, no automation)
+    POST /v1/research/current-alpha/book/snapshot-preview — Phase 13-F daily paper PnL snapshot (commit=true writes only the local pnl_snapshots.json); no orders/signals/decisions/broker/automation/DB
 
 Authentication: every endpoint except /v1/health and /v1/ready requires the
 X-API-Key header to match PAPER_TRADER_SERVICE_API_KEY.
@@ -140,6 +144,12 @@ from paper_trader.api.current_alpha_operations import (
     load_current_alpha_actions_preview,
     load_current_alpha_pnl,
     load_current_alpha_rebalance_simulation,
+)
+from paper_trader.api.current_alpha_book import (
+    load_current_alpha_book,
+    load_current_alpha_pnl_history,
+    preview_or_create_current_alpha_book,
+    snapshot_current_alpha_book,
 )
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -4139,6 +4149,124 @@ def research_current_alpha_rebalance_simulator() -> dict:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Current alpha rebalance simulation unavailable: {exc}",
+        ) from exc
+
+
+class CurrentAlphaBookCreateRequest(BaseModel):
+    """Phase 13-F preview-create / save request (paper-only)."""
+
+    commit: bool = False
+    book_size: int = 25
+
+
+class CurrentAlphaBookSnapshotRequest(BaseModel):
+    """Phase 13-F daily paper PnL snapshot request (paper-only)."""
+
+    commit: bool = False
+
+
+@app.get(
+    "/v1/research/current-alpha/book",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_book() -> dict:
+    """
+    Read-only Phase 13-F persisted current-alpha paper book.
+
+    Requires a valid X-API-Key header. Returns the active paper book saved to the
+    local paper-tracking JSON store (identity, positions, benchmark status), or a
+    NO_PAPER_BOOK_YET status if none has been saved. It reads only the local JSON
+    store: it writes no database rows, creates no signals / trade decisions /
+    orders, runs no automation, connects to no broker, and calls neither the
+    prediction service nor any external provider. Never returns a stack trace.
+    """
+    return load_current_alpha_book()
+
+
+@app.post(
+    "/v1/research/current-alpha/book/preview-create",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_book_preview_create(
+    body: CurrentAlphaBookCreateRequest | None = None,
+) -> dict:
+    """
+    Phase 13-F preview-create / save of the current-alpha paper book.
+
+    With ``commit=false`` (default) this is a pure preview and writes NOTHING —
+    it just returns the proposed paper book built from the committed Phase 13-A
+    package. With ``commit=true`` it persists that book to a single local JSON
+    file (paper_book.json) in the paper-tracking store — the only thing written.
+
+    Strictly paper-only: it creates no orders, no signals, and no trade decisions,
+    connects to no broker, runs no automation, writes no Paper Trader database
+    rows, and calls neither the prediction service nor any external / paid
+    provider. A missing Phase 13-A package -> HTTP 503 (never a stack trace).
+    """
+    req = body or CurrentAlphaBookCreateRequest()
+    try:
+        return preview_or_create_current_alpha_book(
+            book_size=req.book_size,
+            commit=req.commit,
+        )
+    except CurrentAlphaPreviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Current alpha paper book unavailable: {exc}",
+        ) from exc
+
+
+@app.get(
+    "/v1/research/current-alpha/book/pnl-history",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_book_pnl_history() -> dict:
+    """
+    Read-only Phase 13-F paper-book PnL history over time.
+
+    Requires a valid X-API-Key header. Returns the recorded paper PnL snapshot
+    series (average / median return, coverage, hit rate per snapshot), the latest
+    snapshot, best / worst contributors over time, and benchmark status — or a
+    NO_PAPER_BOOK_YET status if nothing has been recorded. Reads only the local
+    JSON store: no database rows, no orders / signals / trade decisions, no
+    automation, no broker, no prediction / provider call. Never a stack trace.
+    """
+    return load_current_alpha_pnl_history()
+
+
+@app.post(
+    "/v1/research/current-alpha/book/snapshot-preview",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_book_snapshot_preview(
+    body: CurrentAlphaBookSnapshotRequest | None = None,
+) -> dict:
+    """
+    Phase 13-F daily paper PnL snapshot of the saved current-alpha paper book.
+
+    Marks the saved book's positions from the committed Phase 13-A package (which
+    is already priced from owned local EOD — no live market call). With
+    ``commit=true`` it appends the snapshot to a single local JSON file
+    (pnl_snapshots.json) — the only thing written; ``commit=false`` previews it
+    without writing. If no paper book has been saved, returns a controlled
+    NO_PAPER_BOOK_YET status (HTTP 200).
+
+    Strictly paper-only: it creates no orders, no signals, and no trade decisions,
+    connects to no broker, runs no automation, writes no Paper Trader database
+    rows, and calls neither the prediction service nor any external / paid
+    provider. A missing Phase 13-A package -> HTTP 503 (never a stack trace).
+    """
+    req = body or CurrentAlphaBookSnapshotRequest()
+    try:
+        return snapshot_current_alpha_book(commit=req.commit)
+    except CurrentAlphaPreviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Current alpha paper snapshot unavailable: {exc}",
         ) from exc
 
 

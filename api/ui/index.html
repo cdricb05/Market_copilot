@@ -3937,6 +3937,112 @@
         </div>
         <!-- Current Alpha Paper Test (Phase 13-B) END -->
 
+        <!-- Current Alpha Paper Book (Phase 13-F) START — persistent paper-only book +
+             daily PnL history for the champion alpha (composite_sn). Preview-create /
+             save and snapshot write ONLY to a local paper-tracking JSON store:
+             POST /v1/research/current-alpha/book/preview-create (commit flag),
+             POST /v1/research/current-alpha/book/snapshot-preview (commit flag),
+             GET  /v1/research/current-alpha/book, GET .../book/pnl-history.
+             No orders, no broker, no automation; this does not create signals, does
+             not create trade decisions, and does not execute trades; no Paper Trader
+             DB writes; no prediction/provider call. -->
+        <div class="card" id="cab-panel" style="margin-bottom:14px;">
+          <div class="card-title"><span>Current Alpha Paper Book</span></div>
+
+          <!-- Safety badges (9) -->
+          <div id="cab-badges" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px;">
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PAPER TEST ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO AUTOMATION</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW ONLY</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT CREATE SIGNALS</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT CREATE TRADE DECISIONS</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT EXECUTE TRADES</span>
+          </div>
+
+          <!-- Prominent safety banner (always visible) -->
+          <div id="cab-safety-banner" style="background:rgba(239,68,68,.1);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:8px 10px;font-size:11px;font-weight:600;margin-bottom:12px;">
+            Persistent paper book. Save and Snapshot write ONLY to a local paper-tracking JSON store. No orders. No broker. No automation. This does not create signals, does not create trade decisions, and does not execute trades. No Paper Trader database writes. Manual review only — a paper test, not live trading.
+          </div>
+
+          <!-- Buttons (Load Active Book + the four workflow actions) -->
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+            <button class="btn-sm" id="cab-load-btn" onclick="loadActiveBook(this)">Load Active Book</button>
+            <button class="btn-sm" id="cab-preview-btn" onclick="previewCreatePaperBook(this)">Preview Create Paper Book</button>
+            <button class="btn-sm" id="cab-save-btn" onclick="savePaperBook(this)">Save Paper Book</button>
+            <button class="btn-sm" id="cab-snapshot-btn" onclick="snapshotPaperBookToday(this)">Snapshot Today</button>
+            <button class="btn-sm" id="cab-history-btn" onclick="loadPaperBookPnlHistory(this)">Load PnL History</button>
+          </div>
+          <div id="cab-status-line" style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-bottom:6px;color:var(--text-accent);">
+            <span>Book: <span id="cab-book-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
+            <span>History: <span id="cab-history-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
+            <span>Store: <span id="cab-store-path" class="mono" style="color:var(--text-primary);word-break:break-all;">—</span></span>
+          </div>
+
+          <!-- Action result banner (preview / saved / snapshot) -->
+          <div id="cab-action-result" style="display:none;border-radius:3px;padding:7px 9px;font-size:11px;font-weight:600;margin:6px 0;"></div>
+
+          <!-- Error surface -->
+          <div id="cab-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-top:8px;">
+            <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:4px;">Phase 13-A package not found. Run Phase 13-A in the research repo first.</div>
+            <div id="cab-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+          </div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;">
+            <!-- ===================== (A) Active Paper Book ===================== -->
+            <div style="flex:1;min-width:420px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;font-size:12px;">Active Paper Book</div>
+              <div id="cab-book-empty" style="font-size:11px;color:var(--text-accent);font-style:italic;">No paper book saved yet. Preview Create, then Save Paper Book.</div>
+              <div id="cab-book-section" style="display:none;">
+                <div class="mono" style="font-size:11px;color:var(--text-accent);line-height:1.7;margin-bottom:6px;">
+                  Book: <span id="cab-book-id" style="color:var(--text-primary);font-weight:700;">—</span><br>
+                  Alpha: <span id="cab-book-alpha" style="color:var(--text-primary);">—</span> ·
+                  Signal date: <span id="cab-book-signal-date" style="color:var(--text-primary);">—</span> ·
+                  Size: <span id="cab-book-size" style="color:var(--text-primary);">—</span><br>
+                  Positions: <span id="cab-book-npos" style="color:var(--text-primary);">—</span> ·
+                  Priced: <span id="cab-book-priced" style="color:var(--text-primary);">—</span> ·
+                  Unpriced: <span id="cab-book-unpriced" style="color:var(--text-primary);">—</span> ·
+                  Status: <span id="cab-book-state" style="color:var(--text-primary);">—</span><br>
+                  Benchmark: <span id="cab-book-benchmark" style="color:var(--text-primary);">—</span>
+                </div>
+                <details style="margin-bottom:4px;" open>
+                  <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Positions (every row NO_ORDER)</summary>
+                  <div id="cab-positions-table" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+                </details>
+              </div>
+            </div>
+
+            <!-- ===================== (B) PnL History ===================== -->
+            <div style="flex:1;min-width:420px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;font-size:12px;">PnL History Over Time</div>
+              <div id="cab-history-empty" style="font-size:11px;color:var(--text-accent);font-style:italic;">No snapshots yet. Save a book, then Snapshot Today to begin building history.</div>
+              <div id="cab-history-section" style="display:none;">
+                <div class="mono" style="font-size:11px;color:var(--text-accent);line-height:1.7;margin-bottom:6px;">
+                  Snapshots: <span id="cab-hist-count" style="color:var(--text-primary);font-weight:700;">—</span> ·
+                  Latest avg: <span id="cab-hist-latest-avg" style="color:var(--text-primary);font-weight:700;">—</span> ·
+                  Latest coverage: <span id="cab-hist-latest-cov" style="color:var(--text-primary);">—</span><br>
+                  Benchmark: <span id="cab-hist-benchmark" style="color:var(--text-primary);">—</span>
+                </div>
+                <div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:2px;">Avg paper return per snapshot</div>
+                <div id="cab-hist-chart" style="margin-bottom:8px;"></div>
+                <details style="margin-bottom:4px;" open>
+                  <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Snapshot series</summary>
+                  <div id="cab-hist-table" class="compact-scroll-region" style="max-height:220px;overflow:auto;font-size:11px;margin-top:6px;"></div>
+                </details>
+                <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;">
+                  <div style="flex:1;min-width:180px;"><div style="font-size:11px;font-weight:600;color:var(--positive,#2ecc71);margin-bottom:2px;">Best contributors over time</div><div id="cab-hist-best" class="mono" style="font-size:11px;color:var(--text-primary);">—</div></div>
+                  <div style="flex:1;min-width:180px;"><div style="font-size:11px;font-weight:600;color:var(--danger,#e74c3c);margin-bottom:2px;">Worst contributors over time</div><div id="cab-hist-worst" class="mono" style="font-size:11px;color:var(--text-primary);">—</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <ul id="cab-warnings" style="margin:10px 0 0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+        </div>
+        <!-- Current Alpha Paper Book (Phase 13-F) END -->
+
         <!-- Execution Workflow -->
         <div class="card">
           <div class="section-title">Execution Workflow</div>
@@ -4630,6 +4736,15 @@ window._switchTab = function(tabName) {
   // banner show regardless of load state.)
   if (tabName === 'audit-advanced' && window._appState?.connected && !window._currentAlphaPreviewLoaded) {
     try { loadCurrentAlphaPreview(); } catch (e) {}
+  }
+
+  // Audit / Advanced: also lazy-load the read-only persisted Current Alpha Paper
+  // Book (Phase 13-F) the first time the tab is opened while connected. The
+  // "Load Active Book" button reloads it on demand. (Badges + safety banner show
+  // regardless of load state. This is a GET only — never a write.)
+  if (tabName === 'audit-advanced' && window._appState?.connected && !window._alphaBookLoaded) {
+    window._alphaBookLoaded = true;
+    try { loadActiveBook(null); } catch (e) {}
   }
 
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
@@ -5750,6 +5865,295 @@ function renderRebalanceSimulator(data) {
   }
 }
 // ===== Daily Alpha Operations (Phase 13-CDE) END =====
+
+// ===== Current Alpha Paper Book (Phase 13-F) START =====
+// Persistent PAPER-ONLY book + daily PnL history for the champion alpha
+// (composite_sn). Five buttons:
+//   Load Active Book            -> GET  /v1/research/current-alpha/book
+//   Preview Create Paper Book   -> POST /v1/research/current-alpha/book/preview-create {commit:false}  (writes nothing)
+//   Save Paper Book             -> POST /v1/research/current-alpha/book/preview-create {commit:true}   (writes paper_book.json only)
+//   Snapshot Today              -> POST /v1/research/current-alpha/book/snapshot-preview {commit:true}  (writes pnl_snapshots.json only)
+//   Load PnL History            -> GET  /v1/research/current-alpha/book/pnl-history
+// Writes go ONLY to a local paper-tracking JSON store. It creates no orders, no
+// signals, and no trade decisions, executes no trades, enables no automation,
+// connects to no broker, writes no Paper Trader database rows, and never calls
+// the prediction service. No blocking browser dialogs.
+window._alphaBookStatus = {
+  book: { loaded: false, status: null, error: null, last_loaded_at: null },
+  history: { loaded: false, status: null, error: null, last_loaded_at: null },
+};
+
+function _cabText(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = (value === null || value === undefined || value === '') ? '—' : String(value);
+}
+
+function _cabStorePath(data) {
+  if (data && data.store_dir) _cabText('cab-store-path', data.store_dir);
+}
+
+function _cabWarnings(list) {
+  const el = document.getElementById('cab-warnings');
+  if (!el) return;
+  const rows = Array.isArray(list) ? list : [];
+  el.innerHTML = rows.length ? rows.map(w => '<li>' + escapeHtml(String(w)) + '</li>').join('') : '';
+}
+
+function _cabActionResult(text, ok) {
+  const el = document.getElementById('cab-action-result');
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = 'block';
+  if (ok) {
+    el.style.background = 'rgba(46,204,113,.12)';
+    el.style.border = '1px solid var(--positive,#2ecc71)';
+    el.style.color = 'var(--positive,#2ecc71)';
+  } else {
+    el.style.background = 'rgba(59,130,246,.12)';
+    el.style.border = '1px solid var(--info,#3b82f6)';
+    el.style.color = 'var(--info,#3b82f6)';
+  }
+}
+
+// Shared fetch: disables the button, surfaces errors, returns parsed JSON.
+async function _cabFetch(btn, btnId, statusId, method, url, body) {
+  const b = document.getElementById(btnId);
+  if (btn) btn.disabled = true;
+  if (b) b.disabled = true;
+  if (statusId) _cabText(statusId, 'Loading');
+  const err = document.getElementById('cab-error');
+  if (err) err.style.display = 'none';
+  try {
+    const resp = await call(method, url, body);
+    if (!resp.ok) {
+      let detail = 'HTTP ' + resp.status;
+      try { const j = await resp.json(); if (j && j.detail) detail = j.detail; } catch (e) { /* non-JSON */ }
+      throw new Error(detail);
+    }
+    const data = await resp.json();
+    if (statusId) _cabText(statusId, 'Loaded');
+    return data;
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : 'Could not load.';
+    const d = document.getElementById('cab-error-detail');
+    if (d) d.textContent = msg;
+    if (err) err.style.display = 'block';
+    if (statusId) _cabText(statusId, 'Error');
+    throw e;
+  } finally {
+    if (btn) btn.disabled = false;
+    if (b) b.disabled = false;
+  }
+}
+
+const _cabPositionCols = [
+  { key: 'source_rank', label: 'Rank' },
+  { key: 'ticker', label: 'Ticker' },
+  { key: 'sector', label: 'Sector' },
+  { key: 'target_weight', label: 'Weight' },
+  { key: 'entry_price', label: 'Entry' },
+  { key: 'signal_composite_sn', label: 'composite_sn' },
+  { key: 'order_action', label: 'Order action' },
+];
+
+function _cabRenderBook(book) {
+  const empty = document.getElementById('cab-book-empty');
+  const section = document.getElementById('cab-book-section');
+  if (!book) {
+    if (empty) empty.style.display = 'block';
+    if (section) section.style.display = 'none';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  if (section) section.style.display = 'block';
+  _cabText('cab-book-id', book.book_id);
+  _cabText('cab-book-alpha', book.alpha_name);
+  _cabText('cab-book-signal-date', book.signal_date);
+  _cabText('cab-book-size', book.book_size);
+  _cabText('cab-book-npos', book.n_positions);
+  _cabText('cab-book-priced', book.priced_count);
+  _cabText('cab-book-unpriced', book.unpriced_count);
+  _cabText('cab-book-state', book.status);
+  _cabText('cab-book-benchmark', (book.benchmark_status || {}).reference);
+  const t = document.getElementById('cab-positions-table');
+  if (t) t.innerHTML = _caoTable(Array.isArray(book.positions) ? book.positions : [], _cabPositionCols);
+}
+
+function renderActiveBook(data) {
+  data = data || {};
+  _cabStorePath(data);
+  _cabRenderBook(data.book || null);
+  _cabWarnings(data.warnings);
+}
+
+function renderBookActionResult(data) {
+  data = data || {};
+  _cabStorePath(data);
+  _cabRenderBook(data.book || null);
+  _cabWarnings(data.warnings);
+  const wrote = !!data.wrote_to_local_paper_store;
+  if (data.mode === 'COMMIT' && wrote) {
+    _cabActionResult('SAVED — paper book written to the local paper-tracking store (paper_book.json). No order, no broker, no automation.', true);
+  } else {
+    _cabActionResult('PREVIEW ONLY — nothing was written. This is the proposed paper book from the Phase 13-A package.', false);
+  }
+}
+
+function renderSnapshotResult(data) {
+  data = data || {};
+  _cabStorePath(data);
+  _cabWarnings(data.warnings);
+  if (data.status === 'NO_PAPER_BOOK_YET') {
+    _cabActionResult('No paper book saved yet — Save Paper Book first, then Snapshot Today.', false);
+    return;
+  }
+  const snap = data.snapshot || {};
+  const cov = snap.coverage || {};
+  const wrote = !!data.wrote_to_local_paper_store;
+  const summary = 'avg ' + _caoPct(snap.average_return_pct) + ' · covered ' + (cov.covered_count ?? '—') + '/' + (cov.total_count ?? '—') + ' · hit ' + ((snap.hit_rate_pct === null || snap.hit_rate_pct === undefined) ? '—' : snap.hit_rate_pct + '%');
+  if (data.mode === 'COMMIT' && wrote) {
+    _cabActionResult('SNAPSHOT WRITTEN to pnl_snapshots.json (' + summary + '). Paper-only; no order, no broker, no automation.', true);
+  } else {
+    _cabActionResult('SNAPSHOT PREVIEW — not written (' + summary + ').', false);
+  }
+}
+
+function _cabHistChart(series) {
+  const el = document.getElementById('cab-hist-chart');
+  if (!el) return;
+  if (!Array.isArray(series) || !series.length) {
+    el.innerHTML = '<div style="color:var(--text-accent);font-style:italic;">No snapshots.</div>';
+    return;
+  }
+  const vals = series.map(s => Number(s.average_return_pct)).filter(v => !isNaN(v));
+  const maxAbs = Math.max(1, ...vals.map(v => Math.abs(v)));
+  el.innerHTML = series.map(s => {
+    const v = Number(s.average_return_pct);
+    const has = !isNaN(v);
+    const width = has ? Math.min(100, Math.abs(v) / maxAbs * 100) : 0;
+    const color = !has ? 'var(--text-accent)' : (v >= 0 ? 'var(--positive,#2ecc71)' : 'var(--danger,#e74c3c)');
+    const label = s.snapshot_date || ('#' + s.sequence) || '';
+    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">'
+      + '<span class="mono" style="width:96px;font-size:10px;color:var(--text-accent);white-space:nowrap;">' + escapeHtml(String(label)) + '</span>'
+      + '<span style="flex:1;background:rgba(255,255,255,.05);border-radius:2px;height:12px;">'
+      + '<span style="display:block;height:12px;border-radius:2px;width:' + width + '%;background:' + color + ';"></span>'
+      + '</span>'
+      + '<span class="mono" style="width:64px;text-align:right;font-size:10px;color:var(--text-primary);">' + _caoPct(has ? v : null) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function _cabContribList(items) {
+  if (!Array.isArray(items) || !items.length) return '—';
+  return items.map(x => escapeHtml(x.ticker) + ' ' + _caoPct(x.mean_return_pct)).join('   ');
+}
+
+function renderPaperBookPnlHistory(data) {
+  data = data || {};
+  _cabStorePath(data);
+  _cabWarnings(data.warnings);
+  const empty = document.getElementById('cab-history-empty');
+  const section = document.getElementById('cab-history-section');
+  const series = Array.isArray(data.series) ? data.series : [];
+  if (data.status === 'NO_PAPER_BOOK_YET' || !series.length) {
+    if (empty) empty.style.display = 'block';
+    if (section) section.style.display = 'none';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  if (section) section.style.display = 'block';
+
+  _cabText('cab-hist-count', data.n_snapshots);
+  const latest = data.latest_snapshot || {};
+  _cabText('cab-hist-latest-avg', _caoPct(latest.average_return_pct));
+  const cov = latest.coverage || {};
+  _cabText('cab-hist-latest-cov', (cov.covered_count ?? '—') + '/' + (cov.total_count ?? '—'));
+  _cabText('cab-hist-benchmark', (data.benchmark_status || {}).reference);
+
+  _cabHistChart(series);
+
+  const cols = [
+    { key: 'snapshot_date', label: 'Date' },
+    { key: 'as_of_price_date', label: 'Price as-of' },
+    { key: 'average_return_pct', label: 'Avg %' },
+    { key: 'median_return_pct', label: 'Median %' },
+    { key: 'covered_count', label: 'Covered' },
+    { key: 'hit_rate_pct', label: 'Hit %' },
+  ];
+  const t = document.getElementById('cab-hist-table');
+  if (t) t.innerHTML = _caoTable(series, cols);
+
+  const best = document.getElementById('cab-hist-best');
+  if (best) best.innerHTML = _cabContribList(data.best_contributors_over_time);
+  const worst = document.getElementById('cab-hist-worst');
+  if (worst) worst.innerHTML = _cabContribList(data.worst_contributors_over_time);
+}
+
+async function loadActiveBook(btn) {
+  try {
+    const data = await _cabFetch(btn, 'cab-load-btn', 'cab-book-status', 'GET',
+      '/v1/research/current-alpha/book');
+    renderActiveBook(data);
+    _cabText('cab-book-status', data.status === 'ACTIVE_PAPER_BOOK' ? 'Active' : 'None saved');
+    window._alphaBookStatus.book = { loaded: true, status: data.status, error: null, last_loaded_at: _caoNow() };
+  } catch (e) {
+    window._alphaBookStatus.book.error = (e && e.message) ? e.message : String(e);
+  }
+}
+
+async function previewCreatePaperBook(btn) {
+  try {
+    const data = await _cabFetch(btn, 'cab-preview-btn', 'cab-book-status', 'POST',
+      '/v1/research/current-alpha/book/preview-create', { commit: false });
+    renderBookActionResult(data);
+    _cabText('cab-book-status', 'Preview');
+    window._alphaBookStatus.book = { loaded: true, status: data.mode, error: null, last_loaded_at: _caoNow() };
+  } catch (e) {
+    window._alphaBookStatus.book.error = (e && e.message) ? e.message : String(e);
+  }
+}
+
+async function savePaperBook(btn) {
+  try {
+    const data = await _cabFetch(btn, 'cab-save-btn', 'cab-book-status', 'POST',
+      '/v1/research/current-alpha/book/preview-create', { commit: true });
+    renderBookActionResult(data);
+    _cabText('cab-book-status', 'Saved');
+    window._alphaBookStatus.book = { loaded: true, status: data.action, error: null, last_loaded_at: _caoNow() };
+    // Refresh the persisted view from the store (read-only GET).
+    try { await loadActiveBook(null); } catch (e) { /* already surfaced */ }
+  } catch (e) {
+    window._alphaBookStatus.book.error = (e && e.message) ? e.message : String(e);
+  }
+}
+
+async function snapshotPaperBookToday(btn) {
+  try {
+    const data = await _cabFetch(btn, 'cab-snapshot-btn', 'cab-history-status', 'POST',
+      '/v1/research/current-alpha/book/snapshot-preview', { commit: true });
+    renderSnapshotResult(data);
+    _cabText('cab-history-status', data.action === 'SNAPSHOT_WRITTEN' ? 'Snapshot saved' : 'No book');
+    window._alphaBookStatus.history = { loaded: true, status: data.status, error: null, last_loaded_at: _caoNow() };
+    // Refresh the history view from the store (read-only GET).
+    try { await loadPaperBookPnlHistory(null); } catch (e) { /* already surfaced */ }
+  } catch (e) {
+    window._alphaBookStatus.history.error = (e && e.message) ? e.message : String(e);
+  }
+}
+
+async function loadPaperBookPnlHistory(btn) {
+  try {
+    const data = await _cabFetch(btn, 'cab-history-btn', 'cab-history-status', 'GET',
+      '/v1/research/current-alpha/book/pnl-history');
+    renderPaperBookPnlHistory(data);
+    _cabText('cab-history-status', (data.n_snapshots ? data.n_snapshots + ' snapshots' : 'None'));
+    window._alphaBookStatus.history = { loaded: true, status: data.status, error: null, last_loaded_at: _caoNow() };
+  } catch (e) {
+    window._alphaBookStatus.history.error = (e && e.message) ? e.message : String(e);
+  }
+}
+// ===== Current Alpha Paper Book (Phase 13-F) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 

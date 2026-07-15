@@ -28693,6 +28693,125 @@ class TestUiDailyAlphaOperationsPanelContent:
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", region)) == 0
 
 
+class TestUiCurrentAlphaPaperBookPanelContent:
+    """Phase 13-F: the "Current Alpha Paper Book" panel in index.html.
+
+    Static-content assertions over api/ui/index.html — no HTTP needed. Verify the
+    panel markup, the five buttons, the extended safety language, the active-book
+    and PnL-history display surfaces, the render / loader functions, and that the
+    panel POSTs only to the two book write endpoints (preview-create /
+    snapshot-preview) and GETs the two read endpoints — never posting to orders /
+    signals / decisions, and using no alert()/confirm().
+    """
+
+    _START = "Current Alpha Paper Book (Phase 13-F) START"
+    _END = "Current Alpha Paper Book (Phase 13-F) END"
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    @classmethod
+    def _markup(cls) -> str:
+        html = cls._read_html()
+        start = html.index('id="cab-panel"')
+        end = html.index(cls._END, start)
+        return html[start:end]
+
+    @classmethod
+    def _js(cls) -> str:
+        html = cls._read_html()
+        start = html.index("// ===== " + cls._START)
+        end = html.index("// ===== " + cls._END)
+        return html[start:end]
+
+    @classmethod
+    def _js_norm(cls) -> str:
+        import re
+        return re.sub(r"\s+", " ", cls._js())
+
+    def test_panel_present(self) -> None:
+        html = self._read_html()
+        assert 'id="cab-panel"' in html
+        assert "Current Alpha Paper Book" in html
+
+    def test_five_buttons_present(self) -> None:
+        markup = self._markup()
+        for bid in ("cab-load-btn", "cab-preview-btn", "cab-save-btn",
+                    "cab-snapshot-btn", "cab-history-btn"):
+            assert f'id="{bid}"' in markup, f"missing button: {bid}"
+        for label in ("Load Active Book", "Preview Create Paper Book", "Save Paper Book",
+                      "Snapshot Today", "Load PnL History"):
+            assert label in markup, f"missing button label: {label}"
+
+    def test_required_safety_language_present(self) -> None:
+        markup = self._markup()
+        for phrase in (
+            "PREVIEW ONLY", "PAPER TEST ONLY", "NO ORDERS", "NO BROKER",
+            "NO AUTOMATION", "MANUAL REVIEW ONLY", "DOES NOT CREATE SIGNALS",
+            "DOES NOT CREATE TRADE DECISIONS", "DOES NOT EXECUTE TRADES",
+        ):
+            assert phrase in markup, f"missing required safety language: {phrase}"
+        assert "local paper-tracking JSON store" in markup
+
+    def test_display_fields_present(self) -> None:
+        markup = self._markup()
+        for el_id in ("cab-book-id", "cab-book-npos", "cab-positions-table",
+                      "cab-hist-count", "cab-hist-chart", "cab-hist-table",
+                      "cab-hist-best", "cab-hist-worst", "cab-store-path",
+                      "cab-warnings", "cab-action-result"):
+            assert f'id="{el_id}"' in markup, f"missing display field: {el_id}"
+
+    def test_reads_are_get_writes_are_post(self) -> None:
+        norm = self._js_norm()
+        # Reads use GET.
+        assert "'GET', '/v1/research/current-alpha/book');" in norm
+        assert "'GET', '/v1/research/current-alpha/book/pnl-history');" in norm
+        # Writes use POST with an explicit commit flag.
+        assert "'POST', '/v1/research/current-alpha/book/preview-create', { commit: false }" in norm
+        assert "'POST', '/v1/research/current-alpha/book/preview-create', { commit: true }" in norm
+        assert "'POST', '/v1/research/current-alpha/book/snapshot-preview', { commit: true }" in norm
+        # The read endpoints are never POSTed.
+        assert "'POST', '/v1/research/current-alpha/book');" not in norm
+        assert "'POST', '/v1/research/current-alpha/book/pnl-history')" not in norm
+
+    def test_no_forbidden_action_surface(self) -> None:
+        region = (self._markup() + "\n" + self._js()).lower()
+        for needle in ("create order", "createorder", "submitorder", "submitsignal",
+                       "createdecision", "create decision", "place_order",
+                       "/v1/orders", "/v1/signals", "/v1/decisions"):
+            assert needle not in region, f"panel introduces forbidden surface: {needle!r}"
+
+    def test_no_automation_or_prediction_call(self) -> None:
+        region = (self._markup() + "\n" + self._js()).lower()
+        for needle in ("enable_automation", "automation_on", "fetch_predictions",
+                       "prediction_client", "/v1/predict"):
+            assert needle not in region, f"panel references forbidden call: {needle!r}"
+
+    def test_render_and_loader_functions_defined(self) -> None:
+        html = self._read_html()
+        for fn in ("function loadActiveBook(", "function previewCreatePaperBook(",
+                   "function savePaperBook(", "function snapshotPaperBookToday(",
+                   "function loadPaperBookPnlHistory(", "function renderActiveBook(",
+                   "function renderBookActionResult(", "function renderSnapshotResult(",
+                   "function renderPaperBookPnlHistory("):
+            assert fn in html, f"missing JS function: {fn}"
+
+    def test_diagnostics_object_exposed(self) -> None:
+        js = self._js()
+        assert "window._alphaBookStatus" in js
+        for key in ("book", "history"):
+            assert key in js, f"diagnostics object missing key: {key}"
+
+    def test_no_alert_or_confirm(self) -> None:
+        import re
+        region = self._markup() + "\n" + self._js()
+        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", region)) == 0
+        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", region)) == 0
+
+
 class TestUiDailyPlanSignalActionsContent:
     """Verify Signal Actions card and wiring are present in index.html."""
 
