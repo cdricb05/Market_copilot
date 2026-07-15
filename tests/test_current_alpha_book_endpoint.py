@@ -24,7 +24,29 @@ from fastapi.testclient import TestClient
 from paper_trader.api.app import app
 from paper_trader.config import get_settings
 
-from tests.test_current_alpha_operations import _write_ops_fixture
+from tests.test_current_alpha_operations import (
+    _PORTFOLIO_COLS,
+    _prow,
+    _write_ops_fixture,
+)
+
+
+def _distinct_top50_csv() -> str:
+    """A TOP 50 portfolio with tickers disjoint from the TOP 25 AAA..DDD set."""
+    header = ",".join(_PORTFOLIO_COLS)
+    rows = [
+        _prow(ticker="EEE", side="LONG", target_weight=0.02, sector="Health Care",
+              signal_composite_sn=7.0, signal_date="2026-05-22", price_source="EODHD",
+              entry_reference_date="2026-05-22", entry_price=100, current_price=120,
+              current_price_date="2026-06-26", paper_return_pct=20.0, price_status="MARKED",
+              order_action="NO_ORDER", review_status="PAPER_REVIEW_ONLY"),
+        _prow(ticker="FFF", side="LONG", target_weight=0.02, sector="Unknown",
+              signal_composite_sn=6.0, signal_date="2026-05-22", price_source="EODHD",
+              entry_reference_date="2026-05-22", entry_price=50, current_price=46,
+              current_price_date="2026-06-26", paper_return_pct=-8.0, price_status="MARKED",
+              order_action="NO_ORDER", review_status="PAPER_REVIEW_ONLY"),
+    ]
+    return header + "\n" + "\n".join(rows) + "\n"
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _APP_PATH = _REPO_ROOT / "api" / "app.py"
@@ -143,6 +165,67 @@ def test_pnl_history_after_snapshot(client: TestClient, env: Path) -> None:
     assert hist["status"] == "PNL_HISTORY_READY"
     assert hist["n_snapshots"] == 1
     assert hist["series"][0]["average_return_pct"] == pytest.approx(4.0)
+    assert hist["series"][0]["as_of_price_date"] == "2026-06-26"
+    assert "selected_book_id" in hist and "available_book_ids" in hist
+    assert hist["excluded_snapshot_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# ISSUE 1 (route) — stale-mark de-duplication
+# ---------------------------------------------------------------------------
+
+def test_snapshot_dedup_same_price_date(client: TestClient, env: Path) -> None:
+    client.post(_CREATE, headers=_AUTH, json={"commit": True})
+    first = client.post(_SNAPSHOT, headers=_AUTH, json={"commit": True}).json()
+    assert first["action"] == "SNAPSHOT_WRITTEN"
+    second = client.post(_SNAPSHOT, headers=_AUTH, json={"commit": True}).json()
+    assert second["action"] == "SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE"
+    assert second["wrote_to_local_paper_store"] is False
+    hist = client.get(_HISTORY, headers=_AUTH).json()
+    assert hist["n_snapshots"] == 1
+
+
+def test_snapshot_reports_freshness_fields(client: TestClient, env: Path) -> None:
+    client.post(_CREATE, headers=_AUTH, json={"commit": True})
+    body = client.post(_SNAPSHOT, headers=_AUTH, json={"commit": True}).json()
+    assert body["as_of_price_date"] == "2026-06-26"
+    assert body["observation_date"] != body["as_of_price_date"]
+    assert body["mark_freshness_status"] in {
+        "FRESH_MARK", "STALE_MARK_WARNING", "STALE_MARK_REJECT", "UNKNOWN_MARK_AGE"}
+
+
+# ---------------------------------------------------------------------------
+# ISSUE 2 (route) — TOP 25 / TOP 50 history isolation via ?book_size=
+# ---------------------------------------------------------------------------
+
+def test_pnl_history_book_size_isolation(client: TestClient, tmp_path: Path, monkeypatch) -> None:
+    pkg = _write_ops_fixture(tmp_path / "pkg")
+    (pkg / "current_alpha_paper_portfolio_top50.csv").write_text(
+        _distinct_top50_csv(), encoding="utf-8")
+    store = tmp_path / "store"
+    monkeypatch.setenv("PAPER_TRADER_CURRENT_ALPHA_PACKAGE_DIR", str(pkg))
+    monkeypatch.setenv("PAPER_TRADER_CURRENT_ALPHA_BOOK_DIR", str(store))
+
+    client.post(_CREATE, headers=_AUTH, json={"commit": True, "book_size": 25})
+    client.post(_SNAPSHOT, headers=_AUTH, json={"commit": True})
+    client.post(_CREATE, headers=_AUTH, json={"commit": True, "book_size": 50})
+    client.post(_SNAPSHOT, headers=_AUTH, json={"commit": True})
+
+    h25 = client.get(_HISTORY + "?book_size=25", headers=_AUTH).json()
+    assert h25["n_snapshots"] == 1
+    assert "top25" in h25["selected_book_id"]
+    assert h25["excluded_snapshot_count"] == 1
+    assert all("top25" in s["book_id"] for s in h25["series"])
+
+    h50 = client.get(_HISTORY + "?book_size=50", headers=_AUTH).json()
+    assert h50["n_snapshots"] == 1
+    assert "top50" in h50["selected_book_id"]
+    assert h50["excluded_snapshot_count"] == 1
+    assert all("top50" in s["book_id"] for s in h50["series"])
+    # Both books persist; saving TOP 50 did not discard TOP 25.
+    book = client.get(_BOOK, headers=_AUTH).json()
+    ids = book["available_book_ids"]
+    assert any("top25" in i for i in ids) and any("top50" in i for i in ids)
 
 
 # ---------------------------------------------------------------------------

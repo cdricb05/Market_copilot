@@ -3967,6 +3967,20 @@
             Persistent paper book. Save and Snapshot write ONLY to a local paper-tracking JSON store. No orders. No broker. No automation. This does not create signals, does not create trade decisions, and does not execute trades. No Paper Trader database writes. Manual review only — a paper test, not live trading.
           </div>
 
+          <!-- Book selection: TOP 25 and TOP 50 coexist as distinct persistent books;
+               saving one never discards the other, and PnL history is isolated per book. -->
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;">
+            <label style="color:var(--text-accent);font-weight:600;">Book size:
+              <select id="cab-book-size-select" onchange="onCabBookSizeChange()" style="margin-left:6px;font-size:11px;padding:2px 6px;">
+                <option value="25">TOP 25</option>
+                <option value="50">TOP 50</option>
+              </select>
+            </label>
+            <span style="color:var(--text-accent);">Selected book: <span id="cab-selected-book" class="mono" style="color:var(--text-primary);font-weight:700;">TOP 25</span></span>
+            <span style="color:var(--text-accent);">Snapshots (this book only): <span id="cab-selected-snap-count" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></span>
+            <span style="color:var(--text-accent);">Available books: <span id="cab-available-books" class="mono" style="color:var(--text-primary);">—</span></span>
+          </div>
+
           <!-- Buttons (Load Active Book + the four workflow actions) -->
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
             <button class="btn-sm" id="cab-load-btn" onclick="loadActiveBook(this)">Load Active Book</button>
@@ -4000,7 +4014,8 @@
                   Book: <span id="cab-book-id" style="color:var(--text-primary);font-weight:700;">—</span><br>
                   Alpha: <span id="cab-book-alpha" style="color:var(--text-primary);">—</span> ·
                   Signal date: <span id="cab-book-signal-date" style="color:var(--text-primary);">—</span> ·
-                  Size: <span id="cab-book-size" style="color:var(--text-primary);">—</span><br>
+                  Size: <span id="cab-book-size" style="color:var(--text-primary);">—</span> ·
+                  Price mark date: <span id="cab-book-price-date" style="color:var(--text-primary);">—</span><br>
                   Positions: <span id="cab-book-npos" style="color:var(--text-primary);">—</span> ·
                   Priced: <span id="cab-book-priced" style="color:var(--text-primary);">—</span> ·
                   Unpriced: <span id="cab-book-unpriced" style="color:var(--text-primary);">—</span> ·
@@ -4020,12 +4035,17 @@
               <div id="cab-history-empty" style="font-size:11px;color:var(--text-accent);font-style:italic;">No snapshots yet. Save a book, then Snapshot Today to begin building history.</div>
               <div id="cab-history-section" style="display:none;">
                 <div class="mono" style="font-size:11px;color:var(--text-accent);line-height:1.7;margin-bottom:6px;">
-                  Snapshots: <span id="cab-hist-count" style="color:var(--text-primary);font-weight:700;">—</span> ·
+                  Book: <span id="cab-hist-book-id" style="color:var(--text-primary);font-weight:700;">—</span> ·
+                  Excluded (other books): <span id="cab-hist-excluded" style="color:var(--text-primary);">—</span><br>
+                  Snapshots (this book only): <span id="cab-hist-count" style="color:var(--text-primary);font-weight:700;">—</span> ·
                   Latest avg: <span id="cab-hist-latest-avg" style="color:var(--text-primary);font-weight:700;">—</span> ·
                   Latest coverage: <span id="cab-hist-latest-cov" style="color:var(--text-primary);">—</span><br>
+                  Price mark date: <span id="cab-hist-price-date" style="color:var(--text-primary);font-weight:700;">—</span> ·
+                  Observed at: <span id="cab-hist-observed" style="color:var(--text-primary);">—</span> ·
+                  Mark freshness: <span id="cab-hist-freshness" style="color:var(--text-primary);font-weight:700;">—</span><br>
                   Benchmark: <span id="cab-hist-benchmark" style="color:var(--text-primary);">—</span>
                 </div>
-                <div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:2px;">Avg paper return per snapshot</div>
+                <div style="font-size:11px;font-weight:600;color:var(--text-primary);margin-bottom:2px;">Avg paper return per price-mark date (x-axis = owned price date, not observation date)</div>
                 <div id="cab-hist-chart" style="margin-bottom:8px;"></div>
                 <details style="margin-bottom:4px;" open>
                   <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--text-primary);">Snapshot series</summary>
@@ -5883,6 +5903,21 @@ window._alphaBookStatus = {
   history: { loaded: false, status: null, error: null, last_loaded_at: null },
 };
 
+// TOP 25 / TOP 50 selection. TOP 25 and TOP 50 are distinct persistent books;
+// the selector governs Preview / Save (which book to create + make active) and
+// which book's PnL history is shown. PnL history is never combined across sizes.
+function _cabSelectedBookSize() {
+  const sel = document.getElementById('cab-book-size-select');
+  const v = sel ? parseInt(sel.value, 10) : 25;
+  return (v === 50) ? 50 : 25;
+}
+
+function onCabBookSizeChange() {
+  _cabText('cab-selected-book', 'TOP ' + _cabSelectedBookSize());
+  // Refresh the isolated history view for the newly selected book size.
+  try { loadPaperBookPnlHistory(null); } catch (e) { /* surfaced by fetch */ }
+}
+
 function _cabText(id, value) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -5971,6 +6006,7 @@ function _cabRenderBook(book) {
   _cabText('cab-book-alpha', book.alpha_name);
   _cabText('cab-book-signal-date', book.signal_date);
   _cabText('cab-book-size', book.book_size);
+  _cabText('cab-book-price-date', book.package_date);
   _cabText('cab-book-npos', book.n_positions);
   _cabText('cab-book-priced', book.priced_count);
   _cabText('cab-book-unpriced', book.unpriced_count);
@@ -5980,10 +6016,21 @@ function _cabRenderBook(book) {
   if (t) t.innerHTML = _caoTable(Array.isArray(book.positions) ? book.positions : [], _cabPositionCols);
 }
 
+// Selection summary: available books, active book's per-book snapshot count.
+function _cabRenderSelectionSummary(data) {
+  data = data || {};
+  const avail = Array.isArray(data.available_book_ids) ? data.available_book_ids : [];
+  _cabText('cab-available-books', avail.length ? avail.join(', ') : 'none');
+  if (data.n_snapshots !== undefined && data.n_snapshots !== null) {
+    _cabText('cab-selected-snap-count', data.n_snapshots);
+  }
+}
+
 function renderActiveBook(data) {
   data = data || {};
   _cabStorePath(data);
   _cabRenderBook(data.book || null);
+  _cabRenderSelectionSummary(data);
   _cabWarnings(data.warnings);
 }
 
@@ -5991,13 +6038,20 @@ function renderBookActionResult(data) {
   data = data || {};
   _cabStorePath(data);
   _cabRenderBook(data.book || null);
+  _cabRenderSelectionSummary(data);
   _cabWarnings(data.warnings);
   const wrote = !!data.wrote_to_local_paper_store;
   if (data.mode === 'COMMIT' && wrote) {
-    _cabActionResult('SAVED — paper book written to the local paper-tracking store (paper_book.json). No order, no broker, no automation.', true);
+    _cabActionResult('SAVED — paper book written to the local paper-tracking store (paper_books.json + legacy paper_book.json mirror). No order, no broker, no automation. TOP 25 and TOP 50 coexist.', true);
   } else {
     _cabActionResult('PREVIEW ONLY — nothing was written. This is the proposed paper book from the Phase 13-A package.', false);
   }
+}
+
+function _cabFreshnessLabel(status, ageDays) {
+  if (!status) return '—';
+  const age = (ageDays === null || ageDays === undefined) ? '' : (' (' + ageDays + 'd old)');
+  return String(status) + age;
 }
 
 function renderSnapshotResult(data) {
@@ -6011,11 +6065,15 @@ function renderSnapshotResult(data) {
   const snap = data.snapshot || {};
   const cov = snap.coverage || {};
   const wrote = !!data.wrote_to_local_paper_store;
+  const fresh = _cabFreshnessLabel(data.mark_freshness_status, data.mark_age_calendar_days);
+  const dates = ' · price mark ' + (data.as_of_price_date || '—') + ' · observed ' + (data.observation_date || '—') + ' · ' + fresh;
   const summary = 'avg ' + _caoPct(snap.average_return_pct) + ' · covered ' + (cov.covered_count ?? '—') + '/' + (cov.total_count ?? '—') + ' · hit ' + ((snap.hit_rate_pct === null || snap.hit_rate_pct === undefined) ? '—' : snap.hit_rate_pct + '%');
-  if (data.mode === 'COMMIT' && wrote) {
-    _cabActionResult('SNAPSHOT WRITTEN to pnl_snapshots.json (' + summary + '). Paper-only; no order, no broker, no automation.', true);
+  if (data.action === 'SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE') {
+    _cabActionResult('NO NEW PRICE DATE — SNAPSHOT NOT ADDED. Daily PnL was not advanced (price mark ' + (data.as_of_price_date || '—') + ' already captured). No fake daily observation is created.', false);
+  } else if (data.mode === 'COMMIT' && wrote) {
+    _cabActionResult('SNAPSHOT WRITTEN to pnl_snapshots.json (' + summary + dates + '). Paper-only; no order, no broker, no automation.', true);
   } else {
-    _cabActionResult('SNAPSHOT PREVIEW — not written (' + summary + ').', false);
+    _cabActionResult('SNAPSHOT PREVIEW — not written (' + summary + dates + ').', false);
   }
 }
 
@@ -6033,7 +6091,8 @@ function _cabHistChart(series) {
     const has = !isNaN(v);
     const width = has ? Math.min(100, Math.abs(v) / maxAbs * 100) : 0;
     const color = !has ? 'var(--text-accent)' : (v >= 0 ? 'var(--positive,#2ecc71)' : 'var(--danger,#e74c3c)');
-    const label = s.snapshot_date || ('#' + s.sequence) || '';
+    // Financial x-axis = owned price-mark date, so a stale mark is never plotted as "today".
+    const label = s.as_of_price_date || s.snapshot_date || ('#' + s.sequence) || '';
     return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">'
       + '<span class="mono" style="width:96px;font-size:10px;color:var(--text-accent);white-space:nowrap;">' + escapeHtml(String(label)) + '</span>'
       + '<span style="flex:1;background:rgba(255,255,255,.05);border-radius:2px;height:12px;">'
@@ -6065,17 +6124,24 @@ function renderPaperBookPnlHistory(data) {
   if (section) section.style.display = 'block';
 
   _cabText('cab-hist-count', data.n_snapshots);
+  _cabText('cab-hist-book-id', data.selected_book_id);
+  _cabText('cab-hist-excluded', data.excluded_snapshot_count);
   const latest = data.latest_snapshot || {};
   _cabText('cab-hist-latest-avg', _caoPct(latest.average_return_pct));
   const cov = latest.coverage || {};
   _cabText('cab-hist-latest-cov', (cov.covered_count ?? '—') + '/' + (cov.total_count ?? '—'));
+  _cabText('cab-hist-price-date', latest.as_of_price_date);
+  _cabText('cab-hist-observed', latest.observation_date || latest.snapshot_date);
+  _cabText('cab-hist-freshness', _cabFreshnessLabel(latest.mark_freshness_status, latest.mark_age_calendar_days));
   _cabText('cab-hist-benchmark', (data.benchmark_status || {}).reference);
+  _cabRenderSelectionSummary(data);
 
   _cabHistChart(series);
 
   const cols = [
-    { key: 'snapshot_date', label: 'Date' },
-    { key: 'as_of_price_date', label: 'Price as-of' },
+    { key: 'as_of_price_date', label: 'Price mark date' },
+    { key: 'observation_date', label: 'Observed at' },
+    { key: 'mark_freshness_status', label: 'Mark freshness' },
     { key: 'average_return_pct', label: 'Avg %' },
     { key: 'median_return_pct', label: 'Median %' },
     { key: 'covered_count', label: 'Covered' },
@@ -6105,7 +6171,7 @@ async function loadActiveBook(btn) {
 async function previewCreatePaperBook(btn) {
   try {
     const data = await _cabFetch(btn, 'cab-preview-btn', 'cab-book-status', 'POST',
-      '/v1/research/current-alpha/book/preview-create', { commit: false });
+      '/v1/research/current-alpha/book/preview-create', { commit: false, book_size: _cabSelectedBookSize() });
     renderBookActionResult(data);
     _cabText('cab-book-status', 'Preview');
     window._alphaBookStatus.book = { loaded: true, status: data.mode, error: null, last_loaded_at: _caoNow() };
@@ -6117,12 +6183,13 @@ async function previewCreatePaperBook(btn) {
 async function savePaperBook(btn) {
   try {
     const data = await _cabFetch(btn, 'cab-save-btn', 'cab-book-status', 'POST',
-      '/v1/research/current-alpha/book/preview-create', { commit: true });
+      '/v1/research/current-alpha/book/preview-create', { commit: true, book_size: _cabSelectedBookSize() });
     renderBookActionResult(data);
     _cabText('cab-book-status', 'Saved');
     window._alphaBookStatus.book = { loaded: true, status: data.action, error: null, last_loaded_at: _caoNow() };
-    // Refresh the persisted view from the store (read-only GET).
+    // Refresh the persisted view + the isolated history for the saved book.
     try { await loadActiveBook(null); } catch (e) { /* already surfaced */ }
+    try { await loadPaperBookPnlHistory(null); } catch (e) { /* already surfaced */ }
   } catch (e) {
     window._alphaBookStatus.book.error = (e && e.message) ? e.message : String(e);
   }
@@ -6144,8 +6211,9 @@ async function snapshotPaperBookToday(btn) {
 
 async function loadPaperBookPnlHistory(btn) {
   try {
+    // Isolate history to the selected book size — TOP 25 and TOP 50 are never combined.
     const data = await _cabFetch(btn, 'cab-history-btn', 'cab-history-status', 'GET',
-      '/v1/research/current-alpha/book/pnl-history');
+      '/v1/research/current-alpha/book/pnl-history?book_size=' + _cabSelectedBookSize());
     renderPaperBookPnlHistory(data);
     _cabText('cab-history-status', (data.n_snapshots ? data.n_snapshots + ' snapshots' : 'None'));
     window._alphaBookStatus.history = { loaded: true, status: data.status, error: null, last_loaded_at: _caoNow() };

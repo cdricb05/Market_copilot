@@ -4223,18 +4223,24 @@ def research_current_alpha_book_preview_create(
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(_verify_api_key)],
 )
-def research_current_alpha_book_pnl_history() -> dict:
+def research_current_alpha_book_pnl_history(
+    book_id: str | None = None,
+    book_size: int | None = None,
+) -> dict:
     """
     Read-only Phase 13-F paper-book PnL history over time.
 
     Requires a valid X-API-Key header. Returns the recorded paper PnL snapshot
     series (average / median return, coverage, hit rate per snapshot), the latest
     snapshot, best / worst contributors over time, and benchmark status — or a
-    NO_PAPER_BOOK_YET status if nothing has been recorded. Reads only the local
-    JSON store: no database rows, no orders / signals / trade decisions, no
-    automation, no broker, no prediction / provider call. Never a stack trace.
+    NO_PAPER_BOOK_YET status if nothing has been recorded. History is always
+    isolated to a single paper book: the active book by default, or the one named
+    by the optional ``book_id`` / ``book_size`` query parameters, so TOP 25 and
+    TOP 50 series are never combined. Reads only the local JSON store: no database
+    rows, no orders / signals / trade decisions, no automation, no broker, no
+    prediction / provider call. Never a stack trace.
     """
-    return load_current_alpha_pnl_history()
+    return load_current_alpha_pnl_history(book_id=book_id, book_size=book_size)
 
 
 @app.post(

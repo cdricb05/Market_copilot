@@ -28766,16 +28766,42 @@ class TestUiCurrentAlphaPaperBookPanelContent:
 
     def test_reads_are_get_writes_are_post(self) -> None:
         norm = self._js_norm()
-        # Reads use GET.
+        # Reads use GET. History is isolated per book via a book_size query param.
         assert "'GET', '/v1/research/current-alpha/book');" in norm
-        assert "'GET', '/v1/research/current-alpha/book/pnl-history');" in norm
-        # Writes use POST with an explicit commit flag.
-        assert "'POST', '/v1/research/current-alpha/book/preview-create', { commit: false }" in norm
-        assert "'POST', '/v1/research/current-alpha/book/preview-create', { commit: true }" in norm
+        assert "'GET', '/v1/research/current-alpha/book/pnl-history?book_size='" in norm
+        # Writes use POST with an explicit commit flag + the selected book size.
+        assert "'POST', '/v1/research/current-alpha/book/preview-create', { commit: false, book_size:" in norm
+        assert "'POST', '/v1/research/current-alpha/book/preview-create', { commit: true, book_size:" in norm
         assert "'POST', '/v1/research/current-alpha/book/snapshot-preview', { commit: true }" in norm
         # The read endpoints are never POSTed.
         assert "'POST', '/v1/research/current-alpha/book');" not in norm
-        assert "'POST', '/v1/research/current-alpha/book/pnl-history')" not in norm
+        assert "'POST', '/v1/research/current-alpha/book/pnl-history" not in norm
+
+    def test_book_size_selection_present(self) -> None:
+        markup = self._markup()
+        # Explicit TOP 25 / TOP 50 choice.
+        assert 'id="cab-book-size-select"' in markup
+        assert "TOP 25" in markup and "TOP 50" in markup
+        js = self._js()
+        assert "function _cabSelectedBookSize(" in js
+        assert "function onCabBookSizeChange(" in js
+
+    def test_price_mark_and_freshness_surfaces_present(self) -> None:
+        markup = self._markup()
+        # Requirement #9: price mark date + mark freshness are explicitly shown,
+        # separate from the observation date.
+        for phrase in ("Price mark date", "Observed at", "Mark freshness"):
+            assert phrase in markup, f"missing freshness surface: {phrase}"
+        for el_id in ("cab-book-price-date", "cab-hist-price-date", "cab-hist-observed",
+                      "cab-hist-freshness", "cab-hist-book-id", "cab-hist-excluded",
+                      "cab-selected-book", "cab-selected-snap-count", "cab-available-books"):
+            assert f'id="{el_id}"' in markup, f"missing freshness/selection field: {el_id}"
+
+    def test_stale_snapshot_skip_messaging_present(self) -> None:
+        js = self._js()
+        # The skip path must say a new snapshot was NOT added (no fake daily curve).
+        assert "NO NEW PRICE DATE" in js
+        assert "SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE" in js
 
     def test_no_forbidden_action_surface(self) -> None:
         region = (self._markup() + "\n" + self._js()).lower()
