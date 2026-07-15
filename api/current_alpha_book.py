@@ -86,6 +86,15 @@ BOOKS_FILE = "paper_books.json"      # authoritative multi-book store
 BOOK_FILE = "paper_book.json"        # legacy single-book mirror (back-compat read)
 SNAPSHOTS_FILE = "pnl_snapshots.json"
 
+#: Phase 13-G daily EOD mark artifact (written OUTSIDE the git tree by the research
+#: daily-refresh runner). When a fresh artifact is present it is the PREFERRED mark
+#: source; otherwise the snapshot falls back to the (older) Phase 13-A package marks
+#: and honestly labels the snapshot PHASE13A_STALE_FALLBACK.
+DAILY_MARK_DIR_ENV = "PAPER_TRADER_CURRENT_ALPHA_DAILY_MARK_DIR"
+DEFAULT_DAILY_MARK_DIR = Path("D:/Stock_Prediction_app_data/phase13g_daily_alpha_marks")
+MARK_SOURCE_DAILY = "PHASE13G_DAILY_REFRESH"
+MARK_SOURCE_FALLBACK = "PHASE13A_STALE_FALLBACK"
+
 #: Portfolio side-cars in the Phase 13-A package (source of positions + marks).
 _PORTFOLIO_TOP25 = "current_alpha_paper_portfolio_top25.csv"
 _PORTFOLIO_TOP50 = "current_alpha_paper_portfolio_top50.csv"
@@ -363,6 +372,100 @@ def _read_snapshots(book_dir: Path) -> tuple[list[dict[str, Any]], Optional[str]
     if not isinstance(data, list):
         return [], None
     return [r for r in data if isinstance(r, dict)], None
+
+
+# ---------------------------------------------------------------------------
+# Book selection + Phase 13-G daily-mark resolver (read-only)
+# ---------------------------------------------------------------------------
+
+def _select_book(
+    store: dict[str, Any],
+    *,
+    book_id: Optional[str] = None,
+    book_size: Optional[int] = None,
+) -> Optional[dict[str, Any]]:
+    """Pick which saved book a snapshot marks. Priority: explicit book_id >
+    explicit book_size > the active book. Lets TOP 25 and TOP 50 be marked
+    independently without toggling the active book."""
+    books = store.get("books") or {}
+    if book_id and book_id in books:
+        return books[book_id]
+    size: Optional[int] = None
+    if book_size is not None:
+        try:
+            size = int(book_size)
+        except (TypeError, ValueError):
+            size = None
+    if size in BOOK_SIZES:
+        active = store.get("active_book_id")
+        active_book = books.get(active) if active else None
+        if isinstance(active_book, dict) and int(active_book.get("book_size") or 0) == size:
+            return active_book
+        for candidate in books.values():
+            if int((candidate or {}).get("book_size") or 0) == size:
+                return candidate
+        return None
+    return _active_book(store)
+
+
+def _resolve_daily_mark_dir(daily_mark_dir: Optional[Union[str, Path]]) -> Path:
+    if daily_mark_dir is not None:
+        return Path(daily_mark_dir)
+    env_value = os.environ.get(DAILY_MARK_DIR_ENV)
+    if env_value:
+        return Path(env_value)
+    return DEFAULT_DAILY_MARK_DIR
+
+
+def _load_daily_marks(
+    book: dict[str, Any],
+    daily_mark_dir: Optional[Union[str, Path]] = None,
+) -> Optional[dict[str, Any]]:
+    """Load the preferred Phase 13-G daily EOD mark bundle for this book (read-only).
+
+    Returns a bundle only when a fresh daily artifact exists AND matches this book's
+    alpha + signal date (so a snapshot of a different / synthetic book never picks up
+    an unrelated daily mark). Otherwise returns None and the caller falls back to the
+    Phase 13-A package marks (labelled PHASE13A_STALE_FALLBACK).
+    """
+    mark_dir = _resolve_daily_mark_dir(daily_mark_dir)
+    manifest, _merr = _read_json_file(mark_dir / "latest" / "refresh_manifest.json")
+    marks_doc, _derr = _read_json_file(mark_dir / "latest" / "daily_alpha_marks.json")
+    if not isinstance(manifest, dict) or not isinstance(marks_doc, dict):
+        return None
+    if manifest.get("alpha_name") != book.get("alpha_name"):
+        return None
+    if manifest.get("signal_date") != book.get("signal_date"):
+        return None
+    mark_date = manifest.get("mark_date")
+    if not mark_date:  # blocked / never-marked artifacts carry no mark date
+        return None
+    marks: dict[str, dict[str, Any]] = {}
+    for row in marks_doc.get("marks", []):
+        if not isinstance(row, dict):
+            continue
+        ticker = row.get("ticker")
+        if not ticker:
+            continue
+        marks[ticker] = {
+            "current_price": row.get("latest_adjusted_close"),
+            "current_price_date": row.get("latest_completed_eod_date"),
+            "paper_return_pct": row.get("paper_return_pct"),
+            "price_status": row.get("price_status"),
+        }
+    summaries, _serr = _read_json_file(mark_dir / "latest" / "book_summaries.json")
+    book_size = int(book.get("book_size") or DEFAULT_BOOK_SIZE)
+    book_summary = None
+    if isinstance(summaries, dict):
+        book_summary = summaries.get("top25" if book_size == 25 else "top50")
+    return {
+        "mark_date": mark_date,
+        "marks": marks,
+        "benchmark": marks_doc.get("benchmark"),
+        "book_summary": book_summary,
+        "source": MARK_SOURCE_DAILY,
+        "mark_dir": str(mark_dir),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -699,8 +802,18 @@ def _build_snapshot(
     observation_date: str,
     mark_age: Optional[int],
     mark_freshness: str,
+    price_source: str = "EODHD_LOCAL_EOD(adjusted_close)",
+    mark_source: str = MARK_SOURCE_FALLBACK,
+    mark_method: str = "package paper_return_pct from owned local EOD; no live market call",
+    benchmark: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     book_id = book.get("book_id")
+    spy_return = None
+    if isinstance(benchmark, dict):
+        spy_return = benchmark.get("return_since_signal_pct")
+    avg = summary["average_return_pct"]
+    excess = (_round(avg - spy_return, 4)
+              if (avg is not None and isinstance(spy_return, (int, float))) else None)
     return {
         "snapshot_id": f"{book_id}#{as_of_price_date or 'no-date'}",
         "sequence": sequence,
@@ -714,12 +827,13 @@ def _build_snapshot(
         "as_of_price_date": as_of_price_date,
         "mark_age_calendar_days": mark_age,
         "mark_freshness_status": mark_freshness,
+        "mark_source": mark_source,
         "coverage": {
             "covered_count": summary["covered_count"],
             "missing_count": summary["missing_count"],
             "total_count": summary["total_count"],
         },
-        "average_return_pct": summary["average_return_pct"],
+        "average_return_pct": avg,
         "median_return_pct": summary["median_return_pct"],
         "hit_rate_pct": summary["hit_rate_pct"],
         "n_up": summary["n_up"],
@@ -728,8 +842,11 @@ def _build_snapshot(
         "worst_contributors": summary["worst_contributors"],
         "positions": marked,
         "benchmark_status": book.get("benchmark_status"),
-        "price_source": "EODHD_LOCAL_EOD(adjusted_close)",
-        "mark_method": "package paper_return_pct from owned local EOD; no live market call",
+        "benchmark": benchmark,
+        "benchmark_return_pct": spy_return,
+        "excess_return_vs_spy_pct_points": excess,
+        "price_source": price_source,
+        "mark_method": mark_method,
         "order_action": ORDER_ACTION_NONE,
     }
 
@@ -739,26 +856,35 @@ def snapshot_current_alpha_book(
     *,
     commit: bool = False,
     book_dir: Optional[Union[str, Path]] = None,
+    book_id: Optional[str] = None,
+    book_size: Optional[int] = None,
+    daily_mark_dir: Optional[Union[str, Path]] = None,
 ) -> dict[str, Any]:
-    """Compute today's paper PnL snapshot for the active saved book.
+    """Compute today's paper PnL snapshot for a selected saved book.
 
-    Marks the ACTIVE book (choose which book is active by saving TOP 25 or TOP 50).
-    ``commit=False`` previews the snapshot without writing. ``commit=True`` appends
-    it to ``pnl_snapshots.json`` (and only that file).
+    Which book is marked: explicit ``book_id`` > explicit ``book_size`` > the active
+    book (so TOP 25 and TOP 50 can be marked independently, without toggling the
+    active book). ``commit=False`` previews the snapshot without writing;
+    ``commit=True`` appends it to ``pnl_snapshots.json`` (and only that file).
+
+    Mark resolver: the PREFERRED marks come from the fresh Phase 13-G daily EOD mark
+    artifact (recomputed from live-refreshed owned EOD prices). Only when no fresh
+    daily artifact exists does it fall back to the (older) Phase 13-A package marks,
+    labelling the snapshot ``mark_source = PHASE13A_STALE_FALLBACK``.
 
     Stale-mark de-dup: a snapshot is identified by (book_id, as_of_price_date). If a
-    committed snapshot already exists for the active book at the same owned price
-    date, this does NOT append another — it returns
-    SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE and writes nothing, so repeated clicks before
-    an owned-price refresh cannot fabricate a fake daily curve.
+    committed snapshot already exists for the selected book at the same price date,
+    this does NOT append another — it returns SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE and
+    writes nothing, so repeated clicks before a new price date cannot fabricate a fake
+    daily curve.
 
     Requires a saved book; if none exists returns a controlled NO_PAPER_BOOK_YET
     status (HTTP 200, no crash). Raises :class:`CurrentAlphaPreviewError` (503) only
-    if the package is missing.
+    if the package is missing AND no daily artifact is available.
     """
     store_dir = _resolve_book_dir(book_dir)
     store, warnings = _read_books_store(store_dir)
-    book = _active_book(store)
+    book = _select_book(store, book_id=book_id, book_size=book_size)
 
     if book is None:
         payload: dict[str, Any] = {
@@ -768,7 +894,7 @@ def snapshot_current_alpha_book(
             "snapshot": None,
             "guidance": (
                 "Save a paper book first (choose TOP 25 or TOP 50, Preview Create "
-                "Paper Book -> Save Paper Book); a PnL snapshot marks the active "
+                "Paper Book -> Save Paper Book); a PnL snapshot marks the selected "
                 "book's positions."
             ),
             "store_dir": str(store_dir),
@@ -778,21 +904,44 @@ def snapshot_current_alpha_book(
         payload.update(_safety_block())
         return payload
 
-    preview = load_current_alpha_preview(package_dir)  # validates -> may raise (503)
-    base = _resolve_package_dir(package_dir)
-    book_id = book.get("book_id")
-    book_size = int(book.get("book_size") or DEFAULT_BOOK_SIZE)
+    target_book_id = book.get("book_id")
+    target_book_size = int(book.get("book_size") or DEFAULT_BOOK_SIZE)
 
-    marks = _current_marks(base, book_size)
+    # --- mark resolver: prefer the fresh Phase 13-G daily EOD mark artifact ------
+    daily = _load_daily_marks(book, daily_mark_dir)
+    benchmark: Optional[dict[str, Any]] = None
+    daily_book_summary: Optional[dict[str, Any]] = None
+    if daily is not None:
+        marks = daily["marks"]
+        as_of_price_date = daily["mark_date"]
+        mark_source = MARK_SOURCE_DAILY
+        price_source = "EODHD_DAILY_REFRESH(adjusted_close)"
+        mark_method = ("live-refreshed owned EOD adjusted_close vs the frozen book "
+                       "entry (Phase 13-G daily mark artifact); read-only, no order")
+        benchmark = daily.get("benchmark")
+        daily_book_summary = daily.get("book_summary")
+    else:
+        preview = load_current_alpha_preview(package_dir)  # validates -> may raise (503)
+        base = _resolve_package_dir(package_dir)
+        marks = _current_marks(base, target_book_size)
+        as_of_price_date = preview.get("package_date")
+        mark_source = MARK_SOURCE_FALLBACK
+        price_source = "EODHD_LOCAL_EOD(adjusted_close)"
+        mark_method = "package paper_return_pct from owned local EOD; no live market call"
+        warnings.append(
+            "Using the Phase 13-A package marks (PHASE13A_STALE_FALLBACK): no fresh "
+            "Phase 13-G daily mark artifact was found. Run Daily Alpha Refresh to "
+            "mark against current owned EOD prices."
+        )
+
     marked = _mark_positions(book, marks)
     summary = _summarize_marks(marked)
 
     snapshots, snap_err = _read_snapshots(store_dir)
     if snap_err:
         warnings.append(snap_err)
-    book_snaps = [s for s in snapshots if s.get("book_id") == book_id]
+    book_snaps = [s for s in snapshots if s.get("book_id") == target_book_id]
 
-    as_of_price_date = preview.get("package_date")
     observation_date = _today_iso()
     mark_age, mark_freshness = _mark_freshness(as_of_price_date, observation_date)
 
@@ -827,12 +976,13 @@ def snapshot_current_alpha_book(
             "mode": "COMMIT" if commit else "PREVIEW",
             "action": "SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE",
             "status": "SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE",
-            "book_id": book_id,
+            "book_id": target_book_id,
             "snapshot": existing,
             "as_of_price_date": as_of_price_date,
             "observation_date": observation_date,
             "mark_age_calendar_days": mark_age,
             "mark_freshness_status": mark_freshness,
+            "mark_source": mark_source,
             "n_snapshots_after": len(book_snaps),
             "store_dir": str(store_dir),
             "snapshots_file": str(store_dir / SNAPSHOTS_FILE),
@@ -850,6 +1000,10 @@ def snapshot_current_alpha_book(
         observation_date=observation_date,
         mark_age=mark_age,
         mark_freshness=mark_freshness,
+        price_source=price_source,
+        mark_source=mark_source,
+        mark_method=mark_method,
+        benchmark=benchmark,
     )
 
     wrote = False
@@ -862,12 +1016,16 @@ def snapshot_current_alpha_book(
         "mode": "COMMIT" if commit else "PREVIEW",
         "action": "SNAPSHOT_WRITTEN" if commit else "PREVIEW_ONLY_NOT_WRITTEN",
         "status": "SNAPSHOT_READY",
-        "book_id": book_id,
+        "book_id": target_book_id,
         "snapshot": snapshot,
         "as_of_price_date": as_of_price_date,
         "observation_date": observation_date,
         "mark_age_calendar_days": mark_age,
         "mark_freshness_status": mark_freshness,
+        "mark_source": mark_source,
+        "benchmark_return_pct": snapshot.get("benchmark_return_pct"),
+        "excess_return_vs_spy_pct_points": snapshot.get("excess_return_vs_spy_pct_points"),
+        "daily_book_summary": daily_book_summary,
         "n_snapshots_after": len(book_snaps) + (1 if commit else 0),
         "store_dir": str(store_dir),
         "snapshots_file": str(store_dir / SNAPSHOTS_FILE),
@@ -1035,9 +1193,13 @@ def load_current_alpha_pnl_history(
         "snapshot_taken_at": s.get("snapshot_taken_at"),
         "mark_age_calendar_days": s.get("mark_age_calendar_days"),
         "mark_freshness_status": s.get("mark_freshness_status"),
+        "mark_source": s.get("mark_source"),
         "average_return_pct": s.get("average_return_pct"),
         "median_return_pct": s.get("median_return_pct"),
         "hit_rate_pct": s.get("hit_rate_pct"),
+        # Benchmark per price-mark date (for the SPY history chart, kept separate).
+        "benchmark_return_pct": s.get("benchmark_return_pct"),
+        "excess_return_vs_spy_pct_points": s.get("excess_return_vs_spy_pct_points"),
         "covered_count": (s.get("coverage") or {}).get("covered_count"),
         "missing_count": (s.get("coverage") or {}).get("missing_count"),
     } for s in selected]
@@ -1108,4 +1270,11 @@ __all__ = [
     "DEFAULT_BOOK_SIZE",
     "MARK_FRESHNESS_WARN_DAYS",
     "MARK_FRESHNESS_REJECT_DAYS",
+    "DAILY_MARK_DIR_ENV",
+    "DEFAULT_DAILY_MARK_DIR",
+    "MARK_SOURCE_DAILY",
+    "MARK_SOURCE_FALLBACK",
+    "_load_daily_marks",
+    "_resolve_daily_mark_dir",
+    "_select_book",
 ]

@@ -151,6 +151,10 @@ from paper_trader.api.current_alpha_book import (
     preview_or_create_current_alpha_book,
     snapshot_current_alpha_book,
 )
+from paper_trader.api.current_alpha_daily_refresh import (
+    load_current_alpha_daily_status,
+    run_current_alpha_daily_refresh,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4274,6 +4278,60 @@ def research_current_alpha_book_snapshot_preview(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Current alpha paper snapshot unavailable: {exc}",
         ) from exc
+
+
+class CurrentAlphaDailyRefreshRequest(BaseModel):
+    """Phase 13-G/H manual daily-refresh request (paper-only, user-triggered)."""
+
+    commit: bool = False
+
+
+@app.post(
+    "/v1/research/current-alpha/daily-refresh",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_daily_refresh(
+    body: CurrentAlphaDailyRefreshRequest | None = None,
+) -> dict:
+    """
+    Phase 13-G/H manual daily alpha refresh — one EXPLICIT, user-triggered action.
+
+    Synchronously launches the Phase 13-G research runner (a live READ-ONLY EODHD
+    end-of-day mark refresh) with ``subprocess.run(argument_list, shell=False, ...)``
+    — the EODHD API key is never passed on the command line — then marks the TOP 25
+    and TOP 50 paper books against the fresh mark artifact. With ``commit=false``
+    (default) it previews (no paper-store writes); with ``commit=true`` it ensures
+    both books exist and appends one snapshot per book for a new price date. A
+    same-price-date rerun adds no duplicate snapshot.
+
+    This is NOT automation and NOT scheduling. It creates no orders, no broker
+    instructions, no signals, and no trade decisions, and writes no Paper Trader
+    database rows; the only writes are the local paper-book JSON store (on commit)
+    and the dynamic mark artifact outside git. Never returns a stack trace.
+    """
+    req = body or CurrentAlphaDailyRefreshRequest()
+    return run_current_alpha_daily_refresh(commit=req.commit)
+
+
+@app.get(
+    "/v1/research/current-alpha/daily-status",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_daily_status() -> dict:
+    """
+    Read-only Phase 13-G/H daily operating status for the champion paper books.
+
+    Returns the last refresh status + run time, the latest completed EOD mark date and
+    its freshness, the audited CURRENT CHAMPION universe identity (and the S&P 500
+    shadow, shown separately — never merged), the TOP 25 / TOP 50 book summaries with
+    the SPY benchmark and excess return, and each book's PnL-history status. Reads only
+    the local mark artifact + the local paper store: no database rows, no orders /
+    signals / trade decisions, no automation, no broker, no prediction / provider call.
+    Never returns a stack trace.
+    """
+    return load_current_alpha_daily_status()
 
 
 def _check_prediction_healthz(

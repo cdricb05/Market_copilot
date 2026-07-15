@@ -34768,3 +34768,103 @@ class TestScanDiagnosticsCaptureLinkage:
         assert "None passed the actionability gate." in data["capture_status_message"]
         # Never the misleading older-session label when the session is linked.
         assert "older session" not in data["capture_status_message"].lower()
+
+
+class TestUiDailyAlphaRunPanelContent:
+    """Phase 13-G/H: the "DAILY ALPHA RUN" manual daily trading-desk cockpit in
+    index.html.
+
+    Static-content assertions over api/ui/index.html — no HTTP needed. Verify the
+    prominent RUN DAILY ALPHA REFRESH action, the eight safety badges + banner, the
+    operating-status + per-book KPI + chart surfaces, the actual audited universe
+    identity (and the S&P 500 shadow shown separately), that the panel POSTs only to
+    daily-refresh and GETs daily-status / pnl-history (never orders / signals /
+    decisions), and that it uses no alert()/confirm().
+    """
+
+    _START = "Daily Alpha Run (Phase 13-G/H) START"
+    _END = "Daily Alpha Run (Phase 13-G/H) END"
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    @classmethod
+    def _markup(cls) -> str:
+        html = cls._read_html()
+        start = html.index('id="cad-panel"')
+        end = html.index(cls._END, start)
+        return html[start:end]
+
+    @classmethod
+    def _js(cls) -> str:
+        html = cls._read_html()
+        start = html.index("// ===== " + cls._START)
+        end = html.index("// ===== " + cls._END)
+        return html[start:end]
+
+    def test_panel_and_headline_present(self) -> None:
+        html = self._read_html()
+        assert 'id="cad-panel"' in html
+        assert "DAILY ALPHA RUN" in html
+        assert "RUN DAILY ALPHA REFRESH" in html
+
+    def test_primary_action_wired(self) -> None:
+        markup = self._markup()
+        assert 'id="cad-run-btn"' in markup
+        assert "runDailyAlphaRefresh(this)" in markup
+        assert 'id="cad-status-btn"' in markup
+        assert "loadDailyAlphaStatus(this)" in markup
+
+    def test_required_safety_text_present(self) -> None:
+        markup = self._markup()
+        for phrase in (
+            "MANUAL DAILY REFRESH", "PAPER TEST ONLY", "NO ORDERS", "NO BROKER",
+            "NO AUTOMATION", "DOES NOT CREATE SIGNALS", "DOES NOT CREATE TRADE DECISIONS",
+            "DOES NOT EXECUTE TRADES",
+        ):
+            assert phrase in markup, f"missing required safety text: {phrase}"
+
+    def test_operating_status_and_kpi_surfaces_present(self) -> None:
+        markup = self._markup()
+        for el_id in ("cad-last-run", "cad-mark-date", "cad-price-source", "cad-freshness",
+                      "cad-top25-metrics", "cad-top50-metrics",
+                      "cad-chart-top25", "cad-chart-top50", "cad-chart-spy",
+                      "cad-action-result", "cad-warnings"):
+            assert f'id="{el_id}"' in markup, f"missing surface: {el_id}"
+        # human-readable operating labels
+        for label in ("Last daily run", "Latest price mark", "Price source",
+                      "Mark freshness"):
+            assert label in markup, f"missing operating label: {label}"
+
+    def test_states_actual_universe_identity_and_shadow(self) -> None:
+        markup = self._markup()
+        assert "CURRENT CHAMPION UNIVERSE" in markup
+        assert 'id="cad-universe-name"' in markup
+        # the S&P 500 shadow is shown separately, never merged with the champion
+        assert "S&amp;P 500 SHADOW — RESEARCH COMPARISON" in markup
+        assert 'id="cad-shadow"' in markup
+
+    def test_charts_use_eod_price_mark_axis(self) -> None:
+        markup = self._markup()
+        assert "per EOD price mark" in markup
+        js = self._js()
+        # the chart x-axis label is the owned EOD price-mark date, never the observation date
+        assert "s.as_of_price_date" in js
+
+    def test_posts_only_to_daily_refresh_and_reads_status(self) -> None:
+        js = self._js()
+        assert "/v1/research/current-alpha/daily-refresh" in js
+        assert "/v1/research/current-alpha/daily-status" in js
+        # never posts to orders / signals / decisions
+        for forbidden in ("/v1/orders", "/v1/signals", "/v1/decisions",
+                          "create_order", "place_order"):
+            assert forbidden not in js, f"forbidden endpoint/token in cad JS: {forbidden}"
+
+    def test_no_blocking_dialogs(self) -> None:
+        import re
+        js = self._js()
+        assert not re.search(r"(?<![A-Za-z0-9_])alert\s*\(", js)
+        assert not re.search(r"(?<![A-Za-z0-9_])confirm\s*\(", js)

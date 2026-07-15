@@ -81,6 +81,15 @@ _SAFETY_BADGES = ("PREVIEW ONLY", "NO ORDERS", "NO BROKER", "NO AUTOMATION",
                   "MANUAL REVIEW ONLY", "PAPER TEST ONLY")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_daily_marks(tmp_path: Path, monkeypatch) -> None:
+    # Point the Phase 13-G daily-mark resolver at an empty dir so this 13-F suite
+    # deterministically exercises the PHASE13A_STALE_FALLBACK package-mark path and
+    # never picks up a real daily mark artifact present on the host.
+    monkeypatch.setenv("PAPER_TRADER_CURRENT_ALPHA_DAILY_MARK_DIR",
+                       str(tmp_path / "no_daily_marks"))
+
+
 @pytest.fixture
 def pkg(tmp_path: Path) -> Path:
     return _write_ops_fixture(tmp_path / "pkg")

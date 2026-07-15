@@ -4063,6 +4063,98 @@
         </div>
         <!-- Current Alpha Paper Book (Phase 13-F) END -->
 
+        <!-- Daily Alpha Run (Phase 13-G/H) START — manual daily trading-desk cockpit.
+             ONE explicit user-triggered action (RUN DAILY ALPHA REFRESH) launches the
+             read-only Phase 13-G EOD mark refresh, then marks TOP 25 + TOP 50 vs SPY:
+             POST /v1/research/current-alpha/daily-refresh (commit flag),
+             GET  /v1/research/current-alpha/daily-status.
+             It is NOT automation and NOT scheduling. No orders, no broker; does not
+             create signals, does not create trade decisions, does not execute trades;
+             no Paper Trader DB writes. The financial x-axis is the EOD price-mark date. -->
+        <div class="card" id="cad-panel" style="margin-bottom:14px;border:1px solid var(--info,#3b82f6);">
+          <div class="card-title">
+            <span style="font-size:14px;font-weight:800;letter-spacing:.5px;">DAILY ALPHA RUN</span>
+            <span style="font-size:10px;color:var(--text-accent);font-weight:600;">manual daily trading desk — champion composite_sn — paper test only</span>
+          </div>
+
+          <!-- Safety badges (8) -->
+          <div id="cad-badges" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px;">
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL DAILY REFRESH</span>
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PAPER TEST ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO AUTOMATION</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT CREATE SIGNALS</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT CREATE TRADE DECISIONS</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT EXECUTE TRADES</span>
+          </div>
+
+          <!-- Prominent primary action -->
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 10px;">
+            <button class="btn" id="cad-run-btn" onclick="runDailyAlphaRefresh(this)" style="background:var(--info,#3b82f6);color:#fff;font-size:13px;font-weight:800;padding:10px 18px;border:none;border-radius:4px;letter-spacing:.5px;cursor:pointer;">RUN DAILY ALPHA REFRESH</button>
+            <button class="btn-sm" id="cad-status-btn" onclick="loadDailyAlphaStatus(this)">Load Daily Status</button>
+            <span style="font-size:11px;color:var(--text-accent);">Fetches the latest completed EOD prices (read-only) and marks TOP 25 &amp; TOP 50 vs SPY. One manual action. No orders. No automation.</span>
+          </div>
+
+          <!-- Always-visible safety banner -->
+          <div style="background:rgba(239,68,68,.1);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:8px 10px;font-size:11px;font-weight:600;margin-bottom:12px;">
+            Manual daily refresh. Read-only market data. Paper test only. No orders. No broker. No automation. Does not create signals. Does not create trade decisions. Does not execute trades. No Paper Trader database writes.
+          </div>
+
+          <!-- Action result banner -->
+          <div id="cad-action-result" style="display:none;border-radius:3px;padding:7px 9px;font-size:11px;font-weight:600;margin:6px 0;"></div>
+
+          <!-- Operating status row -->
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;color:var(--text-accent);">
+            <span>Last daily run: <span id="cad-last-run" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></span>
+            <span>Latest price mark: <span id="cad-mark-date" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></span>
+            <span>Price source: <span id="cad-price-source" class="mono" style="color:var(--text-primary);">—</span></span>
+            <span>Mark freshness: <span id="cad-freshness" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></span>
+            <span>Data source: <span id="cad-data-source" class="mono" style="color:var(--text-primary);">—</span></span>
+          </div>
+
+          <!-- Universe identity (actual audited universe; S&P 500 shadow shown separately) -->
+          <div style="border:1px solid var(--border,#333);border-radius:3px;padding:8px 10px;font-size:11px;margin-bottom:10px;">
+            <div>CURRENT CHAMPION UNIVERSE: <span id="cad-universe-name" class="mono" style="color:var(--text-primary);font-weight:700;">—</span> <span id="cad-universe-badge"></span></div>
+            <div id="cad-universe-detail" style="color:var(--text-accent);margin-top:3px;">—</div>
+            <div id="cad-shadow" style="display:none;margin-top:6px;border-top:1px dashed var(--border,#333);padding-top:6px;">
+              <span style="color:var(--text-accent);font-weight:700;">S&amp;P 500 SHADOW — RESEARCH COMPARISON:</span>
+              <span id="cad-shadow-detail" class="mono" style="color:var(--text-primary);">—</span>
+              <span style="color:var(--text-accent);"> (never merged with the champion)</span>
+            </div>
+          </div>
+
+          <!-- TOP 25 / TOP 50 KPI cards (never combined) -->
+          <div style="display:flex;flex-wrap:wrap;gap:12px;">
+            <div id="cad-top25-metrics" style="flex:1;min-width:340px;border:1px solid var(--border,#333);border-radius:3px;padding:8px 10px;font-size:11px;color:var(--text-accent);">TOP 25 — run the daily refresh to populate.</div>
+            <div id="cad-top50-metrics" style="flex:1;min-width:340px;border:1px solid var(--border,#333);border-radius:3px;padding:8px 10px;font-size:11px;color:var(--text-accent);">TOP 50 — run the daily refresh to populate.</div>
+          </div>
+
+          <!-- PnL history charts: Top25, Top50, SPY (never combined; x-axis = EOD price-mark date) -->
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;">
+            <div style="flex:1;min-width:260px;">
+              <div style="font-size:11px;font-weight:700;color:var(--text-primary);margin-bottom:2px;">TOP 25 paper return per EOD price mark</div>
+              <div id="cad-chart-top25" style="min-height:40px;"></div>
+            </div>
+            <div style="flex:1;min-width:260px;">
+              <div style="font-size:11px;font-weight:700;color:var(--text-primary);margin-bottom:2px;">TOP 50 paper return per EOD price mark</div>
+              <div id="cad-chart-top50" style="min-height:40px;"></div>
+            </div>
+            <div style="flex:1;min-width:260px;">
+              <div style="font-size:11px;font-weight:700;color:var(--text-primary);margin-bottom:2px;">SPY benchmark return per EOD price mark</div>
+              <div id="cad-chart-spy" style="min-height:40px;"></div>
+            </div>
+          </div>
+
+          <!-- Error surface -->
+          <div id="cad-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-top:8px;">
+            <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:4px;">Daily alpha refresh could not complete.</div>
+            <div id="cad-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+          </div>
+          <ul id="cad-warnings" style="margin:10px 0 0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+        </div>
+        <!-- Daily Alpha Run (Phase 13-G/H) END -->
+
         <!-- Execution Workflow -->
         <div class="card">
           <div class="section-title">Execution Workflow</div>
@@ -6222,6 +6314,236 @@ async function loadPaperBookPnlHistory(btn) {
   }
 }
 // ===== Current Alpha Paper Book (Phase 13-F) END =====
+
+// ===== Daily Alpha Run (Phase 13-G/H) START =====
+// Manual daily trading-desk cockpit for the champion alpha (composite_sn). ONE
+// explicit user action:
+//   RUN DAILY ALPHA REFRESH -> POST /v1/research/current-alpha/daily-refresh {commit:true}
+//     launches the read-only Phase 13-G EOD mark refresh, then marks TOP 25 + TOP 50.
+//   Load Daily Status       -> GET  /v1/research/current-alpha/daily-status
+// It is NOT automation and NOT scheduling. It creates no orders, no broker
+// instructions, no signals, and no trade decisions, executes no trades, and writes
+// no Paper Trader database rows. The financial x-axis is the EOD price-mark date.
+// No blocking browser dialogs.
+window._dailyAlphaState = { last_status: null, last_refresh: null, last_loaded_at: null };
+
+function _cadText(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = (value === null || value === undefined || value === '') ? '—' : String(value);
+}
+
+function _cadPct(x) {
+  if (x === null || x === undefined || x === '') return '—';
+  const n = Number(x);
+  if (!isFinite(n)) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+function _cadPP(x) {
+  if (x === null || x === undefined || x === '') return '—';
+  const n = Number(x);
+  if (!isFinite(n)) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + ' pp';
+}
+
+function _cadWarnings(list) {
+  const el = document.getElementById('cad-warnings');
+  if (!el) return;
+  const rows = Array.isArray(list) ? list : [];
+  el.innerHTML = rows.length ? rows.map(w => '<li>' + escapeHtml(String(w)) + '</li>').join('') : '';
+}
+
+function _cadActionResult(text, kind) {
+  const el = document.getElementById('cad-action-result');
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = 'block';
+  const palette = {
+    ok: ['rgba(46,204,113,.12)', 'var(--positive,#2ecc71)'],
+    warn: ['rgba(234,179,8,.12)', 'var(--warning,#eab308)'],
+    info: ['rgba(59,130,246,.12)', 'var(--info,#3b82f6)'],
+  };
+  const c = palette[kind] || palette.info;
+  el.style.background = c[0];
+  el.style.border = '1px solid ' + c[1];
+  el.style.color = c[1];
+}
+
+// Shared fetch: disables the button, surfaces errors, returns parsed JSON.
+async function _cadFetch(btn, method, url, body) {
+  if (btn) btn.disabled = true;
+  const err = document.getElementById('cad-error');
+  if (err) err.style.display = 'none';
+  try {
+    const resp = await call(method, url, body);
+    if (!resp.ok) {
+      let detail = 'HTTP ' + resp.status;
+      try { const j = await resp.json(); if (j && j.detail) detail = j.detail; } catch (e) { /* non-JSON */ }
+      throw new Error(detail);
+    }
+    return await resp.json();
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : 'Could not complete the daily refresh.';
+    const d = document.getElementById('cad-error-detail');
+    if (d) d.textContent = msg;
+    if (err) err.style.display = 'block';
+    throw e;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _cadFreshnessLabel(status) {
+  const map = {
+    FRESH_MARK: 'FRESH', STALE_MARK_WARNING: 'STALE (warning)',
+    STALE_MARK_REJECT: 'STALE (rejected as current PnL)', UNKNOWN_MARK_AGE: 'unknown',
+  };
+  return map[status] || (status || '—');
+}
+
+// Inline bar chart keyed by the EOD price-mark date (never combines books).
+function _cadBarChart(containerId, series, key) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const rows = (Array.isArray(series) ? series : [])
+    .map(s => ({ label: s.as_of_price_date || s.snapshot_date || '', value: Number(s[key]) }))
+    .filter(r => isFinite(r.value));
+  if (!rows.length) { el.innerHTML = '<div style="font-size:11px;color:var(--text-accent);font-style:italic;">No marks yet.</div>'; return; }
+  const maxAbs = Math.max(1e-9, ...rows.map(r => Math.abs(r.value)));
+  el.innerHTML = rows.map(r => {
+    const w = Math.round(100 * Math.abs(r.value) / maxAbs);
+    const pos = r.value >= 0;
+    const color = pos ? 'var(--positive,#2ecc71)' : 'var(--danger,#e74c3c)';
+    return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:10px;">'
+      + '<span class="mono" style="width:80px;color:var(--text-accent);">' + escapeHtml(r.label) + '</span>'
+      + '<span style="flex:1;background:rgba(127,127,127,.12);height:12px;border-radius:2px;overflow:hidden;">'
+      + '<span style="display:block;height:12px;width:' + w + '%;background:' + color + ';"></span></span>'
+      + '<span class="mono" style="width:56px;text-align:right;color:var(--text-primary);">' + _cadPct(r.value) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function _cadRenderBook(prefix, book) {
+  const el = document.getElementById(prefix + '-metrics');
+  if (!el) return;
+  if (!book) { el.innerHTML = (prefix.indexOf('25') >= 0 ? 'TOP 25' : 'TOP 50') + ' — no mark yet.'; return; }
+  const size = book.book_size || (prefix.indexOf('25') >= 0 ? 25 : 50);
+  const insufficient = book.coverage_status === 'INSUFFICIENT_COVERAGE_REJECT';
+  const best = (book.best_5 || []).map(b => escapeHtml(b.ticker) + ' ' + _cadPct(b.paper_return_pct)).join(', ') || '—';
+  const worst = (book.worst_5 || []).map(b => escapeHtml(b.ticker) + ' ' + _cadPct(b.paper_return_pct)).join(', ') || '—';
+  el.innerHTML =
+    '<div style="font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:4px;">TOP ' + size
+      + ' <span class="mono" style="font-size:10px;color:var(--text-accent);font-weight:600;">' + escapeHtml(book.book_id || '') + '</span></div>'
+    + '<div class="mono" style="line-height:1.8;">'
+    + 'Coverage: <span style="color:' + (insufficient ? 'var(--danger,#e74c3c)' : 'var(--text-primary)') + ';font-weight:700;">'
+      + (book.covered_count != null ? book.covered_count + '/' + book.total_count : '—')
+      + ' (' + (book.coverage_pct != null ? book.coverage_pct + '%' : '—') + ', ' + escapeHtml(book.coverage_status || '—') + ')</span><br>'
+    + 'Current paper PnL: <span style="color:var(--text-primary);font-weight:700;">' + _cadPct(book.average_return_pct) + '</span>'
+      + (insufficient ? ' <span style="color:var(--danger,#e74c3c);">(coverage &lt; 90%: full-book PnL not claimed)</span>' : '') + '<br>'
+    + 'Change since previous mark: <span style="color:var(--text-primary);">' + _cadPP(book.change_since_previous_mark_pct_points) + '</span><br>'
+    + 'SPY return: <span style="color:var(--text-primary);">' + _cadPct(book.benchmark_return_pct) + '</span> · '
+      + 'Excess vs SPY: <span style="color:var(--text-primary);font-weight:700;">' + _cadPP(book.excess_return_vs_spy_pct_points) + '</span><br>'
+    + 'Hit rate: <span style="color:var(--text-primary);">' + (book.hit_rate_pct != null ? book.hit_rate_pct + '%' : '—') + '</span><br>'
+    + 'Previous mark: <span style="color:var(--text-accent);">' + escapeHtml(book.previous_mark_date || '—') + '</span> · '
+      + 'Current mark: <span style="color:var(--text-primary);">' + escapeHtml(book.mark_date || '—') + '</span><br>'
+    + 'Best: <span style="color:var(--positive,#2ecc71);">' + best + '</span><br>'
+    + 'Worst: <span style="color:var(--danger,#e74c3c);">' + worst + '</span>'
+    + '</div>';
+}
+
+function _cadRenderUniverse(ui) {
+  if (!ui) return;
+  _cadText('cad-universe-name', ui.current_champion_universe);
+  const badge = document.getElementById('cad-universe-badge');
+  if (badge) {
+    if (ui.is_strict_sp500 === true) {
+      badge.innerHTML = '<span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;">CONFIRMED S&amp;P 500</span>';
+    } else {
+      badge.innerHTML = '<span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;">BROADER THAN S&amp;P 500</span>';
+    }
+  }
+  const detail = document.getElementById('cad-universe-detail');
+  if (detail) {
+    detail.textContent = (ui.universe_decision || '') + (ui.latest_ranked_count != null
+      ? (' · ' + ui.latest_ranked_count + ' ranked, ' + (ui.confirmed_sp500 != null ? ui.confirmed_sp500 : '?') + ' confirmed S&P 500 members') : '');
+  }
+  const shadow = document.getElementById('cad-shadow');
+  const sd = document.getElementById('cad-shadow-detail');
+  if (shadow && sd) {
+    if (ui.sp500_shadow_available && ui.sp500_shadow) {
+      shadow.style.display = 'block';
+      sd.textContent = (ui.sp500_shadow_decision || '') + ' — net-25bps ' + _cadPct(ui.sp500_shadow.net_25bps != null ? ui.sp500_shadow.net_25bps * 100 : null)
+        + ', IC t ' + (ui.sp500_shadow.ic_t_63d != null ? ui.sp500_shadow.ic_t_63d : '—');
+    } else {
+      shadow.style.display = 'none';
+    }
+  }
+}
+
+function _cadRenderStatus(data) {
+  if (!data) return;
+  _cadText('cad-last-run', data.last_refresh_run_at || '—');
+  _cadText('cad-mark-date', data.latest_completed_eod_date || '—');
+  _cadText('cad-price-source', data.price_source || data.data_source || '—');
+  _cadText('cad-freshness', _cadFreshnessLabel(data.mark_freshness_status)
+    + (data.mark_age_calendar_days != null ? ' (' + data.mark_age_calendar_days + 'd)' : ''));
+  _cadText('cad-data-source', data.data_source || '—');
+  _cadRenderUniverse(data.universe_identity);
+  _cadRenderBook('cad-top25', data.top25);
+  _cadRenderBook('cad-top50', data.top50);
+  _cadWarnings(data.warnings);
+}
+
+async function _cadRenderCharts() {
+  try {
+    const h25 = await _cadFetch(null, 'GET', '/v1/research/current-alpha/book/pnl-history?book_size=25');
+    _cadBarChart('cad-chart-top25', h25.series, 'average_return_pct');
+    _cadBarChart('cad-chart-spy', h25.series, 'benchmark_return_pct');
+  } catch (e) { /* surfaced by fetch */ }
+  try {
+    const h50 = await _cadFetch(null, 'GET', '/v1/research/current-alpha/book/pnl-history?book_size=50');
+    _cadBarChart('cad-chart-top50', h50.series, 'average_return_pct');
+  } catch (e) { /* surfaced by fetch */ }
+}
+
+async function loadDailyAlphaStatus(btn) {
+  try {
+    const data = await _cadFetch(btn, 'GET', '/v1/research/current-alpha/daily-status');
+    _cadRenderStatus(data);
+    window._dailyAlphaState.last_status = data.status;
+    window._dailyAlphaState.last_loaded_at = _caoNow();
+    await _cadRenderCharts();
+  } catch (e) { /* surfaced by fetch */ }
+}
+
+async function runDailyAlphaRefresh(btn) {
+  const runBtn = document.getElementById('cad-run-btn');
+  const prevLabel = runBtn ? runBtn.textContent : '';
+  if (runBtn) runBtn.textContent = 'Daily Alpha Refresh Running…';
+  try {
+    const data = await _cadFetch(btn, 'POST', '/v1/research/current-alpha/daily-refresh', { commit: true });
+    window._dailyAlphaState.last_refresh = data.refresh_result || data.status;
+    if (data.status === 'DAILY_REFRESH_COMPLETE') {
+      const t25 = (data.snapshots && data.snapshots.top25) || {};
+      const skipped = t25.action === 'SNAPSHOT_SKIPPED_NO_NEW_PRICE_DATE';
+      if (skipped) {
+        _cadActionResult('NO NEW PRICE DATE — SNAPSHOT NOT ADDED. Paper PnL was not advanced (same completed EOD mark).', 'warn');
+      } else {
+        _cadActionResult('DAILY REFRESH COMPLETE — TOP 25 & TOP 50 marked at ' + (data.mark_date || 'latest') + '. No orders. No automation.', 'ok');
+      }
+    } else if (data.refresh_result === 'NO_NEW_MARK_DATE') {
+      _cadActionResult('NO NEW PRICE DATE — the latest completed EOD mark is unchanged; no snapshot added.', 'warn');
+    } else {
+      _cadActionResult('Refresh result: ' + (data.refresh_result || data.status) + (data.guidance ? (' — ' + data.guidance) : ''), 'warn');
+    }
+    _cadWarnings(data.warnings);
+    await loadDailyAlphaStatus(null);
+  } catch (e) { /* surfaced by fetch */ } finally {
+    if (runBtn) runBtn.textContent = 'Run New Daily Alpha Refresh';
+  }
+}
+// ===== Daily Alpha Run (Phase 13-G/H) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 

@@ -78,6 +78,10 @@ def env(tmp_path: Path, monkeypatch) -> Path:
     store = tmp_path / "store"
     monkeypatch.setenv("PAPER_TRADER_CURRENT_ALPHA_PACKAGE_DIR", str(pkg))
     monkeypatch.setenv("PAPER_TRADER_CURRENT_ALPHA_BOOK_DIR", str(store))
+    # Isolate the Phase 13-G daily-mark resolver so the 13-F snapshot routes
+    # deterministically use the PHASE13A_STALE_FALLBACK package marks.
+    monkeypatch.setenv("PAPER_TRADER_CURRENT_ALPHA_DAILY_MARK_DIR",
+                       str(tmp_path / "no_daily_marks"))
     return store
 
 
