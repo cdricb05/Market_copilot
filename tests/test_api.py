@@ -34972,3 +34972,139 @@ class TestUiPaperPerformanceHistoryPanelContent:
         js = self._js()
         assert not re.search(r"(?<![A-Za-z0-9_])alert\s*\(", js)
         assert not re.search(r"(?<![A-Za-z0-9_])confirm\s*\(", js)
+
+
+class TestUiPaperBookDecisionGatePanelContent:
+    """Phase 13-J: the "PAPER BOOK DECISION GATE" section in index.html.
+
+    Static-content assertions over api/ui/index.html — no HTTP needed. Verify the
+    prominent heading, the six required safety-language badges, the six headline
+    tiles, the separate (never merged) Top-25 and Top-50 scorecards, that the panel
+    GETs only the decision-gate route, and uses no alert()/confirm().
+    """
+
+    _START = "Paper Book Decision Gate (Phase 13-J) START"
+    _END = "Paper Book Decision Gate (Phase 13-J) END"
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    @classmethod
+    def _markup(cls) -> str:
+        html = cls._read_html()
+        start = html.index('id="cdg-panel"')
+        end = html.index(cls._END, start)
+        return html[start:end]
+
+    @classmethod
+    def _js(cls) -> str:
+        html = cls._read_html()
+        start = html.index("// ===== " + cls._START)
+        end = html.index("// ===== " + cls._END)
+        return html[start:end]
+
+    def test_panel_and_headline_present(self) -> None:
+        html = self._read_html()
+        assert 'id="cdg-panel"' in html
+        assert "PAPER BOOK DECISION GATE" in html
+        assert "loadPaperBookDecisionGate(this)" in html
+
+    def test_all_required_safety_language_present(self) -> None:
+        markup = self._markup()
+        for phrase in (
+            "PROVISIONAL PAPER BOOK ONLY", "NOT LIVE-TRADING APPROVAL", "NO ORDERS",
+            "NO BROKER", "NO AUTOMATION", "MANUAL REVIEW REQUIRED",
+        ):
+            assert phrase in markup, f"missing required safety language: {phrase}"
+
+    def test_six_headline_tiles_present(self) -> None:
+        markup = self._markup()
+        for label in ("PROVISIONAL PRIMARY PAPER BOOK", "CHALLENGER BOOK",
+                      "CURRENT DECISION", "QUARTERLY REBALANCE READINESS",
+                      "LATEST FINANCIAL MARK", "NEXT REVIEW TARGET"):
+            assert label in markup, f"missing headline tile: {label}"
+        for el_id in ("cdg-primary", "cdg-challenger", "cdg-decision", "cdg-readiness",
+                      "cdg-mark", "cdg-review-target", "cdg-reasoning", "cdg-risk",
+                      "cdg-warnings", "cdg-error"):
+            assert f'id="{el_id}"' in markup, f"missing surface: {el_id}"
+
+    def test_top25_top50_scorecards_are_separate(self) -> None:
+        markup = self._markup()
+        assert 'id="cdg-top25"' in markup and 'id="cdg-top50"' in markup
+
+    def test_scorecard_renders_rolling_and_risk(self) -> None:
+        js = self._js()
+        # rolling 5/10/20 + risk flags are surfaced per book
+        assert "rolling_5_return_change_pct_points" in js
+        assert "rolling_10_return_change_pct_points" in js
+        assert "rolling_20_return_change_pct_points" in js
+        assert "risk_triggers" in js
+
+    def test_gets_only_the_decision_gate_route(self) -> None:
+        js = self._js()
+        assert "/v1/research/current-alpha/decision-gate" in js
+        for forbidden in ("/v1/orders", "/v1/signals", "/v1/decisions",
+                          "create_order", "place_order", "daily-refresh"):
+            assert forbidden not in js, f"forbidden endpoint/token in cdg JS: {forbidden}"
+
+    def test_no_blocking_dialogs(self) -> None:
+        import re
+        js = self._js()
+        assert not re.search(r"(?<![A-Za-z0-9_])alert\s*\(", js)
+        assert not re.search(r"(?<![A-Za-z0-9_])confirm\s*\(", js)
+
+
+class TestUiPaperPerformancePolishContent:
+    """Phase 13-J performance polish: compact SVG line charts + collapsed detail.
+
+    The long per-date bar lists are replaced by compact native SVG line charts, and
+    the detailed per-date rows live in collapsed <details> sections so the main
+    dashboard view stays compact.
+    """
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    @classmethod
+    def _js(cls) -> str:
+        html = cls._read_html()
+        start = html.index("// ===== Paper Performance History (Phase 13-I) START")
+        end = html.index("// ===== Paper Performance History (Phase 13-I) END")
+        return html[start:end]
+
+    def test_line_chart_function_exists(self) -> None:
+        js = self._js()
+        assert "function _capLineChart(" in js
+        assert "polyline" in js  # native SVG line chart, no charting package
+        # calls the line chart (not the old long bar list) for the book curves
+        assert "_capLineChart('cap-chart-top25-cum'" in js
+        assert "_capLineChart('cap-chart-spy'" in js
+
+    def test_old_bar_list_removed(self) -> None:
+        js = self._js()
+        assert "function _capBarChart(" not in js
+
+    def test_detailed_histories_present_and_collapsed_by_default(self) -> None:
+        html = self._read_html()
+        for wrap in ("cap-detail-top25-wrap", "cap-detail-top50-wrap", "cap-detail-spy-wrap"):
+            assert f'<details id="{wrap}"' in html, f"missing detail section: {wrap}"
+            # collapsed by default -> no `open` attribute on the <details> tag
+            tag_start = html.index(f'<details id="{wrap}"')
+            tag = html[tag_start:html.index(">", tag_start)]
+            assert " open" not in tag, f"detail section not collapsed by default: {wrap}"
+        for label in ("Detailed Top25 history", "Detailed Top50 history",
+                      "Detailed SPY history"):
+            assert label in html, f"missing detail heading: {label}"
+        for el_id in ("cap-detail-top25", "cap-detail-top50", "cap-detail-spy"):
+            assert f'id="{el_id}"' in html, f"missing detail container: {el_id}"
+
+    def test_no_charting_package_import(self) -> None:
+        html = self._read_html()
+        for token in ("chart.js", "Chart.js", "cdn.jsdelivr", "d3.min.js", "plotly"):
+            assert token not in html, f"unexpected external charting dependency: {token}"

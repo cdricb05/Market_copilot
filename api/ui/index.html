@@ -4164,6 +4164,102 @@
         </div>
         <!-- Daily Alpha Run (Phase 13-G/H) END -->
 
+        <!-- Paper Book Decision Gate (Phase 13-J) START — read-only daily operating
+             decision layer over the Phase 13-I reconstruction. Names the PROVISIONAL
+             primary / challenger paper book, a single operating decision, per-book
+             scorecards, paper-review risk triggers, and quarterly (63 trading-day)
+             rebalance-review readiness: GET /v1/research/current-alpha/decision-gate.
+             Provisional paper-book only. NOT live-trading approval. No orders, no
+             broker, no automation; does not rerank or rebalance the champion. -->
+        <div class="card" id="cdg-panel" style="margin-bottom:14px;border:1px solid var(--info,#3b82f6);">
+          <div class="card-title">
+            <span style="font-size:14px;font-weight:800;letter-spacing:.5px;">PAPER BOOK DECISION GATE</span>
+            <span style="font-size:10px;color:var(--text-accent);font-weight:600;">provisional operating decision — champion composite_sn — paper test only</span>
+          </div>
+
+          <!-- Required safety language (6 badges) -->
+          <div id="cdg-badges" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px;">
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PROVISIONAL PAPER BOOK ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NOT LIVE-TRADING APPROVAL</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO AUTOMATION</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW REQUIRED</span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 10px;">
+            <button class="btn-sm" id="cdg-load-btn" onclick="loadPaperBookDecisionGate(this)">Load Decision Gate</button>
+            <span style="font-size:11px;color:var(--text-accent);">Reads the read-only Phase 13-I reconstruction and states which book is the provisional primary, whether any risk threshold is breached, and where the quarterly review stands. No orders. No rebalancing.</span>
+          </div>
+
+          <!-- Always-visible safety banner -->
+          <div style="background:rgba(239,68,68,.1);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:8px 10px;font-size:11px;font-weight:600;margin-bottom:12px;">
+            Provisional paper-book comparison for manual review only. NOT live-trading approval. No orders. No broker. No automation. Does not rerank or rebalance the champion. Promotes no book to live trading.
+          </div>
+
+          <!-- Six prominent headline tiles (no scroll at 1920x1080) -->
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">PROVISIONAL PRIMARY PAPER BOOK</div>
+              <div><span id="cdg-primary" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cdg-primary-note" style="color:var(--text-accent);margin-top:2px;">Provisional, paper-only — not production, not approved, not live.</div>
+            </div>
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">CHALLENGER BOOK</div>
+              <div><span id="cdg-challenger" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cdg-challenger-note" style="color:var(--text-accent);margin-top:2px;"></div>
+            </div>
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">CURRENT DECISION</div>
+              <div><span id="cdg-decision" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cdg-decision-note" style="color:var(--text-accent);margin-top:2px;"></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">QUARTERLY REBALANCE READINESS</div>
+              <div><span id="cdg-readiness" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cdg-readiness-note" style="color:var(--text-accent);margin-top:2px;">Review timing only — no orders, no rebalancing.</div>
+            </div>
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">LATEST FINANCIAL MARK</div>
+              <div><span id="cdg-mark" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cdg-mark-note" style="color:var(--text-accent);margin-top:2px;"></div>
+            </div>
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">NEXT REVIEW TARGET</div>
+              <div><span id="cdg-review-target" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cdg-review-target-note" style="color:var(--text-accent);margin-top:2px;">63 trading-day quarterly cadence.</div>
+            </div>
+          </div>
+
+          <!-- Decision reasoning + risk review -->
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="flex:1;min-width:320px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">DECISION REASONING</div>
+              <ul id="cdg-reasoning" style="margin:0;padding-left:16px;color:var(--text-primary);line-height:1.6;"><li style="color:var(--text-accent);">Load the decision gate to populate.</li></ul>
+            </div>
+            <div style="flex:1;min-width:320px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">RISK REVIEW (PAPER — NO TRADING ACTION)</div>
+              <div id="cdg-risk" style="color:var(--text-primary);line-height:1.6;">—</div>
+            </div>
+          </div>
+
+          <!-- Separate compact Top25 / Top50 scorecards (never combined) -->
+          <div style="display:flex;flex-wrap:wrap;gap:12px;">
+            <div id="cdg-top25" style="flex:1;min-width:340px;border:1px solid var(--border,#333);border-radius:3px;padding:8px 10px;font-size:11px;color:var(--text-accent);">TOP 25 — load the decision gate to populate.</div>
+            <div id="cdg-top50" style="flex:1;min-width:340px;border:1px solid var(--border,#333);border-radius:3px;padding:8px 10px;font-size:11px;color:var(--text-accent);">TOP 50 — load the decision gate to populate.</div>
+          </div>
+
+          <!-- Error surface -->
+          <div id="cdg-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-top:8px;">
+            <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:4px;">Decision gate could not load.</div>
+            <div id="cdg-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+          </div>
+          <ul id="cdg-warnings" style="margin:10px 0 0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+        </div>
+        <!-- Paper Book Decision Gate (Phase 13-J) END -->
+
         <!-- Paper Performance History (Phase 13-I) START -->
         <div class="card" id="cap-panel" style="margin-bottom:14px;border:1px solid var(--info,#3b82f6);">
           <div class="card-title">
@@ -4239,6 +4335,22 @@
           <!-- SPY benchmark cumulative -->
           <div style="margin-top:12px;font-size:11px;font-weight:800;color:var(--text-primary);letter-spacing:.5px;">SPY benchmark — cumulative return</div>
           <div id="cap-chart-spy" style="min-height:40px;margin-top:4px;"></div>
+
+          <!-- Detailed per-date history — collapsed by default (keeps the dashboard compact) -->
+          <div style="margin-top:14px;">
+            <details id="cap-detail-top25-wrap" style="margin-bottom:6px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--text-primary);">Detailed Top25 history</summary>
+              <div id="cap-detail-top25" style="margin-top:6px;max-height:280px;overflow:auto;"></div>
+            </details>
+            <details id="cap-detail-top50-wrap" style="margin-bottom:6px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--text-primary);">Detailed Top50 history</summary>
+              <div id="cap-detail-top50" style="margin-top:6px;max-height:280px;overflow:auto;"></div>
+            </details>
+            <details id="cap-detail-spy-wrap" style="margin-bottom:6px;">
+              <summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--text-primary);">Detailed SPY history</summary>
+              <div id="cap-detail-spy" style="margin-top:6px;max-height:280px;overflow:auto;"></div>
+            </details>
+          </div>
 
           <!-- Error surface -->
           <div id="cap-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-top:8px;">
@@ -6704,26 +6816,65 @@ async function _capFetch(btn, method, url, body) {
   }
 }
 
-// Inline bar chart keyed by the financial mark date (never merges books).
-function _capBarChart(containerId, series, key) {
+// Compact native SVG line chart keyed by the financial mark date (never merges
+// books). A dashed zero baseline plus a single polyline keeps the dashboard compact
+// regardless of how many marks accumulate; the detailed per-date rows live in the
+// collapsed "Detailed …" sections below.
+function _capLineChart(containerId, series, key) {
   const el = document.getElementById(containerId);
   if (!el) return;
-  const rows = (Array.isArray(series) ? series : [])
+  const pts = (Array.isArray(series) ? series : [])
     .map(s => ({ label: s.mark_date || '', value: Number(s[key]) }))
     .filter(r => isFinite(r.value));
-  if (!rows.length) { el.innerHTML = '<div style="font-size:11px;color:var(--text-accent);font-style:italic;">No marks yet.</div>'; return; }
-  const maxAbs = Math.max(1e-9, ...rows.map(r => Math.abs(r.value)));
-  el.innerHTML = rows.map(r => {
-    const w = Math.round(100 * Math.abs(r.value) / maxAbs);
-    const pos = r.value >= 0;
-    const color = pos ? 'var(--positive,#2ecc71)' : 'var(--danger,#e74c3c)';
-    return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:10px;">'
-      + '<span class="mono" style="width:80px;color:var(--text-accent);">' + escapeHtml(r.label) + '</span>'
-      + '<span style="flex:1;background:rgba(127,127,127,.12);height:12px;border-radius:2px;overflow:hidden;">'
-      + '<span style="display:block;height:12px;width:' + w + '%;background:' + color + ';"></span></span>'
-      + '<span class="mono" style="width:56px;text-align:right;color:var(--text-primary);">' + _capPct(r.value) + '</span>'
-      + '</div>';
-  }).join('');
+  if (!pts.length) { el.innerHTML = '<div style="font-size:11px;color:var(--text-accent);font-style:italic;">No marks yet.</div>'; return; }
+  const W = 300, H = 60, padX = 4, padY = 8;
+  const vals = pts.map(p => p.value);
+  let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  if (hi === lo) { hi = lo + 1; }
+  const xAt = i => padX + (pts.length === 1 ? (W - 2 * padX) / 2 : i * (W - 2 * padX) / (pts.length - 1));
+  const yAt = v => padY + (H - 2 * padY) * (1 - (v - lo) / (hi - lo));
+  const poly = pts.map((p, i) => xAt(i).toFixed(1) + ',' + yAt(p.value).toFixed(1)).join(' ');
+  const last = pts[pts.length - 1];
+  const color = last.value >= 0 ? 'var(--positive,#2ecc71)' : 'var(--danger,#e74c3c)';
+  const zeroY = yAt(0).toFixed(1);
+  el.innerHTML =
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" style="width:100%;height:56px;display:block;">'
+    + '<line x1="' + padX + '" y1="' + zeroY + '" x2="' + (W - padX) + '" y2="' + zeroY + '" stroke="rgba(127,127,127,.35)" stroke-width="0.7" stroke-dasharray="3,3"/>'
+    + '<polyline points="' + poly + '" fill="none" stroke="' + color + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>'
+    + (pts.length === 1 ? '<circle cx="' + xAt(0).toFixed(1) + '" cy="' + yAt(last.value).toFixed(1) + '" r="2" fill="' + color + '"/>' : '')
+    + '</svg>'
+    + '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-accent);margin-top:1px;">'
+    + '<span class="mono">' + escapeHtml(pts[0].label) + '</span>'
+    + '<span class="mono" style="color:var(--text-primary);font-weight:700;">' + _capPct(last.value) + '</span>'
+    + '<span class="mono">' + escapeHtml(last.label) + '</span>'
+    + '</div>';
+}
+
+// Merge a book's cumulative / excess / drawdown curves (shared mark_date) into per-date rows.
+function _capMergeCurves(curves) {
+  const c = curves || {};
+  const cum = c.cumulative_curve || [], exc = c.excess_curve || [], dd = c.drawdown_curve || [];
+  return cum.map((r, i) => ({
+    mark_date: r.mark_date,
+    cumulative_return_pct: r.cumulative_return_pct,
+    excess_return_vs_spy_pct_points: (exc[i] || {}).excess_return_vs_spy_pct_points,
+    drawdown_pct: (dd[i] || {}).drawdown_pct,
+  }));
+}
+
+// Compact per-date detail table for the collapsed "Detailed …" sections.
+function _capDetailTable(containerId, rows, columns) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const data = Array.isArray(rows) ? rows : [];
+  if (!data.length) { el.innerHTML = '<div style="font-size:11px;color:var(--text-accent);font-style:italic;">No marks yet.</div>'; return; }
+  const head = '<tr>' + columns.map(col =>
+    '<th style="text-align:' + (col.left ? 'left' : 'right') + ';padding:2px 6px;color:var(--text-accent);font-weight:700;border-bottom:1px solid var(--border,#333);position:sticky;top:0;background:var(--bg-secondary,#181818);">'
+    + escapeHtml(col.label) + '</th>').join('') + '</tr>';
+  const body = data.map(r => '<tr>' + columns.map(col =>
+    '<td class="mono" style="text-align:' + (col.left ? 'left' : 'right') + ';padding:2px 6px;color:var(--text-primary);">'
+    + col.fmt(r[col.key]) + '</td>').join('') + '</tr>').join('');
+  el.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:10px;">' + head + body + '</table>';
 }
 
 function _capRenderAnalytics(prefix, a) {
@@ -6785,13 +6936,28 @@ function _capRender(data) {
     _capRenderAnalytics('cap-top50', data.top50_analytics);
     _capRenderStability(data.stability_comparison);
     const c25 = data.top25_curves || {}, c50 = data.top50_curves || {};
-    _capBarChart('cap-chart-top25-cum', c25.cumulative_curve, 'cumulative_return_pct');
-    _capBarChart('cap-chart-top25-excess', c25.excess_curve, 'excess_return_vs_spy_pct_points');
-    _capBarChart('cap-chart-top25-dd', c25.drawdown_curve, 'drawdown_pct');
-    _capBarChart('cap-chart-top50-cum', c50.cumulative_curve, 'cumulative_return_pct');
-    _capBarChart('cap-chart-top50-excess', c50.excess_curve, 'excess_return_vs_spy_pct_points');
-    _capBarChart('cap-chart-top50-dd', c50.drawdown_curve, 'drawdown_pct');
-    _capBarChart('cap-chart-spy', data.spy_curve, 'return_since_signal_pct');
+    // Compact SVG line charts (never merged; x-axis = financial mark date).
+    _capLineChart('cap-chart-top25-cum', c25.cumulative_curve, 'cumulative_return_pct');
+    _capLineChart('cap-chart-top25-excess', c25.excess_curve, 'excess_return_vs_spy_pct_points');
+    _capLineChart('cap-chart-top25-dd', c25.drawdown_curve, 'drawdown_pct');
+    _capLineChart('cap-chart-top50-cum', c50.cumulative_curve, 'cumulative_return_pct');
+    _capLineChart('cap-chart-top50-excess', c50.excess_curve, 'excess_return_vs_spy_pct_points');
+    _capLineChart('cap-chart-top50-dd', c50.drawdown_curve, 'drawdown_pct');
+    _capLineChart('cap-chart-spy', data.spy_curve, 'return_since_signal_pct');
+    // Detailed per-date rows — collapsed by default, keyed by the financial mark date.
+    const _d = v => escapeHtml(v == null ? '—' : String(v));
+    const _bookCols = [
+      { key: 'mark_date', label: 'Mark date', left: true, fmt: _d },
+      { key: 'cumulative_return_pct', label: 'Cumulative', fmt: _capPct },
+      { key: 'excess_return_vs_spy_pct_points', label: 'Excess', fmt: _capPP },
+      { key: 'drawdown_pct', label: 'Drawdown', fmt: _capPct },
+    ];
+    _capDetailTable('cap-detail-top25', _capMergeCurves(c25), _bookCols);
+    _capDetailTable('cap-detail-top50', _capMergeCurves(c50), _bookCols);
+    _capDetailTable('cap-detail-spy', data.spy_curve, [
+      { key: 'mark_date', label: 'Mark date', left: true, fmt: _d },
+      { key: 'return_since_signal_pct', label: 'SPY cumulative', fmt: _capPct },
+    ]);
   } else {
     _capText('cap-range', '—');
     _capText('cap-marks', '—');
@@ -6809,6 +6975,168 @@ async function loadPaperPerformanceHistory(btn) {
   } catch (e) { /* surfaced by fetch */ }
 }
 // ===== Paper Performance History (Phase 13-I) END =====
+
+// ===== Paper Book Decision Gate (Phase 13-J) START =====
+function _cdgText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = (val == null || val === '') ? '—' : String(val);
+}
+function _cdgSignedPP(v) { return _capPP(v); }
+function _cdgSignedPct(v) { return _capPct(v); }
+
+// Isolated fetch that surfaces errors to the decision-gate panel's own error box.
+async function _cdgFetch(btn, url) {
+  if (btn) btn.disabled = true;
+  const err = document.getElementById('cdg-error');
+  if (err) err.style.display = 'none';
+  try {
+    const resp = await call('GET', url);
+    if (!resp.ok) {
+      let detail = 'HTTP ' + resp.status;
+      try { const j = await resp.json(); if (j && j.detail) detail = j.detail; } catch (e) { /* non-JSON */ }
+      throw new Error(detail);
+    }
+    return await resp.json();
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : 'Could not load the paper book decision gate.';
+    const d = document.getElementById('cdg-error-detail');
+    if (d) d.textContent = msg;
+    if (err) err.style.display = 'block';
+    throw e;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _cdgDecisionColor(decision) {
+  if (decision === 'RISK_THRESHOLD_BREACH_REVIEW' || decision === 'PERFORMANCE_DETERIORATING_REVIEW'
+      || decision === 'INSUFFICIENT_FORWARD_HISTORY') return 'var(--danger,#e74c3c)';
+  if (decision === 'PROVISIONAL_TOP50_PRIMARY' || decision === 'PROVISIONAL_TOP25_PRIMARY') return 'var(--positive,#2ecc71)';
+  return 'var(--text-primary)';
+}
+
+function _cdgReasoning(list) {
+  const el = document.getElementById('cdg-reasoning');
+  if (!el) return;
+  const rows = Array.isArray(list) ? list : [];
+  el.innerHTML = rows.length ? rows.map(r => '<li>' + escapeHtml(String(r)) + '</li>').join('')
+    : '<li style="color:var(--text-accent);">No reasoning available.</li>';
+}
+
+function _cdgRiskReview(data) {
+  const el = document.getElementById('cdg-risk');
+  if (!el) return;
+  const rr = data.risk_review || {};
+  const t25 = rr.top25_triggers || [], t50 = rr.top50_triggers || [];
+  if (!rr.any_breach) {
+    el.innerHTML = '<span style="color:var(--positive,#2ecc71);font-weight:700;">NO RISK THRESHOLD BREACHED</span>'
+      + '<div style="color:var(--text-accent);margin-top:2px;">Coverage, drawdown, excess, concentration and mark freshness are all within paper-review thresholds.</div>';
+    return;
+  }
+  const fmt = (label, arr) => arr.length
+    ? '<div><span style="font-weight:700;">' + label + ':</span> '
+      + arr.map(t => escapeHtml(t.trigger)).join(', ') + '</div>' : '';
+  el.innerHTML = '<span style="color:var(--danger,#e74c3c);font-weight:700;">RISK THRESHOLD BREACH — MANUAL REVIEW</span>'
+    + fmt('TOP 25', t25) + fmt('TOP 50', t50)
+    + '<div style="color:var(--text-accent);margin-top:2px;">Paper-review flag only — no trading action is taken.</div>';
+}
+
+function _cdgScorecard(prefix, book) {
+  const el = document.getElementById(prefix);
+  if (!el) return;
+  const size = prefix.indexOf('25') >= 0 ? 25 : 50;
+  if (!book) { el.innerHTML = 'TOP ' + size + ' — no scorecard (reconstruction not published).'; return; }
+  const risks = (book.risk_triggers || []).map(t => t.trigger);
+  const deters = (book.deterioration_reasons || []).map(t => t.trigger);
+  const flags = risks.concat(deters);
+  const flagHtml = flags.length
+    ? '<span style="color:var(--danger,#e74c3c);font-weight:700;">' + flags.map(escapeHtml).join(', ') + '</span>'
+    : '<span style="color:var(--positive,#2ecc71);font-weight:700;">none</span>';
+  el.innerHTML =
+    '<div style="font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:4px;">TOP ' + size
+      + ' <span class="mono" style="font-size:10px;color:var(--text-accent);font-weight:600;">' + escapeHtml(book.book_id || '') + '</span></div>'
+    + '<div class="mono" style="line-height:1.8;">'
+    + 'Current return: <span style="color:var(--text-primary);font-weight:700;">' + _capPct(book.current_return_pct) + '</span> · '
+      + 'Excess vs SPY: <span style="color:var(--text-primary);font-weight:700;">' + _capPP(book.current_excess_return_pct_points) + '</span><br>'
+    + 'Current drawdown: <span style="color:var(--danger,#e74c3c);font-weight:700;">' + _capPct(book.current_drawdown_pct) + '</span> · '
+      + 'Max drawdown: <span style="color:var(--text-primary);">' + _capPct(book.max_drawdown_pct) + '</span><br>'
+    + 'Rolling 5 / 10 / 20 return: <span style="color:var(--text-primary);">'
+      + _capPP(book.rolling_5_return_change_pct_points) + ' · ' + _capPP(book.rolling_10_return_change_pct_points) + ' · ' + _capPP(book.rolling_20_return_change_pct_points) + '</span><br>'
+    + 'Rolling 5 / 10 / 20 excess: <span style="color:var(--text-primary);">'
+      + _capPP(book.rolling_5_excess_change_pct_points) + ' · ' + _capPP(book.rolling_10_excess_change_pct_points) + ' · ' + _capPP(book.rolling_20_excess_change_pct_points) + '</span><br>'
+    + 'Volatility: <span style="color:var(--text-primary);">' + _capPP(book.daily_change_volatility_pct_points) + '</span> · '
+      + 'Concentration (top 5): <span style="color:var(--text-primary);">' + (book.contributor_concentration_top5_pct != null ? book.contributor_concentration_top5_pct + '%' : '—') + '</span><br>'
+    + 'Coverage (latest): <span style="color:var(--text-primary);">' + (book.latest_coverage_pct != null ? book.latest_coverage_pct + '%' : '—') + '</span> · '
+      + 'Coverage-warning / insufficient dates: <span style="color:var(--text-primary);">'
+      + (book.n_coverage_warning_dates != null ? book.n_coverage_warning_dates : '—') + ' / '
+      + (book.n_insufficient_coverage_dates != null ? book.n_insufficient_coverage_dates : '—') + '</span><br>'
+    + 'Risk flags: ' + flagHtml
+    + '</div>';
+}
+
+function _cdgWarnings(list) {
+  const el = document.getElementById('cdg-warnings');
+  if (!el) return;
+  const rows = Array.isArray(list) ? list : [];
+  el.innerHTML = rows.length ? rows.map(w => '<li>' + escapeHtml(String(w)) + '</li>').join('') : '';
+}
+
+function _cdgRender(data) {
+  if (!data) return;
+  // Current decision
+  const decEl = document.getElementById('cdg-decision');
+  if (decEl) { decEl.textContent = data.decision || '—'; decEl.style.color = _cdgDecisionColor(data.decision); }
+  _cdgText('cdg-decision-note', data.decision_label || '');
+
+  // Provisional primary + challenger (never production / approved / live)
+  const primary = data.primary_paper_book || {};
+  if (primary.book) {
+    _cdgText('cdg-primary', primary.book + '  ' + (primary.book_id || ''));
+    _cdgText('cdg-primary-note', primary.qualifier || 'Provisional, paper-only — not production, not approved, not live.');
+  } else {
+    _cdgText('cdg-primary', 'NO_PRIMARY_BOOK_YET');
+    _cdgText('cdg-primary-note', 'No book qualifies as provisional primary yet.');
+  }
+  const ch = data.challenger_paper_book;
+  if (ch) {
+    _cdgText('cdg-challenger', (ch.label || '') + '  ' + (ch.book_id || ''));
+    _cdgText('cdg-challenger-note', 'Challenger — provisional, paper-only.');
+  } else {
+    _cdgText('cdg-challenger', '—');
+    _cdgText('cdg-challenger-note', '');
+  }
+
+  // Quarterly rebalance readiness (review timing only)
+  const rb = data.quarterly_rebalance_readiness || {};
+  _cdgText('cdg-readiness', rb.readiness_status || '—');
+  _cdgText('cdg-readiness-note', (rb.estimated_trading_days_elapsed != null
+    ? rb.estimated_trading_days_elapsed + ' of ' + (rb.target_holding_period_trading_days || 63) + ' trading days elapsed — review only, no orders.'
+    : 'Review timing only — no orders, no rebalancing.'));
+
+  // Latest financial mark + freshness
+  const mf = data.mark_freshness || {};
+  _cdgText('cdg-mark', data.latest_mark_date || '—');
+  _cdgText('cdg-mark-note', (mf.mark_freshness_status ? mf.mark_freshness_status + ' · ' : '')
+    + (mf.mark_age_calendar_days != null ? mf.mark_age_calendar_days + ' calendar day(s) old' : ''));
+
+  // Next review target
+  _cdgText('cdg-review-target', (rb.remaining_trading_days != null ? rb.remaining_trading_days + ' trading days remaining' : '—'));
+  _cdgText('cdg-review-target-note', '63 trading-day quarterly cadence.');
+
+  _cdgReasoning(data.decision_reasons);
+  _cdgRiskReview(data);
+  _cdgScorecard('cdg-top25', data.top25);
+  _cdgScorecard('cdg-top50', data.top50);
+  _cdgWarnings(data.warnings);
+}
+
+async function loadPaperBookDecisionGate(btn) {
+  try {
+    const data = await _cdgFetch(btn, '/v1/research/current-alpha/decision-gate');
+    _cdgRender(data);
+  } catch (e) { /* surfaced by fetch */ }
+}
+// ===== Paper Book Decision Gate (Phase 13-J) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 

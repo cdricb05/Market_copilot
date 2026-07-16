@@ -158,6 +158,9 @@ from paper_trader.api.current_alpha_daily_refresh import (
 from paper_trader.api.current_alpha_performance import (
     load_current_alpha_performance,
 )
+from paper_trader.api.current_alpha_decision_gate import (
+    load_current_alpha_decision_gate,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4367,6 +4370,36 @@ def research_current_alpha_performance() -> dict:
     controlled status (HTTP 200), never a stack trace.
     """
     return load_current_alpha_performance()
+
+
+@app.get(
+    "/v1/research/current-alpha/decision-gate",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_decision_gate() -> dict:
+    """
+    Read-only Phase 13-J paper book decision gate for the champion paper books.
+
+    Reads ONLY the existing Phase 13-I *historical daily mark backfill* artifacts (via
+    the performance loader plus the per-date history files) and returns a single daily
+    operating decision layer: the PROVISIONAL primary / challenger paper book (never
+    production, approved, or live), the operating decision enum (continue monitoring /
+    provisional primary / no-clear-primary / performance-deteriorating-review /
+    risk-threshold-breach-review / insufficient-forward-history), per-book scorecards
+    (current return / excess / drawdown, rolling 5/10/20-mark changes, volatility,
+    concentration, coverage), the paper-review risk triggers, and the quarterly
+    (63 trading-day) rebalance-review readiness.
+
+    Every trigger it raises is a paper-review trigger — it produces no trading action.
+    This route changes nothing about ``composite_sn``: no reranking, no rebalancing, no
+    orders, no signals, and no trade decisions. It launches no subprocess and writes
+    nothing: it connects to no broker, runs no automation, writes no Paper Trader
+    database rows, and calls neither the prediction service nor any external / paid
+    provider. A missing or rejected backfill yields a controlled status (HTTP 200),
+    never a stack trace.
+    """
+    return load_current_alpha_decision_gate()
 
 
 def _check_prediction_healthz(
