@@ -1521,6 +1521,102 @@
       .cc-kpi-row { grid-template-columns: repeat(2, 1fr); }
       .cc-workflow-row { grid-template-columns: 1fr; }
     }
+
+    /* ===================== Phase 14-B TERMINALS ===================== */
+    /* Single-nav shell: sidebar is the one primary navigation; the old top
+       tab-bar is demoted (kept in DOM for JS compatibility, visually removed). */
+    .tab-bar.cc-demoted { display: none !important; }
+    .sidebar-link.active {
+      background: var(--cc-elevated, rgba(59,130,246,.14));
+      color: var(--text-primary);
+      border-left: 3px solid var(--info);
+      font-weight: 700;
+    }
+
+    /* --- Daily Workflow operating terminal --- */
+    .dw-terminal { display: flex; flex-direction: column; gap: var(--sp-3, 12px); margin-bottom: 14px; }
+    .dw-hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .dw-hd-title { font-size: var(--fs-3, 15px); font-weight: 800; letter-spacing: .04em; color: var(--text-primary); text-transform: uppercase; }
+    .dw-hd-active { font-size: var(--fs-1, 11px); font-weight: 700; color: var(--info); }
+    .dw-stepper { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--sp-2, 8px); }
+    .dw-stage {
+      background: var(--cc-panel, rgba(255,255,255,.03)); border: 1px solid var(--cc-border, #243b63);
+      border-radius: var(--r-2, 5px); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px;
+      min-width: 0;
+    }
+    .dw-stage.is-active { border-color: var(--info); box-shadow: 0 0 0 1px var(--info) inset; }
+    .dw-stage-hd { display: flex; align-items: center; gap: 6px; }
+    .dw-stage-num { font-size: 9px; font-weight: 800; color: #04210f; background: var(--label); border-radius: 50%; width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; }
+    .dw-stage.is-active .dw-stage-num { background: var(--info); color: #fff; }
+    .dw-stage-name { font-size: var(--fs-1, 11px); font-weight: 800; color: var(--text-primary); text-transform: uppercase; letter-spacing: .04em; }
+    .dw-stage-status { font-size: 10px; font-weight: 800; letter-spacing: .03em; }
+    .dw-stage-count { font-size: var(--fs-0, 9px); color: var(--label); }
+    .dw-stage-btn { font-size: var(--fs-0, 9px); padding: 3px 8px; align-self: flex-start; margin-top: 2px; }
+    .st-complete { color: var(--ok, #22c55e); }
+    .st-needs { color: var(--warning, #f59e0b); }
+    .st-blocked { color: var(--danger, #ef4444); }
+    .st-ready { color: var(--label); }
+    .st-na { color: var(--label); opacity: .7; }
+    .dw-workbench {
+      background: var(--cc-panel, rgba(255,255,255,.03)); border: 1px solid var(--cc-border-strong, #2c4a78);
+      border-radius: var(--r-2, 5px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .dw-wb-hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .dw-wb-title { font-size: var(--fs-2, 13px); font-weight: 800; color: var(--text-primary); }
+    .dw-wb-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+    .dw-wb-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-1, 11px); padding: 5px 6px; border-bottom: 1px solid var(--cc-border-soft, rgba(255,255,255,.06)); }
+    .dw-wb-row:last-child { border-bottom: none; }
+    .dw-wb-row .t { font-weight: 800; color: var(--text-primary); min-width: 56px; }
+    .dw-wb-row .m { color: var(--label); }
+    .dw-wb-row .sp { flex: 1; }
+    .dw-wb-empty { font-size: var(--fs-1, 11px); color: var(--label); font-style: italic; padding: 8px 0; }
+    .dw-hist { font-size: var(--fs-0, 9px); color: var(--label); }
+    .dw-done-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+    .dw-done-chip { font-size: var(--fs-0, 9px); color: var(--label); background: rgba(255,255,255,.03); border: 1px solid var(--cc-border-soft, rgba(255,255,255,.08)); border-radius: 3px; padding: 2px 7px; }
+
+    /* --- Portfolio terminal --- */
+    .pt-terminal { display: flex; flex-direction: column; gap: var(--sp-3, 12px); margin-bottom: 14px; }
+    .pt-kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--sp-2, 8px); }
+    .pt-kpi { background: var(--cc-panel, rgba(255,255,255,.03)); border: 1px solid var(--cc-border, #243b63); border-radius: var(--r-2, 5px); padding: 8px 10px; }
+    .pt-kpi-label { font-size: var(--fs-0, 9px); text-transform: uppercase; letter-spacing: .07em; color: var(--label); }
+    .pt-kpi-value { font-size: var(--fs-4, 18px); font-weight: 800; color: var(--text-primary); }
+    .pt-kpi-sub { font-size: var(--fs-0, 9px); color: var(--label); }
+    .pt-row2 { display: grid; grid-template-columns: 2fr 1fr; gap: var(--sp-2, 8px); }
+    .pt-panel { background: var(--cc-panel, rgba(255,255,255,.03)); border: 1px solid var(--cc-border, #243b63); border-radius: var(--r-2, 5px); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .pt-panel-title { font-size: var(--fs-1, 11px); font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary, #a8b8d8); }
+    .pt-chart { width: 100%; height: 120px; }
+    .pt-kv { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-1, 11px); }
+    .pt-kv .k { color: var(--label); }
+    .pt-kv .v { color: var(--text-primary); font-weight: 700; }
+    .pt-gauge-track { height: 8px; background: rgba(255,255,255,.06); border-radius: 4px; overflow: hidden; }
+    .pt-gauge-fill { height: 100%; background: var(--info); border-radius: 4px; }
+    .pt-table-wrap { max-height: 300px; overflow: auto; }
+    table.pt-table { width: 100%; border-collapse: collapse; font-size: var(--fs-1, 11px); }
+    table.pt-table th { text-align: right; font-size: var(--fs-0, 9px); text-transform: uppercase; letter-spacing: .05em; color: var(--label); padding: 5px 7px; position: sticky; top: 0; background: var(--cc-panel, #16233c); border-bottom: 1px solid var(--cc-border, #243b63); }
+    table.pt-table th:first-child, table.pt-table td:first-child { text-align: left; }
+    table.pt-table td { text-align: right; padding: 5px 7px; border-bottom: 1px solid var(--cc-border-soft, rgba(255,255,255,.05)); color: var(--text-primary); }
+    .pt-orders-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-2, 8px); }
+    .pt-badge { font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 3px; }
+    .pt-badge.hold { color: var(--ok, #22c55e); background: rgba(34,197,94,.12); }
+    .pt-badge.watch { color: var(--warning, #f59e0b); background: rgba(245,158,11,.12); }
+    .pt-badge.exit { color: var(--danger, #ef4444); background: rgba(239,68,68,.14); }
+    .pt-badge.na { color: var(--label); background: rgba(255,255,255,.05); }
+    .pt-empty { font-size: var(--fs-1, 11px); color: var(--label); font-style: italic; padding: 8px 0; }
+    .pt-pos { color: var(--ok, #22c55e); }
+    .pt-neg { color: var(--danger, #ef4444); }
+
+    @media (max-width: 1500px) {
+      .pt-kpi-row { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 1200px) {
+      .dw-stepper { grid-template-columns: repeat(3, 1fr); }
+      .pt-row2 { grid-template-columns: 1fr; }
+      .pt-orders-row { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .dw-stepper { grid-template-columns: repeat(2, 1fr); }
+      .pt-kpi-row { grid-template-columns: repeat(2, 1fr); }
+    }
   </style>
 </head>
 <body>
@@ -1535,7 +1631,7 @@
   <span class="badge warning" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">MANUAL REVIEW</span>
   <span class="badge ok" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">PAPER ORDERS ONLY</span>
   <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">AUTOMATION OFF</span>
-  <span id="pred-health-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;">Prediction: ---</span>
+  <span id="pred-health-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;">PREDICTION STATUS NOT CHECKED</span>
   <div style="flex: 1;"></div>
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
          onkeydown="if(event.key==='Enter')window.paperTraderConnect(event)">
@@ -1654,6 +1750,12 @@
         if (typeof window.loadCommandCenter === 'function') {
           try { window.loadCommandCenter(); } catch (e) {}
         }
+        // Phase 14-B: re-apply the current route so the active view (Daily
+        // Workflow / Portfolio terminal) loads its own read-only dashboard and
+        // the contextual action rail is correct now that we are connected.
+        if (typeof window.applyRoute === 'function') {
+          try { window.applyRoute(); } catch (e) {}
+        }
         if (typeof window.paperTraderDirectDashboardLoad === 'function') {
           window.paperTraderDirectDashboardLoad().catch(e => {
             console.error('Dashboard load error:', e);
@@ -1741,10 +1843,10 @@
   <div class="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-label">Views</div>
-      <a class="sidebar-link" onclick="window._switchTab('overview');">Command Center</a>
-      <a class="sidebar-link" onclick="window._switchTab('prediction-cockpit');">Daily Workflow</a>
-      <a class="sidebar-link" onclick="window._switchTab('portfolio');">Portfolio</a>
-      <a class="sidebar-link" onclick="window._switchTab('audit-advanced');">Research &amp; Audit</a>
+      <a class="sidebar-link" id="nav-command-center" data-route="command-center" onclick="navigateToRoute('command-center');">Command Center</a>
+      <a class="sidebar-link" id="nav-daily-workflow" data-route="daily-workflow" onclick="navigateToRoute('daily-workflow');">Daily Workflow</a>
+      <a class="sidebar-link" id="nav-portfolio" data-route="portfolio" onclick="navigateToRoute('portfolio');">Portfolio</a>
+      <a class="sidebar-link" id="nav-research-audit" data-route="research-audit" onclick="navigateToRoute('research-audit');">Research &amp; Audit</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Actions</div>
@@ -1754,8 +1856,9 @@
   </div>
 
   <main id="main-content">
-    <!-- TAB BAR -->
-    <div class="tab-bar">
+    <!-- TAB BAR — DEMOTED (single primary nav is the left sidebar). Kept in the
+         DOM (hidden) so existing _switchTab active-button logic stays intact. -->
+    <div class="tab-bar cc-demoted" aria-hidden="true">
       <button class="tab-button active" onclick="window._switchTab('overview')">Command Center</button>
       <button class="tab-button" onclick="window._switchTab('prediction-cockpit')">Daily Workflow</button>
       <button class="tab-button" onclick="window._switchTab('portfolio')">Portfolio</button>
@@ -1860,7 +1963,7 @@
           <!-- ROW 4: PREVIEWS (top 5 each) -->
           <div class="cc-row4">
             <div class="cc-panel">
-              <div class="cc-preview-hd"><span class="cc-panel-title">Review Queue</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToView('daily-workflow')">View All &rarr;</button></div>
+              <div class="cc-preview-hd"><span class="cc-panel-title" id="cc-rq-title">Review Queue</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('daily-workflow/review')">View All &rarr;</button></div>
               <div class="cc-preview-list" id="cc-rq-preview"><div class="cc-empty">Connect to load the review queue.</div></div>
             </div>
             <div class="cc-panel">
@@ -2089,6 +2192,78 @@
 
       <!-- TAB 1: DAILY PLAN -->
       <div id="tab-prediction-cockpit" class="tab-content">
+
+        <!-- ===================== Phase 14-B DAILY WORKFLOW TERMINAL START ===================== -->
+        <div id="dw-terminal" class="dw-terminal">
+          <div class="dw-hd">
+            <span class="dw-hd-title">Today's Operating Workflow</span>
+            <span class="dw-hd-active">Active: <span id="dw-active-stage">—</span></span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge safe">PAPER ONLY</span>
+            <span class="cc-badge">NO BROKER EXECUTION</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+          </div>
+
+          <div id="dw-error" class="cc-error" style="display:none;"></div>
+
+          <!-- Six-stage horizontal stepper: DATA -> CANDIDATES -> REVIEW -> SIGNALS -> DECISIONS -> PORTFOLIO -->
+          <div class="dw-stepper" id="dw-stepper">
+            <div class="dw-stage" id="dw-stage-DATA" data-stage="DATA">
+              <div class="dw-stage-hd"><span class="dw-stage-num">1</span><span class="dw-stage-name">Data</span></div>
+              <div class="dw-stage-status" data-role="status">—</div>
+              <div class="dw-stage-count" data-role="count">&nbsp;</div>
+              <button class="cc-btn ghost dw-stage-btn" data-role="action" title="Start the daily review scan" onclick="navigateToRoute('daily-workflow/review')">—</button>
+            </div>
+            <div class="dw-stage" id="dw-stage-CANDIDATES" data-stage="CANDIDATES">
+              <div class="dw-stage-hd"><span class="dw-stage-num">2</span><span class="dw-stage-name">Candidates</span></div>
+              <div class="dw-stage-status" data-role="status">—</div>
+              <div class="dw-stage-count" data-role="count">&nbsp;</div>
+              <button class="cc-btn ghost dw-stage-btn" data-role="action" title="View scanned candidates" onclick="navigateToRoute('research-audit')">—</button>
+            </div>
+            <div class="dw-stage" id="dw-stage-REVIEW" data-stage="REVIEW">
+              <div class="dw-stage-hd"><span class="dw-stage-num">3</span><span class="dw-stage-name">Review</span></div>
+              <div class="dw-stage-status" data-role="status">—</div>
+              <div class="dw-stage-count" data-role="count">&nbsp;</div>
+              <button class="cc-btn ghost dw-stage-btn" data-role="action" title="Review pending candidates" onclick="navigateToRoute('daily-workflow/review')">—</button>
+            </div>
+            <div class="dw-stage" id="dw-stage-SIGNALS" data-stage="SIGNALS">
+              <div class="dw-stage-hd"><span class="dw-stage-num">4</span><span class="dw-stage-name">Signals</span></div>
+              <div class="dw-stage-status" data-role="status">—</div>
+              <div class="dw-stage-count" data-role="count">&nbsp;</div>
+              <button class="cc-btn ghost dw-stage-btn" data-role="action" title="Create paper signals" onclick="navigateToRoute('daily-workflow/signals')">—</button>
+            </div>
+            <div class="dw-stage" id="dw-stage-DECISIONS" data-stage="DECISIONS">
+              <div class="dw-stage-hd"><span class="dw-stage-num">5</span><span class="dw-stage-name">Decisions</span></div>
+              <div class="dw-stage-status" data-role="status">—</div>
+              <div class="dw-stage-count" data-role="count">&nbsp;</div>
+              <button class="cc-btn ghost dw-stage-btn" data-role="action" title="Review paper decisions" onclick="navigateToRoute('daily-workflow/decisions')">—</button>
+            </div>
+            <div class="dw-stage" id="dw-stage-PORTFOLIO" data-stage="PORTFOLIO">
+              <div class="dw-stage-hd"><span class="dw-stage-num">6</span><span class="dw-stage-name">Portfolio</span></div>
+              <div class="dw-stage-status" data-role="status">—</div>
+              <div class="dw-stage-count" data-role="count">&nbsp;</div>
+              <button class="cc-btn ghost dw-stage-btn" data-role="action" title="Open the portfolio" onclick="navigateToRoute('portfolio/positions')">—</button>
+            </div>
+          </div>
+
+          <!-- ONE active workbench, expanded for the current stage -->
+          <div class="dw-workbench" id="dw-workbench">
+            <div class="dw-wb-hd">
+              <span class="dw-wb-title" id="dw-wb-title">Active Workbench</span>
+              <span class="dw-hist" id="dw-wb-sub">&nbsp;</span>
+            </div>
+            <div id="dw-wb-body">
+              <div class="dw-wb-empty">Loading today&rsquo;s workflow&hellip;</div>
+            </div>
+          </div>
+
+          <!-- Completed stages collapse to a compact summary strip -->
+          <div class="dw-done-strip" id="dw-done-strip"></div>
+          <div id="dw-warnings" class="cc-warnings" style="display:none;"></div>
+          <div class="cc-updated" id="dw-updated">&nbsp;</div>
+        </div>
+        <!-- ===================== Phase 14-B DAILY WORKFLOW TERMINAL END ===================== -->
 
         <!-- Daily Plan Summary Label -->
         <div style="font-size: 8px; color: var(--label); margin: 8px 0 4px 0; text-transform: uppercase; letter-spacing: 0.06em;">Daily Plan Summary</div>
@@ -3462,6 +3637,88 @@
 
       <!-- TAB 4: PORTFOLIO -->
       <div id="tab-portfolio" class="tab-content">
+
+        <!-- ===================== Phase 14-B PORTFOLIO TERMINAL START ===================== -->
+        <div id="pt-terminal" class="pt-terminal">
+          <div class="dw-hd">
+            <span class="dw-hd-title">Portfolio Terminal</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <span class="cc-badge safe">PAPER ONLY</span>
+            <span class="cc-badge">NO BROKER EXECUTION</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge">NO LIVE ORDERS</span>
+            <button id="pt-refresh-btn" class="cc-btn ghost" onclick="loadPortfolioTerminal()" title="Reload the read-only portfolio terminal.">&#8635; Refresh</button>
+          </div>
+
+          <div id="pt-error" class="cc-error" style="display:none;"></div>
+
+          <!-- ROW 1: KPI cards -->
+          <div class="pt-kpi-row">
+            <div class="pt-kpi"><div class="pt-kpi-label">Portfolio Value</div><div class="pt-kpi-value" id="pt-kpi-value">—</div><div class="pt-kpi-sub" id="pt-kpi-value-sub">&nbsp;</div></div>
+            <div class="pt-kpi"><div class="pt-kpi-label">Cash</div><div class="pt-kpi-value" id="pt-kpi-cash">—</div><div class="pt-kpi-sub" id="pt-kpi-cash-sub">&nbsp;</div></div>
+            <div class="pt-kpi"><div class="pt-kpi-label">Invested</div><div class="pt-kpi-value" id="pt-kpi-invested">—</div><div class="pt-kpi-sub" id="pt-kpi-invested-sub">&nbsp;</div></div>
+            <div class="pt-kpi"><div class="pt-kpi-label">Total Return</div><div class="pt-kpi-value" id="pt-kpi-return">—</div><div class="pt-kpi-sub" id="pt-kpi-return-sub">&nbsp;</div></div>
+            <div class="pt-kpi"><div class="pt-kpi-label">Open Positions</div><div class="pt-kpi-value" id="pt-kpi-positions">—</div><div class="pt-kpi-sub" id="pt-kpi-positions-sub">&nbsp;</div></div>
+            <div class="pt-kpi"><div class="pt-kpi-label">Available Capacity</div><div class="pt-kpi-value" id="pt-kpi-capacity">—</div><div class="pt-kpi-sub" id="pt-kpi-capacity-sub">&nbsp;</div></div>
+          </div>
+
+          <!-- ROW 2: performance (left) + risk & capacity (right) -->
+          <div class="pt-row2">
+            <div class="pt-panel">
+              <div class="pt-panel-title">Portfolio Performance</div>
+              <svg class="pt-chart" id="pt-chart" viewBox="0 0 640 120" preserveAspectRatio="none" role="img" aria-label="Portfolio value over time"></svg>
+              <div id="pt-chart-empty" class="pt-empty" style="display:none;">NO PERFORMANCE SNAPSHOTS YET</div>
+              <div class="pt-kv"><span class="k">Cumulative return</span><span class="v" id="pt-perf-cumret">—</span></div>
+              <div class="pt-kv"><span class="k">Primary alpha (<span id="pt-perf-book">—</span>) vs SPY</span><span class="v" id="pt-perf-alpha">—</span></div>
+              <div class="pt-kv"><span class="k">Realized / Unrealized P&amp;L</span><span class="v" id="pt-perf-pnl">—</span></div>
+            </div>
+            <div class="pt-panel" id="pt-risk">
+              <div class="pt-panel-title">Risk &amp; Capacity</div>
+              <div class="pt-kv"><span class="k">Capacity</span><span class="v" id="pt-risk-capacity">—</span></div>
+              <div class="pt-gauge-track"><div class="pt-gauge-fill" id="pt-gauge" style="width:0%;"></div></div>
+              <div class="pt-kv"><span class="k">Risk state</span><span class="v" id="pt-risk-state">—</span></div>
+              <div class="pt-kv"><span class="k">Review-for-exit</span><span class="v" id="pt-risk-exit">—</span></div>
+              <div class="pt-kv"><span class="k">Concentration</span><span class="v" id="pt-risk-conc">—</span></div>
+              <div class="pt-kv"><span class="k">Missing prices</span><span class="v" id="pt-risk-missing">—</span></div>
+              <div class="cc-na-note" id="pt-risk-expl" style="margin-top:4px;">The risk engine flags positions for review — paper only, automation off, no live orders.</div>
+            </div>
+          </div>
+
+          <!-- ROW 3: open positions -->
+          <div class="pt-panel">
+            <div class="pt-panel-title">Open Positions</div>
+            <div class="pt-table-wrap">
+              <table class="pt-table">
+                <thead>
+                  <tr><th>Ticker</th><th>Qty</th><th>Entry</th><th>Latest</th><th>Mkt Value</th><th>P&amp;L</th><th>P&amp;L %</th><th>Weight</th><th style="text-align:center;">Status</th></tr>
+                </thead>
+                <tbody id="pt-pos-tbody">
+                  <tr><td colspan="9" class="pt-empty">Loading positions&hellip;</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- ROW 4: pending orders / filled orders / alerts -->
+          <div class="pt-orders-row">
+            <div class="pt-panel">
+              <div class="pt-panel-title">Pending Paper Orders</div>
+              <div id="pt-orders-pending"><div class="pt-empty">Loading&hellip;</div></div>
+            </div>
+            <div class="pt-panel">
+              <div class="pt-panel-title">Recent Filled Paper Orders</div>
+              <div id="pt-orders-filled"><div class="pt-empty">Loading&hellip;</div></div>
+            </div>
+            <div class="pt-panel">
+              <div class="pt-panel-title">Position Alerts</div>
+              <div id="pt-alerts"><div class="pt-empty">Loading&hellip;</div></div>
+            </div>
+          </div>
+
+          <div id="pt-warnings" class="cc-warnings" style="display:none;"></div>
+          <div class="cc-updated" id="pt-updated">&nbsp;</div>
+        </div>
+        <!-- ===================== Phase 14-B PORTFOLIO TERMINAL END ===================== -->
 
         <!-- Portfolio & Trade Ledger header + safety -->
         <div class="card" style="margin-bottom:10px;padding:10px 14px;">
@@ -5215,7 +5472,8 @@
 
 <!-- Core Tab & Alert Functions -->
 <script>
-window._switchTab = function(tabName) {
+window._switchTab = function(tabName, opts) {
+  opts = opts || {};
   // Hide all tabs
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-button').forEach(el => el.classList.remove('active'));
@@ -5267,6 +5525,8 @@ window._switchTab = function(tabName) {
   if (tabName === 'prediction-cockpit') {
     try { renderDailyReviewControl(); } catch (e) {}
     try { renderDailyReviewComplete(); } catch (e) {}
+    // Phase 14-B: load the read-only Daily Workflow operating terminal.
+    if (window._appState?.connected) { try { loadDailyWorkflow(); } catch (e) {} }
   }
 
   // Phase 14-A: Command Center is the default landing view — refresh its model
@@ -5275,13 +5535,28 @@ window._switchTab = function(tabName) {
     try { if (typeof loadCommandCenter === 'function') loadCommandCenter(); } catch (e) {}
   }
 
-  // Phase 14-A: connected detail sections must render their real (empty/loaded)
+  // Phase 14-A/B: connected detail sections must render their real (empty/loaded)
   // state — never leave a stale "Connect to load" placeholder once connected.
   if (tabName === 'portfolio' && window._appState?.connected) {
+    try { loadPortfolioTerminal(); } catch (e) {}   // Phase 14-B terminal
     try { loadPositions(); } catch (e) {}
     try { loadOrders(); } catch (e) {}
     try { loadHistory(); } catch (e) {}
     try { loadPortfolio(); } catch (e) {}
+  }
+
+  // Phase 14-B: single-nav highlight + contextual action rail + hash sync so the
+  // sidebar is the one navigation and refresh / back-forward preserve the view.
+  var _routeBase = ({ 'overview': 'command-center', 'prediction-cockpit': 'daily-workflow',
+    'portfolio': 'portfolio', 'audit-advanced': 'research-audit' })[tabName] || tabName;
+  try { if (typeof renderActionRail === 'function') renderActionRail(_routeBase); } catch (e) {}
+  try { if (typeof _highlightNav === 'function') _highlightNav(_routeBase); } catch (e) {}
+  if (!opts.fromRoute) {
+    try {
+      if ((location.hash || '').replace(/^#/, '').split('/')[0] !== _routeBase) {
+        location.hash = '#' + _routeBase;
+      }
+    } catch (e) {}
   }
 };
 
@@ -10113,15 +10388,15 @@ async function checkPredictionService() {
     var d = await parseApiResponse(r);
     if (r.ok && d.status === 'ok') {
       if (indicator) { indicator.textContent = 'Prediction Service: OK'; indicator.style.color = 'var(--ok)'; }
-      if (badge) { badge.textContent = 'Prediction: OK'; badge.style.color = 'var(--ok)'; badge.style.borderColor = 'rgba(34,197,94,.4)'; badge.style.background = 'rgba(34,197,94,.08)'; }
+      if (badge) { badge.textContent = 'PREDICTION AVAILABLE'; badge.style.color = 'var(--ok)'; badge.style.borderColor = 'rgba(34,197,94,.4)'; badge.style.background = 'rgba(34,197,94,.08)'; }
     } else {
       var _det = (d && d.detail) ? d.detail : 'Unavailable';
       if (indicator) { indicator.textContent = 'Prediction Service: Unavailable -- ' + _det; indicator.style.color = 'var(--danger)'; }
-      if (badge) { badge.textContent = 'Prediction: Unavailable'; badge.style.color = 'var(--danger)'; badge.style.borderColor = 'rgba(239,68,68,.4)'; badge.style.background = 'rgba(239,68,68,.08)'; }
+      if (badge) { badge.textContent = 'PREDICTION UNAVAILABLE'; badge.style.color = 'var(--danger)'; badge.style.borderColor = 'rgba(239,68,68,.4)'; badge.style.background = 'rgba(239,68,68,.08)'; }
     }
   } catch (e) {
     if (indicator) { indicator.textContent = 'Prediction Service: Error -- ' + e.message; indicator.style.color = 'var(--danger)'; }
-    if (badge) { badge.textContent = 'Prediction: Error'; badge.style.color = 'var(--danger)'; badge.style.borderColor = 'rgba(239,68,68,.4)'; badge.style.background = 'rgba(239,68,68,.08)'; }
+    if (badge) { badge.textContent = 'PREDICTION UNAVAILABLE'; badge.style.color = 'var(--danger)'; badge.style.borderColor = 'rgba(239,68,68,.4)'; badge.style.background = 'rgba(239,68,68,.08)'; }
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -19244,6 +19519,8 @@ function renderCommandCenter() {
   _ccSetText('cc-status-conn', sys.connected ? 'Connected' : 'Disconnected');
   _ccSetText('cc-status-mark', (alpha.latest_mark_date || '—') +
     (alpha.mark_stale ? ' (STALE)' : (alpha.mark_freshness_status ? '' : '')));
+  // Header prediction state — reported (configured target) only; never probed here.
+  try { if (typeof renderPredictionHeader === 'function') renderPredictionHeader(sys.prediction_tunnel); } catch (e) {}
 
   // ROW 1 KPI cards
   _ccSetText('cc-kpi-system', sys.backend_ready ? 'READY' : 'DEGRADED');
@@ -19287,8 +19564,13 @@ function renderCommandCenter() {
     (pf.open_positions || 0) > 0 ? 's-complete' : 's-ready',
     (pf.open_positions || 0) + ' open · ' + (pf.review_for_exit_count || 0) + ' review-for-exit');
 
-  // ROW 3 current alpha
-  _ccSetText('cc-alpha-primary', pbook.book ? (pbook.book + ' · ' + (pbook.book_id || '')) : 'NO PRIMARY BOOK YET');
+  // ROW 3 current alpha — TOP50 prominent; full internal book_id only in tooltip.
+  var apEl = document.getElementById('cc-alpha-primary');
+  if (apEl) {
+    apEl.textContent = pbook.book || 'NO PRIMARY BOOK YET';
+    apEl.title = pbook.book_id || '';
+    apEl.style.fontWeight = '800';
+  }
   var chal = alpha.challenger_paper_book;
   _ccSetText('cc-alpha-challenger', chal && chal.label ? chal.label : '—');
   _ccSetText('cc-alpha-decision', alpha.decision_label || alpha.decision || '—');
@@ -19326,29 +19608,50 @@ function renderCommandCenter() {
 }
 
 // ---- Previews (secondary, independently guarded — one failure never blanks) ----
-function _ccRenderReviewPreview(rows) {
-  var box = document.getElementById('cc-rq-preview');
-  if (!box) return;
-  if (!rows || !rows.length) { box.innerHTML = '<div class="cc-empty">No trade ideas in the review queue.</div>'; return; }
-  // Deterministic dedup: group by stable candidate identity (ticker), keep the
-  // latest active record, and surface a duplicate/history count. No DB deletion.
+// Part F: the Review-Queue preview title & contents switch on the backend pending
+// count so the Command Center never says "No pending ideas" while showing rejected
+// or approved historical rows as if they were pending work.
+//   pending > 0  -> "Active Review Queue"  + active (NEW) rows
+//   pending == 0 -> "Recent Review History" + recent completed/rejected rows (labelled)
+function _ccGroupByTicker(rows) {
   var byTicker = {};
   rows.forEach(function (r) {
     var t = (r.ticker || r.symbol || '?');
-    if (!byTicker[t]) byTicker[t] = { rows: [] };
-    byTicker[t].rows.push(r);
+    if (!byTicker[t]) byTicker[t] = [];
+    byTicker[t].push(r);
   });
-  var items = Object.keys(byTicker).map(function (t) {
-    var rs = byTicker[t].rows.slice().sort(function (a, b) {
+  return Object.keys(byTicker).map(function (t) {
+    var rs = byTicker[t].slice().sort(function (a, b) {
       return String(b.created_at || '').localeCompare(String(a.created_at || ''));
     });
     return { ticker: t, latest: rs[0], dupes: rs.length - 1 };
+  }).sort(function (a, b) {
+    return String(b.latest.created_at || '').localeCompare(String(a.latest.created_at || ''));
   });
-  items.sort(function (a, b) { return String(b.latest.created_at || '').localeCompare(String(a.latest.created_at || '')); });
+}
+function _ccRenderReviewPreview(rows, pendingCount) {
+  var box = document.getElementById('cc-rq-preview');
+  var titleEl = document.getElementById('cc-rq-title');
+  if (!box) return;
+  rows = rows || [];
+  var active = rows.filter(function (r) { return (r.review_status || r.status) === 'NEW'; });
+  var history = rows.filter(function (r) { return (r.review_status || r.status) !== 'NEW'; });
+  var pending = (pendingCount != null) ? pendingCount : active.length;
+  var showActive = pending > 0;
+  if (titleEl) titleEl.textContent = showActive ? 'Active Review Queue' : 'Recent Review History';
+  var list = showActive ? active : history;
+  if (!list.length) {
+    box.innerHTML = '<div class="cc-empty">' +
+      (showActive ? 'No trade ideas pending review.' : 'No recent review history.') + '</div>';
+    return;
+  }
+  var items = _ccGroupByTicker(list);
   box.innerHTML = items.slice(0, 5).map(function (it) {
     var status = it.latest.review_status || it.latest.status || '';
     var dup = it.dupes > 0 ? ' <span style="color:var(--label);">(+' + it.dupes + ' history)</span>' : '';
-    return '<div class="cc-preview-row"><span>' + _ccEsc(it.ticker) + dup + '</span><span style="color:var(--label);">' + _ccEsc(status) + '</span></div>';
+    var tag = showActive ? '' : ' <span style="color:var(--label);font-size:8px;">history</span>';
+    return '<div class="cc-preview-row"><span>' + _ccEsc(it.ticker) + dup + tag +
+           '</span><span style="color:var(--label);">' + _ccEsc(status) + '</span></div>';
   }).join('');
 }
 function _ccRenderPositionsPreview(rows) {
@@ -19369,7 +19672,9 @@ function _ccRenderDecisionsPreview(rows) {
   }).join('');
 }
 async function _ccLoadPreviews() {
-  try { var r = await call('GET', '/v1/review/candidates'); if (r.ok) _ccRenderReviewPreview(await r.json()); } catch (e) {}
+  var pending = (window._commandCenter.data && window._commandCenter.data.workflow &&
+                 window._commandCenter.data.workflow.review_queue_count) || 0;
+  try { var r = await call('GET', '/v1/review/candidates'); if (r.ok) _ccRenderReviewPreview(await r.json(), pending); } catch (e) {}
   try { var p = await call('GET', '/v1/positions'); if (p.ok) _ccRenderPositionsPreview(await p.json()); } catch (e) {}
   try { var o = await call('GET', '/v1/orders'); if (o.ok) _ccRenderDecisionsPreview(await o.json()); } catch (e) {}
 }
@@ -19428,28 +19733,29 @@ async function refreshCommandCenter(btn) {
 }
 window.refreshCommandCenter = refreshCommandCenter;
 
-// ---- Navigation between the four views ------------------------------------
+// ---- Navigation between the four views (hash-routed) ----------------------
 function navigateToView(view) {
-  var map = {
-    'command-center': 'overview',
-    'daily-workflow': 'prediction-cockpit',
-    'portfolio': 'portfolio',
-    'research-audit': 'audit-advanced',
-  };
-  var tab = map[view] || view;
-  try { window._switchTab(tab); } catch (e) {}
+  // `view` is already a route base (command-center / daily-workflow / portfolio /
+  // research-audit). Delegate to the hash router so refresh + back/forward work.
+  try { navigateToRoute(view); } catch (e) { try { window._switchTab(view); } catch (e2) {} }
 }
 window.navigateToView = navigateToView;
 
-// ---- Primary next-action dispatcher (preview-safe navigation only) --------
+// ---- Primary next-action dispatcher (preview-safe deep-link navigation) ----
 function commandCenterPrimaryAction(btn) {
   var na = (window._commandCenter.data && window._commandCenter.data.next_action) || {};
   if (na.action === 'REFRESH_APPLICATION_DATA') { refreshCommandCenter(btn); return; }
   if (na.action === 'NO_ACTION_REQUIRED') { try { toast('No action required — everything is up to date.', 'ok'); } catch (e) {} return; }
-  navigateToView(na.ui_target || 'command-center');
-  if (na.action === 'REVIEW_CANDIDATES' && typeof focusReviewQueue === 'function') {
-    try { focusReviewQueue(); } catch (e) {}
-  }
+  var routeMap = {
+    'REVIEW_CANDIDATES': 'daily-workflow/review',
+    'CREATE_SIGNALS_PREVIEW': 'daily-workflow/signals',
+    'REVIEW_DECISIONS': 'daily-workflow/decisions',
+    'RESOLVE_CAPACITY_BLOCK': 'portfolio/risk',
+    'MONITOR_PORTFOLIO': 'portfolio/positions',
+    'RUN_DAILY_ALPHA_REFRESH': 'research-audit',
+    'LOAD_CURRENT_ALPHA': 'research-audit',
+  };
+  navigateToRoute(routeMap[na.action] || na.ui_target || 'command-center');
 }
 window.commandCenterPrimaryAction = commandCenterPrimaryAction;
 
@@ -19480,6 +19786,431 @@ window.showPreviewConfirm = showPreviewConfirm;
 setTimeout(function () {
   try { if (window._appState && window._appState.connected) loadCommandCenter(); } catch (e) {}
 }, 400);
+</script>
+
+<!-- ===================== Phase 14-B: routing, action rail, terminals ===================== -->
+<script>
+// ---- Single-object view state (no duplication of the command-center state) ----
+window._dailyWorkflowState = { data: null, loading: false, error: null, lastLoadedAt: null, requestInFlight: false };
+window._portfolioTerminalState = { data: null, loading: false, error: null, lastLoadedAt: null, requestInFlight: false };
+
+// ---- Header prediction state (reported only — never probes on load) --------
+function renderPredictionHeader(tunnel) {
+  var el = document.getElementById('pred-health-badge');
+  if (!el) return;
+  // Only set the "not checked / configured" baseline here. A user-triggered
+  // prediction check (checkPredictionService) sets AVAILABLE / UNAVAILABLE.
+  var txt = (tunnel && tunnel.target) ? 'PREDICTION TUNNEL CONFIGURED' : 'PREDICTION STATUS NOT CHECKED';
+  // Do not clobber a live AVAILABLE/UNAVAILABLE result the user already fetched.
+  var cur = (el.textContent || '');
+  if (cur.indexOf('AVAILABLE') >= 0 || cur.indexOf('UNAVAILABLE') >= 0) return;
+  el.textContent = txt;
+  el.title = (tunnel && tunnel.target) ? ('Prediction tunnel: ' + tunnel.target + ' (not probed)') : '';
+}
+window.renderPredictionHeader = renderPredictionHeader;
+
+// ---- Hash routing -----------------------------------------------------------
+var _ROUTE_TO_TAB = {
+  'command-center': 'overview', 'daily-workflow': 'prediction-cockpit',
+  'portfolio': 'portfolio', 'research-audit': 'audit-advanced',
+};
+function _parseRoute() {
+  var h = (location.hash || '').replace(/^#/, '');
+  if (!h) return { base: 'command-center', sub: null };
+  var parts = h.split('/');
+  var base = parts[0];
+  if (!_ROUTE_TO_TAB[base]) return { base: 'command-center', sub: null };
+  return { base: base, sub: parts[1] || null };
+}
+var _applyingRoute = false;
+function applyRoute() {
+  if (_applyingRoute) return;
+  _applyingRoute = true;
+  try {
+    var r = _parseRoute();
+    var tab = _ROUTE_TO_TAB[r.base] || 'overview';
+    try { if (window._switchTab) window._switchTab(tab, { fromRoute: true }); } catch (e) {}
+    _highlightNav(r.base);
+    try { renderActionRail(r.base); } catch (e) {}
+    _applySubsection(r.base, r.sub);
+  } finally { _applyingRoute = false; }
+}
+window.applyRoute = applyRoute;
+function navigateToRoute(route) {
+  var target = '#' + route;
+  if (location.hash === target) { applyRoute(); }
+  else { location.hash = target; }   // triggers hashchange -> applyRoute
+}
+window.navigateToRoute = navigateToRoute;
+function _highlightNav(base) {
+  var links = document.querySelectorAll('.sidebar-link[data-route]');
+  Array.prototype.forEach.call(links, function (a) {
+    if (a.getAttribute('data-route') === base) a.classList.add('active');
+    else a.classList.remove('active');
+  });
+}
+window._highlightNav = _highlightNav;
+function _applySubsection(base, sub) {
+  if (!sub) return;
+  // Focus the active workbench stage or the relevant portfolio section.
+  setTimeout(function () {
+    if (base === 'daily-workflow') {
+      var st = window._dailyWorkflowState;
+      if (st && st.data) { try { renderWorkflowWorkbench(sub.toUpperCase()); } catch (e) {} }
+      var wb = document.getElementById('dw-workbench');
+      if (wb && wb.scrollIntoView) { try { wb.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { wb.scrollIntoView(); } }
+    } else if (base === 'portfolio') {
+      var id = (sub === 'risk') ? 'pt-risk' : 'pt-terminal';
+      var el = document.getElementById(id);
+      if (el && el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
+    }
+  }, 80);
+}
+
+// ---- Contextual action rail -------------------------------------------------
+function _initRailTags() {
+  if (window.__railTagged) return;
+  window.__railTagged = true;
+  function tag(el, v) { if (!el) return; var s = (el.closest ? el.closest('.panel-section') : null) || el; s.setAttribute('data-rail-view', v); }
+  tag(document.getElementById('right-current-task'), 'daily-workflow');
+  tag(document.getElementById('cap-open-positions'), 'portfolio daily-workflow');
+  tag(document.getElementById('right-status'), 'research-audit');
+  tag(document.getElementById('right-connect-status'), 'research-audit');
+  tag(document.getElementById('right-action-status'), 'research-audit');
+  var cs = document.getElementById('right-completed-summary'); if (cs) cs.setAttribute('data-rail-view', 'daily-workflow');
+  var adv = document.getElementById('right-create-orders-section');
+  var det = adv && adv.closest ? adv.closest('details') : null; if (det) det.setAttribute('data-rail-view', 'portfolio daily-workflow');
+}
+function renderActionRail(view) {
+  _initRailTags();
+  var panel = document.querySelector('.right-panel');
+  if (!panel) return;
+  var tagged = panel.querySelectorAll('[data-rail-view]');
+  Array.prototype.forEach.call(tagged, function (ch) {
+    var v = ch.getAttribute('data-rail-view') || '';
+    ch.style.display = (v === 'all' || v.split(' ').indexOf(view) >= 0) ? '' : 'none';
+  });
+}
+window.renderActionRail = renderActionRail;
+
+// ============================ DAILY WORKFLOW TERMINAL ======================== //
+var _DW_STATUS_CLASS = { COMPLETE: 'st-complete', NEEDS_ACTION: 'st-needs', BLOCKED: 'st-blocked', READY: 'st-ready', NOT_AVAILABLE: 'st-na' };
+var _DW_STATUS_TEXT = { COMPLETE: 'COMPLETE', NEEDS_ACTION: 'NEEDS ACTION', BLOCKED: 'BLOCKED', READY: 'READY', NOT_AVAILABLE: 'N/A' };
+
+async function loadDailyWorkflow() {
+  var st = window._dailyWorkflowState;
+  if (st.requestInFlight) return;            // in-flight guard
+  st.requestInFlight = true; st.loading = true;
+  try {
+    var resp = await call('GET', '/v1/dashboard/daily-workflow');
+    if (!resp.ok) { st.error = 'Daily workflow unavailable (HTTP ' + resp.status + ').'; renderDailyWorkflow(); return; }
+    st.data = await resp.json();
+    st.error = null; st.lastLoadedAt = new Date().toLocaleTimeString();
+    renderDailyWorkflow();
+  } catch (e) {
+    st.error = 'Daily workflow request failed: ' + (e && e.message ? e.message : e);
+    renderDailyWorkflow();
+  } finally { st.loading = false; st.requestInFlight = false; }
+}
+window.loadDailyWorkflow = loadDailyWorkflow;
+
+function _dwRenderStage(s) {
+  var cell = document.getElementById('dw-stage-' + s.stage);
+  if (!cell) return;
+  if (s.is_active) cell.classList.add('is-active'); else cell.classList.remove('is-active');
+  var statusEl = cell.querySelector('[data-role="status"]');
+  if (statusEl) { statusEl.textContent = _DW_STATUS_TEXT[s.status] || s.status; statusEl.className = 'dw-stage-status ' + (_DW_STATUS_CLASS[s.status] || 'st-ready'); }
+  var countEl = cell.querySelector('[data-role="count"]');
+  if (countEl) {
+    var txt = (s.count != null ? s.count : 0) + '';
+    if (s.status === 'BLOCKED') txt = 'blocked';
+    if (s.last_completed_at) txt += ' · ' + s.last_completed_at;
+    countEl.textContent = txt;
+    countEl.title = s.blocker_explanation || '';
+  }
+  var btn = cell.querySelector('[data-role="action"]');
+  if (btn) {
+    btn.textContent = s.action_label || 'Open';
+    btn.disabled = !s.enabled;
+    btn.title = s.enabled ? (s.action_label || '') : (s.disabled_reason || 'Not available');
+  }
+}
+
+function renderDailyWorkflow() {
+  var st = window._dailyWorkflowState;
+  var errEl = document.getElementById('dw-error');
+  if (st.error) { if (errEl) { errEl.style.display = 'block'; errEl.textContent = st.error; } }
+  else if (errEl) errEl.style.display = 'none';
+  var d = st.data; if (!d) return;
+  var summary = d.summary || {}, stages = d.stages || [];
+  _ccSetText('dw-active-stage', summary.active_stage_label || summary.active_stage || '—');
+  stages.forEach(_dwRenderStage);
+  renderWorkflowWorkbench(summary.active_stage);
+  var done = stages.filter(function (s) { return s.status === 'COMPLETE'; }).map(function (s) { return s.label + ' ✓'; });
+  var strip = document.getElementById('dw-done-strip');
+  if (strip) strip.innerHTML = done.map(function (t) { return '<span class="dw-done-chip">' + _ccEsc(t) + '</span>'; }).join('');
+  var wEl = document.getElementById('dw-warnings');
+  if (wEl) { var ws = d.warnings || []; if (ws.length) { wEl.style.display = 'block'; wEl.innerHTML = ws.map(function (w) { return '&#9888; ' + _ccEsc(w); }).join('<br>'); } else { wEl.style.display = 'none'; } }
+  _ccSetText('dw-updated', 'Updated ' + (st.lastLoadedAt || '') + ' · read-only · no orders · no broker · automation off');
+}
+window.renderDailyWorkflow = renderDailyWorkflow;
+
+function renderWorkflowWorkbench(stage) {
+  var d = (window._dailyWorkflowState.data) || {};
+  var titleEl = document.getElementById('dw-wb-title');
+  var subEl = document.getElementById('dw-wb-sub');
+  var body = document.getElementById('dw-wb-body');
+  if (!body) return;
+  var review = d.review || {}, signals = d.signals || {}, decisions = d.decisions || {}, capacity = d.capacity || {}, summary = d.summary || {};
+  var title = 'Active Workbench', sub = '', html = '';
+
+  if (stage === 'REVIEW') {
+    title = 'Review — Pending Candidates';
+    var q = review.active_review_queue || [];
+    sub = 'Active queue: ' + (review.active_count || 0) + ' · Recent history: ' + (review.history_count || 0) + ' (in Research & Audit)';
+    if (!q.length) {
+      html = '<div class="dw-wb-empty">No candidates pending review. Rejected and completed candidates are kept under Research &amp; Audit, not shown here as pending work.</div>';
+    } else {
+      html = '<div class="dw-wb-list">' + q.map(function (c) {
+        var hist = (c.history_count > 0) ? (' <span class="dw-hist">(+' + c.history_count + ' history)</span>') : '';
+        var id = _ccEsc(c.candidate_id), tk = _ccEsc(c.ticker);
+        return '<div class="dw-wb-row"><span class="t">' + tk + '</span>' +
+          '<span class="m">' + _ccEsc(c.preview_decision || '') + ' · score ' + _ccEsc(c.preview_score != null ? c.preview_score : '—') +
+          ' · ' + _ccEsc(c.prediction_recommendation || '—') + hist + '</span><span class="sp"></span>' +
+          '<button class="cc-btn ghost" style="font-size:9px;padding:3px 8px;" title="Approve for paper signal (styled confirm)" onclick="dwWorkbenchReview(\'' + id + '\',\'' + tk + '\',\'APPROVED_FOR_SIGNAL\')">Approve</button>' +
+          '<button class="cc-btn ghost" style="font-size:9px;padding:3px 8px;" title="Move to watch list" onclick="dwWorkbenchReview(\'' + id + '\',\'' + tk + '\',\'WATCHING\')">Watch</button>' +
+          '<button class="cc-btn ghost" style="font-size:9px;padding:3px 8px;" title="Reject candidate" onclick="dwWorkbenchReview(\'' + id + '\',\'' + tk + '\',\'REJECTED\')">Reject</button>' +
+          '</div>';
+      }).join('') + '</div>' +
+      '<div class="cc-na-note">Approve / Watch / Reject records your manual review only, through the existing styled confirmation. No signals, orders, or trades are created here.</div>';
+    }
+  } else if (stage === 'SIGNALS') {
+    title = 'Signals — Create Paper Signals';
+    sub = (summary.approved_count || 0) + ' approved candidate(s) ready';
+    html = '<div class="dw-wb-empty" style="font-style:normal;color:var(--text-accent);">' +
+      (summary.approved_count || 0) + ' approved candidate(s) are ready to become paper signals. This creates Signal rows only — no trade decisions, no orders, no broker execution.</div>' +
+      '<div style="margin-top:8px;"><button class="cc-btn primary" onclick="createSignalsFromCandidates()" title="Create paper signals from approved candidates (styled confirmation)">Create Paper Signals</button></div>';
+    if (!(summary.approved_count > 0)) {
+      html = '<div class="dw-wb-empty">No approved candidates yet. Approve candidates in the Review stage first.</div>';
+    }
+  } else if (stage === 'DECISIONS') {
+    title = 'Decisions — Review Paper Decisions';
+    var rows = decisions.rows || [];
+    var blocked = (capacity.capacity_state === 'MAX_POSITIONS_REACHED');
+    sub = (decisions.order_eligible_count || 0) + ' order-eligible · ' + (decisions.count || 0) + ' total';
+    if (blocked) {
+      html = '<div class="dw-wb-empty" style="font-style:normal;color:var(--warning);">' + _ccEsc(capacity.capacity_explanation || 'Portfolio capacity is full. The risk engine prevents additional paper exposure. Review current positions before advancing new paper-trade decisions.') + '</div>';
+    }
+    if (!rows.length) {
+      html += '<div class="dw-wb-empty">No paper trade decisions are ready to review.</div>';
+    } else {
+      html += '<div class="dw-wb-list">' + rows.slice(0, 12).map(function (r) {
+        var bl = r.blocker ? (' <span class="st-blocked" style="font-size:9px;">' + _ccEsc(r.blocker) + '</span>') : '';
+        return '<div class="dw-wb-row"><span class="t">' + _ccEsc(r.ticker) + '</span>' +
+          '<span class="m">' + _ccEsc(r.direction || '') + ' · ' + _ccEsc(r.status || '') +
+          ' · conf ' + _ccEsc(r.confidence != null ? r.confidence : '—') + bl + '</span></div>';
+      }).join('') + '</div>' +
+      '<div class="cc-na-note">Paper decisions stay in the paper portfolio — no live trade is placed. Existing paper order controls remain in the Action rail.</div>';
+    }
+  } else if (stage === 'PORTFOLIO') {
+    title = 'Portfolio — Monitor Open Positions';
+    sub = (summary.open_position_count || 0) + ' open position(s)';
+    html = '<div class="dw-wb-empty" style="font-style:normal;color:var(--text-accent);">' +
+      (summary.open_position_count || 0) + ' open paper position(s). ' + _ccEsc(capacity.capacity_explanation || '') + '</div>' +
+      '<div style="margin-top:8px;"><button class="cc-btn primary" onclick="navigateToRoute(\'portfolio/positions\')">Open Portfolio</button></div>';
+  } else if (stage === 'CANDIDATES') {
+    title = 'Candidates — Scanned Today';
+    sub = (summary.actionable_count || 0) + ' actionable';
+    html = '<div class="dw-wb-empty" style="font-style:normal;color:var(--text-accent);">Candidates from today\'s scan are available. Review them in the Review stage or open the full candidate detail in Research &amp; Audit.</div>' +
+      '<div style="margin-top:8px;"><button class="cc-btn ghost" onclick="navigateToRoute(\'daily-workflow/review\')">Go to Review</button> ' +
+      '<button class="cc-btn ghost" onclick="navigateToRoute(\'research-audit\')">Candidate Detail</button></div>';
+  } else { // DATA (start the daily review)
+    title = 'Data — Start Daily Review';
+    sub = 'No trade ideas pending';
+    html = '<div class="dw-wb-empty" style="font-style:normal;color:var(--text-accent);">No current trade ideas are pending. Start a new daily review to run the S&amp;P 500 local scan and the remote prediction dispatch. This creates no orders and no trades.</div>' +
+      '<div style="margin-top:8px;"><button class="cc-btn primary" onclick="startDailyReviewSession(this)" title="Start the daily review (styled confirmation)">Start Daily Review</button></div>';
+  }
+
+  if (titleEl) titleEl.textContent = title;
+  if (subEl) subEl.textContent = sub;
+  body.innerHTML = html;
+}
+window.renderWorkflowWorkbench = renderWorkflowWorkbench;
+
+// Workbench review actions reuse the EXISTING styled review-note confirmation
+// (no native dialogs) and the EXISTING review endpoint — no new write operation.
+function dwWorkbenchReview(id, ticker, status) {
+  if (typeof _showReviewNotePanel === 'function') {
+    try { _showReviewNotePanel(id, ticker, status); } catch (e) {}
+    setTimeout(function () { try { loadDailyWorkflow(); } catch (e) {} }, 1600);
+  } else if (typeof updateReviewStatus === 'function') {
+    try { updateReviewStatus(id, status, null, null); } catch (e) {}
+  }
+}
+window.dwWorkbenchReview = dwWorkbenchReview;
+
+// ============================ PORTFOLIO TERMINAL ============================ //
+function _ptNum(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = parseFloat(v);
+  if (isNaN(n)) return String(v);
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+async function loadPortfolioTerminal() {
+  var st = window._portfolioTerminalState;
+  if (st.requestInFlight) return;            // in-flight guard
+  st.requestInFlight = true; st.loading = true;
+  try {
+    var resp = await call('GET', '/v1/dashboard/portfolio-terminal');
+    if (!resp.ok) { st.error = 'Portfolio terminal unavailable (HTTP ' + resp.status + ').'; renderPortfolioTerminal(); return; }
+    st.data = await resp.json();
+    st.error = null; st.lastLoadedAt = new Date().toLocaleTimeString();
+    renderPortfolioTerminal();
+  } catch (e) {
+    st.error = 'Portfolio terminal request failed: ' + (e && e.message ? e.message : e);
+    renderPortfolioTerminal();
+  } finally { st.loading = false; st.requestInFlight = false; }
+}
+window.loadPortfolioTerminal = loadPortfolioTerminal;
+
+function renderPortfolioChart(perf) {
+  var svg = document.getElementById('pt-chart');
+  var emptyEl = document.getElementById('pt-chart-empty');
+  if (!svg) return;
+  var series = (perf && perf.portfolio_value_series) || [];
+  if (series.length < 2) {
+    svg.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = 'block';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  var W = 640, H = 120, padX = 6, padY = 10;
+  var vals = series.map(function (p) { return parseFloat(p.value); }).filter(function (v) { return !isNaN(v); });
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (hi === lo) { hi = lo + 1; lo = lo - 1; }
+  var n = series.length;
+  function x(i) { return padX + (W - 2 * padX) * (n <= 1 ? 0 : i / (n - 1)); }
+  function y(v) { return padY + (H - 2 * padY) * (1 - (v - lo) / (hi - lo)); }
+  var pts = series.map(function (p, i) { return x(i).toFixed(1) + ',' + y(parseFloat(p.value)).toFixed(1); }).join(' ');
+  var html = '<polyline fill="none" stroke="#22c55e" stroke-width="2" points="' + pts + '"/>';
+  var last = series[n - 1];
+  html += '<circle cx="' + x(n - 1).toFixed(1) + '" cy="' + y(parseFloat(last.value)).toFixed(1) + '" r="2.5" fill="#22c55e"/>';
+  svg.innerHTML = html;
+}
+window.renderPortfolioChart = renderPortfolioChart;
+
+function renderPositionTable(rows) {
+  var tb = document.getElementById('pt-pos-tbody');
+  if (!tb) return;
+  if (!rows || !rows.length) {
+    tb.innerHTML = '<tr><td colspan="9" class="pt-empty">NO OPEN POSITIONS</td></tr>';
+    return;
+  }
+  var badge = { HOLD: 'hold', WATCH: 'watch', REVIEW_FOR_EXIT: 'exit', PRICE_UNAVAILABLE: 'na' };
+  tb.innerHTML = rows.map(function (p) {
+    var pnlCls = _ccSignClass(p.unrealized_pnl);
+    return '<tr>' +
+      '<td>' + _ccEsc(p.ticker) + '</td>' +
+      '<td>' + _ccEsc(p.qty) + '</td>' +
+      '<td>' + _ccEsc(p.avg_entry) + '</td>' +
+      '<td>' + (p.latest_price != null ? _ccEsc(p.latest_price) : '—') + '</td>' +
+      '<td>' + (p.market_value != null ? '$' + _ptNum(p.market_value) : '—') + '</td>' +
+      '<td class="' + pnlCls + '">' + (p.unrealized_pnl != null ? '$' + _ptNum(p.unrealized_pnl) : '—') + '</td>' +
+      '<td class="' + pnlCls + '">' + (p.unrealized_pnl_pct != null ? _ccPctText(p.unrealized_pnl_pct) : '—') + '</td>' +
+      '<td>' + (p.weight_pct != null ? _ccEsc(p.weight_pct) + '%' : '—') + '</td>' +
+      '<td style="text-align:center;"><span class="pt-badge ' + (badge[p.status] || 'na') + '" title="' + _ccEsc(p.reason || '') + '">' + _ccEsc((p.status || '').replace(/_/g, ' ')) + '</span></td>' +
+      '</tr>';
+  }).join('');
+}
+window.renderPositionTable = renderPositionTable;
+
+function _ptOrderRows(list, emptyText) {
+  if (!list || !list.length) return '<div class="pt-empty">' + emptyText + '</div>';
+  return list.slice(0, 8).map(function (o) {
+    return '<div class="dw-wb-row"><span class="t">' + _ccEsc(o.ticker) + '</span>' +
+      '<span class="m">' + _ccEsc(o.side || '') + ' · ' + _ccEsc(o.requested_qty || '') +
+      (o.fill_price ? (' @ ' + _ccEsc(o.fill_price)) : '') + '</span><span class="sp"></span>' +
+      '<span class="m">' + _ccEsc(o.status || '') + '</span></div>';
+  }).join('');
+}
+
+function _ptRenderOrders(orders) {
+  var pe = document.getElementById('pt-orders-pending');
+  var fe = document.getElementById('pt-orders-filled');
+  if (pe) pe.innerHTML = _ptOrderRows(orders.pending, 'NO PENDING PAPER ORDERS');
+  if (fe) fe.innerHTML = _ptOrderRows(orders.filled, 'NO FILLED PAPER ORDERS YET');
+}
+
+function _ptRenderAlerts(alerts) {
+  var el = document.getElementById('pt-alerts');
+  if (!el) return;
+  if (!alerts || !alerts.length) { el.innerHTML = '<div class="pt-empty">No position alerts.</div>'; return; }
+  el.innerHTML = alerts.slice(0, 8).map(function (a) {
+    var cls = a.level === 'warning' ? 'st-needs' : 'st-ready';
+    return '<div class="dw-wb-row"><span class="' + cls + '" style="font-weight:800;">' + _ccEsc(a.code || '') + '</span>' +
+      '<span class="m">' + (a.ticker ? (_ccEsc(a.ticker) + ' — ') : '') + _ccEsc(a.message || '') + '</span></div>';
+  }).join('');
+}
+
+function renderPortfolioTerminal() {
+  var st = window._portfolioTerminalState;
+  var errEl = document.getElementById('pt-error');
+  if (st.error) { if (errEl) { errEl.style.display = 'block'; errEl.textContent = st.error; } }
+  else if (errEl) errEl.style.display = 'none';
+  var d = st.data; if (!d) return;
+  var s = d.summary || {}, risk = d.risk || {}, cap = d.capacity || {}, perf = d.performance || {}, alpha = d.alpha_context || {};
+
+  // ROW 1 KPI
+  _ccSetText('pt-kpi-value', s.total_value != null ? ('$' + _ptNum(s.total_value)) : (s.seeded ? '—' : 'NOT SEEDED'));
+  _ccSetText('pt-kpi-value-sub', s.seeded ? 'paper portfolio' : 'seed required');
+  _ccSetText('pt-kpi-cash', s.cash != null ? ('$' + _ptNum(s.cash)) : '—');
+  _ccSetText('pt-kpi-invested', s.invested_value != null ? ('$' + _ptNum(s.invested_value)) : '—');
+  var retEl = document.getElementById('pt-kpi-return');
+  if (retEl) { retEl.textContent = _ccPctText(s.total_return_pct); retEl.className = 'pt-kpi-value ' + _ccSignClass(s.total_return_pct); }
+  _ccSetText('pt-kpi-return-sub', 'since inception');
+  _ccSetText('pt-kpi-positions', s.open_positions != null ? s.open_positions : '—');
+  _ccSetText('pt-kpi-positions-sub', (s.pending_paper_orders || 0) + ' pending order(s)');
+  _ccSetText('pt-kpi-capacity', (s.available_slots != null ? s.available_slots : '—') + ' / ' + (s.max_positions != null ? s.max_positions : '—'));
+  _ccSetText('pt-kpi-capacity-sub', (cap.capacity_state || '').replace(/_/g, ' ').toLowerCase());
+
+  // ROW 2 performance + risk
+  var cumret = (perf.cumulative_return_series && perf.cumulative_return_series.length)
+    ? perf.cumulative_return_series[perf.cumulative_return_series.length - 1].pct : s.total_return_pct;
+  _ccSetText('pt-perf-cumret', _ccPctText(cumret));
+  var av = perf.alpha_vs_spy || {};
+  _ccSetText('pt-perf-book', av.primary_book || alpha.primary_book || '—');
+  _ccSetText('pt-perf-alpha', av.primary_return_pct != null ? (_ccPctText(av.primary_return_pct) + ' · SPY ' + _ccPctText(av.spy_return_pct)) : '—');
+  _ccSetText('pt-perf-pnl', (perf.realized_pnl != null ? ('$' + _ptNum(perf.realized_pnl)) : '—') + ' / ' + (perf.unrealized_pnl != null ? ('$' + _ptNum(perf.unrealized_pnl)) : '—'));
+  renderPortfolioChart(perf);
+
+  _ccSetText('pt-risk-capacity', (cap.capacity_state || '').replace(/_/g, ' '));
+  var gauge = document.getElementById('pt-gauge');
+  if (gauge) { var mx = s.max_positions || 5, op = s.open_positions || 0; gauge.style.width = Math.min(100, Math.round(op / mx * 100)) + '%'; }
+  _ccSetText('pt-risk-state', risk.risk_message || '—');
+  _ccSetText('pt-risk-exit', risk.review_for_exit_count != null ? risk.review_for_exit_count : 0);
+  _ccSetText('pt-risk-conc', risk.concentration_warning ? ('WARNING · ' + (risk.largest_position_ticker || '') + ' ' + (risk.largest_position_weight_pct || '') + '%') : 'OK');
+  _ccSetText('pt-risk-missing', risk.missing_price_count != null ? risk.missing_price_count : 0);
+  _ccSetText('pt-risk-expl', risk.risk_engine_explanation || '');
+
+  // ROW 3 + ROW 4
+  renderPositionTable(d.positions || []);
+  _ptRenderOrders(d.paper_orders || {});
+  _ptRenderAlerts(d.alerts || []);
+
+  var wEl = document.getElementById('pt-warnings');
+  if (wEl) { var ws = d.warnings || []; if (ws.length) { wEl.style.display = 'block'; wEl.innerHTML = ws.map(function (w) { return '&#9888; ' + _ccEsc(w); }).join('<br>'); } else { wEl.style.display = 'none'; } }
+  _ccSetText('pt-updated', 'Updated ' + (st.lastLoadedAt || '') + ' · read-only · no orders · no broker · automation off');
+}
+window.renderPortfolioTerminal = renderPortfolioTerminal;
+
+// ---- Boot: apply the initial route + wire back/forward ----------------------
+window.addEventListener('hashchange', function () { try { applyRoute(); } catch (e) {} });
+(function _bootRoute() {
+  function go() { try { applyRoute(); } catch (e) {} try { renderPredictionHeader(null); } catch (e) {} }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+  else setTimeout(go, 0);
+})();
 </script>
 
 </body>

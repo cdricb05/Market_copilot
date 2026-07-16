@@ -164,6 +164,12 @@ from paper_trader.api.current_alpha_decision_gate import (
 from paper_trader.api.command_center import (
     load_command_center,
 )
+from paper_trader.api.daily_workflow_dashboard import (
+    load_daily_workflow_dashboard,
+)
+from paper_trader.api.portfolio_terminal import (
+    load_portfolio_terminal,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4429,6 +4435,56 @@ def dashboard_command_center() -> dict:
     stack trace.
     """
     return load_command_center()
+
+
+@app.get(
+    "/v1/dashboard/daily-workflow",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def dashboard_daily_workflow() -> dict:
+    """
+    Read-only Phase 14-B Daily Workflow aggregation.
+
+    Aggregates EXISTING internal service state into one daily operating view
+    model organised around the six operating stages
+    (DATA -> CANDIDATES -> REVIEW -> SIGNALS -> DECISIONS -> PORTFOLIO), with
+    exactly one stage marked active (derived from live backend data), the review
+    slice split into an active queue vs recent history (grouped by stable
+    candidate identity so rejected / completed work is never shown as pending),
+    concise signal / decision preview rows with capacity-block explanations, the
+    portfolio capacity roll-up, and one recommended next action.
+
+    Strictly read-only: no loopback HTTP call, no database writes, no daily
+    refresh, no prediction / external-provider call, and no signals / trade
+    decisions / orders created. A failing dependency degrades to a ``warnings[]``
+    entry with HTTP 200 — never a stack trace.
+    """
+    return load_daily_workflow_dashboard()
+
+
+@app.get(
+    "/v1/dashboard/portfolio-terminal",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def dashboard_portfolio_terminal() -> dict:
+    """
+    Read-only Phase 14-B Portfolio Terminal aggregation.
+
+    Aggregates EXISTING internal service state into one portfolio operating view
+    model: the capital summary, per-position exposure & P&L with the same
+    read-only status recommendation as /v1/portfolio/analytics
+    (HOLD / WATCH / REVIEW_FOR_EXIT / PRICE_UNAVAILABLE), the paper-order book
+    separated into pending / filled / history, a compact performance time-series,
+    the risk & capacity roll-up, the current-alpha context, and position alerts.
+
+    Strictly read-only: no loopback HTTP call, no database writes, no prediction /
+    external-provider call, and no orders / signals / trade decisions created. A
+    failing dependency degrades to a ``warnings[]`` entry with HTTP 200 — never a
+    stack trace.
+    """
+    return load_portfolio_terminal()
 
 
 def _check_prediction_healthz(

@@ -35328,3 +35328,192 @@ class TestUiResearchAuditCompatibility:
     def test_audit_advanced_tab_preserved(self) -> None:
         html = _read_index_html_14a()
         assert 'id="tab-audit-advanced"' in html
+
+
+# --------------------------------------------------------------------------- #
+# Phase 14-B — Integrated Daily Operations & Portfolio Terminal (UI static)
+# --------------------------------------------------------------------------- #
+
+def _js_14b() -> str:
+    """The Phase 14-B routing / action-rail / terminals <script> block."""
+    html = _read_index_html_14a()
+    start = html.index("Phase 14-B: routing, action rail, terminals")
+    return html[start:]
+
+
+class TestUiDailyWorkflowOperatingTerminal:
+    """Phase 14-B: the Daily Workflow page is a six-stage operating terminal."""
+
+    def test_daily_workflow_terminal_present(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="dw-terminal"' in html
+        assert "Today's Operating Workflow" in html
+
+    def test_six_stage_stepper_exists(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="dw-stepper"' in html
+        for stage in ("DATA", "CANDIDATES", "REVIEW", "SIGNALS", "DECISIONS", "PORTFOLIO"):
+            assert f'id="dw-stage-{stage}"' in html, f"missing stepper stage: {stage}"
+
+    def test_active_workbench_exists(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="dw-workbench"' in html
+        assert "function renderWorkflowWorkbench" in html
+
+    def test_active_queue_and_history_separate(self) -> None:
+        js = _js_14b()
+        # The workbench renders the active queue and references recent history
+        # separately — rejected/completed work is never shown as pending.
+        assert "active_review_queue" in js
+        assert "Recent history" in js or "recent_review_history" in js
+        assert "Active queue" in js
+
+    def test_workbench_reuses_existing_writes_no_new_ops(self) -> None:
+        js = _js_14b()
+        # Review actions reuse the EXISTING styled review-note confirmation and the
+        # existing signal-creation endpoint — no new write operation, no native dialog.
+        assert "dwWorkbenchReview" in js
+        assert "_showReviewNotePanel" in js
+        assert "createSignalsFromCandidates" in js
+
+    def test_state_object_and_loader(self) -> None:
+        js = _js_14b()
+        assert "window._dailyWorkflowState" in js
+        for fn in ("loadDailyWorkflow", "renderDailyWorkflow", "renderWorkflowWorkbench"):
+            assert f"function {fn}" in js or f"{fn} =" in js or f"async function {fn}" in js
+
+
+class TestUiPortfolioOperatingTerminal:
+    """Phase 14-B: the Portfolio page is a professional terminal with real empty states."""
+
+    def test_portfolio_terminal_present(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="pt-terminal"' in html
+
+    def test_kpi_row_exists(self) -> None:
+        html = _read_index_html_14a()
+        assert 'class="pt-kpi-row"' in html
+        for label in ("Portfolio Value", "Cash", "Invested", "Total Return",
+                      "Open Positions", "Available Capacity"):
+            assert label in html, f"missing portfolio KPI: {label}"
+
+    def test_positions_table_and_real_empty_state(self) -> None:
+        html = _read_index_html_14a()
+        js = _js_14b()
+        assert 'id="pt-pos-tbody"' in html
+        assert "function renderPositionTable" in js
+        assert "NO OPEN POSITIONS" in js
+
+    def test_orders_real_empty_states_and_separation(self) -> None:
+        js = _js_14b()
+        assert "NO PENDING PAPER ORDERS" in js
+        assert "NO FILLED PAPER ORDERS YET" in js
+        assert "_ptRenderOrders" in js
+
+    def test_performance_chart_and_risk_panel(self) -> None:
+        html = _read_index_html_14a()
+        js = _js_14b()
+        assert 'id="pt-chart"' in html
+        assert "function renderPortfolioChart" in js
+        assert "Risk &amp; Capacity" in html
+        assert "NO PERFORMANCE SNAPSHOTS YET" in html
+
+    def test_terminals_do_not_use_connect_to_load(self) -> None:
+        # The new terminal blocks must not show "Connect to load" placeholders.
+        html = _read_index_html_14a()
+        dw = html[html.index('id="dw-terminal"'):html.index("DAILY WORKFLOW TERMINAL END")]
+        pt = html[html.index('id="pt-terminal"'):html.index("PORTFOLIO TERMINAL END")]
+        assert "Connect to load" not in dw
+        assert "Connect to load" not in pt
+
+
+class TestUiContextualActionRail:
+    """Phase 14-B: one primary nav + a per-view contextual action rail + prediction state."""
+
+    def test_render_action_rail_exists(self) -> None:
+        js = _js_14b()
+        assert "function renderActionRail" in js
+        assert "_initRailTags" in js
+        assert "data-rail-view" in js
+
+    def test_rail_is_contextual_per_view(self) -> None:
+        js = _js_14b()
+        for view in ("daily-workflow", "portfolio", "research-audit"):
+            assert view in js, f"rail missing view context: {view}"
+
+    def test_single_primary_nav_top_tab_bar_demoted(self) -> None:
+        html = _read_index_html_14a()
+        # The top tab-bar is demoted (hidden); the sidebar is the single nav.
+        assert "tab-bar cc-demoted" in html
+        assert 'class="sidebar-link" id="nav-command-center" data-route="command-center"' in html
+
+    def test_prediction_header_has_defined_states(self) -> None:
+        html = _read_index_html_14a()
+        for state in ("PREDICTION TUNNEL CONFIGURED", "PREDICTION STATUS NOT CHECKED",
+                      "PREDICTION AVAILABLE", "PREDICTION UNAVAILABLE"):
+            assert state in html, f"missing prediction header state: {state}"
+        assert "Prediction: ---" not in html
+
+
+class TestUiDeepLinkNavigation:
+    """Phase 14-B: hash-based deep-link routing with working back/forward."""
+
+    def test_hash_router_functions_exist(self) -> None:
+        js = _js_14b()
+        assert "function applyRoute" in js
+        assert "function navigateToRoute" in js
+        assert "addEventListener('hashchange'" in js
+
+    def test_deep_link_routes_defined(self) -> None:
+        html = _read_index_html_14a()
+        for route in ("daily-workflow/review", "daily-workflow/decisions",
+                      "portfolio/positions", "portfolio/risk"):
+            assert route in html, f"missing deep-link route: {route}"
+
+    def test_route_to_tab_map(self) -> None:
+        js = _js_14b()
+        assert "_ROUTE_TO_TAB" in js
+        for base in ("command-center", "daily-workflow", "portfolio", "research-audit"):
+            assert base in js, f"missing route base: {base}"
+
+    def test_sidebar_links_drive_routes(self) -> None:
+        html = _read_index_html_14a()
+        assert "navigateToRoute('command-center')" in html
+        assert "navigateToRoute('daily-workflow')" in html
+        assert 'data-route="portfolio"' in html
+
+
+class TestUiCommandCenterPhase14BIntegration:
+    """Phase 14-B: Command Center review title + TOP50 prominence + deep-links."""
+
+    def test_review_title_switches_on_pending(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="cc-rq-title"' in html
+        assert "Active Review Queue" in html
+        assert "Recent Review History" in html
+
+    def test_top50_prominent_book_id_in_tooltip(self) -> None:
+        html = _read_index_html_14a()
+        # Full internal book_id shown only as a tooltip, not inline noise.
+        assert "apEl.title = pbook.book_id" in html
+        assert "apEl.textContent = pbook.book" in html
+
+    def test_command_center_actions_deep_link(self) -> None:
+        html = _read_index_html_14a()
+        # commandCenterPrimaryAction maps enums to specific deep-link routes.
+        for route in ("daily-workflow/review", "daily-workflow/decisions",
+                      "portfolio/positions", "portfolio/risk"):
+            assert route in html
+
+    def test_no_native_dialogs_anywhere(self) -> None:
+        import re
+        html = _read_index_html_14a()
+        assert not re.search(r"(?<![A-Za-z0-9_.])alert\s*\(", html)
+        assert not re.search(r"(?<![A-Za-z0-9_.])confirm\s*\(", html)
+        assert not re.search(r"(?<![A-Za-z0-9_.])prompt\s*\(", html)
+
+    def test_single_primary_navigation_system(self) -> None:
+        html = _read_index_html_14a()
+        # Sidebar remains the primary nav with route-driven links; top bar demoted.
+        assert 'class="sidebar-link" id="nav-daily-workflow"' in html
+        assert "tab-bar cc-demoted" in html
