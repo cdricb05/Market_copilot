@@ -4164,6 +4164,91 @@
         </div>
         <!-- Daily Alpha Run (Phase 13-G/H) END -->
 
+        <!-- Paper Performance History (Phase 13-I) START -->
+        <div class="card" id="cap-panel" style="margin-bottom:14px;border:1px solid var(--info,#3b82f6);">
+          <div class="card-title">
+            <span style="font-size:14px;font-weight:800;letter-spacing:.5px;">PAPER PERFORMANCE HISTORY</span>
+            <span style="font-size:10px;color:var(--text-accent);font-weight:600;">historical daily mark reconstruction — frozen holdings — champion composite_sn — paper test only</span>
+          </div>
+
+          <!-- Required safety language (10 badges) -->
+          <div id="cap-badges" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px;">
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">HISTORICAL PAPER MARK RECONSTRUCTION</span>
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">FROZEN HOLDINGS</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO DAILY REBALANCING</span>
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PAPER TEST ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO AUTOMATION</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT CREATE SIGNALS</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT CREATE TRADE DECISIONS</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">DOES NOT EXECUTE TRADES</span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 10px;">
+            <button class="btn-sm" id="cap-load-btn" onclick="loadPaperPerformanceHistory(this)">Load Paper Performance History</button>
+            <span style="font-size:11px;color:var(--text-accent);">Reads the read-only Phase 13-I historical mark reconstruction of the frozen TOP 25 &amp; TOP 50 books vs SPY. No orders. No rebalancing. No automation.</span>
+          </div>
+
+          <!-- Always-visible safety banner -->
+          <div style="background:rgba(239,68,68,.1);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:8px 10px;font-size:11px;font-weight:600;margin-bottom:12px;">
+            Historical paper mark reconstruction of frozen holdings. No daily rebalancing. Paper test only. No orders. No broker. No automation. Does not create signals. Does not create trade decisions. Does not execute trades. A short forward window is not alpha validation and promotes no book to live trading.
+          </div>
+
+          <!-- Summary: reconciliation, observation range, number of marks -->
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="flex:1;min-width:220px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">RECONCILIATION STATUS</div>
+              <div><span id="cap-recon" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cap-recon-note" style="color:var(--text-accent);margin-top:2px;"></div>
+            </div>
+            <div style="flex:1;min-width:220px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">OBSERVATION DATE RANGE</div>
+              <div><span id="cap-range" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div style="color:var(--text-accent);">Number of financial marks: <span id="cap-marks" class="mono" style="color:var(--text-primary);">—</span></div>
+            </div>
+            <div style="flex:1;min-width:220px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">STABILITY COMPARISON</div>
+              <div><span id="cap-stability" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cap-stability-note" style="color:var(--text-accent);margin-top:2px;">Operational comparison only — promotes no book to live trading.</div>
+            </div>
+          </div>
+
+          <!-- TOP 25 / TOP 50 analytics (never combined) -->
+          <div style="display:flex;flex-wrap:wrap;gap:12px;">
+            <div id="cap-top25" style="flex:1;min-width:340px;border:1px solid var(--border,#333);border-radius:3px;padding:8px 10px;font-size:11px;color:var(--text-accent);">TOP 25 — load the paper performance history to populate.</div>
+            <div id="cap-top50" style="flex:1;min-width:340px;border:1px solid var(--border,#333);border-radius:3px;padding:8px 10px;font-size:11px;color:var(--text-accent);">TOP 50 — load the paper performance history to populate.</div>
+          </div>
+
+          <!-- TOP 25 curves (never merged with TOP 50; x-axis = financial mark date) -->
+          <div style="margin-top:12px;font-size:11px;font-weight:800;color:var(--text-primary);letter-spacing:.5px;">TOP 25 — cumulative · excess vs SPY · drawdown</div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;">
+            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Cumulative return</div><div id="cap-chart-top25-cum" style="min-height:40px;"></div></div>
+            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Excess vs SPY</div><div id="cap-chart-top25-excess" style="min-height:40px;"></div></div>
+            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Drawdown</div><div id="cap-chart-top25-dd" style="min-height:40px;"></div></div>
+          </div>
+
+          <!-- TOP 50 curves -->
+          <div style="margin-top:12px;font-size:11px;font-weight:800;color:var(--text-primary);letter-spacing:.5px;">TOP 50 — cumulative · excess vs SPY · drawdown</div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;">
+            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Cumulative return</div><div id="cap-chart-top50-cum" style="min-height:40px;"></div></div>
+            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Excess vs SPY</div><div id="cap-chart-top50-excess" style="min-height:40px;"></div></div>
+            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Drawdown</div><div id="cap-chart-top50-dd" style="min-height:40px;"></div></div>
+          </div>
+
+          <!-- SPY benchmark cumulative -->
+          <div style="margin-top:12px;font-size:11px;font-weight:800;color:var(--text-primary);letter-spacing:.5px;">SPY benchmark — cumulative return</div>
+          <div id="cap-chart-spy" style="min-height:40px;margin-top:4px;"></div>
+
+          <!-- Error surface -->
+          <div id="cap-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid var(--danger);border-radius:3px;padding:10px;margin-top:8px;">
+            <div style="color:var(--danger);font-size:12px;font-weight:600;margin-bottom:4px;">Paper performance history could not load.</div>
+            <div id="cap-error-detail" class="mono" style="font-size:11px;color:var(--text-accent);word-break:break-word;"></div>
+          </div>
+          <ul id="cap-warnings" style="margin:10px 0 0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+        </div>
+        <!-- Paper Performance History (Phase 13-I) END -->
+
         <!-- Execution Workflow -->
         <div class="card">
           <div class="section-title">Execution Workflow</div>
@@ -6578,6 +6663,152 @@ async function runDailyAlphaRefresh(btn) {
   }
 }
 // ===== Daily Alpha Run (Phase 13-G/H) END =====
+
+// ===== Paper Performance History (Phase 13-I) START =====
+function _capPct(v) {
+  if (v == null || v === '' || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+function _capPP(v) {
+  if (v == null || v === '' || isNaN(Number(v))) return '—';
+  const n = Number(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + 'pp';
+}
+function _capText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = (val == null || val === '') ? '—' : String(val);
+}
+
+// Isolated fetch that surfaces errors to the performance panel's own error box.
+async function _capFetch(btn, method, url, body) {
+  if (btn) btn.disabled = true;
+  const err = document.getElementById('cap-error');
+  if (err) err.style.display = 'none';
+  try {
+    const resp = await call(method, url, body);
+    if (!resp.ok) {
+      let detail = 'HTTP ' + resp.status;
+      try { const j = await resp.json(); if (j && j.detail) detail = j.detail; } catch (e) { /* non-JSON */ }
+      throw new Error(detail);
+    }
+    return await resp.json();
+  } catch (e) {
+    const msg = (e && e.message) ? e.message : 'Could not load paper performance history.';
+    const d = document.getElementById('cap-error-detail');
+    if (d) d.textContent = msg;
+    if (err) err.style.display = 'block';
+    throw e;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Inline bar chart keyed by the financial mark date (never merges books).
+function _capBarChart(containerId, series, key) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const rows = (Array.isArray(series) ? series : [])
+    .map(s => ({ label: s.mark_date || '', value: Number(s[key]) }))
+    .filter(r => isFinite(r.value));
+  if (!rows.length) { el.innerHTML = '<div style="font-size:11px;color:var(--text-accent);font-style:italic;">No marks yet.</div>'; return; }
+  const maxAbs = Math.max(1e-9, ...rows.map(r => Math.abs(r.value)));
+  el.innerHTML = rows.map(r => {
+    const w = Math.round(100 * Math.abs(r.value) / maxAbs);
+    const pos = r.value >= 0;
+    const color = pos ? 'var(--positive,#2ecc71)' : 'var(--danger,#e74c3c)';
+    return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:10px;">'
+      + '<span class="mono" style="width:80px;color:var(--text-accent);">' + escapeHtml(r.label) + '</span>'
+      + '<span style="flex:1;background:rgba(127,127,127,.12);height:12px;border-radius:2px;overflow:hidden;">'
+      + '<span style="display:block;height:12px;width:' + w + '%;background:' + color + ';"></span></span>'
+      + '<span class="mono" style="width:56px;text-align:right;color:var(--text-primary);">' + _capPct(r.value) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function _capRenderAnalytics(prefix, a) {
+  const el = document.getElementById(prefix);
+  if (!el) return;
+  const size = prefix.indexOf('25') >= 0 ? 25 : 50;
+  if (!a) { el.innerHTML = 'TOP ' + size + ' — no analytics (reconstruction not published).'; return; }
+  const ir = a.information_ratio_valid ? (a.information_ratio != null ? Number(a.information_ratio).toFixed(2) : '—')
+    : 'n/a (short forward period)';
+  el.innerHTML =
+    '<div style="font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:4px;">TOP ' + size
+      + ' <span class="mono" style="font-size:10px;color:var(--text-accent);font-weight:600;">' + escapeHtml(a.book_id || '') + '</span></div>'
+    + '<div class="mono" style="line-height:1.8;">'
+    + 'Observations: <span style="color:var(--text-primary);font-weight:700;">' + (a.n_observations != null ? a.n_observations : '—') + '</span> ('
+      + escapeHtml(a.start_date || '—') + ' → ' + escapeHtml(a.end_date || '—') + ')<br>'
+    + 'Current return: <span style="color:var(--text-primary);font-weight:700;">' + _capPct(a.current_cumulative_return_pct) + '</span> · '
+      + 'Current excess: <span style="color:var(--text-primary);font-weight:700;">' + _capPP(a.current_excess_return_pct_points) + '</span><br>'
+    + 'SPY return: <span style="color:var(--text-primary);">' + _capPct(a.spy_cumulative_return_pct) + '</span><br>'
+    + 'Max drawdown: <span style="color:var(--danger,#e74c3c);font-weight:700;">' + _capPct(a.max_drawdown_pct) + '</span>'
+      + ' (' + (a.max_drawdown_duration_obs != null ? a.max_drawdown_duration_obs + ' obs' : '—')
+      + (a.max_drawdown_recovered ? ', recovered' : ', not recovered') + ')<br>'
+    + 'Positive days: <span style="color:var(--text-primary);">' + (a.pct_positive_daily_changes != null ? a.pct_positive_daily_changes + '%' : '—') + '</span> · '
+      + 'Outperform SPY: <span style="color:var(--text-primary);">' + (a.pct_days_outperforming_spy != null ? a.pct_days_outperforming_spy + '%' : '—') + '</span><br>'
+    + 'Daily volatility: <span style="color:var(--text-primary);">' + _capPP(a.daily_change_volatility_pct_points) + '</span> · '
+      + 'Tracking error: <span style="color:var(--text-primary);">' + _capPP(a.tracking_error_pct_points) + '</span><br>'
+    + 'Information ratio: <span style="color:var(--text-primary);">' + ir + '</span><br>'
+    + 'Contributor concentration (top 5): <span style="color:var(--text-primary);">' + (a.contributor_concentration_top5_pct != null ? a.contributor_concentration_top5_pct + '%' : '—') + '</span><br>'
+    + 'Coverage-warning dates: <span style="color:var(--text-primary);">' + (a.n_coverage_warning_dates != null ? a.n_coverage_warning_dates : '—') + '</span> · '
+      + 'Insufficient-coverage dates: <span style="color:var(--text-primary);">' + (a.n_insufficient_coverage_dates != null ? a.n_insufficient_coverage_dates : '—') + '</span>'
+    + '</div>';
+}
+
+function _capWarnings(list) {
+  const el = document.getElementById('cap-warnings');
+  if (!el) return;
+  const rows = Array.isArray(list) ? list : [];
+  el.innerHTML = rows.length ? rows.map(w => '<li>' + escapeHtml(String(w)) + '</li>').join('') : '';
+}
+
+function _capRenderStability(st) {
+  _capText('cap-stability', (st && st.assessment) || '—');
+  const note = document.getElementById('cap-stability-note');
+  if (note && st) {
+    note.textContent = (st.note || 'Operational comparison only — promotes no book to live trading.');
+  }
+}
+
+function _capRender(data) {
+  if (!data) return;
+  _capText('cap-recon', data.reconciliation_status || data.backfill_decision || '—');
+  const rnote = document.getElementById('cap-recon-note');
+  if (rnote) {
+    rnote.textContent = (data.reconciliation && data.reconciliation.reason) ? data.reconciliation.reason : '';
+  }
+  if (data.status === 'PERFORMANCE_READY') {
+    _capText('cap-range', (data.backfill_start_date || '—') + ' → ' + (data.latest_mark_date || '—'));
+    _capText('cap-marks', data.observation_count);
+    _capRenderAnalytics('cap-top25', data.top25_analytics);
+    _capRenderAnalytics('cap-top50', data.top50_analytics);
+    _capRenderStability(data.stability_comparison);
+    const c25 = data.top25_curves || {}, c50 = data.top50_curves || {};
+    _capBarChart('cap-chart-top25-cum', c25.cumulative_curve, 'cumulative_return_pct');
+    _capBarChart('cap-chart-top25-excess', c25.excess_curve, 'excess_return_vs_spy_pct_points');
+    _capBarChart('cap-chart-top25-dd', c25.drawdown_curve, 'drawdown_pct');
+    _capBarChart('cap-chart-top50-cum', c50.cumulative_curve, 'cumulative_return_pct');
+    _capBarChart('cap-chart-top50-excess', c50.excess_curve, 'excess_return_vs_spy_pct_points');
+    _capBarChart('cap-chart-top50-dd', c50.drawdown_curve, 'drawdown_pct');
+    _capBarChart('cap-chart-spy', data.spy_curve, 'return_since_signal_pct');
+  } else {
+    _capText('cap-range', '—');
+    _capText('cap-marks', '—');
+    _capRenderAnalytics('cap-top25', null);
+    _capRenderAnalytics('cap-top50', null);
+    _capText('cap-stability', (data.stability_comparison && data.stability_comparison.assessment) || 'NOT PUBLISHED');
+  }
+  _capWarnings(data.warnings);
+}
+
+async function loadPaperPerformanceHistory(btn) {
+  try {
+    const data = await _capFetch(btn, 'GET', '/v1/research/current-alpha/performance');
+    _capRender(data);
+  } catch (e) { /* surfaced by fetch */ }
+}
+// ===== Paper Performance History (Phase 13-I) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 

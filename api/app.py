@@ -155,6 +155,9 @@ from paper_trader.api.current_alpha_daily_refresh import (
     load_current_alpha_daily_status,
     run_current_alpha_daily_refresh,
 )
+from paper_trader.api.current_alpha_performance import (
+    load_current_alpha_performance,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4337,6 +4340,33 @@ def research_current_alpha_daily_status() -> dict:
     returns a stack trace.
     """
     return load_current_alpha_daily_status()
+
+
+@app.get(
+    "/v1/research/current-alpha/performance",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_performance() -> dict:
+    """
+    Read-only Phase 13-I paper performance history for the champion paper books.
+
+    Reads ONLY the dynamic Phase 13-I *historical daily mark backfill* artifacts
+    (written under ``<daily-mark-dir>/backfill`` by the research runner) and returns the
+    backfill decision, reconciliation status, latest mark date, observation count, the
+    Top-25 / Top-50 / SPY analytics (kept separate, never combined), the cumulative /
+    excess / drawdown curves keyed by the financial mark date, and the preliminary
+    OPERATING stability comparison.
+
+    The reconstruction is a mark-to-market of FROZEN holdings — no reranking, no
+    rebalancing — over a short forward window, so it is NOT alpha validation and promotes
+    no book to live trading. This route launches no subprocess and writes nothing: it
+    creates no orders, no signals, and no trade decisions, connects to no broker, runs no
+    automation, writes no Paper Trader database rows, and calls neither the prediction
+    service nor any external / paid provider. A missing or rejected backfill yields a
+    controlled status (HTTP 200), never a stack trace.
+    """
+    return load_current_alpha_performance()
 
 
 def _check_prediction_healthz(

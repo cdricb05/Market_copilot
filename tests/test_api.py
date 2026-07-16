@@ -34886,3 +34886,89 @@ class TestUiDailyAlphaRunPanelContent:
         # driven by the current-run status fields (not the financial manifest)
         assert "last_run_result" in js
         assert "latest_valid_mark_date" in js
+
+
+class TestUiPaperPerformanceHistoryPanelContent:
+    """Phase 13-I: the "PAPER PERFORMANCE HISTORY" section in index.html.
+
+    Static-content assertions over api/ui/index.html — no HTTP needed. Verify the
+    prominent heading, the ten required safety-language badges, the reconciliation /
+    observation-range / stability surfaces, the separate (never merged) Top-25 and
+    Top-50 analytics + cumulative / excess / drawdown curves keyed by the financial
+    mark date, that the panel GETs only the performance route, and uses no
+    alert()/confirm().
+    """
+
+    _START = "Paper Performance History (Phase 13-I) START"
+    _END = "Paper Performance History (Phase 13-I) END"
+
+    @staticmethod
+    def _read_html() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return html_path.read_text(encoding="utf-8", errors="ignore")
+
+    @classmethod
+    def _markup(cls) -> str:
+        html = cls._read_html()
+        start = html.index('id="cap-panel"')
+        end = html.index(cls._END, start)
+        return html[start:end]
+
+    @classmethod
+    def _js(cls) -> str:
+        html = cls._read_html()
+        start = html.index("// ===== " + cls._START)
+        end = html.index("// ===== " + cls._END)
+        return html[start:end]
+
+    def test_panel_and_headline_present(self) -> None:
+        html = self._read_html()
+        assert 'id="cap-panel"' in html
+        assert "PAPER PERFORMANCE HISTORY" in html
+        assert "loadPaperPerformanceHistory(this)" in html
+
+    def test_all_required_safety_language_present(self) -> None:
+        markup = self._markup()
+        for phrase in (
+            "HISTORICAL PAPER MARK RECONSTRUCTION", "FROZEN HOLDINGS",
+            "NO DAILY REBALANCING", "PAPER TEST ONLY", "NO ORDERS", "NO BROKER",
+            "NO AUTOMATION", "DOES NOT CREATE SIGNALS", "DOES NOT CREATE TRADE DECISIONS",
+            "DOES NOT EXECUTE TRADES",
+        ):
+            assert phrase in markup, f"missing required safety language: {phrase}"
+
+    def test_summary_and_analytics_surfaces_present(self) -> None:
+        markup = self._markup()
+        for el_id in ("cap-recon", "cap-range", "cap-marks", "cap-stability",
+                      "cap-top25", "cap-top50", "cap-warnings", "cap-error"):
+            assert f'id="{el_id}"' in markup, f"missing surface: {el_id}"
+        for label in ("RECONCILIATION STATUS", "OBSERVATION DATE RANGE",
+                      "STABILITY COMPARISON"):
+            assert label in markup, f"missing summary label: {label}"
+
+    def test_top25_top50_and_spy_curves_are_separate(self) -> None:
+        markup = self._markup()
+        # cumulative / excess / drawdown charts per book, and a separate SPY chart —
+        # Top-25 and Top-50 are never merged.
+        for el_id in ("cap-chart-top25-cum", "cap-chart-top25-excess", "cap-chart-top25-dd",
+                      "cap-chart-top50-cum", "cap-chart-top50-excess", "cap-chart-top50-dd",
+                      "cap-chart-spy"):
+            assert f'id="{el_id}"' in markup, f"missing curve surface: {el_id}"
+
+    def test_charts_use_financial_mark_date_axis(self) -> None:
+        js = self._js()
+        assert "s.mark_date" in js  # x-axis is the financial mark date
+
+    def test_gets_only_the_performance_route(self) -> None:
+        js = self._js()
+        assert "/v1/research/current-alpha/performance" in js
+        for forbidden in ("/v1/orders", "/v1/signals", "/v1/decisions",
+                          "create_order", "place_order", "daily-refresh"):
+            assert forbidden not in js, f"forbidden endpoint/token in cap JS: {forbidden}"
+
+    def test_no_blocking_dialogs(self) -> None:
+        import re
+        js = self._js()
+        assert not re.search(r"(?<![A-Za-z0-9_])alert\s*\(", js)
+        assert not re.search(r"(?<![A-Za-z0-9_])confirm\s*\(", js)
