@@ -35108,3 +35108,223 @@ class TestUiPaperPerformancePolishContent:
         html = self._read_html()
         for token in ("chart.js", "Chart.js", "cdn.jsdelivr", "d3.min.js", "plotly"):
             assert token not in html, f"unexpected external charting dependency: {token}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 14-A — Trading Command Center static UI content assertions.
+# Read api/ui/index.html directly (no HTTP). These pin the integrated command
+# center, its state architecture, the in-page confirmation UX, and the
+# Research & Audit compatibility guarantees.
+# ---------------------------------------------------------------------------
+
+def _read_index_html_14a() -> str:
+    from pathlib import Path
+    p = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+    return p.read_text(encoding="utf-8", errors="ignore")
+
+
+def _cc_js_14a() -> str:
+    html = _read_index_html_14a()
+    start = html.index("Phase 14-A Command Center state architecture")
+    return html[start:]
+
+
+class TestUiTradingCommandCenterContent:
+    """Phase 14-A: the default Command Center view is the primary operating screen."""
+
+    def test_default_landing_view_is_command_center(self) -> None:
+        html = _read_index_html_14a()
+        # Overview tab id preserved AND is the active (default) tab.
+        assert 'id="tab-overview" class="tab-content active"' in html
+        assert 'id="cc-root"' in html
+
+    def test_required_navigation_exists(self) -> None:
+        html = _read_index_html_14a()
+        for label in ("Command Center", "Daily Workflow", "Portfolio", "Research &amp; Audit"):
+            assert label in html, f"missing nav item: {label}"
+
+    def test_kpi_cards_present(self) -> None:
+        html = _read_index_html_14a()
+        for label in ("System State", "Latest Market Mark", "Primary Paper Book",
+                      "Current Paper Return", "Excess vs SPY", "Portfolio Capacity"):
+            assert label in html, f"missing KPI card: {label}"
+        for el_id in ("cc-kpi-system", "cc-kpi-mark", "cc-kpi-book", "cc-kpi-return",
+                      "cc-kpi-excess", "cc-kpi-capacity"):
+            assert f'id="{el_id}"' in html, f"missing KPI surface: {el_id}"
+
+    def test_four_stage_workflow_present(self) -> None:
+        html = _read_index_html_14a()
+        assert "Today's Workflow" in html
+        for el_id in ("cc-stage-refresh", "cc-stage-review", "cc-stage-decide", "cc-stage-monitor"):
+            assert f'id="{el_id}"' in html, f"missing workflow stage: {el_id}"
+        for name in (">Refresh<", ">Review<", ">Decide<", ">Monitor<"):
+            assert name in html, f"missing stage name: {name}"
+
+    def test_next_best_action_panel_present(self) -> None:
+        html = _read_index_html_14a()
+        assert "Next Best Action" in html
+        assert 'id="cc-na-btn"' in html
+        assert 'id="cc-na-title"' in html
+        assert "commandCenterPrimaryAction(this)" in html
+
+    def test_top25_top50_spy_compact_comparison_present(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="cc-perf-chart"' in html
+        assert "Performance Snapshot" in html
+        for legend in ("Top 25", "Top 50", "SPY"):
+            assert legend in html, f"missing perf legend: {legend}"
+
+    def test_portfolio_capacity_present(self) -> None:
+        html = _read_index_html_14a()
+        assert "Portfolio Capacity" in html
+        assert 'id="cc-kpi-capacity"' in html
+
+    def test_review_queue_and_positions_previews_present(self) -> None:
+        html = _read_index_html_14a()
+        assert "Review Queue" in html and 'id="cc-rq-preview"' in html
+        assert "Open Positions" in html and 'id="cc-pos-preview"' in html
+        assert "Recent Decisions" in html and 'id="cc-dec-preview"' in html
+
+    def test_safety_badges_visible(self) -> None:
+        html = _read_index_html_14a()
+        start = html.index('id="cc-root"')
+        markup = html[start:html.index('COMMAND CENTER END', start)]
+        for badge in ("MANUAL REVIEW", "PAPER ONLY", "NO BROKER EXECUTION",
+                      "AUTOMATION OFF", "NO LIVE ORDERS"):
+            assert badge in markup, f"missing command-center safety badge: {badge}"
+
+    def test_audit_content_still_exists(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="tab-audit-advanced"' in html
+
+
+class TestUiIntegratedDailyWorkflowContent:
+    """Phase 14-A: the consolidated daily-workflow surface + connected-state fixes."""
+
+    def test_four_stage_sequence_present(self) -> None:
+        html = _read_index_html_14a()
+        for el_id in ("cc-stage-refresh", "cc-stage-review", "cc-stage-decide", "cc-stage-monitor"):
+            assert f'id="{el_id}"' in html
+
+    def test_stage_status_vocabulary_in_js(self) -> None:
+        js = _cc_js_14a()
+        for status in ("NEEDS ACTION", "BLOCKED", "COMPLETE", "READY"):
+            assert status in js, f"missing workflow status word: {status}"
+
+    def test_connected_sections_load_real_state(self) -> None:
+        html = _read_index_html_14a()
+        # Once connected, opening Portfolio triggers the real loaders (no stale
+        # "Connect to load" left behind).
+        assert "tabName === 'portfolio' && window._appState?.connected" in html
+        assert "loadPositions();" in html
+
+    def test_duplicate_review_rows_collapsed_by_identity(self) -> None:
+        js = _cc_js_14a()
+        # deterministic dedup: group by stable identity (ticker), keep latest,
+        # show a history count. No DB deletion.
+        assert "byTicker" in js
+        assert "history)" in js
+
+    def test_no_blank_action_buttons_in_command_center(self) -> None:
+        import re
+        html = _read_index_html_14a()
+        start = html.index('id="cc-root"')
+        markup = html[start:html.index('COMMAND CENTER END', start)]
+        # every <button> in the command center has non-empty visible text/label
+        for m in re.finditer(r"<button\b[^>]*>(.*?)</button>", markup, re.S):
+            inner = re.sub(r"<[^>]+>", "", m.group(1))
+            inner = inner.replace("&rarr;", "").replace("&#8635;", "").strip()
+            assert inner, f"blank command-center button: {m.group(0)[:80]}"
+
+
+class TestUiCommandCenterStateArchitecture:
+    """Phase 14-A: one state object + the required loaders/renderers + refresh guard."""
+
+    def test_single_state_object(self) -> None:
+        js = _cc_js_14a()
+        assert "window._commandCenter = {" in js
+
+    def test_required_functions_exist(self) -> None:
+        js = _cc_js_14a()
+        for fn in ("function loadCommandCenter", "function renderCommandCenter",
+                   "function renderWorkflowStage", "function renderNextAction",
+                   "function navigateToView"):
+            assert fn in js, f"missing function: {fn}"
+
+    def test_request_in_flight_guard(self) -> None:
+        js = _cc_js_14a()
+        assert "if (st.loading) return;" in js
+        assert "if (st.refreshing) return;" in js
+
+    def test_full_refresh_rechecks_auth_and_endpoint(self) -> None:
+        js = _cc_js_14a()
+        assert "function refreshCommandCenter" in js
+        assert "/v1/auth/check" in js
+        assert "/v1/dashboard/command-center" in js
+
+    def test_partial_failure_is_graceful(self) -> None:
+        js = _cc_js_14a()
+        # secondary previews are independently guarded; the primary load renders
+        # even on error rather than blanking the dashboard.
+        assert "_ccLoadPreviews" in js
+        assert "st.error" in js
+
+    def test_navigate_maps_four_views(self) -> None:
+        js = _cc_js_14a()
+        for view in ("command-center", "daily-workflow", "research-audit"):
+            assert f"'{view}'" in js, f"navigateToView missing view: {view}"
+
+
+class TestUiInPageConfirmationContent:
+    """Phase 14-A: reusable in-page confirmation — no browser-native dialogs."""
+
+    def test_reusable_confirmation_component_exists(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="confirm-modal"' in html
+        assert "function showPreviewConfirm" in html
+
+    def test_confirm_and_cancel_labels(self) -> None:
+        html = _read_index_html_14a()
+        assert "Confirm Preview Action" in html
+        assert ">Cancel<" in html
+
+    def test_confirmation_carries_paper_safety_context(self) -> None:
+        js = _cc_js_14a()
+        assert "Send nothing to a broker" in js
+        assert "Run no automation" in js
+
+    def test_no_native_dialogs_anywhere(self) -> None:
+        import re
+        html = _read_index_html_14a()
+        assert not re.search(r"(?<![A-Za-z0-9_.])alert\s*\(", html)
+        assert not re.search(r"(?<![A-Za-z0-9_.])confirm\s*\(", html)
+        assert not re.search(r"(?<![A-Za-z0-9_.])prompt\s*\(", html)
+
+
+class TestUiResearchAuditCompatibility:
+    """Phase 14-A: existing capability preserved; diagnostics stay in Research & Audit."""
+
+    def test_existing_view_ids_preserved(self) -> None:
+        html = _read_index_html_14a()
+        for tid in ("tab-overview", "tab-prediction-cockpit", "tab-portfolio", "tab-audit-advanced"):
+            assert f'id="{tid}"' in html, f"missing preserved view id: {tid}"
+
+    def test_research_audit_nav_label(self) -> None:
+        html = _read_index_html_14a()
+        assert "Research &amp; Audit" in html
+
+    def test_legacy_overview_moved_to_collapsed_details(self) -> None:
+        html = _read_index_html_14a()
+        assert '<details id="cc-legacy-overview"' in html
+        tag = html[html.index('<details id="cc-legacy-overview"'):]
+        tag = tag[:tag.index(">")]
+        assert " open" not in tag, "legacy overview must be collapsed by default"
+
+    def test_decorative_placeholder_charts_removed(self) -> None:
+        html = _read_index_html_14a()
+        assert "Stale &mdash; not wired yet" not in html
+        assert "Stale — not wired yet" not in html
+
+    def test_audit_advanced_tab_preserved(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="tab-audit-advanced"' in html

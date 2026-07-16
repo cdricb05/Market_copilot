@@ -161,6 +161,9 @@ from paper_trader.api.current_alpha_performance import (
 from paper_trader.api.current_alpha_decision_gate import (
     load_current_alpha_decision_gate,
 )
+from paper_trader.api.command_center import (
+    load_command_center,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4400,6 +4403,32 @@ def research_current_alpha_decision_gate() -> dict:
     never a stack trace.
     """
     return load_current_alpha_decision_gate()
+
+
+@app.get(
+    "/v1/dashboard/command-center",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def dashboard_command_center() -> dict:
+    """
+    Read-only Phase 14-A Trading Command Center aggregation.
+
+    Aggregates EXISTING internal service state into one daily-operating view
+    model: system readiness + connection, the current-alpha decision (primary /
+    challenger paper book, Top-25 / Top-50 / SPY returns, excess, drawdown, risk
+    flags, mark freshness, quarterly rebalance readiness), the daily-workflow
+    counts and current blocker, the portfolio capacity / risk roll-up, the
+    always-on paper-only safety block, and exactly one recommended next action.
+
+    Strictly read-only: it makes no loopback HTTP call to Paper Trader, writes no
+    database rows, invokes no daily refresh, calls neither the prediction service
+    nor any external provider, and creates no signals / trade decisions / orders.
+    The prediction tunnel is reported (configured target) but never probed. A
+    failing dependency degrades to a ``warnings[]`` entry with HTTP 200 — never a
+    stack trace.
+    """
+    return load_command_center()
 
 
 def _check_prediction_healthz(

@@ -19,6 +19,33 @@
       --danger: #ef4444;
       --info: #3b82f6;
       --app-header-height: 48px;
+
+      /* ---- Phase 14-A command-center design system (cohesive tokens) ---- */
+      /* Surfaces */
+      --cc-bg: #070b1e;
+      --cc-panel: #101a34;
+      --cc-elevated: #16223f;
+      --cc-surface-2: #1b2947;
+      --card-bg: #16213e;              /* alias used by legacy inline styles */
+      /* Borders */
+      --cc-border: #243b63;
+      --cc-border-soft: rgba(122,143,176,.16);
+      --cc-border-strong: #2c4a78;
+      /* Text hierarchy */
+      --text-secondary: #a8b8d8;       /* alias of --text-accent */
+      --cc-text-dim: #6a7fa0;
+      /* Semantic (aliases + tints) */
+      --success: #22c55e;
+      --cc-success-bg: rgba(34,197,94,.10);
+      --cc-warning-bg: rgba(245,158,11,.10);
+      --cc-danger-bg: rgba(239,68,68,.10);
+      --cc-info-bg: rgba(59,130,246,.10);
+      /* Spacing scale */
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+      /* Radius scale */
+      --r-1: 3px; --r-2: 5px; --r-3: 8px;
+      /* Typography scale */
+      --fs-0: 9px; --fs-1: 11px; --fs-2: 13px; --fs-3: 16px; --fs-4: 20px; --fs-5: 26px;
     }
 
     body {
@@ -1402,6 +1429,98 @@
     }
     .badge.danger { background: rgba(239,68,68,.12); color: var(--danger); border-color: var(--danger); }
     .dp-rotation-card { border-color: rgba(245,158,11,.35) !important; }
+
+    /* ===================== Phase 14-A Command Center ===================== */
+    #cc-root { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .cc-statusbar {
+      display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+      background: var(--cc-panel); border: 1px solid var(--cc-border);
+      border-radius: var(--r-2); padding: 8px 14px; position: sticky; top: 0;
+    }
+    .cc-status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-1); font-weight: 700; }
+    .cc-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--label); }
+    .cc-dot.ok { background: var(--ok); box-shadow: 0 0 6px rgba(34,197,94,.6); }
+    .cc-dot.warn { background: var(--warning); }
+    .cc-dot.bad { background: var(--danger); }
+    .cc-badge {
+      font-size: var(--fs-0); font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: var(--r-1); background: rgba(255,255,255,.05);
+      color: var(--label); border: 1px solid var(--cc-border-soft);
+    }
+    .cc-badge.safe { color: var(--ok); background: var(--cc-success-bg); border-color: rgba(34,197,94,.3); }
+    .cc-badge.manual { color: var(--warning); background: var(--cc-warning-bg); border-color: rgba(245,158,11,.3); }
+    .cc-spacer { flex: 1; }
+    .cc-btn {
+      font-size: var(--fs-1); font-weight: 700; padding: 7px 14px; border-radius: var(--r-1);
+      border: 1px solid transparent; cursor: pointer; background: var(--info); color: #fff;
+    }
+    .cc-btn:hover { filter: brightness(1.08); }
+    .cc-btn.primary { background: var(--ok); color: #04210f; }
+    .cc-btn.ghost { background: rgba(255,255,255,.06); color: var(--text-accent); border-color: var(--cc-border-soft); }
+    .cc-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .cc-kpi-row {
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--sp-3);
+    }
+    .cc-kpi {
+      background: var(--cc-panel); border: 1px solid var(--cc-border); border-radius: var(--r-2);
+      padding: 10px 12px; min-width: 0;
+    }
+    .cc-kpi-label { font-size: var(--fs-0); text-transform: uppercase; letter-spacing: .07em; color: var(--label); margin-bottom: 4px; }
+    .cc-kpi-value { font-size: var(--fs-3); font-weight: 800; color: var(--text-primary); font-family: 'Monaco','Menlo',monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cc-kpi-sub { font-size: var(--fs-0); color: var(--text-accent); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cc-pos { color: var(--ok); } .cc-neg { color: var(--danger); }
+
+    .cc-workflow-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-3); }
+    .cc-stage {
+      background: var(--cc-panel); border: 1px solid var(--cc-border); border-left: 3px solid var(--cc-border-strong);
+      border-radius: var(--r-2); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .cc-stage.s-complete { border-left-color: var(--ok); }
+    .cc-stage.s-action { border-left-color: var(--warning); }
+    .cc-stage.s-blocked { border-left-color: var(--danger); }
+    .cc-stage.s-ready { border-left-color: var(--info); }
+    .cc-stage-hd { display: flex; align-items: center; gap: 7px; }
+    .cc-stage-num { font-size: var(--fs-0); font-weight: 800; color: var(--cc-text-dim); }
+    .cc-stage-name { font-size: var(--fs-1); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+    .cc-stage-status { font-size: var(--fs-1); font-weight: 700; }
+    .cc-stage-meta { font-size: var(--fs-0); color: var(--label); }
+
+    .cc-row3 { display: grid; grid-template-columns: 1.1fr 1.1fr 1fr; gap: var(--sp-3); }
+    .cc-row4 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
+    .cc-panel {
+      background: var(--cc-panel); border: 1px solid var(--cc-border); border-radius: var(--r-2);
+      padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; gap: 6px;
+    }
+    .cc-panel.accent-na { border-color: rgba(34,197,94,.45); background: var(--cc-success-bg); }
+    .cc-panel-title { font-size: var(--fs-0); font-weight: 800; text-transform: uppercase; letter-spacing: .09em; color: var(--label); }
+    .cc-kv { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-1); }
+    .cc-kv .k { color: var(--label); } .cc-kv .v { color: var(--text-primary); font-weight: 700; text-align: right; }
+    .cc-na-action { font-size: var(--fs-3); font-weight: 800; color: var(--text-primary); }
+    .cc-na-explain { font-size: var(--fs-1); color: var(--text-accent); line-height: 1.45; }
+    .cc-na-note { font-size: var(--fs-0); color: var(--label); }
+    .cc-perf-chart { width: 100%; height: 96px; }
+    .cc-preview-hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .cc-preview-list { display: flex; flex-direction: column; gap: 3px; }
+    .cc-preview-row { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-1); padding: 3px 0; border-bottom: 1px solid var(--cc-border-soft); }
+    .cc-preview-row:last-child { border-bottom: none; }
+    .cc-empty { font-size: var(--fs-1); color: var(--label); font-style: italic; padding: 6px 0; }
+    .cc-warnings { font-size: var(--fs-1); color: var(--warning); }
+    .cc-error { font-size: var(--fs-1); color: var(--danger); background: var(--cc-danger-bg); border: 1px solid rgba(239,68,68,.3); border-radius: var(--r-1); padding: 6px 10px; }
+    .cc-updated { font-size: var(--fs-0); color: var(--cc-text-dim); }
+
+    @media (max-width: 1500px) {
+      .cc-kpi-row { grid-template-columns: repeat(3, 1fr); }
+      .cc-row3 { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 1100px) {
+      .cc-workflow-row { grid-template-columns: repeat(2, 1fr); }
+      .cc-row3, .cc-row4 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .cc-kpi-row { grid-template-columns: repeat(2, 1fr); }
+      .cc-workflow-row { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -1531,6 +1650,10 @@
         if (typeof window._appState !== 'undefined') {
           window._appState.connected = true;
         }
+        // Phase 14-A: load the Command Center view model on connect.
+        if (typeof window.loadCommandCenter === 'function') {
+          try { window.loadCommandCenter(); } catch (e) {}
+        }
         if (typeof window.paperTraderDirectDashboardLoad === 'function') {
           window.paperTraderDirectDashboardLoad().catch(e => {
             console.error('Dashboard load error:', e);
@@ -1618,10 +1741,10 @@
   <div class="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-label">Views</div>
-      <a class="sidebar-link" onclick="window._switchTab('overview');">Overview</a>
-      <a class="sidebar-link" onclick="window._switchTab('prediction-cockpit');">Daily Plan</a>
+      <a class="sidebar-link" onclick="window._switchTab('overview');">Command Center</a>
+      <a class="sidebar-link" onclick="window._switchTab('prediction-cockpit');">Daily Workflow</a>
       <a class="sidebar-link" onclick="window._switchTab('portfolio');">Portfolio</a>
-      <a class="sidebar-link" onclick="window._switchTab('audit-advanced');">Audit / Advanced</a>
+      <a class="sidebar-link" onclick="window._switchTab('audit-advanced');">Research &amp; Audit</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Actions</div>
@@ -1633,17 +1756,132 @@
   <main id="main-content">
     <!-- TAB BAR -->
     <div class="tab-bar">
-      <button class="tab-button active" onclick="window._switchTab('overview')">Overview</button>
-      <button class="tab-button" onclick="window._switchTab('prediction-cockpit')">Daily Plan</button>
+      <button class="tab-button active" onclick="window._switchTab('overview')">Command Center</button>
+      <button class="tab-button" onclick="window._switchTab('prediction-cockpit')">Daily Workflow</button>
       <button class="tab-button" onclick="window._switchTab('portfolio')">Portfolio</button>
-      <button class="tab-button" onclick="window._switchTab('audit-advanced')">Audit / Advanced</button>
+      <button class="tab-button" onclick="window._switchTab('audit-advanced')">Research &amp; Audit</button>
     </div>
 
     <div class="main-content-area">
       <!-- TAB 0: OVERVIEW (DEFAULT) -->
       <div id="tab-overview" class="tab-content active">
 
-        <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); margin-bottom: 4px; flex-shrink: 0;">Trading Cockpit Overview</div>
+        <!-- ===================== Phase 14-A COMMAND CENTER START ===================== -->
+        <div id="cc-root">
+
+          <!-- TOP STATUS BAR -->
+          <div class="cc-statusbar">
+            <span class="cc-status-pill"><span id="cc-dot-ready" class="cc-dot"></span><span id="cc-status-ready">System —</span></span>
+            <span class="cc-status-pill"><span id="cc-dot-conn" class="cc-dot"></span><span id="cc-status-conn">Disconnected</span></span>
+            <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;">Latest mark: <span id="cc-status-mark" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
+            <span class="cc-spacer"></span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge safe">PAPER ONLY</span>
+            <span class="cc-badge">NO BROKER EXECUTION</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge">NO LIVE ORDERS</span>
+            <button id="cc-refresh-btn" class="cc-btn ghost" onclick="refreshCommandCenter(this)" title="Refresh authentication, the command-center endpoint, and visible detail panels.">&#8635; Refresh</button>
+          </div>
+
+          <div id="cc-error" class="cc-error" style="display:none;"></div>
+
+          <!-- ROW 1: KPI CARDS -->
+          <div class="cc-kpi-row">
+            <div class="cc-kpi"><div class="cc-kpi-label">System State</div><div class="cc-kpi-value" id="cc-kpi-system">—</div><div class="cc-kpi-sub" id="cc-kpi-system-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label">Latest Market Mark</div><div class="cc-kpi-value" id="cc-kpi-mark">—</div><div class="cc-kpi-sub" id="cc-kpi-mark-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label">Primary Paper Book</div><div class="cc-kpi-value" id="cc-kpi-book">—</div><div class="cc-kpi-sub" id="cc-kpi-book-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label">Current Paper Return</div><div class="cc-kpi-value" id="cc-kpi-return">—</div><div class="cc-kpi-sub" id="cc-kpi-return-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label">Excess vs SPY</div><div class="cc-kpi-value" id="cc-kpi-excess">—</div><div class="cc-kpi-sub" id="cc-kpi-excess-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label">Portfolio Capacity</div><div class="cc-kpi-value" id="cc-kpi-capacity">—</div><div class="cc-kpi-sub" id="cc-kpi-capacity-sub">&nbsp;</div></div>
+          </div>
+
+          <!-- ROW 2: TODAY'S WORKFLOW (4 stages) -->
+          <div style="font-size: var(--fs-0); font-weight:800; text-transform:uppercase; letter-spacing:.09em; color: var(--label);">Today's Workflow</div>
+          <div class="cc-workflow-row">
+            <div class="cc-stage" id="cc-stage-refresh">
+              <div class="cc-stage-hd"><span class="cc-stage-num">1</span><span class="cc-stage-name">Refresh</span></div>
+              <div class="cc-stage-status" data-role="status">—</div>
+              <div class="cc-stage-meta" data-role="meta">&nbsp;</div>
+              <button class="cc-btn ghost" data-role="action" style="font-size:var(--fs-0); padding:4px 9px; align-self:flex-start;" onclick="navigateToView('research-audit')">Daily Alpha Refresh</button>
+            </div>
+            <div class="cc-stage" id="cc-stage-review">
+              <div class="cc-stage-hd"><span class="cc-stage-num">2</span><span class="cc-stage-name">Review</span></div>
+              <div class="cc-stage-status" data-role="status">—</div>
+              <div class="cc-stage-meta" data-role="meta">&nbsp;</div>
+              <button class="cc-btn ghost" data-role="action" style="font-size:var(--fs-0); padding:4px 9px; align-self:flex-start;" onclick="navigateToView('daily-workflow')">Open Review</button>
+            </div>
+            <div class="cc-stage" id="cc-stage-decide">
+              <div class="cc-stage-hd"><span class="cc-stage-num">3</span><span class="cc-stage-name">Decide</span></div>
+              <div class="cc-stage-status" data-role="status">—</div>
+              <div class="cc-stage-meta" data-role="meta">&nbsp;</div>
+              <button class="cc-btn ghost" data-role="action" style="font-size:var(--fs-0); padding:4px 9px; align-self:flex-start;" onclick="navigateToView('daily-workflow')">Open Decisions</button>
+            </div>
+            <div class="cc-stage" id="cc-stage-monitor">
+              <div class="cc-stage-hd"><span class="cc-stage-num">4</span><span class="cc-stage-name">Monitor</span></div>
+              <div class="cc-stage-status" data-role="status">—</div>
+              <div class="cc-stage-meta" data-role="meta">&nbsp;</div>
+              <button class="cc-btn ghost" data-role="action" style="font-size:var(--fs-0); padding:4px 9px; align-self:flex-start;" onclick="navigateToView('portfolio')">Open Portfolio</button>
+            </div>
+          </div>
+
+          <!-- ROW 3: CURRENT ALPHA · PERFORMANCE SNAPSHOT · NEXT BEST ACTION -->
+          <div class="cc-row3">
+            <div class="cc-panel">
+              <div class="cc-panel-title">Current Alpha</div>
+              <div class="cc-kv"><span class="k">Primary book</span><span class="v" id="cc-alpha-primary">—</span></div>
+              <div class="cc-kv"><span class="k">Challenger</span><span class="v" id="cc-alpha-challenger">—</span></div>
+              <div class="cc-kv"><span class="k">Decision</span><span class="v" id="cc-alpha-decision">—</span></div>
+              <div class="cc-kv"><span class="k">Mark freshness</span><span class="v" id="cc-alpha-mark">—</span></div>
+              <div class="cc-kv"><span class="k">Risk state</span><span class="v" id="cc-alpha-risk">—</span></div>
+              <div class="cc-kv"><span class="k">Rebalance readiness</span><span class="v" id="cc-alpha-readiness">—</span></div>
+            </div>
+            <div class="cc-panel">
+              <div class="cc-panel-title">Performance Snapshot</div>
+              <svg class="cc-perf-chart" id="cc-perf-chart" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Top 25, Top 50 and SPY cumulative return"></svg>
+              <div style="display:flex; gap:12px; flex-wrap:wrap; font-size: var(--fs-0);">
+                <span style="color: var(--info); font-weight:700;">&#9632; Top 25</span>
+                <span style="color: var(--ok); font-weight:700;">&#9632; Top 50</span>
+                <span style="color: var(--label); font-weight:700;">&#9632; SPY</span>
+              </div>
+              <div class="cc-kv"><span class="k">Current return (primary)</span><span class="v" id="cc-perf-return">—</span></div>
+              <div class="cc-kv"><span class="k">Current excess vs SPY</span><span class="v" id="cc-perf-excess">—</span></div>
+              <div class="cc-kv"><span class="k">Current drawdown</span><span class="v" id="cc-perf-dd">—</span></div>
+            </div>
+            <div class="cc-panel accent-na">
+              <div class="cc-panel-title">Next Best Action</div>
+              <div class="cc-na-action" id="cc-na-title">Loading…</div>
+              <div class="cc-na-explain" id="cc-na-explain">&nbsp;</div>
+              <button id="cc-na-btn" class="cc-btn primary" style="align-self:flex-start;" onclick="commandCenterPrimaryAction(this)">—</button>
+              <div class="cc-na-note" id="cc-na-safety">Paper preview only — manual review required. No orders, no broker, no automation.</div>
+              <div class="cc-na-note" id="cc-na-capacity">&nbsp;</div>
+            </div>
+          </div>
+
+          <!-- ROW 4: PREVIEWS (top 5 each) -->
+          <div class="cc-row4">
+            <div class="cc-panel">
+              <div class="cc-preview-hd"><span class="cc-panel-title">Review Queue</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToView('daily-workflow')">View All &rarr;</button></div>
+              <div class="cc-preview-list" id="cc-rq-preview"><div class="cc-empty">Connect to load the review queue.</div></div>
+            </div>
+            <div class="cc-panel">
+              <div class="cc-preview-hd"><span class="cc-panel-title">Open Positions</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToView('portfolio')">View All &rarr;</button></div>
+              <div class="cc-preview-list" id="cc-pos-preview"><div class="cc-empty">Connect to load open positions.</div></div>
+            </div>
+            <div class="cc-panel">
+              <div class="cc-preview-hd"><span class="cc-panel-title">Recent Decisions</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToView('portfolio')">View All &rarr;</button></div>
+              <div class="cc-preview-list" id="cc-dec-preview"><div class="cc-empty">Connect to load recent decisions.</div></div>
+            </div>
+          </div>
+
+          <div id="cc-warnings" class="cc-warnings" style="display:none;"></div>
+          <div class="cc-updated" id="cc-updated">&nbsp;</div>
+        </div>
+        <!-- ===================== Phase 14-A COMMAND CENTER END ===================== -->
+
+        <details id="cc-legacy-overview" style="margin-top: 14px;">
+          <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--label); cursor: pointer; padding: 6px 0;">Market data &amp; legacy overview panels (advanced)</summary>
+
+        <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); margin: 8px 0 4px 0; flex-shrink: 0;">Trading Cockpit Overview</div>
 
         <!-- KPI strip: portfolio financial metrics -->
         <div class="cockpit-kpi-strip">
@@ -1776,39 +2014,10 @@
             </div>
           </div>
 
-            <!-- 2x2 chart grid -->
+            <!-- Cash vs Invested + capacity (wired). Decorative placeholder charts
+                 removed in Phase 14-A; live performance visuals now live in the
+                 Command Center Performance Snapshot and Portfolio tab. -->
             <div class="ov-chart-grid">
-
-              <!-- Chart 1: Portfolio Value Over Time -->
-              <div class="ov-chart-card">
-                <div class="ov-chart-title">Portfolio Value Over Time</div>
-                <svg class="ov-chart-svg" viewBox="0 0 300 75" preserveAspectRatio="none">
-                  <line x1="36" y1="5" x2="36" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
-                  <line x1="36" y1="62" x2="294" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
-                  <line x1="36" y1="45" x2="294" y2="45" stroke="rgba(168,184,216,0.07)" stroke-width="1" stroke-dasharray="3,5"/>
-                  <line x1="36" y1="28" x2="294" y2="28" stroke="rgba(168,184,216,0.07)" stroke-width="1" stroke-dasharray="3,5"/>
-                  <line x1="36" y1="11" x2="294" y2="11" stroke="rgba(168,184,216,0.07)" stroke-width="1" stroke-dasharray="3,5"/>
-                  <text x="32" y="65" text-anchor="end" fill="rgba(168,184,216,0.3)" font-size="7">0</text>
-                  <text x="32" y="48" text-anchor="end" fill="rgba(168,184,216,0.3)" font-size="7">25k</text>
-                  <text x="32" y="31" text-anchor="end" fill="rgba(168,184,216,0.3)" font-size="7">50k</text>
-                  <text x="32" y="14" text-anchor="end" fill="rgba(168,184,216,0.3)" font-size="7">75k</text>
-                  <text x="165" y="37" text-anchor="middle" dominant-baseline="middle" fill="rgba(168,184,216,0.18)" font-size="9">Stale &mdash; not wired yet</text>
-                </svg>
-                <div class="ov-chart-status">Source pending</div>
-              </div>
-
-              <!-- Chart 2: P&L Curve -->
-              <div class="ov-chart-card">
-                <div class="ov-chart-title">P&amp;L Curve</div>
-                <svg class="ov-chart-svg" viewBox="0 0 300 75" preserveAspectRatio="none">
-                  <line x1="36" y1="5" x2="36" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
-                  <line x1="36" y1="62" x2="294" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
-                  <line x1="36" y1="36" x2="294" y2="36" stroke="rgba(34,197,94,0.18)" stroke-width="1" stroke-dasharray="4,4"/>
-                  <text x="32" y="39" text-anchor="end" fill="rgba(34,197,94,0.4)" font-size="7">0</text>
-                  <text x="165" y="37" text-anchor="middle" dominant-baseline="middle" fill="rgba(168,184,216,0.18)" font-size="9">Stale &mdash; not wired yet</text>
-                </svg>
-                <div class="ov-chart-status">Source pending</div>
-              </div>
 
               <!-- Chart 3: Cash vs Invested -->
               <div class="ov-chart-card">
@@ -1825,20 +2034,6 @@
                   <div style="font-size: 9px; color: var(--label); margin-top: 3px;" id="ov-capacity-label">Connect to load capacity</div>
                 </div>
                 <div class="ov-chart-status">Live when connected</div>
-              </div>
-
-              <!-- Chart 4: Allocation by Ticker -->
-              <div class="ov-chart-card">
-                <div class="ov-chart-title">Exposure by Ticker</div>
-                <svg class="ov-chart-svg" viewBox="0 0 300 75" preserveAspectRatio="none">
-                  <rect x="40" y="10" width="30" height="52" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.2)" stroke-width="1"/>
-                  <rect x="80" y="25" width="30" height="37" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.2)" stroke-width="1"/>
-                  <rect x="120" y="35" width="30" height="27" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.2)" stroke-width="1"/>
-                  <rect x="160" y="42" width="30" height="20" fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.2)" stroke-width="1"/>
-                  <line x1="36" y1="62" x2="294" y2="62" stroke="rgba(168,184,216,0.2)" stroke-width="1"/>
-                  <text x="165" y="37" text-anchor="middle" dominant-baseline="middle" fill="rgba(168,184,216,0.18)" font-size="9">Stale &mdash; not wired yet</text>
-                </svg>
-                <div class="ov-chart-status">Source pending</div>
               </div>
 
             </div><!-- end ov-chart-grid -->
@@ -1864,6 +2059,8 @@
             </div>
 
         </div><!-- end ov-portfolio-panel -->
+
+        </details><!-- end cc-legacy-overview -->
 
         <!-- Hidden elements preserved for JS compatibility (not shown in UI) -->
         <div style="display:none;">
@@ -5070,6 +5267,21 @@ window._switchTab = function(tabName) {
   if (tabName === 'prediction-cockpit') {
     try { renderDailyReviewControl(); } catch (e) {}
     try { renderDailyReviewComplete(); } catch (e) {}
+  }
+
+  // Phase 14-A: Command Center is the default landing view — refresh its model
+  // whenever it is opened while connected.
+  if (tabName === 'overview' && window._appState?.connected) {
+    try { if (typeof loadCommandCenter === 'function') loadCommandCenter(); } catch (e) {}
+  }
+
+  // Phase 14-A: connected detail sections must render their real (empty/loaded)
+  // state — never leave a stale "Connect to load" placeholder once connected.
+  if (tabName === 'portfolio' && window._appState?.connected) {
+    try { loadPositions(); } catch (e) {}
+    try { loadOrders(); } catch (e) {}
+    try { loadHistory(); } catch (e) {}
+    try { loadPortfolio(); } catch (e) {}
   }
 };
 
@@ -18925,6 +19137,349 @@ setTimeout(() => {
     }
   }
 }, 100);
+</script>
+
+<!-- ===================== Phase 14-A Command Center state architecture ===================== -->
+<script>
+// Single command-center state object. No other global independently represents
+// the command-center workflow/alpha/portfolio status.
+window._commandCenter = {
+  data: null,
+  loading: false,     // request-in-flight guard for loadCommandCenter()
+  refreshing: false,  // guard for the full refresh action
+  lastLoadedAt: null,
+  error: null,
+};
+
+function _ccEsc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function _ccPctText(v) {
+  if (v === null || v === undefined || v === '' || isNaN(parseFloat(v))) return '—';
+  var n = parseFloat(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+function _ccPpText(v) {
+  if (v === null || v === undefined || v === '' || isNaN(parseFloat(v))) return '—';
+  var n = parseFloat(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + 'pp';
+}
+function _ccSetText(id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; }
+function _ccSignClass(v) {
+  if (v === null || v === undefined || isNaN(parseFloat(v))) return '';
+  return parseFloat(v) >= 0 ? 'cc-pos' : 'cc-neg';
+}
+
+// ---- Compact native SVG line chart: Top25 / Top50 / SPY cumulative-since-signal ----
+function _ccPerfChart(t25, t50, spy) {
+  var svg = document.getElementById('cc-perf-chart');
+  if (!svg) return;
+  var W = 320, H = 96, padX = 6, padY = 10;
+  var vals = [0, t25, t50, spy].filter(function (v) { return v !== null && v !== undefined && !isNaN(v); });
+  if (vals.length <= 1) {
+    svg.innerHTML = '<text x="160" y="50" text-anchor="middle" fill="#6a7fa0" font-size="10">No performance marks yet</text>';
+    return;
+  }
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (hi === lo) { hi = lo + 1; lo = lo - 1; }
+  function y(v) { return padY + (H - 2 * padY) * (1 - (v - lo) / (hi - lo)); }
+  function line(v, color) {
+    if (v === null || v === undefined || isNaN(v)) return '';
+    var y0 = y(0), y1 = y(v);
+    return '<polyline fill="none" stroke="' + color + '" stroke-width="2" points="' +
+           padX + ',' + y0.toFixed(1) + ' ' + (W - padX) + ',' + y1.toFixed(1) + '"/>' +
+           '<circle cx="' + (W - padX) + '" cy="' + y1.toFixed(1) + '" r="2.5" fill="' + color + '"/>';
+  }
+  var zeroY = y(0);
+  var html = '<line x1="' + padX + '" y1="' + zeroY.toFixed(1) + '" x2="' + (W - padX) +
+             '" y2="' + zeroY.toFixed(1) + '" stroke="rgba(168,184,216,0.25)" stroke-width="1" stroke-dasharray="3,4"/>';
+  html += line(spy, '#7a8fb0');
+  html += line(t25, '#3b82f6');
+  html += line(t50, '#22c55e');
+  svg.innerHTML = html;
+}
+
+// ---- Render helpers -------------------------------------------------------
+function renderWorkflowStage(elId, status, cls, meta) {
+  var el = document.getElementById(elId);
+  if (!el) return;
+  el.classList.remove('s-complete', 's-action', 's-blocked', 's-ready');
+  if (cls) el.classList.add(cls);
+  var st = el.querySelector('[data-role="status"]');
+  var mt = el.querySelector('[data-role="meta"]');
+  if (st) st.textContent = status;
+  if (mt) mt.textContent = meta || ' ';
+}
+
+function renderNextAction(next) {
+  next = next || {};
+  _ccSetText('cc-na-title', next.title || '—');
+  _ccSetText('cc-na-explain', next.explanation || '');
+  var btn = document.getElementById('cc-na-btn');
+  if (btn) btn.textContent = next.action_label || 'Open';
+  _ccSetText('cc-na-safety', next.safety_context ||
+    'Paper preview only — manual review required. No orders, no broker, no automation.');
+  _ccSetText('cc-na-capacity', next.capacity_context || ' ');
+}
+
+function renderCommandCenter() {
+  var d = window._commandCenter.data;
+  var errEl = document.getElementById('cc-error');
+  if (window._commandCenter.error) {
+    if (errEl) { errEl.style.display = 'block'; errEl.textContent = window._commandCenter.error; }
+  } else if (errEl) { errEl.style.display = 'none'; }
+  if (!d) return;
+
+  var sys = d.system || {}, alpha = d.alpha || {}, wf = d.workflow || {}, pf = d.portfolio || {}, na = d.next_action || {};
+
+  // Status bar
+  var dotReady = document.getElementById('cc-dot-ready');
+  if (dotReady) dotReady.className = 'cc-dot ' + (sys.backend_ready ? 'ok' : 'bad');
+  _ccSetText('cc-status-ready', sys.backend_ready ? 'System Ready' : 'System Not Ready');
+  var dotConn = document.getElementById('cc-dot-conn');
+  if (dotConn) dotConn.className = 'cc-dot ' + (sys.connected ? 'ok' : 'warn');
+  _ccSetText('cc-status-conn', sys.connected ? 'Connected' : 'Disconnected');
+  _ccSetText('cc-status-mark', (alpha.latest_mark_date || '—') +
+    (alpha.mark_stale ? ' (STALE)' : (alpha.mark_freshness_status ? '' : '')));
+
+  // ROW 1 KPI cards
+  _ccSetText('cc-kpi-system', sys.backend_ready ? 'READY' : 'DEGRADED');
+  _ccSetText('cc-kpi-system-sub', sys.connected ? 'Connected · paper only' : 'Not connected');
+  _ccSetText('cc-kpi-mark', alpha.latest_mark_date || '—');
+  _ccSetText('cc-kpi-mark-sub', alpha.mark_freshness_status ?
+    alpha.mark_freshness_status.replace(/_/g, ' ') : (alpha.available ? '' : 'no mark'));
+  var pbook = (alpha.primary_paper_book || {});
+  _ccSetText('cc-kpi-book', pbook.book || 'NONE');
+  _ccSetText('cc-kpi-book-sub', pbook.book ? 'provisional (paper)' : 'no primary yet');
+  var t50 = alpha.top50 || {}, t25 = alpha.top25 || {};
+  var primaryBook = pbook.book === 'TOP25' ? t25 : t50;
+  var retEl = document.getElementById('cc-kpi-return');
+  if (retEl) { retEl.textContent = _ccPctText(primaryBook.current_return_pct); retEl.className = 'cc-kpi-value ' + _ccSignClass(primaryBook.current_return_pct); }
+  _ccSetText('cc-kpi-return-sub', pbook.book ? (pbook.book + ' since signal') : '');
+  var excEl = document.getElementById('cc-kpi-excess');
+  if (excEl) { excEl.textContent = _ccPpText(primaryBook.current_excess_return_pct_points); excEl.className = 'cc-kpi-value ' + _ccSignClass(primaryBook.current_excess_return_pct_points); }
+  _ccSetText('cc-kpi-excess-sub', 'vs SPY');
+  _ccSetText('cc-kpi-capacity', (pf.open_positions != null ? pf.open_positions : '—') + ' / ' + (pf.max_positions != null ? pf.max_positions : '—'));
+  _ccSetText('cc-kpi-capacity-sub', (pf.capacity_state || '').replace(/_/g, ' ').toLowerCase() || '');
+
+  // ROW 2 workflow stages
+  var stale = alpha.available && alpha.mark_stale;
+  renderWorkflowStage('cc-stage-refresh',
+    !alpha.available ? 'NEEDS ACTION' : (stale ? 'NEEDS ACTION' : 'COMPLETE'),
+    !alpha.available ? 's-action' : (stale ? 's-action' : 's-complete'),
+    'Mark: ' + (alpha.latest_mark_date || '—'));
+  var rq = wf.review_queue_count || 0;
+  renderWorkflowStage('cc-stage-review',
+    rq > 0 ? 'NEEDS ACTION' : 'READY',
+    rq > 0 ? 's-action' : 's-ready',
+    rq > 0 ? (rq + ' idea(s) to review') : 'No pending ideas');
+  var actionable = (wf.approved_count || 0) + (wf.order_eligible_count || 0);
+  var blocked = wf.blocked_count || 0;
+  renderWorkflowStage('cc-stage-decide',
+    blocked > 0 ? 'BLOCKED' : (actionable > 0 ? 'NEEDS ACTION' : 'READY'),
+    blocked > 0 ? 's-blocked' : (actionable > 0 ? 's-action' : 's-ready'),
+    blocked > 0 ? wf.current_blocker : (actionable + ' ready'));
+  renderWorkflowStage('cc-stage-monitor',
+    (pf.open_positions || 0) > 0 ? 'COMPLETE' : 'READY',
+    (pf.open_positions || 0) > 0 ? 's-complete' : 's-ready',
+    (pf.open_positions || 0) + ' open · ' + (pf.review_for_exit_count || 0) + ' review-for-exit');
+
+  // ROW 3 current alpha
+  _ccSetText('cc-alpha-primary', pbook.book ? (pbook.book + ' · ' + (pbook.book_id || '')) : 'NO PRIMARY BOOK YET');
+  var chal = alpha.challenger_paper_book;
+  _ccSetText('cc-alpha-challenger', chal && chal.label ? chal.label : '—');
+  _ccSetText('cc-alpha-decision', alpha.decision_label || alpha.decision || '—');
+  _ccSetText('cc-alpha-mark', alpha.mark_freshness_status ? alpha.mark_freshness_status.replace(/_/g, ' ') : '—');
+  _ccSetText('cc-alpha-risk', alpha.risk_any_breach ? 'RISK REVIEW TRIGGERED' : 'No breach');
+  _ccSetText('cc-alpha-readiness', (alpha.rebalance_readiness_status ? alpha.rebalance_readiness_status.replace(/_/g, ' ') : '—') +
+    (alpha.remaining_trading_days != null ? (' · ' + alpha.remaining_trading_days + 'd left') : ''));
+
+  // Performance snapshot
+  _ccPerfChart(
+    t25.current_return_pct != null ? parseFloat(t25.current_return_pct) : null,
+    t50.current_return_pct != null ? parseFloat(t50.current_return_pct) : null,
+    (t50.spy_cumulative_return_pct != null ? parseFloat(t50.spy_cumulative_return_pct)
+      : (t25.spy_cumulative_return_pct != null ? parseFloat(t25.spy_cumulative_return_pct) : null))
+  );
+  var pr = document.getElementById('cc-perf-return');
+  if (pr) { pr.textContent = _ccPctText(primaryBook.current_return_pct); pr.className = 'v ' + _ccSignClass(primaryBook.current_return_pct); }
+  var pe = document.getElementById('cc-perf-excess');
+  if (pe) { pe.textContent = _ccPpText(primaryBook.current_excess_return_pct_points); pe.className = 'v ' + _ccSignClass(primaryBook.current_excess_return_pct_points); }
+  var pd = document.getElementById('cc-perf-dd');
+  if (pd) { pd.textContent = _ccPctText(primaryBook.current_drawdown_pct); pd.className = 'v ' + _ccSignClass(primaryBook.current_drawdown_pct); }
+
+  // Next best action
+  renderNextAction(na);
+
+  // Warnings + timestamp
+  var warnEl = document.getElementById('cc-warnings');
+  if (warnEl) {
+    var ws = d.warnings || [];
+    if (ws.length) { warnEl.style.display = 'block'; warnEl.innerHTML = ws.map(function (w) { return '&#9888; ' + _ccEsc(w); }).join('<br>'); }
+    else { warnEl.style.display = 'none'; warnEl.innerHTML = ''; }
+  }
+  _ccSetText('cc-updated', 'Updated ' + (window._commandCenter.lastLoadedAt || '') +
+    ' · read-only aggregation · no orders · no broker · automation off');
+}
+
+// ---- Previews (secondary, independently guarded — one failure never blanks) ----
+function _ccRenderReviewPreview(rows) {
+  var box = document.getElementById('cc-rq-preview');
+  if (!box) return;
+  if (!rows || !rows.length) { box.innerHTML = '<div class="cc-empty">No trade ideas in the review queue.</div>'; return; }
+  // Deterministic dedup: group by stable candidate identity (ticker), keep the
+  // latest active record, and surface a duplicate/history count. No DB deletion.
+  var byTicker = {};
+  rows.forEach(function (r) {
+    var t = (r.ticker || r.symbol || '?');
+    if (!byTicker[t]) byTicker[t] = { rows: [] };
+    byTicker[t].rows.push(r);
+  });
+  var items = Object.keys(byTicker).map(function (t) {
+    var rs = byTicker[t].rows.slice().sort(function (a, b) {
+      return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+    });
+    return { ticker: t, latest: rs[0], dupes: rs.length - 1 };
+  });
+  items.sort(function (a, b) { return String(b.latest.created_at || '').localeCompare(String(a.latest.created_at || '')); });
+  box.innerHTML = items.slice(0, 5).map(function (it) {
+    var status = it.latest.review_status || it.latest.status || '';
+    var dup = it.dupes > 0 ? ' <span style="color:var(--label);">(+' + it.dupes + ' history)</span>' : '';
+    return '<div class="cc-preview-row"><span>' + _ccEsc(it.ticker) + dup + '</span><span style="color:var(--label);">' + _ccEsc(status) + '</span></div>';
+  }).join('');
+}
+function _ccRenderPositionsPreview(rows) {
+  var box = document.getElementById('cc-pos-preview');
+  if (!box) return;
+  if (!rows || !rows.length) { box.innerHTML = '<div class="cc-empty">No open paper positions.</div>'; return; }
+  box.innerHTML = rows.slice(0, 5).map(function (p) {
+    return '<div class="cc-preview-row"><span>' + _ccEsc(p.ticker || p.symbol || '?') + '</span><span style="color:var(--label);">' + _ccEsc(p.qty != null ? ('qty ' + p.qty) : '') + '</span></div>';
+  }).join('');
+}
+function _ccRenderDecisionsPreview(rows) {
+  var box = document.getElementById('cc-dec-preview');
+  if (!box) return;
+  if (!rows || !rows.length) { box.innerHTML = '<div class="cc-empty">No recent paper orders / decisions.</div>'; return; }
+  box.innerHTML = rows.slice(0, 5).map(function (o) {
+    var side = o.side || o.action || '';
+    return '<div class="cc-preview-row"><span>' + _ccEsc(o.ticker || o.symbol || '?') + ' ' + _ccEsc(side) + '</span><span style="color:var(--label);">' + _ccEsc(o.status || '') + '</span></div>';
+  }).join('');
+}
+async function _ccLoadPreviews() {
+  try { var r = await call('GET', '/v1/review/candidates'); if (r.ok) _ccRenderReviewPreview(await r.json()); } catch (e) {}
+  try { var p = await call('GET', '/v1/positions'); if (p.ok) _ccRenderPositionsPreview(await p.json()); } catch (e) {}
+  try { var o = await call('GET', '/v1/orders'); if (o.ok) _ccRenderDecisionsPreview(await o.json()); } catch (e) {}
+}
+
+// ---- Loader (request-in-flight guarded) -----------------------------------
+async function loadCommandCenter() {
+  var st = window._commandCenter;
+  if (st.loading) return;           // in-flight guard: no duplicate concurrent requests
+  st.loading = true;
+  try {
+    var resp = await call('GET', '/v1/dashboard/command-center');
+    if (!resp.ok) {
+      st.error = 'Command center unavailable (HTTP ' + resp.status + ').';
+      renderCommandCenter();
+      return;
+    }
+    st.data = await resp.json();
+    st.error = null;
+    st.lastLoadedAt = new Date().toLocaleTimeString();
+    renderCommandCenter();
+    _ccLoadPreviews();               // secondary; failure here never blanks the dashboard
+  } catch (e) {
+    st.error = 'Command center request failed: ' + (e && e.message ? e.message : e);
+    renderCommandCenter();
+  } finally {
+    st.loading = false;
+  }
+}
+window.loadCommandCenter = loadCommandCenter;
+
+// ---- Full refresh action (guarded): auth -> endpoint -> visible panels ----
+async function refreshCommandCenter(btn) {
+  var st = window._commandCenter;
+  if (st.refreshing) return;
+  st.refreshing = true;
+  var original = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+  try {
+    // 1. Re-check authentication / connection state.
+    try {
+      var a = await call('GET', '/v1/auth/check');
+      if (window._appState) window._appState.connected = a.ok;
+    } catch (e) { if (window._appState) window._appState.connected = false; }
+    // 2. Refresh the command-center endpoint (+ its previews).
+    await loadCommandCenter();
+    // 3. Refresh only the currently visible detailed sections.
+    var activeTab = document.querySelector('.tab-content.active');
+    if (activeTab && activeTab.id === 'tab-portfolio') {
+      try { loadPositions(); } catch (e) {}
+      try { loadOrders(); } catch (e) {}
+    }
+  } finally {
+    st.refreshing = false;
+    if (btn) { btn.disabled = false; btn.textContent = original || '↻ Refresh'; }
+  }
+}
+window.refreshCommandCenter = refreshCommandCenter;
+
+// ---- Navigation between the four views ------------------------------------
+function navigateToView(view) {
+  var map = {
+    'command-center': 'overview',
+    'daily-workflow': 'prediction-cockpit',
+    'portfolio': 'portfolio',
+    'research-audit': 'audit-advanced',
+  };
+  var tab = map[view] || view;
+  try { window._switchTab(tab); } catch (e) {}
+}
+window.navigateToView = navigateToView;
+
+// ---- Primary next-action dispatcher (preview-safe navigation only) --------
+function commandCenterPrimaryAction(btn) {
+  var na = (window._commandCenter.data && window._commandCenter.data.next_action) || {};
+  if (na.action === 'REFRESH_APPLICATION_DATA') { refreshCommandCenter(btn); return; }
+  if (na.action === 'NO_ACTION_REQUIRED') { try { toast('No action required — everything is up to date.', 'ok'); } catch (e) {} return; }
+  navigateToView(na.ui_target || 'command-center');
+  if (na.action === 'REVIEW_CANDIDATES' && typeof focusReviewQueue === 'function') {
+    try { focusReviewQueue(); } catch (e) {}
+  }
+}
+window.commandCenterPrimaryAction = commandCenterPrimaryAction;
+
+// ---- Reusable in-page preview confirmation (no alert/confirm/prompt) ------
+// Wraps the existing styled #confirm-modal with a paper-safety badge and the
+// explicit "Confirm Preview Action" label. Used only for existing operations
+// that already require confirmation — introduces no new write operations.
+function showPreviewConfirm(opts) {
+  opts = opts || {};
+  if (typeof window._showWriteConfirm === 'function') {
+    window._showWriteConfirm({
+      title: opts.title || 'Confirm Preview Action',
+      confirmLabel: 'Confirm Preview Action',
+      writes: opts.writes || [],
+      doesNotDo: opts.doesNotDo || [
+        'Create no live orders', 'Send nothing to a broker', 'Run no automation',
+      ],
+      onConfirm: opts.onConfirm || null,
+      onCancel: opts.onCancel || null,
+    });
+  } else if (typeof opts.onConfirm === 'function') {
+    opts.onConfirm();
+  }
+}
+window.showPreviewConfirm = showPreviewConfirm;
+
+// Auto-load the command center if the page opens already connected.
+setTimeout(function () {
+  try { if (window._appState && window._appState.connected) loadCommandCenter(); } catch (e) {}
+}, 400);
 </script>
 
 </body>
