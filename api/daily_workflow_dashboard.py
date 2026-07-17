@@ -42,6 +42,7 @@ from paper_trader.db.models import (
 from paper_trader.db.session import get_session
 
 from paper_trader.api import command_center as cc
+from paper_trader.api import daily_operating_run as dor
 
 # --------------------------------------------------------------------------- #
 # Constants
@@ -119,15 +120,31 @@ def _source_tail(source_run: Any) -> Optional[str]:
 # Active-stage derivation (exactly one active stage)
 # --------------------------------------------------------------------------- #
 
-def _derive_active_stage(counts: dict[str, int], *, capacity_full: bool) -> str:
+def _market_data_needs_action(market_data: Optional[dict[str, Any]]) -> bool:
+    """True when the alignment layer is available and NOT aligned/complete."""
+    if not market_data:
+        return False
+    if market_data.get("status") in (None, "UNAVAILABLE"):
+        return False
+    if market_data.get("aligned") and market_data.get("coverage_complete") is not False:
+        return False
+    return True
+
+
+def _derive_active_stage(counts: dict[str, int], *, capacity_full: bool,
+                         market_data: Optional[dict[str, Any]] = None) -> str:
     """Pure single active-stage derivation from live counts.
 
-    Priority mirrors the canonical daily workflow: a pending review is first,
-    then approved candidates awaiting signal creation, then order-eligible or
-    pending paper decisions, then open-position monitoring. Only when nothing is
-    actionable do we fall back to CANDIDATES (a scan exists) or DATA (start the
-    daily review). Older candidates never select a stage.
+    Stale / misaligned market data takes precedence: downstream review cannot be
+    trusted against mixed market dates, so DATA is surfaced first (Preview Daily
+    Run). Otherwise priority mirrors the canonical daily workflow: a pending
+    review is first, then approved candidates awaiting signal creation, then
+    order-eligible or pending paper decisions, then open-position monitoring. Only
+    when nothing is actionable do we fall back to CANDIDATES (a scan exists) or
+    DATA. Older candidates never select a stage.
     """
+    if _market_data_needs_action(market_data):
+        return ST_DATA
     if counts["today_pending"] > 0:
         return ST_REVIEW
     if counts["today_approved"] > 0:
@@ -141,8 +158,49 @@ def _derive_active_stage(counts: dict[str, int], *, capacity_full: bool) -> str:
     return ST_DATA
 
 
+def _data_stage_status(
+    market_data: Optional[dict[str, Any]], *, has_data: bool
+) -> tuple[str, Optional[str], Optional[str]]:
+    """DATA stage status driven by the Phase 15-A market-date alignment.
+
+    When market data is stale or misaligned the DATA stage becomes NEEDS_ACTION
+    (or BLOCKED if a completed mark cannot be produced) and explains exactly which
+    market dates differ; the single action is Preview Daily Run. When aligned it is
+    COMPLETE with the completed date and source. Falls back to the legacy
+    has-candidate-data check when the alignment layer is unavailable.
+    """
+    if not market_data:
+        return (S_COMPLETE if has_data else S_READY, None, None)
+    status = market_data.get("status")
+    aligned = bool(market_data.get("aligned"))
+    if status == "UNAVAILABLE":
+        return (S_COMPLETE if has_data else S_READY, None, None)
+    if aligned and market_data.get("coverage_complete") is not False:
+        return (S_COMPLETE, None, None)
+    blockers = market_data.get("blockers") or []
+    mismatches = market_data.get("mismatches") or []
+    req = market_data.get("required_market_date")
+    port = market_data.get("portfolio_mark_market_date")
+    alpha = market_data.get("alpha_top25_market_date")
+    detail = (
+        f"Market dates differ: portfolio mark {port or 'none'} vs alpha "
+        f"{alpha or 'none'}; latest completed {req or 'unknown'}. Run the daily "
+        f"operating run to align them."
+    )
+    if status == "BLOCKED" or (blockers and any("blocked" in str(b).lower() for b in blockers)):
+        return (S_BLOCKED, "MARKET_DATA_BLOCKED", detail)
+    if status == "PARTIAL_COVERAGE":
+        return (S_NEEDS_ACTION, "PARTIAL_COVERAGE",
+                "Some open positions have no completed EOD price for the required "
+                "market date. Run the daily operating run to complete coverage.")
+    if mismatches or status == "STALE":
+        return (S_NEEDS_ACTION, "MARKET_DATA_STALE", detail)
+    return (S_NEEDS_ACTION, "MARKET_DATA_STALE", detail)
+
+
 def _stage_status(
-    stage: str, counts: dict[str, int], *, active_stage: str, capacity_full: bool
+    stage: str, counts: dict[str, int], *, active_stage: str, capacity_full: bool,
+    market_data: Optional[dict[str, Any]] = None,
 ) -> tuple[str, Optional[str], Optional[str]]:
     """Return (status, blocker_code, blocker_explanation) for one stage."""
     today_total = counts["today_total"]
@@ -156,7 +214,7 @@ def _stage_status(
     has_data = today_total > 0 or open_positions > 0 or counts["total_candidates"] > 0
 
     if stage == ST_DATA:
-        return (S_COMPLETE if has_data else S_READY, None, None)
+        return _data_stage_status(market_data, has_data=has_data)
 
     if stage == ST_CANDIDATES:
         if today_total > 0:
@@ -244,18 +302,31 @@ def _stage_enabled(stage: str, counts: dict[str, int]) -> tuple[bool, Optional[s
 
 
 def _build_stages(
-    counts: dict[str, int], *, active_stage: str, capacity_full: bool, last_signal_date: Optional[str]
+    counts: dict[str, int], *, active_stage: str, capacity_full: bool,
+    last_signal_date: Optional[str], market_data: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     stages: list[dict[str, Any]] = []
+    data_needs_action = _market_data_needs_action(market_data)
     for stage in STAGE_ORDER:
         status, blocker_code, blocker_expl = _stage_status(
-            stage, counts, active_stage=active_stage, capacity_full=capacity_full
+            stage, counts, active_stage=active_stage, capacity_full=capacity_full,
+            market_data=market_data,
         )
         action_label, action_target = _STAGE_ACTION[stage]
         enabled, disabled_reason = _stage_enabled(stage, counts)
+        # Phase 15-A: when market data is stale/misaligned, the DATA stage's single
+        # action is Preview Daily Run (routed to the Command Center run card).
+        if stage == ST_DATA and data_needs_action:
+            action_label, action_target = ("Preview Daily Run", "command-center")
+            enabled, disabled_reason = (True, None)
+        elif stage == ST_DATA and market_data and market_data.get("status") not in (
+                None, "UNAVAILABLE") and status == S_COMPLETE:
+            action_label, action_target = ("Preview Daily Run", "command-center")
         last_completed = None
         if stage in (ST_DATA, ST_CANDIDATES, ST_REVIEW) and status == S_COMPLETE:
             last_completed = last_signal_date
+        if stage == ST_DATA and status == S_COMPLETE and market_data:
+            last_completed = market_data.get("required_market_date") or last_completed
         stages.append({
             "stage": stage,
             "label": _STAGE_LABEL[stage],
@@ -437,7 +508,26 @@ def _collect_decisions(session, *, capacity_full: bool) -> dict[str, Any]:
 # Next action (stage-scoped, reuses command-centre enums/copy)
 # --------------------------------------------------------------------------- #
 
-def _next_action(active_stage: str, counts: dict[str, int], *, capacity_full: bool) -> dict[str, Any]:
+def _next_action(active_stage: str, counts: dict[str, int], *, capacity_full: bool,
+                 market_data: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    if active_stage == ST_DATA and _market_data_needs_action(market_data):
+        req = (market_data or {}).get("required_market_date")
+        return {
+            "action": cc.NA_RUN_REFRESH,
+            "title": "Align market data",
+            "explanation": (
+                "The portfolio mark, portfolio snapshot and current-alpha marks do not "
+                f"all share the latest completed market date ({req or 'unknown'}). "
+                "Preview the daily operating run to align them — this creates no orders "
+                "and no trades."
+            ),
+            "action_label": "Preview Daily Run",
+            "action_target": "command-center",
+            "ui_target": "command-center",
+            "stage": ST_DATA,
+            "safety_context": "Paper preview only — manual review required. No orders, no broker, no automation.",
+            "requires_user_action": True,
+        }
     if active_stage == ST_REVIEW:
         action = cc.NA_REVIEW_CANDIDATES
         explanation = (
@@ -522,6 +612,7 @@ def _degraded(reason: str) -> dict[str, Any]:
         "signals": {"count": 0, "rows": []},
         "decisions": {"count": 0, "order_eligible_count": 0, "rows": []},
         "capacity": capacity,
+        "market_data": None,
         "next_action": _next_action(ST_DATA, counts, capacity_full=False),
         "warnings": [reason],
         "safety": cc._safety_block(),
@@ -549,6 +640,32 @@ def _provenance() -> dict[str, Any]:
             "db:review_created_trade_decisions",
             "helper:command_center._capacity_state",
         ],
+    }
+
+
+def _market_data(warnings: list[str]) -> Optional[dict[str, Any]]:
+    """Read-only Phase 15-A market-date alignment slice for the DATA stage."""
+    try:
+        dr = dor.load_daily_operating_run_status()
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Market-date alignment unavailable: {str(exc)[:160]}")
+        return None
+    alignment = dr.get("alignment") or {}
+    return {
+        "status": dr.get("status"),
+        "aligned": bool(alignment.get("aligned")),
+        "required_market_date": dr.get("required_market_date"),
+        "portfolio_mark_market_date": alignment.get("price_snapshot_market_date"),
+        "portfolio_snapshot_market_date": alignment.get("portfolio_snapshot_market_date"),
+        "alpha_top25_market_date": alignment.get("alpha_top25_market_date"),
+        "alpha_top50_market_date": alignment.get("alpha_top50_market_date"),
+        "spy_market_date": alignment.get("spy_market_date"),
+        "coverage_complete": dr.get("coverage_complete"),
+        "freshness_status": dr.get("freshness_status"),
+        "mismatches": alignment.get("mismatches") or [],
+        "blockers": dr.get("blockers") or [],
+        "confirmation_required": dr.get("confirmation_required"),
+        "prediction_checked": False,
     }
 
 
@@ -610,14 +727,19 @@ def load_daily_workflow_dashboard() -> dict[str, Any]:
         }
 
     capacity_full = portfolio_data.get("capacity_state") == cc.CAP_FULL
-    active_stage = _derive_active_stage(counts, capacity_full=capacity_full)
+
+    # Phase 15-A: market-date alignment drives the DATA stage (read-only).
+    market_data = _market_data(warnings)
+
+    active_stage = _derive_active_stage(
+        counts, capacity_full=capacity_full, market_data=market_data)
 
     # Latest review-created signal market_date (best-effort completion timestamp).
     last_signal_date: Optional[str] = None
 
     stages = _build_stages(
         counts, active_stage=active_stage, capacity_full=capacity_full,
-        last_signal_date=last_signal_date,
+        last_signal_date=last_signal_date, market_data=market_data,
     )
 
     if review is None:
@@ -678,7 +800,9 @@ def load_daily_workflow_dashboard() -> dict[str, Any]:
         "signals": signals,
         "decisions": decisions,
         "capacity": capacity,
-        "next_action": _next_action(active_stage, counts, capacity_full=capacity_full),
+        "market_data": market_data,
+        "next_action": _next_action(active_stage, counts, capacity_full=capacity_full,
+                                    market_data=market_data),
         "warnings": warnings,
         "safety": cc._safety_block(),
         "provenance": _provenance(),

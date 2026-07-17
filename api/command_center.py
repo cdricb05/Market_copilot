@@ -40,6 +40,7 @@ from paper_trader.db.models import (
 from paper_trader.db.session import get_session
 from paper_trader.api.current_alpha_decision_gate import load_current_alpha_decision_gate
 from paper_trader.api.portfolio_valuation import load_portfolio_valuation
+from paper_trader.api.daily_operating_run import load_daily_operating_run_status
 from paper_trader.workflows.decision import _latest_price
 
 # --------------------------------------------------------------------------- #
@@ -540,6 +541,64 @@ def _collect_portfolio(session, *, pending_orders: int,
 
 
 # --------------------------------------------------------------------------- #
+# Market-date alignment (Phase 15-A) — consumes the read-only daily-run status
+# --------------------------------------------------------------------------- #
+
+def _market_data_section(dr: dict[str, Any], valuation: dict[str, Any]) -> dict[str, Any]:
+    """Normalize the daily-run alignment slice for the Command Center card + badge.
+
+    The alignment badge NEVER implies prediction availability was checked.
+    """
+    alignment = dr.get("alignment") or {}
+    cm = (valuation or {}).get("current_mark") or {}
+    last_run = dr.get("last_run") or None
+    return {
+        "status": dr.get("status"),
+        "aligned": bool(alignment.get("aligned")),
+        "required_market_date": dr.get("required_market_date"),
+        "portfolio_mark_market_date": alignment.get("price_snapshot_market_date"),
+        "portfolio_snapshot_market_date": alignment.get("portfolio_snapshot_market_date"),
+        "alpha_top25_market_date": alignment.get("alpha_top25_market_date"),
+        "alpha_top50_market_date": alignment.get("alpha_top50_market_date"),
+        "spy_market_date": alignment.get("spy_market_date"),
+        "coverage_complete": dr.get("coverage_complete"),
+        "covered_position_count": dr.get("covered_position_count"),
+        "total_position_count": dr.get("total_position_count"),
+        "freshness_status": dr.get("freshness_status"),
+        "as_of_market_date": cm.get("as_of_market_date"),
+        "mismatches": alignment.get("mismatches") or [],
+        "blockers": dr.get("blockers") or [],
+        "last_run": last_run,
+        "confirmation_required": dr.get("confirmation_required"),
+        "prediction_checked": False,
+    }
+
+
+def _degraded_market_data(reason: str) -> dict[str, Any]:
+    return {
+        "status": "UNAVAILABLE",
+        "aligned": False,
+        "required_market_date": None,
+        "portfolio_mark_market_date": None,
+        "portfolio_snapshot_market_date": None,
+        "alpha_top25_market_date": None,
+        "alpha_top50_market_date": None,
+        "spy_market_date": None,
+        "coverage_complete": None,
+        "covered_position_count": None,
+        "total_position_count": None,
+        "freshness_status": None,
+        "as_of_market_date": None,
+        "mismatches": [],
+        "blockers": [],
+        "last_run": None,
+        "confirmation_required": None,
+        "prediction_checked": False,
+        "unavailable_reason": reason,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Next action (single primary action)
 # --------------------------------------------------------------------------- #
 
@@ -732,6 +791,21 @@ def load_command_center() -> dict[str, Any]:
         alpha = _degraded_alpha(f"decision-gate unavailable: {str(exc)[:160]}")
         warnings.append(f"Current alpha unavailable: {str(exc)[:160]}")
 
+    # --- Market-date alignment (Phase 15-A daily operating run, read-only) -- #
+    market_data = _degraded_market_data("daily-run status unavailable")
+    try:
+        dr = load_daily_operating_run_status(valuation=valuation)
+        market_data = _market_data_section(dr, valuation)
+        for blk in market_data.get("blockers") or []:
+            warnings.append(blk)
+        if market_data.get("status") == "STALE":
+            warnings.append(
+                "Market data is stale / misaligned — run the daily operating run so "
+                "the portfolio mark, snapshot and alpha marks share one completed date."
+            )
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Market-date alignment unavailable: {str(exc)[:160]}")
+
     # --- Portfolio fallback ------------------------------------------------ #
     if portfolio_data is None:
         portfolio_data = {
@@ -828,6 +902,7 @@ def load_command_center() -> dict[str, Any]:
         "alpha": alpha,
         "workflow": workflow,
         "portfolio": portfolio_data,
+        "market_data": market_data,
         "safety": _safety_block(),
         "next_action": next_action,
         "warnings": warnings,

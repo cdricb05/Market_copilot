@@ -35680,3 +35680,183 @@ class TestUiCrossScreenPortfolioConsistency:
         for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
                     r"(?<![A-Za-z0-9_.])prompt\s*\("):
             assert not re.search(pat, pt)
+
+
+# =========================================================================== #
+# Phase 15-A — Daily Operating Run UI static content
+# =========================================================================== #
+
+def _read_index_html_15a() -> str:
+    from pathlib import Path
+    html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+    return html_path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _dor_card_region_15a() -> str:
+    html = _read_index_html_15a()
+    start = html.index('id="dor-card"')
+    end = html.index("ROW 1: KPI CARDS", start)
+    return html[start:end]
+
+
+class TestUiDailyOperatingRunCard:
+    """Phase 15-A: the Daily Operating Run card near the top of Command Center."""
+
+    def test_card_present_with_title(self) -> None:
+        region = _dor_card_region_15a()
+        assert 'id="dor-card"' in region
+        assert "Daily Operating Run" in region
+
+    def test_card_shows_operating_dates(self) -> None:
+        region = _dor_card_region_15a()
+        for el in ("dor-required", "dor-port-date", "dor-snap-date", "dor-alpha-date",
+                   "dor-spy-date", "dor-coverage", "dor-lastrun", "dor-status"):
+            assert 'id="' + el + '"' in region, "missing date/summary field: " + el
+        assert "Latest completed market date" in region
+        assert "Alpha Top25 / Top50 mark" in region
+        assert "SPY mark date" in region
+
+    def test_card_safety_badges(self) -> None:
+        region = _dor_card_region_15a()
+        for badge in ("MANUAL REVIEW", "PREVIEW ONLY", "NO ORDERS", "ORDERS DISABLED",
+                      "AUTOMATION OFF"):
+            assert badge in region, "missing safety badge: " + badge
+
+    def test_card_makes_no_order_or_signal_claims(self) -> None:
+        import re
+        region = _dor_card_region_15a()
+        assert "no orders, no automation, no broker" in region.lower()
+        for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
+                    r"(?<![A-Za-z0-9_.])prompt\s*\("):
+            assert not re.search(pat, region)
+        assert "Create Orders" not in region
+
+
+class TestUiDailyRunPreviewAndConfirmation:
+    """Phase 15-A: Preview Daily Run + the styled (non-native) confirmation flow."""
+
+    def test_preview_and_run_buttons(self) -> None:
+        region = _dor_card_region_15a()
+        assert 'id="dor-preview-btn"' in region and "Preview Daily Run" in region
+        assert 'id="dor-execute-btn"' in region and "Run Manual Daily Session" in region
+        assert "previewDailyRun(this)" in region
+        assert "confirmDailyRun(this)" in region
+
+    def test_styled_confirmation_not_native(self) -> None:
+        import re
+        html = _read_index_html_15a()
+        start = html.index("function confirmDailyRun")
+        end = html.index("window.confirmDailyRun", start)
+        fn = html[start:end]
+        assert "_showWriteConfirm" in fn
+        for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
+                    r"(?<![A-Za-z0-9_.])prompt\s*\("):
+            assert not re.search(pat, fn)
+        assert "Create, place or fill any order" in fn
+        assert "Call the prediction service" in fn
+
+    def test_execute_requires_confirmation_token(self) -> None:
+        html = _read_index_html_15a()
+        start = html.index("async function executeDailyRun")
+        end = html.index("window.executeDailyRun", start)
+        fn = html[start:end]
+        assert "RUN_MANUAL_DAILY_OPERATING_SESSION" in fn
+        assert "/v1/operations/daily-run/execute" in fn
+
+    def test_preview_calls_readonly_endpoint(self) -> None:
+        html = _read_index_html_15a()
+        start = html.index("async function previewDailyRun")
+        end = html.index("window.previewDailyRun", start)
+        fn = html[start:end]
+        assert "/v1/operations/daily-run/preview" in fn
+
+
+class TestUiDailyRunStageResults:
+    """Phase 15-A: stage-by-stage run results + the durable outcome line."""
+
+    def test_stage_and_outcome_surfaces(self) -> None:
+        region = _dor_card_region_15a()
+        assert 'id="dor-stages"' in region
+        assert 'id="dor-outcome"' in region
+        assert 'id="dor-advanced-body"' in region
+
+    def test_stage_renderer_present(self) -> None:
+        html = _read_index_html_15a()
+        assert "function _dorRenderRun" in html
+        start = html.index("function _dorRenderRun")
+        end = html.index("async function previewDailyRun", start)
+        fn = html[start:end]
+        assert "dor-stage-row" in fn
+        assert "final_outcome" in fn
+        assert "row_counts" in fn
+
+    def test_no_order_or_signal_claims_in_renderer(self) -> None:
+        html = _read_index_html_15a()
+        start = html.index("function _dorRenderRun")
+        end = html.index("window.executeDailyRun", start)
+        fn = html[start:end]
+        assert "Create Orders" not in fn
+        assert "loadCommandCenter" in fn
+        assert "loadDailyWorkflow" in fn
+        assert "loadPortfolioTerminal" in fn
+
+
+class TestUiMarketDateAlignmentBadge:
+    """Phase 15-A: the compact global MARKET DATA badge + alignment pill."""
+
+    def test_global_badge_present(self) -> None:
+        html = _read_index_html_15a()
+        assert 'id="market-data-badge"' in html
+        assert "function _renderMarketDataBadge" in html
+
+    def test_badge_renders_aligned_and_stale(self) -> None:
+        html = _read_index_html_15a()
+        start = html.index("function _renderMarketDataBadge")
+        end = html.index("function _renderDailyOperatingRun", start)
+        fn = html[start:end]
+        assert "MARKET DATA: ALIGNED" in fn
+        assert "MARKET DATA: STALE / MISALIGNED" in fn
+
+    def test_badge_does_not_imply_prediction_checked(self) -> None:
+        html = _read_index_html_15a()
+        idx = html.index('id="market-data-badge"')
+        span = html[idx:idx + 400]
+        assert "Does not check prediction" in span
+
+    def test_alignment_pill_present(self) -> None:
+        region = _dor_card_region_15a()
+        assert 'id="dor-align-pill"' in region
+
+
+class TestUiDailyWorkflowDataAlignment:
+    """Phase 15-A: the Daily Workflow DATA stage reflects market-date alignment."""
+
+    def test_data_stage_element_present(self) -> None:
+        html = _read_index_html_15a()
+        assert 'id="dw-stage-DATA"' in html
+
+    def test_stage_button_routes_by_target(self) -> None:
+        html = _read_index_html_15a()
+        start = html.index("function _dwRenderStage")
+        end = html.index("function renderDailyWorkflow", start)
+        fn = html[start:end]
+        assert "s.action_target" in fn
+        assert "navigateToRoute(s.action_target)" in fn
+
+    def test_data_stage_surfaces_mismatch(self) -> None:
+        html = _read_index_html_15a()
+        start = html.index("function _dwRenderStage")
+        end = html.index("function renderDailyWorkflow", start)
+        fn = html[start:end]
+        assert "market dates differ" in fn
+        assert "MARKET_DATA" in fn
+
+    def test_no_native_dialogs_in_stage_renderer(self) -> None:
+        import re
+        html = _read_index_html_15a()
+        start = html.index("function _dwRenderStage")
+        end = html.index("function renderDailyWorkflow", start)
+        fn = html[start:end]
+        for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
+                    r"(?<![A-Za-z0-9_.])prompt\s*\("):
+            assert not re.search(pat, fn)

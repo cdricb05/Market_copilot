@@ -173,6 +173,11 @@ from paper_trader.api.portfolio_terminal import (
 from paper_trader.api.portfolio_valuation import (
     load_portfolio_valuation,
 )
+from paper_trader.api.daily_operating_run import (
+    EXECUTE_CONFIRMATION,
+    load_daily_operating_run_status,
+    run_daily_operating_session,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4516,6 +4521,82 @@ def dashboard_portfolio_valuation() -> dict:
     stack trace.
     """
     return load_portfolio_valuation()
+
+
+class DailyOperatingRunExecuteRequest(BaseModel):
+    """Phase 15-A explicit manual-execute confirmation body."""
+
+    confirmation: str
+    requested_by: str = "manual_ui"
+
+
+@app.get(
+    "/v1/operations/daily-run/status",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_daily_run_status() -> dict:
+    """
+    Read-only Phase 15-A daily operating run status + market-date alignment.
+
+    Reports the latest completed US market date, the current alignment across the
+    portfolio price snapshot, the official portfolio snapshot, the current-alpha
+    Top-25 / Top-50 / SPY marks and the dashboards, plus freshness, the last
+    recorded run, current blockers and the always-on paper-only safety block.
+
+    Strictly read-only: no loopback HTTP call, no database writes, no daily
+    refresh, no prediction / provider call, no orders / signals / decisions. A
+    failing dependency degrades to a ``warnings[]`` entry with HTTP 200. The
+    alignment status NEVER implies that prediction availability was checked.
+    """
+    return load_daily_operating_run_status()
+
+
+@app.post(
+    "/v1/operations/daily-run/preview",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_daily_run_preview() -> dict:
+    """
+    Phase 15-A daily operating run PREVIEW — a read-only dry run.
+
+    Resolves the latest completed market date and reports what a manual run WOULD
+    fetch, write, reuse, skip or block, the current known dates for every operating
+    dataset, any market-date mismatch, and the full planned stage list. Writes
+    nothing (no price snapshot, no portfolio snapshot, no alpha history, no JobRun),
+    calls no prediction service and no external provider, and creates no orders /
+    signals / trade decisions.
+    """
+    return run_daily_operating_session(execute=False)
+
+
+@app.post(
+    "/v1/operations/daily-run/execute",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_daily_run_execute(body: DailyOperatingRunExecuteRequest) -> dict:
+    """
+    Phase 15-A daily operating run EXECUTE — one explicitly-confirmed manual run.
+
+    Requires ``{"confirmation": "RUN_MANUAL_DAILY_OPERATING_SESSION"}``; any other
+    value returns HTTP 400. Performs ONLY the permitted writes: completed
+    market-price snapshots (price_snapshots + benchmark_prices), exactly one
+    official portfolio snapshot per market date, the existing current-alpha paper
+    mark history (local JSON store), and JobRun audit rows. It never modifies
+    positions, cash, signals, trade decisions, orders or fills, creates no orders,
+    runs no automation and calls no prediction / provider tunnel via loopback. A
+    same-date rerun is idempotent (ALREADY_COMPLETE / all stages REUSED).
+    """
+    if body.confirmation != EXECUTE_CONFIRMATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit confirmation required. Send "
+                    f"{{'confirmation': '{EXECUTE_CONFIRMATION}'}} to run the manual "
+                    f"daily operating session."),
+        )
+    return run_daily_operating_session(execute=True, requested_by=body.requested_by)
 
 
 def _check_prediction_healthz(
