@@ -41,6 +41,7 @@ from paper_trader.db.models import (
 from paper_trader.db.session import get_session
 from paper_trader.workflows.decision import _latest_price
 from paper_trader.api.current_alpha_decision_gate import load_current_alpha_decision_gate
+from paper_trader.api.portfolio_valuation import load_portfolio_valuation
 
 from paper_trader.api import command_center as cc
 
@@ -119,6 +120,81 @@ def _latest_order_for_ticker(session, ticker: str) -> Optional[Order]:
         .order_by(Order.requested_at.desc())
         .first()
     )
+
+
+def _enrich_positions(session, valuation: dict[str, Any]) -> dict[str, Any]:
+    """Build the terminal position rows from the CANONICAL valuation positions.
+
+    The value formulas (market value, unrealized P&L, weight, status) live only
+    in ``portfolio_valuation``; here we add terminal-only presentation fields
+    (avg_entry alias, latest order refs) and roll up the status counts. No price
+    is re-marked in this module.
+    """
+    cm = valuation.get("current_mark") or {}
+    canonical = valuation.get("positions") or []
+    rows: list[dict[str, Any]] = []
+    hold = watch = review_for_exit = missing = 0
+    largest_ticker: Optional[str] = None
+    largest_weight: Optional[Decimal] = None
+
+    for r in canonical:
+        status = r.get("status")
+        if status == POS_HOLD:
+            hold += 1
+        elif status == POS_REVIEW_FOR_EXIT:
+            review_for_exit += 1
+        elif status == POS_WATCH:
+            watch += 1
+        elif status == POS_PRICE_UNAVAILABLE:
+            missing += 1
+
+        weight = r.get("weight_pct")
+        if weight is not None:
+            wd = Decimal(weight)
+            if largest_weight is None or wd > largest_weight:
+                largest_weight = wd
+                largest_ticker = r.get("ticker")
+
+        latest_order = _latest_order_for_ticker(session, r.get("ticker"))
+        decision_ref = str(latest_order.trade_decision_id) if latest_order is not None else None
+        signal_ref = str(latest_order.id) if latest_order is not None else None
+
+        rows.append({
+            "ticker": r.get("ticker"),
+            "qty": r.get("qty"),
+            "avg_entry": r.get("avg_cost"),
+            "cost_basis": r.get("cost_basis"),
+            "latest_price": r.get("latest_price"),
+            "market_value": r.get("market_value"),
+            "unrealized_pnl": r.get("unrealized_pnl"),
+            "unrealized_pnl_pct": r.get("unrealized_pnl_pct"),
+            "weight_pct": r.get("weight_pct"),
+            "status": status,
+            "reason": r.get("reason"),
+            "signal_ref": signal_ref,
+            "decision_ref": decision_ref,
+            "price_as_of_market_date": r.get("price_as_of_market_date"),
+            "price_source": r.get("price_source"),
+            "opened_at": r.get("opened_at"),
+            "last_updated": r.get("last_updated"),
+            "paper_only": True,
+        })
+
+    return {
+        "rows": rows,
+        "open_positions": cm.get("total_position_count", len(rows)),
+        "positions_value": cm.get("current_positions_value"),
+        "unrealized_pnl": cm.get("current_unrealized_pnl"),
+        "hold_count": hold,
+        "watch_count": watch,
+        "review_for_exit_count": review_for_exit,
+        "missing_price_count": missing,
+        "largest_position_ticker": largest_ticker,
+        "largest_position_weight_pct": (
+            str(largest_weight.quantize(_TWO)) if largest_weight is not None else None
+        ),
+        "concentration_warning": bool(largest_weight is not None and largest_weight > Decimal("25.0")),
+    }
 
 
 def _collect_positions(session, *, total_value: Decimal) -> dict[str, Any]:
@@ -411,6 +487,19 @@ def load_portfolio_terminal() -> dict[str, Any]:
         alpha = cc._degraded_alpha(f"decision-gate unavailable: {str(exc)[:160]}")
         warnings.append(f"Current alpha unavailable: {str(exc)[:160]}")
 
+    # --- Canonical current valuation (single source of truth) -------------- #
+    try:
+        valuation = load_portfolio_valuation()
+        for w in valuation.get("warnings", []):
+            warnings.append(w)
+    except Exception as exc:  # noqa: BLE001
+        valuation = {"current_mark": {}, "positions": [], "latest_snapshot": None,
+                     "reconciliation": {}, "seeded": False}
+        warnings.append(f"Canonical valuation unavailable: {str(exc)[:160]}")
+    current_mark = valuation.get("current_mark") or {}
+    latest_snapshot = valuation.get("latest_snapshot")
+    reconciliation = valuation.get("reconciliation") or {}
+
     summary = _empty_summary(seeded=False, max_positions=settings.max_positions)
     positions: dict[str, Any] = {"rows": [], "open_positions": 0}
     orders: dict[str, Any] = {"pending": [], "filled": [], "history": [],
@@ -430,15 +519,13 @@ def load_portfolio_terminal() -> dict[str, Any]:
             if portfolio is None:
                 warnings.append("Portfolio not seeded.")
             else:
-                total_value = Decimal(str(portfolio.cached_total_value))
-                cash = Decimal(str(portfolio.cached_cash))
                 initial = Decimal(str(portfolio.initial_capital))
                 max_positions = int(
                     (portfolio.config or {}).get("max_positions", settings.max_positions)
                 )
 
                 try:
-                    positions = _collect_positions(session, total_value=total_value)
+                    positions = _enrich_positions(session, valuation)
                 except Exception as exc:  # noqa: BLE001
                     warnings.append(f"Positions unavailable: {str(exc)[:160]}")
                     positions = {"rows": [], "open_positions": 0, "positions_value": "0.00",
@@ -460,25 +547,28 @@ def load_portfolio_terminal() -> dict[str, Any]:
                 capacity_state, capacity_expl = cc._capacity_state(open_count, max_positions)
                 available_slots = max(0, max_positions - open_count)
 
-                invested_value = Decimal(positions.get("positions_value", "0.00"))
-                total_return_pct = None
-                if initial and initial != Decimal("0"):
-                    total_return_pct = float(
-                        ((total_value - initial) / initial * Decimal("100")).quantize(Decimal("0.0001"))
-                    )
-
+                # All CURRENT totals come from the canonical valuation — never
+                # from Portfolio.cached_total_value while positions are re-marked.
                 summary = {
                     "seeded": True,
-                    "total_value": _dstr(total_value),
-                    "cash": _dstr(cash),
-                    "invested_value": _dstr(invested_value),
+                    "total_value": current_mark.get("current_total_value"),
+                    "cash": current_mark.get("current_cash"),
+                    "invested_value": current_mark.get("current_positions_value"),
                     "open_positions": open_count,
                     "pending_paper_orders": orders.get("pending_count", 0),
                     "available_slots": available_slots,
                     "max_positions": max_positions,
-                    "total_return_pct": total_return_pct,
+                    "total_return_pct": current_mark.get("current_total_return_pct"),
                     "daily_change_pct": None,  # intraday change not tracked read-only
-                    "unrealized_pnl": positions.get("unrealized_pnl"),
+                    "unrealized_pnl": current_mark.get("current_unrealized_pnl"),
+                    # canonical valuation metadata (CURRENT_MARKED_EOD)
+                    "valuation_type": current_mark.get("valuation_type"),
+                    "valuation_complete": current_mark.get("valuation_complete"),
+                    "as_of_market_date": current_mark.get("as_of_market_date"),
+                    "price_source": current_mark.get("price_source"),
+                    "freshness_status": current_mark.get("freshness_status"),
+                    "covered_position_count": current_mark.get("covered_position_count"),
+                    "total_position_count": current_mark.get("total_position_count"),
                 }
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"Backend/database unavailable: {str(exc)[:160]}")
@@ -546,6 +636,9 @@ def load_portfolio_terminal() -> dict[str, Any]:
     return {
         "status": status,
         "summary": summary,
+        "current_mark": current_mark,
+        "latest_snapshot": latest_snapshot,
+        "reconciliation": reconciliation,
         "positions": positions.get("rows", []),
         "position_summary": {
             "open_positions": open_count,

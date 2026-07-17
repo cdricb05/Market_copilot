@@ -170,6 +170,9 @@ from paper_trader.api.daily_workflow_dashboard import (
 from paper_trader.api.portfolio_terminal import (
     load_portfolio_terminal,
 )
+from paper_trader.api.portfolio_valuation import (
+    load_portfolio_valuation,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4485,6 +4488,34 @@ def dashboard_portfolio_terminal() -> dict:
     stack trace.
     """
     return load_portfolio_terminal()
+
+
+@app.get(
+    "/v1/dashboard/portfolio-valuation",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def dashboard_portfolio_valuation() -> dict:
+    """
+    Read-only Phase 14-C canonical portfolio valuation.
+
+    The single source of truth for CURRENT portfolio valuation. It computes one
+    internally consistent current mark
+    (current_cash = Portfolio.cached_cash, current_positions_value =
+    sum(qty * latest owned EOD price), current_total_value = cash + positions)
+    so ``cash + invested == total`` always holds, keeps the latest OFFICIAL
+    portfolio snapshot strictly separate, and returns a reconciliation block that
+    proves the invariant and compares the current mark against both the reconciler
+    cache and the latest snapshot (comparisons, never interchangeable values).
+    Positions without a current owned price are reported PRICE_UNAVAILABLE with a
+    coverage count rather than silently substituting a stale value.
+
+    Strictly read-only: no loopback HTTP call, no database writes, no prediction /
+    external-provider call, and no orders / signals / trade decisions created. A
+    failing dependency degrades to a ``warnings[]`` entry with HTTP 200 — never a
+    stack trace.
+    """
+    return load_portfolio_valuation()
 
 
 def _check_prediction_healthz(

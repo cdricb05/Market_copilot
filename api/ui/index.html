@@ -1604,6 +1604,46 @@
     .pt-empty { font-size: var(--fs-1, 11px); color: var(--label); font-style: italic; padding: 8px 0; }
     .pt-pos { color: var(--ok, #22c55e); }
     .pt-neg { color: var(--danger, #ef4444); }
+    /* Phase 14-C: canonical valuation labelling */
+    .pt-mark-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pt-section-label { font-size: var(--fs-1, 11px); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--text-primary, #e8eefc); }
+    .pt-mark-meta { font-size: var(--fs-0, 10px); color: var(--text-accent, #8aa0c8); display: flex; flex-wrap: wrap; gap: 4px 12px; }
+    .pt-mark-meta .mv { color: var(--text-secondary, #a8b8d8); font-weight: 700; }
+    .pt-mark-note { font-size: var(--fs-0, 10px); color: var(--label); line-height: 1.5; border-left: 2px solid rgba(59,130,246,.4); padding: 3px 8px; background: rgba(59,130,246,.06); border-radius: 1px; }
+    .pt-recon { font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 3px; letter-spacing: .04em; }
+    .pt-recon.ok { color: var(--ok, #22c55e); background: rgba(34,197,94,.12); }
+    .pt-recon.warn { color: var(--warning, #f59e0b); background: rgba(245,158,11,.14); }
+    .pt-recon.na { color: var(--label); background: rgba(255,255,255,.05); }
+    .pt-fresh-fresh { color: var(--ok, #22c55e); font-weight: 700; }
+    .pt-fresh-stale { color: var(--warning, #f59e0b); font-weight: 700; }
+    .pt-nav { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 4px; }
+    .pt-nav a { font-size: var(--fs-0, 10px); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-accent, #8aa0c8); padding: 4px 10px; border: 1px solid var(--cc-border, #243b63); border-radius: var(--r-2, 5px); cursor: pointer; background: var(--cc-panel, rgba(255,255,255,.03)); }
+    .pt-nav a:hover { color: var(--text-primary, #e8eefc); border-color: var(--info, #3b82f6); }
+    .pt-nav a.active { color: var(--text-primary, #e8eefc); border-color: var(--info, #3b82f6); background: rgba(59,130,246,.12); }
+    .pt-advanced-details { margin-top: 12px; border: 1px solid var(--cc-border, #243b63); border-radius: var(--r-2, 5px); }
+    .pt-advanced-summary { cursor: pointer; padding: 10px 14px; font-size: var(--fs-1, 11px); font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--text-secondary, #a8b8d8); list-style: none; display: flex; align-items: center; gap: 8px; }
+    .pt-advanced-summary::-webkit-details-marker { display: none; }
+    .pt-advanced-summary::before { content: '▸'; color: var(--text-accent, #8aa0c8); }
+    details[open] > .pt-advanced-summary::before { content: '▾'; }
+    .pt-advanced-details[open] { padding: 0 12px 12px; }
+    /* Phase 14-C: Research & Audit hierarchy (champion first, archived last) */
+    #tab-audit-advanced.active { display: flex; flex-direction: column; }
+    #ra-champion-card { order: -10; }
+    #ra-paper-test-header { order: 0; }
+    #ra-archived-details { order: 100; margin-bottom: 14px; border: 1px solid var(--cc-border, #243b63); border-radius: 4px; }
+    #ra-archived-details > summary { cursor: pointer; padding: 10px 14px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--warning, #f59e0b); list-style: none; display: flex; align-items: center; gap: 8px; }
+    #ra-archived-details > summary::-webkit-details-marker { display: none; }
+    #ra-archived-details > summary::before { content: '▸'; color: var(--text-accent, #8aa0c8); }
+    #ra-archived-details[open] > summary::before { content: '▾'; }
+    #ra-archived-details[open] { padding: 0 12px 12px; }
+    .ra-champion { border: 1px solid var(--info, #3b82f6); border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; background: rgba(59,130,246,.06); }
+    .ra-champion .ra-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .ra-champion .ra-title { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--text-primary, #e8eefc); }
+    .ra-champion-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .ra-champion-kpi { background: var(--cc-panel, rgba(255,255,255,.03)); border: 1px solid var(--cc-border, #243b63); border-radius: 5px; padding: 8px 10px; min-width: 0; }
+    .ra-champion-kpi .k { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--label); }
+    .ra-champion-kpi .v { font-size: 14px; font-weight: 800; color: var(--text-primary, #e8eefc); font-family: 'Monaco','Menlo',monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 1200px) { .ra-champion-grid { grid-template-columns: repeat(2, 1fr); } }
 
     @media (max-width: 1500px) {
       .pt-kpi-row { grid-template-columns: repeat(3, 1fr); }
@@ -3652,40 +3692,77 @@
 
           <div id="pt-error" class="cc-error" style="display:none;"></div>
 
-          <!-- ROW 1: KPI cards -->
-          <div class="pt-kpi-row">
-            <div class="pt-kpi"><div class="pt-kpi-label">Portfolio Value</div><div class="pt-kpi-value" id="pt-kpi-value">—</div><div class="pt-kpi-sub" id="pt-kpi-value-sub">&nbsp;</div></div>
-            <div class="pt-kpi"><div class="pt-kpi-label">Cash</div><div class="pt-kpi-value" id="pt-kpi-cash">—</div><div class="pt-kpi-sub" id="pt-kpi-cash-sub">&nbsp;</div></div>
-            <div class="pt-kpi"><div class="pt-kpi-label">Invested</div><div class="pt-kpi-value" id="pt-kpi-invested">—</div><div class="pt-kpi-sub" id="pt-kpi-invested-sub">&nbsp;</div></div>
-            <div class="pt-kpi"><div class="pt-kpi-label">Total Return</div><div class="pt-kpi-value" id="pt-kpi-return">—</div><div class="pt-kpi-sub" id="pt-kpi-return-sub">&nbsp;</div></div>
-            <div class="pt-kpi"><div class="pt-kpi-label">Open Positions</div><div class="pt-kpi-value" id="pt-kpi-positions">—</div><div class="pt-kpi-sub" id="pt-kpi-positions-sub">&nbsp;</div></div>
-            <div class="pt-kpi"><div class="pt-kpi-label">Available Capacity</div><div class="pt-kpi-value" id="pt-kpi-capacity">—</div><div class="pt-kpi-sub" id="pt-kpi-capacity-sub">&nbsp;</div></div>
+          <!-- Internal Portfolio section navigator (hash routes) -->
+          <div class="pt-nav" id="pt-nav" role="navigation" aria-label="Portfolio sections">
+            <a id="pt-nav-overview" data-ptsub="" onclick="navigateToRoute('portfolio')" title="Portfolio overview — current mark and KPIs">Overview</a>
+            <a id="pt-nav-positions" data-ptsub="positions" onclick="navigateToRoute('portfolio/positions')" title="Open positions">Positions</a>
+            <a id="pt-nav-orders" data-ptsub="orders" onclick="navigateToRoute('portfolio/orders')" title="Pending and filled paper orders">Orders</a>
+            <a id="pt-nav-performance" data-ptsub="performance" onclick="navigateToRoute('portfolio/performance')" title="Historical portfolio snapshots">Performance</a>
+            <a id="pt-nav-risk" data-ptsub="risk" onclick="navigateToRoute('portfolio/risk')" title="Risk and capacity">Risk</a>
+            <a id="pt-nav-advanced" data-ptsub="advanced" onclick="navigateToRoute('portfolio/advanced')" title="Advanced portfolio details (ledger, analytics, raw history)">Advanced</a>
           </div>
 
-          <!-- ROW 2: performance (left) + risk & capacity (right) -->
+          <!-- CURRENT EOD MARK — canonical current valuation (CURRENT_MARKED_EOD) -->
+          <div class="pt-panel pt-mark" id="pt-mark">
+            <div class="pt-mark-hd">
+              <span class="pt-section-label">Current EOD Mark</span>
+              <span class="cc-badge safe" title="Current positions are re-marked at the latest owned EOD price. current_total_value = cash + positions.">CURRENT_MARKED_EOD</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <span class="pt-recon na" id="pt-recon" title="Reconciliation of cash + positions vs the reported current total.">RECONCILIATION —</span>
+            </div>
+            <div class="pt-mark-meta" id="pt-mark-meta">
+              <span>As of <span class="mv" id="pt-mark-asof">—</span></span>
+              <span>Source <span class="mv" id="pt-mark-source">—</span></span>
+              <span>Freshness <span class="mv" id="pt-mark-fresh">—</span></span>
+              <span>Coverage <span class="mv" id="pt-mark-coverage">—</span></span>
+            </div>
+
+            <!-- ROW 1: KPI cards (current mark only) -->
+            <div class="pt-kpi-row">
+              <div class="pt-kpi"><div class="pt-kpi-label">Current Portfolio Value</div><div class="pt-kpi-value" id="pt-kpi-value">—</div><div class="pt-kpi-sub" id="pt-kpi-value-sub">&nbsp;</div></div>
+              <div class="pt-kpi"><div class="pt-kpi-label">Cash</div><div class="pt-kpi-value" id="pt-kpi-cash">—</div><div class="pt-kpi-sub" id="pt-kpi-cash-sub">&nbsp;</div></div>
+              <div class="pt-kpi"><div class="pt-kpi-label">Current Invested Value</div><div class="pt-kpi-value" id="pt-kpi-invested">—</div><div class="pt-kpi-sub" id="pt-kpi-invested-sub">&nbsp;</div></div>
+              <div class="pt-kpi"><div class="pt-kpi-label">Current Total Return</div><div class="pt-kpi-value" id="pt-kpi-return">—</div><div class="pt-kpi-sub" id="pt-kpi-return-sub">&nbsp;</div></div>
+              <div class="pt-kpi"><div class="pt-kpi-label">Open Positions</div><div class="pt-kpi-value" id="pt-kpi-positions">—</div><div class="pt-kpi-sub" id="pt-kpi-positions-sub">&nbsp;</div></div>
+              <div class="pt-kpi"><div class="pt-kpi-label">Available Capacity</div><div class="pt-kpi-value" id="pt-kpi-capacity">—</div><div class="pt-kpi-sub" id="pt-kpi-capacity-sub">&nbsp;</div></div>
+            </div>
+            <div class="pt-mark-note" id="pt-mark-recon-note">Current positions are marked using the latest owned EOD prices. Historical performance uses the latest completed portfolio snapshot.</div>
+          </div>
+
+          <!-- ROW 2: historical snapshots (left) + last official snapshot / risk (right) -->
           <div class="pt-row2">
-            <div class="pt-panel">
-              <div class="pt-panel-title">Portfolio Performance</div>
-              <svg class="pt-chart" id="pt-chart" viewBox="0 0 640 120" preserveAspectRatio="none" role="img" aria-label="Portfolio value over time"></svg>
+            <div class="pt-panel" id="pt-performance">
+              <div class="pt-panel-title">Historical Portfolio Snapshots <span class="cc-badge" title="Latest completed post-market snapshots. A different timestamp than the current EOD mark above.">OFFICIAL_PORTFOLIO_SNAPSHOT</span></div>
+              <svg class="pt-chart" id="pt-chart" viewBox="0 0 640 120" preserveAspectRatio="none" role="img" aria-label="Historical portfolio snapshot values over time"></svg>
               <div id="pt-chart-empty" class="pt-empty" style="display:none;">NO PERFORMANCE SNAPSHOTS YET</div>
-              <div class="pt-kv"><span class="k">Cumulative return</span><span class="v" id="pt-perf-cumret">—</span></div>
+              <div class="pt-kv"><span class="k">Cumulative return (snapshot)</span><span class="v" id="pt-perf-cumret">—</span></div>
               <div class="pt-kv"><span class="k">Primary alpha (<span id="pt-perf-book">—</span>) vs SPY</span><span class="v" id="pt-perf-alpha">—</span></div>
               <div class="pt-kv"><span class="k">Realized / Unrealized P&amp;L</span><span class="v" id="pt-perf-pnl">—</span></div>
             </div>
-            <div class="pt-panel" id="pt-risk">
-              <div class="pt-panel-title">Risk &amp; Capacity</div>
-              <div class="pt-kv"><span class="k">Capacity</span><span class="v" id="pt-risk-capacity">—</span></div>
-              <div class="pt-gauge-track"><div class="pt-gauge-fill" id="pt-gauge" style="width:0%;"></div></div>
-              <div class="pt-kv"><span class="k">Risk state</span><span class="v" id="pt-risk-state">—</span></div>
-              <div class="pt-kv"><span class="k">Review-for-exit</span><span class="v" id="pt-risk-exit">—</span></div>
-              <div class="pt-kv"><span class="k">Concentration</span><span class="v" id="pt-risk-conc">—</span></div>
-              <div class="pt-kv"><span class="k">Missing prices</span><span class="v" id="pt-risk-missing">—</span></div>
-              <div class="cc-na-note" id="pt-risk-expl" style="margin-top:4px;">The risk engine flags positions for review — paper only, automation off, no live orders.</div>
+            <div style="display:flex;flex-direction:column;gap:8px;min-width:0;">
+              <div class="pt-panel" id="pt-snapshot">
+                <div class="pt-panel-title">Last Official Snapshot</div>
+                <div class="pt-kv"><span class="k">Snapshot date</span><span class="v" id="pt-snap-date">—</span></div>
+                <div class="pt-kv"><span class="k">Total value</span><span class="v" id="pt-snap-total">—</span></div>
+                <div class="pt-kv"><span class="k">Cash / Positions</span><span class="v" id="pt-snap-cashpos">—</span></div>
+                <div class="pt-kv"><span class="k">Cumulative return</span><span class="v" id="pt-snap-cumret">—</span></div>
+                <div class="pt-empty" id="pt-snap-empty" style="display:none;">NO OFFICIAL SNAPSHOT YET</div>
+              </div>
+              <div class="pt-panel" id="pt-risk">
+                <div class="pt-panel-title">Risk &amp; Capacity</div>
+                <div class="pt-kv"><span class="k">Capacity</span><span class="v" id="pt-risk-capacity">—</span></div>
+                <div class="pt-gauge-track"><div class="pt-gauge-fill" id="pt-gauge" style="width:0%;"></div></div>
+                <div class="pt-kv"><span class="k">Risk state</span><span class="v" id="pt-risk-state">—</span></div>
+                <div class="pt-kv"><span class="k">Review-for-exit</span><span class="v" id="pt-risk-exit">—</span></div>
+                <div class="pt-kv"><span class="k">Concentration</span><span class="v" id="pt-risk-conc">—</span></div>
+                <div class="pt-kv"><span class="k">Missing prices</span><span class="v" id="pt-risk-missing">—</span></div>
+                <div class="cc-na-note" id="pt-risk-expl" style="margin-top:4px;">The risk engine flags positions for review — paper only, automation off, no live orders.</div>
+              </div>
             </div>
           </div>
 
           <!-- ROW 3: open positions -->
-          <div class="pt-panel">
+          <div class="pt-panel" id="pt-positions">
             <div class="pt-panel-title">Open Positions</div>
             <div class="pt-table-wrap">
               <table class="pt-table">
@@ -3700,7 +3777,7 @@
           </div>
 
           <!-- ROW 4: pending orders / filled orders / alerts -->
-          <div class="pt-orders-row">
+          <div class="pt-orders-row" id="pt-orders-row">
             <div class="pt-panel">
               <div class="pt-panel-title">Pending Paper Orders</div>
               <div id="pt-orders-pending"><div class="pt-empty">Loading&hellip;</div></div>
@@ -3719,6 +3796,10 @@
           <div class="cc-updated" id="pt-updated">&nbsp;</div>
         </div>
         <!-- ===================== Phase 14-B PORTFOLIO TERMINAL END ===================== -->
+
+        <!-- ===================== Phase 14-C ADVANCED PORTFOLIO DETAILS START ===================== -->
+        <details id="pt-advanced-details" class="pt-advanced-details">
+          <summary class="pt-advanced-summary" title="Ledger, analytics, raw performance history and position review — collapsed by default.">Advanced Portfolio Details <span class="cc-badge">READ-ONLY</span></summary>
 
         <!-- Portfolio & Trade Ledger header + safety -->
         <div class="card" style="margin-bottom:10px;padding:10px 14px;">
@@ -4041,10 +4122,42 @@
           </details>
         </div><!-- end position-review-card -->
 
+        </details>
+        <!-- ===================== Phase 14-C ADVANCED PORTFOLIO DETAILS END ===================== -->
+
       </div><!-- end tab-portfolio -->
 
       <!-- TAB 5: AUDIT / ADVANCED -->
       <div id="tab-audit-advanced" class="tab-content">
+
+        <!-- ===================== Phase 14-C CURRENT CHAMPION (first) START ===================== -->
+        <div id="ra-champion-card" class="ra-champion">
+          <div class="ra-hd">
+            <span class="ra-title">Current Champion</span>
+            <span class="cc-badge safe">PRODUCTION ALPHA</span>
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge">MANUAL REVIEW</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <button class="cc-btn ghost" id="ra-champion-refresh" onclick="loadResearchChampionSummary()" title="Reload the current champion summary (read-only).">&#8635; Refresh</button>
+          </div>
+          <div class="ra-champion-grid">
+            <div class="ra-champion-kpi"><div class="k">Champion Strategy</div><div class="v" id="ra-champion-strategy" title="The committed production alpha.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Provisional Primary Book</div><div class="v" id="ra-champion-primary" title="Provisional TOP50 primary paper book.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Challenger Book</div><div class="v" id="ra-champion-challenger" title="TOP25 challenger paper book.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Current Decision</div><div class="v" id="ra-champion-decision" title="Latest decision-gate outcome.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Current Mark</div><div class="v" id="ra-champion-mark" title="Canonical current portfolio value (current EOD mark).">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Mark As Of</div><div class="v" id="ra-champion-asof">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Current Return</div><div class="v" id="ra-champion-return">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Signal Date</div><div class="v" id="ra-champion-signal">—</div></div>
+          </div>
+          <div class="cc-na-note" id="ra-champion-note" style="margin-top:8px;">composite_sn is the current champion. The live champion panels (Current Alpha Paper Test, decision gate, paper performance history) appear below. Older research candidates are archived at the bottom of this page and are not the current champion.</div>
+        </div>
+        <div id="ra-paper-test-header" style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:2px 0 8px;">Current Champion — Live Panels &amp; Paper-Test History</div>
+        <!-- ===================== Phase 14-C CURRENT CHAMPION (first) END ===================== -->
+
+        <!-- ===================== Phase 14-C ARCHIVED RESEARCH (collapsed, last) START ===================== -->
+        <details id="ra-archived-details">
+          <summary title="Older, non-production research previews. Collapsed by default. Not the current champion.">Archived Research — Not Current Champion <span class="cc-badge">ARCHIVED RESEARCH</span></summary>
 
         <!-- Research Candidate Preview (Phase 4-F) — read-only, non-production research artifact.
              Renders GET /v1/research/candidate-preview. PREVIEW ONLY: no orders, no signals,
@@ -4137,6 +4250,8 @@
             </div>
           </div>
         </div>
+        </details>
+        <!-- ===================== Phase 14-C ARCHIVED RESEARCH (collapsed, last) END ===================== -->
 
         <!-- Current Alpha Paper Test (Phase 13-B) START — read-only preview of the
              committed Phase 13-A current champion alpha (composite_sn) package.
@@ -5518,6 +5633,11 @@ window._switchTab = function(tabName, opts) {
   if (tabName === 'audit-advanced' && window._appState?.connected && !window._alphaBookLoaded) {
     window._alphaBookLoaded = true;
     try { loadActiveBook(null); } catch (e) {}
+  }
+
+  // Phase 14-C: Research & Audit opens with the CURRENT CHAMPION summary first.
+  if (tabName === 'audit-advanced' && window._appState?.connected) {
+    try { loadResearchChampionSummary(); } catch (e) {}
   }
 
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
@@ -19540,7 +19660,16 @@ function renderCommandCenter() {
   if (excEl) { excEl.textContent = _ccPpText(primaryBook.current_excess_return_pct_points); excEl.className = 'cc-kpi-value ' + _ccSignClass(primaryBook.current_excess_return_pct_points); }
   _ccSetText('cc-kpi-excess-sub', 'vs SPY');
   _ccSetText('cc-kpi-capacity', (pf.open_positions != null ? pf.open_positions : '—') + ' / ' + (pf.max_positions != null ? pf.max_positions : '—'));
-  _ccSetText('cc-kpi-capacity-sub', (pf.capacity_state || '').replace(/_/g, ' ').toLowerCase() || '');
+  // Phase 14-C: same canonical current mark as Portfolio Terminal + an as-of label.
+  var ccAsOf = pf.as_of_market_date ? ('as of ' + pf.as_of_market_date) : '';
+  _ccSetText('cc-kpi-capacity-sub', ((pf.capacity_state || '').replace(/_/g, ' ').toLowerCase() || '') + (ccAsOf ? (' · ' + ccAsOf) : ''));
+  var ccCapEl = document.getElementById('cc-kpi-capacity');
+  if (ccCapEl) {
+    ccCapEl.title = 'Current portfolio value ' + (pf.total_value != null ? ('$' + pf.total_value) : '—') +
+      ' (cash ' + (pf.cash != null ? ('$' + pf.cash) : '—') + ' + invested ' + (pf.invested_value != null ? ('$' + pf.invested_value) : '—') + ')' +
+      (pf.as_of_market_date ? (' · current EOD mark as of ' + pf.as_of_market_date) : '') +
+      ' — same canonical valuation as the Portfolio Terminal.';
+  }
 
   // ROW 2 workflow stages
   var stale = alpha.available && alpha.mark_stale;
@@ -19850,17 +19979,38 @@ function _highlightNav(base) {
   });
 }
 window._highlightNav = _highlightNav;
+var _PT_SUB_TARGET = {
+  '': 'pt-terminal', 'positions': 'pt-positions', 'orders': 'pt-orders-row',
+  'performance': 'pt-performance', 'risk': 'pt-risk', 'advanced': 'pt-advanced-details',
+};
+function _ptHighlightNav(sub) {
+  var links = document.querySelectorAll('#pt-nav a[data-ptsub]');
+  Array.prototype.forEach.call(links, function (a) {
+    if ((a.getAttribute('data-ptsub') || '') === (sub || '')) a.classList.add('active');
+    else a.classList.remove('active');
+  });
+}
+window._ptHighlightNav = _ptHighlightNav;
 function _applySubsection(base, sub) {
-  if (!sub) return;
+  // Always keep the Portfolio internal navigator in sync, even at the overview.
+  if (base === 'portfolio') { try { _ptHighlightNav(sub || ''); } catch (e) {} }
+  if (!sub && base !== 'portfolio') return;
   // Focus the active workbench stage or the relevant portfolio section.
   setTimeout(function () {
     if (base === 'daily-workflow') {
+      if (!sub) return;
       var st = window._dailyWorkflowState;
       if (st && st.data) { try { renderWorkflowWorkbench(sub.toUpperCase()); } catch (e) {} }
       var wb = document.getElementById('dw-workbench');
       if (wb && wb.scrollIntoView) { try { wb.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { wb.scrollIntoView(); } }
     } else if (base === 'portfolio') {
-      var id = (sub === 'risk') ? 'pt-risk' : 'pt-terminal';
+      // The Advanced portfolio sections are collapsed by default; the Advanced
+      // route explicitly opens the container so its deep-link works.
+      if (sub === 'advanced') {
+        var det = document.getElementById('pt-advanced-details');
+        if (det) det.open = true;
+      }
+      var id = _PT_SUB_TARGET[sub || ''] || 'pt-terminal';
       var el = document.getElementById(id);
       if (el && el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
     }
@@ -20173,6 +20323,60 @@ function renderPortfolioTerminal() {
   _ccSetText('pt-kpi-positions-sub', (s.pending_paper_orders || 0) + ' pending order(s)');
   _ccSetText('pt-kpi-capacity', (s.available_slots != null ? s.available_slots : '—') + ' / ' + (s.max_positions != null ? s.max_positions : '—'));
   _ccSetText('pt-kpi-capacity-sub', (cap.capacity_state || '').replace(/_/g, ' ').toLowerCase());
+  _ccSetText('pt-kpi-value-sub', s.seeded ? 'current EOD mark' : 'seed required');
+
+  // Phase 14-C: canonical current-mark meta + reconciliation + last official snapshot
+  var cm = d.current_mark || {};
+  var recon = d.reconciliation || {};
+  var snap = d.latest_snapshot || null;
+  _ccSetText('pt-mark-asof', cm.as_of_market_date || '—');
+  _ccSetText('pt-mark-source', cm.price_source || '—');
+  var freshEl = document.getElementById('pt-mark-fresh');
+  if (freshEl) {
+    var fs = cm.freshness_status || '—';
+    var ageTxt = (cm.age_calendar_days != null) ? (' (' + cm.age_calendar_days + 'd)') : '';
+    freshEl.textContent = fs.replace(/_/g, ' ') + ageTxt;
+    freshEl.className = 'mv ' + (fs === 'FRESH' ? 'pt-fresh-fresh' : (fs === 'STALE' ? 'pt-fresh-stale' : ''));
+  }
+  _ccSetText('pt-mark-coverage', (cm.covered_position_count != null ? cm.covered_position_count : '—') + ' / ' + (cm.total_position_count != null ? cm.total_position_count : '—'));
+  var reconEl = document.getElementById('pt-recon');
+  if (reconEl) {
+    if (cm.valuation_complete === false) {
+      reconEl.className = 'pt-recon na';
+      reconEl.textContent = 'RECONCILIATION INCOMPLETE';
+      reconEl.title = (cm.missing_price_count || 0) + ' position price(s) unavailable — partial current mark.';
+    } else if (recon.reconciled) {
+      reconEl.className = 'pt-recon ok';
+      reconEl.textContent = 'RECONCILED ✓ (Δ $' + _ptNum(recon.reconciliation_delta) + ')';
+      reconEl.title = 'Cash + positions equals the reported current total (within $0.01).';
+    } else {
+      reconEl.className = 'pt-recon warn';
+      reconEl.textContent = 'UNRECONCILED (Δ $' + _ptNum(recon.reconciliation_delta) + ')';
+      reconEl.title = 'Cash + positions does not equal the reported current total.';
+    }
+  }
+  var noteEl = document.getElementById('pt-mark-recon-note');
+  if (noteEl) {
+    var vsSnap = recon.vs_latest_snapshot_total || {};
+    noteEl.textContent = 'Current positions are marked using the latest owned EOD prices' +
+      (cm.as_of_market_date ? (' (as of ' + cm.as_of_market_date + ')') : '') +
+      '. Historical performance uses the latest completed portfolio snapshot' +
+      (snap && snap.market_date ? (' (' + snap.market_date + ')') : '') + '.' +
+      ((vsSnap.delta != null) ? (' Current mark vs last snapshot: $' + _ptNum(vsSnap.delta) + ' (compared, not interchanged).') : '');
+  }
+  var snapEmpty = document.getElementById('pt-snap-empty');
+  if (snap) {
+    if (snapEmpty) snapEmpty.style.display = 'none';
+    _ccSetText('pt-snap-date', snap.market_date || '—');
+    _ccSetText('pt-snap-total', snap.total_value != null ? ('$' + _ptNum(snap.total_value)) : '—');
+    _ccSetText('pt-snap-cashpos', (snap.cash != null ? ('$' + _ptNum(snap.cash)) : '—') + ' / ' + (snap.positions_value != null ? ('$' + _ptNum(snap.positions_value)) : '—'));
+    var scEl = document.getElementById('pt-snap-cumret');
+    if (scEl) { scEl.textContent = _ccPctText(snap.cumulative_return_pct); scEl.className = 'v ' + _ccSignClass(snap.cumulative_return_pct); }
+  } else {
+    if (snapEmpty) snapEmpty.style.display = 'block';
+    _ccSetText('pt-snap-date', '—'); _ccSetText('pt-snap-total', '—');
+    _ccSetText('pt-snap-cashpos', '—'); _ccSetText('pt-snap-cumret', '—');
+  }
 
   // ROW 2 performance + risk
   var cumret = (perf.cumulative_return_series && perf.cumulative_return_series.length)
@@ -20203,6 +20407,38 @@ function renderPortfolioTerminal() {
   _ccSetText('pt-updated', 'Updated ' + (st.lastLoadedAt || '') + ' · read-only · no orders · no broker · automation off');
 }
 window.renderPortfolioTerminal = renderPortfolioTerminal;
+
+// ============================ RESEARCH & AUDIT: CURRENT CHAMPION ============ //
+// Read-only summary of the current champion (composite_sn) shown FIRST in
+// Research & Audit, above the archived research candidates. Reuses the existing
+// command-center payload (alpha + canonical portfolio valuation) — no writes,
+// no prediction call.
+function _raChampionRender(d) {
+  if (!d) return;
+  var alpha = d.alpha || {}, pf = d.portfolio || {};
+  var primary = alpha.primary_paper_book || {};
+  var challenger = alpha.challenger_paper_book || null;
+  _ccSetText('ra-champion-strategy', alpha.alpha_name || 'composite_sn');
+  var primEl = document.getElementById('ra-champion-primary');
+  if (primEl) { primEl.textContent = primary.book || '—'; primEl.title = primary.book_id || 'Provisional TOP50 primary paper book.'; }
+  _ccSetText('ra-champion-challenger', (challenger && challenger.label) ? challenger.label : (alpha.top25 && alpha.top25.book_id ? 'TOP25' : '—'));
+  _ccSetText('ra-champion-decision', alpha.decision_label || alpha.decision || '—');
+  _ccSetText('ra-champion-mark', pf.total_value != null ? ('$' + _ptNum(pf.total_value)) : '—');
+  _ccSetText('ra-champion-asof', pf.as_of_market_date || alpha.latest_mark_date || '—');
+  var retEl = document.getElementById('ra-champion-return');
+  if (retEl) { retEl.textContent = _ccPctText(pf.total_return_pct); retEl.className = 'v ' + _ccSignClass(pf.total_return_pct); }
+  _ccSetText('ra-champion-signal', alpha.signal_date || '—');
+}
+async function loadResearchChampionSummary() {
+  // Prefer the already-loaded command-center payload; otherwise fetch it once.
+  var cached = window._commandCenter && window._commandCenter.data;
+  if (cached) { _raChampionRender(cached); return; }
+  try {
+    var resp = await call('GET', '/v1/dashboard/command-center');
+    if (resp.ok) { var body = await resp.json(); _raChampionRender(body); }
+  } catch (e) { /* read-only summary; leave placeholders on failure */ }
+}
+window.loadResearchChampionSummary = loadResearchChampionSummary;
 
 // ---- Boot: apply the initial route + wire back/forward ----------------------
 window.addEventListener('hashchange', function () { try { applyRoute(); } catch (e) {} });

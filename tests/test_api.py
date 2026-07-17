@@ -35517,3 +35517,166 @@ class TestUiCommandCenterPhase14BIntegration:
         # Sidebar remains the primary nav with route-driven links; top bar demoted.
         assert 'class="sidebar-link" id="nav-daily-workflow"' in html
         assert "tab-bar cc-demoted" in html
+
+
+# --------------------------------------------------------------------------- #
+# Phase 14-C — canonical valuation + legacy consolidation UI static tests
+# --------------------------------------------------------------------------- #
+
+class TestUiCanonicalPortfolioValuation:
+    """Phase 14-C: the Portfolio KPI row is the CURRENT EOD MARK with a
+    reconciliation indicator and as-of / source / freshness / coverage meta."""
+
+    def test_current_eod_mark_label_and_badge(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="pt-mark"' in html
+        assert "Current EOD Mark" in html
+        assert "CURRENT_MARKED_EOD" in html
+
+    def test_mark_meta_surfaces_present(self) -> None:
+        html = _read_index_html_14a()
+        for el_id in ("pt-mark-asof", "pt-mark-source", "pt-mark-fresh", "pt-mark-coverage"):
+            assert f'id="{el_id}"' in html, f"missing mark meta surface: {el_id}"
+
+    def test_reconciliation_indicator_present(self) -> None:
+        html = _read_index_html_14a()
+        js = _js_14b()
+        assert 'id="pt-recon"' in html
+        for word in ("RECONCILED", "UNRECONCILED", "RECONCILIATION INCOMPLETE"):
+            assert word in js, f"missing reconciliation state: {word}"
+
+    def test_kpi_row_uses_current_mark_labels(self) -> None:
+        html = _read_index_html_14a()
+        for label in ("Current Portfolio Value", "Current Invested Value", "Current Total Return"):
+            assert label in html, f"missing current-mark KPI label: {label}"
+
+    def test_render_reads_canonical_current_mark(self) -> None:
+        js = _js_14b()
+        assert "d.current_mark" in js
+        assert "d.reconciliation" in js
+        assert "valuation_complete" in js
+
+
+class TestUiPortfolioAsOfSeparation:
+    """Phase 14-C: the current mark and the latest official snapshot are shown
+    as separate, clearly-labelled surfaces (never implied to share a timestamp)."""
+
+    def test_last_official_snapshot_panel(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="pt-snapshot"' in html
+        assert "Last Official Snapshot" in html
+        assert "NO OFFICIAL SNAPSHOT YET" in html
+        for el_id in ("pt-snap-date", "pt-snap-total", "pt-snap-cumret"):
+            assert f'id="{el_id}"' in html
+
+    def test_performance_chart_labelled_historical(self) -> None:
+        html = _read_index_html_14a()
+        assert "Historical Portfolio Snapshots" in html
+        assert "OFFICIAL_PORTFOLIO_SNAPSHOT" in html
+
+    def test_explanatory_note_present(self) -> None:
+        html = _read_index_html_14a()
+        assert "Current positions are marked using the latest owned EOD prices" in html
+        assert "latest completed portfolio snapshot" in html
+
+
+class TestUiPortfolioLegacyConsolidation:
+    """Phase 14-C: legacy portfolio sections collapsed under one Advanced
+    container (closed by default) + a compact internal section navigator."""
+
+    def test_advanced_container_collapsed_by_default(self) -> None:
+        html = _read_index_html_14a()
+        # exact opening tag has no `open` attribute -> collapsed by default
+        assert '<details id="pt-advanced-details" class="pt-advanced-details">' in html
+        assert "Advanced Portfolio Details" in html
+
+    def test_internal_section_navigator(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="pt-nav"' in html
+        for label in (">Overview<", ">Positions<", ">Orders<", ">Performance<", ">Risk<", ">Advanced<"):
+            assert label in html, f"missing portfolio nav item: {label}"
+
+    def test_internal_hash_routes(self) -> None:
+        html = _read_index_html_14a()
+        for route in ("portfolio/positions", "portfolio/orders", "portfolio/performance",
+                      "portfolio/risk", "portfolio/advanced"):
+            assert route in html, f"missing portfolio route: {route}"
+
+    def test_legacy_functionality_preserved(self) -> None:
+        html = _read_index_html_14a()
+        # nothing removed — the old sections still exist inside the collapsed container
+        for label in ("Portfolio &amp; Trade Ledger", "Portfolio Analytics",
+                      "Paper Trade Ledger", "Performance History", "Position Review"):
+            assert label in html, f"legacy section removed: {label}"
+
+    def test_advanced_route_opens_container(self) -> None:
+        js = _js_14b()
+        assert "pt-advanced-details" in js
+        assert "det.open = true" in js
+
+
+class TestUiResearchChampionFirst:
+    """Phase 14-C: Research & Audit opens with the current champion; the old
+    Ridge candidate is archived, clearly labelled, and collapsed by default."""
+
+    def test_champion_card_present(self) -> None:
+        html = _read_index_html_14a()
+        assert 'id="ra-champion-card"' in html
+        assert "Current Champion" in html
+        assert 'id="ra-champion-primary"' in html
+
+    def test_archived_block_labelled_and_collapsed(self) -> None:
+        html = _read_index_html_14a()
+        assert '<details id="ra-archived-details">' in html  # no `open` -> collapsed
+        assert "Archived Research — Not Current Champion" in html
+        assert "ARCHIVED RESEARCH" in html
+
+    def test_champion_appears_before_archived_ridge(self) -> None:
+        html = _read_index_html_14a()
+        i_champ = html.index('id="ra-champion-card"')
+        i_arch = html.index('id="ra-archived-details"')
+        i_ridge = html.index("Research Candidate Preview")
+        assert 0 < i_champ < i_arch, "champion card must precede the archived block"
+        assert i_champ < i_ridge, "champion card must precede the Ridge candidate preview"
+
+    def test_css_order_floats_archived_last(self) -> None:
+        html = _read_index_html_14a()
+        assert "#ra-archived-details { order: 100" in html
+        assert "#ra-champion-card { order: -10" in html
+
+    def test_champion_loader_exists(self) -> None:
+        js = _js_14b()
+        assert "function loadResearchChampionSummary" in js
+
+
+class TestUiCrossScreenPortfolioConsistency:
+    """Phase 14-C: Command Center portfolio values come from the same canonical
+    valuation as the Portfolio Terminal and carry an as-of label; new controls
+    are labelled and dialog-free."""
+
+    def test_command_center_uses_canonical_current_mark(self) -> None:
+        js = _js_14b() if "pf.total_value" in _js_14b() else _read_index_html_14a()
+        html = _read_index_html_14a()
+        assert "same canonical valuation as the Portfolio Terminal" in html
+        assert "pf.as_of_market_date" in html
+        assert "pf.total_value" in html
+
+    def test_command_center_as_of_label(self) -> None:
+        html = _read_index_html_14a()
+        assert "as of " in html  # as-of label surfaced on the capacity KPI
+
+    def test_portfolio_nav_buttons_labelled(self) -> None:
+        import re
+        html = _read_index_html_14a()
+        nav = html[html.index('id="pt-nav"'):html.index("</div>", html.index('id="pt-nav"'))]
+        for m in re.finditer(r"<a\b[^>]*>(.*?)</a>", nav, re.S):
+            inner = re.sub(r"<[^>]+>", "", m.group(1)).strip()
+            assert inner, f"unlabeled portfolio nav link: {m.group(0)[:80]}"
+
+    def test_no_native_dialogs_in_new_sections(self) -> None:
+        import re
+        html = _read_index_html_14a()
+        pt = html[html.index('id="pt-terminal"'):html.index("PORTFOLIO TERMINAL END")]
+        for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
+                    r"(?<![A-Za-z0-9_.])prompt\s*\("):
+            assert not re.search(pat, pt)

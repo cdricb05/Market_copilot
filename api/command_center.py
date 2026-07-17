@@ -39,6 +39,7 @@ from paper_trader.db.models import (
 )
 from paper_trader.db.session import get_session
 from paper_trader.api.current_alpha_decision_gate import load_current_alpha_decision_gate
+from paper_trader.api.portfolio_valuation import load_portfolio_valuation
 from paper_trader.workflows.decision import _latest_price
 
 # --------------------------------------------------------------------------- #
@@ -435,8 +436,21 @@ def _collect_workflow_counts(session) -> dict[str, int]:
     }
 
 
-def _collect_portfolio(session, *, pending_orders: int) -> dict[str, Any]:
-    """Read-only portfolio + capacity + risk roll-up (mirrors portfolio_analytics)."""
+def _collect_portfolio(session, *, pending_orders: int,
+                       valuation: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """Read-only portfolio + capacity + risk roll-up.
+
+    All CURRENT valuation fields (total value, cash, invested value, current
+    return, current unrealized P&L, per-position status) come from the canonical
+    ``portfolio_valuation`` result so Command Center and Portfolio Terminal show
+    the same numbers. ``latest_performance_return_pct`` remains the SEPARATE
+    latest-official-snapshot return — never mixed into the current mark.
+    """
+    valuation = valuation or {}
+    cm = valuation.get("current_mark") or {}
+    vpos = valuation.get("positions") or []
+    snapshot = valuation.get("latest_snapshot") or None
+
     portfolio = session.query(Portfolio).first()
     if portfolio is None:
         return {
@@ -453,34 +467,33 @@ def _collect_portfolio(session, *, pending_orders: int) -> dict[str, Any]:
             "risk_message": "Portfolio not seeded.",
             "total_value": None,
             "cash": None,
+            "invested_value": None,
+            "total_return_pct": None,
+            "unrealized_pnl": None,
+            "as_of_market_date": None,
+            "price_source": None,
+            "freshness_status": None,
+            "valuation_complete": None,
             "latest_performance_return_pct": None,
         }
 
     cfg_max = int(
         (portfolio.config or {}).get("max_positions", get_settings().max_positions)
     )
-    positions = session.query(Position).all()
-    open_count = len(positions)
-
+    # Status counts from the CANONICAL positions (a PRICE_UNAVAILABLE position is
+    # counted as WATCH here, matching the prior command-center behaviour).
+    open_count = cm.get("total_position_count")
+    if open_count is None:
+        open_count = session.query(Position).count()
     hold = watch = review_for_exit = 0
-    for pos in positions:
-        latest = _latest_price(session, pos.ticker)
-        if latest is None:
-            watch += 1
-            continue
-        qty = Decimal(str(pos.qty))
-        cost_basis = Decimal(str(pos.cost_basis))
-        market_value = qty * latest
-        upnl_pct = (
-            float((market_value - cost_basis) / cost_basis * Decimal("100"))
-            if cost_basis != Decimal("0") else 0.0
-        )
-        if upnl_pct <= -5.0:
-            review_for_exit += 1
-        elif upnl_pct <= -2.0:
-            watch += 1
-        else:
+    for r in vpos:
+        s = r.get("status")
+        if s == "HOLD":
             hold += 1
+        elif s == "REVIEW_FOR_EXIT":
+            review_for_exit += 1
+        else:  # WATCH or PRICE_UNAVAILABLE
+            watch += 1
 
     capacity_state, capacity_explanation = _capacity_state(open_count, cfg_max)
     available_slots = max(0, cfg_max - open_count)
@@ -494,23 +507,10 @@ def _collect_portfolio(session, *, pending_orders: int) -> dict[str, Any]:
     else:
         risk_message = "No open positions."
 
-    # Latest performance value from the newest snapshot, if any (read-only).
+    # SEPARATE latest official snapshot return (never the current mark).
     latest_return_pct: Optional[float] = None
-    total_value = Decimal(str(portfolio.cached_total_value))
-    initial = _num(portfolio.initial_capital)
-    snap = (
-        session.query(PortfolioSnapshot)
-        .order_by(PortfolioSnapshot.market_date.desc())
-        .first()
-    )
-    if snap is not None and initial:
-        try:
-            latest_return_pct = float(
-                (Decimal(str(snap.total_value)) - Decimal(str(portfolio.initial_capital)))
-                / Decimal(str(portfolio.initial_capital)) * Decimal("100")
-            )
-        except (ArithmeticError, ValueError, TypeError):
-            latest_return_pct = None
+    if snapshot is not None:
+        latest_return_pct = _num(snapshot.get("cumulative_return_pct"))
 
     return {
         "seeded": True,
@@ -524,8 +524,17 @@ def _collect_portfolio(session, *, pending_orders: int) -> dict[str, Any]:
         "watch_count": watch,
         "review_for_exit_count": review_for_exit,
         "risk_message": risk_message,
-        "total_value": str(total_value.quantize(Decimal("0.01"))),
-        "cash": str(Decimal(str(portfolio.cached_cash)).quantize(Decimal("0.01"))),
+        # canonical CURRENT mark (CURRENT_MARKED_EOD)
+        "total_value": cm.get("current_total_value"),
+        "cash": cm.get("current_cash"),
+        "invested_value": cm.get("current_positions_value"),
+        "total_return_pct": cm.get("current_total_return_pct"),
+        "unrealized_pnl": cm.get("current_unrealized_pnl"),
+        "as_of_market_date": cm.get("as_of_market_date"),
+        "price_source": cm.get("price_source"),
+        "freshness_status": cm.get("freshness_status"),
+        "valuation_complete": cm.get("valuation_complete"),
+        # SEPARATE official snapshot return
         "latest_performance_return_pct": latest_return_pct,
     }
 
@@ -690,6 +699,14 @@ def load_command_center() -> dict[str, Any]:
     backend_ready = False
     workflow_counts: Optional[dict[str, int]] = None
     portfolio_data: Optional[dict[str, Any]] = None
+
+    # --- Canonical current valuation (single source of truth) -------------- #
+    try:
+        valuation = load_portfolio_valuation()
+    except Exception as exc:  # noqa: BLE001
+        valuation = {"current_mark": {}, "positions": [], "latest_snapshot": None}
+        warnings.append(f"Canonical valuation unavailable: {str(exc)[:160]}")
+
     try:
         with get_session() as session:
             session.query(Portfolio).first()  # touch DB -> readiness
@@ -700,7 +717,8 @@ def load_command_center() -> dict[str, Any]:
                 warnings.append(f"Workflow state unavailable: {str(exc)[:160]}")
             try:
                 pend = (workflow_counts or {}).get("pending_orders", 0)
-                portfolio_data = _collect_portfolio(session, pending_orders=pend)
+                portfolio_data = _collect_portfolio(session, pending_orders=pend,
+                                                    valuation=valuation)
             except Exception as exc:  # noqa: BLE001
                 warnings.append(f"Portfolio state unavailable: {str(exc)[:160]}")
     except Exception as exc:  # noqa: BLE001
@@ -730,6 +748,13 @@ def load_command_center() -> dict[str, Any]:
             "risk_message": "Portfolio state unavailable.",
             "total_value": None,
             "cash": None,
+            "invested_value": None,
+            "total_return_pct": None,
+            "unrealized_pnl": None,
+            "as_of_market_date": None,
+            "price_source": None,
+            "freshness_status": None,
+            "valuation_complete": None,
             "latest_performance_return_pct": None,
         }
 
