@@ -39,6 +39,7 @@ from paper_trader.db.models import (
 )
 from paper_trader.db.session import get_session
 from paper_trader.api.current_alpha_decision_gate import load_current_alpha_decision_gate
+from paper_trader.api.current_alpha_daily_refresh import load_current_alpha_daily_status
 from paper_trader.api.portfolio_valuation import load_portfolio_valuation
 from paper_trader.api.daily_operating_run import load_daily_operating_run_status
 from paper_trader.workflows.decision import _latest_price
@@ -257,6 +258,71 @@ def _degraded_alpha(reason: str) -> dict[str, Any]:
         "observation_count": None,
         "unavailable_reason": reason,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Phase 15-B — overlay the CURRENT daily operating mark (Part C)
+# --------------------------------------------------------------------------- #
+
+def _overlay_current_daily_mark(alpha: dict[str, Any], daily: dict[str, Any]) -> dict[str, Any]:
+    """Overlay the latest daily operating mark onto the alpha section.
+
+    The decision gate reports the reconstructed 13-I evidence window (which ends at
+    the reconstruction date). Command Center KPIs must instead show the CURRENT
+    operating mark (the latest completed daily mark). This overlays the current
+    return / excess / SPY / mark date from the daily status while keeping the
+    decision, risk, readiness and drawdown (history-only) fields from the gate. The
+    reconstructed evidence dates are preserved under ``historical_evidence`` so the
+    two are never conflated.
+    """
+    if not daily or not daily.get("latest_valid_mark_available"):
+        return alpha
+    ds25 = daily.get("top25") or {}
+    ds50 = daily.get("top50") or {}
+    spy = daily.get("spy_benchmark") or {}
+    mark_date = daily.get("latest_valid_mark_date")
+    spy_ret = _num(spy.get("return_since_signal_pct"))
+
+    # Preserve the reconstructed evidence dates BEFORE overwriting the current mark.
+    alpha["historical_evidence"] = {
+        "reconstruction_end_date": alpha.get("latest_mark_date"),
+        "top25_reconstructed_return_pct": (alpha.get("top25") or {}).get("current_return_pct"),
+        "top50_reconstructed_return_pct": (alpha.get("top50") or {}).get("current_return_pct"),
+        "observation_count": alpha.get("observation_count"),
+    }
+
+    # Current operating mark (the latest completed daily mark).
+    alpha["latest_mark_date"] = mark_date
+    fresh = daily.get("mark_freshness_status") or daily.get("latest_valid_mark_freshness")
+    if fresh:
+        alpha["mark_freshness_status"] = fresh
+        alpha["mark_stale"] = isinstance(fresh, str) and fresh.startswith("STALE")
+    alpha["mark_age_calendar_days"] = daily.get("mark_age_calendar_days")
+    alpha["current_mark_source"] = "PHASE15A_DAILY_OPERATING_MARK"
+
+    for tgt, ds in (("top25", ds25), ("top50", ds50)):
+        book = alpha.get(tgt) or {}
+        ret = _num(ds.get("average_return_pct"))
+        exc = _num(ds.get("excess_return_vs_spy_pct_points"))
+        if ret is not None:
+            book["current_return_pct"] = ret
+        if exc is not None:
+            book["current_excess_return_pct_points"] = exc
+        # The Performance Snapshot chart plots this SPY reference; use the CURRENT
+        # since-signal SPY so the chart is internally consistent with the current mark.
+        if spy_ret is not None:
+            book["spy_cumulative_return_pct"] = spy_ret
+        alpha[tgt] = book
+
+    alpha["current_operating"] = {
+        "mark_date": mark_date,
+        "top25_return_pct": _num(ds25.get("average_return_pct")),
+        "top50_return_pct": _num(ds50.get("average_return_pct")),
+        "top25_excess_pct_points": _num(ds25.get("excess_return_vs_spy_pct_points")),
+        "top50_excess_pct_points": _num(ds50.get("excess_return_vs_spy_pct_points")),
+        "spy_return_pct": spy_ret,
+    }
+    return alpha
 
 
 # --------------------------------------------------------------------------- #
@@ -790,6 +856,16 @@ def load_command_center() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         alpha = _degraded_alpha(f"decision-gate unavailable: {str(exc)[:160]}")
         warnings.append(f"Current alpha unavailable: {str(exc)[:160]}")
+
+    # --- Phase 15-B: overlay the CURRENT daily operating mark (Part C) ------ #
+    # The decision gate is the reconstructed 13-I evidence window; Command Center
+    # KPIs must use the latest completed daily mark. A failure leaves the gate
+    # values in place (still safe, just possibly one mark behind).
+    try:
+        daily_status = load_current_alpha_daily_status()
+        alpha = _overlay_current_daily_mark(alpha, daily_status)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Current daily mark overlay unavailable: {str(exc)[:160]}")
 
     # --- Market-date alignment (Phase 15-A daily operating run, read-only) -- #
     market_data = _degraded_market_data("daily-run status unavailable")

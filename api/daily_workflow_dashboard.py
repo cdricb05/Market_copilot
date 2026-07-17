@@ -321,7 +321,9 @@ def _build_stages(
             enabled, disabled_reason = (True, None)
         elif stage == ST_DATA and market_data and market_data.get("status") not in (
                 None, "UNAVAILABLE") and status == S_COMPLETE:
-            action_label, action_target = ("Preview Daily Run", "command-center")
+            # Phase 15-B: when aligned, the DATA action is non-corrective — it opens the
+            # already-complete daily run rather than implying corrective work is needed.
+            action_label, action_target = ("View Daily Run", "command-center")
         last_completed = None
         if stage in (ST_DATA, ST_CANDIDATES, ST_REVIEW) and status == S_COMPLETE:
             last_completed = last_signal_date

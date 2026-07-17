@@ -1987,8 +1987,18 @@
               <button id="dor-preview-btn" class="cc-btn primary" onclick="previewDailyRun(this)" title="Read-only dry run: reports what a manual run would fetch, write, reuse or block. Writes nothing.">Preview Daily Run</button>
               <button id="dor-execute-btn" class="cc-btn" style="display:none;" onclick="confirmDailyRun(this)" title="Runs the confirmed manual daily operating session (permitted paper writes only).">Run Manual Daily Session</button>
             </div>
+            <!-- Canonical outcome headline — ALWAYS derived from the current GET
+                 status, never from a retained execute-response. ALIGNED and STALE
+                 can never be shown at the same time. -->
             <div class="dor-outcome" id="dor-outcome" style="display:none;"></div>
-            <div class="dor-stages" id="dor-stages" style="display:none;"></div>
+            <!-- The transient stage-by-stage result of the last preview/execute lives
+                 ONLY inside this collapsed section — it is the run as it happened and
+                 never overrides the canonical headline above. -->
+            <details class="dor-advanced" id="dor-last-exec" style="display:none;">
+              <summary>Last execution detail (stage-by-stage — the run as it happened)</summary>
+              <div class="dor-exec-note" id="dor-exec-note" style="font-size:var(--fs-0); color:var(--label); margin:4px 0;"></div>
+              <div class="dor-stages" id="dor-stages" style="display:none;"></div>
+            </details>
             <details class="dor-advanced" id="dor-advanced" style="display:none;">
               <summary>Advanced run detail (row counts &amp; provenance)</summary>
               <pre id="dor-advanced-body"></pre>
@@ -2012,7 +2022,7 @@
               <div class="cc-stage-hd"><span class="cc-stage-num">1</span><span class="cc-stage-name">Refresh</span></div>
               <div class="cc-stage-status" data-role="status">—</div>
               <div class="cc-stage-meta" data-role="meta">&nbsp;</div>
-              <button class="cc-btn ghost" data-role="action" style="font-size:var(--fs-0); padding:4px 9px; align-self:flex-start;" onclick="navigateToView('research-audit')">Daily Alpha Refresh</button>
+              <button class="cc-btn ghost" data-role="action" style="font-size:var(--fs-0); padding:4px 9px; align-self:flex-start;" onclick="navigateToRoute('research-audit/daily-operations')">Daily Alpha Refresh</button>
             </div>
             <div class="cc-stage" id="cc-stage-review">
               <div class="cc-stage-hd"><span class="cc-stage-num">2</span><span class="cc-stage-name">Review</span></div>
@@ -2030,7 +2040,7 @@
               <div class="cc-stage-hd"><span class="cc-stage-num">4</span><span class="cc-stage-name">Monitor</span></div>
               <div class="cc-stage-status" data-role="status">—</div>
               <div class="cc-stage-meta" data-role="meta">&nbsp;</div>
-              <button class="cc-btn ghost" data-role="action" style="font-size:var(--fs-0); padding:4px 9px; align-self:flex-start;" onclick="navigateToView('portfolio')">Open Portfolio</button>
+              <button class="cc-btn ghost" data-role="action" style="font-size:var(--fs-0); padding:4px 9px; align-self:flex-start;" onclick="navigateToRoute('portfolio/positions')">Open Portfolio</button>
             </div>
           </div>
 
@@ -2074,11 +2084,11 @@
               <div class="cc-preview-list" id="cc-rq-preview"><div class="cc-empty">Connect to load the review queue.</div></div>
             </div>
             <div class="cc-panel">
-              <div class="cc-preview-hd"><span class="cc-panel-title">Open Positions</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToView('portfolio')">View All &rarr;</button></div>
+              <div class="cc-preview-hd"><span class="cc-panel-title">Open Positions</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('portfolio/positions')">View All &rarr;</button></div>
               <div class="cc-preview-list" id="cc-pos-preview"><div class="cc-empty">Connect to load open positions.</div></div>
             </div>
             <div class="cc-panel">
-              <div class="cc-preview-hd"><span class="cc-panel-title">Recent Decisions</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToView('portfolio')">View All &rarr;</button></div>
+              <div class="cc-preview-hd"><span class="cc-panel-title">Recent Decisions</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('portfolio/orders')">View All &rarr;</button></div>
               <div class="cc-preview-list" id="cc-dec-preview"><div class="cc-empty">Connect to load recent decisions.</div></div>
             </div>
           </div>
@@ -2089,7 +2099,7 @@
         <!-- ===================== Phase 14-A COMMAND CENTER END ===================== -->
 
         <details id="cc-legacy-overview" style="margin-top: 14px;">
-          <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--label); cursor: pointer; padding: 6px 0;">Market data &amp; legacy overview panels (advanced)</summary>
+          <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--label); cursor: pointer; padding: 6px 0;">MARKET CONTEXT &amp; LEGACY PANELS</summary>
 
         <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); margin: 8px 0 4px 0; flex-shrink: 0;">Trading Cockpit Overview</div>
 
@@ -2371,6 +2381,15 @@
           <div class="cc-updated" id="dw-updated">&nbsp;</div>
         </div>
         <!-- ===================== Phase 14-B DAILY WORKFLOW TERMINAL END ===================== -->
+
+        <!-- ===================== Phase 15-B ADVANCED SESSION DETAIL START ===================== -->
+        <!-- The legacy Daily Plan cards (Daily Review control, Today's Review, scan
+             selection funnel, exclusion reasons, prediction-capture detail and
+             methodology) are consolidated here so the six-stage terminal + single
+             active workbench above stays the normal operating path. Collapsed by
+             default; all functionality is preserved. -->
+        <details id="dw-advanced-session" style="margin-top: 12px;">
+          <summary style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--label); cursor: pointer; padding: 8px 0;">Advanced Session Detail — scan, review, capture &amp; methodology</summary>
 
         <!-- Daily Plan Summary Label -->
         <div style="font-size: 8px; color: var(--label); margin: 8px 0 4px 0; text-transform: uppercase; letter-spacing: 0.06em;">Daily Plan Summary</div>
@@ -3485,6 +3504,9 @@
           </div>
         </div>
 
+        </details>
+        <!-- ===================== Phase 15-B ADVANCED SESSION DETAIL END ===================== -->
+
       </div><!-- end tab-prediction-cockpit -->
 
       <!-- TAB 2: REVIEW QUEUE -->
@@ -3868,6 +3890,24 @@
         <details id="pt-advanced-details" class="pt-advanced-details">
           <summary class="pt-advanced-summary" title="Ledger, analytics, raw performance history and position review — collapsed by default.">Advanced Portfolio Details <span class="cc-badge">READ-ONLY</span></summary>
 
+        <!-- Phase 15-B: the reconciler cache total/invested are shown ONLY here under
+             Diagnostics, explicitly labelled non-current. The default Portfolio KPIs
+             (Current EOD Mark panel above) use the canonical current valuation. -->
+        <div class="card" id="pt-legacy-cache" style="margin-bottom:10px;padding:10px 14px;border:1px solid rgba(245,158,11,.4);">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div class="card-title" style="margin:0;">Ledger &amp; Diagnostics — Reconciler Cache</div>
+            <span class="cc-badge" style="background:rgba(245,158,11,.15);color:var(--warning,#e6a817);border:1px solid rgba(245,158,11,.4);">LEGACY RECONCILER CACHE — NOT CURRENT EOD VALUE</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:8px;font-size:11px;color:var(--text-accent);">
+            <span>Cached total value <span class="mono" id="pt-legacy-total" style="color:var(--text-primary);font-weight:700;">—</span></span>
+            <span>Cached invested value <span class="mono" id="pt-legacy-invested" style="color:var(--text-primary);font-weight:700;">—</span></span>
+            <span>Delta vs current EOD <span class="mono" id="pt-legacy-delta" style="color:var(--text-primary);font-weight:700;">—</span></span>
+          </div>
+          <div style="font-size:9px;color:var(--label);margin-top:5px;">
+            These are the last reconciler-cycle cache values. They are NOT the current EOD mark and are shown for audit only. The current portfolio value is in the Current EOD Mark panel above.
+          </div>
+        </div>
+
         <!-- Portfolio & Trade Ledger header + safety -->
         <div class="card" style="margin-bottom:10px;padding:10px 14px;">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -4196,6 +4236,27 @@
 
       <!-- TAB 5: AUDIT / ADVANCED -->
       <div id="tab-audit-advanced" class="tab-content">
+
+        <!-- ===================== Phase 15-B RESEARCH & AUDIT WORKSPACE NAV ===================== -->
+        <!-- One section active at a time via deep links. Champion Overview is default;
+             Performance / Daily Operations / Paper Books are first-class sections;
+             raw candidate tables, decision-gate detail and archived research live under
+             Diagnostics & Archive. -->
+        <div class="pt-nav" id="ra-nav" role="navigation" aria-label="Research and audit sections">
+          <a id="ra-nav-overview" data-rasub="" onclick="navigateToRoute('research-audit')" title="Champion identity, current mark, decision">Champion Overview</a>
+          <a id="ra-nav-performance" data-rasub="performance" onclick="navigateToRoute('research-audit/performance')" title="Top25 / Top50 / SPY performance + historical evidence">Performance</a>
+          <a id="ra-nav-daily-operations" data-rasub="daily-operations" onclick="navigateToRoute('research-audit/daily-operations')" title="Current mark, action counts, rebalance simulator">Daily Operations</a>
+          <a id="ra-nav-paper-books" data-rasub="paper-books" onclick="navigateToRoute('research-audit/paper-books')" title="Active paper book, coverage, PnL history">Paper Books</a>
+          <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
+        </div>
+        <!-- One page-level safety strip for the Research & Audit workspace. -->
+        <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+          <span class="cc-badge safe">PAPER ONLY</span>
+          <span class="cc-badge manual">MANUAL REVIEW</span>
+          <span class="cc-badge">NO BROKER EXECUTION</span>
+          <span class="cc-badge">AUTOMATION OFF</span>
+          <span class="cc-badge">NO LIVE ORDERS</span>
+        </div>
 
         <!-- ===================== Phase 14-C CURRENT CHAMPION (first) START ===================== -->
         <div id="ra-champion-card" class="ra-champion">
@@ -4857,10 +4918,15 @@
               <div><span id="cdg-readiness" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
               <div id="cdg-readiness-note" style="color:var(--text-accent);margin-top:2px;">Review timing only — no orders, no rebalancing.</div>
             </div>
+            <div style="flex:1;min-width:280px;border:1px solid var(--ok,#22c55e);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--ok,#22c55e);margin-bottom:3px;">CURRENT OPERATING MARK</div>
+              <div><span id="cdg-current-mark" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div id="cdg-current-mark-note" style="color:var(--text-accent);margin-top:2px;">Latest completed daily operating mark.</div>
+            </div>
             <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
-              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">LATEST FINANCIAL MARK</div>
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">HISTORICAL EVIDENCE THROUGH</div>
               <div><span id="cdg-mark" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
-              <div id="cdg-mark-note" style="color:var(--text-accent);margin-top:2px;"></div>
+              <div id="cdg-mark-note" style="color:var(--text-accent);margin-top:2px;">Reconstructed Phase 13-I evidence window end — not the current mark.</div>
             </div>
             <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
               <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">NEXT REVIEW TARGET</div>
@@ -7809,6 +7875,19 @@ async function loadPaperBookDecisionGate(btn) {
     const data = await _cdgFetch(btn, '/v1/research/current-alpha/decision-gate');
     _cdgRender(data);
   } catch (e) { /* surfaced by fetch */ }
+  // Part C: the CURRENT operating mark comes from the canonical daily operating
+  // state, never the reconstructed decision-gate mark (the historical evidence
+  // window). The two are shown side by side, never conflated.
+  try {
+    const r = await call('GET', '/v1/dashboard/operating-state');
+    if (r.ok) {
+      const os = await r.json();
+      const cm = os.current_operating_mark || {};
+      _cdgText('cdg-current-mark', cm.latest_completed_market_date || '—');
+      _cdgText('cdg-current-mark-note', 'Latest completed daily operating mark' +
+        (cm.alignment_status ? (' · ' + String(cm.alignment_status).replace(/_/g, ' ')) : '') + '.');
+    }
+  } catch (e) { /* read-only overlay; leave placeholder on failure */ }
 }
 // ===== Paper Book Decision Gate (Phase 13-J) END =====
 
@@ -19965,6 +20044,28 @@ function _renderDailyOperatingRun(md) {
     if (blockers.length) { blk.style.display = 'block'; blk.innerHTML = '&#9888; ' + blockers.map(_ccEsc).join('<br>&#9888; '); }
     else { blk.style.display = 'none'; }
   }
+  // Phase 15-B: the canonical outcome headline ALWAYS derives from the current GET
+  // status — never a retained execute-response — so ALIGNED and STALE can never be
+  // shown at the same time. After a successful run this reads DAILY RUN COMPLETE.
+  var canonOut = document.getElementById('dor-outcome');
+  if (canonOut) {
+    var cs = md.status;
+    if (cs === 'ALIGNED' && md.aligned) {
+      canonOut.textContent = 'DAILY RUN COMPLETE — ALL OPERATING DATA ALIGNED TO ' + (md.required_market_date || '');
+      canonOut.style.color = 'var(--ok)'; canonOut.style.display = 'block';
+    } else if (cs === 'BLOCKED') {
+      canonOut.textContent = 'MARKET DATA BLOCKED — see the blockers below.';
+      canonOut.style.color = 'var(--warning)'; canonOut.style.display = 'block';
+    } else if (cs === 'PARTIAL_COVERAGE') {
+      canonOut.textContent = 'MARKET DATA PARTIAL — some open positions have no completed price for ' + (md.required_market_date || '') + '.';
+      canonOut.style.color = 'var(--warning)'; canonOut.style.display = 'block';
+    } else if (cs && cs !== 'UNAVAILABLE') {
+      canonOut.textContent = 'MARKET DATA STALE / MISALIGNED — a manual daily run would align all operating data to ' + (md.required_market_date || '') + '.';
+      canonOut.style.color = 'var(--warning)'; canonOut.style.display = 'block';
+    } else {
+      canonOut.style.display = 'none';
+    }
+  }
 }
 
 function _dorRenderRun(data) {
@@ -19980,12 +20081,17 @@ function _dorRenderRun(data) {
     stagesEl.innerHTML = rows;
     stagesEl.style.display = rows ? 'flex' : 'none';
   }
-  var outEl = document.getElementById('dor-outcome');
-  if (outEl) {
-    outEl.textContent = data.final_outcome || '';
-    outEl.style.display = data.final_outcome ? 'block' : 'none';
-    outEl.style.color = (data.status === 'ALIGNED' || data.status === 'ALREADY_COMPLETE') ? 'var(--ok)' : 'var(--warning)';
+  // Phase 15-B: the transient run result (final_outcome + stages) goes ONLY into the
+  // collapsed "Last execution detail" section. It never touches #dor-outcome, which
+  // is owned by _renderDailyOperatingRun and reflects the canonical GET status.
+  var execNote = document.getElementById('dor-exec-note');
+  if (execNote) {
+    var prefix = (data.mode === 'PREVIEW') ? 'Preview — '
+      : ('Executed ' + (data.required_market_date || '') + ' — ');
+    execNote.textContent = prefix + (data.final_outcome || '');
   }
+  var lastExec = document.getElementById('dor-last-exec');
+  if (lastExec) lastExec.style.display = 'block';
   var adv = document.getElementById('dor-advanced');
   var advBody = document.getElementById('dor-advanced-body');
   if (adv && advBody) {
@@ -20105,7 +20211,7 @@ function commandCenterPrimaryAction(btn) {
     'REVIEW_DECISIONS': 'daily-workflow/decisions',
     'RESOLVE_CAPACITY_BLOCK': 'portfolio/risk',
     'MONITOR_PORTFOLIO': 'portfolio/positions',
-    'RUN_DAILY_ALPHA_REFRESH': 'research-audit',
+    'RUN_DAILY_ALPHA_REFRESH': 'research-audit/daily-operations',
     'LOAD_CURRENT_ALPHA': 'research-audit',
   };
   navigateToRoute(routeMap[na.action] || na.ui_target || 'command-center');
@@ -20215,12 +20321,76 @@ function _ptHighlightNav(sub) {
   });
 }
 window._ptHighlightNav = _ptHighlightNav;
+// Phase 15-B: Research & Audit workspace — one section active at a time.
+var _RA_SECTIONS = {
+  '':                 { panels: [], champion: true },
+  'performance':      { panels: ['cap-panel'], champion: false },
+  'daily-operations': { panels: ['cao-panel'], champion: false },
+  'paper-books':      { panels: ['cab-panel'], champion: false },
+  'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
+};
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel'];
+function _raHighlightNav(sub) {
+  var links = document.querySelectorAll('#ra-nav a[data-rasub]');
+  Array.prototype.forEach.call(links, function (a) {
+    if ((a.getAttribute('data-rasub') || '') === (sub || '')) a.classList.add('active');
+    else a.classList.remove('active');
+  });
+}
+window._raHighlightNav = _raHighlightNav;
+function _raApplySection(sub) {
+  sub = _RA_SECTIONS[sub || ''] ? (sub || '') : '';
+  var sec = _RA_SECTIONS[sub];
+  _raHighlightNav(sub);
+  var champ = document.getElementById('ra-champion-card');
+  var champHdr = document.getElementById('ra-paper-test-header');
+  var arch = document.getElementById('ra-archived-details');
+  if (champ) champ.style.display = sec.champion ? '' : 'none';
+  if (champHdr) champHdr.style.display = sec.champion ? '' : 'none';
+  if (sub === '') {
+    // Champion Overview: raw research tables hidden (archive collapsed). Reset every
+    // archived panel so a later manual expand shows them all again.
+    _RA_ALL_PANELS.forEach(function (id) { var el = document.getElementById(id); if (el) el.style.display = ''; });
+    if (arch) arch.open = false;
+    return;
+  }
+  // A sub-section: reveal the archive container and show ONLY this section's panels.
+  if (arch) arch.open = true;
+  _RA_ALL_PANELS.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = (sec.panels.indexOf(id) >= 0) ? '' : 'none';
+  });
+  try { _raLoadSection(sub); } catch (e) {}
+}
+window._raApplySection = _raApplySection;
+// Best-effort, read-only data load for the active Research & Audit section.
+function _raLoadSection(sub) {
+  var loaders = {
+    'performance': ['loadPaperPerformanceHistory'],
+    'daily-operations': ['loadDailyAlphaStatus'],
+    'paper-books': ['loadActiveBook'],
+    'diagnostics': ['loadPaperBookDecisionGate'],
+  };
+  (loaders[sub] || []).forEach(function (fn) {
+    try { if (typeof window[fn] === 'function') window[fn](); } catch (e) {}
+  });
+}
+
 function _applySubsection(base, sub) {
   // Always keep the Portfolio internal navigator in sync, even at the overview.
   if (base === 'portfolio') { try { _ptHighlightNav(sub || ''); } catch (e) {} }
-  if (!sub && base !== 'portfolio') return;
-  // Focus the active workbench stage or the relevant portfolio section.
+  // Keep the Research & Audit workspace in sync — one section active at a time.
+  if (base === 'research-audit') { try { _raApplySection(sub || ''); } catch (e) {} }
+  if (!sub && base !== 'portfolio' && base !== 'research-audit') return;
+  // Focus the active workbench stage or the relevant portfolio / research section.
   setTimeout(function () {
+    if (base === 'research-audit') {
+      var rs = _RA_SECTIONS[sub || ''] || _RA_SECTIONS[''];
+      var rid = (rs.panels && rs.panels[0]) || 'ra-champion-card';
+      var rel = document.getElementById(rid);
+      if (rel && rel.scrollIntoView) { try { rel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { rel.scrollIntoView(); } }
+      return;
+    }
     if (base === 'daily-workflow') {
       if (!sub) return;
       var st = window._dailyWorkflowState;
@@ -20452,8 +20622,24 @@ async function loadPortfolioTerminal() {
     st.error = 'Portfolio terminal request failed: ' + (e && e.message ? e.message : e);
     renderPortfolioTerminal();
   } finally { st.loading = false; st.requestInFlight = false; }
+  try { _loadLegacyReconcilerCache(); } catch (e) {}
 }
 window.loadPortfolioTerminal = loadPortfolioTerminal;
+
+// Phase 15-B: populate the Diagnostics-only reconciler cache (labelled non-current).
+async function _loadLegacyReconcilerCache() {
+  try {
+    var r = await call('GET', '/v1/dashboard/operating-state');
+    if (!r.ok) return;
+    var os = await r.json();
+    var lc = ((os.legacy_archived_state || {}).cached_reconciler) || {};
+    var setv = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = (v == null || v === '') ? '—' : v; };
+    setv('pt-legacy-total', lc.cached_total_value != null ? ('$' + lc.cached_total_value) : '—');
+    setv('pt-legacy-invested', lc.cached_positions_value != null ? ('$' + lc.cached_positions_value) : '—');
+    setv('pt-legacy-delta', lc.delta_vs_current_total != null ? ('$' + lc.delta_vs_current_total) : '—');
+  } catch (e) { /* read-only diagnostics; leave placeholders on failure */ }
+}
+window._loadLegacyReconcilerCache = _loadLegacyReconcilerCache;
 
 function renderPortfolioChart(perf) {
   var svg = document.getElementById('pt-chart');
@@ -20655,10 +20841,28 @@ function _raChampionRender(d) {
   _ccSetText('ra-champion-challenger', (challenger && challenger.label) ? challenger.label : (alpha.top25 && alpha.top25.book_id ? 'TOP25' : '—'));
   _ccSetText('ra-champion-decision', alpha.decision_label || alpha.decision || '—');
   _ccSetText('ra-champion-mark', pf.total_value != null ? ('$' + _ptNum(pf.total_value)) : '—');
-  _ccSetText('ra-champion-asof', pf.as_of_market_date || alpha.latest_mark_date || '—');
+  // Part C: the champion current return + operating mark come from the latest DAILY
+  // operating mark (never the reconstructed history). "Mark As Of" is the daily mark
+  // date; "Current Return" is the primary book's current daily return + excess.
+  _ccSetText('ra-champion-asof', alpha.latest_mark_date || pf.as_of_market_date || '—');
+  var t25 = alpha.top25 || {}, t50 = alpha.top50 || {};
+  var prim = (primary.book === 'TOP25') ? t25 : t50;
   var retEl = document.getElementById('ra-champion-return');
-  if (retEl) { retEl.textContent = _ccPctText(pf.total_return_pct); retEl.className = 'v ' + _ccSignClass(pf.total_return_pct); }
+  if (retEl) {
+    var r = prim.current_return_pct, e = prim.current_excess_return_pct_points;
+    retEl.textContent = _ccPctText(r) + (e != null ? (' · exc ' + _ccPpText(e)) : '');
+    retEl.className = 'v ' + _ccSignClass(r);
+    retEl.title = 'Current daily mark ' + (alpha.latest_mark_date || '—') +
+      ' — Top25 ' + _ccPctText(t25.current_return_pct) + ' (exc ' + _ccPpText(t25.current_excess_return_pct_points) +
+      ') · Top50 ' + _ccPctText(t50.current_return_pct) + ' (exc ' + _ccPpText(t50.current_excess_return_pct_points) + ').';
+  }
   _ccSetText('ra-champion-signal', alpha.signal_date || '—');
+  var noteEl = document.getElementById('ra-champion-note');
+  if (noteEl && alpha.historical_evidence && alpha.historical_evidence.reconstruction_end_date) {
+    noteEl.textContent = 'composite_sn is the current champion. Current return / mark use the latest daily operating mark (' +
+      (alpha.latest_mark_date || '—') + '); the reconstructed historical evidence (through ' +
+      alpha.historical_evidence.reconstruction_end_date + ') appears in Performance. Older research candidates are archived under Diagnostics & Archive.';
+  }
 }
 async function loadResearchChampionSummary() {
   // Prefer the already-loaded command-center payload; otherwise fetch it once.

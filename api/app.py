@@ -178,6 +178,9 @@ from paper_trader.api.daily_operating_run import (
     load_daily_operating_run_status,
     run_daily_operating_session,
 )
+from paper_trader.api.current_operating_state import (
+    load_current_operating_state,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4521,6 +4524,31 @@ def dashboard_portfolio_valuation() -> dict:
     stack trace.
     """
     return load_portfolio_valuation()
+
+
+@app.get(
+    "/v1/dashboard/operating-state",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def dashboard_operating_state() -> dict:
+    """
+    Read-only Phase 15-B canonical current operating state.
+
+    The single aggregation that separates the three state families the UI used to
+    mix: the CURRENT operating mark (the latest completed US market date — portfolio
+    valuation + the current Top25/Top50/SPY daily mark + alignment), the reconstructed
+    HISTORICAL evidence window (the Phase 13-I performance / decision-gate evidence,
+    which ends at the reconstruction date), and the LEGACY / archived state (the
+    reconciler cache and other non-current artifacts). The three categories are never
+    interchangeable; Command Center, Daily Workflow, Portfolio, Research & Audit and
+    the market-data badge all consume the SAME current operating mark from here.
+
+    Strictly read-only: no loopback HTTP call, no database writes, no prediction /
+    external-provider call, and no orders / signals / trade decisions created. A
+    failing dependency degrades to a ``warnings[]`` entry with HTTP 200.
+    """
+    return load_current_operating_state()
 
 
 class DailyOperatingRunExecuteRequest(BaseModel):

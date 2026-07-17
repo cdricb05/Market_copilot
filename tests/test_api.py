@@ -35022,13 +35022,17 @@ class TestUiPaperBookDecisionGatePanelContent:
 
     def test_six_headline_tiles_present(self) -> None:
         markup = self._markup()
+        # Phase 15-B: the single "LATEST FINANCIAL MARK" tile split into a CURRENT
+        # OPERATING MARK tile (the latest daily mark) + a HISTORICAL EVIDENCE THROUGH
+        # tile (the reconstructed 13-I evidence-window end), never conflated.
         for label in ("PROVISIONAL PRIMARY PAPER BOOK", "CHALLENGER BOOK",
                       "CURRENT DECISION", "QUARTERLY REBALANCE READINESS",
-                      "LATEST FINANCIAL MARK", "NEXT REVIEW TARGET"):
+                      "CURRENT OPERATING MARK", "HISTORICAL EVIDENCE THROUGH",
+                      "NEXT REVIEW TARGET"):
             assert label in markup, f"missing headline tile: {label}"
         for el_id in ("cdg-primary", "cdg-challenger", "cdg-decision", "cdg-readiness",
-                      "cdg-mark", "cdg-review-target", "cdg-reasoning", "cdg-risk",
-                      "cdg-warnings", "cdg-error"):
+                      "cdg-current-mark", "cdg-mark", "cdg-review-target", "cdg-reasoning",
+                      "cdg-risk", "cdg-warnings", "cdg-error"):
             assert f'id="{el_id}"' in markup, f"missing surface: {el_id}"
 
     def test_top25_top50_scorecards_are_separate(self) -> None:
@@ -35860,3 +35864,272 @@ class TestUiDailyWorkflowDataAlignment:
         for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
                     r"(?<![A-Za-z0-9_.])prompt\s*\("):
             assert not re.search(pat, fn)
+
+# =========================================================================== #
+# Phase 15-B — canonical operating state & workspace consolidation (UI static)
+# =========================================================================== #
+
+def _read_index_html_15b() -> str:
+    from pathlib import Path
+    html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+    return html_path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _region_15b(html: str, start_needle: str, end_needle: str) -> str:
+    s = html.index(start_needle)
+    e = html.index(end_needle, s)
+    return html[s:e]
+
+
+def _fn_15b(html: str, start_needle: str, end_needle: str) -> str:
+    return _region_15b(html, start_needle, end_needle)
+
+
+class TestUiDailyRunCanonicalState:
+    """Part B: the Daily Operating Run headline is always the canonical GET status;
+    ALIGNED and STALE can never be shown together."""
+
+    def test_canonical_outcome_headline_present(self) -> None:
+        fn = _fn_15b(_read_index_html_15b(), "function _renderDailyOperatingRun",
+                     "function _dorRenderRun")
+        assert "DAILY RUN COMPLETE" in fn
+        assert "ALL OPERATING DATA ALIGNED TO" in fn
+        # The canonical outcome owns #dor-outcome.
+        assert "dor-outcome" in fn
+
+    def test_aligned_and_stale_are_mutually_exclusive(self) -> None:
+        fn = _fn_15b(_read_index_html_15b(), "function _renderDailyOperatingRun",
+                     "function _dorRenderRun")
+        # Both the aligned and the stale copy exist, chosen by an if/else (never both).
+        assert "STALE / MISALIGNED" in fn
+        assert "} else if (cs ===" in fn or "else if (cs" in fn
+
+    def test_last_execution_detail_holds_transient_result(self) -> None:
+        html = _read_index_html_15b()
+        assert 'id="dor-last-exec"' in html
+        assert "Last execution detail" in html
+        fn = _fn_15b(html, "function _dorRenderRun", "async function previewDailyRun")
+        # The transient run result goes ONLY to dor-exec-note / dor-last-exec, never
+        # to the canonical #dor-outcome headline.
+        assert "dor-exec-note" in fn
+        assert "dor-last-exec" in fn
+        assert "getElementById('dor-outcome')" not in fn
+
+    def test_execute_reloads_canonical_status(self) -> None:
+        fn = _fn_15b(_read_index_html_15b(), "async function executeDailyRun",
+                     "window.executeDailyRun")
+        assert "loadCommandCenter" in fn
+
+
+class TestUiCurrentAlphaCanonicalMark:
+    """Part C: current Top25/Top50/SPY use the latest daily mark; history is separate."""
+
+    def test_decision_gate_current_and_historical_labels(self) -> None:
+        html = _read_index_html_15b()
+        assert "CURRENT OPERATING MARK" in html
+        assert "HISTORICAL EVIDENCE THROUGH" in html
+        assert 'id="cdg-current-mark"' in html
+
+    def test_decision_gate_loads_current_mark_from_operating_state(self) -> None:
+        fn = _fn_15b(_read_index_html_15b(), "async function loadPaperBookDecisionGate",
+                     "Paper Book Decision Gate (Phase 13-J) END")
+        assert "/v1/dashboard/operating-state" in fn
+        assert "cdg-current-mark" in fn
+
+    def test_champion_uses_current_daily_mark(self) -> None:
+        fn = _fn_15b(_read_index_html_15b(), "_ccSetText('ra-champion-decision'",
+                     "async function loadResearchChampionSummary")
+        # Current return is the primary book's current daily return + excess; the mark
+        # as-of is the daily mark date; the reconstructed history is called out apart.
+        assert "current_return_pct" in fn
+        assert "alpha.latest_mark_date" in fn
+        assert "historical_evidence" in fn
+
+    def test_backend_overlays_daily_mark(self) -> None:
+        from pathlib import Path
+        cc = (Path(__file__).parent.parent / "api" / "command_center.py").read_text(encoding="utf-8")
+        assert "_overlay_current_daily_mark" in cc
+        assert "current_operating" in cc
+        assert "historical_evidence" in cc
+
+
+class TestUiCommandCenterConsolidation:
+    """Part D: legacy panels live under one collapsed MARKET CONTEXT & LEGACY PANELS."""
+
+    def test_legacy_section_renamed(self) -> None:
+        html = _read_index_html_15b()
+        assert "MARKET CONTEXT &amp; LEGACY PANELS" in html
+
+    def test_legacy_panels_inside_collapsed_section(self) -> None:
+        html = _read_index_html_15b()
+        legacy = _region_15b(html, 'id="cc-legacy-overview"', "end cc-legacy-overview")
+        for panel in ("cockpit-kpi-strip", 'id="overview-next-action-card"',
+                      'id="daily-review-summary-card"', 'id="daily-session-card"',
+                      "ov-market-section"):
+            assert panel in legacy, "legacy panel not collapsed: " + panel
+
+    def test_default_command_center_primary_panels(self) -> None:
+        html = _read_index_html_15b()
+        primary = _region_15b(html, 'id="cc-root"', 'id="cc-legacy-overview"')
+        for el in ('id="dor-card"', "cc-kpi-row", "Today's Workflow", "Current Alpha",
+                   "Next Best Action"):
+            assert el in primary, "missing default CC panel: " + el
+        # The duplicate legacy cards are NOT in the primary path.
+        assert 'id="daily-session-card"' not in primary
+
+
+class TestUiDailyWorkflowConsolidation:
+    """Part E: six-stage terminal is primary; duplicate Daily Review entry points are
+    consolidated under ADVANCED SESSION DETAIL."""
+
+    def test_advanced_session_detail_present(self) -> None:
+        html = _read_index_html_15b()
+        assert 'id="dw-advanced-session"' in html
+        assert "Advanced Session Detail" in html
+
+    def test_six_stage_stepper_present(self) -> None:
+        html = _read_index_html_15b()
+        for stage in ("dw-stage-DATA", "dw-stage-CANDIDATES", "dw-stage-REVIEW",
+                      "dw-stage-SIGNALS", "dw-stage-DECISIONS", "dw-stage-PORTFOLIO"):
+            assert 'id="' + stage + '"' in html
+
+    def test_duplicate_daily_review_entries_moved_to_advanced(self) -> None:
+        html = _read_index_html_15b()
+        advanced = _region_15b(html, 'id="dw-advanced-session"',
+                               "ADVANCED SESSION DETAIL END")
+        # The duplicate "Daily Review" / "Today's Review" / "Start Daily Review" cards
+        # are inside the collapsed advanced section, off the normal operating path.
+        assert 'id="dp-review-control-card"' in advanced
+        assert 'id="dp-current-task-card"' in advanced
+        assert "Start Daily Review" in advanced
+        # And they are NOT in the primary six-stage terminal.
+        terminal = _region_15b(html, 'id="dw-terminal"', 'id="dw-advanced-session"')
+        assert 'id="dp-review-control-card"' not in terminal
+
+
+class TestUiPortfolioCanonicalWorkspace:
+    """Part F: canonical current KPIs by default; the reconciler cache is Diagnostics-only
+    and clearly labelled non-current; one internal section active."""
+
+    def test_current_mark_panel_is_canonical(self) -> None:
+        html = _read_index_html_15b()
+        assert 'id="pt-mark"' in html
+        assert "CURRENT_MARKED_EOD" in html
+
+    def test_legacy_cache_labelled_and_under_diagnostics(self) -> None:
+        html = _read_index_html_15b()
+        assert "LEGACY RECONCILER CACHE" in html
+        assert "NOT CURRENT EOD VALUE" in html
+        # It lives inside the collapsed Advanced/Diagnostics details, not the default view.
+        adv_idx = html.index('id="pt-advanced-details"')
+        cache_idx = html.index('id="pt-legacy-cache"')
+        assert cache_idx > adv_idx
+        # The default Current EOD Mark panel comes BEFORE the advanced details.
+        assert html.index('id="pt-mark"') < adv_idx
+
+    def test_portfolio_subnav_and_single_active(self) -> None:
+        html = _read_index_html_15b()
+        assert 'id="pt-nav"' in html
+        for sub in ("positions", "orders", "performance", "risk", "advanced"):
+            assert "portfolio/" + sub in html
+        # Only one active portfolio subsection (nav highlight logic).
+        assert "_ptHighlightNav" in html
+
+    def test_legacy_cache_populated_from_operating_state(self) -> None:
+        fn = _fn_15b(_read_index_html_15b(), "async function _loadLegacyReconcilerCache",
+                     "window._loadLegacyReconcilerCache")
+        assert "/v1/dashboard/operating-state" in fn
+        assert "pt-legacy-total" in fn
+
+
+class TestUiResearchAuditWorkspace:
+    """Part G: five internal sections via deep links; one section active; raw tables
+    hidden from the default Champion Overview."""
+
+    def test_research_subnav_five_sections(self) -> None:
+        html = _read_index_html_15b()
+        assert 'id="ra-nav"' in html
+        for sub in ("", "performance", "daily-operations", "paper-books", "diagnostics"):
+            assert 'data-rasub="' + sub + '"' in html
+
+    def test_section_switching_logic(self) -> None:
+        html = _read_index_html_15b()
+        assert "_RA_SECTIONS" in html
+        assert "function _raApplySection" in html
+        # One section active: champion visible only on overview, panels filtered.
+        fn = _fn_15b(html, "function _raApplySection", "window._raApplySection")
+        assert "champion" in fn
+        assert "_RA_ALL_PANELS" in fn
+
+    def test_raw_tables_hidden_from_champion_overview(self) -> None:
+        html = _read_index_html_15b()
+        sections = _region_15b(html, "var _RA_SECTIONS", "var _RA_ALL_PANELS")
+        # Diagnostics carries the raw candidate + decision tables; the '' (Champion
+        # Overview) section carries none of them.
+        assert "'cp-panel'" in sections and "'ca-panel'" in sections
+        # The overview entry has an empty panels list.
+        assert "panels: []" in sections
+        assert "champion: true" in sections
+
+    def test_sections_lazy_load(self) -> None:
+        fn = _fn_15b(_read_index_html_15b(), "function _raLoadSection", "function _applySubsection")
+        assert "loadPaperPerformanceHistory" in fn
+        assert "loadActiveBook" in fn
+
+
+class TestUiOperationalDeepLinks:
+    """Parts G/I: deep links resolve to internal subsections; no blank nav buttons."""
+
+    def test_all_deep_link_routes_present(self) -> None:
+        html = _read_index_html_15b()
+        for route in ("portfolio/positions", "portfolio/orders", "portfolio/performance",
+                      "portfolio/risk", "research-audit/performance",
+                      "research-audit/daily-operations", "research-audit/paper-books",
+                      "research-audit/diagnostics"):
+            assert route in html, "missing deep-link route: " + route
+
+    def test_applysubsection_handles_research_audit(self) -> None:
+        fn = _fn_15b(_read_index_html_15b(), "function _applySubsection",
+                     "function _initRailTags")
+        assert "research-audit" in fn
+        assert "_raApplySection" in fn
+
+    def test_nav_links_have_text(self) -> None:
+        html = _read_index_html_15b()
+        ra = _region_15b(html, 'id="ra-nav"', "</div>")
+        for label in ("Champion Overview", "Performance", "Daily Operations",
+                      "Paper Books", "Diagnostics"):
+            assert label in ra, "missing / blank research nav label: " + label
+
+
+class TestUiNoDuplicateSafetyOrNativeDialogs:
+    """Part H: one page-level safety strip per workspace; no native dialogs."""
+
+    def test_no_native_dialogs(self) -> None:
+        import re
+        html = _read_index_html_15b()
+        for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
+                    r"(?<![A-Za-z0-9_.])prompt\s*\("):
+            assert not re.search(pat, html), "native dialog found: " + pat
+
+    def test_each_workspace_has_a_safety_strip(self) -> None:
+        html = _read_index_html_15b()
+        # Command Center statusbar strip.
+        cc = _region_15b(html, "cc-statusbar", 'id="cc-error"')
+        assert "PAPER ONLY" in cc and "NO LIVE ORDERS" in cc
+        # Daily Workflow terminal header strip.
+        dw = _region_15b(html, 'id="dw-terminal"', 'id="dw-error"')
+        assert "MANUAL REVIEW" in dw and "NO BROKER EXECUTION" in dw
+        # Portfolio terminal header strip.
+        assert 'id="pt-terminal"' in html
+        # Research & Audit page-level strip.
+        assert "ra-safety-strip" in html
+
+    def test_no_new_write_endpoint_added(self) -> None:
+        from pathlib import Path
+        app = (Path(__file__).parent.parent / "api" / "app.py").read_text(encoding="utf-8")
+        # The only new endpoint is a read-only GET.
+        assert '"/v1/dashboard/operating-state"' in app
+        seg = app[app.index('"/v1/dashboard/operating-state"') - 200:
+                  app.index('"/v1/dashboard/operating-state"')]
+        assert "@app.get(" in seg
