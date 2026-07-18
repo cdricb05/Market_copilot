@@ -36133,3 +36133,170 @@ class TestUiNoDuplicateSafetyOrNativeDialogs:
         seg = app[app.index('"/v1/dashboard/operating-state"') - 200:
                   app.index('"/v1/dashboard/operating-state"')]
         assert "@app.get(" in seg
+
+
+# =========================================================================== #
+# Phase 16-A - alpha integrity gate & research workspace finalization (UI static)
+# =========================================================================== #
+
+def _read_index_16a() -> str:
+    from pathlib import Path
+    html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+    return html_path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _fn_16a(html: str, start_needle: str, end_needle: str) -> str:
+    s = html.index(start_needle)
+    e = html.index(end_needle, s)
+    return html[s:e]
+
+
+class TestUiResearchSectionEffectiveIsolation:
+    """Part B: Champion Overview shows only the champion + integrity cards; every raw panel is
+    hidden ancestor-aware (the whole ra-archived-details subtree is display:none), not merely a
+    collapsed <details>."""
+
+    def test_apply_section_hides_archived_subtree_on_champion(self) -> None:
+        fn = _fn_16a(_read_index_16a(), "function _raApplySection", "window._raApplySection")
+        # The archived-details container itself is display:none on Champion Overview => the raw
+        # tables inside it have no offsetParent / zero client rects (ancestor-aware hidden).
+        assert "arch.style.display = onChampion ? 'none' : ''" in fn
+        assert "arch.open = !onChampion" in fn
+        # panels are only shown when NOT on champion AND in the active section.
+        assert "(!onChampion && sec.panels.indexOf(id) >= 0)" in fn
+
+    def test_isolation_comment_is_ancestor_aware(self) -> None:
+        fn = _fn_16a(_read_index_16a(), "function _raApplySection", "window._raApplySection")
+        assert "offsetParent" in fn and "client rects" in fn
+
+    def test_raw_alpha_tables_live_inside_archived_details(self) -> None:
+        html = _read_index_16a()
+        details_open = html.index('<details id="ra-archived-details">')
+        ca_panel = html.index('id="ca-panel"')
+        tab_end = html.index("end tab-audit-advanced")
+        # The Current Alpha Paper Test panel (raw Top25/Top50/Bottom25/sector/risk tables) is nested
+        # inside the archived-details container, so Champion Overview isolation hides it.
+        assert details_open < ca_panel < tab_end
+
+    def test_integrity_card_is_in_champion_section_only(self) -> None:
+        fn = _fn_16a(_read_index_16a(), "function _raApplySection", "window._raApplySection")
+        assert "ra-integrity-card" in fn
+        assert "integ.style.display = onChampion ? '' : 'none'" in fn
+
+
+class TestUiCurrentPaperChampionTerminology:
+    """Part C: the misleading PRODUCTION ALPHA badge is gone; CURRENT PAPER CHAMPION /
+    RESEARCH CHAMPION is used; the paper-only safety badges remain."""
+
+    def test_production_alpha_absent(self) -> None:
+        html = _read_index_16a()
+        assert "PRODUCTION ALPHA" not in html
+
+    def test_current_paper_champion_present(self) -> None:
+        html = _read_index_16a()
+        assert "CURRENT PAPER CHAMPION" in html
+        assert "RESEARCH CHAMPION" in html
+
+    def test_safety_badges_retained(self) -> None:
+        html = _read_index_16a()
+        for badge in ("PAPER ONLY", "MANUAL REVIEW", "NO BROKER EXECUTION", "AUTOMATION OFF",
+                      "NO LIVE ORDERS"):
+            assert badge in html, badge
+
+    def test_champion_note_says_not_production(self) -> None:
+        html = _read_index_16a()
+        note = _fn_16a(html, 'id="ra-champion-note"', "</div>")
+        assert "NOT production" in note and "not approved for live trading" in note.lower()
+
+
+class TestUiCurrentVsInitialCoverage:
+    """Part D: current daily-mark coverage and initial (frozen) entry-price coverage are separately
+    labelled; the old package coverage does not read as a current missing-price warning."""
+
+    def test_both_coverage_concepts_labelled(self) -> None:
+        html = _read_index_16a()
+        assert "Current Daily-Mark Coverage" in html
+        assert "Initial Entry-Price Coverage" in html
+
+    def test_integrity_card_has_both_coverage_fields(self) -> None:
+        html = _read_index_16a()
+        assert 'id="ra-ig-curcov"' in html
+        assert 'id="ra-ig-initcov"' in html
+
+    def test_diagnostics_initial_coverage_note(self) -> None:
+        html = _read_index_16a()
+        note = _fn_16a(html, 'id="ca-initial-coverage-note"', "Top 10 candidates")
+        assert "INITIAL ENTRY-PRICE COVERAGE" in note
+        assert "NOT a current missing-price warning" in note
+
+    def test_current_coverage_render_distinguishes(self) -> None:
+        fn = _fn_16a(_read_index_16a(), "function _renderIntegrityGate", "_igCovPct")
+        assert "current_daily_mark_coverage" in fn
+        assert "initial_entry_price_coverage" in fn
+
+
+class TestUiAlphaIntegrityGate:
+    """Part H: the Champion Overview integrity-gate card and its read-only loader exist and wire to
+    the GET endpoint; no native dialogs; the recommended action + blockers are rendered."""
+
+    def test_integrity_card_present(self) -> None:
+        html = _read_index_16a()
+        for el in ('id="ra-integrity-card"', 'id="ra-ig-status"', 'id="ra-ig-shadow"',
+                   'id="ra-ig-blockers"', 'id="ra-ig-next"', 'id="ra-ig-horizon"',
+                   'id="ra-ig-checkpoint"', 'id="ra-ig-mark"'):
+            assert el in html, el
+
+    def test_loader_fetches_integrity_endpoint(self) -> None:
+        fn = _fn_16a(_read_index_16a(), "async function loadCurrentAlphaIntegrityGate",
+                     "window.loadCurrentAlphaIntegrityGate")
+        assert "/v1/research/current-alpha/integrity-gate" in fn
+        assert "call('GET'" in fn
+
+    def test_render_populates_status_and_next_action(self) -> None:
+        fn = _fn_16a(_read_index_16a(), "function _renderIntegrityGate",
+                     "// ===== Alpha Integrity Gate (Phase 16-A) END")
+        assert "ra-ig-status" in fn and "sector_shadow_decision" in fn
+        assert "next_recommended_research_action" in fn
+        assert "blockers" in fn
+
+    def test_no_native_dialogs_in_integrity_block(self) -> None:
+        fn = _fn_16a(_read_index_16a(), "// ===== Alpha Integrity Gate (Phase 16-A) START",
+                     "// ===== Alpha Integrity Gate (Phase 16-A) END")
+        for bad in ("alert(", "confirm(", "prompt("):
+            assert bad not in fn, bad
+
+    def test_refresh_button_is_not_blank(self) -> None:
+        html = _read_index_16a()
+        btn = _fn_16a(html, 'id="ra-ig-refresh"', "</button>")
+        assert "Refresh" in btn
+
+
+class TestUiResearchDiagnosticsRouting:
+    """Part B/I: the five Research sections route with deep links, Diagnostics holds the raw panels,
+    and browser history is preserved."""
+
+    def test_diagnostics_section_holds_raw_panels(self) -> None:
+        fn = _fn_16a(_read_index_16a(), "var _RA_SECTIONS", "var _RA_ALL_PANELS")
+        assert "'diagnostics'" in fn
+        for panel in ("cp-panel", "ca-panel", "cdg-panel"):
+            assert panel in fn, panel
+
+    def test_five_section_deep_links_present(self) -> None:
+        html = _read_index_16a()
+        for sub in ("", "performance", "daily-operations", "paper-books", "diagnostics"):
+            route = "research-audit" + (("/" + sub) if sub else "")
+            assert "navigateToRoute('" + route + "')" in html, route
+        for sub in ("performance", "daily-operations", "paper-books", "diagnostics"):
+            assert 'data-rasub="' + sub + '"' in html, sub
+
+    def test_history_routing_preserved(self) -> None:
+        html = _read_index_16a()
+        i = html.index("function _applySubsection")
+        seg = html[i:i + 1500]
+        assert "research-audit" in seg and "_raApplySection" in seg
+
+    def test_nav_links_have_labels(self) -> None:
+        html = _read_index_16a()
+        nav = _fn_16a(html, 'id="ra-nav"', "</div>")
+        for label in ("Champion Overview", "Performance", "Daily Operations", "Paper Books"):
+            assert label in nav, label

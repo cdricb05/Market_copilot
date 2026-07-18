@@ -4262,14 +4262,15 @@
         <div id="ra-champion-card" class="ra-champion">
           <div class="ra-hd">
             <span class="ra-title">Current Champion</span>
-            <span class="cc-badge safe">PRODUCTION ALPHA</span>
+            <span class="cc-badge safe">CURRENT PAPER CHAMPION</span>
+            <span class="cc-badge">RESEARCH CHAMPION</span>
             <span class="cc-badge">PAPER ONLY</span>
             <span class="cc-badge">MANUAL REVIEW</span>
             <span class="cc-spacer" style="flex:1;"></span>
             <button class="cc-btn ghost" id="ra-champion-refresh" onclick="loadResearchChampionSummary()" title="Reload the current champion summary (read-only).">&#8635; Refresh</button>
           </div>
           <div class="ra-champion-grid">
-            <div class="ra-champion-kpi"><div class="k">Champion Strategy</div><div class="v" id="ra-champion-strategy" title="The committed production alpha.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Champion Strategy</div><div class="v" id="ra-champion-strategy" title="The current paper champion — research validation, paper-only (NOT production, NOT live-approved).">—</div></div>
             <div class="ra-champion-kpi"><div class="k">Provisional Primary Book</div><div class="v" id="ra-champion-primary" title="Provisional TOP50 primary paper book.">—</div></div>
             <div class="ra-champion-kpi"><div class="k">Challenger Book</div><div class="v" id="ra-champion-challenger" title="TOP25 challenger paper book.">—</div></div>
             <div class="ra-champion-kpi"><div class="k">Current Decision</div><div class="v" id="ra-champion-decision" title="Latest decision-gate outcome.">—</div></div>
@@ -4278,8 +4279,46 @@
             <div class="ra-champion-kpi"><div class="k">Current Return</div><div class="v" id="ra-champion-return">—</div></div>
             <div class="ra-champion-kpi"><div class="k">Signal Date</div><div class="v" id="ra-champion-signal">—</div></div>
           </div>
-          <div class="cc-na-note" id="ra-champion-note" style="margin-top:8px;">composite_sn is the current champion. The live champion panels (Current Alpha Paper Test, decision gate, paper performance history) appear below. Older research candidates are archived at the bottom of this page and are not the current champion.</div>
+          <div class="cc-na-note" id="ra-champion-note" style="margin-top:8px;">composite_sn is the current PAPER champion — a research/paper-only strategy, NOT production and NOT approved for live trading. Its Phase 16-A integrity-gate status is summarized below. The raw candidate, sector-exposure, risk-limit and reconstructed-history tables live under Diagnostics &amp; Archive, not here.</div>
         </div>
+        <!-- ===================== Phase 16-A ALPHA INTEGRITY GATE (Champion Overview) START ============ -->
+        <div id="ra-integrity-card" class="ra-champion" style="border-color: var(--warning,#f59e0b); background: rgba(245,158,11,.05);">
+          <div class="ra-hd">
+            <span class="ra-title">Alpha Integrity Gate</span>
+            <span class="cc-badge" id="ra-ig-status" title="Phase 16-A paper-test integrity status (read-only).">—</span>
+            <span class="cc-badge safe">CURRENT PAPER CHAMPION</span>
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge">NO LIVE ORDERS</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <button class="cc-btn ghost" id="ra-ig-refresh" onclick="loadCurrentAlphaIntegrityGate()" title="Reload the read-only Phase 16-A integrity gate.">&#8635; Refresh</button>
+          </div>
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge">MANUAL REVIEW</span>
+            <span class="cc-badge">NO BROKER EXECUTION</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge" id="ra-ig-nolive">NOT LIVE-APPROVED</span>
+          </div>
+          <div class="ra-champion-grid">
+            <div class="ra-champion-kpi"><div class="k">Current Operating Mark</div><div class="v" id="ra-ig-mark">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Top25 Return / Excess</div><div class="v" id="ra-ig-top25">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Top50 Return / Excess</div><div class="v" id="ra-ig-top50">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">SPY (since signal)</div><div class="v" id="ra-ig-spy">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Current Daily-Mark Coverage</div><div class="v" id="ra-ig-curcov" title="Latest daily refresh coverage — held names with a fresh completed EOD mark.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Initial Entry-Price Coverage</div><div class="v" id="ra-ig-initcov" title="Frozen Phase 13-A entry-price coverage at initialization — NOT a current missing-price warning.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Sector Metadata Coverage</div><div class="v" id="ra-ig-sectorcov" title="Owned-data GICS resolution of the champion universe, before to after.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Horizon Progress</div><div class="v" id="ra-ig-horizon" title="63 trading-day quarterly paper-test horizon.">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Next Checkpoint</div><div class="v" id="ra-ig-checkpoint">—</div></div>
+            <div class="ra-champion-kpi"><div class="k">Sector Shadow Decision</div><div class="v" id="ra-ig-shadow" title="Phase 16-A shadow sector-neutral revalidation decision.">—</div></div>
+          </div>
+          <div class="cc-na-note" id="ra-ig-shadowdetail" style="margin-top:8px;">—</div>
+          <div id="ra-ig-blockers-wrap" style="margin-top:8px; display:none;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--label);">Blockers</div>
+            <ul id="ra-ig-blockers" style="margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--text-secondary,#a8b8d8);"></ul>
+          </div>
+          <div class="cc-na-note" id="ra-ig-next" style="margin-top:8px;"><strong>Next research action:</strong> —</div>
+          <div class="cc-na-note" id="ra-ig-nolive-note" style="margin-top:6px;color:var(--warning,#f59e0b);">Research validation / paper-only. No status here approves live trading — no orders, no broker, no automation.</div>
+        </div>
+        <!-- ===================== Phase 16-A ALPHA INTEGRITY GATE END ===================== -->
         <div id="ra-paper-test-header" style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:2px 0 8px;">Current Champion — Live Panels &amp; Paper-Test History</div>
         <!-- ===================== Phase 14-C CURRENT CHAMPION (first) END ===================== -->
 
@@ -4436,6 +4475,13 @@
               <div style="font-size:11px;color:var(--text-accent);">Go / No-Go: <span class="mono" id="ca-go-no-go" style="color:var(--text-primary);font-weight:700;">—</span></div>
             </div>
 
+            <!-- Phase 16-A Part D: this is the FROZEN Phase 13-A package. Any entry-price
+                 coverage here is INITIAL coverage at initialization, NOT a current warning. -->
+            <div id="ca-initial-coverage-note" style="background:rgba(59,130,246,.08);border:1px solid var(--info,#3b82f6);border-radius:3px;padding:8px 10px;font-size:11px;color:var(--text-secondary,#a8b8d8);margin-bottom:12px;">
+              <span class="cc-badge" style="background:#1a5276;color:#fff;">INITIAL ENTRY-PRICE COVERAGE</span>
+              <span style="margin-left:6px;">Frozen Phase 13-A package. Its entry-price coverage (Top25 14/25, Top50 24/50) is the INITIAL coverage when the paper book was first initialized &mdash; NOT a current missing-price warning. The CURRENT daily-mark coverage (Top25 25/25, Top50 50/50) is shown on the Champion Overview Alpha Integrity Gate.</span>
+            </div>
+
             <!-- Top 10 candidates (quick read) -->
             <div style="margin-bottom:12px;">
               <div class="card-title" style="border:none;margin-bottom:6px;padding:0;">Top 10 Candidates</div>
@@ -4490,8 +4536,13 @@
               <ul id="ca-source-files" style="margin:6px 0 0;padding-left:18px;font-size:10px;color:var(--text-accent);line-height:1.6;word-break:break-all;"></ul>
             </details>
           </div>
+        </div>
+        <!-- Current Alpha Paper Test (Phase 13-B) END -->
 
-          <!-- Daily Alpha Operations (Phase 13-CDE) START — read-only daily paper
+        <!-- Daily Alpha Operations (Phase 13-CDE) START — read-only daily paper
+             Phase 16-A: moved OUT of #ca-panel to be a sibling managed panel so the
+             Research "Daily Operations" sub-section can show it independently (its
+             parent is no longer hidden by the section isolation loop).
                PnL, paper-only action preview, and rebalance-frequency simulator on
                the committed Phase 13-A package. GET-only:
                /v1/research/current-alpha/pnl, /actions-preview, /rebalance-simulator.
@@ -4630,9 +4681,7 @@
               <ul id="cao-sim-warnings" style="margin:6px 0 0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
             </div>
           </div>
-          <!-- Daily Alpha Operations (Phase 13-CDE) END -->
-        </div>
-        <!-- Current Alpha Paper Test (Phase 13-B) END -->
+        <!-- Daily Alpha Operations (Phase 13-CDE) END -->
 
         <!-- Current Alpha Paper Book (Phase 13-F) START — persistent paper-only book +
              daily PnL history for the champion alpha (composite_sn). Preview-create /
@@ -7890,6 +7939,86 @@ async function loadPaperBookDecisionGate(btn) {
   } catch (e) { /* read-only overlay; leave placeholder on failure */ }
 }
 // ===== Paper Book Decision Gate (Phase 13-J) END =====
+
+// ===== Alpha Integrity Gate (Phase 16-A) START =====
+function _igText(id, val) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = (val == null || val === '') ? '—' : String(val);
+}
+function _igFx(v, dp) { return (v == null || isNaN(parseFloat(v))) ? '—' : parseFloat(v).toFixed(dp); }
+function _igCovPct(v) { return (v == null || isNaN(parseFloat(v))) ? '—' : (Math.round(parseFloat(v)) + '%'); }
+function _igPct(v, dp) {
+  if (v == null || v === '' || isNaN(parseFloat(v))) return '—';
+  var n = parseFloat(v); return (n >= 0 ? '+' : '') + n.toFixed(dp == null ? 2 : dp) + '%';
+}
+function _igPP(v) {
+  if (v == null || v === '' || isNaN(parseFloat(v))) return '—';
+  var n = parseFloat(v); return (n >= 0 ? '+' : '') + n.toFixed(2) + 'pp';
+}
+var _IG_STATUS_CLASS = {
+  PAPER_TEST_CONTINUE: 'safe',
+  PAPER_TEST_CHECKPOINT_DUE: 'warn',
+  RESEARCH_REVALIDATION_REQUIRED: 'warn',
+  DATA_INTEGRITY_BLOCKED: 'danger',
+};
+async function loadCurrentAlphaIntegrityGate() {
+  var badge = document.getElementById('ra-ig-status');
+  if (badge) badge.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/current-alpha/integrity-gate');
+    if (!r.ok) { if (badge) badge.textContent = 'Unavailable'; return; }
+    _renderIntegrityGate(await r.json());
+  } catch (e) {
+    if (badge) badge.textContent = 'Unavailable';
+  }
+}
+window.loadCurrentAlphaIntegrityGate = loadCurrentAlphaIntegrityGate;
+function _renderIntegrityGate(d) {
+  d = d || {};
+  var badge = document.getElementById('ra-ig-status');
+  if (badge) {
+    badge.textContent = (d.status_label || d.status || '—');
+    badge.className = 'cc-badge ' + (_IG_STATUS_CLASS[d.status] || 'warn');
+  }
+  _igText('ra-ig-mark', d.current_operating_mark_date);
+  var perf = d.current_performance || {};
+  _igText('ra-ig-top25', _igPct(perf.top25_return_pct) + ' / ' + _igPP(perf.top25_excess_return_pct_points));
+  _igText('ra-ig-top50', _igPct(perf.top50_return_pct) + ' / ' + _igPP(perf.top50_excess_return_pct_points));
+  _igText('ra-ig-spy', _igPct(perf.spy_return_pct));
+  var cc = d.current_daily_mark_coverage || {};
+  _igText('ra-ig-curcov', 'Top25 ' + (cc.top25_covered != null ? cc.top25_covered : '—') + '/' + (cc.top25_total != null ? cc.top25_total : '—')
+    + ' · Top50 ' + (cc.top50_covered != null ? cc.top50_covered : '—') + '/' + (cc.top50_total != null ? cc.top50_total : '—'));
+  var ic = d.initial_entry_price_coverage || {};
+  _igText('ra-ig-initcov', 'Top25 ' + (ic.top25_covered != null ? ic.top25_covered : '—') + '/' + (ic.top25_total != null ? ic.top25_total : '—')
+    + ' · Top50 ' + (ic.top50_covered != null ? ic.top50_covered : '—') + '/' + (ic.top50_total != null ? ic.top50_total : '—') + ' (frozen)');
+  var sc = d.sector_metadata_coverage || {};
+  _igText('ra-ig-sectorcov', 'All ' + _igCovPct(sc.all234_before_pct) + ' → ' + _igCovPct(sc.all234_after_pct)
+    + ' · Top25 ' + _igCovPct(sc.top25_before_pct) + ' → ' + _igCovPct(sc.top25_after_pct));
+  var hp = d.horizon_progress || {};
+  _igText('ra-ig-horizon', (hp.trading_days_elapsed != null ? hp.trading_days_elapsed : '—') + '/' + (hp.target_holding_period_trading_days || 63)
+    + ' days · ' + (hp.trading_days_remaining != null ? hp.trading_days_remaining : '—') + ' left');
+  _igText('ra-ig-checkpoint', hp.next_formal_checkpoint_date);
+  _igText('ra-ig-shadow', (d.sector_shadow_decision ? String(d.sector_shadow_decision).replace(/_/g, ' ') : '—'));
+  var m = d.rank_correlation_and_overlap_metrics || {};
+  var detail = document.getElementById('ra-ig-shadowdetail');
+  if (detail) {
+    detail.textContent = 'Champion vs sector-repaired shadow: full-panel rank Spearman ' + _igFx(m.full_panel_rank_spearman, 3)
+      + ', Top25 overlap ' + _igFx(m.top25_overlap, 2) + ', Top50 overlap ' + _igFx(m.top50_overlap, 2)
+      + '; IC t ' + _igFx(m.champion_ic_t_stat, 2) + ' → ' + _igFx(m.shadow_ic_t_stat, 2)
+      + ', net25 ' + _igFx(m.champion_net25_spread, 4) + ' → ' + _igFx(m.shadow_net25_spread, 4) + '.';
+  }
+  var wrap = document.getElementById('ra-ig-blockers-wrap');
+  var ul = document.getElementById('ra-ig-blockers');
+  var blk = d.blockers || [];
+  if (ul) {
+    ul.innerHTML = '';
+    blk.forEach(function (b) { var li = document.createElement('li'); li.textContent = b; ul.appendChild(li); });
+  }
+  if (wrap) wrap.style.display = blk.length ? '' : 'none';
+  var nx = document.getElementById('ra-ig-next');
+  if (nx) nx.innerHTML = '<strong>Next research action:</strong> ' + escapeHtml(d.next_recommended_research_action || '—');
+}
+// ===== Alpha Integrity Gate (Phase 16-A) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 
@@ -20342,25 +20471,30 @@ function _raApplySection(sub) {
   sub = _RA_SECTIONS[sub || ''] ? (sub || '') : '';
   var sec = _RA_SECTIONS[sub];
   _raHighlightNav(sub);
+  var onChampion = !!sec.champion;
   var champ = document.getElementById('ra-champion-card');
+  var integ = document.getElementById('ra-integrity-card');
   var champHdr = document.getElementById('ra-paper-test-header');
   var arch = document.getElementById('ra-archived-details');
-  if (champ) champ.style.display = sec.champion ? '' : 'none';
-  if (champHdr) champHdr.style.display = sec.champion ? '' : 'none';
-  if (sub === '') {
-    // Champion Overview: raw research tables hidden (archive collapsed). Reset every
-    // archived panel so a later manual expand shows them all again.
-    _RA_ALL_PANELS.forEach(function (id) { var el = document.getElementById(id); if (el) el.style.display = ''; });
-    if (arch) arch.open = false;
-    return;
+  // Champion Overview shows ONLY the champion identity + integrity-gate summary cards. Every raw
+  // panel (candidate/preview/decision-gate/performance/paper-book tables) lives inside
+  // ra-archived-details; on Champion Overview we hide that ENTIRE subtree with display:none so no
+  // raw table can be effectively visible by any ancestor-aware measure (offsetParent null / zero
+  // client rects), not merely a collapsed <details>. On a sub-section we reveal the container and
+  // show ONLY that section's panels.
+  if (champ) champ.style.display = onChampion ? '' : 'none';
+  if (integ) integ.style.display = onChampion ? '' : 'none';
+  if (champHdr) champHdr.style.display = onChampion ? 'none' : '';
+  if (arch) {
+    arch.style.display = onChampion ? 'none' : '';
+    arch.open = !onChampion;
   }
-  // A sub-section: reveal the archive container and show ONLY this section's panels.
-  if (arch) arch.open = true;
   _RA_ALL_PANELS.forEach(function (id) {
     var el = document.getElementById(id);
-    if (el) el.style.display = (sec.panels.indexOf(id) >= 0) ? '' : 'none';
+    if (el) el.style.display = (!onChampion && sec.panels.indexOf(id) >= 0) ? '' : 'none';
   });
-  try { _raLoadSection(sub); } catch (e) {}
+  if (onChampion) { try { loadCurrentAlphaIntegrityGate(); } catch (e) {} }
+  else { try { _raLoadSection(sub); } catch (e) {} }
 }
 window._raApplySection = _raApplySection;
 // Best-effort, read-only data load for the active Research & Audit section.

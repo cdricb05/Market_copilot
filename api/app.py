@@ -161,6 +161,9 @@ from paper_trader.api.current_alpha_performance import (
 from paper_trader.api.current_alpha_decision_gate import (
     load_current_alpha_decision_gate,
 )
+from paper_trader.api.current_alpha_integrity_gate import (
+    load_current_alpha_integrity_gate,
+)
 from paper_trader.api.command_center import (
     load_command_center,
 )
@@ -4420,6 +4423,36 @@ def research_current_alpha_decision_gate() -> dict:
     never a stack trace.
     """
     return load_current_alpha_decision_gate()
+
+
+@app.get(
+    "/v1/research/current-alpha/integrity-gate",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_integrity_gate() -> dict:
+    """
+    Read-only Phase 16-A paper-test integrity gate for the current paper champion.
+
+    Composes the existing read-only loaders (decision gate, daily status, canonical
+    operating state) with the committed Phase 16-A research artifacts (the sector-
+    metadata integrity audit and the shadow sector-neutral revalidation) into one
+    integrity view: the paper-test status (continue / checkpoint-due / research-
+    revalidation-required / data-integrity-blocked), the sector-shadow decision and
+    its rank-correlation / book-overlap metrics, the sector-metadata coverage before
+    vs after the owned-data repair, the 63-trading-day horizon progress and next
+    checkpoint, the current Top25 / Top50 / SPY performance, the CURRENT daily-mark
+    coverage kept explicitly separate from the INITIAL (frozen Phase 13-A) entry-price
+    coverage, the risk flags, blockers, and the recommended next research action.
+
+    Strictly read-only: it reads existing service outputs and committed JSON artifacts,
+    writes no database rows, launches no subprocess, calls neither the prediction
+    service nor any external provider, and creates no signals / trade decisions /
+    orders / fills. No status it returns approves live trading — every payload carries
+    an explicit no-live-trading block. A missing or unreadable artifact degrades to a
+    ``warnings[]`` entry with HTTP 200, never a stack trace.
+    """
+    return load_current_alpha_integrity_gate()
 
 
 @app.get(
