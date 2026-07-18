@@ -36300,3 +36300,114 @@ class TestUiResearchDiagnosticsRouting:
         nav = _fn_16a(html, 'id="ra-nav"', "</div>")
         for label in ("Champion Overview", "Performance", "Daily Operations", "Paper Books"):
             assert label in nav, label
+
+
+# =========================================================================== #
+# Phase 17 - sector-repaired revalidation workspace (UI static)
+# =========================================================================== #
+
+class TestUiAlphaRevalidationWorkspace:
+    """Part I: the Revalidation subsection card + read-only loader exist, wire to the GET endpoint,
+    and render the side-by-side original-vs-repaired metrics table."""
+
+    def test_revalidation_panel_present(self):
+        html = _read_index_16a()
+        for el in ('id="crv-panel"', 'id="crv-status"', 'id="crv-decision"', 'id="crv-metrics-body"',
+                   'id="crv-coverage"', 'id="crv-ov25"', 'id="crv-ov50"', 'id="crv-entering-leaving"',
+                   'id="crv-exposure-body"', 'id="crv-challenger"', 'id="crv-next"'):
+            assert el in html, el
+
+    def test_loader_fetches_revalidation_endpoint(self):
+        fn = _fn_16a(_read_index_16a(), "async function loadCurrentAlphaRevalidation",
+                     "window.loadCurrentAlphaRevalidation")
+        assert "/v1/research/current-alpha/revalidation" in fn
+        assert "call('GET'" in fn
+
+    def test_side_by_side_metric_columns(self):
+        panel = _fn_16a(_read_index_16a(), 'id="crv-panel"',
+                        "Phase 17 SECTOR-REPAIRED REVALIDATION (subsection) END")
+        assert "Current Champion" in panel and "Sector-Repaired Challenger" in panel
+        assert "Side-by-Side Metrics" in panel
+
+    def test_render_builds_metric_rows(self):
+        fn = _fn_16a(_read_index_16a(), "function _renderRevalidation",
+                     "// ===== Sector-Repaired Revalidation (Phase 17) END")
+        for label in ("IC t-stat", "Net-25bps spread", "Net-50bps spread", "Max drawdown"):
+            assert label in fn, label
+        assert "original_vs_repaired_metrics" in fn and "challenger_package" in fn
+
+    def test_refresh_button_not_blank(self):
+        btn = _fn_16a(_read_index_16a(), 'id="crv-refresh"', "</button>")
+        assert "Refresh" in btn
+
+
+class TestUiAlphaRevalidationSafety:
+    """Part I terminology + safety: CURRENT PAPER CHAMPION / SECTOR-REPAIRED PAPER CHALLENGER /
+    RESEARCH REVALIDATION / PAPER ONLY / MANUAL REVIEW are used; production / live-champion wording is
+    never used; no native dialogs."""
+
+    def test_correct_terminology_in_panel(self):
+        panel = _fn_16a(_read_index_16a(), 'id="crv-panel"',
+                        "Phase 17 SECTOR-REPAIRED REVALIDATION (subsection) END")
+        for term in ("CURRENT PAPER CHAMPION", "SECTOR-REPAIRED PAPER CHALLENGER", "RESEARCH REVALIDATION",
+                     "PAPER ONLY", "MANUAL REVIEW"):
+            assert term in panel, term
+
+    def test_no_production_or_live_wording_in_panel(self):
+        panel = _fn_16a(_read_index_16a(), 'id="crv-panel"',
+                        "Phase 17 SECTOR-REPAIRED REVALIDATION (subsection) END")
+        for bad in ("PRODUCTION ALPHA", "LIVE CHAMPION", "APPROVED FOR LIVE TRADING"):
+            assert bad not in panel, bad
+
+    def test_no_live_note_present(self):
+        note = _fn_16a(_read_index_16a(), 'id="crv-nolive-note"', "</div>")
+        assert "no live trading" in note.lower() or "approves live trading" in note.lower()
+
+    def test_no_native_dialogs_in_revalidation_block(self):
+        fn = _fn_16a(_read_index_16a(), "// ===== Sector-Repaired Revalidation (Phase 17) START",
+                     "// ===== Sector-Repaired Revalidation (Phase 17) END")
+        for bad in ("alert(", "confirm(", "prompt("):
+            assert bad not in fn, bad
+
+
+class TestUiAlphaRevalidationRouting:
+    """Part I routing: the sixth subsection routes with a deep link, is ancestor-aware isolated (a
+    managed panel toggled by _raApplySection, NOT in the champion section), Champion Overview stays
+    compact, and Diagnostics still holds the raw panels."""
+
+    def test_nav_link_and_deep_link(self):
+        html = _read_index_16a()
+        assert 'data-rasub="revalidation"' in html
+        assert "navigateToRoute('research-audit/revalidation')" in html
+        nav = _fn_16a(html, 'id="ra-nav"', "</div>")
+        assert "Revalidation" in nav
+
+    def test_section_registered_as_managed_panel(self):
+        fn = _fn_16a(_read_index_16a(), "var _RA_SECTIONS", "function _raHighlightNav")
+        assert "'revalidation'" in fn and "'crv-panel'" in fn
+        # crv-panel is in the managed-panels list (toggled/hidden ancestor-aware by _raApplySection)
+        allp = _fn_16a(_read_index_16a(), "var _RA_ALL_PANELS", "function _raHighlightNav")
+        assert "'crv-panel'" in allp
+
+    def test_champion_overview_stays_compact(self):
+        # the champion section ('') has an empty panels list, so crv-panel is NOT shown on Champion
+        # Overview; the panel itself defaults to display:none until its subsection is active.
+        fn = _fn_16a(_read_index_16a(), "var _RA_SECTIONS", "function _raHighlightNav")
+        assert "panels: [], champion: true" in fn        # champion section has NO panels
+        panel_open = _fn_16a(_read_index_16a(), 'id="crv-panel"', ">")
+        assert "display:none" in panel_open
+
+    def test_loader_wired_for_subsection(self):
+        fn = _fn_16a(_read_index_16a(), "function _raLoadSection", "function _applySubsection")
+        assert "'revalidation': ['loadCurrentAlphaRevalidation']" in fn
+
+    def test_diagnostics_still_holds_raw_panels(self):
+        fn = _fn_16a(_read_index_16a(), "var _RA_SECTIONS", "function _raHighlightNav")
+        assert "'diagnostics'" in fn
+        for panel in ("cp-panel", "ca-panel", "cdg-panel"):
+            assert panel in fn, panel
+
+    def test_revalidation_holds_detailed_tables(self):
+        panel = _fn_16a(_read_index_16a(), 'id="crv-panel"',
+                        "Phase 17 SECTOR-REPAIRED REVALIDATION (subsection) END")
+        assert 'id="crv-metrics"' in panel and 'id="crv-exposure"' in panel

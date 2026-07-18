@@ -164,6 +164,9 @@ from paper_trader.api.current_alpha_decision_gate import (
 from paper_trader.api.current_alpha_integrity_gate import (
     load_current_alpha_integrity_gate,
 )
+from paper_trader.api.current_alpha_revalidation import (
+    load_current_alpha_revalidation,
+)
 from paper_trader.api.command_center import (
     load_command_center,
 )
@@ -4453,6 +4456,36 @@ def research_current_alpha_integrity_gate() -> dict:
     ``warnings[]`` entry with HTTP 200, never a stack trace.
     """
     return load_current_alpha_integrity_gate()
+
+
+@app.get(
+    "/v1/research/current-alpha/revalidation",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_revalidation() -> dict:
+    """
+    Read-only Phase 17 sector-repaired revalidation for the current paper champion.
+
+    Surfaces the FORMAL Phase 17-A revalidation result: the terminal decision
+    (PAPER_CHALLENGER_ELIGIBLE / KEEP_CURRENT_PAPER_CHAMPION / RESEARCH_REVALIDATION_
+    FAILED / BLOCKED_*), the reasons, the exact-reproduction of the frozen champion,
+    the sector-metadata coverage before vs after the owned-data repair, the side-by-side
+    original-vs-repaired validation battery (IC t-stat, net-25/50bps spread, turnover,
+    drawdown, rolling and subperiod stability), the Top25/Top50 overlap and
+    entering/leaving names, the repaired sector exposures and concentration warnings, the
+    Phase 17-B challenger-package availability, the current champion daily marks for
+    context, and the exact next research action.
+
+    Strictly read-only: it reads the committed Phase 17 research artifacts and (where
+    useful) the read-only daily status, writes no database rows, launches no subprocess,
+    calls neither the prediction service nor any external provider, and creates no
+    signals / trade decisions / orders / fills. No decision it returns approves live
+    trading and it never changes the champion — every payload carries an explicit
+    no-live-trading block. A missing or unreadable artifact degrades to a ``warnings[]``
+    entry with HTTP 200, never a stack trace.
+    """
+    return load_current_alpha_revalidation()
 
 
 @app.get(

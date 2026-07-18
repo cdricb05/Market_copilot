@@ -4247,6 +4247,7 @@
           <a id="ra-nav-performance" data-rasub="performance" onclick="navigateToRoute('research-audit/performance')" title="Top25 / Top50 / SPY performance + historical evidence">Performance</a>
           <a id="ra-nav-daily-operations" data-rasub="daily-operations" onclick="navigateToRoute('research-audit/daily-operations')" title="Current mark, action counts, rebalance simulator">Daily Operations</a>
           <a id="ra-nav-paper-books" data-rasub="paper-books" onclick="navigateToRoute('research-audit/paper-books')" title="Active paper book, coverage, PnL history">Paper Books</a>
+          <a id="ra-nav-revalidation" data-rasub="revalidation" onclick="navigateToRoute('research-audit/revalidation')" title="Sector-repaired revalidation: champion vs repaired challenger, side-by-side metrics">Revalidation</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -4419,6 +4420,91 @@
         </div>
         </details>
         <!-- ===================== Phase 14-C ARCHIVED RESEARCH (collapsed, last) END ===================== -->
+
+        <!-- ===================== Phase 17 SECTOR-REPAIRED REVALIDATION (subsection) START ============ -->
+        <!-- Managed panel: shown ONLY on the Research & Audit "Revalidation" subsection
+             (#research-audit/revalidation). Renders GET /v1/research/current-alpha/revalidation.
+             Detailed side-by-side tables live here so Champion Overview stays compact.
+             PAPER ONLY / MANUAL REVIEW: no orders, no signals, no trade decisions, no automation,
+             no broker execution, no prediction-service call, no DB writes; the champion is never
+             replaced and nothing is approved for live trading. -->
+        <div class="card" id="crv-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Sector-Repaired Revalidation <span class="cc-badge" id="crv-status" title="Phase 17-A revalidation decision (read-only).">—</span></span>
+            <button class="btn-sm" id="crv-refresh" onclick="loadCurrentAlphaRevalidation()" title="Reload the read-only Phase 17 revalidation.">&#8635; Refresh Revalidation</button>
+          </div>
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">RESEARCH REVALIDATION</span>
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge">NO BROKER EXECUTION</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge" id="crv-nolive">NOT LIVE-APPROVED</span>
+          </div>
+
+          <!-- Champion vs Challenger identity -->
+          <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:2px 0 8px;font-size:12px;">
+            <div>Current Paper Champion: <b class="mono" id="crv-champion-signal">composite_sn</b>
+              <span class="cc-badge safe">CURRENT PAPER CHAMPION</span></div>
+            <div>Sector-Repaired Candidate: <b class="mono" id="crv-candidate-signal">composite_sn_repaired</b>
+              <span class="cc-badge">SECTOR-REPAIRED PAPER CHALLENGER</span></div>
+          </div>
+
+          <div class="cc-na-note" id="crv-decision" style="margin:6px 0;">—</div>
+          <div id="crv-reasons-wrap" style="margin:4px 0 8px; display:none;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--label);">Decision reasons</div>
+            <ul id="crv-reasons" style="margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--text-secondary,#a8b8d8);"></ul>
+          </div>
+
+          <!-- Side-by-side validation battery -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:8px 0 4px;">Side-by-Side Metrics — Current Champion vs Sector-Repaired Challenger</div>
+          <div style="overflow-x:auto;">
+            <table id="crv-metrics" style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="text-align:left;color:var(--label);border-bottom:1px solid var(--border,#2a3550);">
+                <th style="padding:4px 8px;">Metric</th><th style="padding:4px 8px;">Current Champion</th>
+                <th style="padding:4px 8px;">Sector-Repaired Challenger</th></tr></thead>
+              <tbody id="crv-metrics-body"></tbody>
+            </table>
+          </div>
+
+          <!-- Reproduction + sector coverage before/after -->
+          <div style="display:flex;gap:24px;flex-wrap:wrap;margin:10px 0;font-size:12px;">
+            <div>Reproduces frozen champion: <b id="crv-repro">—</b></div>
+            <div>Sector coverage before &rarr; after: <b id="crv-coverage">—</b></div>
+          </div>
+
+          <!-- Top25/Top50 overlap + repaired concentration -->
+          <div style="display:flex;gap:24px;flex-wrap:wrap;margin:6px 0;font-size:12px;">
+            <div>Top25 overlap: <b id="crv-ov25">—</b></div>
+            <div>Top50 overlap: <b id="crv-ov50">—</b></div>
+            <div>Repaired Top25 largest sector: <b id="crv-conc25">—</b></div>
+            <div>Repaired Top50 largest sector: <b id="crv-conc50">—</b></div>
+          </div>
+          <div id="crv-conc-wrap" style="margin:4px 0;display:none;">
+            <ul id="crv-concentration" style="margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--warning,#f59e0b);"></ul>
+          </div>
+
+          <!-- Names entering / leaving -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:10px 0 4px;">Names Entering / Leaving (Champion &rarr; Repaired)</div>
+          <div id="crv-entering-leaving" style="font-size:12px;color:var(--text-secondary,#a8b8d8);">—</div>
+
+          <!-- Repaired sector exposure -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:10px 0 4px;">Repaired Sector Exposure</div>
+          <div style="overflow-x:auto;">
+            <table id="crv-exposure" style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="text-align:left;color:var(--label);border-bottom:1px solid var(--border,#2a3550);">
+                <th style="padding:4px 8px;">Book</th><th style="padding:4px 8px;">Sector</th>
+                <th style="padding:4px 8px;">Names</th><th style="padding:4px 8px;">Weight</th></tr></thead>
+              <tbody id="crv-exposure-body"></tbody>
+            </table>
+          </div>
+
+          <!-- Challenger package state -->
+          <div class="cc-na-note" id="crv-challenger" style="margin-top:10px;">—</div>
+          <div class="cc-na-note" id="crv-next" style="margin-top:8px;"><strong>Next research action:</strong> —</div>
+          <div class="cc-na-note" id="crv-nolive-note" style="margin-top:6px;color:var(--warning,#f59e0b);">Research revalidation / paper-only. No decision here replaces the champion or approves live trading — no orders, no broker, no automation.</div>
+        </div>
+        <!-- ===================== Phase 17 SECTOR-REPAIRED REVALIDATION (subsection) END ============ -->
 
         <!-- Current Alpha Paper Test (Phase 13-B) START — read-only preview of the
              committed Phase 13-A current champion alpha (composite_sn) package.
@@ -8019,6 +8105,135 @@ function _renderIntegrityGate(d) {
   if (nx) nx.innerHTML = '<strong>Next research action:</strong> ' + escapeHtml(d.next_recommended_research_action || '—');
 }
 // ===== Alpha Integrity Gate (Phase 16-A) END =====
+
+// ===== Sector-Repaired Revalidation (Phase 17) START =====
+var _CRV_STATUS_CLASS = {
+  PAPER_CHALLENGER_ELIGIBLE: 'safe',
+  KEEP_CURRENT_PAPER_CHAMPION: 'safe',
+  RESEARCH_REVALIDATION_FAILED: 'warn',
+  BLOCKED_DATA_MISSING: 'danger',
+  BLOCKED_RUNNER_ERROR: 'danger',
+  REVALIDATION_ARTIFACTS_UNAVAILABLE: 'warn',
+};
+async function loadCurrentAlphaRevalidation() {
+  var badge = document.getElementById('crv-status');
+  if (badge) badge.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/current-alpha/revalidation');
+    if (!r.ok) { if (badge) badge.textContent = 'Unavailable'; return; }
+    _renderRevalidation(await r.json());
+  } catch (e) {
+    if (badge) badge.textContent = 'Unavailable';
+  }
+}
+window.loadCurrentAlphaRevalidation = loadCurrentAlphaRevalidation;
+
+function _crvFx(v, dp) { return (v == null || isNaN(parseFloat(v))) ? '—' : parseFloat(v).toFixed(dp); }
+function _crvMetricRow(label, pair, dp) {
+  var c = (pair && pair.champion != null) ? parseFloat(pair.champion).toFixed(dp) : '—';
+  var s = (pair && pair.repaired_candidate != null) ? parseFloat(pair.repaired_candidate).toFixed(dp) : '—';
+  return '<tr style="border-bottom:1px solid var(--border,#22304a);"><td style="padding:4px 8px;">' + escapeHtml(label)
+    + '</td><td style="padding:4px 8px;" class="mono">' + c + '</td><td style="padding:4px 8px;" class="mono">' + s + '</td></tr>';
+}
+function _renderRevalidation(d) {
+  d = d || {};
+  var badge = document.getElementById('crv-status');
+  if (badge) {
+    badge.textContent = (d.decision_label || d.decision || '—');
+    badge.className = 'cc-badge ' + (_CRV_STATUS_CLASS[d.decision] || 'warn');
+  }
+  var dec = document.getElementById('crv-decision');
+  if (dec) dec.textContent = 'Decision: ' + (d.decision ? String(d.decision).replace(/_/g, ' ') : '—');
+  // decision reasons
+  var rw = document.getElementById('crv-reasons-wrap'), ru = document.getElementById('crv-reasons');
+  var reasons = d.decision_reasons || [];
+  if (ru) { ru.innerHTML = ''; reasons.forEach(function (x) { var li = document.createElement('li'); li.textContent = x; ru.appendChild(li); }); }
+  if (rw) rw.style.display = reasons.length ? '' : 'none';
+  // side-by-side metrics
+  var m = d.original_vs_repaired_metrics || {};
+  var body = document.getElementById('crv-metrics-body');
+  if (body) {
+    body.innerHTML =
+      _crvMetricRow('IC t-stat', m.ic_t_stat, 2) +
+      _crvMetricRow('Mean IC', m.mean_ic, 4) +
+      _crvMetricRow('Gross L/S spread', m.mean_gross_spread, 5) +
+      _crvMetricRow('Net-25bps spread', m.net25_spread, 5) +
+      _crvMetricRow('Net-50bps spread', m.net50_spread, 5) +
+      _crvMetricRow('Turnover', m.mean_turnover, 4) +
+      _crvMetricRow('Cumulative spread', m.cumulative_spread, 4) +
+      _crvMetricRow('Max drawdown', m.max_drawdown, 4) +
+      _crvMetricRow('Positive IC-month rate', m.positive_ic_month_rate, 3) +
+      _crvMetricRow('Positive spread-month rate', m.positive_spread_month_rate, 3);
+    var st = d.stability || {};
+    function subRow(label, obj, key, dp) {
+      var c = obj && obj.champion ? obj.champion[key] : null;
+      var s = obj && obj.repaired_candidate ? obj.repaired_candidate[key] : null;
+      return _crvMetricRow(label, { champion: c, repaired_candidate: s }, dp);
+    }
+    body.innerHTML +=
+      subRow('Rolling 12m IC (mean)', st.rolling_ic_12m, 'mean_of_rolling_means', 4) +
+      subRow('Rolling 24m IC (mean)', st.rolling_ic_24m, 'mean_of_rolling_means', 4) +
+      subRow('Pre-2020 IC t', st.subperiod_pre2020, 'ic_t', 3) +
+      subRow('Post-2020 IC t', st.subperiod_post2020, 'ic_t', 3);
+  }
+  // reproduction + coverage
+  var repro = d.reproduction || {};
+  _igText('crv-repro', (repro.reproduces_frozen_composite ? 'YES' : 'NO') + ' (max err ' + _crvFx(repro.max_abs_error, 6) + ')');
+  var cov = d.sector_coverage_before_after || {};
+  _igText('crv-coverage', _crvFx(cov.all_before_pct, 0) + '% → ' + _crvFx(cov.all_after_pct, 0) + '% ('
+    + (cov.n_universe_resolved != null ? cov.n_universe_resolved : '—') + '/' + (cov.n_names != null ? cov.n_names : '—') + ')');
+  // overlap + concentration
+  var ov = d.top_book_overlap || {};
+  _igText('crv-ov25', _crvFx(ov.top25_overlap, 2));
+  _igText('crv-ov50', _crvFx(ov.top50_overlap, 2));
+  var se = d.sector_exposure || {};
+  _igText('crv-conc25', _crvFx(se.repaired_top25_largest_sector_share_pct, 0) + '%');
+  _igText('crv-conc50', _crvFx(se.repaired_top50_largest_sector_share_pct, 0) + '%');
+  var cw = d.concentration_warnings || [];
+  var cwWrap = document.getElementById('crv-conc-wrap'), cwUl = document.getElementById('crv-concentration');
+  if (cwUl) { cwUl.innerHTML = ''; cw.forEach(function (x) { var li = document.createElement('li'); li.textContent = x; cwUl.appendChild(li); }); }
+  if (cwWrap) cwWrap.style.display = cw.length ? '' : 'none';
+  // entering / leaving
+  var el = d.entering_leaving || {};
+  function names(arr) { return (arr || []).map(function (x) { return x.ticker + ' (' + (x.repaired_sector || '—') + ')'; }).join(', ') || '—'; }
+  var elDiv = document.getElementById('crv-entering-leaving');
+  if (elDiv) {
+    elDiv.innerHTML =
+      '<div><b>Top25 entering:</b> ' + escapeHtml(names(el.top25 && el.top25.entering)) + '</div>' +
+      '<div><b>Top25 leaving:</b> ' + escapeHtml(names(el.top25 && el.top25.leaving)) + '</div>' +
+      '<div style="margin-top:4px;"><b>Top50 entering:</b> ' + escapeHtml(names(el.top50 && el.top50.entering)) + '</div>' +
+      '<div><b>Top50 leaving:</b> ' + escapeHtml(names(el.top50 && el.top50.leaving)) + '</div>';
+  }
+  // repaired sector exposure table
+  var eb = document.getElementById('crv-exposure-body');
+  if (eb) {
+    eb.innerHTML = '';
+    [['TOP25', se.top25], ['TOP50', se.top50]].forEach(function (pair) {
+      (pair[1] || []).forEach(function (row) {
+        eb.innerHTML += '<tr style="border-bottom:1px solid var(--border,#22304a);"><td style="padding:4px 8px;">' + pair[0]
+          + '</td><td style="padding:4px 8px;">' + escapeHtml(row.sector || '—') + '</td><td style="padding:4px 8px;">'
+          + (row.n_names != null ? row.n_names : '—') + '</td><td style="padding:4px 8px;">' + _crvFx(row.weight_pct, 1) + '%</td></tr>';
+      });
+    });
+  }
+  // challenger package
+  var ch = d.challenger_package || {};
+  var chDiv = document.getElementById('crv-challenger');
+  if (chDiv) {
+    if (ch.created) {
+      var bs = ch.book_sizes || {}, pc = ch.price_coverage || {};
+      chDiv.innerHTML = '<strong>Challenger package:</strong> CREATED — ' + escapeHtml(ch.package_type || '') + ' ('
+        + escapeHtml(ch.champion_relationship || '') + '). Books Top25 ' + (bs.top25 != null ? bs.top25 : '—') + ' / Top50 '
+        + (bs.top50 != null ? bs.top50 : '—') + '. Local-price coverage Top25 ' + (pc.top25 != null ? pc.top25 : '—')
+        + ' / Top50 ' + (pc.top50 != null ? pc.top50 : '—') + '. ' + escapeHtml(ch.go_no_go || '') + '. Every row NO_ORDER.';
+    } else {
+      chDiv.innerHTML = '<strong>Challenger package:</strong> NOT CREATED — a parallel paper challenger is built only on the eligible decision.';
+    }
+  }
+  var nx = document.getElementById('crv-next');
+  if (nx) nx.innerHTML = '<strong>Next research action:</strong> ' + escapeHtml(d.next_recommended_action || '—');
+}
+// ===== Sector-Repaired Revalidation (Phase 17) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 
@@ -20456,9 +20671,10 @@ var _RA_SECTIONS = {
   'performance':      { panels: ['cap-panel'], champion: false },
   'daily-operations': { panels: ['cao-panel'], champion: false },
   'paper-books':      { panels: ['cab-panel'], champion: false },
+  'revalidation':     { panels: ['crv-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -20503,6 +20719,7 @@ function _raLoadSection(sub) {
     'performance': ['loadPaperPerformanceHistory'],
     'daily-operations': ['loadDailyAlphaStatus'],
     'paper-books': ['loadActiveBook'],
+    'revalidation': ['loadCurrentAlphaRevalidation'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {
