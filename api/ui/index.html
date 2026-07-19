@@ -2054,6 +2054,17 @@
               <div class="cc-kv"><span class="k">Mark freshness</span><span class="v" id="cc-alpha-mark">—</span></div>
               <div class="cc-kv"><span class="k">Risk state</span><span class="v" id="cc-alpha-risk">—</span></div>
               <div class="cc-kv"><span class="k">Rebalance readiness</span><span class="v" id="cc-alpha-readiness">—</span></div>
+              <!-- Compact Phase 18 tournament summary -->
+              <div id="cc-tournament" style="border-top:1px solid var(--border,#2a3550);margin-top:8px;padding-top:6px;">
+                <div class="cc-panel-title" style="font-size:var(--fs-0);display:flex;justify-content:space-between;align-items:center;">
+                  <span>Paper Tournament <span class="cc-badge" id="cc-tourn-status">—</span></span>
+                  <button class="cc-btn ghost" style="font-size:9px;padding:2px 6px;" onclick="navigateToRoute('research-audit/tournament')" title="Open the parallel paper tournament workspace.">View &rarr;</button>
+                </div>
+                <div class="cc-kv"><span class="k">Champion vs challenger (Top25 excess)</span><span class="v" id="cc-tourn-excess">—</span></div>
+                <div class="cc-kv"><span class="k">Horizon progress</span><span class="v" id="cc-tourn-progress">—</span></div>
+                <div class="cc-kv"><span class="k">Next checkpoint</span><span class="v" id="cc-tourn-checkpoint">—</span></div>
+                <div class="cc-na-note" style="margin-top:2px;">Paper only · frozen books · no orders · does not replace the champion.</div>
+              </div>
             </div>
             <div class="cc-panel">
               <div class="cc-panel-title">Performance Snapshot</div>
@@ -4248,6 +4259,7 @@
           <a id="ra-nav-daily-operations" data-rasub="daily-operations" onclick="navigateToRoute('research-audit/daily-operations')" title="Current mark, action counts, rebalance simulator">Daily Operations</a>
           <a id="ra-nav-paper-books" data-rasub="paper-books" onclick="navigateToRoute('research-audit/paper-books')" title="Active paper book, coverage, PnL history">Paper Books</a>
           <a id="ra-nav-revalidation" data-rasub="revalidation" onclick="navigateToRoute('research-audit/revalidation')" title="Sector-repaired revalidation: champion vs repaired challenger, side-by-side metrics">Revalidation</a>
+          <a id="ra-nav-tournament" data-rasub="tournament" onclick="navigateToRoute('research-audit/tournament')" title="Parallel paper tournament: champion vs sector-repaired challenger, four frozen books">Tournament</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -4505,6 +4517,119 @@
           <div class="cc-na-note" id="crv-nolive-note" style="margin-top:6px;color:var(--warning,#f59e0b);">Research revalidation / paper-only. No decision here replaces the champion or approves live trading — no orders, no broker, no automation.</div>
         </div>
         <!-- ===================== Phase 17 SECTOR-REPAIRED REVALIDATION (subsection) END ============ -->
+
+        <!-- ===================== Phase 18 PARALLEL PAPER TOURNAMENT (subsection) START ============ -->
+        <!-- Managed panel: shown ONLY on the Research & Audit "Tournament" subsection
+             (#research-audit/tournament). Renders GET /v1/research/current-alpha/tournament.
+             The detailed four-book tables + head-to-head panels live here so Champion Overview
+             and Revalidation stay compact. PAPER ONLY / FROZEN BOOKS / MANUAL REVIEW: no orders,
+             no signals, no trade decisions, no automation, no broker execution, no prediction
+             call, no DB writes; the champion is never replaced and nothing is live-approved. -->
+        <div class="card" id="ctr-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Parallel Paper Tournament <span class="cc-badge" id="ctr-status" title="Phase 18-A tournament status (read-only).">—</span></span>
+            <button class="btn-sm" id="ctr-refresh" onclick="loadCurrentAlphaTournament()" title="Reload the read-only Phase 18 tournament view.">&#8635; Refresh</button>
+          </div>
+
+          <!-- Large status banner -->
+          <div id="ctr-banner" class="ctr-banner" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:2px 0 10px;font-weight:800;letter-spacing:.04em;">
+            PARALLEL PAPER TOURNAMENT — <span id="ctr-banner-status">MONITORING MID CYCLE</span>
+          </div>
+
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">PAPER ONLY</span>
+            <span class="cc-badge">FROZEN BOOKS</span>
+            <span class="cc-badge">NO ORDERS</span>
+            <span class="cc-badge">NO BROKER</span>
+            <span class="cc-badge">NO AUTOMATION</span>
+            <span class="cc-badge manual">MANUAL REFRESH</span>
+            <span class="cc-badge" id="ctr-nolive">NOT APPROVED FOR LIVE TRADING</span>
+          </div>
+
+          <!-- Champion vs Challenger identity -->
+          <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:2px 0 8px;font-size:12px;">
+            <div>Current Paper Champion: <b class="mono" id="ctr-champion-signal">composite_sn</b>
+              <span class="cc-badge safe">CURRENT PAPER CHAMPION</span></div>
+            <div>Sector-Repaired Challenger: <b class="mono" id="ctr-challenger-signal">composite_sn_repaired</b>
+              <span class="cc-badge">SECTOR-REPAIRED PAPER CHALLENGER</span></div>
+          </div>
+
+          <div class="cc-na-note" id="ctr-decision" style="margin:6px 0;">—</div>
+
+          <!-- Four book cards -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:8px 0 4px;">Four Frozen Books</div>
+          <div id="ctr-books" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:4px 0 12px;"></div>
+
+          <!-- Two head-to-head panels -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:8px 0 4px;">Head-to-Head (Current Champion vs Sector-Repaired Challenger)</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin:4px 0 12px;">
+            <div class="ctr-h2h" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 10px;">
+              <div style="font-weight:700;margin-bottom:4px;">Top 25 — Champion vs Challenger</div>
+              <div style="overflow-x:auto;"><table id="ctr-h2h25" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody></tbody></table></div>
+            </div>
+            <div class="ctr-h2h" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 10px;">
+              <div style="font-weight:700;margin-bottom:4px;">Top 50 — Champion vs Challenger</div>
+              <div style="overflow-x:auto;"><table id="ctr-h2h50" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody></tbody></table></div>
+            </div>
+          </div>
+
+          <!-- Compact aligned-date charts -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:8px 0 4px;">Aligned-Date Charts (financial mark date)</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:4px 0 12px;">
+            <div><div style="font-size:11px;color:var(--label);margin-bottom:2px;">Cumulative return</div>
+              <svg id="ctr-chart-cum" class="cc-perf-chart" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Cumulative return"></svg></div>
+            <div><div style="font-size:11px;color:var(--label);margin-bottom:2px;">Excess vs SPY</div>
+              <svg id="ctr-chart-excess" class="cc-perf-chart" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Excess vs SPY"></svg></div>
+            <div><div style="font-size:11px;color:var(--label);margin-bottom:2px;">Drawdown</div>
+              <svg id="ctr-chart-dd" class="cc-perf-chart" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Drawdown"></svg></div>
+          </div>
+          <div id="ctr-chart-legend" style="font-size:11px;color:var(--text-secondary,#a8b8d8);margin:0 0 12px;">
+            <span style="color:#4ea1ff;">■</span> Champion Top25 &nbsp; <span style="color:#8bd3ff;">■</span> Champion Top50 &nbsp;
+            <span style="color:#f59e0b;">■</span> Challenger Top25 &nbsp; <span style="color:#ffd27a;">■</span> Challenger Top50 &nbsp;
+            <span style="color:#94a3b8;">■</span> SPY
+          </div>
+
+          <!-- Sector exposure comparison -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:8px 0 4px;">Sector Exposure (Top25 largest sector)</div>
+          <div id="ctr-sectors" style="display:flex;gap:24px;flex-wrap:wrap;margin:2px 0 12px;font-size:12px;">—</div>
+
+          <!-- Current checkpoint -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:8px 0 4px;">Current Checkpoint</div>
+          <div style="display:flex;gap:24px;flex-wrap:wrap;margin:2px 0 6px;font-size:12px;">
+            <div>Elapsed marks: <b id="ctr-elapsed">—</b></div>
+            <div>Remaining marks: <b id="ctr-remaining">—</b></div>
+            <div>Latest common mark: <b id="ctr-latest">—</b></div>
+            <div>Review target: <b id="ctr-target">—</b></div>
+          </div>
+          <div class="cc-na-note" id="ctr-nowinner" style="margin:2px 0 12px;">—</div>
+
+          <!-- Entering / leaving names inherited from Phase 17 -->
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:8px 0 4px;">Entering / Leaving (inherited from Phase 17)</div>
+          <div id="ctr-entering-leaving" style="font-size:12px;color:var(--text-secondary,#a8b8d8);margin-bottom:12px;">—</div>
+
+          <!-- Coverage warnings + risk flags -->
+          <div id="ctr-coverage-wrap" style="margin:4px 0;display:none;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--label);">Coverage warnings</div>
+            <ul id="ctr-coverage" style="margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--warning,#f59e0b);"></ul>
+          </div>
+          <div id="ctr-risk-wrap" style="margin:4px 0;display:none;">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--label);">Risk flags (paper review)</div>
+            <ul id="ctr-risk" style="margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--warning,#f59e0b);"></ul>
+          </div>
+
+          <!-- Manual refresh + store state -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0 4px;">
+            <button class="cc-btn" id="ctr-manual-refresh-btn" onclick="confirmTournamentRefresh(this)" title="Manually record the latest completed common financial mark to the dedicated local tournament store (paper-only; no DB, no orders).">Manual Refresh Tournament</button>
+            <span class="cc-na-note" id="ctr-store-note" style="margin:0;">—</span>
+          </div>
+          <div class="cc-na-note" id="ctr-refresh-result" style="margin:4px 0;display:none;"></div>
+
+          <div class="cc-na-note" id="ctr-next" style="margin-top:8px;"><strong>Next action:</strong> —</div>
+          <div class="cc-na-note" id="ctr-safety-note" style="margin-top:6px;color:var(--warning,#f59e0b);">
+            Parallel paper tournament / frozen books. No order, no broker, no automation, and it does not create signals or trade decisions, does not execute trades, does not replace the champion, and is not approved for live trading.
+          </div>
+        </div>
+        <!-- ===================== Phase 18 PARALLEL PAPER TOURNAMENT (subsection) END ============ -->
 
         <!-- Current Alpha Paper Test (Phase 13-B) START — read-only preview of the
              committed Phase 13-A current champion alpha (composite_sn) package.
@@ -8234,6 +8359,232 @@ function _renderRevalidation(d) {
   if (nx) nx.innerHTML = '<strong>Next research action:</strong> ' + escapeHtml(d.next_recommended_action || '—');
 }
 // ===== Sector-Repaired Revalidation (Phase 17) END =====
+
+// ===== Parallel Paper Tournament (Phase 18) START =====
+var _CTR_STATUS_CLASS = {
+  MONITORING_MID_CYCLE: 'safe', CHECKPOINT_READY_FOR_REVIEW: 'manual',
+  EXTEND_PARALLEL_PAPER_TEST: 'warn', KEEP_CURRENT_PAPER_CHAMPION: 'safe',
+  CHALLENGER_PAPER_PROMOTION_ELIGIBLE: 'manual', REJECT_PAPER_CHALLENGER: 'warn',
+  BLOCKED_INSUFFICIENT_COVERAGE: 'warn', BLOCKED_DATA_MISMATCH: 'warn',
+  TOURNAMENT_UNAVAILABLE: 'warn'
+};
+var _CTR_COLORS = { champion_top25: '#4ea1ff', champion_top50: '#8bd3ff',
+  challenger_top25: '#f59e0b', challenger_top50: '#ffd27a', spy: '#94a3b8' };
+function _ctrFx(v, dp) { return (v == null || isNaN(parseFloat(v))) ? '—' : parseFloat(v).toFixed(dp); }
+function _ctrPct(v, dp) { return (v == null || isNaN(parseFloat(v))) ? '—' : parseFloat(v).toFixed(dp == null ? 2 : dp) + '%'; }
+function _ctrCurveVals(book, curveKey, valueKey) {
+  return (((book || {})[curveKey]) || []).map(function (r) { return r[valueKey]; });
+}
+
+async function loadCurrentAlphaTournament() {
+  var badge = document.getElementById('ctr-status');
+  if (badge) badge.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/current-alpha/tournament');
+    if (!r.ok) { if (badge) badge.textContent = 'Unavailable'; return; }
+    _renderTournament(await r.json());
+  } catch (e) { if (badge) badge.textContent = 'Unavailable'; }
+}
+window.loadCurrentAlphaTournament = loadCurrentAlphaTournament;
+
+function _ctrBookCard(title, b, tone) {
+  b = b || {};
+  var ex = b.excess_return_vs_spy_pct_points;
+  var exColor = (ex == null) ? 'var(--text-secondary)' : (ex >= 0 ? 'var(--positive,#2ecc71)' : 'var(--danger,#e74c3c)');
+  function row(k, v) { return '<div style="display:flex;justify-content:space-between;font-size:12px;"><span>' + k + '</span><b class="mono">' + v + '</b></div>'; }
+  return '<div class="ctr-book-card" style="border:1px solid var(--border,#2a3550);border-left:3px solid ' + tone + ';border-radius:8px;padding:8px 10px;">'
+    + '<div style="font-weight:700;font-size:12px;margin-bottom:2px;">' + escapeHtml(title) + '</div>'
+    + '<div style="font-size:11px;color:var(--label);margin-bottom:4px;">' + escapeHtml(b.signal || '') + ' &middot; ' + (b.n_marks != null ? b.n_marks : '—') + ' marks</div>'
+    + row('Return', _ctrPct(b.cumulative_return_pct))
+    + '<div style="display:flex;justify-content:space-between;font-size:12px;"><span>Excess vs SPY</span><b class="mono" style="color:' + exColor + ';">' + _ctrPct(ex) + '</b></div>'
+    + row('Drawdown', _ctrPct(b.max_drawdown_pct))
+    + row('Volatility', _ctrFx(b.daily_volatility_pct_points, 2))
+    + row('Hit rate', _ctrPct(b.positive_day_rate_pct))
+    + row('Coverage', (b.covered_count != null ? b.covered_count + '/' + b.total_count : '—'))
+    + row('Concentration', _ctrPct(b.contributor_concentration_top5_pct))
+    + '<div style="margin-top:4px;"><span class="cc-badge">NO ORDERS</span></div>'
+    + '</div>';
+}
+
+function _ctrH2HRows(tblId, h) {
+  h = h || {}; var champ = h.champion || {}, chall = h.challenger || {}, delta = h.challenger_minus_champion || {};
+  var body = document.querySelector('#' + tblId + ' tbody');
+  if (!body) return;
+  var rows = [['Return', 'cumulative_return_pct', 2, true], ['Excess vs SPY', 'excess_return_vs_spy_pct_points', 2, true],
+    ['Drawdown', 'max_drawdown_pct', 2, true], ['Volatility', 'daily_volatility_pct_points', 2, false],
+    ['Hit rate', 'positive_day_rate_pct', 1, true], ['Days > SPY', 'days_outperforming_spy_pct', 1, true],
+    ['Concentration', 'contributor_concentration_top5_pct', 1, true], ['Coverage', 'coverage_pct', 1, true]];
+  var out = '<tr style="text-align:left;color:var(--label);border-bottom:1px solid var(--border,#2a3550);">'
+    + '<th style="padding:3px 6px;">Metric</th><th style="padding:3px 6px;">Champion</th><th style="padding:3px 6px;">Challenger</th><th style="padding:3px 6px;">&Delta;</th></tr>';
+  rows.forEach(function (r) {
+    var sfx = r[3] ? '%' : '';
+    out += '<tr style="border-bottom:1px solid var(--border,#22304a);"><td style="padding:3px 6px;">' + r[0] + '</td>'
+      + '<td style="padding:3px 6px;" class="mono">' + _ctrFx(champ[r[1]], r[2]) + sfx + '</td>'
+      + '<td style="padding:3px 6px;" class="mono">' + _ctrFx(chall[r[1]], r[2]) + sfx + '</td>'
+      + '<td style="padding:3px 6px;" class="mono">' + _ctrFx(delta[r[1]], r[2]) + '</td></tr>';
+  });
+  body.innerHTML = out;
+}
+
+function _ctrMultiChart(svgId, seriesList) {
+  var el = document.getElementById(svgId);
+  if (!el) return;
+  var all = [];
+  seriesList.forEach(function (s) { (s.values || []).forEach(function (v) { if (v != null && isFinite(v)) all.push(v); }); });
+  if (!all.length) { el.innerHTML = '<text x="6" y="16" fill="#94a3b8" font-size="9">No marks yet.</text>'; return; }
+  var W = 320, H = 96, padX = 4, padY = 8;
+  var lo = Math.min(0, Math.min.apply(null, all)), hi = Math.max(0, Math.max.apply(null, all));
+  if (hi === lo) hi = lo + 1;
+  var n = Math.max.apply(null, seriesList.map(function (s) { return (s.values || []).length; }));
+  var xAt = function (i) { return padX + (n <= 1 ? (W - 2 * padX) / 2 : i * (W - 2 * padX) / (n - 1)); };
+  var yAt = function (v) { return padY + (H - 2 * padY) * (1 - (v - lo) / (hi - lo)); };
+  var svg = '<line x1="' + padX + '" y1="' + yAt(0).toFixed(1) + '" x2="' + (W - padX) + '" y2="' + yAt(0).toFixed(1) + '" stroke="rgba(127,127,127,.35)" stroke-width="0.7" stroke-dasharray="3,3"/>';
+  seriesList.forEach(function (s) {
+    var pts = (s.values || []).map(function (v, i) { return (v == null || !isFinite(v)) ? null : xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1); }).filter(Boolean);
+    if (pts.length) svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + s.color + '" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>';
+  });
+  el.innerHTML = svg;
+}
+
+function _renderTournament(d) {
+  d = d || {};
+  var status = d.decision || d.status || '—';
+  var badge = document.getElementById('ctr-status');
+  if (badge) { badge.textContent = String(status).replace(/_/g, ' '); badge.className = 'cc-badge ' + (_CTR_STATUS_CLASS[status] || 'warn'); }
+  _igText('ctr-banner-status', String(status).replace(/_/g, ' '));
+  var dec = document.getElementById('ctr-decision');
+  if (dec) dec.textContent = 'Decision: ' + String(status).replace(/_/g, ' ') + ((d.decision_reasons && d.decision_reasons[0]) ? (' — ' + d.decision_reasons[0]) : '');
+  _igText('ctr-champion-signal', (d.current_paper_champion || {}).signal || 'composite_sn');
+  _igText('ctr-challenger-signal', (d.sector_repaired_paper_challenger || {}).signal || 'composite_sn_repaired');
+
+  // four book cards (champion/challenger never reversed: fixed order + labels)
+  var bs = d.book_summaries || {};
+  var cards = document.getElementById('ctr-books');
+  if (cards) {
+    cards.innerHTML =
+      _ctrBookCard('Champion Top25', bs.champion_top25, _CTR_COLORS.champion_top25) +
+      _ctrBookCard('Challenger Top25', bs.challenger_top25, _CTR_COLORS.challenger_top25) +
+      _ctrBookCard('Champion Top50', bs.champion_top50, _CTR_COLORS.champion_top50) +
+      _ctrBookCard('Challenger Top50', bs.challenger_top50, _CTR_COLORS.challenger_top50);
+  }
+
+  // head-to-head panels
+  _ctrH2HRows('ctr-h2h25', d.top25_head_to_head);
+  _ctrH2HRows('ctr-h2h50', d.top50_head_to_head);
+
+  // compact aligned-date charts
+  var cv = d.daily_curves || {};
+  function cumSeries(vk) {
+    return [
+      { color: _CTR_COLORS.champion_top25, values: _ctrCurveVals(cv.champion_top25, vk[0], vk[1]) },
+      { color: _CTR_COLORS.champion_top50, values: _ctrCurveVals(cv.champion_top50, vk[0], vk[1]) },
+      { color: _CTR_COLORS.challenger_top25, values: _ctrCurveVals(cv.challenger_top25, vk[0], vk[1]) },
+      { color: _CTR_COLORS.challenger_top50, values: _ctrCurveVals(cv.challenger_top50, vk[0], vk[1]) }
+    ];
+  }
+  _ctrMultiChart('ctr-chart-cum', cumSeries(['cumulative_curve', 'cumulative_return_pct']).concat(
+    [{ color: _CTR_COLORS.spy, values: (cv.spy || []).map(function (r) { return r.return_since_signal_pct; }) }]));
+  _ctrMultiChart('ctr-chart-excess', cumSeries(['excess_curve', 'excess_return_vs_spy_pct_points']));
+  _ctrMultiChart('ctr-chart-dd', cumSeries(['drawdown_curve', 'drawdown_pct']));
+
+  // sector exposure comparison (largest sector per book; champion book carries pre-repair labels)
+  var se = d.sector_exposure || {};
+  function topSector(k) { var s = (se[k] || [])[0]; return s ? (escapeHtml(s.sector) + ' ' + _ctrFx(s.weight_pct, 0) + '%') : '—'; }
+  var sc = document.getElementById('ctr-sectors');
+  if (sc) {
+    sc.innerHTML =
+      '<div>Champion Top25: <b>' + topSector('champion_top25') + '</b></div>' +
+      '<div>Challenger Top25: <b>' + topSector('challenger_top25') + '</b></div>' +
+      '<div>Champion Top50: <b>' + topSector('champion_top50') + '</b></div>' +
+      '<div>Challenger Top50: <b>' + topSector('challenger_top50') + '</b></div>';
+  }
+
+  // current checkpoint
+  var hp = d.horizon_progress || {};
+  _igText('ctr-elapsed', (hp.elapsed_marks != null ? hp.elapsed_marks : '—') + ' / ' + (hp.horizon_trading_days != null ? hp.horizon_trading_days : '63'));
+  _igText('ctr-remaining', hp.remaining_marks != null ? hp.remaining_marks : '—');
+  _igText('ctr-latest', d.latest_common_financial_mark || hp.latest_common_owned_eod_date || '—');
+  _igText('ctr-target', d.next_review_target || hp.review_target_date || '—');
+  var nw = document.getElementById('ctr-nowinner');
+  if (nw) nw.textContent = d.no_winner_before_checkpoint
+    ? 'No winner is named before the checkpoint (63 trading marks). This is a monitoring view only.'
+    : 'Checkpoint reached — see the decision above. Any promotion is eligibility for a later explicit MANUAL paper-champion decision only.';
+
+  // entering / leaving inherited from Phase 17
+  var el = d.entering_leaving_inherited_from_phase17 || [];
+  var enter = el.filter(function (r) { return (r.direction || '').toUpperCase() === 'ENTERING'; }).map(function (r) { return escapeHtml(r.ticker); });
+  var leave = el.filter(function (r) { return (r.direction || '').toUpperCase() === 'LEAVING'; }).map(function (r) { return escapeHtml(r.ticker); });
+  var eld = document.getElementById('ctr-entering-leaving');
+  if (eld) eld.innerHTML = '<div><b>Entering (challenger):</b> ' + (enter.join(', ') || '—') + '</div>'
+    + '<div><b>Leaving (champion):</b> ' + (leave.join(', ') || '—') + '</div>';
+
+  // coverage warnings + risk flags
+  _ctrList('ctr-coverage-wrap', 'ctr-coverage', (d.coverage_warnings || []));
+  _ctrList('ctr-risk-wrap', 'ctr-risk', (d.risk_flags || []).map(function (r) {
+    return (r.book_key || '') + ': ' + (r.flag || '') + ' (' + r.value + ' vs limit ' + r.limit + ')';
+  }));
+
+  // store state + next action
+  var store = d.tournament_store || {};
+  _igText('ctr-store-note', 'Local tournament store: last recorded ' + (store.last_recorded_financial_date || 'none')
+    + ' · refreshes ' + (store.n_refreshes != null ? store.n_refreshes : 0));
+  var nx = document.getElementById('ctr-next');
+  if (nx) nx.innerHTML = '<strong>Next action:</strong> ' + escapeHtml(d.next_action || '—');
+}
+
+function _ctrList(wrapId, ulId, items) {
+  var wrap = document.getElementById(wrapId), ul = document.getElementById(ulId);
+  if (ul) { ul.innerHTML = ''; items.forEach(function (x) { var li = document.createElement('li'); li.textContent = x; ul.appendChild(li); }); }
+  if (wrap) wrap.style.display = items.length ? '' : 'none';
+}
+
+// Manual tournament refresh — styled in-page confirmation (no alert/confirm/prompt).
+function confirmTournamentRefresh(btn) {
+  showPreviewConfirm({
+    title: 'Confirm Manual Tournament Refresh',
+    writes: [
+      'One tournament snapshot in the dedicated LOCAL tournament store (not the database)',
+      'The four frozen paper books + SPY at the latest completed common EOD date'
+    ],
+    doesNotDo: [
+      'Create no orders, signals, trade decisions or fills',
+      'Write no Paper Trader database rows and mutate no positions',
+      'Run no automation and call no prediction service',
+      'Never replaces the champion; never approved for live trading'
+    ],
+    onConfirm: function () { runTournamentRefresh(); }
+  });
+}
+window.confirmTournamentRefresh = confirmTournamentRefresh;
+
+async function runTournamentRefresh() {
+  var btn = document.getElementById('ctr-manual-refresh-btn');
+  var out = document.getElementById('ctr-refresh-result');
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+  try {
+    var r = await call('POST', '/v1/research/current-alpha/tournament/refresh',
+      { commit: true, confirm: 'RUN_MANUAL_TOURNAMENT_REFRESH' });
+    var data = {};
+    try { data = await r.json(); } catch (e) {}
+    if (out) {
+      out.style.display = '';
+      if (r.ok && data.status === 'TOURNAMENT_REFRESH_COMPLETE') {
+        out.textContent = 'Recorded snapshot for ' + (data.latest_common_financial_mark || '—') + ' in the local store.';
+      } else if (r.ok && data.status === 'NO_NEW_COMPLETED_EOD_DATE') {
+        out.textContent = 'NO NEW COMPLETED EOD DATE — the store is already current (' + (data.last_recorded_financial_date || '—') + '). No snapshot written.';
+      } else {
+        out.textContent = 'Refresh result: ' + (data.status || ('HTTP ' + r.status)) + '.';
+      }
+    }
+    try { await loadCurrentAlphaTournament(); } catch (e) {}
+  } catch (e) {
+    if (out) { out.style.display = ''; out.textContent = 'Tournament refresh request failed.'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Manual Refresh Tournament'; }
+  }
+}
+window.runTournamentRefresh = runTournamentRefresh;
+// ===== Parallel Paper Tournament (Phase 18) END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 
@@ -20317,6 +20668,7 @@ async function loadCommandCenter() {
     st.lastLoadedAt = new Date().toLocaleTimeString();
     renderCommandCenter();
     _ccLoadPreviews();               // secondary; failure here never blanks the dashboard
+    _ccLoadTournamentSummary();      // secondary read-only; failure never blanks the dashboard
   } catch (e) {
     st.error = 'Command center request failed: ' + (e && e.message ? e.message : e);
     renderCommandCenter();
@@ -20325,6 +20677,29 @@ async function loadCommandCenter() {
   }
 }
 window.loadCommandCenter = loadCommandCenter;
+
+// Compact Command Center tournament summary (read-only; never blanks the dashboard).
+async function _ccLoadTournamentSummary() {
+  try {
+    var r = await call('GET', '/v1/research/current-alpha/tournament');
+    if (!r.ok) return;
+    var d = await r.json();
+    var status = d.decision || d.status || '—';
+    var badge = document.getElementById('cc-tourn-status');
+    if (badge) { badge.textContent = String(status).replace(/_/g, ' '); badge.className = 'cc-badge ' + ((typeof _CTR_STATUS_CLASS !== 'undefined' && _CTR_STATUS_CLASS[status]) || 'warn'); }
+    var h = d.top25_head_to_head || {};
+    var cp = (h.champion || {}).excess_return_vs_spy_pct_points;
+    var ch = (h.challenger || {}).excess_return_vs_spy_pct_points;
+    var exEl = document.getElementById('cc-tourn-excess');
+    if (exEl) exEl.textContent = (cp == null ? '—' : cp.toFixed(2) + '%') + ' vs ' + (ch == null ? '—' : ch.toFixed(2) + '%');
+    var hp = d.horizon_progress || {};
+    var pg = document.getElementById('cc-tourn-progress');
+    if (pg) pg.textContent = (hp.elapsed_marks != null ? hp.elapsed_marks : '—') + ' / ' + (hp.horizon_trading_days != null ? hp.horizon_trading_days : '63') + ' marks';
+    var cpk = document.getElementById('cc-tourn-checkpoint');
+    if (cpk) cpk.textContent = (d.next_review_target || hp.review_target_date || '—');
+  } catch (e) { /* read-only summary; ignore */ }
+}
+window._ccLoadTournamentSummary = _ccLoadTournamentSummary;
 
 // ======================= Phase 15-A DAILY OPERATING RUN ====================== //
 // Read-only market-date alignment card + one explicit, manual daily run.
@@ -20672,9 +21047,10 @@ var _RA_SECTIONS = {
   'daily-operations': { panels: ['cao-panel'], champion: false },
   'paper-books':      { panels: ['cab-panel'], champion: false },
   'revalidation':     { panels: ['crv-panel'], champion: false },
+  'tournament':       { panels: ['ctr-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -20720,6 +21096,7 @@ function _raLoadSection(sub) {
     'daily-operations': ['loadDailyAlphaStatus'],
     'paper-books': ['loadActiveBook'],
     'revalidation': ['loadCurrentAlphaRevalidation'],
+    'tournament': ['loadCurrentAlphaTournament'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {

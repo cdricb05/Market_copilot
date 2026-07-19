@@ -36411,3 +36411,161 @@ class TestUiAlphaRevalidationRouting:
         panel = _fn_16a(_read_index_16a(), 'id="crv-panel"',
                         "Phase 17 SECTOR-REPAIRED REVALIDATION (subsection) END")
         assert 'id="crv-metrics"' in panel and 'id="crv-exposure"' in panel
+
+
+# =========================================================================== #
+# Phase 18 - parallel champion-vs-challenger paper tournament (UI static)
+# =========================================================================== #
+
+class TestUiAlphaTournamentWorkspace:
+    """Part G: the Tournament subsection card + read-only loader exist, wire to the GET
+    endpoint, and render the four book cards + two head-to-head panels + aligned charts."""
+
+    def test_tournament_panel_present(self):
+        html = _read_index_16a()
+        for el in ('id="ctr-panel"', 'id="ctr-status"', 'id="ctr-banner-status"', 'id="ctr-books"',
+                   'id="ctr-h2h25"', 'id="ctr-h2h50"', 'id="ctr-chart-cum"', 'id="ctr-chart-excess"',
+                   'id="ctr-chart-dd"', 'id="ctr-sectors"', 'id="ctr-elapsed"', 'id="ctr-remaining"',
+                   'id="ctr-latest"', 'id="ctr-target"', 'id="ctr-entering-leaving"',
+                   'id="ctr-manual-refresh-btn"', 'id="ctr-next"'):
+            assert el in html, el
+
+    def test_loader_fetches_tournament_endpoint(self):
+        fn = _fn_16a(_read_index_16a(), "async function loadCurrentAlphaTournament",
+                     "window.loadCurrentAlphaTournament")
+        assert "/v1/research/current-alpha/tournament" in fn
+        assert "call('GET'" in fn
+
+    def test_four_book_cards_rendered(self):
+        fn = _fn_16a(_read_index_16a(), "function _renderTournament",
+                     "// ===== Parallel Paper Tournament (Phase 18) END")
+        for label in ("Champion Top25", "Challenger Top25", "Champion Top50", "Challenger Top50"):
+            assert label in fn, label
+
+    def test_head_to_head_and_status_banner(self):
+        panel = _fn_16a(_read_index_16a(), 'id="ctr-panel"',
+                        "Phase 18 PARALLEL PAPER TOURNAMENT (subsection) END")
+        assert "Top 25 — Champion vs Challenger" in panel
+        assert "PARALLEL PAPER TOURNAMENT" in panel
+
+    def test_manual_refresh_button_not_blank(self):
+        btn = _fn_16a(_read_index_16a(), 'id="ctr-manual-refresh-btn"', "</button>")
+        assert "Manual Refresh Tournament" in btn
+
+    def test_refresh_button_not_blank(self):
+        btn = _fn_16a(_read_index_16a(), 'id="ctr-refresh"', "</button>")
+        assert "Refresh" in btn
+
+
+class TestUiAlphaTournamentSafety:
+    """Part G terminology + safety: PAPER ONLY / FROZEN BOOKS / MANUAL REFRESH / NO ORDERS /
+    NOT APPROVED FOR LIVE TRADING appear; production / live-champion wording never does; the
+    manual refresh uses the styled confirmation (never a native dialog)."""
+
+    def _panel(self):
+        return _fn_16a(_read_index_16a(), 'id="ctr-panel"',
+                       "Phase 18 PARALLEL PAPER TOURNAMENT (subsection) END")
+
+    def test_required_safety_terms(self):
+        panel = self._panel()
+        for term in ("PAPER ONLY", "FROZEN BOOKS", "NO ORDERS", "NO BROKER", "NO AUTOMATION",
+                     "MANUAL REFRESH", "NOT APPROVED FOR LIVE TRADING",
+                     "CURRENT PAPER CHAMPION", "SECTOR-REPAIRED PAPER CHALLENGER"):
+            assert term in panel, term
+
+    def test_no_production_or_live_champion_wording(self):
+        panel = self._panel()
+        assert "PRODUCTION ALPHA" not in panel
+        assert "LIVE CHAMPION" not in panel
+        # every "APPROVED FOR LIVE TRADING" occurrence is the negated safety phrase
+        assert panel.count("APPROVED FOR LIVE TRADING") == panel.count("NOT APPROVED FOR LIVE TRADING")
+
+    def test_does_not_replace_champion_language(self):
+        panel = self._panel()
+        assert "does not replace the champion" in panel.lower()
+
+    def test_manual_refresh_uses_styled_confirmation(self):
+        fn = _fn_16a(_read_index_16a(), "function confirmTournamentRefresh",
+                     "window.confirmTournamentRefresh")
+        assert "showPreviewConfirm(" in fn
+        assert "runTournamentRefresh(" in fn
+
+    def test_refresh_posts_with_confirmation_token(self):
+        fn = _fn_16a(_read_index_16a(), "async function runTournamentRefresh",
+                     "window.runTournamentRefresh")
+        assert "/v1/research/current-alpha/tournament/refresh" in fn
+        assert "RUN_MANUAL_TOURNAMENT_REFRESH" in fn
+
+    def test_no_native_dialogs_in_tournament_block(self):
+        fn = _fn_16a(_read_index_16a(), "// ===== Parallel Paper Tournament (Phase 18) START",
+                     "// ===== Parallel Paper Tournament (Phase 18) END")
+        # native calls are `alert(` / `confirm(` / `prompt(` — identifier calls like
+        # confirmTournamentRefresh( and showPreviewConfirm( do not contain these substrings.
+        for bad in ("alert(", "confirm(", "prompt("):
+            assert bad not in fn, bad
+
+
+class TestUiAlphaTournamentRouting:
+    """Part G routing: the seventh subsection routes with a deep link, is ancestor-aware
+    isolated (a managed panel toggled by _raApplySection), Champion Overview stays compact,
+    and Diagnostics still holds the raw panels."""
+
+    def test_nav_link_and_deep_link(self):
+        html = _read_index_16a()
+        assert 'data-rasub="tournament"' in html
+        assert "navigateToRoute('research-audit/tournament')" in html
+        nav = _fn_16a(html, 'id="ra-nav"', "</div>")
+        assert "Tournament" in nav
+
+    def test_section_registered_as_managed_panel(self):
+        fn = _fn_16a(_read_index_16a(), "var _RA_SECTIONS", "function _raHighlightNav")
+        assert "'tournament'" in fn and "'ctr-panel'" in fn
+        allp = _fn_16a(_read_index_16a(), "var _RA_ALL_PANELS", "function _raHighlightNav")
+        assert "'ctr-panel'" in allp
+
+    def test_champion_overview_stays_compact(self):
+        fn = _fn_16a(_read_index_16a(), "var _RA_SECTIONS", "function _raHighlightNav")
+        assert "panels: [], champion: true" in fn         # champion section has NO panels
+        panel_open = _fn_16a(_read_index_16a(), 'id="ctr-panel"', ">")
+        assert "display:none" in panel_open
+
+    def test_loader_wired_for_subsection(self):
+        fn = _fn_16a(_read_index_16a(), "function _raLoadSection", "function _applySubsection")
+        assert "'tournament': ['loadCurrentAlphaTournament']" in fn
+
+    def test_tournament_holds_detailed_tables(self):
+        panel = _fn_16a(_read_index_16a(), 'id="ctr-panel"',
+                        "Phase 18 PARALLEL PAPER TOURNAMENT (subsection) END")
+        assert 'id="ctr-h2h25"' in panel and 'id="ctr-h2h50"' in panel
+        assert 'id="ctr-chart-cum"' in panel
+
+
+class TestUiAlphaTournamentCommandCenterSummary:
+    """Part G: a compact Command Center tournament summary (status, champion-vs-challenger
+    latest excess, horizon progress, next checkpoint, link to Tournament) is present and wired
+    to a best-effort read-only loader that never blanks the dashboard."""
+
+    def test_cc_tournament_block_present(self):
+        html = _read_index_16a()
+        for el in ('id="cc-tournament"', 'id="cc-tourn-status"', 'id="cc-tourn-excess"',
+                   'id="cc-tourn-progress"', 'id="cc-tourn-checkpoint"'):
+            assert el in html, el
+
+    def test_cc_tournament_has_view_link(self):
+        block = _fn_16a(_read_index_16a(), 'id="cc-tournament"', "Performance Snapshot")
+        assert "navigateToRoute('research-audit/tournament')" in block
+        assert "Paper Tournament" in block
+
+    def test_cc_summary_loader_wired_and_called(self):
+        html = _read_index_16a()
+        loader = _fn_16a(html, "async function _ccLoadTournamentSummary",
+                         "window._ccLoadTournamentSummary")
+        assert "/v1/research/current-alpha/tournament" in loader
+        assert "cc-tourn-status" in loader and "cc-tourn-excess" in loader
+        cc = _fn_16a(html, "async function loadCommandCenter", "window.loadCommandCenter")
+        assert "_ccLoadTournamentSummary()" in cc  # called from the command-center load
+
+    def test_cc_summary_paper_only_note(self):
+        block = _fn_16a(_read_index_16a(), 'id="cc-tournament"', "Performance Snapshot")
+        assert "does not replace the champion" in block.lower()
+

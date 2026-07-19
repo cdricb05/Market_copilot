@@ -167,6 +167,11 @@ from paper_trader.api.current_alpha_integrity_gate import (
 from paper_trader.api.current_alpha_revalidation import (
     load_current_alpha_revalidation,
 )
+from paper_trader.api.current_alpha_tournament import (
+    load_current_alpha_tournament,
+    run_current_alpha_tournament_refresh,
+    REFRESH_CONFIRM_TOKEN as _TOURNAMENT_REFRESH_CONFIRM_TOKEN,
+)
 from paper_trader.api.command_center import (
     load_command_center,
 )
@@ -4318,6 +4323,14 @@ class CurrentAlphaDailyRefreshRequest(BaseModel):
     commit: bool = False
 
 
+class CurrentAlphaTournamentRefreshRequest(BaseModel):
+    """Phase 18 manual tournament-refresh request (paper-only, user-triggered). A committing
+    refresh (``commit=true``) additionally requires the explicit confirmation token."""
+
+    commit: bool = False
+    confirm: str | None = None
+
+
 @app.post(
     "/v1/research/current-alpha/daily-refresh",
     status_code=status.HTTP_200_OK,
@@ -4486,6 +4499,68 @@ def research_current_alpha_revalidation() -> dict:
     entry with HTTP 200, never a stack trace.
     """
     return load_current_alpha_revalidation()
+
+
+@app.get(
+    "/v1/research/current-alpha/tournament",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_tournament() -> dict:
+    """
+    Read-only Phase 18 parallel champion-vs-challenger paper tournament view.
+
+    Surfaces the owned Phase 18-A forward-test reconstruction of FOUR frozen paper books
+    (champion / sector-repaired challenger, Top-25 / Top-50) marked side by side on every
+    completed COMMON owned EOD date from the shared signal date: the tournament decision
+    (MONITORING_MID_CYCLE / CHECKPOINT_READY_FOR_REVIEW / EXTEND / KEEP / PROMOTION_ELIGIBLE
+    / REJECT / BLOCKED_*), the four book summaries, the aligned comparison dates and latest
+    common financial mark, the SPY result, the Top-25 and Top-50 head-to-head comparisons,
+    the horizon progress and next review target, the coverage warnings and risk flags, the
+    entering/leaving names inherited from Phase 17, the exact next action, source provenance
+    and the local tournament-store state.
+
+    Strictly read-only: it reads the owned forward-test artifact and the local tournament
+    store, writes no database rows, launches no subprocess, calls neither the prediction
+    service nor any external provider, and creates no signals / trade decisions / orders /
+    fills. No status it returns approves live trading and it never replaces the champion —
+    every payload carries an explicit no-live-trading block. A missing forward artifact
+    degrades to TOURNAMENT_UNAVAILABLE with HTTP 200, never a stack trace.
+    """
+    return load_current_alpha_tournament()
+
+
+@app.post(
+    "/v1/research/current-alpha/tournament/refresh",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_current_alpha_tournament_refresh(
+    body: CurrentAlphaTournamentRefreshRequest | None = None,
+) -> dict:
+    """
+    Phase 18 manual, idempotent tournament refresh — one EXPLICIT, user-triggered action.
+
+    Advances the dedicated local tournament tracking store to the latest completed COMMON
+    financial mark date in the owned Phase 18-A forward test, recording ONLY the union of the
+    four frozen paper books plus SPY. With ``commit=false`` (default) it previews and writes
+    nothing; ``commit=true`` requires ``confirm`` to equal the manual confirmation token and
+    appends a single snapshot to the local store (idempotent — a rerun with no newer completed
+    mark returns ``NO_NEW_COMPLETED_EOD_DATE``).
+
+    It writes ONLY the dedicated local tournament store — never PostgreSQL, never the
+    champion's paper-book files, and never a Paper Trader position / order / trade / fill. It
+    creates no signals, no trade decisions, and no orders; connects to no broker; runs no
+    automation; and never invokes the prediction service. Never returns a stack trace.
+    """
+    req = body or CurrentAlphaTournamentRefreshRequest()
+    if req.commit and req.confirm != _TOURNAMENT_REFRESH_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("A committing tournament refresh requires confirm='%s'."
+                    % _TOURNAMENT_REFRESH_CONFIRM_TOKEN),
+        )
+    return run_current_alpha_tournament_refresh(commit=req.commit, confirm=req.confirm)
 
 
 @app.get(
