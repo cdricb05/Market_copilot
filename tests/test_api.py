@@ -36733,3 +36733,146 @@ class TestUiAlphaTournamentSyncSafety:
         # wide tables scroll inside their own overflow-x:auto container (no page overflow)
         assert panel.count("overflow-x:auto") >= 2
 
+
+# ===================== Phase 20 Autonomous Alpha Factory V1 UI static tests =================
+def _af_read_index() -> str:
+    from pathlib import Path
+    html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+    return html_path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _af_panel() -> str:
+    html = _af_read_index()
+    start = html.index('id="af-panel"')
+    end = html.index("Phase 20 AUTONOMOUS ALPHA FACTORY V1 (subsection) END", start)
+    return html[start:end]
+
+
+def _af_js() -> str:
+    html = _af_read_index()
+    start = html.index("// ===== Phase 20 Autonomous Alpha Factory V1")
+    end = html.index("// ===== Phase 20 Autonomous Alpha Factory V1 END")
+    return html[start:end]
+
+
+class TestUiAlphaFactoryLibrary:
+    """Alpha Library + registry surfaces: the panel, nav link, routing wiring, KPI overview,
+    leaderboard, registry table with family/status filters, and the family taxonomy."""
+
+    def test_panel_and_nav_present(self):
+        html = _af_read_index()
+        assert 'id="af-panel"' in html
+        assert 'id="ra-nav-alpha-factory"' in html
+        assert "research-audit/alpha-factory" in html
+        assert "Alpha Factory" in html
+
+    def test_routing_wired(self):
+        html = _af_read_index()
+        assert "'alpha-factory':    { panels: ['af-panel'], champion: false }" in html
+        assert "'af-panel'" in html  # in _RA_ALL_PANELS
+        assert "'alpha-factory': ['loadAlphaFactory']" in html
+
+    def test_overview_kpis_present(self):
+        panel = _af_panel()
+        for el in ("af-kpi-candidates", "af-kpi-survivors", "af-kpi-rejected",
+                   "af-kpi-archived", "af-kpi-families", "af-signal-date"):
+            assert f'id="{el}"' in panel, el
+
+    def test_leaderboard_and_library_present(self):
+        panel = _af_panel()
+        for el in ("af-leaderboard", "af-library", "af-filter-family", "af-filter-status"):
+            assert f'id="{el}"' in panel, el
+        assert "Alpha Leaderboard" in panel
+        assert "Alpha Library" in panel
+
+    def test_family_taxonomy_present(self):
+        panel = _af_panel()
+        assert 'id="af-families"' in panel
+        assert "Family Taxonomy" in panel
+
+    def test_library_render_uses_filters(self):
+        js = _af_js()
+        assert "function renderAlphaLibrary" in js
+        assert "af-filter-family" in js and "af-filter-status" in js
+
+
+class TestUiAlphaFactoryDashboard:
+    """Research Dashboard: champion / challenger cards, top survivors, recently rejected, the
+    correlation matrix, the reproduction proof, and the manual build stages."""
+
+    def test_dashboard_cards_present(self):
+        panel = _af_panel()
+        for el in ("af-champion", "af-challenger", "af-top-survivors", "af-recent-rejected"):
+            assert f'id="{el}"' in panel, el
+        assert "Research Dashboard" in panel
+
+    def test_correlation_and_reproduction_present(self):
+        panel = _af_panel()
+        for el in ("af-corr-matrix", "af-corr-summary", "af-reproduction", "af-crosscheck"):
+            assert f'id="{el}"' in panel, el
+        assert "Correlation Matrix" in panel
+
+    def test_run_stages_and_buttons_present(self):
+        panel = _af_panel()
+        for el in ("af-stage-load", "af-stage-generate", "af-stage-evaluate",
+                   "af-stage-gate", "af-stage-rank", "af-stage-write"):
+            assert f'id="{el}"' in panel, el
+        assert 'id="af-preview-btn"' in panel and 'id="af-run-btn"' in panel
+        assert "Preview Alpha Factory Build" in panel
+        assert "Run Alpha Factory Build" in panel
+
+    def test_render_and_loader_functions_present(self):
+        js = _af_js()
+        for fn in ("function loadAlphaFactory", "function renderAlphaFactory",
+                   "function _afRenderCorrelation", "function _afRenderFamilies"):
+            assert fn in js, fn
+
+    def test_advanced_audit_collapsed_details(self):
+        panel = _af_panel()
+        assert 'id="af-advanced"' in panel
+        assert "<details" in panel  # diagnostics live in a collapsed Advanced/Audit area
+
+
+class TestUiAlphaFactorySafety:
+    """Safety: the required badges are visible, the confirmed build uses the styled in-page
+    confirmation (never a native dialog), and the panel writes only to the alpha-factory endpoints —
+    never orders / signals / decisions / the database."""
+
+    def test_required_safety_badges(self):
+        panel = _af_panel()
+        for term in ("RESEARCH ONLY", "PAPER ONLY", "NO ORDERS", "NO BROKER",
+                     "AUTOMATION OFF", "NO LIVE PROMOTION", "NO CHAMPION REPLACEMENT",
+                     "NOT APPROVED FOR LIVE TRADING"):
+            assert term in panel, term
+
+    def test_no_production_or_live_champion_wording(self):
+        panel = _af_panel()
+        assert "PRODUCTION ALPHA" not in panel
+        assert "LIVE CHAMPION" not in panel
+
+    def test_no_native_dialogs_in_af_block(self):
+        js = _af_js()
+        for bad in ("alert(", "confirm(", "prompt("):
+            assert bad not in js, bad
+
+    def test_confirmed_build_uses_styled_confirmation(self):
+        js = _af_js()
+        assert "function confirmAlphaFactoryRun" in js
+        assert "showPreviewConfirm(" in js
+        low = js.lower()
+        assert "never replaces the champion" in low
+        assert "never approved for live trading" in low
+        assert "not the database" in low or "not the database" in low
+
+    def test_writes_only_to_alpha_factory_endpoints(self):
+        js = _af_js()
+        # the only POST target is the alpha-factory run endpoint
+        assert "/v1/research/alpha-factory/run" in js
+        for forbidden in ("/orders", "/signals", "/decisions", "/fills", "/positions"):
+            assert forbidden not in js, forbidden
+
+    def test_run_requires_confirmation_token(self):
+        js = _af_js()
+        assert "RUN_ALPHA_FACTORY_BUILD" in js
+        assert "commit: true" in js and "commit: false" in js
+

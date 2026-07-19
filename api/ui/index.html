@@ -1449,6 +1449,19 @@
     }
     .cc-badge.safe { color: var(--ok); background: var(--cc-success-bg); border-color: rgba(34,197,94,.3); }
     .cc-badge.manual { color: var(--warning); background: var(--cc-warning-bg); border-color: rgba(245,158,11,.3); }
+    .cc-badge.warn { color: var(--warning, #f59e0b); background: rgba(245,158,11,.08); border-color: rgba(245,158,11,.3); }
+    .cc-badge.danger { color: var(--danger, #ef4444); background: rgba(239,68,68,.08); border-color: rgba(239,68,68,.32); }
+    .cc-badge.muted { color: var(--text-accent, #8aa0c8); background: rgba(255,255,255,.03); border-color: var(--cc-border-soft); }
+    /* Phase 20 Alpha Factory */
+    .af-kpi { flex: 1 1 120px; min-width: 108px; border: 1px solid var(--cc-border, #243b63); border-radius: 6px; padding: 8px 10px; text-align: center; }
+    .af-kpi-v { font-size: 20px; font-weight: 800; color: var(--text-primary, #e6edf7); line-height: 1.1; }
+    .af-kpi-l { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-accent, #8aa0c8); margin-top: 3px; }
+    .af-alpha-card .af-alpha-name { font-weight: 800; font-size: 13px; }
+    .af-tbl { width: 100%; border-collapse: collapse; }
+    .af-tbl th, .af-tbl td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--cc-border-soft, #22304d); white-space: nowrap; }
+    .af-tbl th:first-child, .af-tbl td:first-child { text-align: left; }
+    .af-tbl th { position: sticky; top: 0; background: var(--cc-panel, #0e1626); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-accent, #8aa0c8); z-index: 1; }
+    .af-corr-cell { text-align: center; padding: 2px 5px; border: 1px solid var(--cc-border-soft, #22304d); font-variant-numeric: tabular-nums; }
     .cc-spacer { flex: 1; }
     .cc-btn {
       font-size: var(--fs-1); font-weight: 700; padding: 7px 14px; border-radius: var(--r-1);
@@ -4262,6 +4275,7 @@
           <a id="ra-nav-paper-books" data-rasub="paper-books" onclick="navigateToRoute('research-audit/paper-books')" title="Active paper book, coverage, PnL history">Paper Books</a>
           <a id="ra-nav-revalidation" data-rasub="revalidation" onclick="navigateToRoute('research-audit/revalidation')" title="Sector-repaired revalidation: champion vs repaired challenger, side-by-side metrics">Revalidation</a>
           <a id="ra-nav-tournament" data-rasub="tournament" onclick="navigateToRoute('research-audit/tournament')" title="Parallel paper tournament: champion vs sector-repaired challenger, four frozen books">Tournament</a>
+          <a id="ra-nav-alpha-factory" data-rasub="alpha-factory" onclick="navigateToRoute('research-audit/alpha-factory')" title="Alpha Factory: registry, leaderboard, correlation matrix and family taxonomy of many candidate alphas">Alpha Factory</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -4671,6 +4685,128 @@
           </div>
         </div>
         <!-- ===================== Phase 18 PARALLEL PAPER TOURNAMENT (subsection) END ============ -->
+
+        <!-- ===================== Phase 20 AUTONOMOUS ALPHA FACTORY V1 (subsection) START ========= -->
+        <!-- Managed panel: shown ONLY on the Research & Audit "Alpha Factory" subsection
+             (#research-audit/alpha-factory). Renders GET /v1/research/alpha-factory. Turns Paper
+             Trader from a single-alpha platform into a multi-alpha research platform: registry,
+             leaderboard, correlation matrix, family taxonomy. RESEARCH ONLY / PAPER ONLY: creates
+             no orders, no signals, no trade decisions, no automation, no broker execution, no
+             prediction call, no DB writes; the champion is never replaced and nothing is
+             live-approved. The manual build writes ONLY the dedicated local artifact store. -->
+        <div class="card" id="af-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Alpha Factory <span class="cc-badge" id="af-status" title="Phase 20 Alpha Factory status (read-only).">&mdash;</span></span>
+            <button class="btn-sm" id="af-refresh" onclick="loadAlphaFactory()" title="Reload the read-only Alpha Factory dashboard.">&#8635; Refresh</button>
+          </div>
+
+          <div id="af-banner" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:2px 0 10px;font-weight:800;letter-spacing:.04em;">
+            AUTONOMOUS ALPHA FACTORY V1 &mdash; <span id="af-banner-status">MULTI-ALPHA RESEARCH</span>
+          </div>
+
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge">NO ORDERS</span>
+            <span class="cc-badge">NO BROKER</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge">NO LIVE PROMOTION</span>
+            <span class="cc-badge manual">NO CHAMPION REPLACEMENT</span>
+            <span class="cc-badge" id="af-nolive">NOT APPROVED FOR LIVE TRADING</span>
+          </div>
+
+          <!-- OVERVIEW KPI row -->
+          <div id="af-kpis" style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px;">
+            <div class="af-kpi"><div class="af-kpi-v mono" id="af-kpi-candidates">&mdash;</div><div class="af-kpi-l">Candidates</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="af-kpi-survivors">&mdash;</div><div class="af-kpi-l">Survivors</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="af-kpi-rejected">&mdash;</div><div class="af-kpi-l">Rejected</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="af-kpi-archived">&mdash;</div><div class="af-kpi-l">Archived</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="af-kpi-families">&mdash;</div><div class="af-kpi-l">Families (ready)</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="af-signal-date">&mdash;</div><div class="af-kpi-l">Signal date</div></div>
+          </div>
+
+          <!-- RESEARCH DASHBOARD (left) + LEADERBOARD (right) -->
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px;">
+            <div style="flex:1 1 460px;min-width:320px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Research Dashboard</div>
+              <div id="af-champion" class="af-alpha-card" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin-bottom:8px;">&mdash;</div>
+              <div id="af-challenger" class="af-alpha-card" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin-bottom:10px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Top Surviving Candidates</div>
+              <div id="af-top-survivors" class="compact-scroll-region" style="max-height:200px;overflow:auto;font-size:11px;margin-bottom:10px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Recently Rejected</div>
+              <div id="af-recent-rejected" class="compact-scroll-region" style="max-height:180px;overflow:auto;font-size:11px;">&mdash;</div>
+            </div>
+            <div style="flex:1 1 420px;min-width:320px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Alpha Leaderboard</div>
+              <div id="af-leaderboard" class="compact-scroll-region" style="max-height:420px;overflow:auto;font-size:11px;">&mdash;</div>
+            </div>
+          </div>
+
+          <!-- ALPHA LIBRARY (registry) -->
+          <div style="margin-bottom:12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+              <span>Alpha Library <span class="cc-badge" title="Every alpha in the registry with its family, lifecycle status and metrics.">REGISTRY</span></span>
+              <span style="display:flex;gap:6px;align-items:center;font-size:11px;">
+                <label for="af-filter-family">Family</label>
+                <select id="af-filter-family" onchange="renderAlphaLibrary()" style="font-size:11px;"></select>
+                <label for="af-filter-status">Status</label>
+                <select id="af-filter-status" onchange="renderAlphaLibrary()" style="font-size:11px;"></select>
+              </span>
+            </div>
+            <div id="af-library" class="compact-scroll-region" style="max-height:340px;overflow:auto;font-size:11px;">&mdash;</div>
+          </div>
+
+          <!-- CORRELATION MATRIX + FAMILY TAXONOMY -->
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px;">
+            <div style="flex:1 1 520px;min-width:320px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Correlation Matrix <span class="cc-badge" title="Mean monthly cross-sectional Spearman rank correlation; champion + survivors.">RANK CORR</span></div>
+              <div id="af-corr-summary" class="cc-na-note" style="margin:0 0 6px;font-size:11px;">&mdash;</div>
+              <div id="af-corr-matrix" style="overflow:auto;font-size:10px;">&mdash;</div>
+            </div>
+            <div style="flex:1 1 360px;min-width:300px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Family Taxonomy</div>
+              <div id="af-families" style="font-size:11px;">&mdash;</div>
+            </div>
+          </div>
+
+          <!-- RUN ALPHA FACTORY (manual, confirm-gated) -->
+          <div id="af-run-wrap" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Run Alpha Factory Build <span class="cc-badge manual">MANUAL</span></div>
+            <div style="font-size:11px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">
+              Regenerates the registry / leaderboard / correlation / diagnostics / candidate-report artifacts from the owned frozen panel.
+              Preview computes and writes nothing. A confirmed build writes ONLY the dedicated local research-artifact store &mdash; never the database, never orders, never the champion.
+            </div>
+            <div id="af-stages" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+              <span class="cc-badge" id="af-stage-load">LOAD</span>
+              <span class="cc-badge" id="af-stage-generate">GENERATE</span>
+              <span class="cc-badge" id="af-stage-evaluate">EVALUATE</span>
+              <span class="cc-badge" id="af-stage-gate">GATE</span>
+              <span class="cc-badge" id="af-stage-rank">RANK</span>
+              <span class="cc-badge" id="af-stage-write">WRITE</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+              <button class="btn-sm" id="af-preview-btn" onclick="previewAlphaFactory(this)" title="Preview the build: compute everything, write nothing.">Preview Alpha Factory Build</button>
+              <button class="btn-sm" id="af-run-btn" onclick="confirmAlphaFactoryRun(this)" title="Run a confirmed build that persists artifacts to the local store only.">Run Alpha Factory Build</button>
+            </div>
+            <div id="af-run-result" class="cc-na-note" style="display:none;font-size:11px;margin-top:4px;">&mdash;</div>
+            <div id="af-reproduction" style="font-size:11px;margin-top:6px;">&mdash;</div>
+            <div id="af-persisted" style="font-size:11px;margin-top:4px;color:var(--text-accent,#8aa0c8);">&mdash;</div>
+          </div>
+
+          <!-- ADVANCED / AUDIT (collapsed) -->
+          <details id="af-advanced" style="margin-bottom:4px;">
+            <summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--text-primary);">Advanced / Audit &mdash; provenance, reproduction cross-check, diagnostics</summary>
+            <div style="margin-top:8px;">
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Champion battery reproduction vs committed Phase 17-A</div>
+              <div id="af-crosscheck" class="mono" style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Gate thresholds &amp; reject-reason counts</div>
+              <div id="af-diagnostics" class="mono" style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Provenance</div>
+              <div id="af-provenance" class="mono" style="font-size:10px;color:var(--text-accent,#8aa0c8);word-break:break-word;">&mdash;</div>
+            </div>
+          </details>
+        </div>
+        <!-- ===================== Phase 20 AUTONOMOUS ALPHA FACTORY V1 (subsection) END =========== -->
 
         <!-- Current Alpha Paper Test (Phase 13-B) START — read-only preview of the
              committed Phase 13-A current champion alpha (composite_sn) package.
@@ -8741,6 +8877,319 @@ async function runTournamentRefresh() {
 }
 window.runTournamentRefresh = runTournamentRefresh;
 // ===== Parallel Paper Tournament (Phase 18) END =====
+
+// ===== Phase 20 Autonomous Alpha Factory V1 (read-only dashboard + manual build) START =====
+var _AF_STAGES = ['load', 'generate', 'evaluate', 'gate', 'rank', 'write'];
+var _AF_STATUS_CLASS = { CHAMPION: 'safe', CHALLENGER: 'manual', ACTIVE: 'safe', RESEARCH: 'warn', REJECTED: 'danger', ARCHIVED: 'muted' };
+function _afStage(id, state) {
+  var el = document.getElementById('af-stage-' + id);
+  if (!el) return;
+  el.className = 'cc-badge' + (state === 'active' ? ' manual' : (state === 'done' ? ' safe' : ''));
+}
+function _afStagesReset() { _AF_STAGES.forEach(function (s) { _afStage(s, 'idle'); }); }
+function _afStagesUpTo(idx, done) {
+  _AF_STAGES.forEach(function (s, i) { _afStage(s, i < idx ? 'done' : (i === idx ? (done ? 'done' : 'active') : 'idle')); });
+}
+function _afN(x, nd, suffix) {
+  if (x === null || x === undefined || x === '' || (typeof x === 'number' && !isFinite(x))) return '&mdash;';
+  var v = Number(x);
+  if (isNaN(v)) return escapeHtml(String(x));
+  return v.toFixed(nd) + (suffix || '');
+}
+function _afSigned(x, nd) {
+  if (x === null || x === undefined || x === '') return '&mdash;';
+  var v = Number(x); if (isNaN(v)) return '&mdash;';
+  return (v >= 0 ? '+' : '') + v.toFixed(nd);
+}
+function _afStatusBadge(status) {
+  var cls = _AF_STATUS_CLASS[status] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(status || '') + '</span>';
+}
+function _afMetrics(a) {
+  return 'IC <b>' + _afN(a.ic, 4) + '</b> &middot; net25 <b>' + _afSigned(a.net25, 4)
+    + '</b> &middot; DD <b>' + _afN(a.drawdown, 3) + '</b> &middot; Sharpe <b>' + _afN(a.sharpe, 2)
+    + '</b> &middot; IC-t <b>' + _afN(a.ic_t, 2) + '</b> &middot; corr vs champ <b>' + _afN(a.corr_vs_champion, 2) + '</b>';
+}
+
+async function loadAlphaFactory() {
+  var status = document.getElementById('af-status');
+  if (status) status.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/alpha-factory');
+    var d = {}; try { d = await r.json(); } catch (e) {}
+    window._afData = d;
+    renderAlphaFactory(d);
+  } catch (e) {
+    if (status) status.textContent = 'ERROR';
+  }
+}
+window.loadAlphaFactory = loadAlphaFactory;
+
+function renderAlphaFactory(d) {
+  d = d || {};
+  var status = document.getElementById('af-status');
+  var banner = document.getElementById('af-banner-status');
+  if (d.status === 'ALPHA_FACTORY_PANEL_UNAVAILABLE') {
+    if (status) { status.textContent = 'PANEL UNAVAILABLE'; status.className = 'cc-badge danger'; }
+    if (banner) banner.textContent = 'OWNED PANEL UNAVAILABLE';
+    var lib0 = document.getElementById('af-library');
+    if (lib0) lib0.innerHTML = '<div class="cc-na-note">' + escapeHtml(d.next_recommended_action || 'Owned frozen panel unavailable.') + '</div>';
+    return;
+  }
+  if (status) { status.textContent = d.status || 'READY'; status.className = 'cc-badge safe'; }
+  if (banner) banner.textContent = 'MULTI-ALPHA RESEARCH';
+
+  var counts = (d.registry && d.registry.counts) || {};
+  var diag = d.diagnostics || {};
+  var setT = function (id, v) { var e = document.getElementById(id); if (e) e.innerHTML = (v === undefined || v === null) ? '&mdash;' : v; };
+  setT('af-kpi-candidates', diag.generated_candidates);
+  setT('af-kpi-survivors', diag.survivors);
+  setT('af-kpi-rejected', diag.rejected);
+  setT('af-kpi-archived', diag.archived);
+  setT('af-kpi-families', (diag.families_data_ready != null ? diag.families_data_ready : '—') + ' / ' + (d.families ? d.families.length : '—'));
+  setT('af-signal-date', d.signal_date);
+
+  // champion + challenger cards
+  var ch = d.champion || {};
+  var chEl = document.getElementById('af-champion');
+  if (chEl) chEl.innerHTML = '<div class="af-alpha-name">' + escapeHtml(ch.name || '—') + ' ' + _afStatusBadge('CHAMPION')
+    + '</div><div class="mono" style="font-size:11px;margin-top:2px;">' + _afMetrics(ch)
+    + '</div><div style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-top:2px;">' + escapeHtml(ch.regime_notes || '') + '</div>';
+  var cl = d.challenger || {};
+  var clEl = document.getElementById('af-challenger');
+  if (clEl) clEl.innerHTML = '<div class="af-alpha-name">' + escapeHtml(cl.name || '—') + ' ' + _afStatusBadge('CHALLENGER')
+    + '</div><div class="mono" style="font-size:11px;margin-top:2px;">' + _afMetrics(cl)
+    + '</div><div style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-top:2px;">' + escapeHtml((cl.enrollment_note || cl.regime_notes || '')) + '</div>';
+
+  // top survivors + recently rejected
+  var survivors = (d.survivors || []);
+  var surEl = document.getElementById('af-top-survivors');
+  if (surEl) surEl.innerHTML = survivors.length ? _afMiniTable(
+    ['Alpha', 'Family', 'Status', 'net25', 'IC-t', 'corr'],
+    survivors.slice(0, 8).map(function (s) {
+      return [escapeHtml(s.name), escapeHtml(s.family), _afStatusBadge(s.status), _afSigned(s.net25, 4), _afN(s.ic_t, 2), _afN(s.corr_vs_champion, 2)];
+    })) : '<div class="cc-na-note">No surviving candidates.</div>';
+  var rej = (d.rejected || []);
+  var rejEl = document.getElementById('af-recent-rejected');
+  if (rejEl) rejEl.innerHTML = rej.length ? _afMiniTable(
+    ['Alpha', 'Family', 'Reason', 'IC-t', 'corr'],
+    rej.slice(0, 8).map(function (s) {
+      return [escapeHtml(s.name), escapeHtml(s.family), '<span class="cc-badge danger" title="' + escapeHtml(s.reject_reason_text || '') + '">' + escapeHtml(s.reject_reason || '') + '</span>', _afN(s.ic_t, 2), _afN(s.corr_vs_champion, 2)];
+    })) : '<div class="cc-na-note">No rejected candidates.</div>';
+
+  // leaderboard
+  var lb = (d.leaderboard || []);
+  var lbEl = document.getElementById('af-leaderboard');
+  if (lbEl) lbEl.innerHTML = lb.length ? _afMiniTable(
+    ['#', 'Alpha', 'Family', 'Status', 'net25', 'IC-t', 'corr'],
+    lb.map(function (r) {
+      return [(r.is_champion ? 'CH' : String(r.rank)), escapeHtml(r.name), escapeHtml(r.family),
+        _afStatusBadge(r.status), _afSigned(r.net25, 4), _afN(r.ic_t, 2), _afN(r.corr_vs_champion, 2)];
+    })) : '<div class="cc-na-note">No leaderboard.</div>';
+
+  // library filters (populate once)
+  _afPopulateFilters(d);
+  renderAlphaLibrary();
+
+  // correlation + families
+  _afRenderCorrelation(d.correlation || {});
+  _afRenderFamilies(d.families || []);
+
+  // reproduction + persisted + advanced
+  var repro = d.reproduction || {};
+  var reproEl = document.getElementById('af-reproduction');
+  if (reproEl) reproEl.innerHTML = 'Reproduction: composite_sn reproduced from panel legs, max abs error <b>'
+    + _afN(repro.max_abs_error, 8) + '</b> ' + (repro.champion_reproduced ? '<span class="cc-badge safe">EXACT</span>' : '<span class="cc-badge warn">CHECK</span>');
+  var cross = (diag.battery_cross_check_vs_committed_phase17a_champion) || {};
+  var crossEl = document.getElementById('af-crosscheck');
+  if (crossEl) crossEl.textContent = cross.available
+    ? ('max_relative_error ' + cross.max_relative_error + ' — reproduces committed champion: ' + cross.reproduces_committed_champion)
+    : 'committed Phase 17-A champion block unavailable';
+  var diagEl = document.getElementById('af-diagnostics');
+  if (diagEl) diagEl.textContent = 'thresholds ' + JSON.stringify(diag.gate_thresholds || {}) + '  |  rejects ' + JSON.stringify(diag.reject_reason_counts || {});
+  var provEl = document.getElementById('af-provenance');
+  if (provEl && d.provenance) provEl.textContent = 'panel: ' + (d.provenance.panel_path || '') + '  |  report: ' + (d.provenance.reval_report_path || '');
+  var pers = d.persisted || {};
+  var persEl = document.getElementById('af-persisted');
+  if (persEl) persEl.innerHTML = pers.has_artifacts
+    ? ('Persisted store: ' + escapeHtml(pers.store_dir || '') + ' — last build ' + escapeHtml(pers.last_build_at || '—') + ' (' + (pers.files ? pers.files.length : 0) + ' artifacts)')
+    : ('No persisted artifacts yet at ' + escapeHtml(pers.store_dir || '—') + '. Use Run Alpha Factory Build to persist.');
+}
+window.renderAlphaFactory = renderAlphaFactory;
+
+function _afMiniTable(headers, rows) {
+  var h = '<table class="af-tbl"><thead><tr>' + headers.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '</tr></thead><tbody>';
+  h += rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>'; }).join('');
+  return h + '</tbody></table>';
+}
+
+function _afPopulateFilters(d) {
+  var fam = document.getElementById('af-filter-family');
+  var st = document.getElementById('af-filter-status');
+  if (fam && !fam.options.length) {
+    var fams = ['ALL'].concat((d.families || []).map(function (f) { return f.family; }));
+    fam.innerHTML = fams.map(function (f) { return '<option value="' + f + '">' + f + '</option>'; }).join('');
+  }
+  if (st && !st.options.length) {
+    var sts = ['ALL', 'CHAMPION', 'CHALLENGER', 'ACTIVE', 'RESEARCH', 'REJECTED', 'ARCHIVED'];
+    st.innerHTML = sts.map(function (s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+  }
+}
+
+function renderAlphaLibrary() {
+  var d = window._afData || {};
+  var alphas = (d.registry && d.registry.alphas) || [];
+  var famSel = document.getElementById('af-filter-family');
+  var stSel = document.getElementById('af-filter-status');
+  var famF = famSel ? famSel.value : 'ALL';
+  var stF = stSel ? stSel.value : 'ALL';
+  var rows = alphas.filter(function (a) {
+    return (famF === 'ALL' || a.family === famF) && (stF === 'ALL' || a.status === stF);
+  });
+  var el = document.getElementById('af-library');
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = '<div class="cc-na-note">No alphas match this filter.</div>'; return; }
+  el.innerHTML = _afMiniTable(
+    ['Alpha', 'Family', 'Status', 'IC', 'net25', 'net50', 'Turn', 'DD', 'Sharpe', 'Cov%', 'corr', 'Regime / reject'],
+    rows.map(function (a) {
+      var last = a.reject_reason
+        ? '<span class="cc-badge danger" title="' + escapeHtml(a.reject_reason_text || '') + '">' + escapeHtml(a.reject_reason) + '</span>'
+        : '<span style="font-size:10px;color:var(--text-accent,#8aa0c8);" title="' + escapeHtml(a.regime_notes || '') + '">' + escapeHtml((a.regime_notes || '').slice(0, 40)) + '</span>';
+      return [escapeHtml(a.name), escapeHtml(a.family), _afStatusBadge(a.status), _afN(a.ic, 4),
+        _afSigned(a.net25, 4), _afSigned(a.net50, 4), _afN(a.turnover, 2), _afN(a.drawdown, 3),
+        _afN(a.sharpe, 2), _afN(a.coverage_pct, 0), _afN(a.corr_vs_champion, 2), last];
+    }));
+}
+window.renderAlphaLibrary = renderAlphaLibrary;
+
+function _afRenderCorrelation(corr) {
+  var sumEl = document.getElementById('af-corr-summary');
+  var mEl = document.getElementById('af-corr-matrix');
+  var sig = corr.signals || [];
+  var mat = corr.matrix || [];
+  var s = corr.summary || {};
+  if (sumEl) sumEl.innerHTML = sig.length
+    ? ('Signals ' + sig.length + ' &middot; max |off-diag| <b>' + _afN(s.max_abs_off_diagonal, 2) + '</b> &middot; mean |off-diag| <b>'
+      + _afN(s.mean_abs_off_diagonal, 2) + '</b>' + (s.most_correlated_pair ? (' &middot; top pair ' + escapeHtml(s.most_correlated_pair.a) + ' / ' + escapeHtml(s.most_correlated_pair.b) + ' = ' + _afN(s.most_correlated_pair.corr, 2)) : ''))
+    : 'No correlation matrix.';
+  if (!mEl) return;
+  if (!sig.length) { mEl.innerHTML = '<div class="cc-na-note">No correlation matrix.</div>'; return; }
+  var abbr = function (n) { return n.length > 10 ? n.slice(0, 9) + '…' : n; };
+  var h = '<table style="border-collapse:collapse;"><thead><tr><th class="af-corr-cell"></th>';
+  h += sig.map(function (n) { return '<th class="af-corr-cell" title="' + escapeHtml(n) + '">' + escapeHtml(abbr(n)) + '</th>'; }).join('');
+  h += '</tr></thead><tbody>';
+  for (var i = 0; i < sig.length; i++) {
+    h += '<tr><th class="af-corr-cell" title="' + escapeHtml(sig[i]) + '" style="text-align:left;">' + escapeHtml(abbr(sig[i])) + '</th>';
+    for (var j = 0; j < sig.length; j++) {
+      var v = mat[i] ? mat[i][j] : null;
+      var bg = 'transparent';
+      if (v !== null && v !== undefined) {
+        var a = Math.min(1, Math.abs(Number(v)));
+        bg = v >= 0 ? 'rgba(34,197,94,' + (a * 0.55).toFixed(2) + ')' : 'rgba(239,68,68,' + (a * 0.55).toFixed(2) + ')';
+      }
+      h += '<td class="af-corr-cell" style="background:' + bg + ';">' + (v === null || v === undefined ? '—' : Number(v).toFixed(2)) + '</td>';
+    }
+    h += '</tr>';
+  }
+  mEl.innerHTML = h + '</tbody></table>';
+}
+
+function _afRenderFamilies(families) {
+  var el = document.getElementById('af-families');
+  if (!el) return;
+  if (!families.length) { el.innerHTML = '<div class="cc-na-note">No families.</div>'; return; }
+  el.innerHTML = families.map(function (f) {
+    var badge = f.data_ready ? '<span class="cc-badge safe">DATA READY</span>' : '<span class="cc-badge warn" title="' + escapeHtml(f.gated_reason || '') + '">DATA GATED</span>';
+    var counts = f.data_ready
+      ? ('cand ' + f.n_candidates + ' &middot; active ' + f.n_active + ' &middot; research ' + f.n_research + ' &middot; rejected ' + f.n_rejected)
+      : 'requires trailing price panel (V1)';
+    return '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--cc-border-soft,#22304d);">'
+      + '<span><b>' + escapeHtml(f.family) + '</b> ' + badge + '</span>'
+      + '<span style="font-size:10px;color:var(--text-accent,#8aa0c8);">' + counts + '</span></div>';
+  }).join('');
+}
+
+// Preview the build — compute everything, write nothing (commit=false).
+async function previewAlphaFactory(btn) {
+  var out = document.getElementById('af-run-result');
+  _afStagesReset(); _afStagesUpTo(4, false);
+  if (btn) { btn.disabled = true; btn.textContent = 'Previewing…'; }
+  try {
+    var r = await call('POST', '/v1/research/alpha-factory/run', { commit: false });
+    var data = {}; try { data = await r.json(); } catch (e) {}
+    _afStagesUpTo(4, true);
+    var c = data.registry_counts || {};
+    if (out) {
+      out.style.display = '';
+      out.textContent = 'PREVIEW (no write): would write ' + (data.would_write_files ? data.would_write_files.length : 0)
+        + ' artifacts to ' + (data.store_dir || '—') + '. Registry: ' + (c.ACTIVE || 0) + ' active, '
+        + (c.RESEARCH || 0) + ' research, ' + (c.REJECTED || 0) + ' rejected, ' + (c.ARCHIVED || 0) + ' archived. Nothing was written.';
+    }
+  } catch (e) {
+    _afStagesReset();
+    if (out) { out.style.display = ''; out.textContent = 'Alpha Factory preview request failed.'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Preview Alpha Factory Build'; }
+  }
+}
+window.previewAlphaFactory = previewAlphaFactory;
+
+// Manual confirmed build — styled in-page confirmation (no alert/confirm/prompt).
+function confirmAlphaFactoryRun(btn) {
+  showPreviewConfirm({
+    title: 'Confirm Manual Alpha Factory Build',
+    writes: [
+      'Regenerates the alpha registry / leaderboard / correlation / diagnostics / candidate-report artifacts from the OWNED frozen Phase 10-L panel',
+      'Writes ONLY the dedicated LOCAL Alpha Factory research-artifact store (JSON/CSV) — not the database'
+    ],
+    doesNotDo: [
+      'Creates no orders, signals, trade decisions or fills',
+      'Writes no Paper Trader database rows and mutates no positions',
+      'Runs no automation, connects to no broker, calls no prediction service, adds no new data provider',
+      'Never replaces the champion; never approved for live trading'
+    ],
+    onConfirm: function () { runAlphaFactory(); }
+  });
+}
+window.confirmAlphaFactoryRun = confirmAlphaFactoryRun;
+
+async function runAlphaFactory() {
+  var btn = document.getElementById('af-run-btn');
+  var out = document.getElementById('af-run-result');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+  _afStagesReset(); _afStage('load', 'active');
+  try {
+    _afStagesUpTo(5, false); // WRITE active
+    var r = await call('POST', '/v1/research/alpha-factory/run', { commit: true, confirm: 'RUN_ALPHA_FACTORY_BUILD' });
+    var data = {}; try { data = await r.json(); } catch (e) {}
+    var st = data.status;
+    if (out) {
+      out.style.display = '';
+      if (r.ok && st === 'ALPHA_FACTORY_BUILD_COMPLETE') {
+        _afStagesUpTo(5, true);
+        out.textContent = 'BUILD COMPLETE — wrote ' + (data.files_written ? data.files_written.length : 0)
+          + ' artifacts to the local store (' + (data.store_dir || '—') + '). No database rows, no orders, champion unchanged.';
+      } else if (st === 'ALPHA_FACTORY_PANEL_UNAVAILABLE') {
+        _afStagesReset();
+        out.textContent = 'BUILD UNAVAILABLE — the owned frozen panel was not found. Nothing was computed or written.';
+      } else if (st === 'ALPHA_FACTORY_CONFIRM_REQUIRED') {
+        _afStagesReset();
+        out.textContent = 'Confirmation token required — nothing was written.';
+      } else {
+        _afStagesReset();
+        out.textContent = 'Build result: ' + (st || ('HTTP ' + r.status)) + '.';
+      }
+    }
+    try { await loadAlphaFactory(); } catch (e) {}
+  } catch (e) {
+    _afStagesReset();
+    if (out) { out.style.display = ''; out.textContent = 'Alpha Factory build request failed.'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Run Alpha Factory Build'; }
+  }
+}
+window.runAlphaFactory = runAlphaFactory;
+// ===== Phase 20 Autonomous Alpha Factory V1 END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 
@@ -21232,9 +21681,10 @@ var _RA_SECTIONS = {
   'paper-books':      { panels: ['cab-panel'], champion: false },
   'revalidation':     { panels: ['crv-panel'], champion: false },
   'tournament':       { panels: ['ctr-panel'], champion: false },
+  'alpha-factory':    { panels: ['af-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -21281,6 +21731,7 @@ function _raLoadSection(sub) {
     'paper-books': ['loadActiveBook'],
     'revalidation': ['loadCurrentAlphaRevalidation'],
     'tournament': ['loadCurrentAlphaTournament'],
+    'alpha-factory': ['loadAlphaFactory'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {

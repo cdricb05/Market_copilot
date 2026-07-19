@@ -196,6 +196,14 @@ from paper_trader.api.daily_operating_run import (
 from paper_trader.api.current_operating_state import (
     load_current_operating_state,
 )
+from paper_trader.api.alpha_factory import (
+    load_alpha_factory,
+    load_alpha_registry,
+    load_alpha_leaderboard,
+    load_alpha_correlation,
+    run_alpha_factory,
+    BUILD_CONFIRM_TOKEN as _ALPHA_FACTORY_CONFIRM_TOKEN,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4335,6 +4343,16 @@ class CurrentAlphaTournamentRefreshRequest(BaseModel):
     confirm: str | None = None
 
 
+class AlphaFactoryRunRequest(BaseModel):
+    """Phase 20 manual Alpha Factory build request (research-only, user-triggered). A committing
+    build (``commit=true``) additionally requires the explicit confirmation token; it persists the
+    registry / leaderboard / correlation / diagnostics artifacts to the dedicated LOCAL store only
+    and never writes the database, creates orders, or promotes anything to live trading."""
+
+    commit: bool = False
+    confirm: str | None = None
+
+
 @app.post(
     "/v1/research/current-alpha/daily-refresh",
     status_code=status.HTTP_200_OK,
@@ -4574,6 +4592,98 @@ def research_current_alpha_tournament_refresh(
                     % _TOURNAMENT_SYNC_CONFIRM_TOKEN),
         )
     return run_current_alpha_tournament_sync(commit=req.commit, confirm=req.confirm)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 20 — Autonomous Alpha Factory V1 (research-only, read-only + manual build)
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/research/alpha-factory",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_alpha_factory() -> dict:
+    """
+    Read-only Phase 20 Alpha Factory research dashboard.
+
+    Surfaces the full multi-alpha view computed from the owned frozen Phase 10-L scored panel: the
+    alpha registry (every champion / challenger / candidate with its metadata + lifecycle status),
+    the survivor leaderboard, the correlation matrix, the family taxonomy (which families are
+    data-ready vs data-gated), the automatic-rejection diagnostics, the champion battery
+    reproduction proof, and the persisted local-store state.
+
+    Strictly read-only: it recomputes the deterministic build in memory from owned data and reads
+    the local Alpha Factory store; it writes no database rows, launches no subprocess, calls neither
+    the prediction service nor any external provider, and creates no signals / trade decisions /
+    orders / fills. No status it returns approves live trading and it never replaces the champion —
+    every payload carries an explicit no-live-trading safety block. A missing owned panel degrades
+    to ALPHA_FACTORY_PANEL_UNAVAILABLE with HTTP 200, never a stack trace.
+    """
+    return load_alpha_factory()
+
+
+@app.get(
+    "/v1/research/alpha-factory/registry",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_alpha_factory_registry() -> dict:
+    """Read-only Alpha Registry slice: the fixed metadata schema, status counts and every alpha
+    record. Same read-only, no-live-trading guarantees as the dashboard GET."""
+    return load_alpha_registry()
+
+
+@app.get(
+    "/v1/research/alpha-factory/leaderboard",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_alpha_factory_leaderboard() -> dict:
+    """Read-only Alpha Leaderboard slice: the champion reference row plus the ranked surviving
+    candidates. Read-only; no status approves live trading."""
+    return load_alpha_leaderboard()
+
+
+@app.get(
+    "/v1/research/alpha-factory/correlation",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_alpha_factory_correlation() -> dict:
+    """Read-only Alpha correlation slice: the survivor-vs-champion correlation matrix and summary.
+    Read-only; no status approves live trading."""
+    return load_alpha_correlation()
+
+
+@app.post(
+    "/v1/research/alpha-factory/run",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_alpha_factory_run(body: AlphaFactoryRunRequest | None = None) -> dict:
+    """
+    Phase 20 manual Alpha Factory BUILD — one EXPLICIT, user-triggered research action.
+
+    With ``commit=false`` (default) it PREVIEWS the build: it recomputes the deterministic factory
+    over the owned panel and reports the registry counts, diagnostics, reproduction proof and the
+    files it WOULD write — with NO writes. ``commit=true`` requires ``confirm`` to equal the manual
+    confirmation token (otherwise HTTP 400) and persists the registry / leaderboard / correlation /
+    diagnostics / candidate-report artifacts to the dedicated LOCAL Alpha Factory store ONLY.
+
+    It writes ONLY the local research-artifact store — never PostgreSQL, never a Paper Trader
+    position / order / trade / fill, never the research git repository. It creates no signals /
+    trade decisions / orders; connects to no broker; runs no automation; never invokes the
+    prediction service; adds no new data provider; never replaces the champion and never approves
+    live trading. Never returns a stack trace.
+    """
+    req = body or AlphaFactoryRunRequest()
+    if req.commit and req.confirm != _ALPHA_FACTORY_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("A committing Alpha Factory build requires confirm='%s'."
+                    % _ALPHA_FACTORY_CONFIRM_TOKEN),
+        )
+    return run_alpha_factory(commit=req.commit, confirm=req.confirm)
 
 
 @app.get(
