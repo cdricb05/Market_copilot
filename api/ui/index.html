@@ -2057,10 +2057,12 @@
               <!-- Compact Phase 18 tournament summary -->
               <div id="cc-tournament" style="border-top:1px solid var(--border,#2a3550);margin-top:8px;padding-top:6px;">
                 <div class="cc-panel-title" style="font-size:var(--fs-0);display:flex;justify-content:space-between;align-items:center;">
-                  <span>Paper Tournament <span class="cc-badge" id="cc-tourn-status">—</span></span>
+                  <span>Paper Tournament <span class="cc-badge" id="cc-tourn-status">—</span> <span class="cc-badge" id="cc-tourn-align" title="System market mark vs tournament common mark.">—</span></span>
                   <button class="cc-btn ghost" style="font-size:9px;padding:2px 6px;" onclick="navigateToRoute('research-audit/tournament')" title="Open the parallel paper tournament workspace.">View &rarr;</button>
                 </div>
+                <div class="cc-kv"><span class="k">Marks (system vs tournament)</span><span class="v" id="cc-tourn-marks">—</span></div>
                 <div class="cc-kv"><span class="k">Champion vs challenger (Top25 excess)</span><span class="v" id="cc-tourn-excess">—</span></div>
+                <div class="cc-kv"><span class="k">Coverage (four books)</span><span class="v" id="cc-tourn-coverage">—</span></div>
                 <div class="cc-kv"><span class="k">Horizon progress</span><span class="v" id="cc-tourn-progress">—</span></div>
                 <div class="cc-kv"><span class="k">Next checkpoint</span><span class="v" id="cc-tourn-checkpoint">—</span></div>
                 <div class="cc-na-note" style="margin-top:2px;">Paper only · frozen books · no orders · does not replace the champion.</div>
@@ -4556,6 +4558,46 @@
 
           <div class="cc-na-note" id="ctr-decision" style="margin:6px 0;">—</div>
 
+          <!-- ===== Phase 19: current-mark alignment + tournament DATA SYNC ===== -->
+          <div id="ctr-align-wrap" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin:6px 0 12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+              <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);">Current-Mark Alignment</span>
+              <span class="cc-badge" id="ctr-align-status" title="System market mark vs the tournament common mark (ALIGNED / STALE / PARTIAL COVERAGE / BLOCKED).">—</span>
+            </div>
+            <div style="display:flex;gap:24px;flex-wrap:wrap;margin:8px 0 4px;font-size:12px;">
+              <div>System market mark: <b class="mono" id="ctr-system-mark">—</b></div>
+              <div>Tournament common mark: <b class="mono" id="ctr-tournament-mark">—</b></div>
+              <div>Delta: <b class="mono" id="ctr-mark-delta">—</b></div>
+              <div>Current view: <b id="ctr-data-source-note">—</b></div>
+            </div>
+            <div class="cc-na-note" id="ctr-align-next" style="margin:4px 0 8px;">—</div>
+
+            <!-- synchronization stages -->
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--label);margin:6px 0 2px;">Synchronization stages</div>
+            <div id="ctr-sync-stages" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px;">
+              <span class="cc-badge" id="ctr-stage-union">UNION</span>
+              <span class="cc-badge" id="ctr-stage-fetch">FETCH</span>
+              <span class="cc-badge" id="ctr-stage-normalize">NORMALIZE</span>
+              <span class="cc-badge" id="ctr-stage-rebuild">REBUILD</span>
+              <span class="cc-badge" id="ctr-stage-align">ALIGN</span>
+            </div>
+
+            <!-- two actions: preview (no fetch / no write) + confirmed run -->
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0 4px;">
+              <button class="cc-btn" id="ctr-preview-sync-btn" onclick="previewTournamentSync(this)" title="Preview the tournament data sync: resolve the frozen union, the target completed date and the expected provider calls. Performs NO EODHD call and NO writes.">Preview Tournament Data Sync</button>
+              <button class="cc-btn" id="ctr-manual-refresh-btn" onclick="confirmTournamentRefresh(this)" title="Run the manual tournament data sync: fetch the frozen union (+SPY) through the existing owned EODHD access and rebuild the four frozen books. Paper-only; writes only the dedicated local tournament store; no DB, no orders.">Run Manual Tournament Sync</button>
+            </div>
+            <div class="cc-na-note" id="ctr-sync-result" style="margin:6px 0;display:none;"></div>
+
+            <!-- refreshed coverage (four books) -->
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--label);margin:8px 0 2px;">Refreshed coverage (four frozen books)</div>
+            <div id="ctr-coverage-repair" style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;margin:0 0 6px;">—</div>
+
+            <!-- exact missing / unresolved tickers by book -->
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--label);margin:6px 0 2px;">Missing / unresolved tickers by book</div>
+            <div id="ctr-missing-tickers" style="font-size:12px;color:var(--text-secondary,#a8b8d8);">—</div>
+          </div>
+
           <!-- Four book cards -->
           <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#a8b8d8);margin:8px 0 4px;">Four Frozen Books</div>
           <div id="ctr-books" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:4px 0 12px;"></div>
@@ -4617,9 +4659,8 @@
             <ul id="ctr-risk" style="margin:4px 0 0;padding-left:18px;font-size:12px;color:var(--warning,#f59e0b);"></ul>
           </div>
 
-          <!-- Manual refresh + store state -->
+          <!-- Local tournament store state -->
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0 4px;">
-            <button class="cc-btn" id="ctr-manual-refresh-btn" onclick="confirmTournamentRefresh(this)" title="Manually record the latest completed common financial mark to the dedicated local tournament store (paper-only; no DB, no orders).">Manual Refresh Tournament</button>
             <span class="cc-na-note" id="ctr-store-note" style="margin:0;">—</span>
           </div>
           <div class="cc-na-note" id="ctr-refresh-result" style="margin:4px 0;display:none;"></div>
@@ -8446,9 +8487,55 @@ function _ctrMultiChart(svgId, seriesList) {
   el.innerHTML = svg;
 }
 
+var _CTR_ALIGN_CLASS = { ALIGNED: 'safe', STALE: 'warn', PARTIAL_COVERAGE: 'manual', BLOCKED_DATA_MISMATCH: 'warn' };
+
+// Phase 19: current-mark alignment — system market mark vs tournament common mark, NEVER
+// conflated. Refreshed coverage + exact missing tickers by book. Read-only render.
+function _renderTournamentAlignment(d, synced, useSync) {
+  var al = d.alignment || {};
+  var align = al.tournament_alignment || '—';
+  var ab = document.getElementById('ctr-align-status');
+  if (ab) { ab.textContent = String(align).replace(/_/g, ' '); ab.className = 'cc-badge ' + (_CTR_ALIGN_CLASS[align] || 'warn'); }
+  _igText('ctr-system-mark', al.latest_system_market_mark || '—');
+  _igText('ctr-tournament-mark', al.latest_tournament_common_mark || '—');
+  var delta = al.mark_date_delta;
+  _igText('ctr-mark-delta', (delta == null) ? '—' : (delta + ' ' + (al.mark_date_delta_unit || 'calendar_days').replace('_', ' ')));
+  _igText('ctr-data-source-note', useSync ? 'Live owned-EODHD sync' : 'Static owned forward report (not yet synced)');
+  var an = document.getElementById('ctr-align-next');
+  if (an) an.textContent = al.next_action || '—';
+
+  // refreshed coverage (four books)
+  var cov = al.four_book_coverage || {};
+  function covCell(k, label) {
+    var c = cov[k] || {};
+    var pct = c.coverage_pct;
+    var color = (pct == null) ? 'var(--text-secondary)' : (pct >= 90 ? 'var(--positive,#2ecc71)' : 'var(--warning,#f59e0b)');
+    return '<div>' + label + ': <b class="mono" style="color:' + color + ';">'
+      + (c.covered != null ? c.covered + '/' + c.total : '—') + (pct != null ? ' (' + _ctrFx(pct, 0) + '%)' : '') + '</b></div>';
+  }
+  var cr = document.getElementById('ctr-coverage-repair');
+  if (cr) cr.innerHTML = covCell('champion_top25', 'Champion Top25') + covCell('challenger_top25', 'Challenger Top25')
+    + covCell('champion_top50', 'Champion Top50') + covCell('challenger_top50', 'Challenger Top50');
+
+  // exact missing / unresolved tickers by book
+  var miss = al.unresolved_tickers || {};
+  var mt = document.getElementById('ctr-missing-tickers');
+  if (mt) {
+    var order = [['champion_top25', 'Champion Top25'], ['challenger_top25', 'Challenger Top25'],
+      ['champion_top50', 'Champion Top50'], ['challenger_top50', 'Challenger Top50']];
+    var parts = order.map(function (o) {
+      var arr = miss[o[0]] || [];
+      return '<div><b>' + o[1] + ':</b> ' + (arr.length ? escapeHtml(arr.join(', ')) : 'none') + '</div>';
+    });
+    mt.innerHTML = parts.join('');
+  }
+}
+
 function _renderTournament(d) {
   d = d || {};
-  var status = d.decision || d.status || '—';
+  var synced = d.synced_tournament || {};
+  var useSync = !!synced.available;
+  var status = (useSync ? synced.decision : (d.decision || d.status)) || '—';
   var badge = document.getElementById('ctr-status');
   if (badge) { badge.textContent = String(status).replace(/_/g, ' '); badge.className = 'cc-badge ' + (_CTR_STATUS_CLASS[status] || 'warn'); }
   _igText('ctr-banner-status', String(status).replace(/_/g, ' '));
@@ -8457,8 +8544,20 @@ function _renderTournament(d) {
   _igText('ctr-champion-signal', (d.current_paper_champion || {}).signal || 'composite_sn');
   _igText('ctr-challenger-signal', (d.sector_repaired_paper_challenger || {}).signal || 'composite_sn_repaired');
 
+  // Phase 19 alignment block (system vs tournament mark, coverage, missing tickers)
+  _renderTournamentAlignment(d, synced, useSync);
+
+  // Pick the CURRENT data source: the live synced reconstruction when present, else the static
+  // owned forward report. The alignment badge above makes the staleness explicit either way.
+  var bs = (useSync ? synced.book_summaries : d.book_summaries) || {};
+  var h25 = useSync ? synced.top25_head_to_head : d.top25_head_to_head;
+  var h50 = useSync ? synced.top50_head_to_head : d.top50_head_to_head;
+  var cv = (useSync ? synced.daily_curves : d.daily_curves) || {};
+  var se = (useSync ? synced.sector_exposure : d.sector_exposure) || {};
+  var hp = (useSync ? synced.horizon_progress : d.horizon_progress) || {};
+  var latestMark = d.latest_tournament_common_mark || (useSync ? synced.latest_common_financial_mark : d.latest_common_financial_mark) || hp.latest_common_owned_eod_date;
+
   // four book cards (champion/challenger never reversed: fixed order + labels)
-  var bs = d.book_summaries || {};
   var cards = document.getElementById('ctr-books');
   if (cards) {
     cards.innerHTML =
@@ -8469,11 +8568,10 @@ function _renderTournament(d) {
   }
 
   // head-to-head panels
-  _ctrH2HRows('ctr-h2h25', d.top25_head_to_head);
-  _ctrH2HRows('ctr-h2h50', d.top50_head_to_head);
+  _ctrH2HRows('ctr-h2h25', h25);
+  _ctrH2HRows('ctr-h2h50', h50);
 
   // compact aligned-date charts
-  var cv = d.daily_curves || {};
   function cumSeries(vk) {
     return [
       { color: _CTR_COLORS.champion_top25, values: _ctrCurveVals(cv.champion_top25, vk[0], vk[1]) },
@@ -8488,7 +8586,6 @@ function _renderTournament(d) {
   _ctrMultiChart('ctr-chart-dd', cumSeries(['drawdown_curve', 'drawdown_pct']));
 
   // sector exposure comparison (largest sector per book; champion book carries pre-repair labels)
-  var se = d.sector_exposure || {};
   function topSector(k) { var s = (se[k] || [])[0]; return s ? (escapeHtml(s.sector) + ' ' + _ctrFx(s.weight_pct, 0) + '%') : '—'; }
   var sc = document.getElementById('ctr-sectors');
   if (sc) {
@@ -8500,13 +8597,13 @@ function _renderTournament(d) {
   }
 
   // current checkpoint
-  var hp = d.horizon_progress || {};
   _igText('ctr-elapsed', (hp.elapsed_marks != null ? hp.elapsed_marks : '—') + ' / ' + (hp.horizon_trading_days != null ? hp.horizon_trading_days : '63'));
   _igText('ctr-remaining', hp.remaining_marks != null ? hp.remaining_marks : '—');
-  _igText('ctr-latest', d.latest_common_financial_mark || hp.latest_common_owned_eod_date || '—');
+  _igText('ctr-latest', latestMark || '—');
   _igText('ctr-target', d.next_review_target || hp.review_target_date || '—');
   var nw = document.getElementById('ctr-nowinner');
-  if (nw) nw.textContent = d.no_winner_before_checkpoint
+  var checkpointReached = !!hp.checkpoint_reached;
+  if (nw) nw.textContent = !checkpointReached
     ? 'No winner is named before the checkpoint (63 trading marks). This is a monitoring view only.'
     : 'Checkpoint reached — see the decision above. Any promotion is eligibility for a later explicit MANUAL paper-champion decision only.';
 
@@ -8518,18 +8615,23 @@ function _renderTournament(d) {
   if (eld) eld.innerHTML = '<div><b>Entering (challenger):</b> ' + (enter.join(', ') || '—') + '</div>'
     + '<div><b>Leaving (champion):</b> ' + (leave.join(', ') || '—') + '</div>';
 
-  // coverage warnings + risk flags
-  _ctrList('ctr-coverage-wrap', 'ctr-coverage', (d.coverage_warnings || []));
+  // coverage warnings + risk flags (from the static forward report; hidden once fully covered)
+  _ctrList('ctr-coverage-wrap', 'ctr-coverage', (useSync ? [] : (d.coverage_warnings || [])));
   _ctrList('ctr-risk-wrap', 'ctr-risk', (d.risk_flags || []).map(function (r) {
     return (r.book_key || '') + ': ' + (r.flag || '') + ' (' + r.value + ' vs limit ' + r.limit + ')';
   }));
 
-  // store state + next action
-  var store = d.tournament_store || {};
-  _igText('ctr-store-note', 'Local tournament store: last recorded ' + (store.last_recorded_financial_date || 'none')
-    + ' · refreshes ' + (store.n_refreshes != null ? store.n_refreshes : 0));
+  // local tournament store state + next action
+  if (useSync) {
+    _igText('ctr-store-note', 'Local synced tournament store: last synced ' + (synced.latest_common_financial_mark || 'none')
+      + (synced.union_size != null ? (' · union ' + synced.union_size + ' tickers') : ''));
+  } else {
+    var store = d.tournament_store || {};
+    _igText('ctr-store-note', 'Local tournament store: last recorded ' + (store.last_recorded_financial_date || 'none')
+      + ' · refreshes ' + (store.n_refreshes != null ? store.n_refreshes : 0));
+  }
   var nx = document.getElementById('ctr-next');
-  if (nx) nx.innerHTML = '<strong>Next action:</strong> ' + escapeHtml(d.next_action || '—');
+  if (nx) nx.innerHTML = '<strong>Next action:</strong> ' + escapeHtml((d.alignment || {}).next_action || d.next_action || '—');
 }
 
 function _ctrList(wrapId, ulId, items) {
@@ -8538,18 +8640,56 @@ function _ctrList(wrapId, ulId, items) {
   if (wrap) wrap.style.display = items.length ? '' : 'none';
 }
 
-// Manual tournament refresh — styled in-page confirmation (no alert/confirm/prompt).
+// Synchronization stage pills (UNION -> FETCH -> NORMALIZE -> REBUILD -> ALIGN).
+var _CTR_STAGES = ['union', 'fetch', 'normalize', 'rebuild', 'align'];
+function _ctrStage(id, state) {
+  var el = document.getElementById('ctr-stage-' + id);
+  if (!el) return;
+  el.className = 'cc-badge' + (state === 'active' ? ' manual' : (state === 'done' ? ' safe' : ''));
+}
+function _ctrStagesReset() { _CTR_STAGES.forEach(function (s) { _ctrStage(s, 'idle'); }); }
+function _ctrStagesUpTo(idx, done) {
+  _CTR_STAGES.forEach(function (s, i) { _ctrStage(s, i < idx ? 'done' : (i === idx ? (done ? 'done' : 'active') : 'idle')); });
+}
+
+// Preview Tournament Data Sync — resolves the frozen union, target date and expected provider
+// calls. Performs NO EODHD call and NO writes (commit=false).
+async function previewTournamentSync(btn) {
+  var out = document.getElementById('ctr-sync-result');
+  _ctrStagesReset(); _ctrStage('union', 'active');
+  if (btn) { btn.disabled = true; btn.textContent = 'Previewing…'; }
+  try {
+    var r = await call('POST', '/v1/research/current-alpha/tournament/refresh', { commit: false });
+    var data = {}; try { data = await r.json(); } catch (e) {}
+    var u = data.union || {};
+    _ctrStage('union', 'done');
+    if (out) {
+      out.style.display = '';
+      out.textContent = 'PREVIEW (no fetch, no write): union ' + (u.union_size != null ? u.union_size : '—')
+        + ' tickers + SPY = ' + (u.expected_provider_calls != null ? u.expected_provider_calls : '—')
+        + ' expected calls, from ' + (u.fetch_start || '—') + '. System mark '
+        + (data.latest_system_market_mark || '—') + ' vs tournament mark ' + (data.latest_tournament_common_mark || '—') + '.';
+    }
+  } catch (e) {
+    if (out) { out.style.display = ''; out.textContent = 'Tournament sync preview request failed.'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Preview Tournament Data Sync'; }
+  }
+}
+window.previewTournamentSync = previewTournamentSync;
+
+// Manual tournament DATA SYNC — styled in-page confirmation (no alert/confirm/prompt).
 function confirmTournamentRefresh(btn) {
   showPreviewConfirm({
-    title: 'Confirm Manual Tournament Refresh',
+    title: 'Confirm Manual Tournament Data Sync',
     writes: [
-      'One tournament snapshot in the dedicated LOCAL tournament store (not the database)',
-      'The four frozen paper books + SPY at the latest completed common EOD date'
+      'Fetches the frozen four-book ticker union (+ SPY) via the EXISTING owned EODHD access, from the signal date through the latest completed US market date',
+      'Rebuilds the four FROZEN paper books (no rerank, no rebalance) and writes ONLY the dedicated local tournament store (not the database)'
     ],
     doesNotDo: [
-      'Create no orders, signals, trade decisions or fills',
-      'Write no Paper Trader database rows and mutate no positions',
-      'Run no automation and call no prediction service',
+      'Creates no orders, signals, trade decisions or fills',
+      'Writes no Paper Trader database rows and mutates no positions',
+      'Runs no automation, connects to no broker, calls no prediction service, adds no new data provider',
       'Never replaces the champion; never approved for live trading'
     ],
     onConfirm: function () { runTournamentRefresh(); }
@@ -8559,28 +8699,44 @@ window.confirmTournamentRefresh = confirmTournamentRefresh;
 
 async function runTournamentRefresh() {
   var btn = document.getElementById('ctr-manual-refresh-btn');
-  var out = document.getElementById('ctr-refresh-result');
-  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+  var out = document.getElementById('ctr-sync-result');
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+  _ctrStagesReset();
+  _ctrStage('union', 'active');
   try {
+    _ctrStagesUpTo(1, false); // FETCH active (the network fetch happens server-side)
     var r = await call('POST', '/v1/research/current-alpha/tournament/refresh',
       { commit: true, confirm: 'RUN_MANUAL_TOURNAMENT_REFRESH' });
-    var data = {};
-    try { data = await r.json(); } catch (e) {}
+    var data = {}; try { data = await r.json(); } catch (e) {}
+    var st = data.status;
     if (out) {
       out.style.display = '';
-      if (r.ok && data.status === 'TOURNAMENT_REFRESH_COMPLETE') {
-        out.textContent = 'Recorded snapshot for ' + (data.latest_common_financial_mark || '—') + ' in the local store.';
-      } else if (r.ok && data.status === 'NO_NEW_COMPLETED_EOD_DATE') {
-        out.textContent = 'NO NEW COMPLETED EOD DATE — the store is already current (' + (data.last_recorded_financial_date || '—') + '). No snapshot written.';
+      if (r.ok && st === 'TOURNAMENT_REFRESH_COMPLETE') {
+        _ctrStagesUpTo(4, true);
+        out.textContent = 'SYNC COMPLETE — the four frozen books are aligned to ' + (data.latest_tournament_common_mark || '—')
+          + ' (' + (data.n_tickers_ok || 0) + ' union tickers + SPY fetched, ' + (data.n_tickers_failed || 0) + ' failed). Written to the local store only.';
+      } else if (r.ok && st === 'PARTIAL_TOURNAMENT_REFRESH') {
+        _ctrStagesUpTo(4, true);
+        out.textContent = 'PARTIAL SYNC — aligned to ' + (data.latest_tournament_common_mark || '—') + '. '
+          + (data.n_tickers_failed || 0) + ' ticker(s) had no provider data (retained as uncovered): '
+          + ((data.failed_tickers || []).join(', ') || '—') + '. Every successful ticker was kept.';
+      } else if (r.ok && st === 'NO_NEW_COMPLETED_EOD_DATE') {
+        _ctrStagesUpTo(4, true);
+        out.textContent = 'NO NEW COMPLETED EOD DATE — the store is already current (' + (data.last_synced_financial_date || '—') + '). No snapshot written.';
+      } else if (st === 'TOURNAMENT_SYNC_UNAVAILABLE') {
+        _ctrStagesReset();
+        out.textContent = 'SYNC UNAVAILABLE — the frozen champion / challenger packages were not found. Nothing was fetched or written.';
       } else {
-        out.textContent = 'Refresh result: ' + (data.status || ('HTTP ' + r.status)) + '.';
+        _ctrStagesReset();
+        out.textContent = 'Sync result: ' + (st || ('HTTP ' + r.status)) + '.';
       }
     }
     try { await loadCurrentAlphaTournament(); } catch (e) {}
   } catch (e) {
-    if (out) { out.style.display = ''; out.textContent = 'Tournament refresh request failed.'; }
+    _ctrStagesReset();
+    if (out) { out.style.display = ''; out.textContent = 'Tournament data sync request failed.'; }
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Manual Refresh Tournament'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Run Manual Tournament Sync'; }
   }
 }
 window.runTournamentRefresh = runTournamentRefresh;
@@ -20684,15 +20840,43 @@ async function _ccLoadTournamentSummary() {
     var r = await call('GET', '/v1/research/current-alpha/tournament');
     if (!r.ok) return;
     var d = await r.json();
-    var status = d.decision || d.status || '—';
+    var al = d.alignment || {};
+    var synced = d.synced_tournament || {};
+    var useSync = !!synced.available;
+    var align = al.tournament_alignment || '—';
+    var isStale = align === 'STALE';
+    var status = (useSync ? synced.decision : (d.decision || d.status)) || '—';
     var badge = document.getElementById('cc-tourn-status');
     if (badge) { badge.textContent = String(status).replace(/_/g, ' '); badge.className = 'cc-badge ' + ((typeof _CTR_STATUS_CLASS !== 'undefined' && _CTR_STATUS_CLASS[status]) || 'warn'); }
-    var h = d.top25_head_to_head || {};
+    // Alignment badge (STALE until the tournament common mark equals the system market mark).
+    var ab = document.getElementById('cc-tourn-align');
+    if (ab) { ab.textContent = String(align).replace(/_/g, ' '); ab.className = 'cc-badge ' + ((typeof _CTR_ALIGN_CLASS !== 'undefined' && _CTR_ALIGN_CLASS[align]) || 'warn'); }
+    var mk = document.getElementById('cc-tourn-marks');
+    if (mk) mk.textContent = (al.latest_system_market_mark || '—') + ' vs ' + (al.latest_tournament_common_mark || '—')
+      + (al.mark_date_delta ? (' (' + al.mark_date_delta + 'd behind)') : '');
+    // Excess: when STALE, do NOT imply the figure is current — label it and prompt a sync.
+    var h = (useSync ? synced.top25_head_to_head : d.top25_head_to_head) || {};
     var cp = (h.champion || {}).excess_return_vs_spy_pct_points;
     var ch = (h.challenger || {}).excess_return_vs_spy_pct_points;
     var exEl = document.getElementById('cc-tourn-excess');
-    if (exEl) exEl.textContent = (cp == null ? '—' : cp.toFixed(2) + '%') + ' vs ' + (ch == null ? '—' : ch.toFixed(2) + '%');
-    var hp = d.horizon_progress || {};
+    if (exEl) {
+      if (isStale) {
+        exEl.textContent = 'STALE — run Tournament Data Sync (last: '
+          + (cp == null ? '—' : cp.toFixed(2) + '%') + ' vs ' + (ch == null ? '—' : ch.toFixed(2) + '%') + ')';
+      } else {
+        exEl.textContent = (cp == null ? '—' : cp.toFixed(2) + '%') + ' vs ' + (ch == null ? '—' : ch.toFixed(2) + '%');
+      }
+    }
+    // Coverage across the four books.
+    var cov = al.four_book_coverage || {};
+    var covEl = document.getElementById('cc-tourn-coverage');
+    if (covEl) {
+      var pcts = ['champion_top25', 'challenger_top25', 'champion_top50', 'challenger_top50'].map(function (k) {
+        var c = cov[k] || {}; return (c.coverage_pct == null ? '—' : Math.round(c.coverage_pct) + '%');
+      });
+      covEl.textContent = pcts.join(' / ');
+    }
+    var hp = (useSync ? synced.horizon_progress : d.horizon_progress) || {};
     var pg = document.getElementById('cc-tourn-progress');
     if (pg) pg.textContent = (hp.elapsed_marks != null ? hp.elapsed_marks : '—') + ' / ' + (hp.horizon_trading_days != null ? hp.horizon_trading_days : '63') + ' marks';
     var cpk = document.getElementById('cc-tourn-checkpoint');

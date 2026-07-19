@@ -172,6 +172,10 @@ from paper_trader.api.current_alpha_tournament import (
     run_current_alpha_tournament_refresh,
     REFRESH_CONFIRM_TOKEN as _TOURNAMENT_REFRESH_CONFIRM_TOKEN,
 )
+from paper_trader.api.current_alpha_tournament_sync import (
+    run_current_alpha_tournament_sync,
+    SYNC_CONFIRM_TOKEN as _TOURNAMENT_SYNC_CONFIRM_TOKEN,
+)
 from paper_trader.api.command_center import (
     load_command_center,
 )
@@ -4539,28 +4543,37 @@ def research_current_alpha_tournament_refresh(
     body: CurrentAlphaTournamentRefreshRequest | None = None,
 ) -> dict:
     """
-    Phase 18 manual, idempotent tournament refresh — one EXPLICIT, user-triggered action.
+    Phase 19 manual, idempotent tournament DATA SYNC — one EXPLICIT, user-triggered action.
 
-    Advances the dedicated local tournament tracking store to the latest completed COMMON
-    financial mark date in the owned Phase 18-A forward test, recording ONLY the union of the
-    four frozen paper books plus SPY. With ``commit=false`` (default) it previews and writes
-    nothing; ``commit=true`` requires ``confirm`` to equal the manual confirmation token and
-    appends a single snapshot to the local store (idempotent — a rerun with no newer completed
-    mark returns ``NO_NEW_COMPLETED_EOD_DATE``).
+    Upgraded from the Phase 18 snapshot-only refresh: this now performs a real owned-EODHD
+    data sync. It loads the immutable membership of the four frozen paper books (champion /
+    sector-repaired challenger, Top-25 / Top-50) plus SPY, builds the deduplicated ticker
+    union, and — only on an explicit confirmed request — fetches EOD history for the union
+    from the shared signal date through the latest completed US market date using the EXISTING
+    owned-EODHD transport, rebuilds all four frozen books on the same completed-date calendar,
+    and writes ONLY the dedicated local tournament store.
 
-    It writes ONLY the dedicated local tournament store — never PostgreSQL, never the
-    champion's paper-book files, and never a Paper Trader position / order / trade / fill. It
-    creates no signals, no trade decisions, and no orders; connects to no broker; runs no
-    automation; and never invokes the prediction service. Never returns a stack trace.
+    With ``commit=false`` (default) it PREVIEWS the union, target date, expected provider calls
+    and current gaps — no provider call and no writes. ``commit=true`` requires ``confirm`` to
+    equal the manual confirmation token; a same-date rerun returns ``NO_NEW_COMPLETED_EOD_DATE``
+    and partial provider failures return ``PARTIAL_TOURNAMENT_REFRESH`` (every successful ticker
+    retained, every failed ticker reported).
+
+    It writes ONLY the dedicated local tournament store — never PostgreSQL, never the champion's
+    daily-mark files, and never a Paper Trader position / order / trade / fill. It never reranks
+    or rebalances the frozen books, creates no signals / trade decisions / orders; connects to
+    no broker; runs no automation; and never invokes the prediction service. The EODHD key is
+    read only from the environment by the transport and is never logged or persisted. Never
+    returns a stack trace.
     """
     req = body or CurrentAlphaTournamentRefreshRequest()
-    if req.commit and req.confirm != _TOURNAMENT_REFRESH_CONFIRM_TOKEN:
+    if req.commit and req.confirm != _TOURNAMENT_SYNC_CONFIRM_TOKEN:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=("A committing tournament refresh requires confirm='%s'."
-                    % _TOURNAMENT_REFRESH_CONFIRM_TOKEN),
+            detail=("A committing tournament data sync requires confirm='%s'."
+                    % _TOURNAMENT_SYNC_CONFIRM_TOKEN),
         )
-    return run_current_alpha_tournament_refresh(commit=req.commit, confirm=req.confirm)
+    return run_current_alpha_tournament_sync(commit=req.commit, confirm=req.confirm)
 
 
 @app.get(

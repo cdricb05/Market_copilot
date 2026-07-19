@@ -13,6 +13,7 @@ carries the no-live-trading block, and that GET is GET-only (405 on POST to the 
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -21,8 +22,11 @@ from fastapi.testclient import TestClient
 from paper_trader.api.app import app
 from paper_trader.config import get_settings
 from paper_trader.api.current_alpha_tournament import _STATE_FILE
+from paper_trader.api.current_alpha_tournament_sync import _SYNC_STATE_FILE
 
 from tests.test_current_alpha_tournament import _write_forward_report
+from tests.test_current_alpha_tournament_sync import (
+    _write_champion_pkg, _write_challenger_pkg, _price_table)
 
 _GET = "/v1/research/current-alpha/tournament"
 _POST = "/v1/research/current-alpha/tournament/refresh"
@@ -38,8 +42,19 @@ def client(monkeypatch, tmp_path) -> TestClient:
     fdir = tmp_path / "forward"
     tdir = tmp_path / "store"
     _write_forward_report(fdir)
+    # Phase 19: the POST now performs a real (offline, fixture-backed) data sync, so the frozen
+    # champion / challenger packages and an offline price fixture are wired via env seams.
+    champ = tmp_path / "champ"
+    chall = tmp_path / "chall"
+    _write_champion_pkg(champ)
+    _write_challenger_pkg(chall)
+    fixture = tmp_path / "bars.json"
+    fixture.write_text(json.dumps(_price_table()), encoding="utf-8")
     monkeypatch.setenv("PAPER_TRADER_CURRENT_ALPHA_TOURNAMENT_FORWARD_DIR", str(fdir))
     monkeypatch.setenv("PAPER_TRADER_CURRENT_ALPHA_TOURNAMENT_DIR", str(tdir))
+    monkeypatch.setenv("PAPER_TRADER_TOURNAMENT_CHAMPION_PKG_DIR", str(champ))
+    monkeypatch.setenv("PAPER_TRADER_TOURNAMENT_CHALLENGER_PKG_DIR", str(chall))
+    monkeypatch.setenv("PAPER_TRADER_TOURNAMENT_SYNC_FIXTURE", str(fixture))
     get_settings.cache_clear()
     with TestClient(app) as test_client:
         test_client._tdir = tdir  # type: ignore[attr-defined]
@@ -89,15 +104,16 @@ def test_post_preview_writes_nothing(client: TestClient):
     resp = client.post(_POST, headers=_AUTH, json={"commit": False})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "TOURNAMENT_REFRESH_PREVIEW"
+    assert body["status"] == "TOURNAMENT_SYNC_PREVIEW"
     assert body["wrote_store"] is False
-    assert not (client._tdir / _STATE_FILE).exists()  # type: ignore[attr-defined]
+    assert body["performed_provider_call"] is False
+    assert not (client._tdir / _SYNC_STATE_FILE).exists()  # type: ignore[attr-defined]
 
 
 def test_post_commit_without_confirmation_is_rejected(client: TestClient):
     resp = client.post(_POST, headers=_AUTH, json={"commit": True})
     assert resp.status_code == 400
-    assert not (client._tdir / _STATE_FILE).exists()  # type: ignore[attr-defined]
+    assert not (client._tdir / _SYNC_STATE_FILE).exists()  # type: ignore[attr-defined]
 
 
 def test_post_commit_with_confirmation_writes_store_and_is_idempotent(client: TestClient):
@@ -108,7 +124,7 @@ def test_post_commit_with_confirmation_writes_store_and_is_idempotent(client: Te
     assert body["status"] == "TOURNAMENT_REFRESH_COMPLETE"
     assert body["wrote_store"] is True
     assert body["wrote_to_database"] is False
-    assert (client._tdir / _STATE_FILE).exists()  # type: ignore[attr-defined]
+    assert (client._tdir / _SYNC_STATE_FILE).exists()  # type: ignore[attr-defined]
     # rerun -> idempotent (no newer completed date)
     resp2 = client.post(_POST, headers=_AUTH,
                         json={"commit": True, "confirm": "RUN_MANUAL_TOURNAMENT_REFRESH"})

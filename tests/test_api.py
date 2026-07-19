@@ -36449,8 +36449,10 @@ class TestUiAlphaTournamentWorkspace:
         assert "PARALLEL PAPER TOURNAMENT" in panel
 
     def test_manual_refresh_button_not_blank(self):
+        # Phase 19: the manual action is the confirmed data sync (renamed from the Phase 18
+        # snapshot-only refresh); the button is still present and non-blank.
         btn = _fn_16a(_read_index_16a(), 'id="ctr-manual-refresh-btn"', "</button>")
-        assert "Manual Refresh Tournament" in btn
+        assert "Run Manual Tournament Sync" in btn
 
     def test_refresh_button_not_blank(self):
         btn = _fn_16a(_read_index_16a(), 'id="ctr-refresh"', "</button>")
@@ -36568,4 +36570,166 @@ class TestUiAlphaTournamentCommandCenterSummary:
     def test_cc_summary_paper_only_note(self):
         block = _fn_16a(_read_index_16a(), 'id="cc-tournament"', "Performance Snapshot")
         assert "does not replace the champion" in block.lower()
+
+
+# =========================================================================== #
+# Phase 19 — tournament current-mark alignment + data sync (UI static)
+# =========================================================================== #
+
+def _ctr_panel_19() -> str:
+    return _fn_16a(_read_index_16a(), 'id="ctr-panel"',
+                   "Phase 18 PARALLEL PAPER TOURNAMENT (subsection) END")
+
+
+def _ctr_js_19() -> str:
+    return _fn_16a(_read_index_16a(), "// ===== Parallel Paper Tournament (Phase 18) START",
+                   "// ===== Parallel Paper Tournament (Phase 18) END")
+
+
+class TestUiAlphaTournamentSync:
+    """Part E: the two sync actions (Preview / Run), the five synchronization stages, and the
+    loaders wired to the upgraded refresh endpoint (preview = commit:false, run = commit:true +
+    token)."""
+
+    def test_sync_controls_present(self):
+        panel = _ctr_panel_19()
+        for el in ('id="ctr-preview-sync-btn"', 'id="ctr-manual-refresh-btn"', 'id="ctr-sync-result"',
+                   'id="ctr-sync-stages"', 'id="ctr-stage-union"', 'id="ctr-stage-fetch"',
+                   'id="ctr-stage-normalize"', 'id="ctr-stage-rebuild"', 'id="ctr-stage-align"'):
+            assert el in panel, el
+
+    def test_both_action_buttons_not_blank(self):
+        preview = _fn_16a(_read_index_16a(), 'id="ctr-preview-sync-btn"', "</button>")
+        assert "Preview Tournament Data Sync" in preview
+        run = _fn_16a(_read_index_16a(), 'id="ctr-manual-refresh-btn"', "</button>")
+        assert "Run Manual Tournament Sync" in run
+
+    def test_five_named_stages_present(self):
+        panel = _ctr_panel_19()
+        for stage in ("UNION", "FETCH", "NORMALIZE", "REBUILD", "ALIGN"):
+            assert ">" + stage + "<" in panel, stage
+
+    def test_preview_loader_no_write_commit_false(self):
+        fn = _fn_16a(_read_index_16a(), "async function previewTournamentSync",
+                     "window.previewTournamentSync")
+        assert "/v1/research/current-alpha/tournament/refresh" in fn
+        assert "commit: false" in fn
+
+    def test_run_loader_posts_commit_true_with_token_and_drives_stages(self):
+        fn = _fn_16a(_read_index_16a(), "async function runTournamentRefresh",
+                     "window.runTournamentRefresh")
+        assert "/v1/research/current-alpha/tournament/refresh" in fn
+        assert "commit: true" in fn and "RUN_MANUAL_TOURNAMENT_REFRESH" in fn
+        assert "_ctrStagesUpTo(" in fn  # stages are driven during the sync
+        # the run handler distinguishes the upgraded sync statuses
+        for st in ("TOURNAMENT_REFRESH_COMPLETE", "PARTIAL_TOURNAMENT_REFRESH",
+                   "NO_NEW_COMPLETED_EOD_DATE", "TOURNAMENT_SYNC_UNAVAILABLE"):
+            assert st in fn, st
+
+    def test_render_prefers_synced_overlay(self):
+        fn = _fn_16a(_read_index_16a(), "function _renderTournament(d)",
+                     "function _ctrList")
+        assert "synced_tournament" in fn
+        assert "book_summaries" in fn
+
+
+class TestUiAlphaTournamentAlignment:
+    """Part D/E: the alignment block (system market mark vs tournament common mark — never
+    conflated), the alignment enum badge, delta, and the STALE-aware Command Center summary."""
+
+    def test_alignment_fields_present(self):
+        panel = _ctr_panel_19()
+        for el in ('id="ctr-align-wrap"', 'id="ctr-align-status"', 'id="ctr-system-mark"',
+                   'id="ctr-tournament-mark"', 'id="ctr-mark-delta"', 'id="ctr-align-next"'):
+            assert el in panel, el
+
+    def test_system_and_tournament_marks_are_distinct_labels(self):
+        panel = _ctr_panel_19()
+        assert "System market mark" in panel
+        assert "Tournament common mark" in panel
+
+    def test_alignment_renderer_reads_alignment_block(self):
+        fn = _fn_16a(_read_index_16a(), "function _renderTournamentAlignment",
+                     "function _renderTournament(d)")
+        for key in ("latest_system_market_mark", "latest_tournament_common_mark",
+                    "tournament_alignment", "mark_date_delta"):
+            assert key in fn, key
+
+    def test_alignment_class_map_has_four_states(self):
+        html = _read_index_16a()
+        m = _fn_16a(html, "var _CTR_ALIGN_CLASS", "\n")
+        for state in ("ALIGNED", "STALE", "PARTIAL_COVERAGE", "BLOCKED_DATA_MISMATCH"):
+            assert state in m, state
+
+    def test_command_center_stale_aware(self):
+        html = _read_index_16a()
+        assert 'id="cc-tourn-align"' in html and 'id="cc-tourn-marks"' in html
+        loader = _fn_16a(html, "async function _ccLoadTournamentSummary",
+                         "window._ccLoadTournamentSummary")
+        # STALE until the tournament mark equals the system mark, and the excess is not
+        # presented as current while stale.
+        assert "STALE" in loader
+        assert "tournament_alignment" in loader
+        assert "run Tournament Data Sync" in loader
+
+
+class TestUiAlphaTournamentCoverageRepair:
+    """Part E: refreshed four-book coverage + the exact missing / unresolved tickers by book."""
+
+    def test_coverage_and_missing_elements_present(self):
+        panel = _ctr_panel_19()
+        assert 'id="ctr-coverage-repair"' in panel
+        assert 'id="ctr-missing-tickers"' in panel
+
+    def test_renderer_reads_coverage_and_unresolved(self):
+        fn = _fn_16a(_read_index_16a(), "function _renderTournamentAlignment",
+                     "function _renderTournament(d)")
+        assert "four_book_coverage" in fn
+        assert "unresolved_tickers" in fn
+        for k in ("champion_top25", "challenger_top25", "champion_top50", "challenger_top50"):
+            assert k in fn, k
+
+    def test_command_center_coverage_present(self):
+        html = _read_index_16a()
+        assert 'id="cc-tourn-coverage"' in html
+        loader = _fn_16a(html, "async function _ccLoadTournamentSummary",
+                         "window._ccLoadTournamentSummary")
+        assert "four_book_coverage" in loader
+
+
+class TestUiAlphaTournamentSyncSafety:
+    """Part E terminology + safety: paper-only / frozen-books wording, the confirmed sync uses
+    the styled in-page confirmation (never a native dialog), no blank buttons, and the confirm
+    copy states it uses existing owned EODHD access and adds no new provider."""
+
+    def test_required_safety_terms(self):
+        panel = _ctr_panel_19()
+        for term in ("PAPER ONLY", "FROZEN BOOKS", "NO ORDERS", "NO BROKER", "NO AUTOMATION",
+                     "MANUAL REFRESH", "NOT APPROVED FOR LIVE TRADING"):
+            assert term in panel, term
+
+    def test_no_production_or_live_champion_wording(self):
+        panel = _ctr_panel_19()
+        assert "PRODUCTION ALPHA" not in panel
+        assert "LIVE CHAMPION" not in panel
+
+    def test_confirm_copy_is_owned_access_no_new_provider(self):
+        fn = _fn_16a(_read_index_16a(), "function confirmTournamentRefresh",
+                     "window.confirmTournamentRefresh")
+        assert "showPreviewConfirm(" in fn
+        assert "runTournamentRefresh(" in fn
+        low = fn.lower()
+        assert "owned eodhd" in low
+        assert "no new data provider" in low
+        assert "never replaces the champion" in low
+
+    def test_no_native_dialogs_in_sync_block(self):
+        fn = _ctr_js_19()
+        for bad in ("alert(", "confirm(", "prompt("):
+            assert bad not in fn, bad
+
+    def test_head_to_head_tables_scroll_no_page_overflow(self):
+        panel = _ctr_panel_19()
+        # wide tables scroll inside their own overflow-x:auto container (no page overflow)
+        assert panel.count("overflow-x:auto") >= 2
 

@@ -177,6 +177,23 @@ def _load_store_state(tournament_dir: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _attach_alignment(payload: dict[str, Any], static_report: Optional[dict[str, Any]],
+                      tournament_dir: Optional[Union[str, Path]] = None) -> dict[str, Any]:
+    """Best-effort: attach the Phase 19 alignment block + synced overlay to a GET payload.
+
+    Imported lazily (the sync module imports this one) and wrapped so a read-only GET never
+    breaks if the alignment cannot be computed — it simply omits the block. ``tournament_dir``
+    is threaded so the synced overlay is scoped to the SAME store the caller resolved (keeps
+    tests hermetic instead of reading the default D: store)."""
+    try:
+        from paper_trader.api.current_alpha_tournament_sync import attach_alignment
+        return attach_alignment(payload, static_report=static_report, tournament_dir=tournament_dir)
+    except Exception:  # noqa: BLE001 — alignment is additive; never break the read-only GET
+        payload.setdefault("alignment", None)
+        payload.setdefault("synced_tournament", {"available": False})
+        return payload
+
+
 def load_current_alpha_tournament(
     *,
     forward_dir: Optional[Union[str, Path]] = None,
@@ -211,7 +228,7 @@ def load_current_alpha_tournament(
             "loaded_at": loaded_at,
         }
         payload.update(_safety_block())
-        return payload
+        return _attach_alignment(payload, None, tournament_dir=tdir)
 
     decision = report.get("decision")
     if decision not in ALLOWED_DECISIONS:
@@ -300,7 +317,7 @@ def load_current_alpha_tournament(
         "loaded_at": loaded_at,
     }
     payload.update(_safety_block())
-    return payload
+    return _attach_alignment(payload, report, tournament_dir=tdir)
 
 
 # ---------------------------------------------------------------------------
