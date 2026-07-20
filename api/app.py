@@ -213,6 +213,8 @@ from paper_trader.api.price_alpha_factory import (
     run_price_alpha_factory,
     BUILD_CONFIRM_TOKEN as _PRICE_ALPHA_FACTORY_CONFIRM_TOKEN,
 )
+from paper_trader.api import multi_horizon_platform as _mhz
+from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4374,6 +4376,15 @@ class PriceAlphaFactoryRunRequest(BaseModel):
     confirm: str | None = None
 
 
+class MhzSnapshotConfirmRequest(BaseModel):
+    """Phase 25 manual multi-horizon paper-snapshot confirmation. A confirmed append (``confirm`` must
+    equal the confirmation token) writes ONE immutable, append-only snapshot to the dedicated LOCAL
+    paper-alpha ledger only. It never writes PostgreSQL, an order, a fill, a trade decision, a live
+    signal, or any existing execution/broker/trading workflow, and never replaces the champion."""
+
+    confirm: str | None = None
+
+
 @app.post(
     "/v1/research/current-alpha/daily-refresh",
     status_code=status.HTTP_200_OK,
@@ -4818,6 +4829,136 @@ def research_price_alpha_factory_run(body: PriceAlphaFactoryRunRequest | None = 
                     % _PRICE_ALPHA_FACTORY_CONFIRM_TOKEN),
         )
     return run_price_alpha_factory(commit=req.commit, confirm=req.confirm)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 25 - Multi-Horizon Paper Alpha Platform (paper-only, read-only + manual snapshot)
+#
+# Deploys the validated slow (composite_sn) + medium (mom_6_1) sleeves and the fixed 50/50 combined
+# model into a usable paper-only portfolio, architected for daily/weekly/monthly/quarterly cadences.
+# Every response carries paper_only/orders_enabled=false/automation_enabled=false/champion_replaced=false
+# /validated_fast_alpha_available. All GETs are strictly read-only (owned CSVs only - never the
+# prediction service, never PostgreSQL, never orders/fills/trade-decisions/live-signals). The only write
+# is the explicit, token-gated, idempotent, append-only paper-snapshot confirm to the dedicated LOCAL
+# ledger. A missing owned input degrades to an *_UNAVAILABLE status with HTTP 200, never a stack trace.
+# --------------------------------------------------------------------------- #
+@app.get("/v1/research/alpha-models", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_models() -> dict:
+    """Read-only versioned model registry: every model's exact formula, five cadences (observation /
+    signal-horizon / holding / evaluation / rebalance), next-review rule, cost assumption, validation
+    evidence, correlation cluster, deployment status and safety classification. The reversal model is
+    registered INFORMATION_ONLY_NOT_TRADABLE and blocked from recommendation generation."""
+    return _mhz.load_models()
+
+
+@app.get("/v1/research/alpha-sleeves", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_sleeves() -> dict:
+    """Read-only sleeve registry with dynamic state: active model, cadence, last calculation date, last
+    confirmed snapshot, next manual review date, review-due status and daily actionability for each of
+    the fundamental / momentum / combined(primary) / defensive-risk-overlay / fast sleeves. The fast
+    sleeve shows NO_VALIDATED_FAST_ALPHA until Track B validates a net-tradable fast model."""
+    return _mhz.load_sleeves()
+
+
+@app.get("/v1/research/alpha-operating-state", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_operating_state() -> dict:
+    """Read-only daily operating state - a STATE, not necessarily a trade change: one of NO_REVIEW_DUE /
+    RISK_REFRESH_ONLY / FUNDAMENTAL_REVIEW_DUE / MOMENTUM_REVIEW_DUE / COMBINED_REVIEW_DUE /
+    FAST_REVIEW_DUE / DATA_BLOCKED / MANUAL_CONFIRMATION_REQUIRED, plus whether scores recalculated,
+    risk refreshed, a review is due, and whether a recommendation changed. Most days for the slow/medium
+    sleeves correctly show HOLD/WAIT."""
+    return _mhz.load_operating_state()
+
+
+@app.get("/v1/research/current-alpha-scores", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_current_alpha_scores() -> dict:
+    """Read-only current per-security model legs (raw / oriented / normalized / percentile / rank /
+    eligible / exclusion-reason / data-quality flags) for composite_sn and mom_6_1, the fixed 50/50
+    combined over the common eligible universe, and the explicit blocked-model notice. composite_sn and
+    mom_6_1 are reproduced exactly - no formula is re-optimized."""
+    return _mhz.load_current_scores()
+
+
+@app.get("/v1/research/current-alpha-books", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_current_alpha_books() -> dict:
+    """Read-only current six long-only equal-weight books (composite_sn / mom_6_1 / 50/50 combined at
+    Top-25 and Top-50) with deterministic construction (sector concentration cap, minimum dollar
+    liquidity, equal weight, manual rebalance only) and their overlaps. Primary book =
+    fundamental_momentum_50_50_top25."""
+    return _mhz.load_current_books()
+
+
+@app.get("/v1/research/current-alpha-recommendations", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_current_alpha_recommendations() -> dict:
+    """Read-only current paper recommendations (BUY_CANDIDATE / HOLD / REDUCE_CANDIDATE / EXIT_CANDIDATE
+    / WAIT only - never plain BUY/SELL) for the combined / fundamental / momentum sleeves vs each sleeve's
+    last confirmed snapshot, with deterministic reason codes and the blocked-model notice. No order is
+    created; nothing is sent to a broker; no automation is scheduled."""
+    return _mhz.load_current_recommendations()
+
+
+@app.get("/v1/research/alpha-book-comparison", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_book_comparison() -> dict:
+    """Read-only side-by-side of the six books with their historical paper metrics (net cumulative,
+    annualized, Sharpe, max drawdown, hit rate, steady-state turnover), current/historical overlaps and
+    the combined-model lift. Read-only."""
+    return _mhz.load_book_comparison()
+
+
+@app.get("/v1/research/alpha-paper-history", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_paper_history() -> dict:
+    """Read-only historical paper reconstruction of the six books on each model's native cadence
+    (25 bps cost, PIT membership/fundamentals, no future info, NO re-optimization): equity curves,
+    net/gross cumulative, drawdown, turnover, hit rate, rolling returns, the combined-model lift and a
+    directional reconciliation against the committed research evidence."""
+    return _mhz.load_paper_history()
+
+
+@app.get("/v1/research/alpha-paper-snapshots", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_paper_snapshots() -> dict:
+    """Read-only list of the append-only paper-alpha snapshots (immutable forward ledger). Read-only."""
+    return _mhz.load_paper_snapshots()
+
+
+@app.get("/v1/research/alpha-paper-snapshots/{snapshot_id}", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_paper_snapshot(snapshot_id: str) -> dict:
+    """Read-only single append-only paper-alpha snapshot by id. Read-only."""
+    return _mhz.get_paper_snapshot(snapshot_id)
+
+
+@app.post("/v1/research/alpha-paper-snapshots/preview", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def research_alpha_paper_snapshot_preview() -> dict:
+    """Read-only PREVIEW of the paper snapshot that WOULD be appended (constituents, target weights,
+    component scores, recommendations, estimated turnover/cost, risks). Writes nothing."""
+    return _mhz.preview_snapshot()
+
+
+@app.post("/v1/research/alpha-paper-snapshots/confirm", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def research_alpha_paper_snapshot_confirm(body: MhzSnapshotConfirmRequest | None = None) -> dict:
+    """Manual, explicit CONFIRM that appends ONE immutable paper snapshot to the dedicated LOCAL ledger.
+    Requires ``confirm`` == the confirmation token (otherwise HTTP 400); idempotent (a duplicate confirm
+    for the same market date + identical primary book is skipped); append-only. It NEVER writes
+    PostgreSQL, an order, a fill, a trade decision, a live signal, or any existing execution / broker /
+    trading workflow, and never replaces the champion."""
+    req = body or MhzSnapshotConfirmRequest()
+    if req.confirm is not None and req.confirm != _MHZ_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A confirmed paper snapshot requires confirm='%s'." % _MHZ_CONFIRM_TOKEN,
+        )
+    return _mhz.confirm_snapshot(confirm=req.confirm)
 
 
 @app.get(

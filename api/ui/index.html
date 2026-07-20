@@ -1930,6 +1930,7 @@
       <a class="sidebar-link" id="nav-daily-workflow" data-route="daily-workflow" onclick="navigateToRoute('daily-workflow');">Daily Workflow</a>
       <a class="sidebar-link" id="nav-portfolio" data-route="portfolio" onclick="navigateToRoute('portfolio');">Portfolio</a>
       <a class="sidebar-link" id="nav-research-audit" data-route="research-audit" onclick="navigateToRoute('research-audit');">Research &amp; Audit</a>
+      <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');">Multi-Horizon Alpha</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Actions</div>
@@ -4261,6 +4262,123 @@
       </div><!-- end tab-portfolio -->
 
       <!-- TAB 5: AUDIT / ADVANCED -->
+      <!-- ============================================================================================
+           Phase 25 — MULTI-HORIZON ALPHA PORTFOLIO (operational, paper-only). Wireframe: scratchpad/
+           phase25_ui_wireframe.md. Left sidebar (global) + top status bar + KPI cards + central cockpit
+           (sleeves / recommendations / book comparison / performance / daily monitoring) + right-side
+           safety & manual-snapshot panel + collapsed Audit/Advanced. No orders, no automation, no
+           native browser dialogs.
+      ============================================================================================ -->
+      <div id="tab-multi-horizon" class="tab-content">
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">MULTI-HORIZON ALPHA PORTFOLIO
+              <span class="cc-badge" id="mhz-status" title="Read-only multi-horizon paper platform status.">&mdash;</span></span>
+            <span style="display:flex;gap:6px;align-items:center;">
+              <button class="btn-sm" id="mhz-refresh" onclick="loadMultiHorizon()" title="Reload the read-only multi-horizon paper platform.">&#8635; Refresh</button>
+            </span>
+          </div>
+          <div class="ra-safety-strip" id="mhz-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 10px;">
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge danger">ORDERS DISABLED</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge">NO LIVE PROMOTION</span>
+            <span class="cc-badge muted" id="mhz-fast-badge" title="Validated fast alpha availability (Track B).">FAST: &mdash;</span>
+          </div>
+          <!-- TOP STATUS BAR -->
+          <div id="mhz-statusbar" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 10px;">
+            <span>Market <b id="mhz-sb-market">&mdash;</b></span>
+            <span>Fundamental <b id="mhz-sb-fund">&mdash;</b></span>
+            <span>Primary <b id="mhz-sb-primary">&mdash;</b></span>
+            <span>Eligible universe <b id="mhz-sb-universe">&mdash;</b></span>
+            <span>Operating <b id="mhz-sb-state">&mdash;</b></span>
+            <span>Fast <b id="mhz-sb-fast">&mdash;</b></span>
+          </div>
+          <!-- KPI CARDS -->
+          <div id="mhz-kpis" style="display:flex;gap:10px;flex-wrap:wrap;">
+            <div class="af-kpi"><div class="af-kpi-v mono" id="mhz-kpi-market">&mdash;</div><div class="af-kpi-l">Market date</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="mhz-kpi-fund">&mdash;</div><div class="af-kpi-l">Fundamental date</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="mhz-kpi-primary">&mdash;</div><div class="af-kpi-l">Primary book</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="mhz-kpi-universe">&mdash;</div><div class="af-kpi-l">Eligible universe</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="mhz-kpi-review">&mdash;</div><div class="af-kpi-l">Review due</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="mhz-kpi-fast">&mdash;</div><div class="af-kpi-l">Fast sleeve</div></div>
+          </div>
+        </div>
+
+        <!-- MAIN COCKPIT (left) + RIGHT PANEL -->
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;">
+          <div style="flex:2 1 640px;min-width:520px;">
+            <!-- 1. MODEL SLEEVES -->
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Model Sleeves <span class="cc-badge muted" title="Each sleeve's cadence is separate. Slow/medium sleeves are NOT daily-trading models.">CADENCE-AWARE</span></div>
+              <div id="mhz-sleeves" style="overflow-x:auto;font-size:11px;">&mdash;</div>
+            </div>
+            <!-- 2. PRIMARY RECOMMENDATIONS -->
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Primary Recommendations <span class="cc-badge" id="mhz-rec-book" title="Primary combined 50/50 Top-25.">50/50 TOP-25</span></span>
+                <span class="cc-badge muted" id="mhz-rec-state">&mdash;</span>
+              </div>
+              <div class="cc-na-note" style="font-size:10px;margin:0 0 6px;">Recommendations are BUY_CANDIDATE / HOLD / REDUCE_CANDIDATE / EXIT_CANDIDATE / WAIT only &mdash; never a plain order. No order is created; nothing is sent to a broker.</div>
+              <div id="mhz-recs" class="compact-scroll-region" style="max-height:340px;overflow:auto;font-size:11px;">&mdash;</div>
+            </div>
+            <!-- 3. BOOK COMPARISON -->
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Book Comparison <span class="cc-badge muted" title="Six long-only equal-weight books with historical paper metrics.">6 BOOKS</span></div>
+              <div id="mhz-books" style="overflow-x:auto;font-size:11px;">&mdash;</div>
+            </div>
+            <!-- 4. PERFORMANCE -->
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Performance <span class="cc-badge muted" title="Historical paper reconstruction, 25 bps cost, native cadence, PIT, no re-optimization.">PAPER RECONSTRUCTION</span></div>
+              <div id="mhz-perf" style="overflow-x:auto;font-size:11px;">&mdash;</div>
+              <div id="mhz-lift" class="cc-na-note" style="font-size:11px;margin-top:8px;">&mdash;</div>
+            </div>
+            <!-- 5. DAILY MONITORING -->
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Daily Monitoring <span class="cc-badge muted" title="Risk/eligibility refresh — most days show HOLD / WAIT / no action.">RISK &amp; ELIGIBILITY</span></div>
+              <div id="mhz-monitoring" style="font-size:11px;">&mdash;</div>
+            </div>
+            <!-- AUDIT / ADVANCED -->
+            <details id="mhz-audit" class="card" style="margin-bottom:12px;">
+              <summary style="cursor:pointer;font-weight:700;">Audit / Advanced &mdash; validations, fingerprints, reconciliation, blocked models</summary>
+              <div id="mhz-audit-body" class="mono" style="font-size:10px;margin-top:8px;overflow-x:auto;">&mdash;</div>
+            </details>
+          </div>
+
+          <!-- RIGHT PANEL: safety + operating state + manual snapshot -->
+          <div style="flex:1 1 320px;min-width:300px;">
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Safety &amp; Operating State</div>
+              <div id="mhz-opstate-pill" class="cc-badge manual" style="display:inline-block;margin-bottom:6px;">&mdash;</div>
+              <div id="mhz-opstate-reason" class="cc-na-note" style="font-size:11px;margin-bottom:8px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:4px 0 4px;padding:0;font-size:11px;">Next manual review</div>
+              <div id="mhz-next-reviews" style="font-size:11px;">&mdash;</div>
+            </div>
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Manual Snapshot <span class="cc-badge" title="Preview is read-only; confirm appends one immutable paper snapshot to the local ledger only.">PREVIEW &rarr; CONFIRM</span></div>
+              <div class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Preview is read-only. Confirm appends ONE immutable paper snapshot to the dedicated local ledger only &mdash; never an order, fill, trade decision, live signal or database write.</div>
+              <button class="btn-sm" id="mhz-preview-btn" onclick="mhzPreviewSnapshot()" title="Read-only preview of the snapshot that would be appended.">Preview Snapshot</button>
+              <div id="mhz-preview-facts" style="font-size:11px;margin-top:8px;">&mdash;</div>
+              <!-- styled in-page confirmation (NOT a native confirm dialog) -->
+              <div id="mhz-confirm-box" style="display:none;border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin-top:10px;">
+                <div style="font-weight:700;font-size:11px;margin-bottom:6px;">Confirm paper snapshot?</div>
+                <div class="cc-na-note" style="font-size:10px;margin-bottom:8px;">This appends one immutable, paper-only snapshot to the local ledger. It is idempotent (a duplicate for the same market date + identical primary book is skipped). No order is created.</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn-sm" id="mhz-confirm-yes" onclick="mhzConfirmSnapshot()" title="Append one immutable paper snapshot to the local ledger.">Confirm Paper Snapshot</button>
+                  <button class="btn-sm" id="mhz-confirm-no" onclick="mhzCancelConfirm()" title="Cancel — write nothing.">Cancel</button>
+                </div>
+              </div>
+              <div id="mhz-snapshots" style="font-size:10px;margin-top:10px;">&mdash;</div>
+            </div>
+            <div class="card">
+              <div class="card-title" style="font-size:11px;">Sensitivity Views <span class="cc-badge muted" title="30/70 and 70/30 views never silently replace the fixed 50/50 primary.">FIXED 50/50 PRIMARY</span></div>
+              <div id="mhz-sensitivity" style="font-size:10px;">The primary combined model uses FIXED 50/50 weights. 30/70 and 70/30 fundamental/momentum views are diagnostics only and never silently replace the primary.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="tab-audit-advanced" class="tab-content">
 
         <!-- ===================== Phase 15-B RESEARCH & AUDIT WORKSPACE NAV ===================== -->
@@ -6356,6 +6474,13 @@ window._switchTab = function(tabName, opts) {
   // Phase 14-C: Research & Audit opens with the CURRENT CHAMPION summary first.
   if (tabName === 'audit-advanced' && window._appState?.connected) {
     try { loadResearchChampionSummary(); } catch (e) {}
+  }
+
+  // Phase 25: Multi-Horizon Alpha Portfolio — lazy-load the read-only platform
+  // view the first time the tab opens (Refresh reloads on demand). GETs only.
+  if (tabName === 'multi-horizon' && !window._mhzLoaded) {
+    window._mhzLoaded = true;
+    try { loadMultiHorizon(); } catch (e) {}
   }
 
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
@@ -22141,6 +22266,7 @@ window.renderPredictionHeader = renderPredictionHeader;
 var _ROUTE_TO_TAB = {
   'command-center': 'overview', 'daily-workflow': 'prediction-cockpit',
   'portfolio': 'portfolio', 'research-audit': 'audit-advanced',
+  'multi-horizon': 'multi-horizon',
 };
 function _parseRoute() {
   var h = (location.hash || '').replace(/^#/, '');
@@ -22756,6 +22882,344 @@ async function loadResearchChampionSummary() {
   } catch (e) { /* read-only summary; leave placeholders on failure */ }
 }
 window.loadResearchChampionSummary = loadResearchChampionSummary;
+
+// ============================ PHASE 25 — MULTI-HORIZON ALPHA PORTFOLIO ======================== //
+// Read-only paper platform view. GETs only, except the explicit two-step Preview -> Confirm
+// snapshot flow (styled in-page confirmation; never a native browser dialog).
+function _mhzGet(path) {
+  return call('GET', path).then(function (r) { return r.json(); }).catch(function () { return null; });
+}
+function _mhzRecBadge(rec) {
+  var cls = { BUY_CANDIDATE: 'safe', HOLD: 'muted', REDUCE_CANDIDATE: 'manual',
+              EXIT_CANDIDATE: 'danger', WAIT: 'muted' }[rec] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(rec || '—') + '</span>';
+}
+function _mhzPct(x, nd) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return (100 * x).toFixed(nd === undefined ? 1 : nd) + '%';
+}
+function _mhzNum(x, nd) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return Number(x).toFixed(nd === undefined ? 2 : nd);
+}
+
+async function loadMultiHorizon() {
+  var st = document.getElementById('mhz-status');
+  if (st) { st.textContent = 'Loading…'; st.className = 'cc-badge'; }
+  var res = await Promise.all([
+    _mhzGet('/v1/research/alpha-sleeves'),
+    _mhzGet('/v1/research/alpha-operating-state'),
+    _mhzGet('/v1/research/current-alpha-recommendations'),
+    _mhzGet('/v1/research/alpha-book-comparison'),
+    _mhzGet('/v1/research/alpha-paper-history'),
+    _mhzGet('/v1/research/current-alpha-scores'),
+    _mhzGet('/v1/research/alpha-paper-snapshots'),
+  ]);
+  var sleeves = res[0], opstate = res[1], recs = res[2], books = res[3],
+      perf = res[4], scores = res[5], snaps = res[6];
+  window._mhzData = { sleeves: sleeves, opstate: opstate, recs: recs, books: books,
+                      perf: perf, scores: scores, snaps: snaps };
+  var ok = opstate && opstate.status === 'MHZ_OPERATING_STATE_READY';
+  if (st) {
+    st.textContent = ok ? 'READY' : (opstate && opstate.status) || 'UNAVAILABLE';
+    st.className = 'cc-badge ' + (ok ? 'safe' : 'danger');
+  }
+  renderMhzStatusbar(opstate, scores, books);
+  renderMhzSleeves(sleeves);
+  renderMhzRecommendations(recs);
+  renderMhzBooks(books);
+  renderMhzPerformance(perf);
+  renderMhzMonitoring(opstate);
+  renderMhzOpState(opstate, sleeves);
+  renderMhzSnapshots(snaps);
+  renderMhzAudit(scores, perf);
+}
+window.loadMultiHorizon = loadMultiHorizon;
+
+function renderMhzStatusbar(opstate, scores, books) {
+  function setT(id, v) { var el = document.getElementById(id); if (el) el.textContent = (v === undefined || v === null) ? '—' : v; }
+  var market = (opstate && opstate.market_as_of_date) || (scores && scores.market_as_of_date);
+  var fund = (scores && scores.fundamental_as_of_date) || (opstate && opstate.fundamental_month);
+  var fastOk = !!(opstate && opstate.validated_fast_alpha_available);
+  setT('mhz-sb-market', market); setT('mhz-kpi-market', market);
+  setT('mhz-sb-fund', fund); setT('mhz-kpi-fund', fund);
+  setT('mhz-sb-primary', '50/50 Top-25'); setT('mhz-kpi-primary', '50/50 Top-25');
+  var uni = scores && scores.n_common_universe;
+  setT('mhz-sb-universe', uni); setT('mhz-kpi-universe', uni);
+  setT('mhz-sb-state', (opstate && opstate.operating_state) || '—');
+  setT('mhz-kpi-review', opstate && opstate.portfolio_review_due ? 'YES' : 'No');
+  var fastTxt = fastOk ? 'VALIDATED' : 'NO_VALIDATED_FAST_ALPHA';
+  setT('mhz-sb-fast', fastTxt); setT('mhz-kpi-fast', fastOk ? 'ACTIVE' : 'INACTIVE');
+  var fb = document.getElementById('mhz-fast-badge');
+  if (fb) { fb.textContent = 'FAST: ' + fastTxt; fb.className = 'cc-badge ' + (fastOk ? 'safe' : 'muted'); }
+}
+
+function renderMhzSleeves(d) {
+  var el = document.getElementById('mhz-sleeves');
+  if (!el) return;
+  if (!d || !d.sleeves || !d.sleeves.length) { el.textContent = 'Sleeve registry unavailable.'; return; }
+  var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+    ['Sleeve', 'Model', 'Horizon', 'Observation', 'Rebalance', 'Last review', 'Next review', 'Status', 'Actionability']
+      .map(function (c) { return '<th style="text-align:left;padding:3px 8px;">' + c + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+  d.sleeves.forEach(function (s) {
+    var stTxt = s.review_due ? 'REVIEW DUE' : (s.sleeve_id === 'fast'
+      ? ((s.fast_status || (s.state && s.state.fast_status)) || 'NO_VALIDATED_FAST_ALPHA')
+      : (s.sleeve_id === 'defensive_risk_overlay' ? 'RISK REFRESH ONLY' : 'UP TO DATE'));
+    var stCls = s.review_due ? 'manual' : 'muted';
+    h += '<tr style="border-top:1px solid var(--border,#2a3550);">' +
+      '<td style="padding:3px 8px;font-weight:700;">' + escapeHtml(s.display_name || s.sleeve_id) + (s.is_primary ? ' <span class="cc-badge safe">PRIMARY</span>' : '') + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + escapeHtml(s.active_model || '—') + '</td>' +
+      '<td style="padding:3px 8px;">' + escapeHtml(s.horizon || '—') + '</td>' +
+      '<td style="padding:3px 8px;">' + escapeHtml(s.observation_frequency || '—') + '</td>' +
+      '<td style="padding:3px 8px;">' + escapeHtml(s.cadence || '—') + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + escapeHtml((s.last_review || '—').slice(0, 10)) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + escapeHtml(s.next_review || '—') + '</td>' +
+      '<td style="padding:3px 8px;"><span class="cc-badge ' + stCls + '">' + escapeHtml(stTxt) + '</span></td>' +
+      '<td style="padding:3px 8px;">' + escapeHtml(s.current_actionability || '—') + '</td></tr>';
+  });
+  el.innerHTML = h + '</tbody></table>';
+}
+
+function renderMhzRecommendations(d) {
+  var el = document.getElementById('mhz-recs');
+  var stEl = document.getElementById('mhz-rec-state');
+  if (!el) return;
+  if (!d || !d.sleeves || !d.sleeves.combined) { el.textContent = 'Recommendations unavailable.'; return; }
+  var c = d.sleeves.combined;
+  if (stEl) {
+    var counts = c.counts || {};
+    stEl.textContent = Object.keys(counts).map(function (k) { return k + ': ' + counts[k]; }).join('  ') || '—';
+  }
+  var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+    ['Ticker', 'Recommendation', 'Sleeve', 'Target wt', 'Current wt', 'Comb rk', 'Fund rk', 'Mom rk', 'Sector', 'Risk', 'Reason']
+      .map(function (cn) { return '<th style="text-align:left;padding:3px 6px;">' + cn + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+  (c.recommendations || []).forEach(function (r) {
+    var ranks = r.model_ranks || {};
+    h += '<tr style="border-top:1px solid var(--border,#2a3550);">' +
+      '<td style="padding:3px 6px;font-weight:700;" class="mono">' + escapeHtml(r.ticker) + '</td>' +
+      '<td style="padding:3px 6px;">' + _mhzRecBadge(r.recommendation) + '</td>' +
+      '<td style="padding:3px 6px;">' + escapeHtml(r.sleeve || '—') + '</td>' +
+      '<td style="padding:3px 6px;" class="mono">' + _mhzPct(r.target_weight) + '</td>' +
+      '<td style="padding:3px 6px;" class="mono">' + _mhzPct(r.current_theoretical_weight) + '</td>' +
+      '<td style="padding:3px 6px;" class="mono">' + (ranks.current != null ? ranks.current : '—') + '</td>' +
+      '<td style="padding:3px 6px;" class="mono">' + (ranks.fundamental != null ? ranks.fundamental : '—') + '</td>' +
+      '<td style="padding:3px 6px;" class="mono">' + (ranks.momentum != null ? ranks.momentum : '—') + '</td>' +
+      '<td style="padding:3px 6px;">' + escapeHtml(r.sector || '—') + '</td>' +
+      '<td style="padding:3px 6px;">' + escapeHtml((r.risk_flags || []).join(', ') || '—') + '</td>' +
+      '<td style="padding:3px 6px;font-size:10px;">' + escapeHtml((r.reason_codes || []).join(', ')) + '</td></tr>';
+  });
+  h += '</tbody></table>';
+  h += '<div class="cc-na-note" style="font-size:10px;margin-top:6px;">Estimated turnover ' +
+       _mhzPct(c.estimated_turnover) + ' · estimated cost ' + _mhzPct(c.estimated_transaction_cost, 2) +
+       ' (25 bps assumption) · review ' + (c.review_due ? 'DUE' : 'not due') + '.</div>';
+  el.innerHTML = h;
+}
+
+function renderMhzBooks(d) {
+  var el = document.getElementById('mhz-books');
+  if (!el) return;
+  if (!d || !d.rows || !d.rows.length) { el.textContent = 'Book comparison unavailable.'; return; }
+  var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+    ['Book', 'Size', 'Sectors', 'Hist net cum', 'Hist ann', 'Sharpe', 'Max DD', 'Hit', 'Turnover', 'Periods']
+      .map(function (c) { return '<th style="text-align:left;padding:3px 8px;">' + c + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+  d.rows.forEach(function (r) {
+    var primary = r.book_id === d.primary_book_id;
+    h += '<tr style="border-top:1px solid var(--border,#2a3550);' + (primary ? 'font-weight:700;' : '') + '">' +
+      '<td style="padding:3px 8px;" class="mono">' + escapeHtml(r.book_id) + (primary ? ' <span class="cc-badge safe">PRIMARY</span>' : '') + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + r.size + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + r.n_sectors + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_net_cumulative, 0) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_annualized_net) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzNum(r.hist_sharpe) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_max_drawdown) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_hit_rate, 0) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_mean_steady_state_turnover, 0) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + (r.hist_n_periods != null ? r.hist_n_periods : '—') +
+      (r.hist_sufficient_history === false ? ' <span class="cc-badge danger" title="Too few periods for a reliable estimate.">THIN</span>' : '') + '</td></tr>';
+  });
+  el.innerHTML = h + '</tbody></table>';
+}
+
+function renderMhzPerformance(d) {
+  var el = document.getElementById('mhz-perf');
+  var liftEl = document.getElementById('mhz-lift');
+  if (!el) return;
+  if (!d || d.status !== 'MHZ_HISTORY_READY') { el.textContent = 'Historical reconstruction unavailable.'; return; }
+  var order = ['fundamental_momentum_50_50_top25', 'fundamental_momentum_50_50_top50',
+               'mom_6_1_top25', 'mom_6_1_top50', 'composite_sn_top25', 'composite_sn_top50'];
+  var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+    ['Book', 'Cadence', 'Net cumulative', 'Annualized', 'Sharpe', 'Max DD', 'Hit rate', 'Steady turnover', 'Rolling 1y (last)']
+      .map(function (c) { return '<th style="text-align:left;padding:3px 8px;">' + c + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+  order.forEach(function (bid) {
+    var b = d.books && d.books[bid];
+    if (!b) return;
+    var m = b.metrics || {};
+    var roll = (m.rolling_1y_net_returns || []);
+    var lastRoll = roll.length ? _mhzPct(roll[roll.length - 1]) : '—';
+    h += '<tr style="border-top:1px solid var(--border,#2a3550);">' +
+      '<td style="padding:3px 8px;" class="mono">' + escapeHtml(bid) + '</td>' +
+      '<td style="padding:3px 8px;">' + escapeHtml(b.cadence || '—') + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(m.net_cumulative_return, 0) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(m.annualized_net_return) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzNum(m.sharpe) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(m.max_drawdown) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(m.hit_rate, 0) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + _mhzPct(m.mean_steady_state_turnover, 0) + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + lastRoll + '</td></tr>';
+  });
+  el.innerHTML = h + '</tbody></table>';
+  if (liftEl && d.combined_lift) {
+    var L = d.combined_lift;
+    liftEl.innerHTML = '<b>Combined-model lift (same months, Top-25):</b> combined Sharpe ' + _mhzNum(L.combined_sharpe) +
+      ' vs momentum ' + _mhzNum(L.momentum_sharpe) + ' / fundamental ' + _mhzNum(L.fundamental_sharpe) +
+      ' · combined max DD ' + _mhzPct(L.combined_max_drawdown) + '.<br>' +
+      escapeHtml(L.primary_deployment_rationale || '');
+  }
+}
+
+function renderMhzMonitoring(opstate) {
+  var el = document.getElementById('mhz-monitoring');
+  if (!el) return;
+  if (!opstate || opstate.status !== 'MHZ_OPERATING_STATE_READY') { el.textContent = 'Daily monitoring unavailable.'; return; }
+  var dm = opstate.daily_monitoring || {};
+  var rows = [
+    ['Model scores recalculated', opstate.model_scores_recalculated ? 'Yes' : 'No'],
+    ['Risk data refreshed', opstate.risk_data_refreshed ? 'Yes' : 'No'],
+    ['Portfolio review due', opstate.portfolio_review_due ? 'YES' : 'No — HOLD / WAIT'],
+    ['Recommendation changed', opstate.recommendation_changed ? 'Yes (manual confirmation required)' : 'No'],
+    ['No action required today', opstate.no_change_required ? 'Yes' : 'No'],
+    ['Risk names tracked', dm.risk_names != null ? dm.risk_names : '—'],
+    ['Momentum-eligible names', dm.momentum_eligible != null ? dm.momentum_eligible : '—'],
+    ['Fundamental sector coverage', dm.sector_coverage != null ? _mhzPct(dm.sector_coverage, 0) : '—'],
+  ];
+  el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' + rows.map(function (r) {
+    return '<tr style="border-top:1px solid var(--border,#2a3550);"><td style="padding:3px 8px;">' + escapeHtml(r[0]) +
+           '</td><td style="padding:3px 8px;" class="mono">' + escapeHtml(String(r[1])) + '</td></tr>';
+  }).join('') + '</table>' +
+  '<div class="cc-na-note" style="font-size:10px;margin-top:6px;">A daily refresh produces a STATE, not necessarily a trade change. Most days for the slow/medium sleeves correctly show HOLD / WAIT.</div>';
+}
+
+function renderMhzOpState(opstate, sleeves) {
+  var pill = document.getElementById('mhz-opstate-pill');
+  var reason = document.getElementById('mhz-opstate-reason');
+  var nr = document.getElementById('mhz-next-reviews');
+  if (pill) {
+    var s = (opstate && opstate.operating_state) || 'DATA_BLOCKED';
+    pill.textContent = s;
+    pill.className = 'cc-badge ' + (s === 'RISK_REFRESH_ONLY' || s === 'NO_REVIEW_DUE' ? 'safe'
+      : s === 'DATA_BLOCKED' ? 'danger' : 'manual');
+  }
+  if (reason) reason.textContent = (opstate && opstate.reason) || '—';
+  if (nr && sleeves && sleeves.sleeves) {
+    nr.innerHTML = sleeves.sleeves.map(function (s) {
+      return '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--border,#2a3550);padding:3px 0;">' +
+        '<span>' + escapeHtml(s.display_name || s.sleeve_id) + '</span>' +
+        '<span class="mono">' + escapeHtml(s.next_review || (s.sleeve_id === 'fast' ? 'n/a' : '—')) + '</span></div>';
+    }).join('');
+  }
+}
+
+function renderMhzSnapshots(d) {
+  var el = document.getElementById('mhz-snapshots');
+  if (!el) return;
+  if (!d || d.status !== 'MHZ_SNAPSHOTS_READY') { el.textContent = 'Ledger unavailable.'; return; }
+  var h = '<b>Forward ledger:</b> ' + d.n_confirmed + ' confirmed snapshot' + (d.n_confirmed === 1 ? '' : 's') +
+          ' (append-only, immutable).';
+  (d.snapshots || []).slice(-5).reverse().forEach(function (s) {
+    h += '<div style="border-top:1px solid var(--border,#2a3550);padding:2px 0;" class="mono">' +
+      escapeHtml(s.snapshot_id || '—') + ' · ' + escapeHtml(s.market_as_of_date || '—') + ' · ' +
+      escapeHtml(s.confirmation_status || '—') + '</div>';
+  });
+  el.innerHTML = h;
+}
+
+function renderMhzAudit(scores, perf) {
+  var el = document.getElementById('mhz-audit-body');
+  if (!el) return;
+  var parts = [];
+  if (scores && scores.validations) {
+    parts.push('<b>Input validations</b>: ' + escapeHtml(JSON.stringify(scores.validations)));
+  }
+  if (scores && scores.fingerprints) {
+    parts.push('<b>Input fingerprints</b>: ' + escapeHtml(JSON.stringify(scores.fingerprints)));
+  }
+  if (scores && scores.blocked_models) {
+    parts.push('<b>Blocked models</b>: ' + escapeHtml(JSON.stringify(scores.blocked_models)));
+  }
+  if (perf && perf.reconciliation) {
+    parts.push('<b>Reconciliation vs committed evidence</b>: ' + escapeHtml(JSON.stringify(perf.reconciliation)));
+  }
+  if (perf && perf.methodology) {
+    parts.push('<b>Methodology</b>: ' + escapeHtml(perf.methodology));
+  }
+  el.innerHTML = parts.length ? parts.map(function (p) { return '<div style="margin-bottom:6px;">' + p + '</div>'; }).join('') : '—';
+}
+
+// ---- Manual snapshot: read-only preview -> styled in-page confirm ----------
+async function mhzPreviewSnapshot() {
+  var el = document.getElementById('mhz-preview-facts');
+  var box = document.getElementById('mhz-confirm-box');
+  if (el) el.textContent = 'Loading preview…';
+  try {
+    var r = await call('POST', '/v1/research/alpha-paper-snapshots/preview');
+    var d = await r.json();
+    window._mhzPreview = d;
+    if (d.status !== 'MHZ_SNAPSHOT_PREVIEW' || !d.snapshot) {
+      if (el) el.textContent = 'Preview unavailable (' + (d.status || 'error') + ').';
+      if (box) box.style.display = 'none';
+      return;
+    }
+    var s = d.snapshot;
+    var comb = (s.sleeves || {}).combined || {};
+    if (el) {
+      el.innerHTML =
+        '<div class="mono">Snapshot ' + escapeHtml(s.snapshot_id || '—') + '</div>' +
+        '<div>Market date <b class="mono">' + escapeHtml(s.market_as_of_date || '—') + '</b> · fundamental <b class="mono">' + escapeHtml(s.fundamental_as_of_date || '—') + '</b></div>' +
+        '<div>Primary book: <b class="mono">' + escapeHtml(s.primary_book_id || '—') + '</b> (' + ((comb.constituents_top25 || []).length) + ' names)</div>' +
+        '<div>Est. turnover <b class="mono">' + _mhzPct(s.estimated_turnover_primary) + '</b> · est. cost <b class="mono">' + _mhzPct(s.estimated_transaction_cost_primary, 2) + '</b></div>' +
+        (d.would_be_duplicate ? '<div class="cc-badge muted" style="margin-top:4px;">Would be a DUPLICATE — confirm will be skipped.</div>' : '') +
+        '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">Read-only preview. Nothing was written.</div>';
+    }
+    if (box) box.style.display = '';
+  } catch (e) {
+    if (el) el.textContent = 'Preview failed.';
+    if (box) box.style.display = 'none';
+  }
+}
+window.mhzPreviewSnapshot = mhzPreviewSnapshot;
+
+function mhzCancelConfirm() {
+  var box = document.getElementById('mhz-confirm-box');
+  if (box) box.style.display = 'none';
+}
+window.mhzCancelConfirm = mhzCancelConfirm;
+
+async function mhzConfirmSnapshot() {
+  var box = document.getElementById('mhz-confirm-box');
+  var el = document.getElementById('mhz-preview-facts');
+  try {
+    var r = await call('POST', '/v1/research/alpha-paper-snapshots/confirm',
+                       { confirm: 'CONFIRM_MHZ_PAPER_SNAPSHOT' });
+    var d = await r.json();
+    if (d.status === 'MHZ_SNAPSHOT_CONFIRMED') {
+      toast('Paper snapshot confirmed (ledger only — no orders).', 'ok');
+    } else if (d.status === 'MHZ_SNAPSHOT_SKIPPED_DUPLICATE') {
+      toast('Duplicate snapshot skipped — nothing written.', 'ok');
+    } else {
+      toast('Snapshot not confirmed: ' + (d.status || 'error'), 'error');
+    }
+    if (box) box.style.display = 'none';
+    if (el && d.snapshot_id) el.innerHTML += '<div class="mono" style="margin-top:4px;">Ledger: ' + escapeHtml(d.status) + ' (' + escapeHtml(d.snapshot_id || '') + ')</div>';
+    try { loadMultiHorizon(); } catch (e) {}
+  } catch (e) {
+    toast('Snapshot confirm failed.', 'error');
+  }
+}
+window.mhzConfirmSnapshot = mhzConfirmSnapshot;
 
 // ---- Boot: apply the initial route + wire back/forward ----------------------
 window.addEventListener('hashchange', function () { try { applyRoute(); } catch (e) {} });
