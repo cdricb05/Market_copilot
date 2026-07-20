@@ -36876,3 +36876,156 @@ class TestUiAlphaFactorySafety:
         assert "RUN_ALPHA_FACTORY_BUILD" in js
         assert "commit: true" in js and "commit: false" in js
 
+
+# ===================== Phase 21 Price Alpha Lab UI static tests ==============================
+def _paf_panel() -> str:
+    html = _af_read_index()
+    start = html.index('id="paf-panel"')
+    end = html.index("Phase 21 PRICE ALPHA LAB (subsection) END", start)
+    return html[start:end]
+
+
+def _paf_js() -> str:
+    html = _af_read_index()
+    start = html.index("// ===== Phase 21 Price Alpha Lab")
+    end = html.index("// ===== Phase 21 Price Alpha Lab END")
+    return html[start:end]
+
+
+class TestUiPriceAlphaLibrary:
+    """Price Alpha Lab surfaces: the panel, nav link, routing wiring, price-panel readiness card,
+    KPI overview, horizon-labelled leaderboard, registry table with family/status/horizon filters."""
+
+    def test_panel_and_nav_present(self):
+        html = _af_read_index()
+        assert 'id="paf-panel"' in html
+        assert 'id="ra-nav-price-alpha"' in html
+        assert "research-audit/price-alpha" in html
+        assert "Price Alpha Lab" in html
+
+    def test_routing_wired(self):
+        html = _af_read_index()
+        assert "'price-alpha':      { panels: ['paf-panel'], champion: false }" in html
+        assert "'paf-panel'" in html  # in _RA_ALL_PANELS
+        assert "'price-alpha': ['loadPriceAlpha']" in html
+
+    def test_price_panel_readiness_present(self):
+        panel = _paf_panel()
+        for el in ("paf-readiness", "paf-panel-ready", "paf-panel-range",
+                   "paf-panel-facts", "paf-panel-caveats", "paf-pit"):
+            assert f'id="{el}"' in panel, el
+
+    def test_overview_kpis_present(self):
+        panel = _paf_panel()
+        for el in ("paf-kpi-candidates", "paf-kpi-survivors", "paf-kpi-rejected",
+                   "paf-kpi-families", "paf-kpi-divers", "paf-signal-date"):
+            assert f'id="{el}"' in panel, el
+
+    def test_leaderboard_and_library_with_horizon_filter(self):
+        panel = _paf_panel()
+        for el in ("paf-leaderboard", "paf-library", "paf-filter-family",
+                   "paf-filter-status", "paf-filter-horizon"):
+            assert f'id="{el}"' in panel, el
+        assert "Multi-Horizon Leaderboard" in panel
+        assert "Price Alpha Library" in panel
+
+    def test_family_cards_and_best_horizon_present(self):
+        panel = _paf_panel()
+        assert 'id="paf-family-cards"' in panel
+        assert 'id="paf-best-horizon"' in panel
+        assert "Best Candidate per Price Family" in panel
+
+    def test_library_render_uses_all_three_filters(self):
+        js = _paf_js()
+        assert "function renderPriceAlphaLibrary" in js
+        assert "paf-filter-family" in js and "paf-filter-status" in js and "paf-filter-horizon" in js
+
+
+class TestUiPriceAlphaDashboard:
+    """Diversification, combinations, correlation clusters, horizon matrix, and the manual build
+    stages (LOAD/PANEL/GENERATE/EVALUATE/GATE/COMBINE/WRITE)."""
+
+    def test_diversification_and_combinations_present(self):
+        panel = _paf_panel()
+        for el in ("paf-divers", "paf-reject-chips", "paf-combinations", "paf-combo-note"):
+            assert f'id="{el}"' in panel, el
+        assert "Diversification vs Champion" in panel
+        assert "Combination Report" in panel
+
+    def test_correlation_and_horizon_matrix_present(self):
+        panel = _paf_panel()
+        for el in ("paf-corr-matrix", "paf-corr-summary", "paf-horizon-matrix", "paf-crosscheck",
+                   "paf-findings"):
+            assert f'id="{el}"' in panel, el
+        assert "Correlation Clusters" in panel
+
+    def test_run_stages_and_buttons_present(self):
+        panel = _paf_panel()
+        for el in ("paf-stage-load", "paf-stage-panel", "paf-stage-generate", "paf-stage-evaluate",
+                   "paf-stage-gate", "paf-stage-combine", "paf-stage-write"):
+            assert f'id="{el}"' in panel, el
+        assert 'id="paf-preview-btn"' in panel and 'id="paf-run-btn"' in panel
+        assert "Preview Price-Alpha Build" in panel
+        assert "Run Price-Alpha Build" in panel
+
+    def test_render_and_loader_functions_present(self):
+        js = _paf_js()
+        for fn in ("function loadPriceAlpha", "function renderPriceAlpha",
+                   "function _pafRenderCorrelation", "function _pafRenderCombinations",
+                   "function _pafRenderHorizonMatrix", "function _pafRenderFamilyCards"):
+            assert fn in js, fn
+
+    def test_advanced_audit_collapsed_details(self):
+        panel = _paf_panel()
+        assert 'id="paf-advanced"' in panel
+        assert "<details" in panel  # full horizon matrix + diagnostics live in a collapsed area
+
+
+class TestUiPriceAlphaSafety:
+    """Safety: required badges visible, styled confirmation (never a native dialog), writes only to
+    the price-alpha endpoints — never orders / signals / decisions / positions / the database."""
+
+    def test_required_safety_badges(self):
+        panel = _paf_panel()
+        for term in ("RESEARCH ONLY", "PAPER ONLY", "NO ORDERS", "NO BROKER",
+                     "AUTOMATION OFF", "NO LIVE PROMOTION", "NO CHAMPION REPLACEMENT",
+                     "NOT APPROVED FOR LIVE TRADING"):
+            assert term in panel, term
+
+    def test_no_production_or_live_champion_wording(self):
+        panel = _paf_panel()
+        assert "PRODUCTION ALPHA" not in panel
+        assert "LIVE CHAMPION" not in panel
+
+    def test_no_native_dialogs_in_paf_block(self):
+        js = _paf_js()
+        for bad in ("alert(", "confirm(", "prompt("):
+            assert bad not in js, bad
+
+    def test_confirmed_build_uses_styled_confirmation(self):
+        js = _paf_js()
+        assert "function confirmPriceAlphaRun" in js
+        assert "showPreviewConfirm(" in js
+        low = js.lower()
+        assert "never replaces the champion" in low
+        assert "never approved for live trading" in low
+        assert "not the database" in low
+
+    def test_writes_only_to_price_alpha_endpoints(self):
+        js = _paf_js()
+        assert "/v1/research/price-alpha-factory/run" in js
+        for forbidden in ("/orders", "/signals", "/decisions", "/fills", "/positions"):
+            assert forbidden not in js, forbidden
+
+    def test_run_requires_confirmation_token(self):
+        js = _paf_js()
+        assert "RUN_PRICE_ALPHA_FACTORY_BUILD" in js
+        assert "commit: true" in js and "commit: false" in js
+
+    def test_challenger_eligible_never_champion_or_live(self):
+        panel = _paf_panel()
+        js = _paf_js()
+        assert "CHALLENGER_ELIGIBLE_FOR_FUTURE_PAPER_TEST" in js
+        # the combination header states the champion is never replaced
+        assert "never a champion replacement" in panel.lower()
+

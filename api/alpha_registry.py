@@ -102,6 +102,12 @@ REJECT_COST_KILLED = "NOT_COST_ROBUST_NET25_NONPOSITIVE"
 REJECT_UNSTABLE = "UNSTABLE_SUBPERIOD_OR_LOW_HIT_RATE"
 REJECT_REDUNDANT = "REDUNDANT_HIGH_CORRELATION"
 REJECT_NO_DATA = "REQUIRES_TRAILING_PRICE_PANEL_NOT_WIRED_IN_V1"
+# Phase 21 additional price-alpha overfit-defense gates
+REJECT_INSUFFICIENT_PERIODS = "INSUFFICIENT_INDEPENDENT_PERIODS"
+REJECT_EXCESSIVE_TURNOVER = "EXCESSIVE_TURNOVER_THIN_NET"
+REJECT_SEVERE_DRAWDOWN = "SEVERE_DRAWDOWN_VS_CUMULATIVE"
+REJECT_PARAM_UNSTABLE = "PARAMETER_NEIGHBOR_INSTABILITY"
+REJECT_CONCENTRATED = "PERFORMANCE_CONCENTRATED_IN_SHORT_PERIOD"
 
 REJECT_REASON_TEXT = {
     REJECT_LOW_COVERAGE: "Signal coverage of scoreable name-months is below the minimum.",
@@ -111,6 +117,11 @@ REJECT_REASON_TEXT = {
     REJECT_UNSTABLE: "Unstable: subperiod IC sign reversal or positive-IC-month rate below 50%.",
     REJECT_REDUNDANT: "Rank correlation vs the champion or a stronger survivor exceeds the cap.",
     REJECT_NO_DATA: "Family requires a trailing price panel not wired in Alpha Factory V1.",
+    REJECT_INSUFFICIENT_PERIODS: "Too few independent scored rebalance months to trust the estimate.",
+    REJECT_EXCESSIVE_TURNOVER: "Turnover is extreme and the net-of-cost spread is too thin to justify it.",
+    REJECT_SEVERE_DRAWDOWN: "Max drawdown is large relative to the cumulative spread (fragile equity curve).",
+    REJECT_PARAM_UNSTABLE: "IC sign disagrees with its own parameter-lookback neighbours (overfit-prone).",
+    REJECT_CONCENTRATED: "Cost-adjusted edge is concentrated in a single subperiod (pre- or post-2020).",
 }
 
 # --------------------------------------------------------------------------- #
@@ -275,6 +286,8 @@ __all__ = [
     "STATUS_REJECTED", "STATUS_ARCHIVED",
     "REJECT_LOW_COVERAGE", "REJECT_NEGATIVE_IC", "REJECT_STATISTICALLY_WEAK",
     "REJECT_COST_KILLED", "REJECT_UNSTABLE", "REJECT_REDUNDANT", "REJECT_NO_DATA",
+    "REJECT_INSUFFICIENT_PERIODS", "REJECT_EXCESSIVE_TURNOVER", "REJECT_SEVERE_DRAWDOWN",
+    "REJECT_PARAM_UNSTABLE", "REJECT_CONCENTRATED",
     "REJECT_REASON_TEXT",
     "REGISTRY_METADATA_FIELDS", "SAFETY_BADGES",
     "safety_block", "make_alpha_record", "registry_counts", "family_counts",

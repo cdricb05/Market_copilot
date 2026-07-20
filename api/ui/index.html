@@ -4276,6 +4276,7 @@
           <a id="ra-nav-revalidation" data-rasub="revalidation" onclick="navigateToRoute('research-audit/revalidation')" title="Sector-repaired revalidation: champion vs repaired challenger, side-by-side metrics">Revalidation</a>
           <a id="ra-nav-tournament" data-rasub="tournament" onclick="navigateToRoute('research-audit/tournament')" title="Parallel paper tournament: champion vs sector-repaired challenger, four frozen books">Tournament</a>
           <a id="ra-nav-alpha-factory" data-rasub="alpha-factory" onclick="navigateToRoute('research-audit/alpha-factory')" title="Alpha Factory: registry, leaderboard, correlation matrix and family taxonomy of many candidate alphas">Alpha Factory</a>
+          <a id="ra-nav-price-alpha" data-rasub="price-alpha" onclick="navigateToRoute('research-audit/price-alpha')" title="Price Alpha Lab: the five trailing-price families activated on the owned point-in-time price panel, multi-horizon validated, ranked and correlation-checked vs the champion">Price Alpha Lab</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -4807,6 +4808,153 @@
           </details>
         </div>
         <!-- ===================== Phase 20 AUTONOMOUS ALPHA FACTORY V1 (subsection) END =========== -->
+
+        <!-- ===================== Phase 21 PRICE ALPHA LAB (subsection) START =====================
+             Read-only Price Alpha Lab: activates the five trailing-price alpha families on the owned
+             point-in-time trailing-price panel, multi-horizon validated (5/10/21/63d), ranked, gated,
+             correlation-checked vs the champion, and combination-tested. Renders
+             GET /v1/research/price-alpha-factory. RESEARCH ONLY / PAPER ONLY: creates no orders, no
+             signals, no trade decisions, no automation, no broker, no prediction-service call, no DB
+             writes; never replaces the champion; never approved for live trading. -->
+        <div class="card" id="paf-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Price Alpha Lab <span class="cc-badge" id="paf-status" title="Phase 21 Price Alpha Lab status (read-only).">&mdash;</span></span>
+            <button class="btn-sm" id="paf-refresh" onclick="loadPriceAlpha()" title="Reload the read-only Price Alpha Lab dashboard.">&#8635; Refresh</button>
+          </div>
+
+          <div id="paf-banner" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:2px 0 10px;font-weight:800;letter-spacing:.04em;">
+            AUTONOMOUS PRICE-ALPHA EXPANSION &mdash; <span id="paf-banner-status">FIVE PRICE FAMILIES</span>
+          </div>
+
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge">NO ORDERS</span>
+            <span class="cc-badge">NO BROKER</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge">NO LIVE PROMOTION</span>
+            <span class="cc-badge manual">NO CHAMPION REPLACEMENT</span>
+            <span class="cc-badge" id="paf-nolive">NOT APPROVED FOR LIVE TRADING</span>
+          </div>
+
+          <!-- PRICE PANEL READINESS -->
+          <div id="paf-readiness" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+              <span style="font-weight:700;">Trailing-Price Panel <span class="cc-badge" id="paf-panel-ready" title="Point-in-time readiness of the owned price panel.">&mdash;</span> <span class="cc-badge muted" id="paf-pit">PIT SAFE</span></span>
+              <span class="mono" id="paf-panel-range" style="font-size:11px;color:var(--text-accent,#8aa0c8);">&mdash;</span>
+            </div>
+            <div class="mono" id="paf-panel-facts" style="font-size:11px;margin-top:4px;">&mdash;</div>
+            <div id="paf-panel-caveats" style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-top:4px;">&mdash;</div>
+          </div>
+
+          <!-- OVERVIEW KPI row -->
+          <div id="paf-kpis" style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px;">
+            <div class="af-kpi"><div class="af-kpi-v mono" id="paf-kpi-candidates">&mdash;</div><div class="af-kpi-l">Candidates</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="paf-kpi-survivors">&mdash;</div><div class="af-kpi-l">Survivors</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="paf-kpi-rejected">&mdash;</div><div class="af-kpi-l">Rejected</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="paf-kpi-families">&mdash;</div><div class="af-kpi-l">Families ready</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="paf-kpi-divers">&mdash;</div><div class="af-kpi-l">Mean |corr| vs champ</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="paf-signal-date">&mdash;</div><div class="af-kpi-l">Signal date</div></div>
+          </div>
+
+          <!-- BEST CANDIDATE PER PRICE FAMILY -->
+          <div style="margin-bottom:12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Best Candidate per Price Family <span class="cc-badge" title="Top candidate in each family by primary-horizon net25; survivors flagged.">5 FAMILIES</span></div>
+            <div id="paf-family-cards" style="display:flex;gap:8px;flex-wrap:wrap;">&mdash;</div>
+          </div>
+
+          <!-- LEADERBOARD (with Horizon) + DIVERSIFICATION -->
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px;">
+            <div style="flex:1 1 520px;min-width:340px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Multi-Horizon Leaderboard <span class="cc-badge" title="Surviving price candidates, each shown at its labelled primary horizon.">HORIZON-LABELLED</span></div>
+              <div id="paf-leaderboard" class="compact-scroll-region" style="max-height:260px;overflow:auto;font-size:11px;">&mdash;</div>
+            </div>
+            <div style="flex:1 1 360px;min-width:300px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Diversification vs Champion</div>
+              <div id="paf-divers" class="mono" style="font-size:11px;margin-bottom:8px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:6px 0 4px;padding:0;font-size:11px;">Rejection Reasons</div>
+              <div id="paf-reject-chips" style="display:flex;gap:6px;flex-wrap:wrap;">&mdash;</div>
+            </div>
+          </div>
+
+          <!-- COMBINATION REPORT -->
+          <div style="margin-bottom:12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Combination Report <span class="cc-badge manual" title="Champion + a price family (coarse fixed weights). A winner is only ever CHALLENGER_ELIGIBLE_FOR_FUTURE_PAPER_TEST — never a champion replacement.">CHAMPION + PRICE</span></div>
+            <div id="paf-combo-note" style="font-size:10px;color:var(--text-accent,#8aa0c8);margin:0 0 4px;">&mdash;</div>
+            <div id="paf-combinations" class="compact-scroll-region" style="max-height:200px;overflow:auto;font-size:11px;">&mdash;</div>
+          </div>
+
+          <!-- PRICE ALPHA LIBRARY (registry) -->
+          <div style="margin-bottom:12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+              <span>Price Alpha Library <span class="cc-badge" title="Every price candidate with its family, lifecycle status, exact horizon and metrics.">REGISTRY</span></span>
+              <span style="display:flex;gap:6px;align-items:center;font-size:11px;">
+                <label for="paf-filter-family">Family</label>
+                <select id="paf-filter-family" onchange="renderPriceAlphaLibrary()" style="font-size:11px;"></select>
+                <label for="paf-filter-status">Status</label>
+                <select id="paf-filter-status" onchange="renderPriceAlphaLibrary()" style="font-size:11px;"></select>
+                <label for="paf-filter-horizon">Horizon</label>
+                <select id="paf-filter-horizon" onchange="renderPriceAlphaLibrary()" style="font-size:11px;"></select>
+              </span>
+            </div>
+            <div id="paf-library" class="compact-scroll-region" style="max-height:320px;overflow:auto;font-size:11px;">&mdash;</div>
+          </div>
+
+          <!-- CORRELATION CLUSTERS -->
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px;">
+            <div style="flex:1 1 520px;min-width:320px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Correlation Clusters <span class="cc-badge" title="Mean monthly cross-sectional Spearman rank correlation; champion + survivors.">RANK CORR</span></div>
+              <div id="paf-corr-summary" class="cc-na-note" style="margin:0 0 6px;font-size:11px;">&mdash;</div>
+              <div id="paf-corr-matrix" style="overflow:auto;font-size:10px;">&mdash;</div>
+            </div>
+            <div style="flex:1 1 360px;min-width:300px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Family Best-Horizon</div>
+              <div id="paf-best-horizon" style="font-size:11px;">&mdash;</div>
+            </div>
+          </div>
+
+          <!-- RUN PRICE ALPHA FACTORY (manual, confirm-gated) -->
+          <div id="paf-run-wrap" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Run Price-Alpha Build <span class="cc-badge manual">MANUAL</span></div>
+            <div style="font-size:11px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">
+              Regenerates the Phase 21 artifact package (trailing-price manifest, registry, leaderboard, correlation, horizon summary, rejection report, family summary, combination report, diagnostics, final report) from the owned price + fundamental panels.
+              Preview computes and writes nothing. A confirmed build writes ONLY the dedicated local research-artifact store &mdash; never the database, never orders, never the champion.
+            </div>
+            <div id="paf-stages" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+              <span class="cc-badge" id="paf-stage-load">LOAD</span>
+              <span class="cc-badge" id="paf-stage-panel">PANEL</span>
+              <span class="cc-badge" id="paf-stage-generate">GENERATE</span>
+              <span class="cc-badge" id="paf-stage-evaluate">EVALUATE</span>
+              <span class="cc-badge" id="paf-stage-gate">GATE</span>
+              <span class="cc-badge" id="paf-stage-combine">COMBINE</span>
+              <span class="cc-badge" id="paf-stage-write">WRITE</span>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+              <button class="btn-sm" id="paf-preview-btn" onclick="previewPriceAlpha(this)" title="Preview the build: compute everything, write nothing.">Preview Price-Alpha Build</button>
+              <button class="btn-sm" id="paf-run-btn" onclick="confirmPriceAlphaRun(this)" title="Run a confirmed build that persists artifacts to the local store only.">Run Price-Alpha Build</button>
+            </div>
+            <div id="paf-run-result" class="cc-na-note" style="display:none;font-size:11px;margin-top:4px;">&mdash;</div>
+            <div id="paf-persisted" style="font-size:11px;margin-top:4px;color:var(--text-accent,#8aa0c8);">&mdash;</div>
+          </div>
+
+          <!-- ADVANCED / AUDIT (collapsed) -->
+          <details id="paf-advanced" style="margin-bottom:4px;">
+            <summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--text-primary);">Advanced / Audit &mdash; full horizon matrix, gate thresholds, no-look-ahead cross-check, findings, provenance</summary>
+            <div style="margin-top:8px;">
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Headline findings</div>
+              <div id="paf-findings" style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">No-look-ahead cross-check &amp; champion-on-intersection</div>
+              <div id="paf-crosscheck" class="mono" style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Full multi-horizon matrix (every candidate &times; 5/10/21/63d)</div>
+              <div id="paf-horizon-matrix" class="compact-scroll-region" style="max-height:280px;overflow:auto;font-size:10px;margin-bottom:8px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Gate thresholds &amp; reject-reason counts</div>
+              <div id="paf-diagnostics" class="mono" style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">&mdash;</div>
+              <div class="card-title" style="border:none;margin:0 0 4px;padding:0;font-size:11px;">Provenance</div>
+              <div id="paf-provenance" class="mono" style="font-size:10px;color:var(--text-accent,#8aa0c8);word-break:break-word;">&mdash;</div>
+            </div>
+          </details>
+        </div>
+        <!-- ===================== Phase 21 PRICE ALPHA LAB (subsection) END ======================= -->
 
         <!-- Current Alpha Paper Test (Phase 13-B) START — read-only preview of the
              committed Phase 13-A current champion alpha (composite_sn) package.
@@ -6312,7 +6460,7 @@ window._showWriteConfirm = function(opts) {
   if (confirmBtn) confirmBtn.textContent = opts.confirmLabel || 'Confirm';
 
   let body = '<div style="margin-bottom:10px; padding:8px 10px; background:rgba(34,197,94,.07); border:1px solid rgba(34,197,94,.25); border-radius:3px;">';
-  body += '<div style="font-size:10px; font-weight:700; color:var(--ok); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.07em;">This will write to the database:</div>';
+  body += '<div style="font-size:10px; font-weight:700; color:var(--ok); margin-bottom:5px; text-transform:uppercase; letter-spacing:0.07em;">' + (opts.writesHeader || 'This will write to the database:') + '</div>';
   body += '<ul style="margin:0; padding:0 0 0 16px; color:var(--text-accent); font-size:11px;">';
   (opts.writes || []).forEach(function(w) { body += '<li style="margin-bottom:3px;">' + w + '</li>'; });
   body += '</ul></div>';
@@ -9190,6 +9338,374 @@ async function runAlphaFactory() {
 }
 window.runAlphaFactory = runAlphaFactory;
 // ===== Phase 20 Autonomous Alpha Factory V1 END =====
+
+// ===== Phase 21 Price Alpha Lab (read-only dashboard + manual build) START =====
+var _PAF_STAGES = ['load', 'panel', 'generate', 'evaluate', 'gate', 'combine', 'write'];
+function _pafStage(id, state) {
+  var el = document.getElementById('paf-stage-' + id);
+  if (!el) return;
+  el.className = 'cc-badge' + (state === 'active' ? ' manual' : (state === 'done' ? ' safe' : ''));
+}
+function _pafStagesReset() { _PAF_STAGES.forEach(function (s) { _pafStage(s, 'idle'); }); }
+function _pafStagesUpTo(idx, done) {
+  _PAF_STAGES.forEach(function (s, i) { _pafStage(s, i < idx ? 'done' : (i === idx ? (done ? 'done' : 'active') : 'idle')); });
+}
+
+async function loadPriceAlpha() {
+  var status = document.getElementById('paf-status');
+  if (status) status.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/price-alpha-factory');
+    var d = {}; try { d = await r.json(); } catch (e) {}
+    window._pafData = d;
+    renderPriceAlpha(d);
+  } catch (e) {
+    if (status) status.textContent = 'ERROR';
+  }
+}
+window.loadPriceAlpha = loadPriceAlpha;
+
+function renderPriceAlpha(d) {
+  d = d || {};
+  var status = document.getElementById('paf-status');
+  var banner = document.getElementById('paf-banner-status');
+  var setT = function (id, v) { var e = document.getElementById(id); if (e) e.innerHTML = (v === undefined || v === null) ? '&mdash;' : v; };
+  if (d.status === 'PRICE_ALPHA_FACTORY_PANEL_UNAVAILABLE') {
+    if (status) { status.textContent = 'PANEL UNAVAILABLE'; status.className = 'cc-badge danger'; }
+    if (banner) banner.textContent = 'OWNED PANEL UNAVAILABLE (' + escapeHtml(d.missing || '') + ')';
+    setT('paf-panel-ready', 'UNAVAILABLE');
+    var lib0 = document.getElementById('paf-library');
+    if (lib0) lib0.innerHTML = '<div class="cc-na-note">' + escapeHtml(d.next_recommended_action || 'Owned panel unavailable.') + '</div>';
+    return;
+  }
+  if (status) { status.textContent = d.status || 'READY'; status.className = 'cc-badge safe'; }
+  if (banner) banner.textContent = 'FIVE PRICE FAMILIES';
+
+  // price panel readiness
+  var pp = d.price_panel || {};
+  var man = pp.manifest || {};
+  var ov = pp.overlap || {};
+  var readyEl = document.getElementById('paf-panel-ready');
+  if (readyEl) { readyEl.textContent = pp.readiness || '—'; readyEl.className = 'cc-badge ' + (pp.readiness === 'READY' ? 'safe' : 'warn'); }
+  setT('paf-panel-range', (man.date_start || '—') + ' .. ' + (man.date_end || '—'));
+  setT('paf-panel-facts', 'Source: ' + escapeHtml(man.source || '—')
+    + ' &middot; names ' + (ov.n_price_matched_names != null ? ov.n_price_matched_names : '—') + '/' + (ov.n_fundamental_names != null ? ov.n_fundamental_names : '—')
+    + ' (' + _afN(ov.universe_overlap_pct, 1) + '% overlap) &middot; obs ' + (ov.n_observations != null ? ov.n_observations : '—')
+    + ' &middot; months ' + (ov.n_months != null ? ov.n_months : '—') + ' &middot; grid ' + escapeHtml(REBAL(man)) + ' &middot; horizons 5/10/21/63d');
+  setT('paf-panel-caveats', 'Caveats: ' + escapeHtml(man.survivorship_caveat || '') + '. ' + escapeHtml(man.adjustment || '') + '.');
+
+  var counts = (d.registry && d.registry.counts) || {};
+  var diag = d.diagnostics || {};
+  var corr = d.correlation || {};
+  var cs = corr.summary || {};
+  setT('paf-kpi-candidates', diag.generated_candidates);
+  setT('paf-kpi-survivors', diag.survivors);
+  setT('paf-kpi-rejected', diag.rejected);
+  setT('paf-kpi-families', (d.families ? d.families.length : '—') + ' / 5');
+  setT('paf-kpi-divers', _afN(cs.mean_abs_corr_vs_champion, 2));
+  setT('paf-signal-date', d.signal_date);
+
+  // family cards (best per family, leader shown even if rejected)
+  _pafRenderFamilyCards(d.families || []);
+
+  // leaderboard (with Horizon column)
+  var lb = (d.leaderboard || []);
+  var lbEl = document.getElementById('paf-leaderboard');
+  if (lbEl) lbEl.innerHTML = lb.length ? _afMiniTable(
+    ['#', 'Alpha', 'Family', 'Hz', 'IC-t', 'net25', 'Turn', 'DD', 'corr', 'Status'],
+    lb.map(function (r) {
+      return [(r.is_champion ? 'CH' : String(r.rank)), escapeHtml(r.name), escapeHtml(r.family),
+        (r.horizon != null ? (r.horizon + 'd') : '—'), _afN(r.ic_t, 2), _afSigned(r.net25, 4),
+        _afN(r.turnover, 2), _afN(r.drawdown, 3), _afN(r.corr_vs_champion, 2), _afStatusBadge(r.status)];
+    })) : '<div class="cc-na-note">No surviving price candidates at their primary horizons (see the horizon matrix under Advanced).</div>';
+
+  // diversification
+  var divEl = document.getElementById('paf-divers');
+  if (divEl) divEl.innerHTML = 'Signals ' + (cs.n_signals != null ? cs.n_signals : '—')
+    + ' &middot; mean |corr vs champ| <b>' + _afN(cs.mean_abs_corr_vs_champion, 3)
+    + '</b> &middot; min <b>' + _afN(cs.min_abs_corr_vs_champion, 3) + '</b> &middot; clusters <b>'
+    + (cs.n_clusters != null ? cs.n_clusters : '—') + '</b><br><span style="font-size:10px;color:var(--text-accent,#8aa0c8);">Near-zero correlation vs the fundamental champion = genuine factor diversification.</span>';
+
+  // rejection reason chips
+  var chips = document.getElementById('paf-reject-chips');
+  if (chips) {
+    var rc = diag.reject_reason_counts || {};
+    var keys = Object.keys(rc);
+    chips.innerHTML = keys.length ? keys.map(function (k) {
+      return '<span class="cc-badge danger" title="' + escapeHtml(k) + '">' + escapeHtml(k) + ' ' + rc[k] + '</span>';
+    }).join('') : '<span class="cc-na-note">No rejections.</span>';
+  }
+
+  // combinations
+  _pafRenderCombinations(d.combinations || {});
+
+  // library
+  _pafPopulateFilters(d);
+  renderPriceAlphaLibrary();
+
+  // correlation
+  _pafRenderCorrelation(corr);
+
+  // family best-horizon
+  _pafRenderBestHorizon(diag.family_best_horizon || {});
+
+  // findings + advanced
+  var findEl = document.getElementById('paf-findings');
+  if (findEl) {
+    var fs = diag.headline_findings || [];
+    findEl.innerHTML = fs.length ? '<ul style="margin:0;padding-left:16px;">' + fs.map(function (f) { return '<li>' + escapeHtml(f) + '</li>'; }).join('') + '</ul>' : '&mdash;';
+  }
+  var cc = diag.no_lookahead_cross_check || {};
+  var ci = diag.champion_on_intersection || {};
+  var crossEl = document.getElementById('paf-crosscheck');
+  if (crossEl) crossEl.textContent = 'no-look-ahead: price-63d vs fundamental-63d Spearman '
+    + (cc.spearman_price63_vs_fundamental63 != null ? cc.spearman_price63_vs_fundamental63 : 'n/a') + ' (n=' + (cc.n || 0) + ')'
+    + '  |  champion-on-intersection IC-t ' + (ci.ic_t_stat != null ? ci.ic_t_stat : '—') + ', net25 ' + (ci.net25_spread != null ? ci.net25_spread : '—');
+  _pafRenderHorizonMatrix(d.horizon_summary || []);
+  var diagEl = document.getElementById('paf-diagnostics');
+  if (diagEl) diagEl.textContent = 'thresholds ' + JSON.stringify(diag.gate_thresholds || {}) + '  |  rejects ' + JSON.stringify(diag.reject_reason_counts || {})
+    + '  |  param-unstable ' + JSON.stringify(diag.param_neighbor_unstable || []);
+  var provEl = document.getElementById('paf-provenance');
+  if (provEl && d.provenance) provEl.textContent = 'price: ' + (d.provenance.price_panel_path || '') + '  |  panel: ' + (d.provenance.fundamental_panel_path || '');
+  var pers = d.persisted || {};
+  var persEl = document.getElementById('paf-persisted');
+  if (persEl) persEl.innerHTML = pers.has_artifacts
+    ? ('Persisted store: ' + escapeHtml(pers.store_dir || '') + ' — last build ' + escapeHtml(pers.last_build_at || '—') + ' (' + (pers.files ? pers.files.length : 0) + ' artifacts)')
+    : ('No persisted artifacts yet at ' + escapeHtml(pers.store_dir || '—') + '. Use Run Price-Alpha Build to persist.');
+}
+window.renderPriceAlpha = renderPriceAlpha;
+
+function REBAL(man) { return (man && man.grid_support) ? man.grid_support : 'monthly'; }
+
+function _pafRenderFamilyCards(families) {
+  var el = document.getElementById('paf-family-cards');
+  if (!el) return;
+  if (!families.length) { el.innerHTML = '<div class="cc-na-note">No families.</div>'; return; }
+  el.innerHTML = families.map(function (f) {
+    var survivor = f.best_survivor
+      ? ('<span class="cc-badge safe" title="Best surviving candidate.">' + escapeHtml(f.best_survivor) + '</span>'
+        + ' net25 ' + _afSigned(f.best_survivor_net25, 4) + ' &middot; IC-t ' + _afN(f.best_survivor_ic_t, 2))
+      : '<span class="cc-badge warn">no survivor</span>';
+    var leader = f.leader
+      ? ('leader ' + escapeHtml(f.leader) + ' ' + _afStatusBadge(f.leader_status) + ' net25 ' + _afSigned(f.leader_net25, 4) + ' &middot; IC-t ' + _afN(f.leader_ic_t, 2))
+      : '';
+    return '<div class="af-alpha-card" style="flex:1 1 220px;min-width:200px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 10px;">'
+      + '<div class="af-alpha-name">' + escapeHtml(f.family) + ' <span class="cc-badge safe" title="Family is data-ready in Phase 21.">DATA READY</span></div>'
+      + '<div style="font-size:10px;color:var(--text-accent,#8aa0c8);margin:2px 0;">primary ' + (f.primary_horizon != null ? f.primary_horizon + 'd' : '—') + ' &middot; ' + f.n_candidates + ' cand &middot; ' + f.n_rejected + ' rejected</div>'
+      + '<div class="mono" style="font-size:11px;margin-top:2px;">' + survivor + '</div>'
+      + '<div style="font-size:10px;color:var(--text-accent,#8aa0c8);margin-top:2px;">' + leader + '</div></div>';
+  }).join('');
+}
+
+function _pafRenderCombinations(cb) {
+  var noteEl = document.getElementById('paf-combo-note');
+  if (noteEl) noteEl.textContent = (cb.note || '') + (cb.champion_baseline_on_intersection
+    ? (' Champion baseline net25 ' + (cb.champion_baseline_on_intersection.net25_spread != null ? cb.champion_baseline_on_intersection.net25_spread : '—')
+      + ' (IC-t ' + (cb.champion_baseline_on_intersection.ic_t_stat != null ? cb.champion_baseline_on_intersection.ic_t_stat : '—') + ').') : '');
+  var el = document.getElementById('paf-combinations');
+  if (!el) return;
+  var rows = cb.combinations || [];
+  if (!rows.length) { el.innerHTML = '<div class="cc-na-note">No combinations (no surviving price family legs to combine).</div>'; return; }
+  el.innerHTML = _afMiniTable(
+    ['Combination', 'net25', 'net25 lift', 'stable', 'Eligibility'],
+    rows.map(function (r) {
+      var elig = r.eligibility === 'CHALLENGER_ELIGIBLE_FOR_FUTURE_PAPER_TEST'
+        ? '<span class="cc-badge manual" title="Eligible only for a FUTURE paper challenge — never a champion replacement or live promotion.">CHALLENGER-ELIGIBLE (FUTURE PAPER)</span>'
+        : '<span class="cc-badge muted">RESEARCH ONLY</span>';
+      return [escapeHtml(r.name), _afSigned(r.net25_spread, 4), _afSigned(r.net25_lift_vs_champion, 4),
+        (r.subperiod_stable ? '<span class="cc-badge safe">yes</span>' : '<span class="cc-badge muted">no</span>'), elig];
+    }));
+}
+
+function _pafPopulateFilters(d) {
+  var fam = document.getElementById('paf-filter-family');
+  var st = document.getElementById('paf-filter-status');
+  var hz = document.getElementById('paf-filter-horizon');
+  if (fam && !fam.options.length) {
+    var fams = ['ALL'].concat((d.families || []).map(function (f) { return f.family; }));
+    fam.innerHTML = fams.map(function (f) { return '<option value="' + f + '">' + f + '</option>'; }).join('');
+  }
+  if (st && !st.options.length) {
+    var sts = ['ALL', 'CHAMPION', 'CHALLENGER', 'ACTIVE', 'RESEARCH', 'REJECTED'];
+    st.innerHTML = sts.map(function (s) { return '<option value="' + s + '">' + s + '</option>'; }).join('');
+  }
+  if (hz && !hz.options.length) {
+    var hzs = ['ALL', '5', '21', '63'];
+    hz.innerHTML = hzs.map(function (h) { return '<option value="' + h + '">' + (h === 'ALL' ? 'ALL' : h + 'd') + '</option>'; }).join('');
+  }
+}
+
+function renderPriceAlphaLibrary() {
+  var d = window._pafData || {};
+  var alphas = (d.registry && d.registry.alphas) || [];
+  var famSel = document.getElementById('paf-filter-family');
+  var stSel = document.getElementById('paf-filter-status');
+  var hzSel = document.getElementById('paf-filter-horizon');
+  var famF = famSel ? famSel.value : 'ALL';
+  var stF = stSel ? stSel.value : 'ALL';
+  var hzF = hzSel ? hzSel.value : 'ALL';
+  var rows = alphas.filter(function (a) {
+    return (famF === 'ALL' || a.family === famF) && (stF === 'ALL' || a.status === stF)
+      && (hzF === 'ALL' || String(a.horizon) === hzF);
+  });
+  var el = document.getElementById('paf-library');
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = '<div class="cc-na-note">No price alphas match this filter.</div>'; return; }
+  el.innerHTML = _afMiniTable(
+    ['Alpha', 'Family', 'Status', 'Hz', 'IC', 'IC-t', 'net25', 'Turn', 'DD', 'Cov%', 'corr', 'Regime / reject'],
+    rows.map(function (a) {
+      var last = a.reject_reason
+        ? '<span class="cc-badge danger" title="' + escapeHtml(a.reject_reason_text || '') + '">' + escapeHtml(a.reject_reason) + '</span>'
+        : '<span style="font-size:10px;color:var(--text-accent,#8aa0c8);" title="' + escapeHtml(a.regime_notes || '') + '">' + escapeHtml((a.regime_notes || '').slice(0, 36)) + '</span>';
+      return [escapeHtml(a.name), escapeHtml(a.family), _afStatusBadge(a.status), (a.horizon != null ? a.horizon + 'd' : '—'),
+        _afN(a.ic, 4), _afN(a.ic_t, 2), _afSigned(a.net25, 4), _afN(a.turnover, 2), _afN(a.drawdown, 3),
+        _afN(a.coverage_pct, 0), _afN(a.corr_vs_champion, 2), last];
+    }));
+}
+window.renderPriceAlphaLibrary = renderPriceAlphaLibrary;
+
+function _pafRenderCorrelation(corr) {
+  var sumEl = document.getElementById('paf-corr-summary');
+  var mEl = document.getElementById('paf-corr-matrix');
+  var sig = corr.signals || [];
+  var mat = corr.matrix || [];
+  var s = corr.summary || {};
+  if (sumEl) sumEl.innerHTML = sig.length
+    ? ('Signals ' + sig.length + ' &middot; clusters <b>' + (s.n_clusters != null ? s.n_clusters : '—') + '</b> &middot; max |off-diag| <b>' + _afN(s.max_abs_off_diagonal, 2)
+      + '</b> &middot; mean |off-diag| <b>' + _afN(s.mean_abs_off_diagonal, 2) + '</b>'
+      + (s.most_correlated_pair ? (' &middot; top pair ' + escapeHtml(s.most_correlated_pair.a) + ' / ' + escapeHtml(s.most_correlated_pair.b) + ' = ' + _afN(s.most_correlated_pair.corr, 2)) : ''))
+    : 'Champion + survivors only (no additional survivors to cluster).';
+  if (!mEl) return;
+  if (!sig.length) { mEl.innerHTML = '<div class="cc-na-note">No correlation matrix.</div>'; return; }
+  var abbr = function (n) { return n.length > 10 ? n.slice(0, 9) + '…' : n; };
+  var h = '<table style="border-collapse:collapse;"><thead><tr><th class="af-corr-cell"></th>';
+  h += sig.map(function (n) { return '<th class="af-corr-cell" title="' + escapeHtml(n) + '">' + escapeHtml(abbr(n)) + '</th>'; }).join('');
+  h += '</tr></thead><tbody>';
+  for (var i = 0; i < sig.length; i++) {
+    h += '<tr><th class="af-corr-cell" title="' + escapeHtml(sig[i]) + '" style="text-align:left;">' + escapeHtml(abbr(sig[i])) + '</th>';
+    for (var j = 0; j < sig.length; j++) {
+      var v = mat[i] ? mat[i][j] : null;
+      var bg = 'transparent';
+      if (v !== null && v !== undefined) {
+        var a = Math.min(1, Math.abs(Number(v)));
+        bg = v >= 0 ? 'rgba(34,197,94,' + (a * 0.55).toFixed(2) + ')' : 'rgba(239,68,68,' + (a * 0.55).toFixed(2) + ')';
+      }
+      h += '<td class="af-corr-cell" style="background:' + bg + ';">' + (v === null || v === undefined ? '—' : Number(v).toFixed(2)) + '</td>';
+    }
+    h += '</tr>';
+  }
+  mEl.innerHTML = h + '</tbody></table>';
+}
+
+function _pafRenderBestHorizon(fbh) {
+  var el = document.getElementById('paf-best-horizon');
+  if (!el) return;
+  var keys = Object.keys(fbh);
+  if (!keys.length) { el.innerHTML = '<div class="cc-na-note">No horizon summary.</div>'; return; }
+  el.innerHTML = keys.map(function (fam) {
+    var v = fbh[fam] || {};
+    return '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--cc-border-soft,#22304d);">'
+      + '<span><b>' + escapeHtml(fam) + '</b></span>'
+      + '<span style="font-size:10px;color:var(--text-accent,#8aa0c8);">strongest @ ' + (v.horizon != null ? v.horizon + 'd' : '—')
+      + ' (mean IC-t ' + _afN(v.mean_ic_t_at_horizon, 2) + ') &middot; primary ' + (v.primary_horizon != null ? v.primary_horizon + 'd' : '—') + '</span></div>';
+  }).join('');
+}
+
+function _pafRenderHorizonMatrix(hz) {
+  var el = document.getElementById('paf-horizon-matrix');
+  if (!el) return;
+  if (!hz.length) { el.innerHTML = '<div class="cc-na-note">No horizon matrix.</div>'; return; }
+  el.innerHTML = _afMiniTable(
+    ['Alpha', 'Family', 'Hz', 'primary', 'IC', 'IC-t', 'net25', 'Turn', 'Cov%', 'months'],
+    hz.map(function (r) {
+      return [escapeHtml(r.name), escapeHtml(r.family), (r.horizon + 'd'),
+        (r.is_primary ? '<span class="cc-badge safe">P</span>' : ''), _afN(r.mean_ic, 4), _afN(r.ic_t, 2),
+        _afSigned(r.net25, 4), _afN(r.turnover, 2), _afN(r.coverage_pct, 0), (r.n_ic_months != null ? r.n_ic_months : '—')];
+    }));
+}
+
+// Preview the build — compute everything, write nothing (commit=false).
+async function previewPriceAlpha(btn) {
+  var out = document.getElementById('paf-run-result');
+  _pafStagesReset(); _pafStagesUpTo(5, false);
+  if (btn) { btn.disabled = true; btn.textContent = 'Previewing…'; }
+  try {
+    var r = await call('POST', '/v1/research/price-alpha-factory/run', { commit: false });
+    var data = {}; try { data = await r.json(); } catch (e) {}
+    _pafStagesUpTo(5, true);
+    var c = data.registry_counts || {};
+    if (out) {
+      out.style.display = '';
+      out.textContent = 'PREVIEW (no write): would write ' + (data.would_write_files ? data.would_write_files.length : 0)
+        + ' artifacts to ' + (data.store_dir || '—') + '. Registry: ' + (c.ACTIVE || 0) + ' active, '
+        + (c.RESEARCH || 0) + ' research, ' + (c.REJECTED || 0) + ' rejected. Nothing was written.';
+    }
+  } catch (e) {
+    _pafStagesReset();
+    if (out) { out.style.display = ''; out.textContent = 'Price-Alpha preview request failed.'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Preview Price-Alpha Build'; }
+  }
+}
+window.previewPriceAlpha = previewPriceAlpha;
+
+// Manual confirmed build — styled in-page confirmation (no alert/confirm/prompt).
+function confirmPriceAlphaRun(btn) {
+  showPreviewConfirm({
+    title: 'Confirm Manual Price-Alpha Build',
+    writesHeader: 'This writes ONLY the local Phase 21 research-artifact store (never the database):',
+    writes: [
+      'Regenerates the Phase 21 price-alpha artifact package (manifest / registry / leaderboard / correlation / horizon / rejection / family / combination / diagnostics / final report) from the OWNED price + fundamental panels',
+      'Writes ONLY the dedicated LOCAL Phase 21 research-artifact store (JSON/CSV) — not the database'
+    ],
+    doesNotDo: [
+      'Creates no orders, signals, trade decisions or fills',
+      'Writes no Paper Trader database rows and mutates no positions; writes nothing to the trading workflow',
+      'Runs no automation, connects to no broker, calls no prediction service, adds no new data provider',
+      'Never replaces the champion; never approved for live trading'
+    ],
+    onConfirm: function () { runPriceAlpha(); }
+  });
+}
+window.confirmPriceAlphaRun = confirmPriceAlphaRun;
+
+async function runPriceAlpha() {
+  var btn = document.getElementById('paf-run-btn');
+  var out = document.getElementById('paf-run-result');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+  _pafStagesReset(); _pafStage('load', 'active');
+  try {
+    _pafStagesUpTo(6, false); // WRITE active
+    var r = await call('POST', '/v1/research/price-alpha-factory/run', { commit: true, confirm: 'RUN_PRICE_ALPHA_FACTORY_BUILD' });
+    var data = {}; try { data = await r.json(); } catch (e) {}
+    var st = data.status;
+    if (out) {
+      out.style.display = '';
+      if (r.ok && st === 'PRICE_ALPHA_FACTORY_BUILD_COMPLETE') {
+        _pafStagesUpTo(6, true);
+        out.textContent = 'BUILD COMPLETE — wrote ' + (data.files_written ? data.files_written.length : 0)
+          + ' artifacts to the local store (' + (data.store_dir || '—') + '). No database rows, no orders, champion unchanged.';
+      } else if (st === 'PRICE_ALPHA_FACTORY_PANEL_UNAVAILABLE') {
+        _pafStagesReset();
+        out.textContent = 'BUILD UNAVAILABLE — a required owned panel was not found. Nothing was computed or written.';
+      } else if (st === 'PRICE_ALPHA_FACTORY_CONFIRM_REQUIRED') {
+        _pafStagesReset();
+        out.textContent = 'Confirmation token required — nothing was written.';
+      } else {
+        _pafStagesReset();
+        out.textContent = 'Build result: ' + (st || ('HTTP ' + r.status)) + '.';
+      }
+    }
+    try { await loadPriceAlpha(); } catch (e) {}
+  } catch (e) {
+    _pafStagesReset();
+    if (out) { out.style.display = ''; out.textContent = 'Price-Alpha build request failed.'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Run Price-Alpha Build'; }
+  }
+}
+window.runPriceAlpha = runPriceAlpha;
+// ===== Phase 21 Price Alpha Lab END =====
 
 // ---------- Ticker Detail drawer (read-only analysis panel) ----------
 
@@ -21580,6 +22096,7 @@ function showPreviewConfirm(opts) {
     window._showWriteConfirm({
       title: opts.title || 'Confirm Preview Action',
       confirmLabel: 'Confirm Preview Action',
+      writesHeader: opts.writesHeader,
       writes: opts.writes || [],
       doesNotDo: opts.doesNotDo || [
         'Create no live orders', 'Send nothing to a broker', 'Run no automation',
@@ -21682,9 +22199,10 @@ var _RA_SECTIONS = {
   'revalidation':     { panels: ['crv-panel'], champion: false },
   'tournament':       { panels: ['ctr-panel'], champion: false },
   'alpha-factory':    { panels: ['af-panel'], champion: false },
+  'price-alpha':      { panels: ['paf-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -21732,6 +22250,7 @@ function _raLoadSection(sub) {
     'revalidation': ['loadCurrentAlphaRevalidation'],
     'tournament': ['loadCurrentAlphaTournament'],
     'alpha-factory': ['loadAlphaFactory'],
+    'price-alpha': ['loadPriceAlpha'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {

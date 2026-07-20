@@ -204,6 +204,15 @@ from paper_trader.api.alpha_factory import (
     run_alpha_factory,
     BUILD_CONFIRM_TOKEN as _ALPHA_FACTORY_CONFIRM_TOKEN,
 )
+from paper_trader.api.price_alpha_factory import (
+    load_price_alpha_factory,
+    load_price_alpha_registry,
+    load_price_alpha_leaderboard,
+    load_price_alpha_correlation,
+    load_price_alpha_combinations,
+    run_price_alpha_factory,
+    BUILD_CONFIRM_TOKEN as _PRICE_ALPHA_FACTORY_CONFIRM_TOKEN,
+)
 
 _EASTERN = ZoneInfo("America/New_York")
 _API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=True)
@@ -4353,6 +4362,18 @@ class AlphaFactoryRunRequest(BaseModel):
     confirm: str | None = None
 
 
+class PriceAlphaFactoryRunRequest(BaseModel):
+    """Phase 21 manual Price-Alpha Factory build request (research-only, user-triggered). A committing
+    build (``commit=true``) additionally requires the explicit confirmation token; it persists the
+    Phase 21 trailing-price panel manifest / registry / leaderboard / correlation / horizon /
+    rejection / family / combination / diagnostics / final-report artifacts to the dedicated LOCAL
+    store only and never writes the database, creates orders, replaces the champion, or promotes
+    anything to live trading."""
+
+    commit: bool = False
+    confirm: str | None = None
+
+
 @app.post(
     "/v1/research/current-alpha/daily-refresh",
     status_code=status.HTTP_200_OK,
@@ -4684,6 +4705,119 @@ def research_alpha_factory_run(body: AlphaFactoryRunRequest | None = None) -> di
                     % _ALPHA_FACTORY_CONFIRM_TOKEN),
         )
     return run_alpha_factory(commit=req.commit, confirm=req.confirm)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 21 — Autonomous Price-Alpha Expansion (research-only, read-only + manual build)
+# --------------------------------------------------------------------------- #
+@app.get(
+    "/v1/research/price-alpha-factory",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_price_alpha_factory() -> dict:
+    """
+    Read-only Phase 21 Price Alpha Lab research dashboard.
+
+    Activates the five trailing-price alpha families (momentum / trend / volatility /
+    relative-strength / mean-reversion) by wiring the owned point-in-time trailing-price panel into
+    the factory. Surfaces the price-panel readiness + caveats, the generated price candidates with
+    their multi-horizon (5/10/21/63-day) metrics, the automatic overfit-defense rejections, the
+    survivor leaderboard (each at its labelled primary horizon), the correlation matrix + clusters vs
+    the fundamental champion, the champion + price-family combination report, and the persisted
+    local-store state.
+
+    Strictly read-only: it recomputes the deterministic build in memory from owned data (the frozen
+    10-L scored panel and the owned trailing-price CSV) and reads the local Phase 21 store; it writes
+    no database rows, launches no subprocess, calls neither the prediction service nor any external
+    provider, and creates no signals / trade decisions / orders / fills. No status it returns approves
+    live trading and it never replaces or mutates the champion — every payload carries an explicit
+    no-live-trading safety block. A missing owned panel degrades to
+    PRICE_ALPHA_FACTORY_PANEL_UNAVAILABLE with HTTP 200, never a stack trace.
+    """
+    return load_price_alpha_factory()
+
+
+@app.get(
+    "/v1/research/price-alpha-factory/registry",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_price_alpha_factory_registry() -> dict:
+    """Read-only Phase 21 price-alpha registry slice: the fixed metadata schema, status counts, the
+    per-family taxonomy and every price-candidate record with its exact horizon, feature definition,
+    transaction-cost assumption and point-in-time caveats. Same read-only, no-live-trading guarantees
+    as the dashboard GET."""
+    return load_price_alpha_registry()
+
+
+@app.get(
+    "/v1/research/price-alpha-factory/leaderboard",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_price_alpha_factory_leaderboard() -> dict:
+    """Read-only Phase 21 price-alpha leaderboard slice: the champion reference row, the ranked
+    surviving price candidates (each at its labelled primary horizon), the best candidate per family
+    and the full multi-horizon summary. Read-only; no status approves live trading."""
+    return load_price_alpha_leaderboard()
+
+
+@app.get(
+    "/v1/research/price-alpha-factory/correlation",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_price_alpha_factory_correlation() -> dict:
+    """Read-only Phase 21 price-alpha correlation slice: the survivor-plus-champion rank-correlation
+    matrix, the correlation clusters and the diversification-vs-champion summary. Read-only; no status
+    approves live trading."""
+    return load_price_alpha_correlation()
+
+
+@app.get(
+    "/v1/research/price-alpha-factory/combinations",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_price_alpha_factory_combinations() -> dict:
+    """Read-only Phase 21 combination slice: transparent champion + price-family combinations (coarse
+    fixed weights) tested for subperiod-stable diversification. A winner is only ever RESEARCH or
+    CHALLENGER_ELIGIBLE_FOR_FUTURE_PAPER_TEST — never a champion replacement or a live promotion."""
+    return load_price_alpha_combinations()
+
+
+@app.post(
+    "/v1/research/price-alpha-factory/run",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_price_alpha_factory_run(body: PriceAlphaFactoryRunRequest | None = None) -> dict:
+    """
+    Phase 21 manual Price-Alpha Factory BUILD — one EXPLICIT, user-triggered research action.
+
+    With ``commit=false`` (default) it PREVIEWS the build: it recomputes the deterministic price-alpha
+    factory over the owned trailing-price + fundamental panels and reports the registry counts,
+    diagnostics, family taxonomy, combination report and the files it WOULD write — with NO writes.
+    ``commit=true`` requires ``confirm`` to equal the manual confirmation token (otherwise HTTP 400)
+    and persists the full Phase 21 artifact package (trailing-price manifest, registry, leaderboard,
+    correlation, horizon summary, rejection report, family summary, combination report, diagnostics
+    and final report) to the dedicated LOCAL Phase 21 store ONLY.
+
+    It writes ONLY the local research-artifact store — never PostgreSQL, never a Paper Trader
+    position / order / trade / fill, never the research git repository, never the trading workflow.
+    It creates no signals / trade decisions / orders; connects to no broker; runs no automation;
+    never invokes the prediction service; adds no new data provider; never replaces the champion and
+    never approves live trading. Never returns a stack trace.
+    """
+    req = body or PriceAlphaFactoryRunRequest()
+    if req.commit and req.confirm != _PRICE_ALPHA_FACTORY_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=("A committing Price-Alpha Factory build requires confirm='%s'."
+                    % _PRICE_ALPHA_FACTORY_CONFIRM_TOKEN),
+        )
+    return run_price_alpha_factory(commit=req.commit, confirm=req.confirm)
 
 
 @app.get(
