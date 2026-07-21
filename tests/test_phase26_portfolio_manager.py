@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from paper_trader.api import alpha_target as at
 from paper_trader.api import multi_horizon_engine as eng
 from paper_trader.api import multi_horizon_ledger as ledger
 from paper_trader.api import multi_horizon_platform as plat
@@ -94,6 +95,15 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setenv(ledger.LEDGER_DIR_ENV, str(led))
     monkeypatch.setenv(plat.FAST_SPEC_ENV, str(tmp_path / "no_fast_spec.json"))
     monkeypatch.setattr(pm, "_VALUATION_LOADER",
+                        lambda: _fake_valuation(positions=[_pos("AAA"), _pos("ZZZ")]))
+    # Phase 27A.2: pin the freshness-gate clock to the fixtures' market date
+    # (Fri 2026-07-17 after the close) and scale the complete-target contract to
+    # this synthetic 8-name world so the endpoint confirm gate stays deterministic.
+    from datetime import datetime, timezone
+    monkeypatch.setattr(at, "_now_override",
+                        datetime(2026, 7, 17, 21, 0, tzinfo=timezone.utc))
+    monkeypatch.setattr(at, "REQUIRED_TARGET_COUNT", 8)
+    monkeypatch.setattr(at, "_VALUATION_LOADER",
                         lambda: _fake_valuation(positions=[_pos("AAA"), _pos("ZZZ")]))
     eng.clear_cache()
     plat.clear_caches()

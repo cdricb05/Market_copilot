@@ -217,6 +217,7 @@ from paper_trader.api import multi_horizon_platform as _mhz
 from paper_trader.api import portfolio_manager as _pm
 from paper_trader.api import paper_trading_desk as _desk
 from paper_trader.api import alpha_book as _abook
+from paper_trader.api import alpha_target as _alpha_target
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -4964,15 +4965,23 @@ def research_alpha_paper_snapshot_preview() -> dict:
 def research_alpha_paper_snapshot_confirm(body: MhzSnapshotConfirmRequest | None = None) -> dict:
     """Manual, explicit CONFIRM that appends ONE immutable paper snapshot to the dedicated LOCAL ledger.
     Requires ``confirm`` == the confirmation token (otherwise HTTP 400); idempotent (a duplicate confirm
-    for the same market date + identical primary book is skipped); append-only. It NEVER writes
-    PostgreSQL, an order, a fill, a trade decision, a live signal, or any existing execution / broker /
-    trading workflow, and never replaces the champion."""
+    for the same market date + identical primary book is skipped); append-only. Phase 27A.2: a HARD
+    backend gate rejects confirmation with a structured SNAPSHOT_CONFIRMATION_BLOCKED payload whenever
+    the alpha target market date is behind the latest completed market date, the primary target is not
+    the complete 25-name book with reconciling weights, mandatory owned model inputs are missing, the
+    ledger integrity check fails, or the confirm would duplicate the latest identical snapshot - the
+    gate is enforced here, never only by disabled UI buttons. It NEVER writes PostgreSQL, an order, a
+    fill, a trade decision, a live signal, or any existing execution / broker / trading workflow, and
+    never replaces the champion."""
     req = body or MhzSnapshotConfirmRequest()
     if req.confirm is not None and req.confirm != _MHZ_CONFIRM_TOKEN:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A confirmed paper snapshot requires confirm='%s'." % _MHZ_CONFIRM_TOKEN,
         )
+    blocked = _alpha_target.confirmation_gate()
+    if blocked is not None:
+        return blocked
     return _mhz.confirm_snapshot(confirm=req.confirm)
 
 
@@ -5262,6 +5271,65 @@ def alpha_book_order_plan_confirm(body: AlphaBookConfirmRequest | None = None) -
     separate manual paper-order confirmation and its later eligible NEXT_CLOSE."""
     req = body or AlphaBookConfirmRequest()
     return _abook.confirm_order_plan(confirm=req.confirm)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27A.2 - Fresh alpha-target gate + owned-data target refresh.
+#
+# One authoritative date contract (six independent dates, never collapsed), the
+# single operational snapshot-review payload, and the ONE manual REFRESH ALPHA
+# TARGET action over the existing owned Phase 25 inputs + owned-EODHD transport.
+# LOCAL ALPHA DATA ONLY: the GCP prediction service and the 127.0.0.1:9000 tunnel
+# are never called, never probed, never required. GETs are strictly read-only;
+# the refresh writes ONLY the owned Phase 25 current-state input artifacts after
+# its explicit token, and never confirms a snapshot or creates any trading
+# instruction / fill / live signal / trade decision.
+# --------------------------------------------------------------------------- #
+class AlphaTargetRefreshRequest(BaseModel):
+    """Explicit manual confirmation for the ONE owned-data alpha-target refresh.
+    ``confirm`` must equal the refresh token. The refresh updates only the locally
+    owned Phase 25 alpha input/current-state artifacts, preserves every model
+    formula and weight, and performs no snapshot confirmation."""
+
+    confirm: str | None = None
+
+
+@app.get("/v1/alpha-target/readiness", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def alpha_target_readiness() -> dict:
+    """Read-only authoritative date contract + hard-gate readiness: the six independent
+    dates (latest completed market / alpha market / portfolio valuation / fundamental
+    as-of / snapshot preview / desk mark), alignment flags, fundamental cadence
+    freshness, snapshot_confirmation_allowed and the exact machine-readable
+    confirmation_blockers. Local alpha data only - no prediction tunnel involved."""
+    return _alpha_target.load_readiness()
+
+
+@app.get("/v1/alpha-target/review", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def alpha_target_review() -> dict:
+    """Read-only single operational snapshot-review payload: readiness/date contract,
+    the complete 25-name target table (rank / weight / leg ranks / agreement / sector /
+    risk / reason), the target summary (turnover, cost, sector, liquidity, volatility,
+    drawdown, construction exclusions) and the deterministic approval checklist. This is
+    what the operator approves - nothing here writes anything."""
+    return _alpha_target.load_review()
+
+
+@app.post("/v1/alpha-target/refresh", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def alpha_target_refresh(body: AlphaTargetRefreshRequest | None = None) -> dict:
+    """The ONE manual REFRESH ALPHA TARGET action (explicit token required). Loads the
+    latest completed owned EOD data through the EXISTING owned-EODHD transport, advances
+    the owned Phase 25 alpha inputs to the exact resulting market date, refreshes the
+    owned risk/liquidity observations, and recalculates the 50/50 Top-25 target -
+    strictly within the frozen-model contract (an intramonth refresh never changes a
+    momentum score, formula or weight; a month boundary defers to the research-side
+    monthly emitter). It never confirms a snapshot, never initializes the alpha book,
+    never creates any trading instruction / fill / live signal / trade decision, and
+    never calls the prediction service or tunnel."""
+    req = body or AlphaTargetRefreshRequest()
+    return _alpha_target.run_refresh(confirm=req.confirm)
 
 
 @app.get(
