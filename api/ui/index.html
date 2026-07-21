@@ -2036,7 +2036,7 @@
             <div class="cc-kpi"><div class="cc-kpi-label">Primary Paper Book</div><div class="cc-kpi-value" id="cc-kpi-book">—</div><div class="cc-kpi-sub" id="cc-kpi-book-sub">&nbsp;</div></div>
             <div class="cc-kpi"><div class="cc-kpi-label">Current Paper Return</div><div class="cc-kpi-value" id="cc-kpi-return">—</div><div class="cc-kpi-sub" id="cc-kpi-return-sub">&nbsp;</div></div>
             <div class="cc-kpi"><div class="cc-kpi-label">Excess vs SPY</div><div class="cc-kpi-value" id="cc-kpi-excess">—</div><div class="cc-kpi-sub" id="cc-kpi-excess-sub">&nbsp;</div></div>
-            <div class="cc-kpi"><div class="cc-kpi-label">Portfolio Capacity</div><div class="cc-kpi-value" id="cc-kpi-capacity">—</div><div class="cc-kpi-sub" id="cc-kpi-capacity-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label" title="Legacy signal-portfolio capacity (five-position risk engine). It never governs the 25-name Alpha Paper Book #1.">Portfolio Capacity (Legacy)</div><div class="cc-kpi-value" id="cc-kpi-capacity">—</div><div class="cc-kpi-sub" id="cc-kpi-capacity-sub">&nbsp;</div></div>
           </div>
 
           <!-- ROW 2: TODAY'S WORKFLOW (4 stages) -->
@@ -3858,7 +3858,7 @@
               <div class="pt-kpi"><div class="pt-kpi-label">Current Invested Value</div><div class="pt-kpi-value" id="pt-kpi-invested">—</div><div class="pt-kpi-sub" id="pt-kpi-invested-sub">&nbsp;</div></div>
               <div class="pt-kpi"><div class="pt-kpi-label">Current Total Return</div><div class="pt-kpi-value" id="pt-kpi-return">—</div><div class="pt-kpi-sub" id="pt-kpi-return-sub">&nbsp;</div></div>
               <div class="pt-kpi"><div class="pt-kpi-label">Open Positions</div><div class="pt-kpi-value" id="pt-kpi-positions">—</div><div class="pt-kpi-sub" id="pt-kpi-positions-sub">&nbsp;</div></div>
-              <div class="pt-kpi"><div class="pt-kpi-label">Available Capacity</div><div class="pt-kpi-value" id="pt-kpi-capacity">—</div><div class="pt-kpi-sub" id="pt-kpi-capacity-sub">&nbsp;</div></div>
+              <div class="pt-kpi"><div class="pt-kpi-label" title="Legacy signal-portfolio slots (five-position risk engine). Alpha Paper Book #1 targets 25 names under its own policy.">Available Capacity (Legacy)</div><div class="pt-kpi-value" id="pt-kpi-capacity">—</div><div class="pt-kpi-sub" id="pt-kpi-capacity-sub">&nbsp;</div></div>
             </div>
             <div class="pt-mark-note" id="pt-mark-recon-note">Current positions are marked using the latest owned EOD prices. Historical performance uses the latest completed portfolio snapshot.</div>
           </div>
@@ -4323,8 +4323,9 @@
             <span title="Canonical current mark of the executed paper portfolio.">Portfolio <b id="pm-sb-value">&mdash;</b></span>
             <span>Cash <b id="pm-sb-cash">&mdash;</b></span>
             <span>Invested <b id="pm-sb-invested">&mdash;</b></span>
-            <span title="Open executed paper positions (legacy manual trade workflow).">Open positions <b id="pm-sb-positions">&mdash;</b></span>
+            <span title="Open executed paper positions of the SEPARATE legacy manual trade workflow. Not part of Alpha Paper Book #1.">Legacy positions <b id="pm-sb-positions">&mdash;</b></span>
             <span title="Proposed primary Top-25 target book size.">Target names <b id="pm-sb-target">&mdash;</b></span>
+            <span title="Alpha Paper Book #1 capacity: validated target 25 names, up to 30 temporary holdings during rebalance. Governed by the immutable alpha-book policy, never by the legacy five-position limit.">Alpha capacity <b id="pm-sb-alpha-capacity">25 / 30</b></span>
             <span>Est. turnover <b id="pm-sb-turnover">&mdash;</b></span>
             <span title="25 bps round-trip assumption.">Est. cost <b id="pm-sb-cost">&mdash;</b></span>
             <span>Review due <b id="pm-sb-review">&mdash;</b></span>
@@ -4446,6 +4447,75 @@
               <div class="cc-na-note" style="font-size:10px;">This page reads existing paper data and writes nothing by itself. Every manual write is explicit and token-gated: the paper-alpha snapshot confirmation above and the paper-desk actions below (all local append-only ledgers; never the trading database).</div>
             </div>
           </div>
+        </div>
+
+        <!-- =============== Phase 27A.1 ALPHA BOOK IMPLEMENTATION PLAN ===============
+             Bridges the confirmed 25-name alpha target to the paper desk through the
+             dedicated, policy-governed Alpha Paper Book #1 ($100,000 virtual capital,
+             target 25, temporary rebalance capacity 30). Fully separate from the LEGACY
+             paper portfolio and its five-position limit. PAPER ONLY. -->
+        <div class="card" id="ab-band" style="margin-top:14px;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span style="font-size:14px;font-weight:800;letter-spacing:.03em;">ALPHA BOOK IMPLEMENTATION PLAN
+              <span class="cc-badge muted" id="ab-state">&mdash;</span></span>
+            <button class="btn-sm" id="ab-refresh-view" onclick="loadAlphaBook()" title="Reload the read-only alpha-book view. Writes nothing.">&#8635; Refresh View</button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px;">
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge danger">NO LIVE ORDERS</span>
+            <span class="cc-badge">NO BROKER</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge manual">MANUAL CONFIRMATION</span>
+          </div>
+          <div id="ab-next-action" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;">&mdash;</div>
+          <!-- Workstream A/H: the legacy portfolio and the alpha book are SEPARATE -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 8px;">
+            <div id="ab-legacy-card" style="flex:1 1 320px;border:1px solid rgba(245,158,11,.4);border-radius:8px;padding:8px 12px;font-size:11px;">
+              <div style="font-weight:800;font-size:10px;letter-spacing:.06em;">LEGACY PAPER PORTFOLIO <span class="cc-badge muted" style="font-size:8px;">SEPARATE</span></div>
+              <div id="ab-legacy-positions" class="mono" style="margin:4px 0 2px;">&mdash;</div>
+              <div class="cc-na-note" style="font-size:10px;">Not part of Alpha Paper Book #1. Never migrated, never modified by the alpha-book workflow.</div>
+              <div class="mono" style="font-size:10px;margin-top:4px;" title="Five-position legacy risk-engine limit — legacy signal workflow only.">LEGACY SIGNAL PORTFOLIO CAPACITY: <b id="ab-legacy-capacity">&mdash;</b></div>
+            </div>
+            <div id="ab-book-card" style="flex:1 1 320px;border:1px solid rgba(59,130,246,.45);border-radius:8px;padding:8px 12px;font-size:11px;">
+              <div style="font-weight:800;font-size:10px;letter-spacing:.06em;">ALPHA PAPER BOOK #1 <span class="cc-badge muted" id="ab-book-state" style="font-size:8px;">NOT INITIALIZED YET</span></div>
+              <div class="mono" style="margin:4px 0 2px;"><span id="ab-target-headline">INITIAL ALPHA TARGET: &mdash; NAMES</span> &middot; Dedicated <b>$100,000</b> virtual capital</div>
+              <div class="cc-na-note" style="font-size:10px;">These 25 names are the complete validated target portfolio, not optional ideas to select manually.</div>
+              <div class="mono" style="font-size:10px;margin-top:4px;">ALPHA BOOK TARGET: <b>25</b> &nbsp;&middot;&nbsp; TEMPORARY REBALANCE LIMIT: <b>30</b></div>
+            </div>
+          </div>
+          <div id="ab-statusbar" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;">
+            <span title="The validated operational target book.">Target book <b id="ab-sb-book">fundamental_momentum_50_50_top25</b></span>
+            <span title="Dedicated starting virtual capital of Alpha Paper Book #1.">Capital <b id="ab-sb-capital">$100,000</b></span>
+            <span>Target names <b id="ab-sb-target">&mdash;</b></span>
+            <span title="Executable orders in the current plan.">Executable <b id="ab-sb-exec">&mdash;</b></span>
+            <span title="Blocked targets in the current plan (allocation held as cash).">Blocked <b id="ab-sb-blocked">&mdash;</b></span>
+            <span>Invested % <b id="ab-sb-invested">&mdash;</b></span>
+            <span>Residual cash % <b id="ab-sb-residual">&mdash;</b></span>
+            <span title="Estimated one-way transaction cost of the plan (12.5 bps per side).">Est. cost <b id="ab-sb-cost">&mdash;</b></span>
+            <span>Max sector <b id="ab-sb-sector">&mdash;</b></span>
+            <span>Largest position <b id="ab-sb-largest">&mdash;</b></span>
+            <span title="Alpha capacity policy: target 25 names, up to 30 temporary holdings during rebalance.">Capacity <b>25 / 30</b></span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;">
+            <button class="btn-sm" id="ab-act-init" onclick="abAskAction('initialize')" title="Initialize Alpha Paper Book #1: immutable policy v1 + dedicated $100,000 virtual capital, 100% cash. Explicit token required.">Initialize Alpha Paper Book #1</button>
+            <button class="btn-sm" id="ab-act-plan" onclick="abGeneratePlan()" title="Read-only deterministic executable order plan at the latest completed owned closes. Writes nothing.">Generate Executable Order Plan</button>
+            <button class="btn-sm" id="ab-act-confirm-plan" onclick="abAskAction('confirmPlan')" title="Confirm the executable order plan: creates the dedicated alpha paper orders in PROPOSED (desk ledgers only). Explicit token required.">Confirm Order Plan &mdash; Create Paper Orders</button>
+            <button class="btn-sm" id="ab-act-blocked" onclick="abShowBlocked()" title="Read-only blocked-target report: exact reason, source field, temporariness, consequence.">View Blocked Targets</button>
+            <button class="btn-sm" id="ab-act-policy" onclick="abShowPolicy()" title="Read-only immutable alpha-book policy (append-only versioned).">View Policy</button>
+          </div>
+          <!-- styled in-page confirmation for every alpha-book mutation (never a native browser dialog) -->
+          <div id="ab-confirm-box" style="display:none;border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin:0 0 8px;">
+            <div style="font-weight:700;font-size:11px;margin-bottom:6px;" id="ab-confirm-title">&mdash;</div>
+            <div class="cc-na-note" style="font-size:10px;margin-bottom:6px;" id="ab-confirm-note">&mdash;</div>
+            <div class="mono" style="font-size:10px;margin-bottom:8px;">Confirmation phrase: <b id="ab-confirm-phrase">&mdash;</b></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn-sm" id="ab-confirm-yes" onclick="abDoAction()" title="Run this ONE explicit manual alpha-book action.">Run This Manual Action</button>
+              <button class="btn-sm" id="ab-confirm-no" onclick="abCancelBox()" title="Close without doing anything.">Cancel</button>
+            </div>
+          </div>
+          <div id="ab-action-result" style="display:none;font-size:11px;font-weight:700;margin:0 0 8px;"></div>
+          <div id="ab-plan-out" style="display:none;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;overflow-x:auto;"></div>
+          <div class="cc-na-note" style="font-size:10px;margin-top:2px;">Deterministic integer-share sizing at the latest completed owned closes; residual cash stays cash; a blocked target&rsquo;s allocation is held as cash (never replaced by an unvalidated name); the plan never exceeds capital after estimated costs. Execution is the desk&rsquo;s NEXT_CLOSE model &mdash; no hindsight, fills never rewritten, everything paper-only and append-only.</div>
         </div>
 
         <!-- =============== Phase 27A PAPER TRADING DESK (operational band) ===============
@@ -6487,7 +6557,7 @@
     <!-- compat: right-next-step/detail still targeted by other JS; hidden, not primary display -->
     <div style="display:none;"><span id="right-next-step"></span><span id="right-next-step-detail"></span></div>
     <div class="panel-section">
-      <div class="panel-section-title">Portfolio Capacity</div>
+      <div class="panel-section-title" title="Legacy signal-workflow capacity only. It never governs Alpha Paper Book #1.">Legacy Signal Portfolio Capacity</div>
       <div class="panel-item">
         <span>Open positions</span>
         <span class="panel-value" id="cap-open-positions">-</span>
@@ -6500,7 +6570,19 @@
         <span>Available slots</span>
         <span class="panel-value" id="cap-available-slots" style="font-weight: 700;">-</span>
       </div>
-      <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;" id="cap-status-note">Max enforced by risk engine</div>
+      <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;" id="cap-status-note">Legacy risk-engine limit &mdash; governs the legacy signal workflow only, never Alpha Paper Book #1</div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-section-title" title="Dedicated 25-name alpha paper book, governed by its immutable policy (never by the legacy five-position limit).">Alpha Paper Book #1 Capacity</div>
+      <div class="panel-item">
+        <span>Alpha book target</span>
+        <span class="panel-value">25</span>
+      </div>
+      <div class="panel-item">
+        <span>Temporary rebalance limit</span>
+        <span class="panel-value">30</span>
+      </div>
+      <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;">Dedicated $100,000 virtual capital &mdash; separate from the legacy signal portfolio (see Portfolio Manager)</div>
     </div>
     <div class="panel-section">
       <div class="panel-section-title">Current State</div>
@@ -6744,7 +6826,8 @@ window._switchTab = function(tabName, opts) {
       window._pmLoaded = true;
       try { loadPortfolioManager(); } catch (e) {}
     }
-    // Phase 27A: the paper trading desk band refreshes on every visit (read-only).
+    // Phase 27A/27A.1: the alpha-book implementation plan + paper trading desk
+    // bands refresh on every visit (read-only GETs).
     try { if (typeof loadPaperDesk === 'function') loadPaperDesk(); } catch (e) {}
   }
 
@@ -11323,7 +11406,7 @@ function updatePortfolioCapacityDisplay() {
   }
   if (noteEl) {
     const slots = openCount !== null ? Math.max(0, maxPos - openCount) : null;
-    noteEl.textContent = slots === 0 ? 'No new BUY capacity' : 'Max enforced by risk engine';
+    noteEl.textContent = slots === 0 ? 'No new legacy BUY capacity (legacy workflow only)' : 'Legacy risk-engine limit — never governs Alpha Paper Book #1';
     noteEl.style.color = slots === 0 ? 'var(--danger)' : 'var(--label)';
   }
   // Mirror open positions count to Overview Portfolio Snapshot
@@ -11429,7 +11512,7 @@ function _paRenderAnalytics(d) {
 
   // 3. Capacity
   html += '<div style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:4px;padding:10px;">';
-  html += '<div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Portfolio Capacity</div>';
+  html += '<div style="font-size:10px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;" title="Legacy signal-workflow capacity only. It never applies to Alpha Paper Book #1 (25-name target).">Legacy Paper Portfolio Capacity</div>';
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">';
   html += _paBox('Total', usd(cap.total_value));
   html += _paBox('Cash', usd(cap.cash));
@@ -23776,10 +23859,22 @@ function renderPmActionSummary(a) {
   if (revEl) revEl.textContent = a ? ('Review ' + (a.review_due ? 'DUE' : 'not due')) : '—';
   if (countsEl) {
     var counts = (a && a.counts) || {};
+    // Phase 27A.1: on the INITIAL proposal the ADD bucket is NOT a pick-list — it is the
+    // complete validated 25-name alpha target. Render it unambiguously.
+    var isInitial = !!(((window._pmData || {}).summary || {}).changes_summary || {}).is_initial_portfolio_proposal;
     countsEl.innerHTML = _PM_ACTION_ORDER.map(function (k) {
-      return '<span class="cc-badge ' + _PM_ACTION_CLS[k] + '" title="' + escapeHtml(_PM_ACTION_LABELS[k]) + '">' +
-        escapeHtml(_PM_ACTION_LABELS[k]) + ': ' + ((counts[k] != null) ? counts[k] : 0) + '</span>';
-    }).join('');
+      var label = _PM_ACTION_LABELS[k];
+      var value = (counts[k] != null) ? counts[k] : 0;
+      if (k === 'ADD_CANDIDATE' && isInitial && value > 0) {
+        return '<span class="cc-badge ' + _PM_ACTION_CLS[k] + '" title="The complete validated alpha target portfolio — not optional ideas to select manually.">' +
+          'INITIAL ALPHA TARGET: ' + value + ' NAMES</span>';
+      }
+      return '<span class="cc-badge ' + _PM_ACTION_CLS[k] + '" title="' + escapeHtml(label) + '">' +
+        escapeHtml(label) + ': ' + value + '</span>';
+    }).join('') +
+    (isInitial
+      ? '<span class="cc-na-note" style="font-size:10px;align-self:center;">These names are the complete validated target portfolio, not optional ideas to select manually.</span>'
+      : '');
   }
   if (filtersEl) {
     filtersEl.innerHTML = _PM_FILTERS.map(function (f) {
@@ -24152,9 +24247,11 @@ async function loadPaperDesk() {
     _mhzGet('/v1/paper-desk/status'),
     _mhzGet('/v1/paper-desk/orders'),
     _mhzGet('/v1/paper-desk/fills'),
+    _mhzGet('/v1/alpha-book/status'),
   ]);
-  window._pdData = { status: res[0], orders: res[1], fills: res[2] };
+  window._pdData = { status: res[0], orders: res[1], fills: res[2], alpha: res[3] };
   renderPaperDesk();
+  renderAlphaBook();
 }
 
 function _pdSet(id, txt) {
@@ -24188,9 +24285,30 @@ function renderPaperDesk() {
   _pdSet('pd-sb-fills', st.n_fills);
   _pdSet('pd-sb-exec', st.execution_model);
   _pdSet('pd-sb-cost', (st.cost_bps_per_side !== undefined ? st.cost_bps_per_side + ' bps' : null));
+  // Phase 27A.1: the alpha-book workflow governs the operational sequence — its
+  // next-action chain (CONFIRM TARGET SNAPSHOT -> INITIALIZE ALPHA PAPER BOOK #1 ->
+  // GENERATE EXECUTABLE ORDER PLAN -> ...) supersedes the raw desk chain when available.
+  var ab = d.alpha;
   var na = document.getElementById('pd-next-action');
   if (na) na.innerHTML = '<span class="cc-badge manual">NEXT MANUAL ACTION</span> ' +
-    escapeHtml(st.next_required_action || '—');
+    escapeHtml((ab && ab.next_required_action) || st.next_required_action || '—');
+  // Orders are created by the Alpha Book Implementation Plan above — never show the raw
+  // desk create button while the alpha workflow governs; disable actions with no target.
+  var oc0 = st.order_counts || {};
+  var nOpen = (oc0.PROPOSED || 0) + (oc0.APPROVED || 0) + (oc0.SUBMITTED || 0);
+  var genBtn = document.getElementById('pd-act-generate');
+  if (genBtn) genBtn.style.display = ab ? 'none' : '';
+  [['pd-act-confirm', 'No PROPOSED paper orders exist yet — confirm the executable order plan above first.',
+    'Manually submit PROPOSED paper orders (PROPOSED to APPROVED to SUBMITTED; fills at the deterministic next close). Explicit token required.'],
+   ['pd-act-preview', 'No open paper orders to preview yet — confirm the executable order plan above first.',
+    'Read-only indicative execution preview at the latest completed owned close. Writes nothing.'],
+   ['pd-act-cancel', 'No open paper orders to cancel.',
+    'Cancel open paper orders before any fill. Explicit token required.']].forEach(function (spec) {
+    var b = document.getElementById(spec[0]);
+    if (!b) return;
+    b.disabled = (nOpen === 0);
+    b.title = (nOpen === 0) ? spec[1] : spec[2];
+  });
   var audit = document.getElementById('pd-audit-body');
   if (audit) audit.innerHTML = '<pre style="white-space:pre-wrap;margin:0;">' +
     escapeHtml(JSON.stringify({ status: st.status, order_counts: st.order_counts,
@@ -24470,6 +24588,266 @@ window.pdAskAction = pdAskAction;
 window.pdDoAction = pdDoAction;
 window.pdCancelBox = pdCancelBox;
 window.pdExecutionPreview = pdExecutionPreview;
+
+// ============================================================================
+// Phase 27A.1 — ALPHA BOOK IMPLEMENTATION PLAN (band inside Portfolio Manager).
+// Bridges the confirmed 25-name target to the paper desk through the dedicated
+// policy-governed Alpha Paper Book #1. Paper only: every mutation posts an
+// explicit token through a styled in-page confirmation; no native dialogs; no
+// live orders; no broker; no automation; nothing legacy is ever touched.
+// ============================================================================
+var _AB_ACTIONS = {
+  initialize: {
+    title: 'Initialize Alpha Paper Book #1?',
+    note: 'Appends immutable policy v1, the initialization record and the OPEN book record (dedicated $100,000 USD_PAPER virtual capital, 100% cash) to the local append-only ledgers. The legacy paper portfolio is not touched. Idempotent-safe.',
+    path: '/v1/alpha-book/initialize', token: 'CONFIRM_ALPHA_BOOK_INITIALIZE' },
+  confirmPlan: {
+    title: 'Confirm the executable order plan?',
+    note: 'Appends the immutable plan record and creates the dedicated alpha paper orders in PROPOSED (desk ledgers only — never legacy signals, decisions, orders, fills or holdings; never a live order). Nothing fills until the separate manual paper-order confirmation below and its later eligible NEXT_CLOSE.',
+    path: '/v1/alpha-book/order-plan/confirm', token: 'CONFIRM_ALPHA_BOOK_ORDER_PLAN' },
+};
+
+function loadAlphaBook() { return loadPaperDesk(); }
+
+function _abBtn(id, enabled, reason, enabledTitle) {
+  var b = document.getElementById(id);
+  if (!b) return;
+  b.disabled = !enabled;
+  b.title = enabled ? enabledTitle : reason;
+}
+
+function renderAlphaBook() {
+  var ab = (window._pdData || {}).alpha;
+  var badge = document.getElementById('ab-state');
+  if (!ab) {
+    if (badge) { badge.textContent = 'UNAVAILABLE'; badge.className = 'cc-badge danger'; }
+    _pdSet('ab-next-action', 'Alpha-book status unavailable — check the backend connection.');
+    return;
+  }
+  var cur = ab.current_state || '—';
+  if (badge) {
+    badge.textContent = cur;
+    badge.className = 'cc-badge ' + (cur === 'FORWARD_TRACKING_ACTIVE' ? 'safe'
+      : cur === 'BLOCKED' ? 'danger' : 'manual');
+  }
+  var na = document.getElementById('ab-next-action');
+  if (na) na.innerHTML = '<span class="cc-badge manual">NEXT MANUAL ACTION</span> ' +
+    escapeHtml(ab.next_required_action || '—');
+  var lg = ab.legacy_portfolio || {};
+  _pdSet('ab-legacy-positions', lg.available
+    ? (lg.open_positions + ' position(s): ' + (lg.tickers || []).join(', '))
+    : 'Legacy valuation unavailable — the legacy portfolio is separate either way.');
+  _pdSet('ab-legacy-capacity', (lg.open_positions != null ? lg.open_positions : '—') +
+    ' / ' + (lg.max_positions != null ? lg.max_positions : '—') + ' (legacy workflow only)');
+  var bs = document.getElementById('ab-book-state');
+  if (bs) {
+    if (ab.book) {
+      var initDate = (ab.initialization || {}).initialization_date;
+      bs.textContent = 'INITIALIZED' + (initDate ? (' ' + initDate) : '');
+      bs.className = 'cc-badge safe';
+    } else {
+      bs.textContent = 'NOT INITIALIZED YET';
+      bs.className = 'cc-badge muted';
+    }
+  }
+  var tgt = ab.target || null;
+  _pdSet('ab-target-headline', tgt
+    ? ('INITIAL ALPHA TARGET: ' + tgt.n_names + ' NAMES')
+    : 'INITIAL ALPHA TARGET: — (confirm the target snapshot first)');
+  _pdSet('ab-sb-target', tgt ? tgt.n_names : null);
+  var ps = ab.plan_summary || null;
+  _pdSet('ab-sb-exec', ps ? ps.executable_count : null);
+  _pdSet('ab-sb-blocked', ps ? ps.blocked_count : null);
+  _pdSet('ab-sb-invested', ps && ps.invested_pct != null ? ps.invested_pct.toFixed(2) + '%' : null);
+  _pdSet('ab-sb-residual', ps && ps.residual_cash_pct != null ? ps.residual_cash_pct.toFixed(2) + '%' : null);
+  _pdSet('ab-sb-cost', ps && ps.estimated_transaction_costs != null
+    ? '$' + Number(ps.estimated_transaction_costs).toFixed(2) : null);
+  _pdSet('ab-sb-sector', ps && ps.largest_sector
+    ? ps.largest_sector + ' ' + (100 * (ps.largest_sector_weight || 0)).toFixed(1) + '%' : null);
+  _pdSet('ab-sb-largest', ps && ps.largest_position_weight != null
+    ? (100 * ps.largest_position_weight).toFixed(2) + '%' : null);
+  // Prerequisite-driven button gating (invalid actions are disabled with the reason).
+  _abBtn('ab-act-init', cur === 'TARGET_CONFIRMED',
+    ab.book ? 'Alpha Paper Book #1 is already initialized (policy immutable — a new configuration needs a new book).'
+            : 'Confirm the paper-alpha target snapshot first (Manual Review Flow above).',
+    'Initialize Alpha Paper Book #1: immutable policy v1 + dedicated $100,000 virtual capital, 100% cash. Explicit token required.');
+  var planReady = (cur === 'ORDER_PLAN_READY' || cur === 'ORDER_PLAN_REVIEW_REQUIRED');
+  _abBtn('ab-act-plan', !!ab.book && ab.latest_desk_mark_date != null,
+    !ab.book ? 'Initialize Alpha Paper Book #1 first.'
+             : 'Run the manual desk data refresh first — the plan needs owned closes for sizing.',
+    'Read-only deterministic executable order plan at the latest completed owned closes. Writes nothing.');
+  _abBtn('ab-act-confirm-plan',
+    planReady && !ab.orders_pending_manual_confirmation && !ab.orders_awaiting_fill,
+    ab.orders_pending_manual_confirmation ? 'Alpha paper orders already exist in PROPOSED — confirm or cancel them in the paper desk below.'
+      : ab.orders_awaiting_fill ? 'Confirmed paper orders are awaiting their eligible close — no new plan can be confirmed.'
+      : !ab.book ? 'Initialize Alpha Paper Book #1 first.'
+      : 'Generate and review the executable order plan first (desk marks required).',
+    'Confirm the executable order plan: creates the dedicated alpha paper orders in PROPOSED (desk ledgers only). Explicit token required.');
+}
+
+function abAskAction(kind) {
+  var spec = _AB_ACTIONS[kind];
+  if (!spec) return;
+  window._abPendingAction = kind;
+  var box = document.getElementById('ab-confirm-box');
+  var result = document.getElementById('ab-action-result');
+  if (result) result.style.display = 'none';
+  _pdSet('ab-confirm-title', spec.title);
+  _pdSet('ab-confirm-note', spec.note);
+  _pdSet('ab-confirm-phrase', spec.token);
+  if (box) box.style.display = '';
+}
+
+function abCancelBox() {
+  var box = document.getElementById('ab-confirm-box');
+  if (box) box.style.display = 'none';
+  window._abPendingAction = null;
+}
+
+async function abDoAction() {
+  var kind = window._abPendingAction;
+  var spec = _AB_ACTIONS[kind];
+  var box = document.getElementById('ab-confirm-box');
+  var result = document.getElementById('ab-action-result');
+  if (!spec) return;
+  if (box) box.style.display = 'none';
+  try {
+    var r = await call('POST', spec.path, { confirm: spec.token });
+    var d = await r.json();
+    if (result) {
+      result.style.display = '';
+      if (d.status === 'ALPHA_BOOK_OK') {
+        result.style.color = 'var(--ok, #22c55e)';
+        result.textContent = d.message || 'Manual alpha-book action complete (paper only).';
+        toast('Alpha book: ' + (d.message || 'done') + ' (paper only)', 'ok');
+      } else {
+        result.style.color = 'var(--warning, #f59e0b)';
+        result.textContent = (d.status || 'error') + ' — ' + (d.message || 'Nothing was written.');
+        toast('Alpha book: ' + (d.status || 'error'), 'info');
+      }
+    }
+  } catch (e) {
+    if (result) {
+      result.style.display = '';
+      result.style.color = 'var(--danger, #ef4444)';
+      result.textContent = 'Alpha-book action failed. Nothing may have been written — reload the view.';
+    }
+    toast('Alpha-book action failed.', 'error');
+  }
+  window._abPendingAction = null;
+  try { loadPaperDesk(); } catch (e2) {}
+}
+
+function _abBlockedTable(rows, title) {
+  if (!rows || !rows.length) return '';
+  return '<div style="font-weight:700;font-size:10px;margin:8px 0 4px;">' + title + '</div>' +
+    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+    '<thead><tr><th>Ticker</th><th>Class</th><th>Exact reason</th><th>Source field</th><th>Temporary</th><th>Replacement</th><th>Consequence</th></tr></thead><tbody>' +
+    rows.map(function (b) {
+      return '<tr><td><b>' + escapeHtml(b.ticker) + '</b></td>' +
+        '<td><span class="cc-badge ' + (b.classification === 'SECTOR_LIMIT' ? 'muted' : 'danger') + '" style="font-size:8px;">' + escapeHtml(b.classification) + '</span></td>' +
+        '<td style="font-size:10px;">' + escapeHtml(b.exact_reason || '') + '</td>' +
+        '<td class="mono" style="font-size:9px;">' + escapeHtml(b.source_field || '') + '</td>' +
+        '<td>' + (b.temporary ? 'yes' : 'no') + '</td>' +
+        '<td style="font-size:10px;">' + (b.replacement_allowed ? escapeHtml(b.replacement_rule || 'allowed') : 'held as cash') + '</td>' +
+        '<td style="font-size:10px;">' + escapeHtml(b.operational_consequence || '') + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+async function abGeneratePlan() {
+  var out = document.getElementById('ab-plan-out');
+  if (!out) return;
+  out.style.display = '';
+  out.textContent = 'Computing the read-only executable order plan…';
+  var p = await _mhzGet('/v1/alpha-book/order-plan/preview');
+  if (!p || p.status !== 'ALPHA_BOOK_OK') {
+    out.innerHTML = '<div class="cc-na-note">' +
+      escapeHtml((p && p.message) || 'Order plan unavailable.') + ' (Nothing was written.)</div>';
+    try { loadPaperDesk(); } catch (e) {}
+    return;
+  }
+  var rc = p.reconciliation || {};
+  var head = '<div style="font-weight:700;font-size:11px;margin-bottom:4px;">EXECUTABLE ORDER PLAN — read-only (' +
+    escapeHtml(p.plan_state || '') + '), sized at the ' + escapeHtml(p.sizing_marks_date || '—') + ' owned closes</div>' +
+    '<div class="mono" style="font-size:10px;margin-bottom:6px;">Start cash $' + Number(rc.starting_cash || 0).toLocaleString() +
+    ' · Gross buys $' + Number(rc.gross_buy_notional || 0).toLocaleString() +
+    ' · Est. costs $' + Number(rc.estimated_transaction_costs || 0).toFixed(2) +
+    ' · Residual cash $' + Number(rc.residual_cash || 0).toLocaleString() + ' (' + Number(rc.residual_cash_pct || 0).toFixed(2) + '%)' +
+    ' · Invested ' + Number(rc.invested_pct || 0).toFixed(2) + '%' +
+    ' · Target ' + rc.target_count + ' · Executable ' + rc.executable_count +
+    ' · Blocked ' + rc.blocked_count + ' · Rounded-zero ' + rc.rounded_zero_count +
+    ' · Largest position ' + (100 * (rc.largest_position_weight || 0)).toFixed(2) + '%' +
+    ' · Largest sector ' + escapeHtml(rc.largest_sector || '—') + ' ' + (100 * (rc.largest_sector_weight || 0)).toFixed(1) + '%</div>';
+  var rows = (p.orders || []).map(function (o) {
+    var sideTxt = o.side ? (_PD_SIDE_LABEL[o.side] || o.side) : 'HOLD';
+    return '<tr><td><b>' + escapeHtml(o.ticker) + '</b></td>' +
+      '<td>' + escapeHtml(sideTxt) + '</td>' +
+      '<td style="font-size:10px;">' + escapeHtml(o.action || '') + '</td>' +
+      '<td class="mono">' + (o.target_weight != null ? (100 * o.target_weight).toFixed(2) + '%' : '—') + '</td>' +
+      '<td class="mono">' + (o.target_dollar_value != null ? Number(o.target_dollar_value).toLocaleString() : '—') + '</td>' +
+      '<td class="mono">' + (o.price_used_for_sizing != null ? Number(o.price_used_for_sizing).toFixed(2) + ' (' + escapeHtml(o.price_date || '—') + ')' : '—') + '</td>' +
+      '<td class="mono">' + o.quantity + '</td>' +
+      '<td class="mono">' + (o.gross_notional != null ? Number(o.gross_notional).toLocaleString() : '—') + '</td>' +
+      '<td class="mono">' + (o.estimated_transaction_cost != null ? Number(o.estimated_transaction_cost).toFixed(2) : '—') + '</td>' +
+      '<td>' + escapeHtml(o.sector || 'Unknown') + '</td>' +
+      '<td style="font-size:9px;">' + escapeHtml(o.liquidity_status || '') + '</td>' +
+      '<td>' + (o.executable ? '<span class="cc-badge safe" style="font-size:8px;">EXECUTABLE</span>' : escapeHtml(o.block_reason || '')) + '</td></tr>';
+  }).join('');
+  out.innerHTML = head +
+    '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+    '<thead><tr><th>Ticker</th><th>Side</th><th>Action</th><th>Wt</th><th>Target $</th><th>Price (date)</th><th>Qty</th><th>Gross</th><th>Cost</th><th>Sector</th><th>Liquidity</th><th>Status</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>' +
+    _abBlockedTable(p.blocked_targets, 'BLOCKED TARGETS — allocation held as cash (never replaced by an unvalidated name)') +
+    '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">' + escapeHtml(p.no_hindsight_note || '') + ' Nothing was written.</div>';
+  try { loadPaperDesk(); } catch (e) {}
+}
+
+async function abShowBlocked() {
+  var out = document.getElementById('ab-plan-out');
+  if (!out) return;
+  out.style.display = '';
+  out.textContent = 'Loading the read-only blocked-target report…';
+  var b = await _mhzGet('/v1/alpha-book/blocked-targets');
+  if (!b || b.status !== 'ALPHA_BOOK_OK') {
+    out.innerHTML = '<div class="cc-na-note">Blocked-target report unavailable.</div>';
+    return;
+  }
+  out.innerHTML = '<div style="font-weight:700;font-size:11px;margin-bottom:4px;">BLOCKED TARGETS — read-only report</div>' +
+    (_abBlockedTable(b.construction_blocked, 'CONSTRUCTION-TIME (validated engine sector cap — slot already refilled by the next eligible name)') || '<div class="cc-na-note">No construction-time blocks.</div>') +
+    (_abBlockedTable(b.execution_blocked, 'EXECUTION-TIME (current plan — allocation held as cash)') ||
+      '<div class="cc-na-note" style="margin-top:6px;">No execution-time blocks' + (b.plan_status !== 'ALPHA_BOOK_OK' ? ' (plan not computable yet: ' + escapeHtml(b.plan_status || '') + ')' : '') + '.</div>') +
+    '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">' + escapeHtml(b.default_rule || '') + '</div>';
+}
+
+async function abShowPolicy() {
+  var out = document.getElementById('ab-plan-out');
+  if (!out) return;
+  out.style.display = '';
+  out.textContent = 'Loading the read-only alpha-book policy…';
+  var p = await _mhzGet('/v1/alpha-book/policy');
+  if (!p || p.status !== 'ALPHA_BOOK_OK') {
+    out.innerHTML = '<div class="cc-na-note">Policy unavailable.</div>';
+    return;
+  }
+  var pol = p.policy || {};
+  out.innerHTML = '<div style="font-weight:700;font-size:11px;margin-bottom:4px;">ALPHA BOOK POLICY — ' +
+    (p.policy_active ? ('IMMUTABLE VERSION ' + p.policy_version) : 'PROPOSED DEFAULT (becomes immutable v1 at initialization)') + '</div>' +
+    '<div class="mono" style="font-size:10px;line-height:1.8;">' +
+    'book_name <b>' + escapeHtml(pol.book_name || '') + '</b> · strategy <b>' + escapeHtml(pol.strategy || '') + '</b> · target_book <b>' + escapeHtml(pol.target_book || '') + '</b><br>' +
+    'starting_virtual_capital <b>$' + Number(pol.starting_virtual_capital || 0).toLocaleString() + ' ' + escapeHtml(pol.currency || '') + '</b> · target_position_count <b>' + pol.target_position_count + '</b> · temporary_rebalance_capacity <b>' + pol.temporary_rebalance_capacity + '</b><br>' +
+    'target_weight_per_name <b>' + pol.target_weight_per_name_pct + '%</b> · maximum_position_weight <b>' + pol.maximum_position_weight_pct + '%</b> · maximum_sector_weight <b>' + pol.maximum_sector_weight_pct + '%</b> · minimum_adv <b>$' + Number(pol.minimum_adv_usd || 0).toLocaleString() + '</b><br>' +
+    'execution_model <b>' + escapeHtml(pol.execution_model || '') + '</b> · one_way_cost <b>' + pol.one_way_transaction_cost_bps + ' bps</b> · review_cadence <b>' + escapeHtml(pol.review_cadence || '') + '</b><br>' +
+    'manual_confirmation_required <b>' + pol.manual_confirmation_required + '</b> · automation_enabled <b>' + pol.automation_enabled + '</b> · broker_enabled <b>' + pol.broker_enabled + '</b> · live_orders_enabled <b>' + pol.live_orders_enabled + '</b></div>' +
+    '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">' + escapeHtml(p.amendment_rule || '') + '</div>';
+}
+window.loadAlphaBook = loadAlphaBook;
+window.renderAlphaBook = renderAlphaBook;
+window.abAskAction = abAskAction;
+window.abDoAction = abDoAction;
+window.abCancelBox = abCancelBox;
+window.abGeneratePlan = abGeneratePlan;
+window.abShowBlocked = abShowBlocked;
+window.abShowPolicy = abShowPolicy;
 
 // ---- Boot: apply the initial route + wire back/forward ----------------------
 window.addEventListener('hashchange', function () { try { applyRoute(); } catch (e) {} });

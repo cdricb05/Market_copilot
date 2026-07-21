@@ -216,6 +216,7 @@ from paper_trader.api.price_alpha_factory import (
 from paper_trader.api import multi_horizon_platform as _mhz
 from paper_trader.api import portfolio_manager as _pm
 from paper_trader.api import paper_trading_desk as _desk
+from paper_trader.api import alpha_book as _abook
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -5176,6 +5177,87 @@ def paper_desk_refresh(body: PaperDeskConfirmRequest | None = None) -> dict:
     new forward-performance rows. Never scheduled, never automatic."""
     req = body or PaperDeskConfirmRequest()
     return _desk.refresh_desk(confirm=req.confirm)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27A.1 - Alpha Book capital, capacity and execution policy. Bridges the
+# validated 25-name alpha target to the paper desk through ONE dedicated,
+# policy-governed Alpha Paper Book #1 ($100,000 virtual, target 25, temporary
+# rebalance capacity 30). Fully separate from the LEGACY paper portfolio and
+# its five-position risk-engine limit; writes only to the local append-only
+# desk/alpha ledgers - never the trading database, never a live order.
+# --------------------------------------------------------------------------- #
+class AlphaBookConfirmRequest(BaseModel):
+    """Explicit manual confirmation for ONE alpha-book action (paper only; append-only)."""
+
+    confirm: str | None = None
+
+
+@app.get("/v1/alpha-book/policy", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def alpha_book_policy() -> dict:
+    """Read-only immutable Alpha Paper Book #1 policy (append-only versioned): capital,
+    target/temporary capacity, weight and sector caps, liquidity minimum, execution model,
+    costs, cadence and the documented sizing / reduction / blocked-target rules."""
+    return _abook.load_policy()
+
+
+@app.get("/v1/alpha-book/status", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def alpha_book_status() -> dict:
+    """Read-only alpha-book workflow state (every step distinct: NO_CONFIRMED_TARGET ->
+    ... -> FORWARD_TRACKING_ACTIVE), the ONE next required manual action, book valuation,
+    plan summary, legacy-portfolio separation and both capacity domains."""
+    return _abook.load_alpha_status()
+
+
+@app.get("/v1/alpha-book/order-plan/preview", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def alpha_book_order_plan_preview() -> dict:
+    """Read-only deterministic executable order plan: per-ticker sizing at the latest
+    completed owned closes, blocked-target classification, capital/cash reconciliation.
+    Writes nothing; no randomization; no hindsight."""
+    return _abook.load_order_plan_preview()
+
+
+@app.get("/v1/alpha-book/capacity", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def alpha_book_capacity() -> dict:
+    """Read-only capacity domains: LEGACY SIGNAL PORTFOLIO CAPACITY (five-position risk
+    engine; legacy workflow only) vs ALPHA BOOK CAPACITY (target 25, temporary rebalance
+    capacity 30, governed by the immutable alpha-book policy)."""
+    return _abook.load_capacity()
+
+
+@app.get("/v1/alpha-book/blocked-targets", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def alpha_book_blocked_targets() -> dict:
+    """Read-only blocked-target report: construction-time blocks (validated engine sector
+    cap, with its preserved replacement rule) and execution-time blocks (each with exact
+    reason, source field, temporariness and consequence; allocation held as cash)."""
+    return _abook.load_blocked_targets()
+
+
+@app.post("/v1/alpha-book/initialize", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def alpha_book_initialize(body: AlphaBookConfirmRequest | None = None) -> dict:
+    """Manually initialize Alpha Paper Book #1 from the confirmed target snapshot:
+    appends immutable policy v1, the initialization record and the OPEN book record
+    (dedicated 100,000 USD_PAPER virtual capital, 100% cash) to the local append-only
+    ledgers only. Idempotent-safe; requires the explicit manual token."""
+    req = body or AlphaBookConfirmRequest()
+    return _abook.initialize_book(confirm=req.confirm)
+
+
+@app.post("/v1/alpha-book/order-plan/confirm", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def alpha_book_order_plan_confirm(body: AlphaBookConfirmRequest | None = None) -> dict:
+    """Manually confirm the executable order plan: appends the immutable plan record and
+    creates the dedicated alpha paper orders in PROPOSED (desk ledgers only - never legacy
+    signals/decisions/orders/fills/holdings, never a live order). Nothing fills until the
+    separate manual paper-order confirmation and its later eligible NEXT_CLOSE."""
+    req = body or AlphaBookConfirmRequest()
+    return _abook.confirm_order_plan(confirm=req.confirm)
 
 
 @app.get(
