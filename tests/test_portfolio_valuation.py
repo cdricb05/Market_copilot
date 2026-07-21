@@ -60,9 +60,44 @@ def test_freshness_fresh_within_window():
     assert status == pv.FRESH and age == 1
 
 
+def test_freshness_same_completed_market_day():
+    status, age = pv._freshness(date(2026, 7, 20), date(2026, 7, 20))
+    assert status == pv.FRESH and age == 0
+
+
+def test_freshness_monday_close_observed_tuesday():
+    # A Monday completed EOD mark observed on Tuesday is FRESH (age 1).
+    status, age = pv._freshness(date(2026, 7, 20), date(2026, 7, 21))
+    assert status == pv.FRESH and age == 1
+
+
+def test_freshness_weekend_gap_is_covered():
+    # Friday close observed Monday (age 3) and Tuesday (age 4, the documented
+    # calendar allowance boundary) both stay FRESH — the 4-day window exists
+    # precisely to cover a weekend plus one market day.
+    friday = date(2026, 7, 17)
+    assert pv._freshness(friday, date(2026, 7, 20)) == (pv.FRESH, 3)
+    assert pv._freshness(friday, date(2026, 7, 21)) == (pv.FRESH, 4)
+
+
+def test_freshness_first_day_beyond_allowance_is_stale():
+    status, age = pv._freshness(date(2026, 7, 16), date(2026, 7, 21))
+    assert status == pv.STALE and age == 5
+
+
 def test_freshness_stale_beyond_window():
     status, age = pv._freshness(date(2026, 6, 15), date(2026, 7, 16))
     assert status == pv.STALE and age == 31
+
+
+def test_today_seam_defaults_to_real_date_and_is_injectable(monkeypatch):
+    # Without an override the seam returns the real current date; with one it
+    # returns exactly the injected date (deterministic tests, honest default).
+    monkeypatch.setattr(pv, "_today_override", None)
+    assert pv._today() == date.today()
+    injected = date(2026, 7, 20)
+    monkeypatch.setattr(pv, "_today_override", injected)
+    assert pv._today() == injected
 
 
 # --------------------------------------------------------------------------- #

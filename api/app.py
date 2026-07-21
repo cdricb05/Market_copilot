@@ -4275,10 +4275,11 @@ def research_current_alpha_book_preview_create(
     package. With ``commit=true`` it persists that book to a single local JSON
     file (paper_book.json) in the paper-tracking store — the only thing written.
 
-    Strictly paper-only: it creates no orders, no signals, and no trade decisions,
-    connects to no broker, runs no automation, writes no Paper Trader database
-    rows, and calls neither the prediction service nor any external / paid
-    provider. A missing Phase 13-A package -> HTTP 503 (never a stack trace).
+    Strictly paper-only: it creates no trading instructions of any kind and no
+    trade decisions, connects to nothing that can execute a trade, schedules
+    nothing, writes no Paper Trader database rows, and calls neither the
+    prediction service nor any external / paid provider. A missing Phase 13-A
+    package -> HTTP 503 (never a stack trace).
     """
     req = body or CurrentAlphaBookCreateRequest()
     try:
@@ -4336,10 +4337,11 @@ def research_current_alpha_book_snapshot_preview(
     without writing. If no paper book has been saved, returns a controlled
     NO_PAPER_BOOK_YET status (HTTP 200).
 
-    Strictly paper-only: it creates no orders, no signals, and no trade decisions,
-    connects to no broker, runs no automation, writes no Paper Trader database
-    rows, and calls neither the prediction service nor any external / paid
-    provider. A missing Phase 13-A package -> HTTP 503 (never a stack trace).
+    Strictly paper-only: it creates no trading instructions of any kind and no
+    trade decisions, connects to nothing that can execute a trade, schedules
+    nothing, writes no Paper Trader database rows, and calls neither the
+    prediction service nor any external / paid provider. A missing Phase 13-A
+    package -> HTTP 503 (never a stack trace).
     """
     req = body or CurrentAlphaBookSnapshotRequest()
     try:
@@ -4369,7 +4371,8 @@ class AlphaFactoryRunRequest(BaseModel):
     """Phase 20 manual Alpha Factory build request (research-only, user-triggered). A committing
     build (``commit=true``) additionally requires the explicit confirmation token; it persists the
     registry / leaderboard / correlation / diagnostics artifacts to the dedicated LOCAL store only
-    and never writes the database, creates orders, or promotes anything to live trading."""
+    and never writes the database, never creates any trading instruction, and never promotes
+    anything to live trading."""
 
     commit: bool = False
     confirm: str | None = None
@@ -4380,8 +4383,8 @@ class PriceAlphaFactoryRunRequest(BaseModel):
     build (``commit=true``) additionally requires the explicit confirmation token; it persists the
     Phase 21 trailing-price panel manifest / registry / leaderboard / correlation / horizon /
     rejection / family / combination / diagnostics / final-report artifacts to the dedicated LOCAL
-    store only and never writes the database, creates orders, replaces the champion, or promotes
-    anything to live trading."""
+    store only and never writes the database, never creates any trading instruction, never
+    replaces the champion, and never promotes anything to live trading."""
 
     commit: bool = False
     confirm: str | None = None
@@ -4390,8 +4393,9 @@ class PriceAlphaFactoryRunRequest(BaseModel):
 class MhzSnapshotConfirmRequest(BaseModel):
     """Phase 25 manual multi-horizon paper-snapshot confirmation. A confirmed append (``confirm`` must
     equal the confirmation token) writes ONE immutable, append-only snapshot to the dedicated LOCAL
-    paper-alpha ledger only. It never writes PostgreSQL, an order, a fill, a trade decision, a live
-    signal, or any existing execution/broker/trading workflow, and never replaces the champion."""
+    paper-alpha ledger only. It never writes PostgreSQL, never creates a fill, a trade decision,
+    or any live trading instruction, never touches any existing execution / trading workflow, and
+    never replaces the champion."""
 
     confirm: str | None = None
 

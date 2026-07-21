@@ -71,6 +71,10 @@ NO_POSITIONS = "NO_POSITIONS"
 # A mark within this many calendar days of "today" is FRESH (covers a weekend).
 _FRESH_MAX_CALENDAR_DAYS = 4
 
+# Test seam — set to a fixed date for deterministic freshness classification
+# (mirrors paper_trading_desk._today_override). None -> the real current date.
+_today_override: Optional[date] = None
+
 _DOLLARS = Decimal("0.01")
 _PRICE = Decimal("0.000001")
 _PCT = Decimal("0.0001")
@@ -83,6 +87,11 @@ _TOLERANCE = Decimal("0.01")
 
 def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
+
+
+def _today() -> date:
+    """Reference date for freshness classification (injectable for tests)."""
+    return _today_override if _today_override is not None else date.today()
 
 
 def _iso(ts: Any) -> Optional[str]:
@@ -391,7 +400,7 @@ def load_portfolio_valuation() -> dict[str, Any]:
                 cash = Decimal(str(portfolio.cached_cash))
                 cached_total = Decimal(str(portfolio.cached_total_value))
                 initial = Decimal(str(portfolio.initial_capital))
-                today = date.today()
+                today = _today()
 
                 # --- current positions (re-marked, isolated failure) --------- #
                 try:

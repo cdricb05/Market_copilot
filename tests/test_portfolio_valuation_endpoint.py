@@ -24,7 +24,7 @@ Skipped entirely without PAPER_TRADER_TEST_DATABASE_URL.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -190,15 +190,41 @@ def test_current_mark_does_not_use_cached_total(seeded_client):
     assert cm["current_total_value"] != "9960.00"
 
 
-def test_current_mark_metadata_present(seeded_client):
+def test_current_mark_metadata_present(seeded_client, monkeypatch):
+    # Freshness is classified against an injected reference date (the same
+    # completed market day as the seeded mark) so this test is deterministic
+    # regardless of the real run date — the seeded market_date is fixed.
+    import paper_trader.api.portfolio_valuation as pv
+    monkeypatch.setattr(pv, "_today_override", _TODAY)
     cm = _mark(seeded_client)
     assert cm["valuation_type"] == "CURRENT_MARKED_EOD"
     assert cm["as_of_market_date"] == _TODAY.isoformat()
     assert cm["price_source"] == "test_source"
     assert cm["freshness_status"] == "FRESH"
+    assert cm["age_calendar_days"] == 0
     assert cm["calculated_at"]
     assert cm["covered_position_count"] == 2 and cm["total_position_count"] == 2
     assert cm["valuation_complete"] is True
+
+
+def test_current_mark_freshness_next_calendar_day(seeded_client, monkeypatch):
+    # A completed EOD mark observed on the next calendar day (before another
+    # close has completed) is FRESH.
+    import paper_trader.api.portfolio_valuation as pv
+    monkeypatch.setattr(pv, "_today_override", _TODAY + timedelta(days=1))
+    cm = _mark(seeded_client)
+    assert cm["freshness_status"] == "FRESH"
+    assert cm["age_calendar_days"] == 1
+
+
+def test_current_mark_genuinely_stale_is_not_concealed(seeded_client, monkeypatch):
+    # Beyond the documented calendar allowance the mark must report STALE —
+    # the injection seam can never be used to fake freshness.
+    import paper_trader.api.portfolio_valuation as pv
+    monkeypatch.setattr(pv, "_today_override", _TODAY + timedelta(days=10))
+    cm = _mark(seeded_client)
+    assert cm["freshness_status"] == "STALE"
+    assert cm["age_calendar_days"] == 10
 
 
 def test_position_statuses(seeded_client):
