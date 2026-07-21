@@ -215,6 +215,7 @@ from paper_trader.api.price_alpha_factory import (
 )
 from paper_trader.api import multi_horizon_platform as _mhz
 from paper_trader.api import portfolio_manager as _pm
+from paper_trader.api import paper_trading_desk as _desk
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -5047,6 +5048,134 @@ def portfolio_manager_since_last_review() -> dict:
     snapshot - or the explicit NO PRIOR CONFIRMED ALPHA SNAPSHOT initial-proposal state (never a
     comparison against an unrelated historical research book)."""
     return _pm.load_since_last_review()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27A - Production-like PAPER trading desk (paper books / orders / fills /
+# journal / forward performance / attribution). PAPER ONLY: no live orders, no
+# broker, no automation, no background execution; every mutation requires an
+# explicit manual confirmation token; all ledgers are LOCAL append-only JSON
+# (chain-hashed) - the existing PostgreSQL signal/decision/order/fill tables
+# are never touched.
+# --------------------------------------------------------------------------- #
+class PaperDeskConfirmRequest(BaseModel):
+    """Explicit manual confirmation for ONE paper-desk action (paper only; append-only)."""
+
+    confirm: str | None = None
+
+
+class PaperDeskCancelRequest(BaseModel):
+    """Explicit manual cancellation of open (non-terminal) paper orders."""
+
+    confirm: str | None = None
+    order_ids: list[str] | None = None
+
+
+@app.get("/v1/paper-desk/status", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_status() -> dict:
+    """Read-only desk overview: open paper book, valuation, order counts by status, latest
+    desk mark date, ledger integrity and the ONE deterministic next required manual action."""
+    return _desk.load_status()
+
+
+@app.get("/v1/paper-desk/books", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_books() -> dict:
+    """Read-only paper-book records (immutable creation records + derived valuation)."""
+    return _desk.load_books()
+
+
+@app.get("/v1/paper-desk/orders", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_orders(order_status: str | None = None) -> dict:
+    """Read-only paper orders (folded from the append-only event ledger), optionally
+    filtered by status (PROPOSED/APPROVED/SUBMITTED/FILLED/CANCELLED/EXPIRED)."""
+    return _desk.load_orders(status_filter=order_status)
+
+
+@app.get("/v1/paper-desk/fills", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_fills() -> dict:
+    """Read-only immutable paper fills (never rewritten; embed the price used)."""
+    return _desk.load_fills()
+
+
+@app.get("/v1/paper-desk/journal", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_journal() -> dict:
+    """Read-only rule-based decision journal (deterministic templates; no language model)."""
+    return _desk.load_journal()
+
+
+@app.get("/v1/paper-desk/timeline", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_timeline() -> dict:
+    """Read-only execution timeline (append-only lifecycle events)."""
+    return _desk.load_timeline()
+
+
+@app.get("/v1/paper-desk/performance", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_performance() -> dict:
+    """Read-only forward performance rows (append-only; historical rows never recomputed)."""
+    return _desk.load_performance()
+
+
+@app.get("/v1/paper-desk/attribution", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_attribution(window: str = "daily") -> dict:
+    """Read-only attribution over the requested window (daily/weekly/monthly): top and worst
+    contributors, sector contribution, cash drag, transaction cost, fixed-50/50 model split
+    and the (never-applied) risk-overlay effect."""
+    return _desk.load_attribution(window=window)
+
+
+@app.get("/v1/paper-desk/execution-preview", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def paper_desk_execution_preview() -> dict:
+    """Read-only INDICATIVE execution preview of open paper orders at the latest completed
+    owned close. Writes nothing; the actual paper fill is the NEXT_CLOSE resolution."""
+    return _desk.load_execution_preview()
+
+
+@app.post("/v1/paper-desk/orders/generate", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def paper_desk_orders_generate(body: PaperDeskConfirmRequest | None = None) -> dict:
+    """Generate PROPOSED paper orders from the latest CONFIRMED paper-alpha snapshot
+    (creates Paper Book #N on first use). Requires the explicit manual token; orders do
+    NOT modify holdings and nothing fills until the separate manual order confirmation."""
+    req = body or PaperDeskConfirmRequest()
+    return _desk.generate_orders(confirm=req.confirm)
+
+
+@app.post("/v1/paper-desk/orders/confirm", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def paper_desk_orders_confirm(body: PaperDeskConfirmRequest | None = None) -> dict:
+    """Manually confirm PROPOSED paper orders: append-only transitions PROPOSED -> APPROVED
+    -> SUBMITTED. Fills occur ONLY at the deterministic NEXT_CLOSE resolution once a later
+    manual refresh records the required completed owned close (no hindsight)."""
+    req = body or PaperDeskConfirmRequest()
+    return _desk.confirm_orders(confirm=req.confirm)
+
+
+@app.post("/v1/paper-desk/orders/cancel", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def paper_desk_orders_cancel(body: PaperDeskCancelRequest | None = None) -> dict:
+    """Manually cancel open (non-terminal) paper orders. Append-only transition; no fill,
+    no position change; history is never rewritten."""
+    req = body or PaperDeskCancelRequest()
+    return _desk.cancel_orders(confirm=req.confirm, order_ids=req.order_ids)
+
+
+@app.post("/v1/paper-desk/refresh", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def paper_desk_refresh(body: PaperDeskConfirmRequest | None = None) -> dict:
+    """ONE explicit manual desk refresh: sync owned-EODHD completed closes into the local
+    desk mark store, settle due SUBMITTED orders (NEXT_CLOSE), expire stale ones, and append
+    new forward-performance rows. Never scheduled, never automatic."""
+    req = body or PaperDeskConfirmRequest()
+    return _desk.refresh_desk(confirm=req.confirm)
 
 
 @app.get(

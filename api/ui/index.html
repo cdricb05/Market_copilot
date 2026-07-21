@@ -3492,9 +3492,9 @@
               <button class="btn-sm" style="width: 100%; font-size: 9px;" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh Review Queue</button>
             </div>
 
-            <!-- Advanced Manual Actions -->
+            <!-- LAB / ADMIN: legacy manual tools, hidden from normal operation -->
             <details>
-              <summary>Advanced Manual Actions</summary>
+              <summary>LAB / ADMIN &mdash; legacy manual tools (advanced)</summary>
               <div style="padding: 4px 0;">
                 <div class="button-group">
                   <span class="button-group-label">Market Data</span>
@@ -4401,12 +4401,13 @@
           <div style="flex:1 1 300px;min-width:280px;">
             <div class="card" style="margin-bottom:12px;">
               <div class="card-title">Manual Review Flow <span class="cc-badge manual">MANUAL ONLY</span></div>
-              <ol id="pm-flow-steps" style="margin:4px 0 8px 18px;padding:0;font-size:11px;line-height:1.7;">
-                <li>Review the proposed portfolio (Action Summary).</li>
-                <li>Review additions and removals (Proposed Changes).</li>
-                <li>Review risks and blocked names (Portfolio Health).</li>
+              <ol id="pm-flow-steps" style="margin:4px 0 8px 18px;padding:0;font-size:11px;line-height:1.5;">
+                <li>Refresh desk market data (manual, below).</li>
+                <li>Review the proposed portfolio and health.</li>
                 <li>Preview the paper-alpha snapshot (read-only).</li>
                 <li>Confirm the snapshot manually (ledger-only write).</li>
+                <li>Create, preview and confirm paper orders (desk below).</li>
+                <li>Monitor paper fills, NAV and attribution.</li>
               </ol>
               <button class="btn-sm" id="pm-preview-btn" onclick="pmPreviewSnapshot()" title="Read-only preview of the paper-alpha snapshot that would be appended. Writes nothing.">Preview Paper Snapshot</button>
               <div id="pm-preview-facts" style="font-size:11px;margin-top:8px;">&mdash;</div>
@@ -4442,9 +4443,66 @@
                 <span class="cc-badge">NO TRADE DECISIONS</span>
                 <span class="cc-badge">NO POSITION CHANGES</span>
               </div>
-              <div class="cc-na-note" style="font-size:10px;">This page reads existing paper data and writes nothing. The one manual write in this workflow is the explicit paper-alpha snapshot confirm above (ledger only).</div>
+              <div class="cc-na-note" style="font-size:10px;">This page reads existing paper data and writes nothing by itself. Every manual write is explicit and token-gated: the paper-alpha snapshot confirmation above and the paper-desk actions below (all local append-only ledgers; never the trading database).</div>
             </div>
           </div>
+        </div>
+
+        <!-- =============== Phase 27A PAPER TRADING DESK (operational band) ===============
+             The complete paper lifecycle: approved proposal -> paper orders -> preview ->
+             manual confirmation -> immutable paper fills -> holdings / cash / NAV ->
+             forward performance / attribution / decision journal. PAPER ONLY. -->
+        <div class="card" id="pd-band" style="margin-top:14px;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span style="font-size:14px;font-weight:800;letter-spacing:.03em;">PAPER TRADING DESK
+              <span class="cc-badge muted" id="pd-book-name">NO PAPER BOOK YET</span>
+              <span class="cc-badge" id="pd-status">&mdash;</span></span>
+            <button class="btn-sm" id="pd-refresh-view" onclick="loadPaperDesk()" title="Reload the read-only paper-desk view. Writes nothing.">&#8635; Refresh View</button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px;">
+            <span class="cc-badge">PAPER ORDERS ONLY</span>
+            <span class="cc-badge danger">NO LIVE ORDERS</span>
+            <span class="cc-badge">NO BROKER</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge manual">MANUAL CONFIRMATION</span>
+          </div>
+          <div id="pd-next-action" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;">&mdash;</div>
+          <div id="pd-statusbar" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;">
+            <span title="Paper book NAV = cash + holdings at the latest completed owned close.">NAV <b id="pd-sb-nav">&mdash;</b></span>
+            <span>Cash <b id="pd-sb-cash">&mdash;</b></span>
+            <span>Holdings <b id="pd-sb-holdings">&mdash;</b></span>
+            <span title="Latest completed owned close recorded in the local desk mark store.">Desk mark <b id="pd-sb-mark">&mdash;</b></span>
+            <span title="Paper orders not yet filled, cancelled or expired.">Open orders <b id="pd-sb-open">&mdash;</b></span>
+            <span>Paper fills <b id="pd-sb-fills">&mdash;</b></span>
+            <span title="Deterministic execution model, frozen into the paper book at creation.">Exec model <b id="pd-sb-exec">&mdash;</b></span>
+            <span title="12.5 bps per side (the platform's 25 bps round-trip assumption).">Cost/side <b id="pd-sb-cost">&mdash;</b></span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;">
+            <button class="btn-sm" id="pd-act-refresh" onclick="pdAskAction('refresh')" title="Manual desk data refresh: sync owned completed closes, settle due paper orders, append forward performance. Explicit token required.">1&middot; Refresh Desk Data</button>
+            <button class="btn-sm" id="pd-act-generate" onclick="pdAskAction('generate')" title="Create PROPOSED paper orders from the latest confirmed paper-alpha snapshot. Explicit token required.">Create Paper Orders</button>
+            <button class="btn-sm" id="pd-act-preview" onclick="pdExecutionPreview()" title="Read-only indicative execution preview at the latest completed owned close. Writes nothing.">Preview Execution</button>
+            <button class="btn-sm" id="pd-act-confirm" onclick="pdAskAction('submit')" title="Manually submit PROPOSED paper orders (PROPOSED to APPROVED to SUBMITTED; fills at the deterministic next close). Explicit token required.">Confirm Paper Orders</button>
+            <button class="btn-sm" id="pd-act-cancel" onclick="pdAskAction('cancel')" title="Cancel open paper orders before any fill. Explicit token required.">Cancel Open Orders</button>
+          </div>
+          <!-- styled in-page confirmation for every desk mutation (never a native browser dialog) -->
+          <div id="pd-confirm-box" style="display:none;border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin:0 0 8px;">
+            <div style="font-weight:700;font-size:11px;margin-bottom:6px;" id="pd-confirm-title">&mdash;</div>
+            <div class="cc-na-note" style="font-size:10px;margin-bottom:6px;" id="pd-confirm-note">&mdash;</div>
+            <div class="mono" style="font-size:10px;margin-bottom:8px;">Confirmation phrase: <b id="pd-confirm-phrase">&mdash;</b></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn-sm" id="pd-confirm-yes" onclick="pdDoAction()" title="Run this ONE explicit manual paper-desk action.">Run This Manual Action</button>
+              <button class="btn-sm" id="pd-confirm-no" onclick="pdCancelBox()" title="Close without doing anything.">Cancel</button>
+            </div>
+          </div>
+          <div id="pd-action-result" style="display:none;font-size:11px;font-weight:700;margin:0 0 8px;"></div>
+          <div id="pd-preview-out" style="display:none;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;overflow-x:auto;"></div>
+          <div id="pd-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px;"></div>
+          <div id="pd-panel" class="compact-scroll-region" style="max-height:360px;overflow:auto;font-size:11px;">&mdash;</div>
+          <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Execution model <b>NEXT_CLOSE</b> &mdash; a paper order approved on date A fills at the first completed owned EOD close on/after A that was not yet in the desk store at approval time (no hindsight; paper fills are never rewritten; every desk ledger is local and append-only with a verifiable hash chain). Nothing here creates a live order, contacts a broker, or runs on a schedule.</div>
+          <details style="margin-top:8px;" id="pd-audit">
+            <summary style="cursor:pointer;font-weight:700;font-size:11px;">Desk Audit &mdash; raw status payload and ledger integrity</summary>
+            <div id="pd-audit-body" class="mono" style="font-size:10px;margin-top:8px;overflow-x:auto;">&mdash;</div>
+          </details>
         </div>
       </div>
       <!-- ===================== Phase 26 PORTFOLIO MANAGER END ===================== -->
@@ -6681,9 +6739,13 @@ window._switchTab = function(tabName, opts) {
 
   // Phase 26: Portfolio Manager — lazy-load the read-only decision view the
   // first time the tab opens (Refresh reloads on demand). GETs only.
-  if (tabName === 'portfolio-manager' && !window._pmLoaded) {
-    window._pmLoaded = true;
-    try { loadPortfolioManager(); } catch (e) {}
+  if (tabName === 'portfolio-manager') {
+    if (!window._pmLoaded) {
+      window._pmLoaded = true;
+      try { loadPortfolioManager(); } catch (e) {}
+    }
+    // Phase 27A: the paper trading desk band refreshes on every visit (read-only).
+    try { if (typeof loadPaperDesk === 'function') loadPaperDesk(); } catch (e) {}
   }
 
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
@@ -24045,6 +24107,369 @@ async function pmDoConfirmSnapshot() {
   }
 }
 window.pmDoConfirmSnapshot = pmDoConfirmSnapshot;
+
+// ============================================================================
+// Phase 27A — PAPER TRADING DESK (operational band inside Portfolio Manager).
+// Paper only: every mutation posts an explicit token through a styled in-page
+// confirmation panel; no native browser dialogs; no live orders; no broker;
+// no automation. All rendering is read-only over the append-only desk ledgers.
+// ============================================================================
+var _PD_SIDE_LABEL = { PAPER_BUY: 'PAPER BUY', PAPER_SELL: 'PAPER SELL' };
+var _PD_STATUS_CLS = { PROPOSED: 'manual', APPROVED: 'manual', SUBMITTED: 'muted',
+                       FILLED: 'safe', CANCELLED: 'muted', EXPIRED: 'danger' };
+var _PD_PILLS = [
+  ['today-orders', "Today's Orders"],
+  ['pending', 'Pending Orders'],
+  ['fills', 'Paper Fills'],
+  ['timeline', 'Execution Timeline'],
+  ['journal', 'Decision Journal'],
+  ['performance', 'Forward Performance'],
+  ['attribution', 'Attribution'],
+  ['history', 'Order History'],
+];
+// Desk mutations: label, endpoint, token (mirrors the backend token constants).
+var _PD_ACTIONS = {
+  refresh: {
+    title: 'Run the manual desk data refresh?',
+    note: 'Syncs owned completed EOD closes into the local desk mark store, settles due paper orders at the deterministic NEXT_CLOSE, and appends forward-performance rows. Local append-only stores only; no live order, no broker, no schedule.',
+    path: '/v1/paper-desk/refresh', token: 'CONFIRM_PAPER_DESK_REFRESH' },
+  generate: {
+    title: 'Create paper orders from the approved proposal?',
+    note: 'Generates PROPOSED paper orders from the latest confirmed paper-alpha snapshot (creates Paper Book #1 on first use). Orders do NOT change holdings; nothing fills until the separate manual order confirmation.',
+    path: '/v1/paper-desk/orders/generate', token: 'CONFIRM_PAPER_DESK_CREATE_ORDERS' },
+  submit: {
+    title: 'Submit the proposed paper orders?',
+    note: 'Appends PROPOSED to APPROVED to SUBMITTED transitions. Paper fills occur ONLY at the first completed owned close on/after today that a later manual refresh records (no hindsight). Never a live order.',
+    path: '/v1/paper-desk/orders/confirm', token: 'CONFIRM_PAPER_DESK_SUBMIT_ORDERS' },
+  cancel: {
+    title: 'Cancel all open paper orders?',
+    note: 'Appends CANCELLED transitions for every open (non-terminal) paper order. No fill, no position change; history is never rewritten.',
+    path: '/v1/paper-desk/orders/cancel', token: 'CONFIRM_PAPER_DESK_CANCEL' },
+};
+
+async function loadPaperDesk() {
+  var res = await Promise.all([
+    _mhzGet('/v1/paper-desk/status'),
+    _mhzGet('/v1/paper-desk/orders'),
+    _mhzGet('/v1/paper-desk/fills'),
+  ]);
+  window._pdData = { status: res[0], orders: res[1], fills: res[2] };
+  renderPaperDesk();
+}
+
+function _pdSet(id, txt) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = (txt === null || txt === undefined || txt === '') ? '—' : String(txt);
+}
+
+function renderPaperDesk() {
+  var d = window._pdData || {};
+  var st = d.status;
+  var badge = document.getElementById('pd-status');
+  if (!st) {
+    if (badge) { badge.textContent = 'UNAVAILABLE'; badge.className = 'cc-badge danger'; }
+    _pdSet('pd-next-action', 'Paper desk status unavailable — check the backend connection.');
+    return;
+  }
+  if (badge) { badge.textContent = 'LIVE'; badge.className = 'cc-badge safe'; }
+  var book = st.book;
+  var name = document.getElementById('pd-book-name');
+  if (name) {
+    name.textContent = book ? (book.display_name + ' · ' + book.status) : 'NO PAPER BOOK YET';
+    name.className = 'cc-badge ' + (book ? 'safe' : 'muted');
+  }
+  var v = st.book_valuation || {};
+  _pdSet('pd-sb-nav', v.nav !== null && v.nav !== undefined ? '$' + Number(v.nav).toLocaleString() : null);
+  _pdSet('pd-sb-cash', v.cash !== null && v.cash !== undefined ? '$' + Number(v.cash).toLocaleString() : null);
+  _pdSet('pd-sb-holdings', v.holdings_count);
+  _pdSet('pd-sb-mark', st.latest_desk_mark_date);
+  var oc = st.order_counts || {};
+  _pdSet('pd-sb-open', (oc.PROPOSED || 0) + (oc.APPROVED || 0) + (oc.SUBMITTED || 0));
+  _pdSet('pd-sb-fills', st.n_fills);
+  _pdSet('pd-sb-exec', st.execution_model);
+  _pdSet('pd-sb-cost', (st.cost_bps_per_side !== undefined ? st.cost_bps_per_side + ' bps' : null));
+  var na = document.getElementById('pd-next-action');
+  if (na) na.innerHTML = '<span class="cc-badge manual">NEXT MANUAL ACTION</span> ' +
+    escapeHtml(st.next_required_action || '—');
+  var audit = document.getElementById('pd-audit-body');
+  if (audit) audit.innerHTML = '<pre style="white-space:pre-wrap;margin:0;">' +
+    escapeHtml(JSON.stringify({ status: st.status, order_counts: st.order_counts,
+      latest_desk_mark_date: st.latest_desk_mark_date, marks_source: st.marks_source,
+      ledger_integrity: st.ledger_integrity, execution_models: st.execution_models,
+      store_dir: st.store_dir, safety_badges: st.safety_badges }, null, 1)) + '</pre>';
+  _pdRenderPills();
+  pdShowPill(window._pdActivePill || 'today-orders');
+}
+
+function _pdRenderPills() {
+  var host = document.getElementById('pd-pills');
+  if (!host) return;
+  var active = window._pdActivePill || 'today-orders';
+  host.innerHTML = _PD_PILLS.map(function (p) {
+    var cls = p[0] === active ? 'btn-sm' : 'btn-sm';
+    var style = p[0] === active
+      ? 'font-size:10px;border:1px solid var(--accent,#6366f1);color:var(--accent,#6366f1);font-weight:700;'
+      : 'font-size:10px;';
+    return '<button class="' + cls + '" style="' + style + '" onclick="pdShowPill(\'' + p[0] + '\')">' + p[1] + '</button>';
+  }).join('');
+}
+
+function _pdOrdersTable(orders) {
+  if (!orders || !orders.length) return '<div class="cc-na-note">No paper orders in this view yet. Paper orders appear after the manual create-orders step.</div>';
+  var fillsBy = {};
+  (((window._pdData || {}).fills || {}).fills || []).forEach(function (f) { fillsBy[f.order_id] = f; });
+  var rows = orders.map(function (o) {
+    var f = fillsBy[o.order_id];
+    var scls = _PD_STATUS_CLS[o.status] || 'muted';
+    return '<tr>' +
+      '<td class="mono" style="font-size:10px;">' + escapeHtml(o.order_id) + '</td>' +
+      '<td><b>' + escapeHtml(o.ticker) + '</b></td>' +
+      '<td>' + escapeHtml(_PD_SIDE_LABEL[o.side] || o.side) + '</td>' +
+      '<td class="mono">' + o.quantity + '</td>' +
+      '<td class="mono">' + (o.reference_close !== null && o.reference_close !== undefined ? Number(o.reference_close).toFixed(2) + ' (' + escapeHtml(o.reference_close_date || '—') + ')' : '—') + '</td>' +
+      '<td><span class="cc-badge ' + scls + '">' + escapeHtml(o.status) + '</span></td>' +
+      '<td class="mono">' + escapeHtml(o.approval_date || '—') + '</td>' +
+      '<td class="mono">' + (f ? escapeHtml(f.fill_date) + ' @ ' + Number(f.fill_price).toFixed(2) : '—') + '</td>' +
+      '<td class="mono">' + (f ? Number(f.transaction_cost).toFixed(2) : '—') + '</td>' +
+      '<td style="font-size:10px;">' + escapeHtml(o.reason || '') + '</td></tr>';
+  }).join('');
+  return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+    '<thead><tr><th>Order</th><th>Ticker</th><th>Side</th><th>Qty</th><th>Ref close</th><th>Status</th><th>Approved</th><th>Paper fill</th><th>Cost</th><th>Why</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table></div>';
+}
+
+async function pdShowPill(key, attrWindow) {
+  window._pdActivePill = key;
+  _pdRenderPills();
+  var panel = document.getElementById('pd-panel');
+  if (!panel) return;
+  var d = window._pdData || {};
+  var orders = ((d.orders || {}).orders) || [];
+  var today = new Date().toISOString().slice(0, 10);
+  if (key === 'today-orders') {
+    var t = orders.filter(function (o) { return (o.created_at || '').slice(0, 10) === today; });
+    panel.innerHTML = _pdOrdersTable(t);
+  } else if (key === 'pending') {
+    var p = orders.filter(function (o) {
+      return o.status === 'PROPOSED' || o.status === 'APPROVED' || o.status === 'SUBMITTED';
+    });
+    panel.innerHTML = _pdOrdersTable(p);
+  } else if (key === 'history') {
+    panel.innerHTML = _pdOrdersTable(orders);
+  } else if (key === 'fills') {
+    var fl = ((d.fills || {}).fills) || [];
+    panel.innerHTML = fl.length
+      ? '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+        '<thead><tr><th>Fill</th><th>Ticker</th><th>Side</th><th>Qty</th><th>Fill date</th><th>Fill price</th><th>Gross</th><th>Cost</th><th>Cash delta</th></tr></thead><tbody>' +
+        fl.map(function (f) {
+          return '<tr><td class="mono" style="font-size:10px;">' + escapeHtml(f.fill_id) + '</td>' +
+            '<td><b>' + escapeHtml(f.ticker) + '</b></td>' +
+            '<td>' + escapeHtml(_PD_SIDE_LABEL[f.side] || f.side) + '</td>' +
+            '<td class="mono">' + f.quantity + '</td>' +
+            '<td class="mono">' + escapeHtml(f.fill_date) + '</td>' +
+            '<td class="mono">' + Number(f.fill_price).toFixed(4) + '</td>' +
+            '<td class="mono">' + Number(f.gross_value).toLocaleString() + '</td>' +
+            '<td class="mono">' + Number(f.transaction_cost).toFixed(2) + '</td>' +
+            '<td class="mono">' + Number(f.net_cash_delta).toLocaleString() + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">Immutable paper fills at the recorded owned close (NEXT_CLOSE). Never a live execution.</div>'
+      : '<div class="cc-na-note">No paper fills yet. Fills are recorded when a manual refresh brings the required completed owned close.</div>';
+  } else if (key === 'journal') {
+    var j = await _mhzGet('/v1/paper-desk/journal');
+    var entries = ((j || {}).entries) || [];
+    panel.innerHTML = entries.length
+      ? entries.map(function (e) {
+          return '<div style="padding:3px 0;border-bottom:1px solid var(--border,#2a3550);">' +
+            '<span class="mono" style="font-size:9px;color:var(--label);">' + escapeHtml((e.recorded_at || '').slice(0, 16)) + '</span> ' +
+            '<span class="cc-badge muted" style="font-size:8px;">' + escapeHtml(e.category || '') + '</span> ' +
+            (e.ticker ? '<b>' + escapeHtml(e.ticker) + '</b> — ' : '') + escapeHtml(e.text || '') + '</div>';
+        }).join('') +
+        '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">Rule-based deterministic journal (append-only). No language model writes here.</div>'
+      : '<div class="cc-na-note">The decision journal is empty. Entries are appended by the manual desk actions.</div>';
+  } else if (key === 'timeline') {
+    var tl = await _mhzGet('/v1/paper-desk/timeline');
+    var evs = ((tl || {}).events) || [];
+    panel.innerHTML = evs.length
+      ? evs.map(function (e) {
+          return '<div style="padding:3px 0;border-bottom:1px solid var(--border,#2a3550);">' +
+            '<span class="mono" style="font-size:9px;color:var(--label);">' + escapeHtml((e.recorded_at || '').slice(0, 16)) + '</span> ' +
+            '<span class="cc-badge muted" style="font-size:8px;">' + escapeHtml(e.kind || '') + '</span> ' +
+            escapeHtml(e.summary || '') + '</div>';
+        }).join('')
+      : '<div class="cc-na-note">No execution-timeline events yet. Every desk lifecycle step is appended here.</div>';
+  } else if (key === 'performance') {
+    var pf = await _mhzGet('/v1/paper-desk/performance');
+    var rows = ((pf || {}).rows) || [];
+    var s = (pf || {}).summary;
+    panel.innerHTML = (s
+      ? '<div class="mono" style="font-size:11px;margin-bottom:6px;">' +
+        escapeHtml(s.start_date + ' → ' + s.end_date) + ' · NAV <b>$' + Number(s.nav).toLocaleString() + '</b>' +
+        ' · cum <b>' + Number(s.cumulative_return_pct).toFixed(2) + '%</b>' +
+        ' · bench <b>' + (s.benchmark_cumulative_return_pct !== null ? Number(s.benchmark_cumulative_return_pct).toFixed(2) + '%' : '—') + '</b>' +
+        ' · excess <b>' + (s.excess_vs_benchmark_pct_points !== null ? Number(s.excess_vs_benchmark_pct_points).toFixed(2) + ' pts' : '—') + '</b>' +
+        ' · maxDD <b>' + (s.max_drawdown_pct !== null ? Number(s.max_drawdown_pct).toFixed(2) + '%' : '—') + '</b>' +
+        ' · costs <b>$' + Number(s.total_transaction_cost).toFixed(2) + '</b></div>' : '') +
+      (rows.length
+        ? '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+          '<thead><tr><th>Date</th><th>NAV</th><th>Cash</th><th>Names</th><th>Daily %</th><th>Cum %</th><th>DD %</th><th>Bench cum %</th><th>Turnover %</th><th>Cost</th></tr></thead><tbody>' +
+          rows.slice(-60).map(function (r) {
+            return '<tr><td class="mono">' + escapeHtml(r.date) + '</td>' +
+              '<td class="mono">' + Number(r.nav).toLocaleString() + '</td>' +
+              '<td class="mono">' + Number(r.cash).toLocaleString() + '</td>' +
+              '<td class="mono">' + r.holdings_count + '</td>' +
+              '<td class="mono">' + (r.daily_return_pct !== null ? Number(r.daily_return_pct).toFixed(3) : '—') + '</td>' +
+              '<td class="mono">' + (r.cumulative_return_pct !== null ? Number(r.cumulative_return_pct).toFixed(3) : '—') + '</td>' +
+              '<td class="mono">' + (r.drawdown_pct !== null ? Number(r.drawdown_pct).toFixed(3) : '—') + '</td>' +
+              '<td class="mono">' + (r.benchmark_cumulative_return_pct !== null ? Number(r.benchmark_cumulative_return_pct).toFixed(3) : '—') + '</td>' +
+              '<td class="mono">' + (r.turnover_pct !== null ? Number(r.turnover_pct).toFixed(2) : '—') + '</td>' +
+              '<td class="mono">' + (r.transaction_cost !== null ? Number(r.transaction_cost).toFixed(2) : '—') + '</td></tr>';
+          }).join('') + '</tbody></table></div>' +
+          '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">Append-only daily rows; historical rows are never recalculated.</div>'
+        : '<div class="cc-na-note">No forward performance rows yet. Rows are appended by the manual desk refresh once paper fills exist.</div>');
+  } else if (key === 'attribution') {
+    var w = attrWindow || window._pdAttrWindow || 'daily';
+    window._pdAttrWindow = w;
+    var at = await _mhzGet('/v1/paper-desk/attribution?window=' + w);
+    var picker = '<div style="display:flex;gap:6px;margin-bottom:6px;">' +
+      ['daily', 'weekly', 'monthly'].map(function (k) {
+        var st2 = k === w ? 'border:1px solid var(--accent,#6366f1);color:var(--accent,#6366f1);font-weight:700;' : '';
+        return '<button class="btn-sm" style="font-size:10px;' + st2 + '" onclick="pdShowPill(\'attribution\', \'' + k + '\')">' + k.charAt(0).toUpperCase() + k.slice(1) + '</button>';
+      }).join('') + '</div>';
+    if (!at || at.status !== 'PAPER_DESK_OK') {
+      panel.innerHTML = picker + '<div class="cc-na-note">' +
+        escapeHtml((at && at.message) || 'Attribution requires at least one forward performance row.') + '</div>';
+    } else {
+      var contribRow = function (c) {
+        return '<tr><td><b>' + escapeHtml(c.ticker) + '</b></td><td>' + escapeHtml(c.sector || 'Unknown') + '</td>' +
+          '<td class="mono">' + Number(c.pnl).toLocaleString() + '</td>' +
+          '<td class="mono">' + (c.contribution_pct_points !== null ? Number(c.contribution_pct_points).toFixed(4) : '—') + '</td></tr>';
+      };
+      panel.innerHTML = picker +
+        '<div class="mono" style="font-size:11px;margin-bottom:6px;">' + escapeHtml((at.start_date || 'inception') + ' → ' + at.end_date) +
+        ' · portfolio <b>' + Number(at.portfolio_return_pct).toFixed(3) + '%</b>' +
+        ' · benchmark <b>' + (at.benchmark_return_pct !== null ? Number(at.benchmark_return_pct).toFixed(3) + '%' : '—') + '</b>' +
+        ' · cash drag <b>' + (at.cash_drag_pct_points !== null ? Number(at.cash_drag_pct_points).toFixed(4) + ' pts' : '—') + '</b>' +
+        ' · window cost <b>$' + Number(at.transaction_cost_in_window).toFixed(2) + '</b></div>' +
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;">' +
+        '<div style="flex:1 1 260px;"><div style="font-weight:700;font-size:10px;margin-bottom:4px;">TOP CONTRIBUTORS</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr><th>Ticker</th><th>Sector</th><th>PnL</th><th>Contrib pts</th></tr></thead><tbody>' +
+        (at.top_contributors || []).map(contribRow).join('') + '</tbody></table></div>' +
+        '<div style="flex:1 1 260px;"><div style="font-weight:700;font-size:10px;margin-bottom:4px;">WORST CONTRIBUTORS</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr><th>Ticker</th><th>Sector</th><th>PnL</th><th>Contrib pts</th></tr></thead><tbody>' +
+        (at.worst_contributors || []).map(contribRow).join('') + '</tbody></table></div>' +
+        '<div style="flex:1 1 220px;"><div style="font-weight:700;font-size:10px;margin-bottom:4px;">SECTOR CONTRIBUTION</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr><th>Sector</th><th>PnL</th><th>Contrib pts</th></tr></thead><tbody>' +
+        (at.sector_contribution || []).map(function (sc) {
+          return '<tr><td>' + escapeHtml(sc.sector) + '</td><td class="mono">' + Number(sc.pnl).toLocaleString() + '</td>' +
+            '<td class="mono">' + (sc.contribution_pct_points !== null ? Number(sc.contribution_pct_points).toFixed(4) : '—') + '</td></tr>';
+        }).join('') + '</tbody></table></div></div>' +
+        '<div class="cc-na-note" style="font-size:10px;margin-top:6px;">Model split (fixed 50/50 blend): fundamental <b>' +
+        Number(at.model_contribution.fundamental_contribution_pct_points).toFixed(4) + ' pts</b> · momentum <b>' +
+        Number(at.model_contribution.momentum_contribution_pct_points).toFixed(4) + ' pts</b>. ' +
+        'Risk overlay: <b>not applied</b> (diagnostic only). ' + escapeHtml(at.cash_drag_formula || '') + '</div>';
+    }
+  }
+}
+
+function pdAskAction(kind) {
+  var spec = _PD_ACTIONS[kind];
+  if (!spec) return;
+  window._pdPendingAction = kind;
+  var box = document.getElementById('pd-confirm-box');
+  var result = document.getElementById('pd-action-result');
+  if (result) result.style.display = 'none';
+  _pdSet('pd-confirm-title', spec.title);
+  _pdSet('pd-confirm-note', spec.note);
+  _pdSet('pd-confirm-phrase', spec.token);
+  if (box) box.style.display = '';
+}
+
+function pdCancelBox() {
+  var box = document.getElementById('pd-confirm-box');
+  if (box) box.style.display = 'none';
+  window._pdPendingAction = null;
+}
+
+async function pdDoAction() {
+  var kind = window._pdPendingAction;
+  var spec = _PD_ACTIONS[kind];
+  var box = document.getElementById('pd-confirm-box');
+  var result = document.getElementById('pd-action-result');
+  if (!spec) return;
+  if (box) box.style.display = 'none';
+  try {
+    var r = await call('POST', spec.path, { confirm: spec.token });
+    var d = await r.json();
+    if (result) {
+      result.style.display = '';
+      if (d.status === 'PAPER_DESK_OK') {
+        result.style.color = 'var(--ok, #22c55e)';
+        var extra = '';
+        if (kind === 'refresh' && d.settlement) {
+          extra = ' — ' + d.settlement.n_filled + ' paper fill(s) recorded, ' +
+            (d.performance ? d.performance.n_appended : 0) + ' performance row(s) appended.';
+          if (d.settlement.n_filled > 0) {
+            extra += ' PAPER FILLS RECORDED — holdings and cash updated in the local paper book. No live order was created.';
+          }
+        }
+        result.textContent = (d.message || 'Manual paper-desk action complete.') + extra;
+        toast('Paper desk: ' + (d.message || 'done') + ' (paper only)', 'ok');
+      } else {
+        result.style.color = 'var(--warning, #f59e0b)';
+        result.textContent = (d.status || 'error') + ' — ' + (d.message || 'Nothing was written.');
+        toast('Paper desk: ' + (d.status || 'error'), 'info');
+      }
+    }
+  } catch (e) {
+    if (result) {
+      result.style.display = '';
+      result.style.color = 'var(--danger, #ef4444)';
+      result.textContent = 'Paper-desk action failed. Nothing may have been written — reload the view.';
+    }
+    toast('Paper-desk action failed.', 'error');
+  }
+  window._pdPendingAction = null;
+  try { loadPaperDesk(); } catch (e2) {}
+}
+
+async function pdExecutionPreview() {
+  var out = document.getElementById('pd-preview-out');
+  if (!out) return;
+  out.style.display = '';
+  out.textContent = 'Loading read-only execution preview…';
+  var p = await _mhzGet('/v1/paper-desk/execution-preview');
+  if (!p || p.status !== 'PAPER_DESK_OK') {
+    out.innerHTML = '<div class="cc-na-note">Execution preview unavailable.</div>';
+    return;
+  }
+  if (!p.n_open_orders) {
+    out.innerHTML = '<div class="cc-na-note">No open paper orders to preview. Create paper orders first (nothing was written).</div>';
+    return;
+  }
+  out.innerHTML = '<div style="font-weight:700;font-size:11px;margin-bottom:4px;">EXECUTION PREVIEW — read-only, indicative at the latest completed owned close (' +
+    escapeHtml(p.indicative_marks_date || '—') + ')</div>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+    '<thead><tr><th>Ticker</th><th>Side</th><th>Qty</th><th>Indicative close</th><th>Gross</th><th>Cost</th><th>Cash delta</th><th>Status</th></tr></thead><tbody>' +
+    (p.orders || []).map(function (o) {
+      return '<tr><td><b>' + escapeHtml(o.ticker) + '</b></td>' +
+        '<td>' + escapeHtml(_PD_SIDE_LABEL[o.side] || o.side) + '</td>' +
+        '<td class="mono">' + o.quantity + '</td>' +
+        '<td class="mono">' + (o.indicative_close !== null ? Number(o.indicative_close).toFixed(2) : '—') + '</td>' +
+        '<td class="mono">' + (o.indicative_gross_value !== null ? Number(o.indicative_gross_value).toLocaleString() : '—') + '</td>' +
+        '<td class="mono">' + (o.indicative_transaction_cost !== null ? Number(o.indicative_transaction_cost).toFixed(2) : '—') + '</td>' +
+        '<td class="mono">' + (o.indicative_net_cash_delta !== null ? Number(o.indicative_net_cash_delta).toLocaleString() : '—') + '</td>' +
+        '<td><span class="cc-badge ' + (_PD_STATUS_CLS[o.status] || 'muted') + '">' + escapeHtml(o.status) + '</span></td></tr>';
+    }).join('') + '</tbody></table>' +
+    '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">Estimated total cost $' +
+    Number(p.estimated_total_transaction_cost || 0).toFixed(2) +
+    '. INDICATIVE only — the actual paper fill is the deterministic NEXT_CLOSE resolution. Nothing was written.</div>';
+}
+window.loadPaperDesk = loadPaperDesk;
+window.pdShowPill = pdShowPill;
+window.pdAskAction = pdAskAction;
+window.pdDoAction = pdDoAction;
+window.pdCancelBox = pdCancelBox;
+window.pdExecutionPreview = pdExecutionPreview;
 
 // ---- Boot: apply the initial route + wire back/forward ----------------------
 window.addEventListener('hashchange', function () { try { applyRoute(); } catch (e) {} });
