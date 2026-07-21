@@ -1927,10 +1927,11 @@
     <div class="sidebar-section">
       <div class="sidebar-label">Views</div>
       <a class="sidebar-link" id="nav-command-center" data-route="command-center" onclick="navigateToRoute('command-center');">Command Center</a>
+      <a class="sidebar-link" id="nav-portfolio-manager" data-route="portfolio-manager" onclick="navigateToRoute('portfolio-manager');" title="Portfolio Manager — today's portfolio decision: headline, actions, proposed changes, health and the manual review flow. Paper only; read only.">Portfolio Manager</a>
       <a class="sidebar-link" id="nav-daily-workflow" data-route="daily-workflow" onclick="navigateToRoute('daily-workflow');">Daily Workflow</a>
       <a class="sidebar-link" id="nav-portfolio" data-route="portfolio" onclick="navigateToRoute('portfolio');">Portfolio</a>
+      <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');" title="Multi-Horizon Alpha Portfolio — model books and sleeve evidence (primary 50/50 ensemble book, sleeves, recommendations, books, snapshots).">Alpha Portfolio</a>
       <a class="sidebar-link" id="nav-research-audit" data-route="research-audit" onclick="navigateToRoute('research-audit');">Research &amp; Audit</a>
-      <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');" title="Multi-Horizon Alpha Portfolio — the paper-only alpha portfolio product (primary 50/50 ensemble book, sleeves, recommendations, books, snapshots).">Alpha Portfolio</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Actions</div>
@@ -1967,6 +1968,7 @@
             <span class="cc-badge">NO BROKER EXECUTION</span>
             <span class="cc-badge">AUTOMATION OFF</span>
             <span class="cc-badge">NO LIVE ORDERS</span>
+            <button id="cc-open-pm-btn" class="cc-btn primary" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — today's portfolio decision, proposed changes, health and the manual review flow.">Open Portfolio Manager</button>
             <button id="cc-refresh-btn" class="cc-btn ghost" onclick="refreshCommandCenter(this)" title="Refresh authentication, the command-center endpoint, and visible detail panels.">&#8635; Refresh</button>
           </div>
 
@@ -3818,6 +3820,7 @@
             <span class="cc-badge">NO BROKER EXECUTION</span>
             <span class="cc-badge">AUTOMATION OFF</span>
             <span class="cc-badge">NO LIVE ORDERS</span>
+            <button id="pt-open-pm-btn" class="cc-btn ghost" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager to see the proposed 25-name alpha target portfolio (paper preview — distinct from these executed positions).">View Proposed Alpha Portfolio</button>
             <button id="pt-refresh-btn" class="cc-btn ghost" onclick="loadPortfolioTerminal()" title="Reload the read-only portfolio terminal.">&#8635; Refresh</button>
           </div>
 
@@ -4284,12 +4287,175 @@
            safety & manual-snapshot panel + collapsed Audit/Advanced. No orders, no automation, no
            native browser dialogs.
       ============================================================================================ -->
+      <!-- ===================== Phase 26 PORTFOLIO MANAGER WORKSTATION ===================== -->
+      <div id="tab-portfolio-manager" class="tab-content">
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">PORTFOLIO MANAGER
+              <span class="cc-badge" id="pm-status" title="Read-only decision-intelligence status.">&mdash;</span></span>
+            <span style="display:flex;gap:6px;align-items:center;">
+              <button class="btn-sm" id="pm-open-alpha" onclick="navigateToRoute('multi-horizon')" title="Open the Alpha Portfolio page — model books and sleeve evidence behind this decision.">Model Evidence &rarr;</button>
+              <button class="btn-sm" id="pm-refresh" onclick="loadPortfolioManager()" title="Reload the read-only portfolio-manager decision view.">&#8635; Refresh</button>
+            </span>
+          </div>
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px;">
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge danger">ORDERS DISABLED</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge">NO LIVE PROMOTION</span>
+          </div>
+          <div id="pm-load-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only portfolio-manager decision view&hellip;</div>
+          <!-- TODAY'S PORTFOLIO DECISION (Workstream A) -->
+          <div id="pm-decision-card" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:12px 16px;margin:0 0 10px;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
+              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today's Portfolio Decision</span>
+              <span class="mono" style="font-size:10px;color:var(--label);">Decision date <b id="pm-decision-date">&mdash;</b></span>
+            </div>
+            <div id="pm-headline" style="font-size:24px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">&mdash;</div>
+            <div id="pm-headline-reason" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
+          </div>
+          <!-- KPI STRIP — every date labeled by meaning (Workstream L) -->
+          <div id="pm-statusbar" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;">
+            <span title="Current alpha calculation market date (owned research store).">Alpha market <b id="pm-sb-alpha-date">&mdash;</b></span>
+            <span title="Fundamental data as-of date (frozen owned panel).">Fundamental as-of <b id="pm-sb-fund-date">&mdash;</b></span>
+            <span title="Portfolio EOD valuation date (executed paper portfolio mark).">Valuation EOD <b id="pm-sb-val-date">&mdash;</b></span>
+            <span title="Canonical current mark of the executed paper portfolio.">Portfolio <b id="pm-sb-value">&mdash;</b></span>
+            <span>Cash <b id="pm-sb-cash">&mdash;</b></span>
+            <span>Invested <b id="pm-sb-invested">&mdash;</b></span>
+            <span title="Open executed paper positions (legacy manual trade workflow).">Open positions <b id="pm-sb-positions">&mdash;</b></span>
+            <span title="Proposed primary Top-25 target book size.">Target names <b id="pm-sb-target">&mdash;</b></span>
+            <span>Est. turnover <b id="pm-sb-turnover">&mdash;</b></span>
+            <span title="25 bps round-trip assumption.">Est. cost <b id="pm-sb-cost">&mdash;</b></span>
+            <span>Review due <b id="pm-sb-review">&mdash;</b></span>
+          </div>
+          <div id="pm-date-warnings" style="display:none;border:1px solid rgba(245,158,11,.45);border-radius:8px;padding:6px 12px;margin:0 0 8px;font-size:10px;color:var(--warning);"></div>
+        </div>
+
+        <!-- MAIN COCKPIT (left) + DECISION / SAFETY PANEL (right).
+             Flex bases chosen so the two columns stay side-by-side at 1440x900
+             (health + manual flow remain above the fold at both resolutions). -->
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;">
+          <div style="flex:2 1 540px;min-width:480px;">
+            <!-- ACTION SUMMARY (Workstream B) -->
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Action Summary <span class="cc-badge muted" title="Portfolio-manager language over the internal deterministic vocabulary. Never plain BUY or SELL.">NO PLAIN BUY/SELL</span></span>
+                <span id="pm-action-review" class="cc-badge muted">&mdash;</span>
+              </div>
+              <div id="pm-action-counts" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 6px;">&mdash;</div>
+              <div id="pm-action-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;"></div>
+              <div id="pm-actions" class="compact-scroll-region" style="max-height:330px;overflow:auto;font-size:11px;">&mdash;</div>
+              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Candidates only &mdash; nothing here places an order or changes a position. Use &ldquo;Why&rdquo; on any row for the evidence-based explanation. The fast sleeve is inactive and contributes no recommendation.</div>
+            </div>
+            <!-- PROPOSED PORTFOLIO CHANGES (Workstream D) -->
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Proposed Portfolio Changes <span class="cc-badge muted" id="pm-changes-basis">&mdash;</span></div>
+              <div id="pm-initial-banner" style="display:none;border:1px solid rgba(59,130,246,.45);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;"></div>
+              <div id="pm-three-way" style="font-size:10px;margin:0 0 8px;">&mdash;</div>
+              <div id="pm-changes" style="overflow-x:auto;font-size:11px;">&mdash;</div>
+            </div>
+            <!-- SINCE LAST REVIEW (Workstream G) -->
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Since Last Review</div>
+              <div id="pm-since" style="font-size:11px;">&mdash;</div>
+            </div>
+            <!-- Supporting evidence — collapsed by default (Workstream J) -->
+            <details class="card" style="margin-bottom:12px;" id="pm-evidence">
+              <summary style="cursor:pointer;font-weight:700;">Model Evidence &mdash; roles, books and sleeve detail</summary>
+              <div class="cc-na-note" style="font-size:11px;margin-top:8px;">
+                <b>composite_sn</b> &mdash; research champion (never replaced) &middot;
+                <b>mom_6_1</b> &mdash; paper challenger &middot;
+                <b>fundamental_momentum_50_50_v1</b> &mdash; operational primary paper ensemble (fixed 50/50, never weight-optimized).
+                The full sleeve tables, model books, score legs and blocked-model notices live on the
+                <a href="#multi-horizon" onclick="navigateToRoute('multi-horizon')">Alpha Portfolio</a> page.
+              </div>
+            </details>
+            <details class="card" style="margin-bottom:12px;" id="pm-history">
+              <summary style="cursor:pointer;font-weight:700;">Historical Performance &mdash; paper reconstruction (25 bps, PIT)</summary>
+              <div class="cc-na-note" style="font-size:11px;margin-top:8px;">
+                The six-book historical paper reconstruction (net cumulative, Sharpe, drawdown, turnover, combined-model lift)
+                is on the <a href="#multi-horizon" onclick="navigateToRoute('multi-horizon')">Alpha Portfolio</a> page under Performance.
+                No expected-return forecast is produced anywhere.
+              </div>
+            </details>
+            <details class="card" style="margin-bottom:12px;" id="pm-methodology">
+              <summary style="cursor:pointer;font-weight:700;">Methodology &mdash; how this decision is assembled</summary>
+              <div class="cc-na-note" style="font-size:11px;margin-top:8px;line-height:1.6;">
+                The decision headline, action buckets, agreement classes and health statuses are deterministic rules over
+                stored fields (documented in <span class="mono">api/portfolio_manager.py</span>) &mdash; no language model, no invented
+                expected returns, no manufactured confidence scores. Signals come from the validated Phase 25 platform
+                (frozen fundamental panel + owned survivorship-free momentum panel); the executed-portfolio mark is the
+                canonical Phase 14-C valuation. Data-readiness detail lives under
+                <a href="#research-audit" onclick="navigateToRoute('research-audit')">Research &amp; Audit</a>.
+              </div>
+            </details>
+            <details class="card" style="margin-bottom:12px;" id="pm-audit">
+              <summary style="cursor:pointer;font-weight:700;">Audit / Reproducibility &mdash; raw decision payload</summary>
+              <div id="pm-audit-body" class="mono" style="font-size:10px;margin-top:8px;overflow-x:auto;">&mdash;</div>
+            </details>
+          </div>
+
+          <!-- RIGHT PANEL: manual review flow (the next manual action) first so it
+               stays above the fold at 1440x900, then portfolio health, then safety -->
+          <div style="flex:1 1 300px;min-width:280px;">
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title">Manual Review Flow <span class="cc-badge manual">MANUAL ONLY</span></div>
+              <ol id="pm-flow-steps" style="margin:4px 0 8px 18px;padding:0;font-size:11px;line-height:1.7;">
+                <li>Review the proposed portfolio (Action Summary).</li>
+                <li>Review additions and removals (Proposed Changes).</li>
+                <li>Review risks and blocked names (Portfolio Health).</li>
+                <li>Preview the paper-alpha snapshot (read-only).</li>
+                <li>Confirm the snapshot manually (ledger-only write).</li>
+              </ol>
+              <button class="btn-sm" id="pm-preview-btn" onclick="pmPreviewSnapshot()" title="Read-only preview of the paper-alpha snapshot that would be appended. Writes nothing.">Preview Paper Snapshot</button>
+              <div id="pm-preview-facts" style="font-size:11px;margin-top:8px;">&mdash;</div>
+              <!-- styled in-page confirmation (never a native browser dialog) -->
+              <div id="pm-confirm-box" style="display:none;border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin-top:10px;">
+                <div style="font-weight:700;font-size:11px;margin-bottom:6px;">Confirm paper-alpha snapshot?</div>
+                <div class="cc-na-note" style="font-size:10px;margin-bottom:6px;">Writes ONE immutable snapshot to the dedicated paper-alpha ledger only. It creates no signals, no trade decisions, no orders, no fills, no trades and changes no positions.</div>
+                <div class="mono" style="font-size:10px;margin-bottom:8px;">Confirmation phrase: <b id="pm-confirm-phrase">CONFIRM_MHZ_PAPER_SNAPSHOT</b></div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  <button class="btn-sm" id="pm-confirm-yes" onclick="pmDoConfirmSnapshot()" title="Append one immutable paper-alpha snapshot to the local ledger.">Confirm Paper Snapshot</button>
+                  <button class="btn-sm" id="pm-confirm-no" onclick="pmCancelSnapshot()" title="Cancel — write nothing.">Cancel</button>
+                </div>
+              </div>
+              <div id="pm-confirm-result" style="display:none;font-size:11px;font-weight:800;margin-top:8px;"></div>
+              <div class="cc-na-note" style="font-size:10px;margin-top:8px;">Confirming records a PAPER ALPHA SNAPSHOT &mdash; it never executes a portfolio.</div>
+            </div>
+            <div class="card" style="margin-bottom:12px;">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <span>Portfolio Health</span>
+                <span class="cc-badge muted" id="pm-health-overall">&mdash;</span>
+              </div>
+              <div id="pm-health" style="font-size:11px;">&mdash;</div>
+              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Every non-healthy status carries its explanation. No single opaque confidence score exists.</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Safety &amp; State</div>
+              <div id="pm-opstate" class="cc-badge manual" style="display:inline-block;margin-bottom:6px;">&mdash;</div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+                <span class="cc-badge">NO ORDERS</span>
+                <span class="cc-badge">NO BROKER</span>
+                <span class="cc-badge">NO FILLS</span>
+                <span class="cc-badge">NO SIGNALS</span>
+                <span class="cc-badge">NO TRADE DECISIONS</span>
+                <span class="cc-badge">NO POSITION CHANGES</span>
+              </div>
+              <div class="cc-na-note" style="font-size:10px;">This page reads existing paper data and writes nothing. The one manual write in this workflow is the explicit paper-alpha snapshot confirm above (ledger only).</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- ===================== Phase 26 PORTFOLIO MANAGER END ===================== -->
+
       <div id="tab-multi-horizon" class="tab-content">
         <div class="card" style="margin-bottom:12px;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">MULTI-HORIZON ALPHA PORTFOLIO
               <span class="cc-badge" id="mhz-status" title="Read-only multi-horizon paper platform status.">&mdash;</span></span>
             <span style="display:flex;gap:6px;align-items:center;">
+              <button class="btn-sm" id="mhz-open-pm" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — today's operational decision built on these model books.">Open Portfolio Manager</button>
               <button class="btn-sm" id="mhz-refresh" onclick="loadMultiHorizon()" title="Reload the read-only multi-horizon paper platform.">&#8635; Refresh</button>
             </span>
           </div>
@@ -6511,6 +6677,13 @@ window._switchTab = function(tabName, opts) {
   if (tabName === 'multi-horizon' && !window._mhzLoaded) {
     window._mhzLoaded = true;
     try { loadMultiHorizon(); } catch (e) {}
+  }
+
+  // Phase 26: Portfolio Manager — lazy-load the read-only decision view the
+  // first time the tab opens (Refresh reloads on demand). GETs only.
+  if (tabName === 'portfolio-manager' && !window._pmLoaded) {
+    window._pmLoaded = true;
+    try { loadPortfolioManager(); } catch (e) {}
   }
 
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
@@ -22381,6 +22554,8 @@ var _ROUTE_TO_TAB = {
   'multi-horizon': 'multi-horizon',
   // Phase 25B: friendly alias — the sidebar item is named "Alpha Portfolio".
   'alpha-portfolio': 'multi-horizon',
+  // Phase 26: the Portfolio Manager decision workstation.
+  'portfolio-manager': 'portfolio-manager',
 };
 function _parseRoute() {
   var h = (location.hash || '').replace(/^#/, '');
@@ -23418,6 +23593,458 @@ async function mhzConfirmSnapshot() {
   }
 }
 window.mhzConfirmSnapshot = mhzConfirmSnapshot;
+
+// ============================ PHASE 26 PORTFOLIO MANAGER ===================== //
+// Read-only decision workstation over /v1/portfolio-manager/*. GETs only; the one
+// manual write is the existing explicit ledger-only paper-alpha snapshot confirmation.
+var _PM_ACTION_ORDER = ['ADD_CANDIDATE', 'HOLD', 'WATCH', 'REDUCE_CANDIDATE',
+                        'EXIT_CANDIDATE', 'WAIT_DATA_BLOCKED'];
+var _PM_ACTION_LABELS = { 'ADD_CANDIDATE': 'ADD CANDIDATES', 'HOLD': 'HOLD', 'WATCH': 'WATCH',
+                          'REDUCE_CANDIDATE': 'REDUCE CANDIDATES', 'EXIT_CANDIDATE': 'EXIT CANDIDATES',
+                          'WAIT_DATA_BLOCKED': 'WAIT / DATA BLOCKED' };
+var _PM_ACTION_CLS = { 'ADD_CANDIDATE': 'safe', 'HOLD': 'muted', 'WATCH': 'manual',
+                       'REDUCE_CANDIDATE': 'manual', 'EXIT_CANDIDATE': 'danger',
+                       'WAIT_DATA_BLOCKED': 'muted' };
+var _PM_FILTERS = [['ALL', 'All'], ['ADD_CANDIDATE', 'Add'], ['HOLD', 'Hold'], ['WATCH', 'Watch'],
+                   ['REDUCE_CANDIDATE', 'Reduce'], ['EXIT_CANDIDATE', 'Exit'],
+                   ['WAIT_DATA_BLOCKED', 'Blocked']];
+window._pmFilter = 'ALL';
+
+function _pmHeadlineColor(headline) {
+  if (headline === 'NO PORTFOLIO CHANGE REQUIRED') return 'var(--ok, #22c55e)';
+  if (headline === 'DATA REFRESH REQUIRED') return 'var(--danger, #ef4444)';
+  return 'var(--warning, #f59e0b)';
+}
+
+async function loadPortfolioManager() {
+  var st = document.getElementById('pm-status');
+  var note = document.getElementById('pm-load-note');
+  if (st) { st.textContent = 'Loading…'; st.className = 'cc-badge'; }
+  if (note) note.textContent = 'Loading the read-only portfolio-manager decision view…';
+  var res = await Promise.all([
+    _mhzGet('/v1/portfolio-manager/summary'),
+    _mhzGet('/v1/portfolio-manager/actions'),
+    _mhzGet('/v1/portfolio-manager/changes'),
+    _mhzGet('/v1/portfolio-manager/health'),
+    _mhzGet('/v1/portfolio-manager/explanations'),
+    _mhzGet('/v1/portfolio-manager/since-last-review'),
+  ]);
+  var summary = res[0], actions = res[1], changes = res[2], health = res[3],
+      expl = res[4], since = res[5];
+  window._pmData = { summary: summary, actions: actions, changes: changes,
+                     health: health, expl: expl, since: since };
+  window._pmExplByTicker = {};
+  (((expl || {}).explanations) || []).forEach(function (x) {
+    window._pmExplByTicker[x.ticker] = x;
+  });
+  var ok = summary && summary.status === 'PM_SUMMARY_READY';
+  if (st) {
+    st.textContent = ok ? 'READY' : (summary && summary.status) || 'UNAVAILABLE';
+    st.className = 'cc-badge ' + (ok ? 'safe' : 'danger');
+  }
+  if (note) {
+    if (ok) {
+      note.textContent = 'Connected — live read-only decision data loaded at '
+        + new Date().toLocaleTimeString() + '. Paper only; no orders; no automation.';
+    } else if (!summary) {
+      note.textContent = 'Could not reach the portfolio-manager endpoints. Check the connection / API key, then use Refresh.';
+    } else {
+      note.textContent = 'Decision inputs unavailable (' + (summary.status || 'error') + '). Use Refresh to retry.';
+    }
+  }
+  renderPmDecision(summary);
+  renderPmStatusbar(summary);
+  renderPmDateWarnings(summary);
+  renderPmActionSummary(actions);
+  renderPmChanges(changes);
+  renderPmSince(since);
+  renderPmHealth(health);
+  renderPmOpState(summary);
+  renderPmAudit(summary);
+}
+window.loadPortfolioManager = loadPortfolioManager;
+
+function renderPmDecision(s) {
+  var h = document.getElementById('pm-headline');
+  var r = document.getElementById('pm-headline-reason');
+  var d = document.getElementById('pm-decision-date');
+  if (d) d.textContent = (s && s.dates && s.dates.decision_date) || '—';
+  if (!s) {
+    if (h) { h.textContent = 'DECISION UNAVAILABLE'; h.style.color = 'var(--danger, #ef4444)'; }
+    if (r) r.textContent = 'The decision endpoints could not be reached.';
+    return;
+  }
+  if (h) {
+    h.textContent = s.decision_headline || '—';
+    h.style.color = _pmHeadlineColor(s.decision_headline);
+  }
+  if (r) r.textContent = s.decision_reason || '—';
+}
+
+function renderPmStatusbar(s) {
+  function setT(id, v) { var el = document.getElementById(id); if (el) el.textContent = (v === undefined || v === null) ? '—' : v; }
+  var dates = (s && s.dates) || {};
+  var p = (s && s.portfolio) || {};
+  setT('pm-sb-alpha-date', dates.latest_alpha_market_date);
+  setT('pm-sb-fund-date', dates.fundamental_as_of_date);
+  setT('pm-sb-val-date', dates.portfolio_valuation_date);
+  setT('pm-sb-value', p.current_portfolio_value != null ? ('$' + Number(p.current_portfolio_value).toFixed(2)) : null);
+  setT('pm-sb-cash', p.current_cash != null ? ('$' + Number(p.current_cash).toFixed(2) + ' (' + p.cash_pct + '%)') : null);
+  setT('pm-sb-invested', p.current_invested_value != null ? ('$' + Number(p.current_invested_value).toFixed(2)) : null);
+  setT('pm-sb-positions', p.open_paper_positions);
+  setT('pm-sb-target', s && s.proposed_target_position_count);
+  setT('pm-sb-turnover', s && s.estimated_turnover != null ? _mhzPct(s.estimated_turnover, 0) : null);
+  setT('pm-sb-cost', s && s.estimated_transaction_cost != null ? _mhzPct(s.estimated_transaction_cost, 2) : null);
+  setT('pm-sb-review', s ? (s.review_due ? 'YES' : 'No') : null);
+}
+
+function renderPmDateWarnings(s) {
+  var el = document.getElementById('pm-date-warnings');
+  if (!el) return;
+  var ws = (s && s.date_warnings) || [];
+  if (!ws.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = '';
+  el.innerHTML = ws.map(function (w) { return '&#9888; ' + escapeHtml(w); }).join('<br>');
+}
+
+function renderPmActionSummary(a) {
+  var countsEl = document.getElementById('pm-action-counts');
+  var filtersEl = document.getElementById('pm-action-filters');
+  var revEl = document.getElementById('pm-action-review');
+  if (revEl) revEl.textContent = a ? ('Review ' + (a.review_due ? 'DUE' : 'not due')) : '—';
+  if (countsEl) {
+    var counts = (a && a.counts) || {};
+    countsEl.innerHTML = _PM_ACTION_ORDER.map(function (k) {
+      return '<span class="cc-badge ' + _PM_ACTION_CLS[k] + '" title="' + escapeHtml(_PM_ACTION_LABELS[k]) + '">' +
+        escapeHtml(_PM_ACTION_LABELS[k]) + ': ' + ((counts[k] != null) ? counts[k] : 0) + '</span>';
+    }).join('');
+  }
+  if (filtersEl) {
+    filtersEl.innerHTML = _PM_FILTERS.map(function (f) {
+      var active = (window._pmFilter === f[0]);
+      return '<button class="btn-sm" style="' + (active ? 'font-weight:800;border-color:var(--info,#3b82f6);' : '') +
+        '" onclick="pmFilterActions(\'' + f[0] + '\')" title="Show ' + escapeHtml(f[1]) + ' rows.">' + escapeHtml(f[1]) + '</button>';
+    }).join('');
+  }
+  _pmRenderActionTable();
+}
+
+function pmFilterActions(bucket) {
+  window._pmFilter = bucket;
+  renderPmActionSummary((window._pmData || {}).actions);
+}
+window.pmFilterActions = pmFilterActions;
+
+function _pmContribBar(row) {
+  var f = (row.fund_contribution || 0) * 100;   // each leg contributes up to 50
+  var m = (row.mom_contribution || 0) * 100;
+  return '<div title="Fixed 50/50 contribution — fundamental ' + f.toFixed(1) + ' + momentum ' + m.toFixed(1) +
+    ' = combined ' + ((row.combined_score || 0) * 100).toFixed(1) + ' (percentile points, never weight-optimized)"' +
+    ' style="display:flex;height:7px;width:76px;border:1px solid var(--border,#2a3550);border-radius:3px;overflow:hidden;">' +
+    '<div style="width:' + Math.min(50, f).toFixed(1) + '%;background:var(--info,#3b82f6);"></div>' +
+    '<div style="width:' + Math.min(50, m).toFixed(1) + '%;background:var(--ok,#22c55e);"></div></div>';
+}
+
+function _pmRenderActionTable() {
+  var el = document.getElementById('pm-actions');
+  if (!el) return;
+  var a = (window._pmData || {}).actions;
+  if (!a || a.status !== 'PM_ACTIONS_READY') { el.textContent = 'Actions unavailable — owned decision inputs missing.'; return; }
+  var rows = (a.actions || []).filter(function (r) {
+    return window._pmFilter === 'ALL' || r.action === window._pmFilter;
+  });
+  if (!rows.length) { el.innerHTML = '<div class="cc-na-note">No rows in this bucket today.</div>'; return; }
+  var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+    ['Rank', 'Ticker', 'Action', 'Tgt wt', 'Cur wt', 'Fund/Mom', 'Contribution', 'Agreement', 'Sector', 'Risk', 'Why']
+      .map(function (c) { return '<th style="text-align:left;padding:3px 6px;">' + c + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+  rows.forEach(function (r) {
+    var tk = escapeHtml(r.ticker || '');
+    h += '<tr style="border-top:1px solid var(--border,#2a3550);">' +
+      '<td style="padding:3px 6px;" class="mono">' + (r.combined_rank != null ? r.combined_rank : '—') + '</td>' +
+      '<td style="padding:3px 6px;font-weight:700;" class="mono">' + tk + '</td>' +
+      '<td style="padding:3px 6px;"><span class="cc-badge ' + _PM_ACTION_CLS[r.action] + '">' + escapeHtml(_PM_ACTION_LABELS[r.action] || r.action) + '</span></td>' +
+      '<td style="padding:3px 6px;" class="mono">' + _mhzPct(r.target_weight) + '</td>' +
+      '<td style="padding:3px 6px;" class="mono">' + _mhzPct(r.current_weight) + '</td>' +
+      '<td style="padding:3px 6px;" class="mono" title="Leg ranks within their own universes.">' + (r.fund_rank != null ? r.fund_rank : '—') + ' / ' + (r.mom_rank != null ? r.mom_rank : '—') + '</td>' +
+      '<td style="padding:3px 6px;">' + _pmContribBar(r) + '</td>' +
+      '<td style="padding:3px 6px;font-size:9px;">' + escapeHtml(r.agreement || '—') + '</td>' +
+      '<td style="padding:3px 6px;">' + escapeHtml(r.sector || '—') + '</td>' +
+      '<td style="padding:3px 6px;font-size:10px;">' + escapeHtml((r.risk_flags || []).join(', ') || '—') + '</td>' +
+      '<td style="padding:3px 6px;"><button class="btn-sm" style="font-size:9px;padding:2px 8px;" onclick="pmToggleWhy(\'' + tk + '\')" title="Show the evidence-based explanation for ' + tk + '.">Why</button></td></tr>' +
+      '<tr id="pm-why-' + tk + '" style="display:none;"><td colspan="11" style="padding:6px 10px;border-top:1px dashed var(--border,#2a3550);">' + _pmExplHtml(r.ticker) + '</td></tr>';
+  });
+  el.innerHTML = h + '</tbody></table>';
+}
+
+function pmToggleWhy(ticker) {
+  var row = document.getElementById('pm-why-' + ticker);
+  if (row) row.style.display = (row.style.display === 'none') ? '' : 'none';
+}
+window.pmToggleWhy = pmToggleWhy;
+
+function _pmExplHtml(ticker) {
+  var x = (window._pmExplByTicker || {})[ticker];
+  if (!x) return '<span class="cc-na-note">Explanation unavailable.</span>';
+  var ae = x.alpha_evidence || {}, pf = x.portfolio_fit || {}, rk = x.risk || {},
+      tm = x.timing || {}, wq = x.would_qualify || {}, cb = x.contribution || {};
+  function pctTxt(v) { return v == null ? '—' : (100 * v).toFixed(0) + 'th pct'; }
+  return '<div style="font-size:10px;line-height:1.6;">' +
+    '<div style="font-weight:800;margin-bottom:2px;">' + escapeHtml((x.phrases || []).join(' ')) + '</div>' +
+    '<div><b>Alpha evidence</b>: fundamental ' + pctTxt(ae.fund_percentile) + ' (rank ' + (ae.fund_rank != null ? ae.fund_rank : '—') +
+    ') · momentum ' + pctTxt(ae.mom_percentile) + ' (rank ' + (ae.mom_rank != null ? ae.mom_rank : '—') +
+    ') · combined rank ' + (ae.combined_rank != null ? ae.combined_rank : '—') +
+    ' · agreement <b>' + escapeHtml(x.agreement || '—') + '</b> · legs agree: ' + (ae.legs_agree ? 'yes' : 'no') + '</div>' +
+    '<div><b>Portfolio fit</b>: ' + escapeHtml(pf.retention_status || '—') + ' · target weight ' + _mhzPct(pf.target_weight) +
+    ' · sector ' + escapeHtml(pf.sector || '—') + ' ' + _mhzPct(pf.sector_weight_before) + ' &rarr; ' + _mhzPct(pf.sector_weight_after) +
+    (pf.sector_within_cap ? ' (below the 25% cap)' : ' (<b>exceeds the 25% cap</b>)') +
+    ' · overlaps executed portfolio: ' + (pf.overlaps_executed_portfolio ? 'yes' : 'no') + '</div>' +
+    '<div><b>Risk</b>: 63d vol ' + _mhzNum(rk.realized_vol_63d) + ' · beta ' + _mhzNum(rk.beta_universe) +
+    ' · 252d max DD ' + _mhzPct(rk.max_drawdown_252d) + ' · liquidity ' + (rk.liquidity_ok ? 'OK' : '<b>FAILED</b>') +
+    ((rk.stale_flags || []).length ? ' · stale: ' + escapeHtml(rk.stale_flags.join(', ')) : '') +
+    ' · overlay: diagnostic only</div>' +
+    '<div><b>Timing</b>: review ' + (tm.review_due ? 'DUE' : 'not due') + ' · next review ' + escapeHtml(tm.next_manual_review_date || '—') +
+    ' · signal as-of ' + escapeHtml(tm.signal_market_as_of_date || '—') + ' · fundamental as-of ' + escapeHtml(tm.fundamental_as_of_date || '—') + '</div>' +
+    '<div><b>Would qualify</b>: fundamental Top-25 ' + (wq.fundamental_top25 ? 'yes' : 'no') +
+    ' · momentum Top-25 ' + (wq.momentum_top25 ? 'yes' : 'no') +
+    ' · combined Top-25 ' + (wq.combined_top25 ? 'yes' : 'no') +
+    ' · fixed 50/50 contribution ' + _mhzNum(cb.fund_contribution, 3) + ' + ' + _mhzNum(cb.mom_contribution, 3) + '</div>' +
+    '</div>';
+}
+
+function renderPmChanges(c) {
+  var basisEl = document.getElementById('pm-changes-basis');
+  var banner = document.getElementById('pm-initial-banner');
+  var threeWay = document.getElementById('pm-three-way');
+  var el = document.getElementById('pm-changes');
+  if (!el) return;
+  if (!c || c.status !== 'PM_CHANGES_READY' || !c.available) {
+    if (basisEl) basisEl.textContent = 'UNAVAILABLE';
+    el.textContent = 'Changeset unavailable — owned decision inputs missing.';
+    if (banner) banner.style.display = 'none';
+    if (threeWay) threeWay.textContent = '—';
+    return;
+  }
+  if (basisEl) basisEl.textContent = c.is_initial_portfolio_proposal ? 'INITIAL PROPOSAL' : 'VS LAST CONFIRMED SNAPSHOT';
+  if (banner) {
+    if (c.is_initial_portfolio_proposal) {
+      banner.style.display = '';
+      banner.innerHTML = '<b>INITIAL PORTFOLIO PROPOSAL.</b> No confirmed paper-alpha snapshot exists yet, so there is no prior alpha book to diff against. ' +
+        'The comparison below against the executed paper positions is informational only — the executed portfolio is <b>not</b> the confirmed alpha book.';
+    } else { banner.style.display = 'none'; }
+  }
+  if (threeWay) {
+    var evp = c.executed_vs_proposed || {};
+    var ex = evp.current_executed_paper_portfolio || {};
+    var pr = evp.proposed_alpha_target_portfolio || {};
+    var lg = evp.confirmed_alpha_snapshot_ledger || {};
+    threeWay.innerHTML =
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+      '<span class="cc-badge muted" title="' + escapeHtml(ex.note || '') + '">EXECUTED PAPER PORTFOLIO: ' + (ex.open_position_count != null ? ex.open_position_count : '—') + ' position(s) — ' + escapeHtml((ex.tickers || []).join(', ') || 'none') + '</span>' +
+      '<span class="cc-badge safe" title="' + escapeHtml(pr.note || '') + '">PROPOSED ALPHA TARGET: ' + (pr.n_names != null ? pr.n_names : '—') + ' names (' + escapeHtml(pr.book_id || '') + ')</span>' +
+      '<span class="cc-badge manual">CONFIRMED ALPHA LEDGER: ' + (lg.n_confirmed != null ? lg.n_confirmed : '—') + ' snapshot(s)</span>' +
+      '</div>' +
+      '<div class="cc-na-note" style="margin-top:4px;">These are three different things: executed positions (never modified here), the proposed paper target, and the append-only confirmed-snapshot ledger. Overlap with executed positions: ' +
+      escapeHtml(((evp.overlap_tickers || []).join(', ')) || 'none') + '.</div>';
+  }
+  var h = '';
+  function chipList(title, cls, items, fmt) {
+    h += '<div style="margin:4px 0;"><b style="font-size:10px;">' + title + ' (' + items.length + ')</b> ';
+    if (!items.length) { h += '<span class="cc-na-note">none</span></div>'; return; }
+    h += items.map(function (it) {
+      return '<span class="cc-badge ' + cls + '" style="margin:1px;" title="' + escapeHtml(fmt(it)) + '">' + escapeHtml(it.ticker) + '</span>';
+    }).join('') + '</div>';
+  }
+  chipList('Additions', 'safe', c.additions || [], function (a) { return 'rank ' + a.combined_rank + ' · ' + (a.sector || '') + ' · target ' + _mhzPct(a.target_weight); });
+  chipList('Removals', 'danger', c.removals || [], function (r) { return r.reason || ''; });
+  chipList('Retained', 'muted', c.retained || [], function (r) { return 'weight ' + _mhzPct(r.prior_weight) + ' → ' + _mhzPct(r.target_weight); });
+  chipList('Blocked changes', 'manual', c.blocked_changes || [], function (b) { return b.reason || ''; });
+  h += '<div class="mono" style="font-size:10px;margin:6px 0;">Estimated turnover <b>' + _mhzPct(c.estimated_turnover, 0) +
+       '</b> · est. cost (round-trip, 25 bps assumption) <b>' + _mhzPct(c.estimated_transaction_cost_round_trip, 2) +
+       '</b> · est. one-way <b>' + _mhzPct(c.estimated_transaction_cost_one_way, 2) + '</b>' +
+       ' · implied cash weight ' + _mhzPct((c.cash_weight_change || {}).before, 0) + ' &rarr; ' + _mhzPct((c.cash_weight_change || {}).after, 0) + '</div>';
+  var cc = c.concentration_change || {};
+  h += '<div class="cc-na-note" style="font-size:10px;margin:0 0 6px;">Concentration: largest sector ' +
+       escapeHtml(cc.largest_sector_before || 'n/a') + ' &rarr; <b>' + escapeHtml(cc.largest_sector_after || '—') + '</b>' +
+       ' · largest position weight ' + _mhzPct(cc.largest_position_weight_before) + ' &rarr; ' + _mhzPct(cc.largest_position_weight_after) +
+       ' (sector cap ' + _mhzPct(cc.sector_cap_fraction, 0) + ').</div>';
+  var secs = (c.sector_weight_changes || []).filter(function (s) { return (s.after || 0) > 0 || (s.before || 0) > 0; });
+  if (secs.length) {
+    h += '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+      ['Sector', 'Before', 'After', 'Delta'].map(function (x) { return '<th style="text-align:left;padding:3px 8px;">' + x + '</th>'; }).join('') +
+      '</tr></thead><tbody>';
+    secs.forEach(function (s) {
+      h += '<tr style="border-top:1px solid var(--border,#2a3550);"><td style="padding:3px 8px;">' + escapeHtml(s.sector) +
+        '</td><td style="padding:3px 8px;" class="mono">' + _mhzPct(s.before, 0) +
+        '</td><td style="padding:3px 8px;" class="mono">' + _mhzPct(s.after, 0) +
+        '</td><td style="padding:3px 8px;" class="mono">' + _mhzPct(s.delta, 0) + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+  el.innerHTML = h;
+}
+
+function renderPmSince(r) {
+  var el = document.getElementById('pm-since');
+  if (!el) return;
+  if (!r) { el.textContent = 'Since-last-review unavailable.'; return; }
+  if (r.status === 'NO_PRIOR_CONFIRMED_ALPHA_SNAPSHOT') {
+    el.innerHTML = '<div style="font-weight:800;margin-bottom:4px;"><span class="cc-badge manual">NO PRIOR CONFIRMED ALPHA SNAPSHOT</span></div>' +
+      '<div class="cc-na-note" style="font-size:10px;margin-bottom:6px;">' + escapeHtml(r.message || '') + '</div>' +
+      '<div class="mono" style="font-size:10px;">Initial target: ' + ((r.initial_target_portfolio || []).length) + ' names · initial est. turnover ' +
+      _mhzPct(r.initial_estimated_turnover, 0) + ' · initial est. cost ' + _mhzPct(r.initial_estimated_cost, 2) + '</div>' +
+      '<div class="cc-na-note" style="font-size:10px;margin-top:4px;"><b>Next required manual action:</b> ' + escapeHtml(r.next_required_manual_action || '') + '</div>';
+    return;
+  }
+  if (r.status !== 'PM_SINCE_LAST_REVIEW_READY') { el.textContent = 'Since-last-review unavailable (' + (r.status || 'error') + ').'; return; }
+  var h = '<div class="mono" style="font-size:10px;margin-bottom:4px;">vs snapshot ' + escapeHtml(r.prior_snapshot_id || '—') +
+          ' (' + escapeHtml(r.prior_snapshot_market_date || '—') + ')</div>';
+  h += '<div style="font-size:10px;">New entrants: <b>' + (r.new_entrants || []).length + '</b> (' + escapeHtml((r.new_entrants || []).map(function (a) { return a.ticker; }).join(', ') || 'none') + ')</div>';
+  h += '<div style="font-size:10px;">Dropped: <b>' + (r.dropped_names || []).length + '</b> (' + escapeHtml((r.dropped_names || []).map(function (a) { return a.ticker; }).join(', ') || 'none') + ')</div>';
+  h += '<div style="font-size:10px;">Rank movers (&ge;' + (r.rank_mover_threshold || 5) + ' places): ' +
+       escapeHtml((r.rank_movers || []).map(function (m) { return m.ticker + ' ' + m.prior_rank + '→' + m.current_rank; }).join(', ') || 'none') + '</div>';
+  var tc = r.expected_turnover_change || {}, cchg = r.estimated_cost_change || {};
+  h += '<div class="mono" style="font-size:10px;margin-top:4px;">Turnover ' + _mhzPct(tc.before, 0) + ' &rarr; ' + _mhzPct(tc.after, 0) +
+       ' · est. cost ' + _mhzPct(cchg.before, 2) + ' &rarr; ' + _mhzPct(cchg.after, 2) + '</div>';
+  var fp = (r.data_quality_changes || {}).changed_input_fingerprints || [];
+  h += '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">Changed input fingerprints: ' + escapeHtml(fp.join(', ') || 'none') + '</div>';
+  el.innerHTML = h;
+}
+
+function renderPmHealth(hd) {
+  var overall = document.getElementById('pm-health-overall');
+  var el = document.getElementById('pm-health');
+  if (!el) return;
+  if (!hd || (hd.status !== 'PM_HEALTH_READY' && hd.status !== 'PM_INPUTS_UNAVAILABLE')) {
+    if (overall) { overall.textContent = 'UNAVAILABLE'; overall.className = 'cc-badge danger'; }
+    el.textContent = 'Portfolio health unavailable.';
+    return;
+  }
+  var cls = { HEALTHY: 'safe', REVIEW: 'manual', BLOCKED: 'danger' };
+  if (overall) {
+    overall.textContent = hd.overall_status || '—';
+    overall.className = 'cc-badge ' + (cls[hd.overall_status] || 'muted');
+  }
+  el.innerHTML = (hd.items || []).map(function (i) {
+    var needExplain = i.status !== 'HEALTHY';
+    return '<div style="border-top:1px solid var(--border,#2a3550);padding:4px 0;">' +
+      '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">' +
+      '<span>' + escapeHtml(i.label || i.key) + '</span>' +
+      '<span><span class="mono" style="font-size:10px;margin-right:6px;">' + escapeHtml(String(i.value != null ? i.value : '—')) + '</span>' +
+      '<span class="cc-badge ' + (cls[i.status] || 'muted') + '">' + escapeHtml(i.status) + '</span></span></div>' +
+      (needExplain ? '<div class="cc-na-note" style="font-size:10px;margin-top:2px;">' + escapeHtml(i.explanation || '') + '</div>' : '') +
+      '</div>';
+  }).join('') || '—';
+}
+
+function renderPmOpState(s) {
+  var pill = document.getElementById('pm-opstate');
+  if (!pill) return;
+  var st = (s && s.operating_state) || 'DATA_BLOCKED';
+  pill.textContent = st;
+  pill.className = 'cc-badge ' + (st === 'RISK_REFRESH_ONLY' || st === 'NO_REVIEW_DUE' ? 'safe'
+    : st === 'DATA_BLOCKED' ? 'danger' : 'manual');
+}
+
+function renderPmAudit(s) {
+  var el = document.getElementById('pm-audit-body');
+  if (!el) return;
+  if (!s) { el.textContent = '—'; return; }
+  var compact = {
+    status: s.status, decision_headline: s.decision_headline, operating_state: s.operating_state,
+    dates: s.dates, date_labels: s.date_labels, date_warnings: s.date_warnings,
+    action_counts: s.action_counts, changes_summary: s.changes_summary,
+    health_status: s.health_status, snapshot_ledger: s.snapshot_ledger,
+    safety: { paper_only: s.paper_only, orders_enabled: s.orders_enabled,
+              automation_enabled: s.automation_enabled, broker_enabled: s.broker_enabled,
+              champion_replaced: s.champion_replaced, performed_write: s.performed_write },
+    warnings: s.warnings,
+  };
+  el.innerHTML = '<pre style="white-space:pre-wrap;">' + escapeHtml(JSON.stringify(compact, null, 1)) + '</pre>';
+}
+
+// ---- Manual review flow: read-only preview -> styled in-page confirm --------
+async function pmPreviewSnapshot() {
+  var el = document.getElementById('pm-preview-facts');
+  var box = document.getElementById('pm-confirm-box');
+  var result = document.getElementById('pm-confirm-result');
+  if (result) result.style.display = 'none';
+  if (el) el.textContent = 'Loading read-only preview…';
+  try {
+    var r = await call('POST', '/v1/research/alpha-paper-snapshots/preview');
+    var d = await r.json();
+    window._pmPreview = d;
+    if (d.status !== 'MHZ_SNAPSHOT_PREVIEW' || !d.snapshot) {
+      if (el) el.textContent = 'Preview unavailable (' + (d.status || 'error') + ').';
+      if (box) box.style.display = 'none';
+      return;
+    }
+    var s = d.snapshot;
+    var comb = (s.sleeves || {}).combined || {};
+    var chg = ((window._pmData || {}).changes) || {};
+    if (el) {
+      el.innerHTML =
+        '<div class="mono">Snapshot ' + escapeHtml(s.snapshot_id || '—') + '</div>' +
+        '<div>Snapshot market date <b class="mono">' + escapeHtml(s.market_as_of_date || '—') + '</b> · fundamental <b class="mono">' + escapeHtml(s.fundamental_as_of_date || '—') + '</b></div>' +
+        '<div>Book <b class="mono">' + escapeHtml(s.primary_book_id || '—') + '</b> · ' + ((comb.constituents_top25 || []).length) + ' constituents</div>' +
+        '<div>Turnover <b class="mono">' + _mhzPct(s.estimated_turnover_primary) + '</b> · est. cost <b class="mono">' + _mhzPct(s.estimated_transaction_cost_primary, 2) + '</b></div>' +
+        '<div>Additions <b class="mono">' + ((chg.additions || []).length) + '</b> · removals <b class="mono">' + ((chg.removals || []).length) + '</b></div>' +
+        ((d.would_be_duplicate) ? '<div class="cc-badge muted" style="margin-top:4px;">Would be a DUPLICATE — confirm will be skipped.</div>' : '') +
+        (((window._pmData || {}).summary || {}).date_warnings || []).map(function (w) {
+          return '<div class="cc-na-note" style="font-size:10px;color:var(--warning);">&#9888; ' + escapeHtml(w) + '</div>';
+        }).join('') +
+        '<div class="cc-na-note" style="font-size:10px;margin-top:4px;">Read-only preview. Nothing was written.</div>';
+    }
+    if (box) box.style.display = '';
+  } catch (e) {
+    if (el) el.textContent = 'Preview failed.';
+    if (box) box.style.display = 'none';
+  }
+}
+window.pmPreviewSnapshot = pmPreviewSnapshot;
+
+function pmCancelSnapshot() {
+  var box = document.getElementById('pm-confirm-box');
+  if (box) box.style.display = 'none';
+}
+window.pmCancelSnapshot = pmCancelSnapshot;
+
+async function pmDoConfirmSnapshot() {
+  var box = document.getElementById('pm-confirm-box');
+  var result = document.getElementById('pm-confirm-result');
+  try {
+    var r = await call('POST', '/v1/research/alpha-paper-snapshots/confirm',
+                       { confirm: 'CONFIRM_MHZ_PAPER_SNAPSHOT' });
+    var d = await r.json();
+    if (box) box.style.display = 'none';
+    if (result) {
+      result.style.display = '';
+      if (d.status === 'MHZ_SNAPSHOT_CONFIRMED') {
+        result.style.color = 'var(--ok, #22c55e)';
+        result.textContent = 'PAPER ALPHA SNAPSHOT CONFIRMED — ' + (d.snapshot_id || '') +
+          ' appended to the local ledger. No orders were created; no positions changed.';
+        toast('Paper alpha snapshot confirmed (ledger only — no orders).', 'ok');
+      } else if (d.status === 'MHZ_SNAPSHOT_SKIPPED_DUPLICATE') {
+        result.style.color = 'var(--label, #94a3b8)';
+        result.textContent = 'Duplicate snapshot skipped — nothing was written.';
+        toast('Duplicate snapshot skipped — nothing written.', 'ok');
+      } else {
+        result.style.color = 'var(--danger, #ef4444)';
+        result.textContent = 'Snapshot not confirmed: ' + (d.status || 'error');
+        toast('Snapshot not confirmed: ' + (d.status || 'error'), 'error');
+      }
+    }
+    try { loadPortfolioManager(); } catch (e) {}
+  } catch (e) {
+    if (result) {
+      result.style.display = '';
+      result.style.color = 'var(--danger, #ef4444)';
+      result.textContent = 'Snapshot confirm failed.';
+    }
+    toast('Snapshot confirm failed.', 'error');
+  }
+}
+window.pmDoConfirmSnapshot = pmDoConfirmSnapshot;
 
 // ---- Boot: apply the initial route + wire back/forward ----------------------
 window.addEventListener('hashchange', function () { try { applyRoute(); } catch (e) {} });

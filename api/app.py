@@ -214,6 +214,7 @@ from paper_trader.api.price_alpha_factory import (
     BUILD_CONFIRM_TOKEN as _PRICE_ALPHA_FACTORY_CONFIRM_TOKEN,
 )
 from paper_trader.api import multi_horizon_platform as _mhz
+from paper_trader.api import portfolio_manager as _pm
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -4967,6 +4968,85 @@ def research_alpha_paper_snapshot_confirm(body: MhzSnapshotConfirmRequest | None
             detail="A confirmed paper snapshot requires confirm='%s'." % _MHZ_CONFIRM_TOKEN,
         )
     return _mhz.confirm_snapshot(confirm=req.confirm)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 26 - Portfolio Manager decision intelligence (read-only aggregation)
+#
+# One portfolio-manager view over the existing validated sources (Phase 25 multi-horizon platform,
+# the append-only paper-alpha snapshot ledger and the canonical Phase 14-C portfolio valuation):
+# "WHAT SHOULD I DO TODAY?". It is an aggregation layer, NOT another model engine - no formula is
+# changed, no weight is optimized, no expected return is invented, no confidence score is
+# manufactured. All six GETs are strictly read-only; every payload carries paper_only=true /
+# orders_enabled=false / automation_enabled=false / broker_enabled=false / champion_replaced=false /
+# performed_write=false. Snapshot preview/confirm remain the existing explicit Phase 25 endpoints
+# (ledger-only). A missing input degrades to an *_UNAVAILABLE status with HTTP 200, never a stack
+# trace.
+# --------------------------------------------------------------------------- #
+@app.get("/v1/portfolio-manager/summary", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def portfolio_manager_summary() -> dict:
+    """Read-only TODAY'S PORTFOLIO DECISION: one deterministic headline (NO PORTFOLIO CHANGE
+    REQUIRED / REVIEW NEW PORTFOLIO CANDIDATES / REVIEW PORTFOLIO REBALANCE / REVIEW RISK
+    EXCEPTIONS / DATA REFRESH REQUIRED / MANUAL CONFIRMATION REQUIRED) with its reason, labeled
+    dates + misalignment warnings, the executed-portfolio valuation, the proposed target size,
+    action counts, changeset summary, health rollup and snapshot-ledger state. No urgency is
+    manufactured: when no review is due and nothing is blocked, the headline says NO PORTFOLIO
+    CHANGE REQUIRED."""
+    return _pm.load_summary()
+
+
+@app.get("/v1/portfolio-manager/actions", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def portfolio_manager_actions() -> dict:
+    """Read-only action summary for the primary Top-25: every row maps the internal deterministic
+    vocabulary (BUY_CANDIDATE/HOLD/REDUCE_CANDIDATE/EXIT_CANDIDATE/WAIT) to portfolio-manager
+    language (ADD CANDIDATES/HOLD/WATCH/REDUCE CANDIDATES/EXIT CANDIDATES/WAIT-DATA BLOCKED) with
+    target/current weight, combined/fundamental/momentum ranks, fixed 50/50 contributions,
+    agreement class, sector, risk flags and a deterministic plain-English reason. Never plain
+    BUY or SELL. No order is created."""
+    return _pm.load_actions()
+
+
+@app.get("/v1/portfolio-manager/changes", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def portfolio_manager_changes() -> dict:
+    """Read-only proposed portfolio changeset: additions/removals/retained/weight deltas/blocked
+    changes, sector-weight and cash/concentration changes, estimated turnover and cost vs the last
+    CONFIRMED paper-alpha snapshot - or an explicit INITIAL PORTFOLIO PROPOSAL when none exists.
+    Always distinguishes the current EXECUTED paper portfolio, the PROPOSED alpha target book and
+    the CONFIRMED alpha snapshot ledger (three different things)."""
+    return _pm.load_changes()
+
+
+@app.get("/v1/portfolio-manager/health", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def portfolio_manager_health() -> dict:
+    """Read-only portfolio-health rollup (HEALTHY / REVIEW / BLOCKED per item, every non-healthy
+    item explained): cash/invested split, position counts, largest position/sector, volatility,
+    liquidity, drawdown, unrealized P&L, risk + stale-data exceptions and capacity. No opaque
+    confidence score is produced."""
+    return _pm.load_health()
+
+
+@app.get("/v1/portfolio-manager/explanations", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def portfolio_manager_explanations() -> dict:
+    """Read-only per-ticker decision explanations assembled from deterministic templates over
+    stored fields only (alpha evidence, portfolio fit, risk, timing, fixed 50/50 contribution,
+    BOTH_STRONG/FUNDAMENTAL_LED/MOMENTUM_LED/MIXED agreement, would-qualify flags). No language
+    model, no invented expected returns, no manufactured confidence."""
+    return _pm.load_explanations()
+
+
+@app.get("/v1/portfolio-manager/since-last-review", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def portfolio_manager_since_last_review() -> dict:
+    """Read-only SINCE LAST REVIEW: new entrants, dropped names, rank movers, sector-allocation /
+    risk-status / data-quality changes and turnover/cost deltas vs the last confirmed paper-alpha
+    snapshot - or the explicit NO PRIOR CONFIRMED ALPHA SNAPSHOT initial-proposal state (never a
+    comparison against an unrelated historical research book)."""
+    return _pm.load_since_last_review()
 
 
 @app.get(
