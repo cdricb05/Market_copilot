@@ -218,6 +218,7 @@ from paper_trader.api import portfolio_manager as _pm
 from paper_trader.api import paper_trading_desk as _desk
 from paper_trader.api import alpha_book as _abook
 from paper_trader.api import alpha_target as _alpha_target
+from paper_trader.api import operational_book as _opbook
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -5330,6 +5331,37 @@ def alpha_target_refresh(body: AlphaTargetRefreshRequest | None = None) -> dict:
     never calls the prediction service or tunnel."""
     req = body or AlphaTargetRefreshRequest()
     return _alpha_target.run_refresh(confirm=req.confirm)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27B - Operational book consolidation (read-only).
+#
+# ONE operational portfolio: Alpha Paper Book #1. Every operational page
+# (Command Center, Portfolio, Daily Workflow, Paper Desk, Portfolio Manager)
+# reads this same aggregation, so cash / holdings / pending orders / NAV can
+# never differ between pages. The legacy paper portfolio is preserved read-only
+# under Historical Paper Books; research books stay research. Strictly read-only:
+# no writes, no initialization, no snapshot confirmation, no trading instruction.
+# --------------------------------------------------------------------------- #
+@app.get("/v1/operational-book", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def operational_book() -> dict:
+    """Read-only single source of truth for the ONE operational portfolio,
+    Alpha Paper Book #1: cash, holdings, pending paper orders, NAV (append-only
+    desk-ledger replay - the one value producer), the current target readiness,
+    the current workflow status and the next manual action. Honest when the book
+    is not initialized yet. Writes nothing."""
+    return _opbook.load_operational_book()
+
+
+@app.get("/v1/operational-book/archive", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def operational_book_archive() -> dict:
+    """Read-only Historical Paper Books archive: the legacy paper portfolio
+    (existing positions, fills, snapshots and P&L - preserved, read-only, never
+    the default portfolio again), any past/completed desk paper books, and the
+    research-book identities (evidence only, never operational holdings)."""
+    return _opbook.load_historical_books()
 
 
 @app.get(

@@ -2030,13 +2030,36 @@
             </details>
           </div>
 
+          <!-- ===================== Phase 27B CURRENT OPERATIONAL BOOK ===================== -->
+          <!-- The ONE operational portfolio. Every operational page renders this same
+               /v1/operational-book payload — legacy is archive, research is evidence. -->
+          <div id="cc-ob-panel" class="cc-panel" style="border-left:3px solid var(--info);">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title">Current Operational Book &mdash; Alpha Paper Book #1</span>
+              <span class="cc-badge" id="cc-ob-state" title="Workflow status of the single operational book.">&mdash;</span>
+              <span class="cc-badge safe" title="The one operational portfolio. Legacy is read-only archive; research books are evidence.">OPERATIONAL BOOK</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — target review, implementation plan and the paper trading desk for Alpha Paper Book #1.">Manage &rarr;</button>
+            </div>
+            <div class="dor-grid" style="margin-top:4px;">
+              <div class="cc-kv"><span class="k">Cash</span><span class="v" id="cc-ob-cash">&mdash;</span></div>
+              <div class="cc-kv"><span class="k">NAV</span><span class="v" id="cc-ob-nav">&mdash;</span></div>
+              <div class="cc-kv"><span class="k">Holdings</span><span class="v" id="cc-ob-holdings">&mdash;</span></div>
+              <div class="cc-kv"><span class="k">Pending Orders</span><span class="v" id="cc-ob-pending">&mdash;</span></div>
+              <div class="cc-kv"><span class="k">Current Target</span><span class="v" id="cc-ob-target">&mdash;</span></div>
+              <div class="cc-kv"><span class="k">Current Status</span><span class="v" id="cc-ob-status">&mdash;</span></div>
+            </div>
+            <div class="cc-na-note" id="cc-ob-next" style="margin-top:4px;">Next Action: connect to load the operational book.</div>
+          </div>
+          <!-- ===================== Phase 27B CURRENT OPERATIONAL BOOK END ===================== -->
+
           <!-- ROW 1: KPI CARDS -->
           <div class="cc-kpi-row">
             <div class="cc-kpi"><div class="cc-kpi-label">System State</div><div class="cc-kpi-value" id="cc-kpi-system">—</div><div class="cc-kpi-sub" id="cc-kpi-system-sub">&nbsp;</div></div>
             <div class="cc-kpi"><div class="cc-kpi-label">Latest Market Mark</div><div class="cc-kpi-value" id="cc-kpi-mark">—</div><div class="cc-kpi-sub" id="cc-kpi-mark-sub">&nbsp;</div></div>
-            <div class="cc-kpi"><div class="cc-kpi-label">Primary Paper Book</div><div class="cc-kpi-value" id="cc-kpi-book">—</div><div class="cc-kpi-sub" id="cc-kpi-book-sub">&nbsp;</div></div>
-            <div class="cc-kpi"><div class="cc-kpi-label">Current Paper Return</div><div class="cc-kpi-value" id="cc-kpi-return">—</div><div class="cc-kpi-sub" id="cc-kpi-return-sub">&nbsp;</div></div>
-            <div class="cc-kpi"><div class="cc-kpi-label">Excess vs SPY</div><div class="cc-kpi-value" id="cc-kpi-excess">—</div><div class="cc-kpi-sub" id="cc-kpi-excess-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label" title="Research evidence book (frozen Top 25 / Top 50) — never the operational holdings. The operational book is Alpha Paper Book #1 above.">Research Primary Paper Book</div><div class="cc-kpi-value" id="cc-kpi-book">—</div><div class="cc-kpi-sub" id="cc-kpi-book-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label" title="Return of the frozen research book — evidence, not the operational Alpha Paper Book #1.">Research Current Paper Return</div><div class="cc-kpi-value" id="cc-kpi-return">—</div><div class="cc-kpi-sub" id="cc-kpi-return-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label" title="Excess return of the frozen research book vs SPY — research evidence only.">Excess vs SPY (Research)</div><div class="cc-kpi-value" id="cc-kpi-excess">—</div><div class="cc-kpi-sub" id="cc-kpi-excess-sub">&nbsp;</div></div>
             <div class="cc-kpi"><div class="cc-kpi-label" title="Legacy signal-portfolio capacity (five-position risk engine). It never governs the 25-name Alpha Paper Book #1.">Portfolio Capacity (Legacy)</div><div class="cc-kpi-value" id="cc-kpi-capacity">—</div><div class="cc-kpi-sub" id="cc-kpi-capacity-sub">&nbsp;</div></div>
           </div>
 
@@ -2115,19 +2138,12 @@
             </div>
           </div>
 
-          <!-- ROW 4: PREVIEWS (top 5 each) -->
-          <div class="cc-row4">
+          <!-- ROW 4: PREVIEWS (legacy position/decision previews moved to the
+               HISTORICAL PAPER BOOKS archive section below — Phase 27B) -->
+          <div class="cc-row4" style="grid-template-columns:1fr;">
             <div class="cc-panel">
               <div class="cc-preview-hd"><span class="cc-panel-title" id="cc-rq-title">Review Queue</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('daily-workflow/review')">View All &rarr;</button></div>
               <div class="cc-preview-list" id="cc-rq-preview"><div class="cc-empty">Connect to load the review queue.</div></div>
-            </div>
-            <div class="cc-panel">
-              <div class="cc-preview-hd"><span class="cc-panel-title">Open Positions</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('portfolio/positions')">View All &rarr;</button></div>
-              <div class="cc-preview-list" id="cc-pos-preview"><div class="cc-empty">Connect to load open positions.</div></div>
-            </div>
-            <div class="cc-panel">
-              <div class="cc-preview-hd"><span class="cc-panel-title">Recent Decisions</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('portfolio/orders')">View All &rarr;</button></div>
-              <div class="cc-preview-list" id="cc-dec-preview"><div class="cc-empty">Connect to load recent decisions.</div></div>
             </div>
           </div>
 
@@ -2137,7 +2153,21 @@
         <!-- ===================== Phase 14-A COMMAND CENTER END ===================== -->
 
         <details id="cc-legacy-overview" style="margin-top: 14px;">
-          <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--label); cursor: pointer; padding: 6px 0;">MARKET CONTEXT &amp; LEGACY PANELS</summary>
+          <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--label); cursor: pointer; padding: 6px 0;">HISTORICAL PAPER BOOKS &mdash; MARKET CONTEXT &amp; LEGACY PANELS (READ-ONLY ARCHIVE)</summary>
+
+        <div class="cc-na-note" style="margin:6px 0 8px 0;">Historical Paper Books: the legacy paper portfolio (existing positions, fills, snapshots and P&amp;L) is preserved here read-only. It is never the operational portfolio &mdash; the single operational book is Alpha Paper Book #1 above.</div>
+
+        <!-- Phase 27B: legacy position/decision previews live in the archive, not the default screen. -->
+        <div class="cc-row4" style="grid-template-columns:1fr 1fr;">
+          <div class="cc-panel">
+            <div class="cc-preview-hd"><span class="cc-panel-title" title="Executed positions of the ARCHIVED legacy paper portfolio — not Alpha Paper Book #1.">Open Positions (Legacy Archive)</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('portfolio/positions')">View All &rarr;</button></div>
+            <div class="cc-preview-list" id="cc-pos-preview"><div class="cc-empty">Connect to load open positions.</div></div>
+          </div>
+          <div class="cc-panel">
+            <div class="cc-preview-hd"><span class="cc-panel-title" title="Recent paper decisions of the ARCHIVED legacy workflow — not Alpha Paper Book #1.">Recent Decisions (Legacy Archive)</span><button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('portfolio/orders')">View All &rarr;</button></div>
+            <div class="cc-preview-list" id="cc-dec-preview"><div class="cc-empty">Connect to load recent decisions.</div></div>
+          </div>
+        </div>
 
         <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--label); margin: 8px 0 4px 0; flex-shrink: 0;">Trading Cockpit Overview</div>
 
@@ -2348,10 +2378,56 @@
       <!-- TAB 1: DAILY PLAN -->
       <div id="tab-prediction-cockpit" class="tab-content">
 
+        <!-- ===================== Phase 27B OPERATIONAL BOOK WORKFLOW ===================== -->
+        <!-- The daily workflow of the ONE operational portfolio (Alpha Paper Book #1):
+             Refresh Market Data -> Refresh Alpha Target -> Review -> Generate Order Plan
+             -> Monitor. Rendered from the same /v1/operational-book payload as every
+             other operational page. The legacy signal stepper below is separate history. -->
+        <div id="dwob-card" class="dw-terminal" style="border-left:3px solid var(--info); margin-bottom:10px;">
+          <div class="dw-hd">
+            <span class="dw-hd-title">Today's Operating Workflow &mdash; Alpha Paper Book #1</span>
+            <span class="cc-badge safe">OPERATIONAL BOOK</span>
+            <span class="cc-badge" id="dwob-state">&mdash;</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge safe">PAPER ONLY</span>
+            <span class="cc-badge">NO BROKER EXECUTION</span>
+          </div>
+          <div class="dw-stepper" style="margin-top:6px;">
+            <div class="dw-stage" id="dwob-step-refresh-data">
+              <div class="dw-stage-hd"><span class="dw-stage-num">1</span><span class="dw-stage-name">Refresh Market Data</span></div>
+              <div class="dw-stage-status" data-role="status">&mdash;</div>
+              <button class="cc-btn ghost dw-stage-btn" title="Run the manual Daily Operating Run (Command Center) to align owned market data to one completed date." onclick="navigateToRoute('command-center')">Open Daily Run</button>
+            </div>
+            <div class="dw-stage" id="dwob-step-refresh-target">
+              <div class="dw-stage-hd"><span class="dw-stage-num">2</span><span class="dw-stage-name">Refresh Alpha Target</span></div>
+              <div class="dw-stage-status" data-role="status">&mdash;</div>
+              <button class="cc-btn ghost dw-stage-btn" title="Refresh the 25-name alpha target from owned local data (token-gated, Portfolio Manager)." onclick="navigateToRoute('portfolio-manager')">Open Target Review</button>
+            </div>
+            <div class="dw-stage" id="dwob-step-review">
+              <div class="dw-stage-hd"><span class="dw-stage-num">3</span><span class="dw-stage-name">Review</span></div>
+              <div class="dw-stage-status" data-role="status">&mdash;</div>
+              <button class="cc-btn ghost dw-stage-btn" title="Review the operational target: dates, checklist, complete 25-name table; preview then confirm manually." onclick="navigateToRoute('portfolio-manager')">Review Target</button>
+            </div>
+            <div class="dw-stage" id="dwob-step-order-plan">
+              <div class="dw-stage-hd"><span class="dw-stage-num">4</span><span class="dw-stage-name">Generate Order Plan</span></div>
+              <div class="dw-stage-status" data-role="status">&mdash;</div>
+              <button class="cc-btn ghost dw-stage-btn" title="Generate and review the executable order plan for Alpha Paper Book #1 (read-only preview; explicit confirms only)." onclick="navigateToRoute('portfolio-manager')">Open Implementation Plan</button>
+            </div>
+            <div class="dw-stage" id="dwob-step-monitor">
+              <div class="dw-stage-hd"><span class="dw-stage-num">5</span><span class="dw-stage-name">Monitor</span></div>
+              <div class="dw-stage-status" data-role="status">&mdash;</div>
+              <button class="cc-btn ghost dw-stage-btn" title="Monitor NAV, fills and pending paper orders on the paper trading desk." onclick="navigateToRoute('portfolio-manager')">Open Paper Desk</button>
+            </div>
+          </div>
+          <div class="cc-na-note" id="dwob-next" style="margin-top:4px;">Next Action: connect to load the operational book.</div>
+        </div>
+        <!-- ===================== Phase 27B OPERATIONAL BOOK WORKFLOW END ===================== -->
+
         <!-- ===================== Phase 14-B DAILY WORKFLOW TERMINAL START ===================== -->
         <div id="dw-terminal" class="dw-terminal">
           <div class="dw-hd">
-            <span class="dw-hd-title">Today's Operating Workflow</span>
+            <span class="dw-hd-title" title="The separate legacy signal workflow (scan/candidates/signals/decisions). Its executed paper portfolio is archived history — not the operational book.">Legacy Signal Workflow &mdash; Separate Paper History</span>
             <span class="dw-hd-active">Active: <span id="dw-active-stage">—</span></span>
             <span class="cc-spacer" style="flex:1;"></span>
             <span class="cc-badge manual">MANUAL REVIEW</span>
@@ -3812,10 +3888,40 @@
       <!-- TAB 4: PORTFOLIO -->
       <div id="tab-portfolio" class="tab-content">
 
+        <!-- ===================== Phase 27B PORTFOLIO — OPERATIONAL BOOK DEFAULT ===================== -->
+        <!-- The Portfolio page defaults to the ONE operational book. The legacy paper
+             portfolio is preserved below inside the read-only Historical Paper Books
+             archive (never the default portfolio again). Same /v1/operational-book
+             payload as every other operational page — one source of truth. -->
+        <div id="ptob-card" class="pt-panel" style="border-left:3px solid var(--info); margin-bottom:10px;">
+          <div class="cc-preview-hd" style="align-items:center;">
+            <span class="dw-hd-title">Portfolio &mdash; Operational Book</span>
+            <span class="cc-badge safe">ALPHA PAPER BOOK #1</span>
+            <span class="cc-badge" id="ptob-state">&mdash;</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <span class="cc-badge safe">PAPER ONLY</span>
+            <span class="cc-badge">NO BROKER</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <button class="cc-btn ghost" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — target review, implementation plan and paper trading desk for Alpha Paper Book #1.">Manage Operational Book &rarr;</button>
+          </div>
+          <div class="dor-grid" style="margin-top:6px;">
+            <div class="cc-kv"><span class="k">Cash</span><span class="v" id="ptob-cash">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">NAV</span><span class="v" id="ptob-nav">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Holdings</span><span class="v" id="ptob-holdings">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Pending Orders</span><span class="v" id="ptob-pending">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Current Target</span><span class="v" id="ptob-target">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Current Status</span><span class="v" id="ptob-status">&mdash;</span></div>
+          </div>
+          <div class="cc-na-note" id="ptob-next" style="margin-top:4px;">Next Action: connect to load the operational book.</div>
+        </div>
+
+        <details id="pt-archive">
+          <summary class="pt-advanced-summary" title="The archived legacy paper portfolio — existing positions, fills, snapshots and P&amp;L. Read-only history; never the operational book.">Historical Paper Books &mdash; Legacy Portfolio Archive <span class="cc-badge">READ-ONLY</span> <span class="cc-badge" title="Archived legacy signal-workflow paper portfolio.">ARCHIVED</span></summary>
         <!-- ===================== Phase 14-B PORTFOLIO TERMINAL START ===================== -->
         <div id="pt-terminal" class="pt-terminal">
           <div class="dw-hd">
-            <span class="dw-hd-title">Portfolio Terminal</span>
+            <span class="dw-hd-title" title="Archived legacy paper portfolio — read-only history. The operational book is Alpha Paper Book #1 above.">Legacy Portfolio Terminal (Archived)</span>
+            <span class="cc-badge" title="Read-only archive of the legacy signal-workflow paper portfolio.">HISTORICAL BOOK</span>
             <span class="cc-spacer" style="flex:1;"></span>
             <span class="cc-badge safe">PAPER ONLY</span>
             <span class="cc-badge">NO BROKER EXECUTION</span>
@@ -4278,6 +4384,8 @@
         </details>
         <!-- ===================== Phase 14-C ADVANCED PORTFOLIO DETAILS END ===================== -->
 
+        </details><!-- end pt-archive (Historical Paper Books — Legacy Portfolio Archive) -->
+
       </div><!-- end tab-portfolio -->
 
       <!-- TAB 5: AUDIT / ADVANCED -->
@@ -4321,9 +4429,9 @@
             <span title="Current alpha calculation market date (owned research store).">Alpha market <b id="pm-sb-alpha-date">&mdash;</b></span>
             <span title="Fundamental data as-of date (frozen owned panel).">Fundamental as-of <b id="pm-sb-fund-date">&mdash;</b></span>
             <span title="Portfolio EOD valuation date (executed paper portfolio mark).">Valuation EOD <b id="pm-sb-val-date">&mdash;</b></span>
-            <span title="Canonical current mark of the executed paper portfolio.">Portfolio <b id="pm-sb-value">&mdash;</b></span>
-            <span>Cash <b id="pm-sb-cash">&mdash;</b></span>
-            <span>Invested <b id="pm-sb-invested">&mdash;</b></span>
+            <span title="Canonical current mark of the ARCHIVED legacy executed paper portfolio (historical book — not Alpha Paper Book #1).">Legacy portfolio (archived) <b id="pm-sb-value">&mdash;</b></span>
+            <span title="Cash of the ARCHIVED legacy paper portfolio.">Legacy cash <b id="pm-sb-cash">&mdash;</b></span>
+            <span title="Invested value of the ARCHIVED legacy paper portfolio.">Legacy invested <b id="pm-sb-invested">&mdash;</b></span>
             <span title="Open executed paper positions of the SEPARATE legacy manual trade workflow. Not part of Alpha Paper Book #1.">Legacy positions <b id="pm-sb-positions">&mdash;</b></span>
             <span title="Proposed primary Top-25 target book size.">Target names <b id="pm-sb-target">&mdash;</b></span>
             <span title="Alpha Paper Book #1 capacity: validated target 25 names, up to 30 temporary holdings during rebalance. Governed by the immutable alpha-book policy, never by the legacy five-position limit.">Alpha capacity <b id="pm-sb-alpha-capacity">25 / 30</b></span>
@@ -6628,8 +6736,29 @@
     </div>
     <!-- compat: right-next-step/detail still targeted by other JS; hidden, not primary display -->
     <div style="display:none;"><span id="right-next-step"></span><span id="right-next-step-detail"></span></div>
+    <!-- Phase 27B: the right panel describes the OPERATIONAL book first. -->
+    <div class="panel-section" style="border-color: var(--info);">
+      <div class="panel-section-title" title="The ONE operational portfolio — dedicated 25-name alpha paper book, governed by its immutable policy (never by the legacy five-position limit).">Operational Book &mdash; Alpha Paper Book #1 Capacity</div>
+      <div class="panel-item">
+        <span>Status</span>
+        <span class="panel-value" id="right-ob-state">-</span>
+      </div>
+      <div class="panel-item">
+        <span>NAV</span>
+        <span class="panel-value" id="right-ob-nav">-</span>
+      </div>
+      <div class="panel-item">
+        <span>Alpha book target</span>
+        <span class="panel-value">25</span>
+      </div>
+      <div class="panel-item">
+        <span>Temporary rebalance limit</span>
+        <span class="panel-value">30</span>
+      </div>
+      <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;">Dedicated $100,000 virtual capital &mdash; the single operational portfolio (manage in Portfolio Manager)</div>
+    </div>
     <div class="panel-section">
-      <div class="panel-section-title" title="Legacy signal-workflow capacity only. It never governs Alpha Paper Book #1.">Legacy Signal Portfolio Capacity</div>
+      <div class="panel-section-title" title="Historical archive: legacy signal-workflow capacity only. It never governs Alpha Paper Book #1.">Legacy Signal Portfolio Capacity (Archived)</div>
       <div class="panel-item">
         <span>Open positions</span>
         <span class="panel-value" id="cap-open-positions">-</span>
@@ -6642,19 +6771,7 @@
         <span>Available slots</span>
         <span class="panel-value" id="cap-available-slots" style="font-weight: 700;">-</span>
       </div>
-      <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;" id="cap-status-note">Legacy risk-engine limit &mdash; governs the legacy signal workflow only, never Alpha Paper Book #1</div>
-    </div>
-    <div class="panel-section">
-      <div class="panel-section-title" title="Dedicated 25-name alpha paper book, governed by its immutable policy (never by the legacy five-position limit).">Alpha Paper Book #1 Capacity</div>
-      <div class="panel-item">
-        <span>Alpha book target</span>
-        <span class="panel-value">25</span>
-      </div>
-      <div class="panel-item">
-        <span>Temporary rebalance limit</span>
-        <span class="panel-value">30</span>
-      </div>
-      <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;">Dedicated $100,000 virtual capital &mdash; separate from the legacy signal portfolio (see Portfolio Manager)</div>
+      <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;" id="cap-status-note">Legacy risk-engine limit &mdash; read-only historical book, never Alpha Paper Book #1</div>
     </div>
     <div class="panel-section">
       <div class="panel-section-title">Current State</div>
@@ -6696,8 +6813,8 @@
     </div>
 
     <details>
-      <summary style="cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--label); padding: 8px 0; user-select: none; list-style: none;">&#9654; Advanced order controls</summary>
-      <div style="font-size: 9px; color: var(--label); font-style: italic; padding: 4px 0 6px 0; line-height: 1.4;">Usually not needed. Paper order controls remain manual and create no broker execution.</div>
+      <summary style="cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--label); padding: 8px 0; user-select: none; list-style: none;">&#9654; Advanced order controls (legacy paper workflow)</summary>
+      <div style="font-size: 9px; color: var(--label); font-style: italic; padding: 4px 0 6px 0; line-height: 1.4;">Usually not needed. Paper order controls remain manual and create no broker execution. Legacy workflow only (archived book) &mdash; they never touch Alpha Paper Book #1.</div>
       <div id="right-create-orders-section" class="panel-section">
         <div class="panel-section-title">Create Orders</div>
         <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 4px;">PAPER ORDERS ONLY</div>
@@ -22381,6 +22498,7 @@ async function loadCommandCenter() {
     renderCommandCenter();
     _ccLoadPreviews();               // secondary; failure here never blanks the dashboard
     _ccLoadTournamentSummary();      // secondary read-only; failure never blanks the dashboard
+    try { loadOperationalBook(); } catch (e) {}   // Phase 27B single-source operational book
   } catch (e) {
     st.error = 'Command center request failed: ' + (e && e.message ? e.message : e);
     renderCommandCenter();
@@ -22817,7 +22935,7 @@ function _highlightNav(base) {
 }
 window._highlightNav = _highlightNav;
 var _PT_SUB_TARGET = {
-  '': 'pt-terminal', 'positions': 'pt-positions', 'orders': 'pt-orders-row',
+  '': 'ptob-card', 'positions': 'pt-positions', 'orders': 'pt-orders-row',
   'performance': 'pt-performance', 'risk': 'pt-risk', 'advanced': 'pt-advanced-details',
 };
 function _ptHighlightNav(sub) {
@@ -22918,13 +23036,19 @@ function _applySubsection(base, sub) {
       var wb = document.getElementById('dw-workbench');
       if (wb && wb.scrollIntoView) { try { wb.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { wb.scrollIntoView(); } }
     } else if (base === 'portfolio') {
+      // Phase 27B: the legacy terminal lives inside the collapsed Historical
+      // Paper Books archive; any legacy deep-link explicitly opens the archive.
+      if (sub) {
+        var arc = document.getElementById('pt-archive');
+        if (arc) arc.open = true;
+      }
       // The Advanced portfolio sections are collapsed by default; the Advanced
       // route explicitly opens the container so its deep-link works.
       if (sub === 'advanced') {
         var det = document.getElementById('pt-advanced-details');
         if (det) det.open = true;
       }
-      var id = _PT_SUB_TARGET[sub || ''] || 'pt-terminal';
+      var id = _PT_SUB_TARGET[sub || ''] || 'ptob-card';
       var el = document.getElementById(id);
       if (el && el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
     }
@@ -22975,6 +23099,7 @@ async function loadDailyWorkflow() {
     st.error = 'Daily workflow request failed: ' + (e && e.message ? e.message : e);
     renderDailyWorkflow();
   } finally { st.loading = false; st.requestInFlight = false; }
+  try { loadOperationalBook(); } catch (e) {}     // Phase 27B single-source operational book
 }
 window.loadDailyWorkflow = loadDailyWorkflow;
 
@@ -23143,6 +23268,7 @@ async function loadPortfolioTerminal() {
     renderPortfolioTerminal();
   } finally { st.loading = false; st.requestInFlight = false; }
   try { _loadLegacyReconcilerCache(); } catch (e) {}
+  try { loadOperationalBook(); } catch (e) {}     // Phase 27B single-source operational book
 }
 window.loadPortfolioTerminal = loadPortfolioTerminal;
 
@@ -24511,6 +24637,108 @@ function otrCancelBox() {
   window._otrPending = null;
 }
 window.otrCancelBox = otrCancelBox;
+
+/* ===================== Phase 27B — OPERATIONAL BOOK (single source of truth) =====================
+   ONE loader fetches the operational-book endpoint once and renders EVERY operational surface
+   (Command Center panel, Portfolio default card, Daily Workflow operational stepper,
+   global right panel) from the SAME payload — no page can show a different cash/NAV. */
+window._obData = null;
+window._obInFlight = null;
+
+function _obMoney(x) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return '$' + Number(x).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function loadOperationalBook() {
+  if (window._obInFlight) return window._obInFlight;   // coalesce concurrent page loads
+  var p = _mhzGet('/v1/operational-book').then(function (d) {
+    window._obInFlight = null;
+    window._obData = d;
+    renderOperationalBook(d);
+    return d;
+  }).catch(function () { window._obInFlight = null; renderOperationalBook(null); return null; });
+  window._obInFlight = p;
+  return p;
+}
+window.loadOperationalBook = loadOperationalBook;
+
+function _obSet(id, text) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
+}
+
+function _obStateLabel(s) {
+  return (s || 'UNAVAILABLE').replace(/_/g, ' ');
+}
+
+function renderOperationalBook(d) {
+  var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
+  var t = (ob && ob.current_target) || null;
+  var stateTxt = ob ? (ob.initialized ? _obStateLabel(ob.current_status) : 'NOT INITIALIZED') : 'UNAVAILABLE';
+  var cash = ob && ob.initialized ? _obMoney(ob.cash) : (ob ? '— (not initialized)' : '—');
+  var nav = ob && ob.initialized ? _obMoney(ob.nav) : (ob ? '— (not initialized)' : '—');
+  var holdings = ob ? String(ob.holdings_count || 0) : '—';
+  var pending = ob ? String((ob.pending_orders && ob.pending_orders.pending_count) || 0) : '—';
+  var targetTxt = t ? (_obStateLabel(t.state) + (t.alpha_market_date ? (' · ' + t.alpha_market_date) : '')) : '—';
+  var statusTxt = ob ? _obStateLabel(ob.current_status) : '—';
+  var nextTxt = ob ? ('Next Action: ' + (ob.next_action || '—')) :
+    'Next Action: operational book unavailable — check the connection / API key, then refresh.';
+
+  // Command Center panel + Portfolio default card (identical values, same payload).
+  [['cc-ob', 'cc-ob-state'], ['ptob', 'ptob-state']].forEach(function (pair) {
+    var prefix = pair[0];
+    _obSet(prefix + '-cash', cash);
+    _obSet(prefix + '-nav', nav);
+    _obSet(prefix + '-holdings', holdings + (ob && ob.initialized ? ' names' : ''));
+    _obSet(prefix + '-pending', pending);
+    _obSet(prefix + '-target', targetTxt);
+    _obSet(prefix + '-status', statusTxt);
+    _obSet(prefix + '-next', nextTxt);
+    var badge = document.getElementById(pair[1]);
+    if (badge) {
+      badge.textContent = stateTxt;
+      badge.className = 'cc-badge ' + (!ob ? 'danger' :
+        (t && t.state === 'STALE_TARGET') ? 'manual' :
+        (ob.initialized ? 'safe' : 'muted'));
+    }
+  });
+
+  // Daily Workflow operational stepper.
+  var dwState = document.getElementById('dwob-state');
+  if (dwState) { dwState.textContent = stateTxt; dwState.className = 'cc-badge ' + (ob ? (ob.initialized ? 'safe' : 'muted') : 'danger'); }
+  _obSet('dwob-next', nextTxt);
+  var s = ob ? ob.current_status : null;
+  var postPlan = ['ORDERS_CONFIRMED', 'WAITING_FOR_ELIGIBLE_CLOSE', 'PARTIALLY_FILLED',
+                  'FULLY_FILLED', 'FORWARD_TRACKING_ACTIVE'];
+  var stages = {
+    'dwob-step-refresh-data': t && t.latest_completed_market_date ?
+      ('Latest completed: ' + t.latest_completed_market_date) : '—',
+    'dwob-step-refresh-target': !t ? '—' :
+      (t.state === 'STALE_TARGET' ? 'REFRESH REQUIRED' :
+        (t.alpha_market_aligned ? ('ALIGNED · ' + (t.alpha_market_date || '')) : _obStateLabel(t.state))),
+    'dwob-step-review': !ob ? '—' :
+      (s !== 'NO_CONFIRMED_TARGET' ? 'TARGET CONFIRMED' :
+        (t && t.snapshot_confirmation_allowed ? 'READY TO CONFIRM' : 'WAITING FOR FRESH TARGET')),
+    'dwob-step-order-plan': !ob ? '—' :
+      (s === 'TARGET_CONFIRMED' ? 'INITIALIZE BOOK' :
+        (s === 'BOOK_INITIALIZED' || s === 'ORDER_PLAN_READY' || s === 'ORDER_PLAN_REVIEW_REQUIRED') ? 'IN PROGRESS' :
+          (postPlan.indexOf(s) >= 0 ? 'DONE' : 'PENDING')),
+    'dwob-step-monitor': !ob ? '—' : (postPlan.indexOf(s) >= 0 ? 'ACTIVE' : 'PENDING'),
+  };
+  Object.keys(stages).forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var st = el.querySelector('[data-role="status"]');
+    if (st) st.textContent = stages[id];
+  });
+
+  // Global right panel — operational book first.
+  _obSet('right-ob-state', stateTxt);
+  _obSet('right-ob-nav', ob && ob.initialized ? _obMoney(ob.nav) : '—');
+}
+window.renderOperationalBook = renderOperationalBook;
+/* ===================== Phase 27B — OPERATIONAL BOOK END ===================== */
 
 function _otrOpenBox(kind, title, note, phrase) {
   window._otrPending = kind;
