@@ -2333,6 +2333,14 @@ class ScanDiagnosticsLatestResponse(BaseModel):
     candidate_review_idempotency_key: str | None = None
     prediction_run_session_id: str | None = None
     prediction_runs_matched_count: int = 0
+    # Phase 25B: current-vs-historical session state. A session is "current" only
+    # when it was created today (the latest applicable operating day for the
+    # manual Daily Review); older sessions are labeled HISTORICAL and must never
+    # be presented as today's live funnel. Universe/price-history/screen counts
+    # are computed live and are independent of the displayed session.
+    session_is_current: bool = False
+    session_age_days: int | None = None
+    session_display_label: str = "NO CURRENT DAILY REVIEW SESSION"
     active_trade_ideas: int
     watch_below_threshold: int
     rejected_blocked: int
@@ -17902,6 +17910,21 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
     # sent on the last live run is not persisted, so this is labeled as planned.
     planned_sent_to_prediction = min(dispatch_limit, locally_screened) + existing_positions_reviewed
 
+    # --- Phase 25B: current vs historical session state -----------------------
+    # A displayed session counts as "current" only when it was created today.
+    # Anything older is HISTORICAL and its session-scoped counts must not be
+    # presented as today's live funnel.
+    session_is_current = latest_created is not None and latest_created.date() >= today
+    session_age_days = (
+        (today - latest_created.date()).days if latest_created is not None else None
+    )
+    if not has_latest_session:
+        session_display_label = "NO CURRENT DAILY REVIEW SESSION"
+    elif session_is_current:
+        session_display_label = "CURRENT SESSION — TODAY"
+    else:
+        session_display_label = "HISTORICAL SESSION — NOT TODAY"
+
     # --- Resolve per-session prediction capture status -----------------------
     # captured_runs / any_prediction_runs_exist were computed read-only above.
     capture_count = len(captured_runs)
@@ -17996,6 +18019,9 @@ def scan_diagnostics_latest() -> ScanDiagnosticsLatestResponse:
         candidate_review_idempotency_key=candidate_review_session_id,
         prediction_run_session_id=prediction_run_session_id,
         prediction_runs_matched_count=capture_count,
+        session_is_current=session_is_current,
+        session_age_days=session_age_days,
+        session_display_label=session_display_label,
         active_trade_ideas=active_trade_ideas,
         watch_below_threshold=watch_below_threshold,
         rejected_blocked=rejected_blocked,
@@ -18321,7 +18347,15 @@ def model_methodology() -> ModelMethodologyResponse:
     )
 
     # --- Data readiness ledger (honest: missing features carry a no-fake rule) ---
+    # Phase 25B: reflects what the program actually OWNS today. Owned research-store
+    # data (local, read-only) powers the multi-horizon alpha platform — it is NOT
+    # used by this legacy local pre-screen, which still reads stored CLOSE prices
+    # only. Missing families keep the no-fake rule.
     _DO_NOT_FAKE = "Do not fake this feature."
+    _RESEARCH_STORE_RULE = (
+        "Owned local research-store data (read-only). Used by the multi-horizon "
+        "alpha platform; NOT used by this legacy local pre-screen."
+    )
     data_readiness = [
         ModelDataReadinessRow(
             feature_family="price history",
@@ -18339,24 +18373,76 @@ def model_methodology() -> ModelMethodologyResponse:
         ),
         ModelDataReadinessRow(
             feature_family="volume / liquidity",
-            available_now=False,
-            data_source=None,
-            status="missing_real_data_source",
-            rule=_DO_NOT_FAKE,
+            available_now=True,
+            data_source="owned Norgate turnover / dollar-volume panel (research store)",
+            status="available_research_store",
+            rule=_RESEARCH_STORE_RULE,
         ),
         ModelDataReadinessRow(
             feature_family="sector / industry",
+            available_now=True,
+            data_source="owned EODHD GICS sector mapping (Phase 10-F repaired)",
+            status="available_research_store",
+            rule=_RESEARCH_STORE_RULE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="daily OHLC / volatility data",
+            available_now=True,
+            data_source="owned Norgate total-return daily OHLC panel (survivorship-free)",
+            status="available_research_store",
+            rule=_RESEARCH_STORE_RULE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="point-in-time index membership",
+            available_now=True,
+            data_source="owned Norgate Russell 1000 Current & Past (PIT membership)",
+            status="available_research_store",
+            rule=_RESEARCH_STORE_RULE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="delisted constituents",
+            available_now=True,
+            data_source="owned Norgate delisted-security coverage",
+            status="available_research_store",
+            rule=_RESEARCH_STORE_RULE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="fundamentals (point-in-time)",
+            available_now=True,
+            data_source="owned EODHD point-in-time fundamental panel (frozen research panel)",
+            status="available_research_store",
+            rule=_RESEARCH_STORE_RULE,
+        ),
+        ModelDataReadinessRow(
+            feature_family="momentum model",
+            available_now=True,
+            data_source="validated mom_6_1 (paper challenger, monthly cadence)",
+            status="validated_paper_model",
+            rule="Validated for PAPER use only; monthly cadence — not a daily-trading model.",
+        ),
+        ModelDataReadinessRow(
+            feature_family="volatility diagnostics",
+            available_now=True,
+            data_source="owned risk stats (realized vol, beta, drawdown)",
+            status="available_diagnostic_only",
+            rule="Diagnostics only; low-volatility families are NOT validated return alphas.",
+        ),
+        ModelDataReadinessRow(
+            feature_family="analyst revisions (point-in-time)",
             available_now=False,
             data_source=None,
             status="missing_real_data_source",
-            rule=_DO_NOT_FAKE,
+            rule="Requires a paid point-in-time provider. " + _DO_NOT_FAKE,
         ),
         ModelDataReadinessRow(
             feature_family="macro conditions",
             available_now=False,
             data_source=None,
-            status="missing_real_data_source",
-            rule=_DO_NOT_FAKE,
+            status="tested_not_validated",
+            rule=(
+                "A cross-asset macro pack was evaluated in research and did not improve "
+                "the model. " + _DO_NOT_FAKE
+            ),
         ),
         ModelDataReadinessRow(
             feature_family="news sentiment",
@@ -18379,6 +18465,23 @@ def model_methodology() -> ModelMethodologyResponse:
             status="missing_real_data_source",
             rule=_DO_NOT_FAKE,
         ),
+        ModelDataReadinessRow(
+            feature_family="validated fast alpha",
+            available_now=False,
+            data_source=None,
+            status="not_active_no_validated_fast_alpha",
+            rule=(
+                "The Phase 25 fast OHLC campaign found real short-horizon information "
+                "but nothing tradable at 25 bps; the fast sleeve stays inactive."
+            ),
+        ),
+        ModelDataReadinessRow(
+            feature_family="automatic trading",
+            available_now=False,
+            data_source=None,
+            status="disabled_by_design",
+            rule="Automation is permanently disabled — manual review only, paper only.",
+        ),
     ]
 
     roadmap = [
@@ -18395,7 +18498,12 @@ def model_methodology() -> ModelMethodologyResponse:
             "This is a transparency contract, not a claim of quant-grade implementation. "
             "Current local pre-screen is a first-pass technical/momentum ranking; the remote "
             "prediction layer is a black box from Paper Trader's perspective. "
-            "News, sentiment, seasonality, macro, and event risk are target features, not "
+            "The program now OWNS survivorship-free daily OHLC, volume/turnover, point-in-time "
+            "Russell 1000 membership incl. delisted names, GICS sectors, a point-in-time "
+            "fundamental panel, a validated monthly momentum model and volatility diagnostics — "
+            "all in the local read-only research store powering the multi-horizon alpha "
+            "platform, not this legacy pre-screen. "
+            "News, sentiment, seasonality, and event risk remain target features, not "
             "active features, until real point-in-time data exists in the codebase. No feature "
             "should be added unless it is sourced, timestamped, testable, and backtestable with "
             "walk-forward validation. Paper trade only - no broker execution."

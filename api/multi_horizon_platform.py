@@ -221,7 +221,10 @@ def load_book_comparison(*, panel_path=None, inputs_dir=None, fast_spec_path=Non
     hbooks = h.get("books", {}) if h.get("status") == "MHZ_HISTORY_READY" else {}
     for bid, bk in cur["books"]["books"].items():
         hm = (hbooks.get(bid) or {}).get("metrics", {})
+        cadence = ((hbooks.get(bid) or {}).get("cadence")
+                   or ("quarterly" if bk["model_id"] == "composite_sn" else "monthly"))
         rows.append({"book_id": bid, "model_id": bk["model_id"], "size": bk["size_actual"],
+                     "cadence": cadence,
                      "n_sectors": len(bk["sector_exposure"]), "equal_weight": bk["equal_weight"],
                      "hist_net_cumulative": hm.get("net_cumulative_return"),
                      "hist_annualized_net": hm.get("annualized_net_return"),

@@ -25134,6 +25134,42 @@ class TestModelMethodologyEndpoint:
             if not feat["available"]:
                 assert feat["used_today"] is False
 
+    def test_owned_data_families_reflected(self, seeded_client: TestClient) -> None:
+        """Phase 25B: data readiness reflects what the program actually OWNS.
+
+        Volume/liquidity, sector, daily OHLC, PIT membership, delisted names,
+        PIT fundamentals, the validated momentum model and volatility
+        diagnostics are owned research-store inputs — no longer falsely
+        'missing'. Analyst revisions / news / events / fast alpha / automation
+        remain honestly unavailable or inactive.
+        """
+        resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+        assert resp.status_code == 200
+        d = resp.json()
+        readiness = {r["feature_family"]: r for r in d["data_readiness"]}
+        for fam in (
+            "volume / liquidity", "sector / industry", "daily OHLC / volatility data",
+            "point-in-time index membership", "delisted constituents",
+            "fundamentals (point-in-time)", "momentum model", "volatility diagnostics",
+        ):
+            assert fam in readiness, f"missing owned family: {fam}"
+            row = readiness[fam]
+            assert row["available_now"] is True, fam
+            assert row["data_source"], fam
+        # Owned research-store rows carry the honest scope caveat (used by the
+        # multi-horizon platform, NOT the legacy pre-screen).
+        assert "NOT used by this legacy local pre-screen" in readiness["volume / liquidity"]["rule"]
+        # Still honestly unavailable / not active — never overstated.
+        for fam in ("analyst revisions (point-in-time)", "news sentiment",
+                    "seasonality", "earnings / event risk",
+                    "validated fast alpha", "automatic trading"):
+            assert fam in readiness, f"missing family: {fam}"
+            assert readiness[fam]["available_now"] is False, fam
+        assert readiness["validated fast alpha"]["status"] == "not_active_no_validated_fast_alpha"
+        assert readiness["automatic trading"]["status"] == "disabled_by_design"
+        assert readiness["macro conditions"]["available_now"] is False
+        assert readiness["macro conditions"]["status"] == "tested_not_validated"
+
     def test_thresholds_match_code_constants(self, seeded_client: TestClient) -> None:
         """Actionability thresholds reflect the actual code defaults, not invented values."""
         from paper_trader.api.app import (
@@ -25288,11 +25324,16 @@ class TestUiStaticContent:
     # --- Daily Review Navigation + Prediction Capture Session Linkage v1 ----
 
     def test_daily_plan_has_primary_start_daily_review(self) -> None:
-        """Daily Plan exposes a primary Start Daily Review CTA, not only Overview."""
+        """Phase 25B: ONE authoritative primary Start Daily Review CTA.
+
+        The Daily Review Control card owns the single starter; every other
+        surface links to it (focusDailyReviewControl) instead of starting a
+        session itself.
+        """
         html = self._read_html()
         assert "Start Daily Review" in html
-        # Daily Plan ('prediction-cockpit') workspace drives the workflow itself.
-        assert "primaryWorkflowAction('start_daily_review'" in html
+        assert html.count("startDailyReviewSession(this)") == 1
+        assert "function focusDailyReviewControl" in html
 
     def test_overview_is_not_the_only_start_daily_review(self) -> None:
         """The Overview shortcut is not the only entry point to the workflow."""
@@ -34769,6 +34810,108 @@ class TestScanDiagnosticsCaptureLinkage:
         # Never the misleading older-session label when the session is linked.
         assert "older session" not in data["capture_status_message"].lower()
 
+    # --- Phase 25B: current vs historical session state ----------------------
+
+    @staticmethod
+    def _detach_daily_review_runs(session) -> list[tuple]:
+        """Temporarily clear daily_session_id on existing prediction runs so the
+        session resolution is deterministic. Read-restore pattern — the exact
+        values are reattached in the caller's finally block."""
+        rows = session.execute(
+            select(PredictionRun.id, PredictionRun.daily_session_id).where(
+                PredictionRun.daily_session_id.isnot(None))
+        ).all()
+        ids = [r[0] for r in rows]
+        if ids:
+            session.query(PredictionRun).filter(PredictionRun.id.in_(ids)).update(
+                {PredictionRun.daily_session_id: None}, synchronize_session=False)
+        return [(r[0], r[1]) for r in rows]
+
+    @staticmethod
+    def _reattach_daily_review_runs(session, rows: list[tuple]) -> None:
+        for pid, sid in rows:
+            session.query(PredictionRun).filter(PredictionRun.id == pid).update(
+                {PredictionRun.daily_session_id: sid}, synchronize_session=False)
+
+    def test_today_session_is_current(self, seeded_client, api_engine):
+        """A session created today is CURRENT — never labeled historical."""
+        data, key = self._run(
+            seeded_client, api_engine, review_status="NEW", error_rows=False
+        )
+        assert data["session_is_current"] is True
+        assert data["session_display_label"] == "CURRENT SESSION — TODAY"
+        assert data["session_age_days"] == 0
+
+    def test_old_session_labeled_historical_not_today(self, seeded_client, api_engine):
+        """An old session is labeled HISTORICAL SESSION — NOT TODAY and its
+        session-scoped counts are never presented as today's live funnel, while
+        the live-computed universe readiness stays intact."""
+        sfx = self._sfx()
+        old_key = f"daily-session-HIST-{sfx}"
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            saved = self._save_and_clear_candidate_reviews(session)
+            detached = self._detach_daily_review_runs(session)
+            try:
+                old_cr = CandidateReview(
+                    idempotency_key=old_key, ticker=f"HIS{sfx[:3].upper()}",
+                    prediction_recommendation="BUY", prediction_confidence="0.85",
+                    expected_return_pct="5.0", preview_decision="CONSIDER",
+                    preview_score="85.0", review_status="REJECTED", status="OK",
+                )
+                session.add(old_cr)
+                session.flush()
+                old_cr.created_at = datetime.now(timezone.utc) - timedelta(days=35)
+                session.commit()
+
+                resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+                assert resp.status_code == 200
+                data = resp.json()
+            finally:
+                session.query(CandidateReview).filter(
+                    CandidateReview.idempotency_key == old_key
+                ).delete(synchronize_session=False)
+                self._reattach_daily_review_runs(session, detached)
+                for rowdict in saved:
+                    session.add(CandidateReview(**rowdict))
+                session.commit()
+
+        assert data["session_id"] == old_key
+        assert data["session_is_current"] is False
+        assert data["session_display_label"] == "HISTORICAL SESSION — NOT TODAY"
+        assert data["session_age_days"] is not None and data["session_age_days"] >= 34
+        # The historical session contributes NO active (today) trade ideas.
+        assert data["active_trade_ideas"] == 0
+        # Live market-readiness figures are computed now and remain intact —
+        # never overwritten by the old session's diagnostics.
+        assert isinstance(data["universe_configured"], int)
+        assert data["universe_configured"] > 0
+        assert isinstance(data["price_history_ready"], int)
+        assert isinstance(data["locally_screened"], int)
+
+    def test_no_session_reads_no_current_daily_review_session(
+        self, seeded_client, api_engine
+    ):
+        """With no sessions at all the funnel states NO CURRENT DAILY REVIEW
+        SESSION instead of presenting anything as current."""
+        with Session(api_engine, autoflush=False, expire_on_commit=False) as session:
+            saved = self._save_and_clear_candidate_reviews(session)
+            detached = self._detach_daily_review_runs(session)
+            try:
+                session.commit()
+                resp = seeded_client.get(self._ENDPOINT, headers=_AUTH)
+                assert resp.status_code == 200
+                data = resp.json()
+            finally:
+                self._reattach_daily_review_runs(session, detached)
+                for rowdict in saved:
+                    session.add(CandidateReview(**rowdict))
+                session.commit()
+
+        assert data["has_latest_session"] is False
+        assert data["session_is_current"] is False
+        assert data["session_age_days"] is None
+        assert data["session_display_label"] == "NO CURRENT DAILY REVIEW SESSION"
+
 
 class TestUiDailyAlphaRunPanelContent:
     """Phase 13-G/H: the "DAILY ALPHA RUN" manual daily trading-desk cockpit in
@@ -35994,17 +36137,24 @@ class TestUiDailyWorkflowConsolidation:
             assert 'id="' + stage + '"' in html
 
     def test_duplicate_daily_review_entries_moved_to_advanced(self) -> None:
+        """Phase 25B contract: the ONE authoritative Daily Review Control card sits
+        visibly between the six-stage terminal and the collapsed Advanced Session
+        Detail; the remaining legacy cards stay inside the collapsed section and no
+        longer start sessions themselves."""
         html = _read_index_html_15b()
         advanced = _region_15b(html, 'id="dw-advanced-session"',
                                "ADVANCED SESSION DETAIL END")
-        # The duplicate "Daily Review" / "Today's Review" / "Start Daily Review" cards
-        # are inside the collapsed advanced section, off the normal operating path.
-        assert 'id="dp-review-control-card"' in advanced
+        # Legacy Today's Review + workspace cards remain consolidated in Advanced.
         assert 'id="dp-current-task-card"' in advanced
         assert "Start Daily Review" in advanced
-        # And they are NOT in the primary six-stage terminal.
-        terminal = _region_15b(html, 'id="dw-terminal"', 'id="dw-advanced-session"')
-        assert 'id="dp-review-control-card"' not in terminal
+        # The advanced section holds NO session starter of its own.
+        assert "startDailyReviewSession(this)" not in advanced
+        # The single authoritative control card is visible ABOVE the advanced
+        # section (after the terminal), not buried inside it.
+        assert 'id="dp-review-control-card"' not in advanced
+        between = _region_15b(html, 'id="dw-terminal"', 'id="dw-advanced-session"')
+        assert 'id="dp-review-control-card"' in between
+        assert html.count("startDailyReviewSession(this)") == 1
 
 
 class TestUiPortfolioCanonicalWorkspace:

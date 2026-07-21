@@ -1930,7 +1930,7 @@
       <a class="sidebar-link" id="nav-daily-workflow" data-route="daily-workflow" onclick="navigateToRoute('daily-workflow');">Daily Workflow</a>
       <a class="sidebar-link" id="nav-portfolio" data-route="portfolio" onclick="navigateToRoute('portfolio');">Portfolio</a>
       <a class="sidebar-link" id="nav-research-audit" data-route="research-audit" onclick="navigateToRoute('research-audit');">Research &amp; Audit</a>
-      <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');">Multi-Horizon Alpha</a>
+      <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');" title="Multi-Horizon Alpha Portfolio — the paper-only alpha portfolio product (primary 50/50 ensemble book, sleeves, recommendations, books, snapshots).">Alpha Portfolio</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Actions</div>
@@ -2015,6 +2015,14 @@
             </details>
             <details class="dor-advanced" id="dor-advanced" style="display:none;">
               <summary>Advanced run detail (row counts &amp; provenance)</summary>
+              <!-- Phase 25B: the retained run payload reflects the state AS OF THAT RUN
+                   (a preview of a stale state legitimately recorded STALE). It is labeled
+                   PRE-REFRESH; the FINAL STATE line always mirrors the canonical current
+                   GET status, so a final ALIGNED and a final STALE can never co-display. -->
+              <div id="dor-prefinal" class="cc-na-note" style="display:none;font-size:10px;margin:4px 0;line-height:1.5;">
+                <div id="dor-pre-state" style="color:var(--label);"></div>
+                <div id="dor-final-state" style="font-weight:700;"></div>
+              </div>
               <pre id="dor-advanced-body"></pre>
             </details>
           </div>
@@ -2189,9 +2197,9 @@
             <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">NO BROKER EXECUTION</span>
             <span style="font-size:8px; color:var(--label); background:rgba(255,255,255,.04); padding:1px 5px; border-radius:2px;">AUTOMATION OFF</span>
             <span style="flex:1;"></span>
-            <button id="start-daily-session-btn" class="btn" style="background:var(--warning,#e6a817); color:#1a1a2e; font-weight:700; font-size:10px; padding:5px 14px; flex-shrink:0;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review Session</button>
+            <button id="start-daily-session-btn" class="btn" style="background:rgba(255,255,255,.08); color:var(--warning); border:1px solid rgba(245,158,11,.5); font-weight:700; font-size:10px; padding:5px 14px; flex-shrink:0;" onclick="focusDailyReviewControl()" title="The Daily Review is started from ONE place: the Daily Review control in the Daily Workflow view.">Open Daily Review &rarr;</button>
           </div>
-          <div style="font-size:9px; color:var(--text-secondary); margin-bottom:5px;">One-click daily review &mdash; refresh market data, scan candidates, save to review queue, generate summary. Manual only &mdash; no automation.</div>
+          <div style="font-size:9px; color:var(--text-secondary); margin-bottom:5px;">Read-only summary of the one-click daily review (refresh market data, scan candidates, save to review queue, generate summary). Manual only &mdash; no automation. The session itself is started from the single Daily Review control in the Daily Workflow view.</div>
           <div id="daily-session-progress" style="display:none; margin-top:6px;"></div>
         </div>
 
@@ -2409,34 +2417,12 @@
         </div>
         <!-- ===================== Phase 14-B DAILY WORKFLOW TERMINAL END ===================== -->
 
-        <!-- ===================== Phase 15-B ADVANCED SESSION DETAIL START ===================== -->
-        <!-- The legacy Daily Plan cards (Daily Review control, Today's Review, scan
-             selection funnel, exclusion reasons, prediction-capture detail and
-             methodology) are consolidated here so the six-stage terminal + single
-             active workbench above stays the normal operating path. Collapsed by
-             default; all functionality is preserved. -->
-        <details id="dw-advanced-session" style="margin-top: 12px;">
-          <summary style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--label); cursor: pointer; padding: 8px 0;">Advanced Session Detail — scan, review, capture &amp; methodology</summary>
-
-        <!-- Daily Plan Summary Label -->
-        <div style="font-size: 8px; color: var(--label); margin: 8px 0 4px 0; text-transform: uppercase; letter-spacing: 0.06em;">Daily Plan Summary</div>
-
-        <!-- Safety command bar -->
-        <div class="daily-plan-command-bar">
-          <span style="font-size: 8px; color: var(--info); background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3); padding: 2px 5px; border-radius: 2px; flex-shrink: 0; font-weight: 600;">Portfolio-aware daily process</span>
-          <span style="flex: 1;"></span>
-          <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">MANUAL REVIEW</span>
-          <span class="badge ok" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">PAPER ORDERS ONLY</span>
-          <span class="badge neutral" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">AUTOMATION OFF</span>
-          <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">NO BROKER EXECUTION</span>
-        </div>
-
-        <!-- Daily Review Control: the always-visible primary workflow action at the
-             top of the Daily Plan cockpit. It NEVER hides behind state — the single
-             primary button is always present (Start Daily Review / Daily Review
-             Running... / Run New Daily Review), so the user can always run or rerun
-             the Daily Review without scrolling or hunting an accordion. -->
-        <div id="dp-review-control-card" class="compact-card" style="flex-shrink: 0; border: 2px solid rgba(245,158,11,.55); background: rgba(245,158,11,.06); margin-bottom: 12px;">
+        <!-- Phase 25B: Daily Review Control — THE single, always-visible, authoritative
+             primary workflow action. This is the ONLY control that starts a Daily
+             Review session (startDailyReviewSession). Every other surface (Command
+             Center card, workbench DATA stage, workspace, right rail) links here
+             instead of starting a session itself. -->
+        <div id="dp-review-control-card" class="compact-card" style="flex-shrink: 0; border: 2px solid rgba(245,158,11,.55); background: rgba(245,158,11,.06); margin: 12px 0;">
           <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; border-bottom: 1px solid rgba(245,158,11,.2); padding-bottom: 6px;">
             <div style="font-size: 17px; font-weight: 800; color: var(--warning); letter-spacing: .02em;">Daily Review</div>
             <div style="display: flex; align-items: center; gap: 6px;">
@@ -2449,7 +2435,7 @@
             <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
             <span class="badge warning" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
           </div>
-          <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 10px;">Runs the full S&amp;P 500 local scan and the remote prediction dispatch, then reviews existing positions. It does not create orders, trades, or fills.</div>
+          <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 10px;">Runs the full S&amp;P 500 local scan and the remote prediction dispatch, then reviews existing positions. It does not create orders, trades, or fills. This is the one place the Daily Review is started.</div>
           <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
             <button id="drc-primary-btn" class="btn" style="background: var(--warning); color: #1a1a2e; font-weight: 800; font-size: 13px; padding: 12px 20px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review</button>
             <div id="drc-last-run" style="font-size: 10px; color: var(--label); line-height: 1.4;"></div>
@@ -2474,7 +2460,36 @@
           <div id="drc-action" style="display: flex; gap: 10px; flex-wrap: wrap;"></div>
         </div>
 
+        <!-- Live Daily Review progress: rendered in the main Daily Review panel
+             so the user follows Start Daily Review without tab-dancing to Overview. -->
+        <div id="dp-daily-review-progress" style="display:none; margin-bottom:12px;"></div>
+
+        <!-- ===================== Phase 15-B ADVANCED SESSION DETAIL START ===================== -->
+        <!-- The legacy Daily Plan cards (Daily Review control, Today's Review, scan
+             selection funnel, exclusion reasons, prediction-capture detail and
+             methodology) are consolidated here so the six-stage terminal + single
+             active workbench above stays the normal operating path. Collapsed by
+             default; all functionality is preserved. -->
+        <details id="dw-advanced-session" style="margin-top: 12px;">
+          <summary style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--label); cursor: pointer; padding: 8px 0;">Advanced Session Detail — scan, review, capture &amp; methodology</summary>
+
+        <!-- Daily Plan Summary Label -->
+        <div style="font-size: 8px; color: var(--label); margin: 8px 0 4px 0; text-transform: uppercase; letter-spacing: 0.06em;">Daily Plan Summary</div>
+
+        <!-- Safety command bar -->
+        <div class="daily-plan-command-bar">
+          <span style="font-size: 8px; color: var(--info); background: rgba(59,130,246,.1); border: 1px solid rgba(59,130,246,.3); padding: 2px 5px; border-radius: 2px; flex-shrink: 0; font-weight: 600;">Portfolio-aware daily process</span>
+          <span style="flex: 1;"></span>
+          <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">MANUAL REVIEW</span>
+          <span class="badge ok" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">PAPER ORDERS ONLY</span>
+          <span class="badge neutral" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">AUTOMATION OFF</span>
+          <span class="badge warning" style="font-size: 8px; padding: 2px 5px; flex-shrink: 0;">NO BROKER EXECUTION</span>
+        </div>
+
         <!-- Review Workspace: primary full-width header -->
+        <!-- (Phase 25B: the Daily Review Control + Daily Review Complete cards moved
+             OUT of this collapsed section — they now sit visibly at the top of the
+             Daily Workflow view as the ONE authoritative Daily Review action.) -->
         <div id="dp-current-task-card" style="background: rgba(59,130,246,.07); border: 2px solid rgba(59,130,246,.45); border-radius: 6px; padding: 14px 18px; margin-bottom: 12px;">
           <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
             <div style="font-size: 16px; font-weight: 800; color: var(--info); letter-spacing: 0.01em;">Today's Review</div>
@@ -2506,10 +2521,6 @@
           <div id="dp-current-task-safety" style="display:none;"></div>
         </div>
 
-        <!-- Live Daily Review progress: rendered in the main Daily Review panel
-             so the user follows Start Daily Review without tab-dancing to Overview. -->
-        <div id="dp-daily-review-progress" style="display:none; margin-bottom:12px;"></div>
-
         <!-- Active Action Workspace: the single section that shows the current
              required action, ALWAYS directly below Today's Review. Exactly one
              sub-workspace is visible at a time, driven by the canonical state. -->
@@ -2523,8 +2534,8 @@
             <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">NO ORDERS</span>
             <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">AUTOMATION OFF</span>
           </div>
-          <div style="font-size: 11px; color: var(--text-accent); line-height: 1.5; margin-bottom: 10px;">This refreshes market data, prepares today's candidates, and updates the portfolio snapshot. It does not create orders or trades.</div>
-          <button class="btn" style="background: var(--warning); color: #1a1a2e; font-weight: 800; font-size: 13px; padding: 12px 18px;" onclick="primaryWorkflowAction('start_daily_review', this)">&#9654; Start Daily Review</button>
+          <div style="font-size: 11px; color: var(--text-accent); line-height: 1.5; margin-bottom: 10px;">This refreshes market data, prepares today's candidates, and updates the portfolio snapshot. It does not create orders or trades. The Daily Review is started from ONE place: the Daily Review control at the top of this view.</div>
+          <button class="btn" style="background: rgba(255,255,255,.08); color: var(--warning); font-weight: 800; font-size: 12px; padding: 10px 16px; border: 1px solid rgba(245,158,11,.5);" onclick="focusDailyReviewControl()" title="Go to the single Daily Review control — the one place that starts the session.">&#8679; Go to Daily Review Control</button>
         </div>
 
         <!-- Candidates to Review workspace: wraps the single candidate decision card -->
@@ -2592,7 +2603,11 @@
             </div>
             <span id="ssf-session" style="font-size: 10px; color: var(--label); font-weight: 600;"></span>
           </div>
-          <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;">Read-only selection diagnostics &mdash; paper trade only, no broker execution, automation off. Full S&amp;P 500 local screen runs first, then Prediction dispatch is limited to the top-ranked names.</div>
+          <!-- Phase 25B: canonical session-state banner. Session-scoped counts are only
+               "today's funnel" when the session was created today; older sessions are
+               labeled HISTORICAL and never presented as the live funnel. -->
+          <div id="ssf-session-state" style="display:none; margin-bottom: 6px; padding: 5px 8px; border-radius: 0 3px 3px 0; font-size: 10px; font-weight: 700; line-height: 1.45;"></div>
+          <div style="font-size: 9px; color: var(--label); margin-bottom: 6px; line-height: 1.4;">Read-only selection diagnostics &mdash; paper trade only, no broker execution, automation off. Full S&amp;P 500 local screen runs first, then Prediction dispatch is limited to the top-ranked names. Universe / price-history / screened figures are computed <b>live now</b>; session-scoped counts belong to the labeled session.</div>
           <div id="ssf-note" style="font-size: 10px; color: var(--text-accent); margin-bottom: 8px; line-height: 1.45;">Connect and run Daily Review to populate the scan selection funnel.</div>
           <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
             <div class="sc-cell" style="flex: 1 1 110px; background: rgba(0,0,0,.18); border-radius: 3px; padding: 5px 8px;"><div style="font-size: 8px; text-transform: uppercase; letter-spacing: .06em; color: var(--label);">Universe Configured</div><div id="ssf-universe" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">-</div></div>
@@ -4286,13 +4301,17 @@
             <span class="cc-badge">NO LIVE PROMOTION</span>
             <span class="cc-badge muted" id="mhz-fast-badge" title="Validated fast alpha availability (Track B).">FAST: &mdash;</span>
           </div>
+          <!-- Load / error / connected state — never a blank page, never a stale connect placeholder. -->
+          <div id="mhz-load-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only multi-horizon paper platform&hellip;</div>
           <!-- TOP STATUS BAR -->
           <div id="mhz-statusbar" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 10px;">
             <span>Market <b id="mhz-sb-market">&mdash;</b></span>
             <span>Fundamental <b id="mhz-sb-fund">&mdash;</b></span>
-            <span>Primary <b id="mhz-sb-primary">&mdash;</b></span>
-            <span>Eligible universe <b id="mhz-sb-universe">&mdash;</b></span>
             <span>Operating <b id="mhz-sb-state">&mdash;</b></span>
+            <span>Primary model <b id="mhz-sb-primary-model" title="Operational primary paper ensemble — fixed 50/50; it did NOT replace the research champion.">&mdash;</b></span>
+            <span>Primary book <b id="mhz-sb-primary">&mdash;</b></span>
+            <span>Eligible universe <b id="mhz-sb-universe">&mdash;</b></span>
+            <span>Next combined review <b id="mhz-sb-next-review">&mdash;</b></span>
             <span>Fast <b id="mhz-sb-fast">&mdash;</b></span>
           </div>
           <!-- KPI CARDS -->
@@ -4331,10 +4350,21 @@
             <!-- 4. PERFORMANCE -->
             <div class="card" style="margin-bottom:12px;">
               <div class="card-title">Performance <span class="cc-badge muted" title="Historical paper reconstruction, 25 bps cost, native cadence, PIT, no re-optimization.">PAPER RECONSTRUCTION</span></div>
+              <div id="mhz-roles" class="cc-na-note" style="font-size:10px;margin:0 0 6px;">
+                <b>composite_sn</b> &mdash; research champion (never replaced) &middot;
+                <b>mom_6_1</b> &mdash; paper challenger &middot;
+                <b>fundamental_momentum_50_50_v1</b> &mdash; operational primary paper ensemble.
+                The ensemble did <b>not</b> replace the research champion.
+              </div>
               <div id="mhz-perf" style="overflow-x:auto;font-size:11px;">&mdash;</div>
               <div id="mhz-lift" class="cc-na-note" style="font-size:11px;margin-top:8px;">&mdash;</div>
             </div>
-            <!-- 5. DAILY MONITORING -->
+            <!-- 5. FAST SLEEVE — visible, never hidden behind diagnostics -->
+            <div class="card" style="margin-bottom:12px;" id="mhz-fast-card">
+              <div class="card-title">Fast Sleeve <span class="cc-badge muted" id="mhz-fast-card-badge">INACTIVE</span></div>
+              <div id="mhz-fast-body" style="font-size:11px;">&mdash;</div>
+            </div>
+            <!-- 6. DAILY MONITORING -->
             <div class="card" style="margin-bottom:12px;">
               <div class="card-title">Daily Monitoring <span class="cc-badge muted" title="Risk/eligibility refresh — most days show HOLD / WAIT / no action.">RISK &amp; ELIGIBILITY</span></div>
               <div id="mhz-monitoring" style="font-size:11px;">&mdash;</div>
@@ -18006,8 +18036,39 @@ function _ssfRender(d) {
   const sessEl = document.getElementById('ssf-session');
   if (sessEl) {
     sessEl.textContent = d.has_latest_session
-      ? ('Latest session: ' + (d.session_id || '-') + (d.market_date ? ('  ·  ' + d.market_date) : ''))
+      ? ('Latest session: ' + (d.session_id || '-') + (d.market_date ? ('  ·  ' + d.market_date) : '')
+         + (d.session_is_current === false ? '  ·  HISTORICAL — NOT TODAY' : ''))
       : 'No scan session yet';
+  }
+
+  // Phase 25B: canonical current-vs-historical session banner. Live-screen cells
+  // (universe / price-history / screened) are computed now; session-scoped counts
+  // belong to the labeled session and are NEVER presented as today's funnel when
+  // the session is historical.
+  const stateEl = document.getElementById('ssf-session-state');
+  if (stateEl) {
+    stateEl.style.display = 'block';
+    if (!d.has_latest_session) {
+      stateEl.style.background = 'rgba(255,255,255,.05)';
+      stateEl.style.borderLeft = '2px solid var(--label)';
+      stateEl.style.color = 'var(--label)';
+      stateEl.textContent = (d.session_display_label || 'NO CURRENT DAILY REVIEW SESSION')
+        + ' — no Daily Review session exists yet. The universe / price-history / screened figures below are computed live now.';
+    } else if (d.session_is_current) {
+      stateEl.style.background = 'rgba(34,197,94,.08)';
+      stateEl.style.borderLeft = '2px solid var(--ok)';
+      stateEl.style.color = 'var(--ok)';
+      stateEl.textContent = (d.session_display_label || 'CURRENT SESSION — TODAY')
+        + (d.market_date ? (' (' + d.market_date + ')') : '');
+    } else {
+      stateEl.style.background = 'rgba(245,158,11,.10)';
+      stateEl.style.borderLeft = '2px solid var(--warning)';
+      stateEl.style.color = 'var(--warning)';
+      stateEl.textContent = (d.session_display_label || 'HISTORICAL SESSION — NOT TODAY')
+        + (d.market_date ? (' (' + d.market_date + ')') : '')
+        + (d.session_age_days != null ? (' — ' + d.session_age_days + ' day(s) old.') : '.')
+        + ' Session-scoped counts below are from that older session, not today. NO CURRENT DAILY REVIEW SESSION exists — start one from the Daily Review control. Live universe / price-history / screened figures are computed now and are unaffected.';
+    }
   }
   const noteEl = document.getElementById('ssf-note');
   if (noteEl) noteEl.textContent = d.funnel_note
@@ -18726,6 +18787,21 @@ function _getDailySessionOutcome() {
 // The Daily Review Control card owns the single, always-visible primary workflow
 // action (Start / Running / Run New). It is driven only by run state + today's
 // recorded outcome, so it is correct on page load, on tab switch, and after a run.
+
+// Phase 25B: ONE authoritative primary action. Every other Start-Daily-Review
+// surface (Command Center card, workbench DATA stage, workspace, right rail)
+// routes here instead of starting a session itself.
+function focusDailyReviewControl() {
+  try { navigateToRoute('daily-workflow'); } catch (e) {}
+  setTimeout(function () {
+    var card = document.getElementById('dp-review-control-card');
+    if (card && card.scrollIntoView) { try { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {} }
+    var btn = document.getElementById('drc-primary-btn');
+    if (btn && btn.focus) { try { btn.focus({ preventScroll: true }); } catch (e) {} }
+  }, 150);
+}
+window.focusDailyReviewControl = focusDailyReviewControl;
+
 function renderDailyReviewControl() {
   const statusEl = document.getElementById('drc-status');
   const btn = document.getElementById('drc-primary-btn');
@@ -19418,7 +19494,7 @@ function updateTodayReview(ctx) {
     taskEl.style.color = 'var(--warning)';
     if (nextEl) { nextEl.textContent = _rpNext; nextEl.style.color = 'var(--text-accent)'; }
     if (ctxEl) { ctxEl.textContent = olderCount > 0 ? 'Older review items are not part of today’s new scan.' : ''; ctxEl.style.color = 'var(--label)'; }
-    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:var(--warning);color:#1a1a2e;font-weight:700;font-size:11px;padding:7px 18px;" onclick="startDailyReviewSession(this)">&#9654; Start Daily Review</button>';
+    if (actionEl) actionEl.innerHTML = '<button class="btn" style="background:rgba(255,255,255,.08);color:var(--warning);border:1px solid rgba(245,158,11,.5);font-weight:700;font-size:11px;padding:7px 18px;" onclick="focusDailyReviewControl()" title="Go to the single Daily Review control — the one place that starts the session.">Open Daily Review Control</button>';
     renderTradeFlowCard('HIDE');
   } else if (!todayReviewComplete) {
     _rpTask = 'Review Candidates';
@@ -22000,7 +22076,25 @@ function _renderMarketDataBadge(md) {
   }
 }
 
+// Phase 25B: ONE canonical final-state line inside the collapsed run detail,
+// always derived from the latest GET status — never from a retained
+// preview/execute payload — so it can never contradict the headline.
+function _dorUpdateFinalStateLine() {
+  var el = document.getElementById('dor-final-state');
+  if (!el) return;
+  var md = window._dorCanonicalMd || null;
+  if (!md || !md.status || md.status === 'UNAVAILABLE') {
+    el.textContent = 'FINAL STATE (canonical, current): not checked';
+    return;
+  }
+  var fin = (md.status === 'ALIGNED' && md.aligned)
+    ? ('ALIGNED · ' + (md.required_market_date || ''))
+    : String(md.status).replace(/_/g, ' ');
+  el.textContent = 'FINAL STATE (canonical, current): ' + fin;
+}
+
 function _renderDailyOperatingRun(md) {
+  window._dorCanonicalMd = md || null;
   _renderMarketDataBadge(md);
   var card = document.getElementById('dor-card');
   var pill = document.getElementById('dor-align-pill');
@@ -22059,6 +22153,9 @@ function _renderDailyOperatingRun(md) {
       canonOut.style.display = 'none';
     }
   }
+  // Keep the collapsed run detail's FINAL STATE line in lockstep with this
+  // canonical GET status (it may have been rendered from an older run payload).
+  _dorUpdateFinalStateLine();
 }
 
 function _dorRenderRun(data) {
@@ -22088,10 +22185,25 @@ function _dorRenderRun(data) {
   var adv = document.getElementById('dor-advanced');
   var advBody = document.getElementById('dor-advanced-body');
   if (adv && advBody) {
-    var detail = { status: data.status, required_market_date: data.required_market_date,
+    // Phase 25B: the retained run payload reflects the state AS OF THE RUN (a
+    // preview of a stale state legitimately recorded STALE). Its keys are
+    // labeled pre_refresh_* so the raw JSON can never read as a second "final"
+    // state contradicting the canonical headline above.
+    var runKind = (data.mode === 'PREVIEW') ? 'PREVIEW' : 'EXECUTE';
+    var detail = { run_kind: runKind,
+      pre_refresh_status: data.status, required_market_date: data.required_market_date,
       duration_ms: data.duration_ms, price_universe: data.price_universe,
-      row_counts: data.row_counts, alignment: data.alignment, provenance: data.provenance };
+      row_counts: data.row_counts, pre_refresh_alignment: data.alignment,
+      provenance: data.provenance };
     advBody.textContent = JSON.stringify(detail, null, 2);
+    var preLine = document.getElementById('dor-pre-state');
+    if (preLine) {
+      preLine.textContent = 'PRE-REFRESH STATE (as recorded by this '
+        + (runKind === 'PREVIEW' ? 'preview' : 'run') + '): ' + (data.status || '—');
+    }
+    _dorUpdateFinalStateLine();
+    var wrap = document.getElementById('dor-prefinal');
+    if (wrap) wrap.style.display = 'block';
     adv.style.display = 'block';
   }
 }
@@ -22267,6 +22379,8 @@ var _ROUTE_TO_TAB = {
   'command-center': 'overview', 'daily-workflow': 'prediction-cockpit',
   'portfolio': 'portfolio', 'research-audit': 'audit-advanced',
   'multi-horizon': 'multi-horizon',
+  // Phase 25B: friendly alias — the sidebar item is named "Alpha Portfolio".
+  'alpha-portfolio': 'multi-horizon',
 };
 function _parseRoute() {
   var h = (location.hash || '').replace(/^#/, '');
@@ -22297,6 +22411,7 @@ function navigateToRoute(route) {
 }
 window.navigateToRoute = navigateToRoute;
 function _highlightNav(base) {
+  if (base === 'alpha-portfolio') base = 'multi-horizon';  // Phase 25B route alias
   var links = document.querySelectorAll('.sidebar-link[data-route]');
   Array.prototype.forEach.call(links, function (a) {
     if (a.getAttribute('data-route') === base) a.classList.add('active');
@@ -22586,8 +22701,8 @@ function renderWorkflowWorkbench(stage) {
   } else { // DATA (start the daily review)
     title = 'Data — Start Daily Review';
     sub = 'No trade ideas pending';
-    html = '<div class="dw-wb-empty" style="font-style:normal;color:var(--text-accent);">No current trade ideas are pending. Start a new daily review to run the S&amp;P 500 local scan and the remote prediction dispatch. This creates no orders and no trades.</div>' +
-      '<div style="margin-top:8px;"><button class="cc-btn primary" onclick="startDailyReviewSession(this)" title="Start the daily review (styled confirmation)">Start Daily Review</button></div>';
+    html = '<div class="dw-wb-empty" style="font-style:normal;color:var(--text-accent);">No current trade ideas are pending. Start a new daily review to run the S&amp;P 500 local scan and the remote prediction dispatch. This creates no orders and no trades. The one place that starts it is the Daily Review control just below this terminal.</div>' +
+      '<div style="margin-top:8px;"><button class="cc-btn primary" onclick="focusDailyReviewControl()" title="Go to the single Daily Review control (the one place that starts the session)">Open Daily Review Control</button></div>';
   }
 
   if (titleEl) titleEl.textContent = title;
@@ -22903,9 +23018,32 @@ function _mhzNum(x, nd) {
   return Number(x).toFixed(nd === undefined ? 2 : nd);
 }
 
+// Phase 25B: exact model-role language, used consistently across the page.
+// The combined ensemble is NEVER labelled as the research champion.
+var _MHZ_MODEL_ROLE = {
+  'composite_sn': 'RESEARCH CHAMPION',
+  'mom_6_1': 'PAPER CHALLENGER',
+  'fundamental_momentum_50_50_v1': 'OPERATIONAL PRIMARY ENSEMBLE',
+};
+function _mhzRoleChip(modelId) {
+  var role = _MHZ_MODEL_ROLE[modelId];
+  if (!role) return '';
+  var cls = role === 'OPERATIONAL PRIMARY ENSEMBLE' ? 'safe' : 'muted';
+  return ' <span class="cc-badge ' + cls + '" style="font-size:8px;">' + role + '</span>';
+}
+function _mhzRoleForBook(bookId) {
+  if (!bookId) return '';
+  if (bookId.indexOf('fundamental_momentum_50_50') === 0) return 'OPERATIONAL PRIMARY ENSEMBLE';
+  if (bookId.indexOf('mom_6_1') === 0) return 'PAPER CHALLENGER';
+  if (bookId.indexOf('composite_sn') === 0) return 'RESEARCH CHAMPION';
+  return '';
+}
+
 async function loadMultiHorizon() {
   var st = document.getElementById('mhz-status');
+  var note = document.getElementById('mhz-load-note');
   if (st) { st.textContent = 'Loading…'; st.className = 'cc-badge'; }
+  if (note) note.textContent = 'Loading the read-only multi-horizon paper platform…';
   var res = await Promise.all([
     _mhzGet('/v1/research/alpha-sleeves'),
     _mhzGet('/v1/research/alpha-operating-state'),
@@ -22924,11 +23062,22 @@ async function loadMultiHorizon() {
     st.textContent = ok ? 'READY' : (opstate && opstate.status) || 'UNAVAILABLE';
     st.className = 'cc-badge ' + (ok ? 'safe' : 'danger');
   }
-  renderMhzStatusbar(opstate, scores, books);
+  if (note) {
+    if (ok) {
+      note.textContent = 'Connected — live read-only platform data loaded at '
+        + new Date().toLocaleTimeString() + '. Paper only; no orders; no automation.';
+    } else if (!opstate) {
+      note.textContent = 'Could not reach the platform endpoints. Check the connection / API key, then use Refresh.';
+    } else {
+      note.textContent = 'Platform inputs unavailable (' + (opstate.status || 'error') + '). Use Refresh to retry.';
+    }
+  }
+  renderMhzStatusbar(opstate, scores, books, sleeves);
   renderMhzSleeves(sleeves);
   renderMhzRecommendations(recs);
   renderMhzBooks(books);
   renderMhzPerformance(perf);
+  renderMhzFastSleeve(sleeves, opstate);
   renderMhzMonitoring(opstate);
   renderMhzOpState(opstate, sleeves);
   renderMhzSnapshots(snaps);
@@ -22936,18 +23085,25 @@ async function loadMultiHorizon() {
 }
 window.loadMultiHorizon = loadMultiHorizon;
 
-function renderMhzStatusbar(opstate, scores, books) {
+function renderMhzStatusbar(opstate, scores, books, sleeves) {
   function setT(id, v) { var el = document.getElementById(id); if (el) el.textContent = (v === undefined || v === null) ? '—' : v; }
   var market = (opstate && opstate.market_as_of_date) || (scores && scores.market_as_of_date);
   var fund = (scores && scores.fundamental_as_of_date) || (opstate && opstate.fundamental_month);
   var fastOk = !!(opstate && opstate.validated_fast_alpha_available);
   setT('mhz-sb-market', market); setT('mhz-kpi-market', market);
   setT('mhz-sb-fund', fund); setT('mhz-kpi-fund', fund);
-  setT('mhz-sb-primary', '50/50 Top-25'); setT('mhz-kpi-primary', '50/50 Top-25');
+  setT('mhz-sb-primary-model', 'fundamental_momentum_50_50_v1');
+  var primaryBook = (books && books.primary_book_id) || 'fundamental_momentum_50_50_top25';
+  setT('mhz-sb-primary', primaryBook); setT('mhz-kpi-primary', '50/50 Top-25');
   var uni = scores && scores.n_common_universe;
   setT('mhz-sb-universe', uni); setT('mhz-kpi-universe', uni);
   setT('mhz-sb-state', (opstate && opstate.operating_state) || '—');
   setT('mhz-kpi-review', opstate && opstate.portfolio_review_due ? 'YES' : 'No');
+  var combined = null;
+  if (sleeves && sleeves.sleeves) {
+    sleeves.sleeves.forEach(function (s) { if (s.sleeve_id === 'combined') combined = s; });
+  }
+  setT('mhz-sb-next-review', combined && combined.next_review);
   var fastTxt = fastOk ? 'VALIDATED' : 'NO_VALIDATED_FAST_ALPHA';
   setT('mhz-sb-fast', fastTxt); setT('mhz-kpi-fast', fastOk ? 'ACTIVE' : 'INACTIVE');
   var fb = document.getElementById('mhz-fast-badge');
@@ -22959,7 +23115,7 @@ function renderMhzSleeves(d) {
   if (!el) return;
   if (!d || !d.sleeves || !d.sleeves.length) { el.textContent = 'Sleeve registry unavailable.'; return; }
   var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
-    ['Sleeve', 'Model', 'Horizon', 'Observation', 'Rebalance', 'Last review', 'Next review', 'Status', 'Actionability']
+    ['Sleeve', 'Model', 'Horizon', 'Observation', 'Rebalance', 'Last review', 'Next review', 'Review due', 'Actionability', 'Status']
       .map(function (c) { return '<th style="text-align:left;padding:3px 8px;">' + c + '</th>'; }).join('') +
     '</tr></thead><tbody>';
   d.sleeves.forEach(function (s) {
@@ -22969,16 +23125,50 @@ function renderMhzSleeves(d) {
     var stCls = s.review_due ? 'manual' : 'muted';
     h += '<tr style="border-top:1px solid var(--border,#2a3550);">' +
       '<td style="padding:3px 8px;font-weight:700;">' + escapeHtml(s.display_name || s.sleeve_id) + (s.is_primary ? ' <span class="cc-badge safe">PRIMARY</span>' : '') + '</td>' +
-      '<td style="padding:3px 8px;" class="mono">' + escapeHtml(s.active_model || '—') + '</td>' +
+      '<td style="padding:3px 8px;" class="mono">' + escapeHtml(s.active_model || '—') + _mhzRoleChip(s.active_model) + '</td>' +
       '<td style="padding:3px 8px;">' + escapeHtml(s.horizon || '—') + '</td>' +
       '<td style="padding:3px 8px;">' + escapeHtml(s.observation_frequency || '—') + '</td>' +
       '<td style="padding:3px 8px;">' + escapeHtml(s.cadence || '—') + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + escapeHtml((s.last_review || '—').slice(0, 10)) + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + escapeHtml(s.next_review || '—') + '</td>' +
-      '<td style="padding:3px 8px;"><span class="cc-badge ' + stCls + '">' + escapeHtml(stTxt) + '</span></td>' +
-      '<td style="padding:3px 8px;">' + escapeHtml(s.current_actionability || '—') + '</td></tr>';
+      '<td style="padding:3px 8px;">' + (s.review_due ? '<span class="cc-badge manual">YES</span>' : 'no') + '</td>' +
+      '<td style="padding:3px 8px;">' + escapeHtml(s.current_actionability || '—') + '</td>' +
+      '<td style="padding:3px 8px;"><span class="cc-badge ' + stCls + '">' + escapeHtml(stTxt) + '</span></td></tr>';
   });
   el.innerHTML = h + '</tbody></table>';
+}
+
+// FAST SLEEVE — always visible: shows WHY the sleeve is inactive (never hidden in audit).
+function renderMhzFastSleeve(sleeves, opstate) {
+  var el = document.getElementById('mhz-fast-body');
+  var badge = document.getElementById('mhz-fast-card-badge');
+  if (!el) return;
+  var fast = null;
+  if (sleeves && sleeves.sleeves) {
+    sleeves.sleeves.forEach(function (s) { if (s.sleeve_id === 'fast') fast = s; });
+  }
+  var fastOk = !!(opstate && opstate.validated_fast_alpha_available);
+  if (badge) {
+    badge.textContent = fastOk ? 'ACTIVE' : 'INACTIVE';
+    badge.className = 'cc-badge ' + (fastOk ? 'safe' : 'muted');
+  }
+  if (fastOk) {
+    el.innerHTML = '<div><b>Validated fast alpha available.</b> The fast sleeve is active per its frozen validated spec.</div>';
+    return;
+  }
+  var reasons = (fast && fast.fast_inactive_reasons) || [
+    'Strongest OHLC signal (overnight-gap-fade intraday reversal) failed net-of-cost at 25 bps (net25 <= 0).',
+    'Holdout net25 also failed (the edge decays out-of-sample).',
+    'Break-even cost capacity ~18 bps is below the required 25 bps.',
+    'No fast model passed the strict validation gate, so the sleeve remains inactive.',
+  ];
+  el.innerHTML =
+    '<div style="font-weight:800;margin-bottom:4px;"><span class="cc-badge manual">NO VALIDATED FAST ALPHA</span></div>' +
+    '<div class="cc-na-note" style="font-size:10px;margin-bottom:6px;">Why the fast sleeve is inactive (Phase 25 fast OHLC research verdict):</div>' +
+    '<ul style="margin:0 0 6px 16px;padding:0;font-size:10px;line-height:1.5;">' +
+    reasons.map(function (r) { return '<li>' + escapeHtml(r) + '</li>'; }).join('') +
+    '</ul>' +
+    '<div class="cc-na-note" style="font-size:10px;">The sleeve generates no recommendations and no actions. It activates only if a future fast model independently passes the strict PIT / holdout / turnover / cost gate.</div>';
 }
 
 function renderMhzRecommendations(d) {
@@ -22988,22 +23178,25 @@ function renderMhzRecommendations(d) {
   if (!d || !d.sleeves || !d.sleeves.combined) { el.textContent = 'Recommendations unavailable.'; return; }
   var c = d.sleeves.combined;
   if (stEl) {
+    // Always show ALL FIVE recommendation states, zero-filled, so the counts are
+    // explicit even when a state has no rows.
     var counts = c.counts || {};
-    stEl.textContent = Object.keys(counts).map(function (k) { return k + ': ' + counts[k]; }).join('  ') || '—';
+    stEl.textContent = ['BUY_CANDIDATE', 'HOLD', 'REDUCE_CANDIDATE', 'EXIT_CANDIDATE', 'WAIT']
+      .map(function (k) { return k + ': ' + (counts[k] || 0); }).join('  ');
   }
   var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
-    ['Ticker', 'Recommendation', 'Sleeve', 'Target wt', 'Current wt', 'Comb rk', 'Fund rk', 'Mom rk', 'Sector', 'Risk', 'Reason']
+    ['Rank', 'Ticker', 'Recommendation', 'Target wt', 'Current wt', 'Comb score', 'Fund rk', 'Mom rk', 'Sector', 'Risk', 'Reason']
       .map(function (cn) { return '<th style="text-align:left;padding:3px 6px;">' + cn + '</th>'; }).join('') +
     '</tr></thead><tbody>';
   (c.recommendations || []).forEach(function (r) {
     var ranks = r.model_ranks || {};
     h += '<tr style="border-top:1px solid var(--border,#2a3550);">' +
+      '<td style="padding:3px 6px;" class="mono">' + (ranks.current != null ? ranks.current : '—') + '</td>' +
       '<td style="padding:3px 6px;font-weight:700;" class="mono">' + escapeHtml(r.ticker) + '</td>' +
       '<td style="padding:3px 6px;">' + _mhzRecBadge(r.recommendation) + '</td>' +
-      '<td style="padding:3px 6px;">' + escapeHtml(r.sleeve || '—') + '</td>' +
       '<td style="padding:3px 6px;" class="mono">' + _mhzPct(r.target_weight) + '</td>' +
       '<td style="padding:3px 6px;" class="mono">' + _mhzPct(r.current_theoretical_weight) + '</td>' +
-      '<td style="padding:3px 6px;" class="mono">' + (ranks.current != null ? ranks.current : '—') + '</td>' +
+      '<td style="padding:3px 6px;" class="mono">' + _mhzNum(r.combined_score, 3) + '</td>' +
       '<td style="padding:3px 6px;" class="mono">' + (ranks.fundamental != null ? ranks.fundamental : '—') + '</td>' +
       '<td style="padding:3px 6px;" class="mono">' + (ranks.momentum != null ? ranks.momentum : '—') + '</td>' +
       '<td style="padding:3px 6px;">' + escapeHtml(r.sector || '—') + '</td>' +
@@ -23022,14 +23215,19 @@ function renderMhzBooks(d) {
   if (!el) return;
   if (!d || !d.rows || !d.rows.length) { el.textContent = 'Book comparison unavailable.'; return; }
   var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
-    ['Book', 'Size', 'Sectors', 'Hist net cum', 'Hist ann', 'Sharpe', 'Max DD', 'Hit', 'Turnover', 'Periods']
+    ['Book', 'Size', 'Cadence', 'Sectors', 'Hist net cum', 'Ann net', 'Sharpe', 'Max DD', 'Hit', 'Turnover', 'History sample']
       .map(function (c) { return '<th style="text-align:left;padding:3px 8px;">' + c + '</th>'; }).join('') +
     '</tr></thead><tbody>';
   d.rows.forEach(function (r) {
     var primary = r.book_id === d.primary_book_id;
+    var sample = (r.hist_n_periods != null ? r.hist_n_periods + ' periods' : '—');
+    var suff = (r.hist_sufficient_history === false)
+      ? ' <span class="cc-badge danger" title="Too few periods for a reliable estimate.">THIN</span>'
+      : (r.hist_sufficient_history === true ? ' <span class="cc-badge muted">SUFFICIENT</span>' : '');
     h += '<tr style="border-top:1px solid var(--border,#2a3550);' + (primary ? 'font-weight:700;' : '') + '">' +
       '<td style="padding:3px 8px;" class="mono">' + escapeHtml(r.book_id) + (primary ? ' <span class="cc-badge safe">PRIMARY</span>' : '') + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + r.size + '</td>' +
+      '<td style="padding:3px 8px;">' + escapeHtml(r.cadence || '—') + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + r.n_sectors + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_net_cumulative, 0) + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_annualized_net) + '</td>' +
@@ -23037,8 +23235,7 @@ function renderMhzBooks(d) {
       '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_max_drawdown) + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_hit_rate, 0) + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + _mhzPct(r.hist_mean_steady_state_turnover, 0) + '</td>' +
-      '<td style="padding:3px 8px;" class="mono">' + (r.hist_n_periods != null ? r.hist_n_periods : '—') +
-      (r.hist_sufficient_history === false ? ' <span class="cc-badge danger" title="Too few periods for a reliable estimate.">THIN</span>' : '') + '</td></tr>';
+      '<td style="padding:3px 8px;" class="mono">' + sample + suff + '</td></tr>';
   });
   el.innerHTML = h + '</tbody></table>';
 }
@@ -23051,7 +23248,7 @@ function renderMhzPerformance(d) {
   var order = ['fundamental_momentum_50_50_top25', 'fundamental_momentum_50_50_top50',
                'mom_6_1_top25', 'mom_6_1_top50', 'composite_sn_top25', 'composite_sn_top50'];
   var h = '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
-    ['Book', 'Cadence', 'Net cumulative', 'Annualized', 'Sharpe', 'Max DD', 'Hit rate', 'Steady turnover', 'Rolling 1y (last)']
+    ['Book', 'Role', 'Cadence', 'Net cumulative', 'Annualized', 'Sharpe', 'Max DD', 'Hit rate', 'Steady turnover', 'Rolling 1y (last)']
       .map(function (c) { return '<th style="text-align:left;padding:3px 8px;">' + c + '</th>'; }).join('') +
     '</tr></thead><tbody>';
   order.forEach(function (bid) {
@@ -23062,6 +23259,7 @@ function renderMhzPerformance(d) {
     var lastRoll = roll.length ? _mhzPct(roll[roll.length - 1]) : '—';
     h += '<tr style="border-top:1px solid var(--border,#2a3550);">' +
       '<td style="padding:3px 8px;" class="mono">' + escapeHtml(bid) + '</td>' +
+      '<td style="padding:3px 8px;font-size:9px;">' + escapeHtml(_mhzRoleForBook(bid)) + '</td>' +
       '<td style="padding:3px 8px;">' + escapeHtml(b.cadence || '—') + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + _mhzPct(m.net_cumulative_return, 0) + '</td>' +
       '<td style="padding:3px 8px;" class="mono">' + _mhzPct(m.annualized_net_return) + '</td>' +

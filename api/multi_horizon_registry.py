@@ -356,7 +356,15 @@ def sleeve_registry() -> list[dict]:
          "observation_frequency": "daily",
          "horizon": "fast (1-10d)", "action_generation_enabled": False, "is_primary": False,
          "role": "Inactive unless Track B validates a net-tradable fast model.",
-         "safety_classification": SAFE_BLOCKED, "fast_status": NO_VALIDATED_FAST_ALPHA},
+         "safety_classification": SAFE_BLOCKED, "fast_status": NO_VALIDATED_FAST_ALPHA,
+         # Why the sleeve is inactive — the committed Phase 25 Track B verdict, so the
+         # UI can show the reason instead of a bare badge.
+         "fast_inactive_reasons": [
+             "Strongest OHLC signal (overnight-gap-fade intraday reversal) failed net-of-cost at 25 bps (net25 <= 0).",
+             "Holdout net25 also failed (the edge decays out-of-sample).",
+             "Break-even cost capacity ~18 bps is below the required 25 bps.",
+             "No fast model passed the strict validation gate, so the sleeve remains inactive.",
+         ]},
     ]
 
 
