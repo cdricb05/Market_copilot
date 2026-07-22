@@ -434,20 +434,11 @@ class TestUiDailyWorkflowCutover:
                       "Monitor Fills, Holdings &amp; Performance"):
             assert label in card, label
 
-    def test_legacy_workflow_collapsed_in_archive(self, html):
-        i_arc = html.index('<details id="dw-legacy-archive">')
-        i_dw = html.index('id="dw-terminal"')
-        i_end = html.index("end dw-legacy-archive")
-        assert i_arc < i_dw < i_end
-        # Phase 27B.2 final cutover: exact archive section name.
-        assert "Legacy Signal Workflow &amp; Diagnostics" in html
-        # collapsed by default - the details tag carries no open attribute
-        assert '<details id="dw-legacy-archive" open' not in html
-
-    def test_legacy_deep_links_open_the_archive(self, html):
-        js = _scripts(html)
-        assert "getElementById('dw-legacy-archive')" in js
-        assert "dwArc.open = true" in js
+    def test_legacy_workflow_removed(self, html):
+        # Phase 27B.7 hard cutover: the legacy signal-workflow archive was removed
+        # from the operator UI entirely (no longer merely collapsed).
+        assert 'id="dw-legacy-archive"' not in html
+        assert "Legacy Signal Workflow" not in html
 
     def test_no_remote_prediction_cta_in_operational_card(self, html):
         card = html[html.index('id="dwob-card"'):html.index("OPERATIONAL BOOK WORKFLOW END")]
@@ -478,14 +469,14 @@ class TestUiHeaderAndRightPanel:
                     "right-ob-pending", "right-ob-target", "right-ob-mark"):
             assert 'id="%s"' % rid in html, rid
 
-    def test_legacy_capacity_collapsed(self, html):
-        assert '<details class="panel-section" id="right-legacy-capacity">' in html
-        arc = html[html.index('id="right-legacy-capacity"'):html.index('id="cap-status-note"')]
-        for cid in ("cap-open-positions", "cap-max-positions", "cap-available-slots"):
-            assert cid in arc, cid
+    def test_legacy_capacity_removed(self, html):
+        # Phase 27B.7 hard cutover: the legacy signal-workflow capacity was removed
+        # from the right panel entirely.
+        assert 'id="right-legacy-capacity"' not in html
+        assert 'id="cap-open-positions"' not in html
 
-    def test_legacy_position_status_scoped(self, html):
-        assert "Legacy: Paper position open (archived)" in html
+    def test_legacy_position_status_removed(self, html):
+        assert "Legacy: Paper position open (archived)" not in html
         assert ">Paper position open<" not in html
 
     def test_legacy_task_writers_yield_to_operational_payload(self, html):
@@ -499,17 +490,18 @@ class TestUiHeaderAndRightPanel:
 
 class TestUiPortfolioAndCommandCenter:
     def test_portfolio_operational_body_fields(self, html):
-        card = html[html.index('id="ptob-card"'):html.index('<details id="pt-archive">')]
-        for pid in ("ptob-cash", "ptob-nav", "ptob-holdings", "ptob-pending",
-                    "ptob-fills", "ptob-target", "ptob-mark", "ptob-impl",
-                    "ptob-status", "ptob-blockers", "ptob-holdings-table"):
+        # Phase 27B.8: the Portfolio route is the operational holdings dashboard
+        # (KPI row + real holdings table + summary), sourced from the same payload.
+        card = html[html.index('id="tab-portfolio"'):html.index('id="tab-portfolio-manager"')]
+        for pid in ("pdash-kpi-nav", "pdash-kpi-cash", "pdash-kpi-invested",
+                    "pdash-kpi-holdings", "pdash-kpi-upnl", "pdash-kpi-uret",
+                    "pdash-kpi-dpnl", "pdash-kpi-valdate", "pdash-table",
+                    "pdash-tbody", "ptob-state", "ptob-orders-note"):
             assert pid in card, pid
-        for empty in ("No Alpha holdings yet", "No Alpha orders yet",
-                      "No Alpha fills yet", "initial implementation pending"):
-            assert empty in card, empty
+        assert "No Alpha holdings yet" in card
 
     def test_portfolio_primary_body_has_no_legacy_positions(self, html):
-        card = html[html.index('id="ptob-card"'):html.index('<details id="pt-archive">')]
+        card = html[html.index('id="tab-portfolio"'):html.index('id="tab-portfolio-manager"')]
         assert "CDW" not in card and "HUM" not in card
 
     def test_command_center_panel_fields(self, html):
@@ -562,7 +554,7 @@ class TestUiQuality:
 
     def test_no_blank_buttons_in_new_regions(self, html):
         for start, end in ((('id="dwob-card"'), "OPERATIONAL BOOK WORKFLOW END"),
-                           (('id="ptob-card"'), '<details id="pt-archive">'),
+                           (('id="tab-portfolio"'), 'id="tab-portfolio-manager"'),
                            (('id="cc-ob-panel"'), "CURRENT OPERATIONAL BOOK END")):
             region = html[html.index(start):html.index(end)]
             for m in re.finditer(r"<button[^>]*>(.*?)</button>", region, re.S):

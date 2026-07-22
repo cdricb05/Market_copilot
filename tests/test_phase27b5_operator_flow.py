@@ -389,12 +389,6 @@ class TestLegacySeparation:
         # and the alpha submitted counts never include the legacy names
         assert cs["submitted_count"] == _N
 
-    def test_legacy_content_is_collapsed_by_default(self, html):
-        for details_id in ("pt-archive", "cc-legacy-overview", "dw-legacy-archive"):
-            m = re.search(r"<details[^>]*id=\"%s\"[^>]*>" % details_id, html)
-            assert m, details_id
-            assert " open" not in m.group(0), details_id
-
     def test_alpha_portfolio_offers_one_operational_link(self, html):
         assert ">Open Operational Book</button>" in html
         assert 'id="mhz-open-pm"' in html

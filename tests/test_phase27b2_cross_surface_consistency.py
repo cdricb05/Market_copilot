@@ -172,32 +172,29 @@ class TestOneCtaLabelAcrossSurfaces:
 # C. Page-level truth (static UI): CC / PM / DW / Portfolio / Alpha / right
 # --------------------------------------------------------------------------- #
 class TestPageOwnership:
-    def test_command_center_canonical_card_and_archive(self):
+    def test_command_center_canonical_card_only(self):
+        # Phase 27B.7 hard cutover: the legacy CC archive is removed; only the
+        # canonical operational card + research strip remain.
         html = _html()
         primary = html[html.index('id="cc-root"'):
-                       html.index('id="cc-legacy-overview"')]
+                       html.index('id="tab-prediction-cockpit"')]
         for el in ('id="cc-ob-panel"', 'id="cc-ob-headline"',
                    'id="cc-ob-primary-btn"', 'id="cc-ob-workflow"'):
             assert el in primary, el
-        # ONE collapsed historical & research context section
-        assert "HISTORICAL &amp; RESEARCH CONTEXT" in html
-        m = re.search(r'<details id="cc-legacy-overview"[^>]*>', html)
-        assert m and "open" not in m.group(0)
+        assert "HISTORICAL &amp; RESEARCH CONTEXT" not in html
+        assert 'id="cc-legacy-overview"' not in html
 
-    def test_daily_workflow_operational_first_legacy_collapsed(self):
+    def test_daily_workflow_operational_only(self):
         html = _html()
-        assert html.index('id="dwob-card"') < \
-            html.index('<details id="dw-legacy-archive">')
-        assert "Legacy Signal Workflow &amp; Diagnostics" in html
-        assert '<details id="dw-legacy-archive" open' not in html
+        assert 'id="dwob-card"' in html
+        assert 'id="dw-legacy-archive"' not in html
+        assert "Legacy Signal Workflow" not in html
 
-    def test_portfolio_operational_dominates_legacy_archived(self):
+    def test_portfolio_operational_only(self):
         html = _html()
-        assert "Historical Paper Books &mdash; Legacy Portfolio Archive" in html
-        m = re.search(r'<details[^>]*id="pt-archive"[^>]*>', html)
-        assert m and "open" not in m.group(0)
-        # operational card precedes the legacy archive
-        assert html.index('id="ptob-state"') < html.index('id="pt-archive"')
+        assert 'id="ptob-state"' in html
+        assert 'id="pt-archive"' not in html
+        assert "Historical Paper Books" not in html
 
     def test_alpha_portfolio_never_asks_to_confirm_again(self):
         html = _html()
@@ -218,8 +215,8 @@ class TestPageOwnership:
                    'id="right-ob-target"', 'id="right-ob-mark"',
                    'id="right-ob-impl"', 'id="right-primary-action-btn"'):
             assert el in html, el
-        m = re.search(r'<details[^>]*id="right-legacy-capacity"[^>]*>', html)
-        assert m and "open" not in m.group(0)
+        # Phase 27B.7: the right-panel legacy capacity archive was removed.
+        assert 'id="right-legacy-capacity"' not in html
 
     def test_research_tools_collapsed_and_non_operational(self):
         html = _html()
@@ -232,10 +229,8 @@ class TestPageOwnership:
         js = _scripts(html)
         # MONITOR label only reachable when the canonical code says MONITOR
         assert "if (code === 'MONITOR') return 'Open Paper Desk'" in js
-        # the legacy "Next Best Action" recommender lives inside the CC archive
-        archive = html[html.index('id="cc-legacy-overview"'):
-                       html.index("end cc-legacy-overview")]
-        assert "Next Best Action" in archive
+        # Phase 27B.7: the legacy "Next Best Action" recommender was removed entirely.
+        assert "Next Best Action" not in html
 
     def test_header_badge_owned_by_canonical_payload_only(self):
         js = _scripts(_html())

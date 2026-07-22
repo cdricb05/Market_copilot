@@ -671,7 +671,7 @@ class TestUiDeskBand:
 
     def test_desk_safety_badges(self, html):
         region = self._pm_region(html)
-        for badge in ("PAPER ORDERS ONLY", "NO LIVE ORDERS", "NO BROKER",
+        for badge in ("PAPER ORDERS ONLY", "NO LIVE BROKER ORDERS", "NO BROKER",
                       "AUTOMATION OFF", "MANUAL CONFIRMATION"):
             assert badge in region, badge
 
@@ -729,15 +729,3 @@ class TestUiDeskBand:
             label = re.sub(r"<[^>]+>", "", m.group(1))
             label = re.sub(r"&[a-z#0-9]+;", "x", label)
             assert label.strip(), m.group(0)[:120]
-
-    def test_lab_admin_clutter_collapsed(self, html):
-        summary = "LAB / ADMIN &mdash; legacy manual tools"
-        assert summary in html
-        idx = html.index(summary)
-        # the legacy tools live INSIDE a details element (collapsed by default)
-        before = html[:idx]
-        assert before.rfind("<details") > before.rfind("</details>")
-        m = re.search(r"<details[^>]*>\s*<summary>\s*LAB / ADMIN", html)
-        assert m and "open" not in m.group(0).split(">")[0]
-        for legacy in ("Run SMA Strategy", "Submit Manual Signal"):
-            assert legacy in html  # preserved, but only inside the collapsed LAB / ADMIN

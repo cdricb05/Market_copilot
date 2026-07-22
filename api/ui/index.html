@@ -1984,6 +1984,7 @@
               <span class="cc-badge" id="cc-ob-state" title="Workflow status of the single operational book.">&mdash;</span>
               <span class="cc-badge safe" title="The one operational portfolio. Legacy is read-only archive; research books are evidence.">OPERATIONAL BOOK</span>
               <span class="cc-spacer" style="flex:1;"></span>
+              <button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToPortfolioPositions()" title="Open the Portfolio — the actual filled Alpha Paper Book #1 holdings, valuation and P&amp;L.">View Portfolio &rarr;</button>
               <button class="cc-btn ghost" style="font-size:var(--fs-0); padding:3px 8px;" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — target review, implementation plan and the paper trading desk for Alpha Paper Book #1.">Manage &rarr;</button>
             </div>
             <!-- Phase 27B.2: the one canonical next action, prominent (single-source). -->
@@ -2389,61 +2390,118 @@
       <!-- TAB 4: PORTFOLIO -->
       <div id="tab-portfolio" class="tab-content">
 
-        <!-- ===================== Phase 27B PORTFOLIO — OPERATIONAL BOOK DEFAULT ===================== -->
-        <!-- The Portfolio page represents the ONE operational book (Alpha Paper Book #1)
-             only. Same /v1/operational-book payload as every other operational page —
-             one source of truth. -->
-        <div id="ptob-card" class="pt-panel" style="border-left:3px solid var(--info); margin-bottom:10px;">
+        <!-- ===================== Phase 27B.8 PORTFOLIO — OPERATIONAL HOLDINGS DASHBOARD ===================== -->
+        <!-- The authoritative holdings + valuation + P&L + allocation dashboard for the ONE
+             operational book (Alpha Paper Book #1). Every value comes from the SAME
+             /v1/operational-book payload (canonical_state + operational_book.holdings_detail)
+             — one source of truth. Read-only; paper only; no broker; no automation. -->
+        <style id="pdash-styles">
+          .pdash-kpi-row{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin:8px 0;}
+          .pdash-kpi{background:var(--panel,#0f1620);border:1px solid var(--border,#1e2a38);border-radius:8px;padding:8px 10px;min-width:0;}
+          .pdash-kpi .k{font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted,#7c8a99);white-space:nowrap;}
+          .pdash-kpi .v{font-size:17px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+          .pdash-kpi .sub{font-size:10px;color:var(--muted,#7c8a99);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+          .pdash-pos{color:var(--ok,#22c55e);} .pdash-neg{color:var(--danger,#ef4444);}
+          .pdash-table-scroll{max-height:520px;overflow:auto;border:1px solid var(--border,#1e2a38);border-radius:8px;}
+          table.pdash-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}
+          table.pdash-table thead th{position:sticky;top:0;z-index:2;background:var(--panel2,#131c27);color:var(--muted,#9fb0c0);font-weight:700;text-align:right;padding:7px 9px;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--border,#1e2a38);}
+          table.pdash-table thead th.lft{text-align:left;}
+          table.pdash-table tbody td{padding:6px 9px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;border-bottom:1px solid rgba(255,255,255,.04);}
+          table.pdash-table tbody td.lft{text-align:left;}
+          table.pdash-table tbody tr:hover{background:rgba(255,255,255,.03);}
+          table.pdash-table th.sorted-asc::after{content:' \25B2';font-size:9px;}
+          table.pdash-table th.sorted-desc::after{content:' \25BC';font-size:9px;}
+          .pdash-tk{font-weight:800;letter-spacing:.02em;}
+          .pdash-badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:800;letter-spacing:.03em;}
+          .pdash-badge.HOLD{background:rgba(34,197,94,.14);color:#22c55e;}
+          .pdash-badge.WATCH{background:rgba(245,158,11,.16);color:#f59e0b;}
+          .pdash-badge.REVIEW{background:rgba(239,68,68,.16);color:#ef4444;}
+          .pdash-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;}
+          .pdash-scard{background:var(--panel,#0f1620);border:1px solid var(--border,#1e2a38);border-radius:8px;padding:9px 11px;}
+          .pdash-scard .h{font-size:11px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--muted,#9fb0c0);margin-bottom:5px;}
+          .pdash-scard .row{display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:2px 0;font-variant-numeric:tabular-nums;}
+          .pdash-note{font-size:11px;color:var(--muted,#9fb0c0);}
+          .pdash-info{background:rgba(245,158,11,.10);border:1px solid rgba(245,158,11,.35);color:#f5b544;border-radius:6px;padding:6px 9px;font-size:11px;margin-top:6px;}
+          @media (max-width:1500px){.pdash-kpi-row{grid-template-columns:repeat(4,1fr);}.pdash-summary{grid-template-columns:repeat(2,1fr);}}
+        </style>
+
+        <!-- A. Header -->
+        <div class="pt-panel" style="border-left:3px solid var(--info); margin-bottom:8px;">
           <div class="cc-preview-hd" style="align-items:center;">
-            <span class="dw-hd-title">Portfolio &mdash; Operational Book</span>
-            <span class="cc-badge safe">ALPHA PAPER BOOK #1</span>
-            <span class="cc-badge" id="ptob-state">&mdash;</span>
+            <span class="dw-hd-title">Portfolio &mdash; Alpha Paper Book #1</span>
+            <span class="cc-badge safe" id="ptob-state" title="Lifecycle status of the operational book.">&mdash;</span>
             <span class="cc-spacer" style="flex:1;"></span>
             <span class="cc-badge safe">PAPER ONLY</span>
             <span class="cc-badge">NO BROKER</span>
             <span class="cc-badge">AUTOMATION OFF</span>
-            <button class="cc-btn ghost" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — target review, implementation plan and paper trading desk for Alpha Paper Book #1.">Manage Operational Book &rarr;</button>
+            <span class="cc-badge">MANUAL REVIEW</span>
+            <button class="cc-btn ghost" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — model-target review, order plan and paper trading desk for Alpha Paper Book #1.">Manage Book &rarr;</button>
           </div>
-          <div class="dor-grid" style="margin-top:6px;">
-            <div class="cc-kv"><span class="k">Cash</span><span class="v" id="ptob-cash">&mdash;</span></div>
-            <div class="cc-kv"><span class="k">NAV</span><span class="v" id="ptob-nav">&mdash;</span></div>
-            <div class="cc-kv"><span class="k">Holdings</span><span class="v" id="ptob-holdings">&mdash;</span></div>
-            <div class="cc-kv"><span class="k">Pending Orders</span><span class="v" id="ptob-pending">&mdash;</span></div>
-            <div class="cc-kv"><span class="k">Fills</span><span class="v" id="ptob-fills">&mdash;</span></div>
-            <div class="cc-kv"><span class="k">Current Target</span><span class="v" id="ptob-target">&mdash;</span></div>
-            <div class="cc-kv" title="Completed owned closes recorded in the desk mark store vs the required latest completed market date."><span class="k">Desk Mark</span><span class="v" id="ptob-mark">&mdash;</span></div>
-            <div class="cc-kv" title="Target positions the book ACTUALLY holds. A confirmed target weight is not an executed position."><span class="k">Implementation</span><span class="v" id="ptob-impl">&mdash;</span></div>
-            <div class="cc-kv"><span class="k">Current Status</span><span class="v" id="ptob-status">&mdash;</span></div>
+          <div id="pdash-asof" class="pdash-note" style="margin-top:5px;">Holdings valued as of &mdash; &middot; Model target calculated as of &mdash;</div>
+          <div id="pdash-target-note" class="pdash-info" style="display:none;"></div>
+          <details id="pdash-adv-diag" style="display:none;margin-top:6px;">
+            <summary style="cursor:pointer;font-size:11px;color:var(--muted,#9fb0c0);">Advanced diagnostics</summary>
+            <div id="pdash-adv-diag-body" class="pdash-note mono" style="margin-top:4px;white-space:pre-wrap;"></div>
+          </details>
+        </div>
+
+        <!-- B. KPI row -->
+        <div class="pdash-kpi-row" id="pdash-kpis">
+          <div class="pdash-kpi"><div class="k">NAV</div><div class="v" id="pdash-kpi-nav">&mdash;</div><div class="sub">Alpha Paper Book #1</div></div>
+          <div class="pdash-kpi"><div class="k">Cash</div><div class="v" id="pdash-kpi-cash">&mdash;</div><div class="sub" id="pdash-kpi-cashw">&mdash;</div></div>
+          <div class="pdash-kpi"><div class="k">Invested Value</div><div class="v" id="pdash-kpi-invested">&mdash;</div><div class="sub" id="pdash-kpi-investedw">&mdash;</div></div>
+          <div class="pdash-kpi"><div class="k">Holdings</div><div class="v" id="pdash-kpi-holdings">&mdash;</div><div class="sub" id="pdash-kpi-impl">&mdash;</div></div>
+          <div class="pdash-kpi"><div class="k">Unrealized P&amp;L</div><div class="v" id="pdash-kpi-upnl">&mdash;</div><div class="sub" id="pdash-kpi-costbasis">&mdash;</div></div>
+          <div class="pdash-kpi"><div class="k">Unrealized Return</div><div class="v" id="pdash-kpi-uret">&mdash;</div><div class="sub">since cost basis</div></div>
+          <div class="pdash-kpi"><div class="k">Daily P&amp;L</div><div class="v" id="pdash-kpi-dpnl" title="Daily P&amp;L is shown only once positions have been held through a prior completed close — never a fabricated same-day zero.">&mdash;</div><div class="sub" id="pdash-kpi-dpnl-note">&mdash;</div></div>
+          <div class="pdash-kpi"><div class="k">Valuation Date</div><div class="v" id="pdash-kpi-valdate" style="font-size:14px;">&mdash;</div><div class="sub">owned desk mark</div></div>
+        </div>
+
+        <!-- C. Active holdings table -->
+        <div class="pt-panel" style="padding:10px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span class="cc-panel-title">Active Holdings</span>
+            <span class="cc-badge safe" id="pdash-holdings-count">&mdash;</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <span class="pdash-note">Click a column header to sort.</span>
           </div>
-          <div class="cc-na-note" id="ptob-next" style="margin-top:4px;">Next Action: connect to load the operational book.</div>
-          <div class="cc-error" id="ptob-blockers" style="display:none; margin-top:4px;"></div>
-          <!-- Explicit empty states (Workstream D): an empty Alpha book is valid and is
-               NEVER replaced by legacy data. -->
-          <div class="dor-grid" style="margin-top:8px;">
-            <div class="cc-panel" style="padding:8px;">
-              <div class="cc-panel-title" style="font-size:var(--fs-0);">Alpha Holdings</div>
-              <div class="cc-na-note" id="ptob-holdings-table" style="margin-top:3px;">No Alpha holdings yet &mdash; initial implementation pending.</div>
-            </div>
-            <div class="cc-panel" style="padding:8px;">
-              <div class="cc-panel-title" style="font-size:var(--fs-0);">Alpha Orders &amp; Fills</div>
-              <div class="cc-na-note" id="ptob-empty-states" style="margin-top:3px;">No Alpha orders yet. No Alpha fills yet. Order history, fills and attribution live on the paper desk (Portfolio Manager) once created.</div>
-              <!-- Phase 27B.5: once paper orders exist this panel states the lifecycle
-                   (dynamic canonical counts) with a direct link — never "No Alpha orders
-                   yet" while submitted orders exist. -->
-              <div class="cc-na-note" id="ptob-orders-note" style="display:none;margin-top:3px;font-weight:700;"></div>
-              <button class="cc-btn ghost" id="ptob-view-orders-btn" style="display:none;font-size:var(--fs-0);padding:2px 7px;margin-top:4px;" onclick="obOpenSubmittedOrders()" title="Open the submitted paper orders on the Portfolio Manager (read-only view; writes nothing).">View Submitted Orders &rarr;</button>
-            </div>
-            <div class="cc-panel" style="padding:8px;">
-              <div class="cc-panel-title" style="font-size:var(--fs-0);" title="Target-versus-actual allocation of the operational book.">Target vs Actual</div>
-              <div class="cc-na-note" id="ptob-target-actual" style="margin-top:3px;">See the Implementation figure above: confirmed target vs positions actually held. Sector exposure follows the first fills.</div>
-            </div>
-            <div class="cc-panel" style="padding:8px;">
-              <div class="cc-panel-title" style="font-size:var(--fs-0);">Alpha Forward Performance</div>
-              <div class="cc-na-note" style="margin-top:3px;">Forward performance and attribution begin after the first paper fill (append-only, never recomputed). <button class="cc-btn ghost" style="font-size:var(--fs-0); padding:2px 7px;" onclick="navigateToRoute('portfolio-manager')" title="Open the paper trading desk (performance, attribution, journal).">Open Paper Desk &rarr;</button></div>
-            </div>
+          <div id="pdash-holdings-empty" class="cc-na-note" style="display:none;">No Alpha holdings yet. Submitted paper orders are awaiting the next eligible completed close.</div>
+          <!-- While paper orders are in flight (no fills yet) the empty state states the
+               lifecycle counts and links straight to the submitted orders (read-only). -->
+          <div class="cc-na-note" id="ptob-orders-note" style="display:none;margin-top:4px;font-weight:700;"></div>
+          <button class="cc-btn ghost" id="ptob-view-orders-btn" style="display:none;font-size:var(--fs-0);padding:2px 8px;margin-top:4px;" onclick="obOpenSubmittedOrders()" title="Open the submitted paper orders on the Portfolio Manager (read-only view; writes nothing).">View Submitted Orders &rarr;</button>
+          <div class="pdash-table-scroll" id="pdash-table-wrap">
+            <table class="pdash-table" id="pdash-table">
+              <thead><tr id="pdash-thead-row">
+                <th class="lft" data-key="ticker" data-type="str">Ticker</th>
+                <th class="lft" data-key="name" data-type="str">Name</th>
+                <th class="lft" data-key="sector" data-type="str">Sector</th>
+                <th data-key="quantity" data-type="num">Qty</th>
+                <th data-key="average_cost" data-type="num">Avg Cost</th>
+                <th data-key="latest_price" data-type="num">Price</th>
+                <th data-key="cost_basis" data-type="num">Cost Basis</th>
+                <th data-key="market_value" data-type="num">Mkt Value</th>
+                <th data-key="unrealized_pnl" data-type="num">P&amp;L $</th>
+                <th data-key="unrealized_pnl_pct" data-type="num">P&amp;L %</th>
+                <th data-key="current_weight" data-type="num">Weight %</th>
+                <th data-key="target_weight" data-type="num">Target %</th>
+                <th data-key="weight_drift" data-type="num">Drift %</th>
+                <th data-key="status" data-type="str">Status</th>
+              </tr></thead>
+              <tbody id="pdash-tbody"></tbody>
+            </table>
           </div>
         </div>
 
+        <!-- D. Portfolio summary -->
+        <div class="pdash-summary" id="pdash-summary">
+          <div class="pdash-scard"><div class="h">Cash vs Invested</div><div id="pdash-sum-cashinv"><span class="pdash-note">&mdash;</span></div></div>
+          <div class="pdash-scard"><div class="h">Sector Exposure</div><div id="pdash-sum-sector"><span class="pdash-note">&mdash;</span></div></div>
+          <div class="pdash-scard"><div class="h">Largest Positions</div><div id="pdash-sum-largest"><span class="pdash-note">&mdash;</span></div></div>
+          <div class="pdash-scard"><div class="h">Best Performers</div><div id="pdash-sum-best"><span class="pdash-note">&mdash;</span></div></div>
+          <div class="pdash-scard"><div class="h">Worst Performers</div><div id="pdash-sum-worst"><span class="pdash-note">&mdash;</span></div></div>
+          <div class="pdash-scard"><div class="h">Target vs Actual Drift</div><div id="pdash-sum-drift"><span class="pdash-note">&mdash;</span></div></div>
+        </div>
 
       </div><!-- end tab-portfolio -->
 
@@ -5188,11 +5246,9 @@ window._switchTab = function(tabName, opts) {
   // Phase 14-A/B: connected detail sections must render their real (empty/loaded)
   // state — never leave a stale "Connect to load" placeholder once connected.
   if (tabName === 'portfolio' && window._appState?.connected) {
-    try { loadPortfolioTerminal(); } catch (e) {}   // Phase 14-B terminal
-    try { loadPositions(); } catch (e) {}
-    try { loadOrders(); } catch (e) {}
-    try { loadHistory(); } catch (e) {}
-    try { loadPortfolio(); } catch (e) {}
+    // Phase 27B.8: the Portfolio route is the operational holdings dashboard,
+    // rendered from the ONE canonical operational-book payload.
+    try { loadOperationalBook(); } catch (e) {}
   }
 
   // Phase 14-B: single-nav highlight + contextual action rail + hash sync so the
@@ -18312,26 +18368,19 @@ function focusSection(sectionId) {
 // the user is never trapped on Daily Plan. Clears stale Orders filters so a
 // freshly filled paper order is always visible.
 function navigateToPortfolioPositions() {
+  // Phase 27B.8: "View Portfolio" / "Monitor Holdings and Performance" lands on the
+  // operational holdings dashboard (Alpha Paper Book #1) — the actual filled
+  // holdings, valuation and P&L — never the legacy positions view or the paper desk.
+  // switchToTab('portfolio') triggers the ONE coalesced operational-book load.
   switchToTab('portfolio');
-  try {
-    const os = document.getElementById('ordStatus'); if (os) os.value = '';
-    const od = document.getElementById('ordDate'); if (od) od.value = '';
-  } catch (e) {}
-  if (window._appState && window._appState.connected) {
-    // Load the summary first so Open Positions render enriched (P&L / status),
-    // then refresh orders and the Paper Trade Ledger.
-    (async function () {
-      try { await loadPortfolioSummary(); } catch (e) {}
-      try { await loadPositions(); } catch (e) {}
-      try { loadOrders(); } catch (e) {}
-      try { loadTradeLedger(); } catch (e) {}
-    })();
-  }
-  setTimeout(function () { focusSection('open-positions'); }, 60);
+  setTimeout(function () {
+    var el = document.getElementById('pdash-kpis') || document.getElementById('pdash-table');
+    if (el && el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
+  }, 80);
   // Right-panel last-action feedback so the user sees where they landed.
   try {
     const rn = document.getElementById('right-next-action');
-    if (rn) rn.textContent = 'Showing Portfolio — Open Positions.';
+    if (rn) rn.textContent = 'Showing Portfolio — Alpha Paper Book #1 holdings.';
     const rs = document.getElementById('right-action-status');
     if (rs) { rs.textContent = new Date().toLocaleTimeString(); rs.style.color = 'var(--ok)'; }
   } catch (e) {}
@@ -20981,8 +21030,8 @@ function _highlightNav(base) {
 }
 window._highlightNav = _highlightNav;
 var _PT_SUB_TARGET = {
-  '': 'ptob-card', 'positions': 'pt-positions', 'orders': 'pt-orders-row',
-  'performance': 'pt-performance', 'risk': 'pt-risk', 'advanced': 'pt-advanced-details',
+  '': 'pdash-kpis', 'positions': 'pdash-table', 'holdings': 'pdash-table',
+  'summary': 'pdash-summary',
 };
 function _ptHighlightNav(sub) {
   var links = document.querySelectorAll('#pt-nav a[data-ptsub]');
@@ -21084,20 +21133,11 @@ function _applySubsection(base, sub) {
       var wb = document.getElementById('dw-workbench');
       if (wb && wb.scrollIntoView) { try { wb.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { wb.scrollIntoView(); } }
     } else if (base === 'portfolio') {
-      // Phase 27B: the legacy terminal lives inside the collapsed Historical
-      // Paper Books archive; any legacy deep-link explicitly opens the archive.
-      if (sub) {
-        var arc = document.getElementById('pt-archive');
-        if (arc) arc.open = true;
-      }
-      // The Advanced portfolio sections are collapsed by default; the Advanced
-      // route explicitly opens the container so its deep-link works.
-      if (sub === 'advanced') {
-        var det = document.getElementById('pt-advanced-details');
-        if (det) det.open = true;
-      }
-      var id = _PT_SUB_TARGET[sub || ''] || 'ptob-card';
-      var el = document.getElementById(id);
+      // Phase 27B.8: the Portfolio route is the operational holdings dashboard.
+      // Deep-links resolve to the KPI row / holdings table; legacy sub-anchors no
+      // longer exist and fall back to the dashboard top.
+      var id = _PT_SUB_TARGET[sub || ''] || 'pdash-kpis';
+      var el = document.getElementById(id) || document.getElementById('pdash-kpis');
       if (el && el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
     }
   }, 80);
@@ -22876,6 +22916,13 @@ function obPrimaryAction() {
   var ob = (window._obData && window._obData.operational_book) || null;
   var code = (ob && ob.next_action_code) || null;
   var view = window._obView || null;
+  // Phase 27B.8: once the book is filled/active the ONE next action is "Monitor
+  // Holdings and Performance" — route to the Portfolio holdings dashboard, never
+  // the raw paper desk or the model-target review.
+  if ((view && view.lifecycleStage === 'FILLED') || code === 'MONITOR') {
+    try { navigateToPortfolioPositions(); } catch (e) {}
+    return;
+  }
   try { navigateToRoute('portfolio-manager'); } catch (e) {}
   if (view && view.ordersExist) {
     // Phase 27B.5: once paper orders exist the paper desk owns the actions.
@@ -22936,6 +22983,254 @@ function obOpenSubmittedOrders() {
   }, 350);
 }
 window.obOpenSubmittedOrders = obOpenSubmittedOrders;
+
+// ===================== Phase 27B.8 — Operational Holdings Dashboard =====================
+// The Portfolio route renders the ACTUAL filled Alpha Paper Book #1 holdings from the
+// canonical operational-book payload (operational_book.holdings_detail +
+// portfolio_summary + canonical_state KPIs). Read-only; never any legacy portfolio.
+function _pdSignedMoney(x) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return (Number(x) < 0 ? '−' : '+') + '$' +
+    Math.abs(Number(x)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _pdPct(x, digits) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return (Number(x) * 100).toFixed(digits == null ? 2 : digits) + '%';
+}
+function _pdSignedPct(x, digits) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  var p = Number(x) * 100;
+  return (p < 0 ? '−' : '+') + Math.abs(p).toFixed(digits == null ? 2 : digits) + '%';
+}
+function _pdNum(x, digits) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return Number(x).toLocaleString('en-US', { minimumFractionDigits: digits == null ? 2 : digits, maximumFractionDigits: digits == null ? 2 : digits });
+}
+function _pdCls(x) { return (x === null || x === undefined || isNaN(x)) ? '' : (Number(x) < 0 ? 'pdash-neg' : 'pdash-pos'); }
+function _pdDateHuman(iso) {
+  if (!iso) return '—';
+  try {
+    var parts = String(iso).split('-');
+    var mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][parseInt(parts[1], 10) - 1] || parts[1];
+    return mo + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
+  } catch (e) { return String(iso); }
+}
+
+window._pdSort = window._pdSort || { key: 'current_weight', dir: -1 };
+window._pdHoldings = window._pdHoldings || [];
+
+function _pdRenderRows() {
+  var tb = document.getElementById('pdash-tbody');
+  if (!tb) return;
+  var rows = (window._pdHoldings || []).slice();
+  var s = window._pdSort, k = s.key, dir = s.dir;
+  rows.sort(function (a, b) {
+    var av = a[k], bv = b[k];
+    if (av === null || av === undefined) return 1;      // nulls always last
+    if (bv === null || bv === undefined) return -1;
+    if (typeof av === 'string' || typeof bv === 'string') {
+      av = String(av); bv = String(bv);
+      return dir * (av < bv ? -1 : av > bv ? 1 : 0);
+    }
+    return dir * (av - bv);
+  });
+  var html = '';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    html += '<tr>' +
+      '<td class="lft"><span class="pdash-tk">' + escapeHtml(r.ticker) + '</span></td>' +
+      '<td class="lft">' + escapeHtml(r.name || '—') + '</td>' +
+      '<td class="lft">' + escapeHtml(r.sector || '—') + '</td>' +
+      '<td>' + _pdNum(r.quantity, 0) + '</td>' +
+      '<td>' + _pdNum(r.average_cost) + '</td>' +
+      '<td>' + _pdNum(r.latest_price) + '</td>' +
+      '<td>' + _pdNum(r.cost_basis) + '</td>' +
+      '<td>' + _pdNum(r.market_value) + '</td>' +
+      '<td class="' + _pdCls(r.unrealized_pnl) + '">' + _pdSignedMoney(r.unrealized_pnl) + '</td>' +
+      '<td class="' + _pdCls(r.unrealized_pnl_pct) + '">' + _pdSignedPct(r.unrealized_pnl_pct) + '</td>' +
+      '<td>' + _pdPct(r.current_weight) + '</td>' +
+      '<td>' + _pdPct(r.target_weight) + '</td>' +
+      '<td class="' + _pdCls(r.weight_drift) + '">' + _pdSignedPct(r.weight_drift) + '</td>' +
+      '<td><span class="pdash-badge ' + escapeHtml(r.status || '') + '">' + escapeHtml(r.status || '—') + '</span></td>' +
+      '</tr>';
+  }
+  tb.innerHTML = html;
+  // header sort indicators
+  var ths = document.querySelectorAll('#pdash-thead-row th');
+  Array.prototype.forEach.call(ths, function (th) {
+    th.classList.remove('sorted-asc', 'sorted-desc');
+    if (th.getAttribute('data-key') === k) th.classList.add(dir < 0 ? 'sorted-desc' : 'sorted-asc');
+  });
+}
+
+function _pdInitSortHandlers() {
+  if (window._pdSortWired) return;
+  var row = document.getElementById('pdash-thead-row');
+  if (!row) return;
+  window._pdSortWired = true;
+  Array.prototype.forEach.call(row.querySelectorAll('th'), function (th) {
+    th.addEventListener('click', function () {
+      var k = th.getAttribute('data-key');
+      if (!k) return;
+      var type = th.getAttribute('data-type');
+      if (window._pdSort.key === k) { window._pdSort.dir = -window._pdSort.dir; }
+      else { window._pdSort.key = k; window._pdSort.dir = (type === 'str') ? 1 : -1; }
+      _pdRenderRows();
+    });
+  });
+}
+
+function _pdMiniList(items, valfn) {
+  if (!items || !items.length) return '<span class="pdash-note">—</span>';
+  var html = '';
+  for (var i = 0; i < items.length; i++) {
+    html += '<div class="row"><span>' + escapeHtml(items[i].ticker) + '</span><span>' + valfn(items[i]) + '</span></div>';
+  }
+  return html;
+}
+
+function renderPortfolioDashboard(d) {
+  var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
+  var cs = (d && d.canonical_state) || (ob && ob.canonical_state) || null;
+  var ps = (ob && ob.portfolio_summary) || null;
+  var hd = (ob && ob.holdings_detail) || [];
+  var view = window._obView || deriveOperationalBookUiState(d);
+  var valDate = cs ? cs.valuation_date || cs.desk_mark_date : null;
+  var tgtDate = cs ? cs.target_date : null;
+
+  // A. As-of line + informational (never red) target-date note.
+  _obSet('pdash-asof', 'Holdings valued as of ' + _pdDateHuman(valDate) +
+    ' · Model target calculated as of ' + _pdDateHuman(tgtDate));
+  var tnote = document.getElementById('pdash-target-note');
+  if (tnote) {
+    if (ob && tgtDate && valDate && tgtDate < valDate && (ob.holdings_count || 0) > 0) {
+      tnote.style.display = '';
+      tnote.textContent = 'Target weights are from ' + _pdDateHuman(tgtDate) +
+        '. Holdings are valued through ' + _pdDateHuman(valDate) +
+        '. The active paper holdings remain valid; the next model review will refresh the target.';
+    } else { tnote.style.display = 'none'; tnote.textContent = ''; }
+  }
+  // Raw blocker codes never render on the operator page — only in collapsed diagnostics.
+  var diag = document.getElementById('pdash-adv-diag');
+  var diagBody = document.getElementById('pdash-adv-diag-body');
+  if (diag && diagBody) {
+    var codes = [];
+    if (cs && cs.target_status) codes.push('target_status: ' + cs.target_status);
+    if (ob && ob.blockers && ob.blockers.length) codes = codes.concat(ob.blockers);
+    if (ob && ob.desk_mark_status) codes.push('desk_mark_status: ' + ob.desk_mark_status);
+    if (codes.length) { diag.style.display = ''; diagBody.textContent = codes.join('\n'); }
+    else { diag.style.display = 'none'; diagBody.textContent = ''; }
+  }
+
+  // B. KPI row.
+  var nav = cs ? cs.nav : null, cash = cs ? cs.cash : null;
+  var invested = ps ? ps.invested_value : (cs ? cs.invested_value : null);
+  _obSet('pdash-kpi-nav', _obMoney(nav));
+  _obSet('pdash-kpi-cash', _obMoney(cash));
+  _obSet('pdash-kpi-cashw', (ps && ps.cash_weight != null) ? (_pdPct(ps.cash_weight) + ' of NAV') : '—');
+  _obSet('pdash-kpi-invested', _obMoney(invested));
+  _obSet('pdash-kpi-investedw', (ps && ps.invested_weight != null) ? (_pdPct(ps.invested_weight) + ' of NAV') : '—');
+  _obSet('pdash-kpi-holdings', ob ? String(ob.holdings_count || 0) : '—');
+  _obSet('pdash-kpi-impl', (cs && cs.implemented_target_count != null && cs.confirmed_target_count)
+    ? (cs.implemented_target_count + ' of ' + cs.confirmed_target_count + ' target names') : '—');
+  var upnl = cs ? cs.unrealized_pnl : (ps ? ps.unrealized_pnl : null);
+  var uret = cs ? cs.unrealized_pnl_pct : (ps ? ps.unrealized_return : null);
+  var upnlEl = document.getElementById('pdash-kpi-upnl');
+  if (upnlEl) { upnlEl.textContent = _pdSignedMoney(upnl); upnlEl.className = 'v ' + _pdCls(upnl); }
+  var uretEl = document.getElementById('pdash-kpi-uret');
+  if (uretEl) { uretEl.textContent = _pdSignedPct(uret); uretEl.className = 'v ' + _pdCls(uret); }
+  _obSet('pdash-kpi-costbasis', (ps && ps.cost_basis_total != null) ? ('cost basis ' + _obMoney(ps.cost_basis_total)) : '—');
+  var dpnlEl = document.getElementById('pdash-kpi-dpnl');
+  var dpnlAvail = !!(ps && ps.daily_pnl_available && ps.daily_pnl != null);
+  if (dpnlEl) {
+    dpnlEl.textContent = dpnlAvail ? _pdSignedMoney(ps.daily_pnl) : '—';
+    dpnlEl.className = 'v ' + (dpnlAvail ? _pdCls(ps.daily_pnl) : '');
+  }
+  _obSet('pdash-kpi-dpnl-note', dpnlAvail
+    ? (_pdSignedPct(ps.daily_pnl_pct) + ' vs ' + _pdDateHuman(ps.daily_pnl_basis_date))
+    : 'not held through a prior close yet');
+  _obSet('pdash-kpi-valdate', _pdDateHuman(valDate));
+
+  // C. Holdings table (or the pre-fill empty state).
+  var empty = document.getElementById('pdash-holdings-empty');
+  var wrap = document.getElementById('pdash-table-wrap');
+  var count = document.getElementById('pdash-holdings-count');
+  var ordersNote = document.getElementById('ptob-orders-note');
+  var ordersBtn = document.getElementById('ptob-view-orders-btn');
+  window._pdHoldings = hd;
+  if (hd && hd.length) {
+    if (empty) empty.style.display = 'none';
+    if (ordersNote) { ordersNote.style.display = 'none'; ordersNote.textContent = ''; }
+    if (ordersBtn) ordersBtn.style.display = 'none';
+    if (wrap) wrap.style.display = '';
+    if (count) count.textContent = hd.length + ' names';
+    _pdInitSortHandlers();
+    _pdRenderRows();
+  } else {
+    if (wrap) wrap.style.display = 'none';
+    if (count) count.textContent = ob ? String(ob.holdings_count || 0) : '—';
+    if (empty) {
+      empty.style.display = '';
+      empty.textContent = (ob && view && view.ordersExist &&
+        (view.lifecycleStage === 'SUBMITTED' || view.lifecycleStage === 'PARTIALLY_FILLED'))
+        ? ('No Alpha holdings yet. ' + (view.submitted != null ? view.submitted : 'Submitted') +
+           ' submitted paper orders are awaiting the next eligible completed close.')
+        : (ob && view && view.lifecycleStage === 'PROPOSED')
+          ? ('No Alpha holdings yet. ' + (view.proposed != null ? view.proposed : 'The') +
+             ' proposed paper orders await manual confirmation.')
+          : 'No Alpha holdings yet. Submitted paper orders are awaiting the next eligible completed close.';
+    }
+    // While submitted/partially-filled orders await their close, state the counts
+    // and link straight to the submitted paper orders (read-only).
+    if (ordersNote && ordersBtn) {
+      if (ob && view && view.ordersExist) {
+        ordersNote.style.display = '';
+        ordersNote.textContent = (view.lifecycleStage === 'PROPOSED'
+          ? ((view.proposed != null ? view.proposed : '—') + ' proposed paper orders await manual confirmation')
+          : ((view.submitted != null ? view.submitted : '—') + ' submitted paper orders await the next eligible completed close')) +
+          ' · ' + (view.filledOrders != null ? view.filledOrders : '—') + ' filled · ' +
+          (view.cancelled != null ? view.cancelled : '—') + ' cancelled.';
+        ordersBtn.style.display = '';
+      } else {
+        ordersNote.style.display = 'none'; ordersNote.textContent = '';
+        ordersBtn.style.display = 'none';
+      }
+    }
+  }
+
+  // D. Portfolio summary cards.
+  var cashInv = document.getElementById('pdash-sum-cashinv');
+  if (cashInv) {
+    cashInv.innerHTML = ps
+      ? ('<div class="row"><span>Cash</span><span>' + _obMoney(ps.cash) + ' · ' + _pdPct(ps.cash_weight) + '</span></div>' +
+         '<div class="row"><span>Invested</span><span>' + _obMoney(ps.invested_value) + ' · ' + _pdPct(ps.invested_weight) + '</span></div>' +
+         '<div class="row"><span>NAV</span><span>' + _obMoney(nav) + '</span></div>')
+      : '<span class="pdash-note">—</span>';
+  }
+  var sectEl = document.getElementById('pdash-sum-sector');
+  if (sectEl) {
+    var se = (ps && ps.sector_exposure) || [];
+    sectEl.innerHTML = se.length
+      ? se.slice(0, 6).map(function (s) { return '<div class="row"><span>' + escapeHtml(s.sector) + '</span><span>' + _pdPct(s.weight) + '</span></div>'; }).join('')
+      : '<span class="pdash-note">—</span>';
+  }
+  var lg = document.getElementById('pdash-sum-largest');
+  if (lg) lg.innerHTML = _pdMiniList(ps && ps.largest_positions, function (r) { return _pdPct(r.current_weight); });
+  var bp = document.getElementById('pdash-sum-best');
+  if (bp) bp.innerHTML = _pdMiniList(ps && ps.best_performers, function (r) { return '<span class="' + _pdCls(r.unrealized_pnl_pct) + '">' + _pdSignedPct(r.unrealized_pnl_pct) + '</span>'; });
+  var wp = document.getElementById('pdash-sum-worst');
+  if (wp) wp.innerHTML = _pdMiniList(ps && ps.worst_performers, function (r) { return '<span class="' + _pdCls(r.unrealized_pnl_pct) + '">' + _pdSignedPct(r.unrealized_pnl_pct) + '</span>'; });
+  var dr = document.getElementById('pdash-sum-drift');
+  if (dr) {
+    var ds = (ps && ps.drift_summary) || null;
+    dr.innerHTML = ds
+      ? ('<div class="row"><span>Implemented</span><span>' + (ds.implemented_count != null ? ds.implemented_count : '—') + ' of ' + (ds.target_count != null ? ds.target_count : '—') + '</span></div>' +
+         '<div class="row"><span>Max weight drift</span><span>' + _pdPct(ds.max_abs_drift) + '</span></div>' +
+         '<div class="row"><span>Names &ge; 1% off target</span><span>' + (ds.names_off_target != null ? ds.names_off_target : '—') + '</span></div>')
+      : '<span class="pdash-note">—</span>';
+  }
+}
+window.renderPortfolioDashboard = renderPortfolioDashboard;
 
 function renderOperationalBook(d) {
   var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
@@ -23039,66 +23334,11 @@ function renderOperationalBook(d) {
     else { pb.style.display = 'none'; }
   });
 
-  // Portfolio page — explicit empty states of the operational book.
-  var emptyEl = document.getElementById('ptob-empty-states');
-  if (emptyEl) {
-    if (ob && ob.initialized && !(ob.holdings_count || 0) && !(Number(pending) || 0) && !(Number(fills) || 0)) {
-      emptyEl.style.display = '';
-    } else {
-      emptyEl.style.display = 'none';
-    }
-  }
-  // Phase 27B.5: with paper orders in flight the panel states the lifecycle and
-  // links straight to the submitted orders — never "No Alpha orders yet".
-  var ordersNote = document.getElementById('ptob-orders-note');
-  var ordersBtn = document.getElementById('ptob-view-orders-btn');
-  if (ordersNote && ordersBtn) {
-    if (ob && view.ordersExist) {
-      ordersNote.style.display = '';
-      ordersNote.textContent =
-        (view.lifecycleStage === 'PROPOSED'
-          ? ((view.proposed != null ? view.proposed : '—') + ' proposed paper orders await manual confirmation')
-          : ((view.submitted != null ? view.submitted : '—') + ' submitted paper orders await the next eligible completed close')) +
-        ' · ' + (view.filledOrders != null ? view.filledOrders : '—') + ' filled · ' +
-        (view.cancelled != null ? view.cancelled : '—') + ' cancelled.';
-      ordersBtn.style.display = '';
-    } else {
-      ordersNote.style.display = 'none';
-      ordersNote.textContent = '';
-      ordersBtn.style.display = 'none';
-    }
-  }
-  var blockEl = document.getElementById('ptob-blockers');
-  if (blockEl) {
-    var bl = (ob && ob.blockers) || [];
-    if (bl.length) {
-      blockEl.style.display = '';
-      blockEl.textContent = 'Current blockers: ' + bl.join(' | ');
-    } else {
-      blockEl.style.display = 'none';
-      blockEl.textContent = '';
-    }
-  }
-  var holdTbl = document.getElementById('ptob-holdings-table');
-  if (holdTbl) {
-    var hk = ob ? Object.keys(ob.holdings || {}).sort() : [];
-    if (hk.length) {
-      holdTbl.textContent = hk.map(function (tk) { return tk + ' × ' + ob.holdings[tk]; }).join(' · ');
-    } else if (ob && view.ordersExist &&
-               (view.lifecycleStage === 'SUBMITTED' || view.lifecycleStage === 'PARTIALLY_FILLED')) {
-      // Phase 27B.7: required operator empty state while submitted paper orders await
-      // the next eligible completed close (never a bare "initial implementation pending").
-      holdTbl.textContent = 'No Alpha holdings yet. ' +
-        (view.submitted != null ? view.submitted : 'The') +
-        ' submitted paper orders are awaiting the next eligible completed close.';
-    } else if (ob && view.ordersExist && view.lifecycleStage === 'PROPOSED') {
-      holdTbl.textContent = 'No Alpha holdings yet. ' +
-        (view.proposed != null ? view.proposed : 'The') +
-        ' proposed paper orders await manual confirmation.';
-    } else {
-      holdTbl.textContent = 'No Alpha holdings yet — initial implementation pending.';
-    }
-  }
+  // Phase 27B.8 — the Portfolio route is the operational holdings dashboard.
+  // It renders from THIS same canonical payload (operational_book.holdings_detail
+  // + portfolio_summary + canonical_state KPIs) so cash / NAV / counts always match
+  // every other operator surface. Read-only.
+  try { renderPortfolioDashboard(d); } catch (e) {}
 
   // Daily Workflow operational stepper — statuses come from the CANONICAL
   // payload (workflow_stages), never derived per-page.
@@ -23230,8 +23470,15 @@ function renderOperationalBook(d) {
     var taskEl = document.getElementById('right-current-task');
     var sec = taskEl && taskEl.closest ? taskEl.closest('.panel-section') : null;
     if (sec) {
-      sec.onclick = function () { navigateToRoute('portfolio-manager'); };
-      sec.title = 'Open the Portfolio Manager — the operational next action of Alpha Paper Book #1.';
+      // Phase 27B.8: when the book is active, "Monitor Holdings and Performance"
+      // routes to the Portfolio holdings dashboard, not the paper desk.
+      if (view.lifecycleStage === 'FILLED') {
+        sec.onclick = function () { navigateToPortfolioPositions(); };
+        sec.title = 'Open the Portfolio — the actual filled Alpha Paper Book #1 holdings, valuation and P&L.';
+      } else {
+        sec.onclick = function () { navigateToRoute('portfolio-manager'); };
+        sec.title = 'Open the Portfolio Manager — the operational next action of Alpha Paper Book #1.';
+      }
     }
     var hint = document.getElementById('right-review-hint');
     if (hint) hint.style.display = 'none';

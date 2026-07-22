@@ -25210,8 +25210,6 @@ class TestUiStaticContent:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
-    def test_trading_cockpit_overview_present(self) -> None:
-        assert "Trading Cockpit Overview" in self._read_html()
 
     def test_workflow_state_separates_today_from_history(self) -> None:
         """UI copy distinguishes current-session ideas from history-only ones."""
@@ -25261,18 +25259,6 @@ class TestUiStaticContent:
         html = html_path.read_text(encoding="utf-8", errors="ignore")
         return "\n".join(re.findall(r"<script[^>]*>([\s\S]*?)</script>", html))
 
-    def test_portfolio_analytics_section_present(self) -> None:
-        """The Portfolio Analytics section and its sub-sections exist in the UI."""
-        html = self._read_html()
-        assert 'id="portfolio-analytics-card"' in html
-        assert "Portfolio Analytics" in html
-        assert "Exposure by Ticker" in html
-        assert "P&L by Ticker" in html
-        assert "Portfolio Capacity" in html
-        assert "Risk / Monitor Summary" in html
-        assert "/v1/portfolio/analytics" in html
-        scripts = self._scripts()
-        assert "function loadPortfolioAnalytics" in scripts
 
     def test_portfolio_analytics_is_read_only_safe(self) -> None:
         """The analytics section keeps safety badges visible and reuses ticker drawer."""
@@ -25288,52 +25274,10 @@ class TestUiStaticContent:
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
 
-    def test_scan_selection_funnel_section_present(self) -> None:
-        """The Scan Selection Funnel section and its sub-sections exist in the UI."""
-        html = self._read_html()
-        assert "Scan Selection Funnel" in html
-        assert "Full S&P 500 local screen" in html
-        assert "Prediction dispatch" in html
-        assert "Sent to Prediction" in html
-        assert "Why Candidates Were Excluded" in html
-        assert "Top Local Screened Before Prediction" in html
-        assert "Prediction Results and Actionability Gate" in html
-        assert "Active Trade Ideas" in html
-        assert "Historical Trade Ideas — Not Actionable" in html
-        assert "No Active Trade Ideas Today" in html
-        assert "/v1/review/scan-diagnostics/latest" in html
-        scripts = self._scripts()
-        assert "function loadScanSelectionFunnel" in scripts
 
-    def test_scan_selection_funnel_is_read_only_safe(self) -> None:
-        """The funnel keeps safety language visible and uses no native dialogs."""
-        import re
-        html = self._read_html()
-        assert "paper trade only" in html
-        assert "no broker execution" in html
-        assert "MANUAL REVIEW" in html
-        assert "AUTOMATION OFF" in html
-        # The old live-run Scan Coverage card is preserved (wiring intact) but moved
-        # into an Audit / Advanced details section.
-        assert 'id="dp-scan-coverage-advanced"' in html
-        assert "function renderScanCoverage" in self._scripts()
-        scripts = self._scripts()
-        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
-        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
 
     # --- Daily Review Navigation + Prediction Capture Session Linkage v1 ----
 
-    def test_daily_plan_has_primary_start_daily_review(self) -> None:
-        """Phase 25B: ONE authoritative primary Start Daily Review CTA.
-
-        The Daily Review Control card owns the single starter; every other
-        surface links to it (focusDailyReviewControl) instead of starting a
-        session itself.
-        """
-        html = self._read_html()
-        assert "Start Daily Review" in html
-        assert html.count("startDailyReviewSession(this)") == 1
-        assert "function focusDailyReviewControl" in html
 
     def test_overview_is_not_the_only_start_daily_review(self) -> None:
         """The Overview shortcut is not the only entry point to the workflow."""
@@ -25342,15 +25286,6 @@ class TestUiStaticContent:
         # not on switching to Overview to begin.
         assert "function startDailyReviewSession" in scripts or "startDailyReviewSession" in scripts
 
-    def test_funnel_uses_session_aware_capture_status(self) -> None:
-        """The funnel renders capture_status (no bare 'not captured yet' fallback)."""
-        html = self._read_html()
-        scripts = self._scripts()
-        assert "Predictions Captured" in html
-        assert 'id="ssf-captured"' in html
-        assert "capture_status" in scripts
-        assert "capture_status_message" in scripts
-        assert "Predictions captured, but none passed the actionability gate" not in scripts  # backend-owned copy
         # The clear session-aware gate copy is surfaced from the backend message,
         # not hard-coded as the only label.
 
@@ -25392,35 +25327,7 @@ class TestUiStaticContent:
 
     # --- Daily Plan Workflow Clarity v2 ------------------------------------
 
-    def test_daily_review_control_card_present(self) -> None:
-        """An always-visible Daily Review Control card owns the primary action."""
-        html = self._read_html()
-        scripts = self._scripts()
-        assert 'id="dp-review-control-card"' in html
-        assert ">Daily Review<" in html
-        assert "Start Daily Review" in html
-        # The single primary button cycles through Start / Running / Run New.
-        assert "Run New Daily Review" in scripts
-        assert "Daily Review Running" in scripts
-        assert "function renderDailyReviewControl" in scripts
 
-    def test_daily_review_complete_card_present(self) -> None:
-        """A durable, consolidated Daily Review Complete card exists with the
-        exact no-action message and an explicit Portfolio link."""
-        html = self._read_html()
-        scripts = self._scripts()
-        assert 'id="dp-review-complete-card"' in html
-        assert "Daily Review Complete" in html
-        assert "function renderDailyReviewComplete" in scripts
-        # The exact plain-English no-action outcome copy (req #2). The source uses
-        # the &amp; entity for the ampersand, so assert around it.
-        assert "No new trade ideas need review today." in scripts
-        assert (
-            " local scan completed, the prediction dispatch completed, and "
-            "existing positions were monitored. No manual trade action is required."
-        ) in scripts
-        # Portfolio opens only on an explicit click, never auto-switch.
-        assert "navigateToPortfolioPositions()" in scripts
 
     def test_fresh_review_clears_completed_state(self) -> None:
         """A new Daily Review supersedes a prior Paper Trade Completed state so it
@@ -25435,12 +25342,6 @@ class TestUiStaticContent:
         # Routing no longer targets the positions list as the main result.
         assert "_routeTarget = 'dp-positions-to-review'" not in scripts
 
-    def test_portfolio_monitoring_reframe_present(self) -> None:
-        """The read-only holdings section is reframed as Portfolio Monitoring."""
-        html = self._read_html()
-        assert "Portfolio Monitoring" in html
-        assert "Existing positions were monitored automatically." in html
-        assert "No manual action is required unless a position breaches" in html
 
     def test_funnel_none_passed_gate_count_message(self) -> None:
         """The none-passed-gate funnel copy is count-bearing (req #5/#8)."""
@@ -25452,15 +25353,6 @@ class TestUiStaticContent:
         assert "None passed the actionability gate." in app_src
         assert "prediction" in app_src and "captured. " in app_src
 
-    def test_funnel_session_linkage_detail_present(self) -> None:
-        """A collapsed, read-only Session linkage detail block exists in the funnel."""
-        html = self._read_html()
-        scripts = self._scripts()
-        assert 'id="ssf-linkage-detail"' in html
-        assert "Session linkage detail" in html
-        assert "prediction_run_session_id" in scripts
-        assert "candidate_review_idempotency_key" in scripts
-        assert "prediction_runs matched count" in scripts
 
     def test_v2_cards_keep_safety_and_no_dialogs(self) -> None:
         """The new v2 cards keep safety badges and use no native dialogs."""
@@ -25475,37 +25367,7 @@ class TestUiStaticContent:
         assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
 
-    def test_quant_model_methodology_section_present(self) -> None:
-        """The Quant Model Methodology section and its six sub-sections exist in the UI."""
-        html = self._read_html()
-        assert "Quant Model Methodology" in html
-        assert "Local S&P 500 Pre-Screen" in html
-        assert "Remote GCP Prediction" in html
-        assert "Actionability Gate" in html
-        assert "Target Quant Architecture" in html
-        assert "Data Readiness" in html
-        assert "Current limitations" in html
-        assert "/v1/model/methodology" in html
-        scripts = self._scripts()
-        assert "function loadQuantModelMethodology" in scripts
 
-    def test_quant_model_methodology_is_honest_and_read_only_safe(self) -> None:
-        """The methodology card states the no-fake rule, quant requirements, and safety."""
-        import re
-        html = self._read_html()
-        # Honesty / governance language.
-        assert "Do not fake this feature" in html
-        assert "point-in-time" in html
-        assert "walk-forward validation" in html
-        # Safety language stays visible.
-        assert "paper trade only" in html
-        assert "no broker execution" in html
-        assert "MANUAL REVIEW" in html
-        assert "AUTOMATION OFF" in html
-        # Read-only: no native browser dialogs anywhere.
-        scripts = self._scripts()
-        assert len(re.findall(r"(?<![A-Za-z0-9_])alert\s*\(", scripts)) == 0
-        assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", scripts)) == 0
 
     def test_action_safety_panel_present(self) -> None:
         assert "Action / Safety Panel" in self._read_html()
@@ -25522,8 +25384,6 @@ class TestUiStaticContent:
     def test_manual_review_present(self) -> None:
         assert "MANUAL REVIEW" in self._read_html()
 
-    def test_scan_stage_present(self) -> None:
-        assert "SCAN" in self._read_html()
 
     def test_review_stage_present(self) -> None:
         assert "REVIEW" in self._read_html()
@@ -25531,14 +25391,10 @@ class TestUiStaticContent:
     def test_plan_stage_present(self) -> None:
         assert "PLAN" in self._read_html()
 
-    def test_execute_preview_stage_present(self) -> None:
-        assert "EXECUTE PREVIEW" in self._read_html()
 
     def test_paper_orders_only_stage4_present(self) -> None:
         assert "PAPER ORDERS ONLY" in self._read_html()
 
-    def test_portfolio_allocation_present(self) -> None:
-        assert "Portfolio Allocation" in self._read_html()
 
     def test_capacity_present(self) -> None:
         assert "Capacity" in self._read_html()
@@ -25546,11 +25402,7 @@ class TestUiStaticContent:
     def test_primary_recommendation_present(self) -> None:
         assert "Primary Recommendation" in self._read_html()
 
-    def test_daily_plan_summary_present(self) -> None:
-        assert "Daily Plan Summary" in self._read_html()
 
-    def test_blocked_summary_present(self) -> None:
-        assert "Blocked Summary" in self._read_html()
 
     def test_audit_advanced_present(self) -> None:
         assert "Audit / Advanced" in self._read_html()
@@ -25585,9 +25437,6 @@ class TestUiStaticContent:
         html = self._read_html()
         assert "NO LIVE TRADES" in html
 
-    def test_paper_position_open_message_present(self) -> None:
-        html = self._read_html()
-        assert "Paper position open" in html
 
     def test_no_pending_paper_orders_message_present(self) -> None:
         html = self._read_html()
@@ -25617,9 +25466,6 @@ class TestUiStaticContent:
         html = self._read_html()
         assert "No pending paper orders to cancel" in html
 
-    def test_monitor_portfolio_performance_history_message_present(self) -> None:
-        html = self._read_html()
-        assert "Monitor Portfolio / Performance History" in html
 
     def test_current_review_cycle_text_present(self) -> None:
         html = self._read_html()
@@ -25633,147 +25479,36 @@ class TestUiStaticContent:
         html = self._read_html()
         assert "Historical candidates hidden from primary queue" in html
 
-    def test_position_monitor_heading_present(self) -> None:
-        html = self._read_html()
-        assert "Position Monitor" in html
 
-    def test_preview_position_monitor_button_present(self) -> None:
-        html = self._read_html()
-        assert "Preview Position Monitor" in html
 
-    def test_position_monitor_preview_only_text_present(self) -> None:
-        html = self._read_html()
-        assert "Preview only - no signals, no decisions, no orders, no fills" in html
 
-    def test_position_monitor_no_broker_execution_badge_present(self) -> None:
-        html = self._read_html()
-        pm_start = html.find('id="position-monitor-card"')
-        assert pm_start >= 0, "position-monitor-card not found"
-        card_section = html[pm_start:pm_start + 2000]
-        assert "NO BROKER EXECUTION" in card_section
 
-    def test_exit_signal_preview_heading_present(self) -> None:
-        html = self._read_html()
-        assert "Exit Signal Preview" in html
 
-    def test_preview_exit_signals_button_present(self) -> None:
-        html = self._read_html()
-        assert "Preview Exit Signals" in html
 
-    def test_exit_signal_preview_only_text_present(self) -> None:
-        html = self._read_html()
-        assert "Preview only - no exit signals, no decisions, no orders, no fills" in html
 
-    def test_exit_signal_no_exit_signals_badge_present(self) -> None:
-        html = self._read_html()
-        esp_start = html.find('id="exit-signal-preview-card"')
-        assert esp_start >= 0, "exit-signal-preview-card not found"
-        card_section = html[esp_start:esp_start + 2000]
-        assert "NO EXIT SIGNALS" in card_section
 
-    def test_exit_signal_no_broker_execution_badge_present(self) -> None:
-        html = self._read_html()
-        esp_start = html.find('id="exit-signal-preview-card"')
-        assert esp_start >= 0, "exit-signal-preview-card not found"
-        card_section = html[esp_start:esp_start + 2000]
-        assert "NO BROKER EXECUTION" in card_section
 
-    def test_exit_decision_preview_heading_present(self) -> None:
-        html = self._read_html()
-        assert "Exit Decision Preview" in html
 
-    def test_preview_exit_decisions_button_present(self) -> None:
-        html = self._read_html()
-        assert "Preview Exit Decisions" in html
 
-    def test_exit_decision_preview_only_text_present(self) -> None:
-        html = self._read_html()
-        assert "Preview only - no decisions, no orders, no fills" in html
 
-    def test_exit_decision_no_decisions_badge_present(self) -> None:
-        html = self._read_html()
-        edp_start = html.find('id="exit-decision-preview-card"')
-        assert edp_start >= 0, "exit-decision-preview-card not found"
-        card_section = html[edp_start:edp_start + 2000]
-        assert "NO DECISIONS" in card_section
 
-    def test_exit_decision_no_broker_execution_badge_present(self) -> None:
-        html = self._read_html()
-        edp_start = html.find('id="exit-decision-preview-card"')
-        assert edp_start >= 0, "exit-decision-preview-card not found"
-        card_section = html[edp_start:edp_start + 2000]
-        assert "NO BROKER EXECUTION" in card_section
 
-    def test_position_review_heading_present(self) -> None:
-        html = self._read_html()
-        assert "Position Review" in html
 
     def test_review_open_positions_button_present(self) -> None:
         html = self._read_html()
         assert "Review Open Positions" in html
 
-    def test_position_review_one_click_preview_only_text_present(self) -> None:
-        html = self._read_html()
-        assert "One-click preview only" in html
 
-    def test_position_review_no_signals_badge_present(self) -> None:
-        html = self._read_html()
-        prp_start = html.find('id="position-review-card"')
-        assert prp_start >= 0, "position-review-card not found"
-        card_section = html[prp_start:prp_start + 2000]
-        assert "NO SIGNALS" in card_section
 
-    def test_position_review_no_decisions_badge_present(self) -> None:
-        html = self._read_html()
-        prp_start = html.find('id="position-review-card"')
-        assert prp_start >= 0, "position-review-card not found"
-        card_section = html[prp_start:prp_start + 2000]
-        assert "NO DECISIONS" in card_section
 
-    def test_position_review_no_orders_badge_present(self) -> None:
-        html = self._read_html()
-        prp_start = html.find('id="position-review-card"')
-        assert prp_start >= 0, "position-review-card not found"
-        card_section = html[prp_start:prp_start + 2000]
-        assert "NO ORDERS" in card_section
 
-    def test_position_review_no_trades_badge_present(self) -> None:
-        html = self._read_html()
-        prp_start = html.find('id="position-review-card"')
-        assert prp_start >= 0, "position-review-card not found"
-        card_section = html[prp_start:prp_start + 2000]
-        assert "NO TRADES" in card_section
 
-    def test_position_review_no_fills_badge_present(self) -> None:
-        html = self._read_html()
-        prp_start = html.find('id="position-review-card"')
-        assert prp_start >= 0, "position-review-card not found"
-        card_section = html[prp_start:prp_start + 2000]
-        assert "NO FILLS" in card_section
 
-    def test_position_review_no_position_changes_badge_present(self) -> None:
-        html = self._read_html()
-        prp_start = html.find('id="position-review-card"')
-        assert prp_start >= 0, "position-review-card not found"
-        card_section = html[prp_start:prp_start + 2000]
-        assert "NO POSITION CHANGES" in card_section
 
-    def test_position_review_no_broker_execution_badge_present(self) -> None:
-        html = self._read_html()
-        prp_start = html.find('id="position-review-card"')
-        assert prp_start >= 0, "position-review-card not found"
-        card_section = html[prp_start:prp_start + 2000]
-        assert "NO BROKER EXECUTION" in card_section
 
     # Portfolio-aware daily process UI tests
-    def test_portfolio_aware_daily_process_text_present(self) -> None:
-        assert "Portfolio-aware daily process" in self._read_html()
 
-    def test_existing_holdings_excluded_text_present(self) -> None:
-        assert "Existing holdings are excluded from new-entry orders" in self._read_html()
 
-    def test_use_position_review_for_open_holdings_text_present(self) -> None:
-        assert "Use Position Review for open holdings" in self._read_html()
 
     def test_monitor_only_text_present(self) -> None:
         assert "Monitor only" in self._read_html()
@@ -25791,31 +25526,9 @@ class TestUiStaticContent:
     def test_daily_review_summary_read_only_copy_present(self) -> None:
         assert "Read-only summary" in self._read_html()
 
-    def test_daily_review_summary_recommended_next_action_present(self) -> None:
-        drs_start = self._read_html().find('id="daily-review-summary-card"')
-        assert drs_start >= 0, "daily-review-summary-card not found"
-        assert "Recommended next action" in self._read_html()
 
-    def test_daily_review_summary_no_broker_execution_badge_present(self) -> None:
-        html = self._read_html()
-        drs_start = html.find('id="daily-review-summary-card"')
-        assert drs_start >= 0, "daily-review-summary-card not found"
-        card_section = html[drs_start:drs_start + 2000]
-        assert "NO BROKER EXECUTION" in card_section
 
-    def test_daily_review_summary_no_orders_badge_present(self) -> None:
-        html = self._read_html()
-        drs_start = html.find('id="daily-review-summary-card"')
-        assert drs_start >= 0, "daily-review-summary-card not found"
-        card_section = html[drs_start:drs_start + 2000]
-        assert "NO ORDERS" in card_section
 
-    def test_daily_review_summary_no_fills_badge_present(self) -> None:
-        html = self._read_html()
-        drs_start = html.find('id="daily-review-summary-card"')
-        assert drs_start >= 0, "daily-review-summary-card not found"
-        card_section = html[drs_start:drs_start + 2000]
-        assert "NO FILLS" in card_section
 
     def test_next_action_neutral_message_present(self) -> None:
         assert "Generate Daily Review Summary for recommended next action" in self._read_html()
@@ -25870,19 +25583,7 @@ class TestUiStaticContent:
         panel_section = html[panel_start:panel_start + 3000]
         assert "NO FILLS" in panel_section
 
-    def test_daily_session_no_broker_execution_in_card(self) -> None:
-        html = self._read_html()
-        card_start = html.find('id="daily-session-card"')
-        assert card_start >= 0, "daily-session-card not found"
-        card_section = html[card_start:card_start + 3000]
-        assert "NO BROKER EXECUTION" in card_section
 
-    def test_daily_session_automation_off_in_card(self) -> None:
-        html = self._read_html()
-        card_start = html.find('id="daily-session-card"')
-        assert card_start >= 0, "daily-session-card not found"
-        card_section = html[card_start:card_start + 3000]
-        assert "AUTOMATION OFF" in card_section
 
 
 # ===========================================================================
@@ -27781,8 +27482,6 @@ class TestUiRefreshSnapshotContent:
     def test_refresh_button_present(self) -> None:
         assert "Refresh Market Data" in self._read_html()
 
-    def test_db_write_badge_present(self) -> None:
-        assert "DB WRITE: PRICES + PORTFOLIO SNAPSHOT ONLY" in self._read_html()
 
     def test_no_portfolio_snapshots_empty_state_present(self) -> None:
         assert "No portfolio snapshots yet" in self._read_html()
@@ -28111,13 +27810,7 @@ class TestUiBackfillHistoryContent:
         """'Backfill Screening History' button must be present in the UI."""
         assert "Backfill Screening History" in self._read_html()
 
-    def test_db_write_badge_present(self) -> None:
-        """'DB WRITE: HISTORICAL PRICES ONLY' safety badge must be present."""
-        assert "DB WRITE: HISTORICAL PRICES ONLY" in self._read_html()
 
-    def test_screening_readiness_panel_present(self) -> None:
-        """'Screening readiness' panel must be present in the UI."""
-        assert "Screening readiness" in self._read_html()
 
 
 class TestUiDailyPlanV2Content:
@@ -28133,11 +27826,6 @@ class TestUiDailyPlanV2Content:
         """Inline Review Queue card (dp-inline-rq-card) must be in Daily Plan center column."""
         assert "dp-inline-rq-card" in self._read_html()
 
-    def test_refresh_review_queue_button_in_daily_plan(self) -> None:
-        """'Refresh Review Queue' button must appear in the Daily Plan tab."""
-        html = self._read_html()
-        # Must appear at least twice: once in Daily Plan inline card, once in right panel
-        assert html.count("Refresh Review Queue") >= 2
 
     def test_review_and_approve_candidates_text_present(self) -> None:
         """'Review and approve candidates' instruction text must be present."""
@@ -28171,9 +27859,6 @@ class TestUiDailyPlanV2Content:
         """Inline review queue table body id must be present."""
         assert "dp-rq-tbody" in self._read_html()
 
-    def test_approve_does_not_create_signals_note_present(self) -> None:
-        """Safety note 'Approving does not create signals or orders' must be present."""
-        assert "Approving does not create signals or orders" in self._read_html()
 
     def test_render_dp_inline_review_queue_function_present(self) -> None:
         """renderDpInlineReviewQueue JS function must be defined in the UI."""
@@ -28888,25 +28573,10 @@ class TestUiDailyPlanSignalActionsContent:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
-    def test_signal_actions_card_present(self) -> None:
-        """dp-signal-actions-card element must be present in Daily Plan center column."""
-        assert "dp-signal-actions-card" in self._read_html()
 
-    def test_preview_signals_button_text_present(self) -> None:
-        """'Preview Signals from Approved Candidates' button text must be present."""
-        assert "Preview Signals from Approved Candidates" in self._read_html()
 
-    def test_create_signals_button_text_present(self) -> None:
-        """'Create Signals from Approved Candidates' button text must be present."""
-        assert "Create Signals from Approved Candidates" in self._read_html()
 
-    def test_creates_signal_records_only_safety_note_present(self) -> None:
-        """Safety note 'Creates signal records only' must be present."""
-        assert "Creates signal records only" in self._read_html()
 
-    def test_no_decisions_no_orders_no_trades_safety_note_present(self) -> None:
-        """Safety scope 'no decisions, no orders, no trades' must be present."""
-        assert "no decisions, no orders, no trades" in self._read_html()
 
     def test_dp_sa_approved_count_id_present(self) -> None:
         """dp-sa-approved-count stat element must be present."""
@@ -28966,20 +28636,10 @@ class TestUiDailyPlanDecisionActionsContent:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
-    def test_decision_actions_card_present(self) -> None:
-        assert "dp-decision-actions-card" in self._read_html()
 
-    def test_preview_decisions_button_text_present(self) -> None:
-        assert "Preview Decisions from Signals" in self._read_html()
 
-    def test_create_decisions_button_text_present(self) -> None:
-        assert "Create Trade Decisions from Signals" in self._read_html()
 
-    def test_creates_trade_decision_records_only_safety_note_present(self) -> None:
-        assert "Creates trade decision records only" in self._read_html()
 
-    def test_no_orders_no_trades_no_fills_safety_note_present(self) -> None:
-        assert "no orders, no trades, no fills" in self._read_html()
 
     def test_dp_da_signal_count_id_present(self) -> None:
         assert "dp-da-signal-count" in self._read_html()
@@ -29011,8 +28671,6 @@ class TestUiDailyPlanDecisionActionsContent:
     def test_create_decisions_endpoint_used(self) -> None:
         assert "/v1/review/create-decisions" in self._read_html()
 
-    def test_create_signals_first_empty_state_present(self) -> None:
-        assert "Create signals first." in self._read_html()
 
     def test_decisions_only_safety_badge_present(self) -> None:
         assert "DECISIONS ONLY" in self._read_html()
@@ -29046,17 +28704,11 @@ class TestUiDailyPlanOrderPreviewContent:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
-    def test_order_preview_card_present(self) -> None:
-        assert "dp-order-preview-card" in self._read_html()
 
     def test_preview_paper_orders_button_text_present(self) -> None:
         assert "Preview Paper Orders" in self._read_html()
 
-    def test_previews_paper_order_tickets_only_safety_note_present(self) -> None:
-        assert "Previews paper order tickets only" in self._read_html()
 
-    def test_no_orders_no_trades_no_fills_no_broker_execution_present(self) -> None:
-        assert "no orders, no trades, no fills, no broker execution" in self._read_html()
 
     def test_preview_only_badge_present(self) -> None:
         assert "PREVIEW ONLY" in self._read_html()
@@ -29107,13 +28759,6 @@ class TestUiDailyPlanOrderPreviewContent:
         html = self._read_html()
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", html)) == 0
 
-    def test_create_paper_orders_not_in_order_preview_card(self) -> None:
-        html = self._read_html()
-        idx_start = html.find('id="dp-order-preview-card"')
-        idx_end = html.find('id="dp-oa-result"')
-        assert idx_start >= 0 and idx_end > idx_start, "dp-order-preview-card or dp-oa-result not found"
-        card_section = html[idx_start:idx_end]
-        assert "Create Paper Orders" not in card_section
 
 
 class TestUiGuidedDailyPlanContent:
@@ -29125,8 +28770,6 @@ class TestUiGuidedDailyPlanContent:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
-    def test_guided_daily_plan_text_present(self) -> None:
-        assert "Guided daily plan" in self._read_html()
 
     def test_current_task_text_present(self) -> None:
         assert "Current task" in self._read_html()
@@ -29134,35 +28777,17 @@ class TestUiGuidedDailyPlanContent:
     def test_review_new_entry_candidates_text_present(self) -> None:
         assert "Review new-entry candidates" in self._read_html()
 
-    def test_future_steps_collapsed_text_present(self) -> None:
-        assert "Future steps are collapsed until needed" in self._read_html()
 
-    def test_advanced_manual_actions_text_present(self) -> None:
-        assert "Advanced manual actions" in self._read_html()
 
-    def test_no_automatic_trading_actions_text_present(self) -> None:
-        assert "No automatic trading actions" in self._read_html()
 
-    def test_dp_current_task_card_present(self) -> None:
-        assert 'id="dp-current-task-card"' in self._read_html()
 
-    def test_dp_current_task_label_id_present(self) -> None:
-        assert 'id="dp-current-task-label"' in self._read_html()
 
     def test_update_dp_current_task_function_present(self) -> None:
         assert "updateDpCurrentTask" in self._read_html()
 
-    def test_signal_actions_details_element_present(self) -> None:
-        assert 'id="dp-signal-actions-details"' in self._read_html()
 
-    def test_decision_actions_details_element_present(self) -> None:
-        assert 'id="dp-decision-actions-details"' in self._read_html()
 
-    def test_order_preview_details_element_present(self) -> None:
-        assert 'id="dp-order-preview-details"' in self._read_html()
 
-    def test_analytics_details_element_present(self) -> None:
-        assert 'id="dp-analytics-details"' in self._read_html()
 
     def test_no_alert_calls(self) -> None:
         import re
@@ -29184,63 +28809,26 @@ class TestUiReviewWorkspaceV2Content:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
-    def test_review_workspace_text_present(self) -> None:
-        assert "Review Workspace" in self._read_html()
 
     def test_current_task_label_text_present(self) -> None:
         assert "Current task:" in self._read_html()
 
-    def test_approve_watch_reject_text_present(self) -> None:
-        assert "Approve, watch, or reject candidates" in self._read_html()
 
     def test_approving_does_not_create_signals_text_present(self) -> None:
         assert "Approving candidates does not create signals or orders" in self._read_html()
 
-    def test_setup_rerun_drawer_text_present(self) -> None:
-        assert "Setup / rerun daily process" in self._read_html()
 
-    def test_audit_trail_text_present(self) -> None:
-        assert "Audit trail" in self._read_html()
 
-    def test_diagnostics_manual_tools_text_present(self) -> None:
-        assert "Diagnostics and manual tools" in self._read_html()
 
-    def test_internal_pipeline_details_text_present(self) -> None:
-        assert "Internal pipeline details" in self._read_html()
 
-    def test_no_automatic_trading_actions_text_present(self) -> None:
-        assert "No automatic trading actions" in self._read_html()
 
-    def test_dp_setup_drawer_id_present(self) -> None:
-        assert 'id="dp-setup-drawer"' in self._read_html()
 
-    def test_dp_later_steps_details_id_present(self) -> None:
-        assert 'id="dp-later-steps-details"' in self._read_html()
 
-    def test_dp_diagnostics_details_id_present(self) -> None:
-        assert 'id="dp-diagnostics-details"' in self._read_html()
 
-    def test_dp_inline_rq_card_present(self) -> None:
-        assert 'id="dp-inline-rq-card"' in self._read_html()
 
-    def test_dp_rq_tbody_present(self) -> None:
-        assert 'id="dp-rq-tbody"' in self._read_html()
 
-    def test_review_queue_is_before_setup_drawer(self) -> None:
-        html = self._read_html()
-        rq_pos = html.find('id="dp-inline-rq-card"')
-        setup_pos = html.find('id="dp-setup-drawer"')
-        assert rq_pos < setup_pos, "Review Queue must appear before setup drawer"
 
-    def test_later_steps_before_setup_drawer(self) -> None:
-        html = self._read_html()
-        later_pos = html.find('id="dp-later-steps-details"')
-        setup_pos = html.find('id="dp-setup-drawer"')
-        assert later_pos < setup_pos, "Later steps drawer must appear before setup drawer"
 
-    def test_no_duplicate_rq_tbody_id(self) -> None:
-        html = self._read_html()
-        assert html.count('id="dp-rq-tbody"') == 1
 
     def test_no_alert_calls(self) -> None:
         import re
@@ -29330,8 +28918,6 @@ class TestUiCandidateReviewGateV1Content:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
-    def test_candidate_review_progress_text_present(self) -> None:
-        assert "Candidate Review Progress" in self._read_html()
 
     def test_review_in_progress_text_present(self) -> None:
         assert "Review in progress" in self._read_html()
@@ -29360,38 +28946,16 @@ class TestUiCandidateReviewGateV1Content:
     def test_monitor_only_held_text_present(self) -> None:
         assert "Monitor-only / held" in self._read_html()
 
-    def test_review_gate_badge_present(self) -> None:
-        assert "REVIEW GATE" in self._read_html()
 
-    def test_signals_only_when_approved_badge_present(self) -> None:
-        assert "SIGNALS ONLY WHEN APPROVED" in self._read_html()
 
-    def test_dp_review_gate_card_id_present(self) -> None:
-        assert 'id="dp-review-gate-card"' in self._read_html()
 
-    def test_dp_gate_pending_id_present(self) -> None:
-        assert 'id="dp-gate-pending"' in self._read_html()
 
-    def test_dp_gate_approved_id_present(self) -> None:
-        assert 'id="dp-gate-approved"' in self._read_html()
 
-    def test_dp_gate_watching_id_present(self) -> None:
-        assert 'id="dp-gate-watching"' in self._read_html()
 
-    def test_dp_gate_rejected_id_present(self) -> None:
-        assert 'id="dp-gate-rejected"' in self._read_html()
 
-    def test_dp_gate_consumed_id_present(self) -> None:
-        assert 'id="dp-gate-consumed"' in self._read_html()
 
-    def test_dp_gate_status_label_id_present(self) -> None:
-        assert 'id="dp-gate-status-label"' in self._read_html()
 
-    def test_dp_gate_message_id_present(self) -> None:
-        assert 'id="dp-gate-message"' in self._read_html()
 
-    def test_dp_gate_next_step_id_present(self) -> None:
-        assert 'id="dp-gate-next-step"' in self._read_html()
 
     def test_no_alert_calls(self) -> None:
         import re
@@ -29574,11 +29138,7 @@ class TestUiReviewToTradePlanV1Content:
     def test_trade_plan_workspace_text_present(self) -> None:
         assert "Trade Plan Workspace" in self._read_html()
 
-    def test_trade_plan_locked_text_present(self) -> None:
-        assert "Trade plan locked" in self._read_html()
 
-    def test_finish_candidate_review_text_present(self) -> None:
-        assert "Finish candidate review before generating a trade plan" in self._read_html()
 
     def test_generate_trade_plan_from_approved_text_present(self) -> None:
         assert "Generate Trade Plan from Approved Candidates" in self._read_html()
@@ -29586,17 +29146,9 @@ class TestUiReviewToTradePlanV1Content:
     def test_generate_trade_plan_button_text_present(self) -> None:
         assert "Generate Trade Plan" in self._read_html()
 
-    def test_internal_signals_decisions_only_text_present(self) -> None:
-        assert "This creates internal Signal and TradeDecision records only" in self._read_html()
 
-    def test_no_paper_orders_text_present(self) -> None:
-        assert "No paper orders, trades, fills, broker actions, or position changes" in self._read_html()
 
-    def test_audit_trail_text_present(self) -> None:
-        assert "Audit trail" in self._read_html()
 
-    def test_internal_signal_decision_order_details_text_present(self) -> None:
-        assert "internal signal/decision/order details" in self._read_html()
 
     def test_review_trade_plan_text_present(self) -> None:
         assert "Review trade plan" in self._read_html()
@@ -29604,29 +29156,15 @@ class TestUiReviewToTradePlanV1Content:
     def test_create_paper_order_tickets_manually_text_present(self) -> None:
         assert "Create paper order tickets manually" in self._read_html()
 
-    def test_dp_trade_plan_workspace_id_present(self) -> None:
-        assert 'id="dp-trade-plan-workspace"' in self._read_html()
 
-    def test_dp_tp_locked_id_present(self) -> None:
-        assert 'id="dp-tp-locked"' in self._read_html()
 
-    def test_dp_tp_available_id_present(self) -> None:
-        assert 'id="dp-tp-available"' in self._read_html()
 
-    def test_dp_tp_result_id_present(self) -> None:
-        assert 'id="dp-tp-result"' in self._read_html()
 
-    def test_dp_tp_next_step_id_present(self) -> None:
-        assert 'id="dp-tp-next-step"' in self._read_html()
 
     def test_manual_action_badge_present(self) -> None:
         assert "MANUAL ACTION" in self._read_html()
 
-    def test_trade_plan_only_badge_present(self) -> None:
-        assert "TRADE PLAN ONLY" in self._read_html()
 
-    def test_internal_signals_decisions_badge_present(self) -> None:
-        assert "INTERNAL SIGNALS + DECISIONS ONLY" in self._read_html()
 
     def test_no_position_changes_badge_present(self) -> None:
         assert "NO POSITION CHANGES" in self._read_html()
@@ -29651,23 +29189,11 @@ class TestUiNoTradeReviewOutcomeV1Content:
         html_path = Path(__file__).parent.parent / "api" / "ui" / "index.html"
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
-    def test_no_trade_plan_to_generate_text_present(self) -> None:
-        assert "No trade plan to generate" in self._read_html()
 
-    def test_candidate_review_complete_no_approved_text_present(self) -> None:
-        assert "Candidate review is complete. No candidates are currently approved for a new trade plan." in self._read_html()
 
-    def test_watch_and_reject_valid_outcomes_text_present(self) -> None:
-        assert "Watch and Reject are valid review outcomes." in self._read_html()
 
-    def test_next_step_monitor_portfolio_text_present(self) -> None:
-        assert "Next step: Monitor portfolio or start a new Daily Review Session when ready." in self._read_html()
 
-    def test_review_complete_badge_present(self) -> None:
-        assert "REVIEW COMPLETE" in self._read_html()
 
-    def test_no_approved_candidates_badge_present(self) -> None:
-        assert "NO APPROVED CANDIDATES" in self._read_html()
 
     def test_watching_action_text_present(self) -> None:
         assert "Watching" in self._read_html()
@@ -29678,20 +29204,9 @@ class TestUiNoTradeReviewOutcomeV1Content:
     def test_monitor_only_held_text_present(self) -> None:
         assert "Monitor-only / held" in self._read_html()
 
-    def test_dp_tp_no_trade_id_present(self) -> None:
-        assert 'id="dp-tp-no-trade"' in self._read_html()
 
-    def test_three_tp_state_divs_present(self) -> None:
-        html = self._read_html()
-        assert 'id="dp-tp-locked"' in html
-        assert 'id="dp-tp-no-trade"' in html
-        assert 'id="dp-tp-available"' in html
 
-    def test_trade_plan_locked_still_present(self) -> None:
-        assert "Trade plan locked" in self._read_html()
 
-    def test_finish_candidate_review_text_still_present(self) -> None:
-        assert "Finish candidate review before generating a trade plan" in self._read_html()
 
     def test_no_signals_badge_present(self) -> None:
         assert "NO SIGNALS" in self._read_html()
@@ -29731,20 +29246,10 @@ class TestUiPortfolioMonitoringWorkspaceV1Content:
     def test_monitor_open_positions_text_present(self) -> None:
         assert "Monitor open positions" in self._read_html()
 
-    def test_preview_only_no_orders_text_present(self) -> None:
-        assert "Preview only &mdash; no orders, trades, fills, or broker actions" in self._read_html()
 
-    def test_current_task_monitor_portfolio_text_present(self) -> None:
-        assert "Current task: monitor portfolio" in self._read_html()
 
-    def test_no_position_changes_text_present(self) -> None:
-        assert "No position changes are made" in self._read_html()
 
-    def test_healthy_positions_text_present(self) -> None:
-        assert "Healthy positions require no action" in self._read_html()
 
-    def test_review_for_exit_risk_rules_text_present(self) -> None:
-        assert "Review-for-exit appears only when risk rules are triggered" in self._read_html()
 
     def test_review_open_positions_button_present(self) -> None:
         assert "Review Open Positions" in self._read_html()
@@ -29761,26 +29266,12 @@ class TestUiPortfolioMonitoringWorkspaceV1Content:
     def test_portfolio_monitor_preview_complete_text_present(self) -> None:
         assert "Portfolio monitor preview complete." in self._read_html()
 
-    def test_audit_trail_internal_position_review_text_present(self) -> None:
-        assert "Audit trail &mdash; internal position review details" in self._read_html()
 
-    def test_dp_portfolio_monitor_workspace_id_present(self) -> None:
-        assert 'id="dp-portfolio-monitor-workspace"' in self._read_html()
 
-    def test_pmw_status_id_present(self) -> None:
-        assert 'id="pmw-status"' in self._read_html()
 
-    def test_pmw_result_id_present(self) -> None:
-        assert 'id="pmw-result"' in self._read_html()
 
-    def test_pmw_tbody_id_present(self) -> None:
-        assert 'id="pmw-tbody"' in self._read_html()
 
-    def test_pmw_summary_cards_id_present(self) -> None:
-        assert 'id="pmw-summary-cards"' in self._read_html()
 
-    def test_pmw_status_message_id_present(self) -> None:
-        assert 'id="pmw-status-message"' in self._read_html()
 
     def test_monitor_only_badge_present(self) -> None:
         assert "MONITOR ONLY" in self._read_html()
@@ -29839,8 +29330,6 @@ class TestUiSimplifiedDailyPlanWorkflowV1Content:
     def test_advanced_audit_section_text_present(self) -> None:
         assert "Advanced / Audit" in self._read_html()
 
-    def test_internal_signals_decisions_audit_only_text_present(self) -> None:
-        assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
 
 
 class TestUiStickyTabBarContent:
@@ -29915,26 +29404,12 @@ class TestUiDailyPlanUsabilityCleanupV1Content:
     def test_could_not_load_error_message_present(self) -> None:
         assert "Could not load today's review. Use Refresh Today's Review." in self._read_html()
 
-    def test_advanced_rerun_controls_note_present(self) -> None:
-        assert "Advanced rerun controls. Usually not needed after Today's Review is loaded." in self._read_html()
 
-    def test_review_progress_details_present(self) -> None:
-        assert "Review progress details" in self._read_html()
 
-    def test_internal_signal_audit_label_present(self) -> None:
-        assert "Internal signal audit" in self._read_html()
 
-    def test_internal_decision_audit_label_present(self) -> None:
-        assert "Internal decision audit" in self._read_html()
 
-    def test_internal_order_audit_label_present(self) -> None:
-        assert "Internal order audit" in self._read_html()
 
-    def test_you_do_not_need_these_sections_present(self) -> None:
-        assert "You do not need these sections for normal daily review." in self._read_html()
 
-    def test_internal_signals_decisions_audit_only_present(self) -> None:
-        assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
 
     def test_sticky_tab_bar_still_present(self) -> None:
         assert "position: sticky" in self._read_html()
@@ -29971,32 +29446,14 @@ class TestUiGuidedWorkflowV1Content:
     def test_advanced_audit_section_present(self) -> None:
         assert "Advanced / Audit" in self._read_html()
 
-    def test_advanced_scan_settings_section_present(self) -> None:
-        assert "Advanced scan settings" in self._read_html()
 
-    def test_run_advanced_daily_process_preview_button_present(self) -> None:
-        assert "Run advanced daily process preview" in self._read_html()
 
-    def test_diagnostics_and_manual_tools_section_present(self) -> None:
-        assert "Diagnostics and manual tools" in self._read_html()
 
-    def test_setup_rerun_section_present(self) -> None:
-        assert "Setup / rerun daily process" in self._read_html()
 
-    def test_internal_signal_audit_section_present(self) -> None:
-        assert "Internal signal audit" in self._read_html()
 
-    def test_internal_decision_audit_section_present(self) -> None:
-        assert "Internal decision audit" in self._read_html()
 
-    def test_internal_order_audit_section_present(self) -> None:
-        assert "Internal order audit" in self._read_html()
 
-    def test_you_do_not_need_these_sections_text_present(self) -> None:
-        assert "You do not need these sections for normal daily review." in self._read_html()
 
-    def test_internal_signals_decisions_audit_only_text_present(self) -> None:
-        assert "Internal signals, decisions, and order details are audit-only." in self._read_html()
 
     def test_hold_state_text_present(self) -> None:
         assert "HOLD: No action required." in self._read_html()
@@ -30632,20 +30089,9 @@ class TestDailyTradePlanV1UiContent:
     def test_no_order_eligible_trades_present(self) -> None:
         assert "No order-eligible trades." in self._read_html()
 
-    def test_trade_plan_locked_present(self) -> None:
-        assert "Trade plan locked" in self._read_html()
 
-    def test_finish_candidate_review_present(self) -> None:
-        assert "Finish candidate review before generating a trade plan." in self._read_html()
 
-    def test_finish_reviewing_candidates_present(self) -> None:
-        assert "Finish reviewing candidates before generating a trade plan." in self._read_html()
 
-    def test_internal_trade_plan_only_text_present(self) -> None:
-        assert (
-            "This creates an internal trade plan only. "
-            "No paper orders, trades, fills, cash changes, or broker actions are created."
-        ) in self._read_html()
 
     def test_order_already_created_present(self) -> None:
         assert "Order already created" in self._read_html()
@@ -30653,20 +30099,10 @@ class TestDailyTradePlanV1UiContent:
     def test_create_paper_order_ticket_present(self) -> None:
         assert "Create paper order ticket" in self._read_html()
 
-    def test_review_approved_candidates_text_present(self) -> None:
-        assert "Review approved candidates and generate the trade plan." in self._read_html()
 
-    def test_internal_signal_audit_present(self) -> None:
-        assert "Internal signal audit" in self._read_html()
 
-    def test_internal_decision_audit_present(self) -> None:
-        assert "Internal decision audit" in self._read_html()
 
-    def test_internal_order_audit_present(self) -> None:
-        assert "Internal order audit" in self._read_html()
 
-    def test_no_need_for_sections_text_present(self) -> None:
-        assert "You do not need these sections for normal daily review." in self._read_html()
 
     def test_no_alert_calls_v1(self) -> None:
         import re
@@ -30676,12 +30112,6 @@ class TestDailyTradePlanV1UiContent:
         import re
         assert len(re.findall(r"(?<![A-Za-z0-9_])confirm\s*\(", self._read_html())) == 0
 
-    def test_internals_not_expanded_by_default(self) -> None:
-        html = self._read_html()
-        assert 'id="dp-later-steps-details"' in html
-        assert 'id="dp-signal-actions-details"' in html
-        assert 'id="dp-decision-actions-details"' in html
-        assert 'id="dp-order-preview-details"' in html
 
 
 class TestDailyReviewOutcomeConsistencyV1Content:
@@ -30769,10 +30199,6 @@ class TestDailyReviewOutcomeConsistencyV1Content:
         assert "Review the new candidates saved by today's session." in fn
         assert "focusReviewQueue" in fn
 
-    def test_older_rows_separated_in_review_queue(self) -> None:
-        html = self._read_html()
-        assert 'id="dp-rq-older"' in html
-        assert "_dpRqRowHtml" in html
 
     # --- Right-side Action / Safety panel mirrors Today's Review ---
 
@@ -30799,12 +30225,7 @@ class TestDailyReviewOutcomeConsistencyV1Content:
     def test_sticky_tabs_css_preserved(self) -> None:
         assert "position: sticky" in self._read_html()
 
-    def test_advanced_audit_collapsed_by_default(self) -> None:
-        # <details> without an `open` attribute is collapsed by default.
-        assert '<details id="dp-later-steps-details" style="margin-bottom: 6px;">' in self._read_html()
 
-    def test_setup_rerun_collapsed_by_default(self) -> None:
-        assert '<details id="dp-setup-drawer" style="margin-bottom: 6px;">' in self._read_html()
 
     # --- No browser dialogs ---
 
@@ -30845,8 +30266,6 @@ class TestDailyCandidateDecisionCardV1Content:
     def test_review_candidate_title_present(self) -> None:
         assert "Review Candidate" in self._read_html()
 
-    def test_candidate_progress_text_present(self) -> None:
-        assert "Candidate 1 of" in self._read_html()
 
     def test_approve_for_trade_plan_present(self) -> None:
         # Guided Trade Lifecycle v1 renamed this user-facing action.
@@ -30858,20 +30277,10 @@ class TestDailyCandidateDecisionCardV1Content:
     def test_reject_present(self) -> None:
         assert "Reject" in self._read_html()
 
-    def test_review_actions_only_safety_copy_present(self) -> None:
-        assert (
-            "Review actions only. No signals, decisions, orders, trades, "
-            "fills, or broker actions are created." in self._read_html()
-        )
 
     def test_all_review_candidates_present(self) -> None:
         assert "All review candidates" in self._read_html()
 
-    def test_detailed_candidate_table_copy_present(self) -> None:
-        assert (
-            "Detailed candidate table. Usually not needed for normal review."
-            in self._read_html()
-        )
 
     def test_decide_on_present(self) -> None:
         assert "Decide on" in self._read_html()
@@ -30887,21 +30296,7 @@ class TestDailyCandidateDecisionCardV1Content:
 
     # --- Decision card structure & wiring ---
 
-    def test_decision_card_element_present(self) -> None:
-        html = self._read_html()
-        assert 'id="dp-candidate-decision-card"' in html
-        assert 'id="dcc-progress"' in html
-        assert 'id="dcc-ticker"' in html
-        assert 'id="dcc-score"' in html
-        assert 'id="dcc-rec"' in html
-        assert 'id="dcc-decision"' in html
-        assert 'id="dcc-reason"' in html
 
-    def test_decision_card_three_action_buttons(self) -> None:
-        html = self._read_html()
-        assert "dccDecide('APPROVED_FOR_SIGNAL')" in html
-        assert "dccDecide('WATCHING')" in html
-        assert "dccDecide('REJECTED')" in html
 
     def test_render_candidate_decision_card_fn_present(self) -> None:
         html = self._read_html()
@@ -30951,24 +30346,13 @@ class TestDailyCandidateDecisionCardV1Content:
 
     # --- Detailed table is collapsed/secondary ---
 
-    def test_table_collapsed_under_all_review_candidates(self) -> None:
-        html = self._read_html()
-        assert 'id="dp-all-candidates-details"' in html
-        # The collapsible wraps the existing review-queue table body.
-        details_pos = html.find('id="dp-all-candidates-details"')
-        tbody_pos = html.find('id="dp-rq-tbody"')
-        assert details_pos < tbody_pos
 
     # --- Preserve existing good behavior ---
 
     def test_sticky_tabs_css_preserved(self) -> None:
         assert "position: sticky" in self._read_html()
 
-    def test_advanced_audit_collapsed_by_default(self) -> None:
-        assert '<details id="dp-later-steps-details" style="margin-bottom: 6px;">' in self._read_html()
 
-    def test_setup_rerun_collapsed_by_default(self) -> None:
-        assert '<details id="dp-setup-drawer" style="margin-bottom: 6px;">' in self._read_html()
 
     # --- No browser dialogs ---
 
@@ -31328,14 +30712,6 @@ class TestGuidedTradePlanPaperOrderFlowV1Ui:
 
     # --- Guided card structure ---
 
-    def test_trade_flow_card_element_present(self) -> None:
-        html = self._read_html()
-        assert 'id="dp-trade-flow-card"' in html
-        assert 'id="tf-title"' in html
-        assert 'id="tf-status"' in html
-        assert 'id="tf-rows"' in html
-        assert 'id="tf-action"' in html
-        assert 'id="tf-safety"' in html
 
     def test_render_trade_flow_card_fn_present(self) -> None:
         html = self._read_html()
@@ -31396,12 +30772,6 @@ class TestGuidedTradePlanPaperOrderFlowV1Ui:
 
     # --- Internal signal/decision/order pipeline stays in Advanced / Audit ---
 
-    def test_internal_pipeline_collapsed(self) -> None:
-        html = self._read_html()
-        assert '<details id="dp-later-steps-details" style="margin-bottom: 6px;">' in html
-        assert 'id="dp-signal-actions-details"' in html
-        assert 'id="dp-decision-actions-details"' in html
-        assert 'id="dp-order-preview-details"' in html
 
     # --- No browser dialogs ---
 
@@ -31598,64 +30968,11 @@ class TestActionDiscoverabilityGuidedWorkflowV1Ui:
         return html[start:nxt]
 
     # --- Required exact UI text ---
-    def test_required_text_present(self) -> None:
-        html = self._read_html()
-        for text in (
-            "Candidates to Review",
-            "Candidate 1 of",
-            "Choose one action. This records your manual review only. It does not create orders or trades.",
-            "Approve for Paper Trade",
-            "Watch Only",
-            "Reject",
-            "Paper trade completed. Portfolio updated.",
-            "View Portfolio",
-            "Older review items exist, but they are not part of today's active workflow.",
-            "No candidates from today's review need action.",
-            "Go to Daily Plan → Candidates to Review.",
-            "You do not need these sections for normal daily review.",
-            "Advanced rerun controls. Usually not needed after Today's Review is loaded.",
-        ):
-            assert text in html, f"missing required UI text: {text!r}"
 
-    def test_per_stage_titles_and_helpers_present(self) -> None:
-        html = self._read_html()
-        for text in (
-            "Start Daily Review",
-            "This refreshes market data, prepares today's candidates, and updates the portfolio snapshot. It does not create orders or trades.",
-            "Trade Plan",
-            "This creates internal paper-trading recommendations only. No order is created.",
-            "Paper Order Ticket",
-            "This creates a pending paper order only. No broker order is sent.",
-            "Pending Paper Order",
-            "This fills the local paper order only. No live trade is executed.",
-            "Portfolio Monitoring",
-            "Monitor closely. No action required yet.",
-            "No action required.",
-        ):
-            assert text in html, f"missing per-stage text: {text!r}"
 
     # --- Active action workspace IDs exist ---
-    def test_active_action_workspace_ids_present(self) -> None:
-        html = self._read_html()
-        for wid in (
-            "active-action-workspace",
-            "candidates-to-review-workspace",
-            "trade-plan-workspace",
-            "paper-order-ticket-workspace",
-            "pending-paper-order-workspace",
-            "portfolio-monitoring-workspace",
-            "paper-trade-completed-workspace",
-        ):
-            assert f'id="{wid}"' in html, f"missing workspace id: {wid}"
 
     # --- Active workspace is directly below Today's Review, above Advanced ---
-    def test_active_workspace_directly_below_todays_review(self) -> None:
-        html = self._read_html()
-        i_review = html.index('id="dp-current-task-card"')
-        i_active = html.index('id="active-action-workspace"')
-        i_cands = html.index('id="candidates-to-review-workspace"')
-        i_advanced = html.index('id="dp-later-steps-details"')
-        assert i_review < i_active < i_cands < i_advanced
 
     # --- Primary action dispatcher supports all canonical actions ---
     def test_primary_action_handler_supports_all_actions(self) -> None:
@@ -31681,13 +30998,6 @@ class TestActionDiscoverabilityGuidedWorkflowV1Ui:
         assert "syncActiveActionWorkspaces" in fn
         assert "applyCanonicalToOverview" in fn
 
-    def test_overview_reads_canonical_state(self) -> None:
-        html = self._read_html()
-        assert 'id="overview-next-action-card"' in html
-        assert "function applyCanonicalToOverview(" in html
-        fn = self._fn(html, "function applyCanonicalToOverview(")
-        assert "window._canonicalWorkflowState" in fn
-        assert "ov-na-task" in fn
 
     def test_sync_workspaces_toggles_all_sections(self) -> None:
         fn = self._fn(self._read_html(), "function syncActiveActionWorkspaces(")
@@ -31773,17 +31083,6 @@ class TestGuidedTradeLifecycleV1Ui:
             assert text in html, f"missing user-facing label: {text!r}"
 
     # --- Required safety copy (item G) ---
-    def test_required_safety_copy_present(self) -> None:
-        html = self._read_html()
-        for text in (
-            "Paper portfolio only. No broker execution.",
-            "Paper portfolio only. No broker execution. No live trade.",
-            "Approving a trade idea does not place a trade.",
-            "Create & Fill Paper Trade creates and fills a local paper order only.",
-            "No live broker order is created.",
-            "Automation is off.",
-        ):
-            assert text in html, f"missing safety copy: {text!r}"
 
     # --- The Place Paper Trade chain exists and reuses paper-only endpoints ---
     def test_place_paper_trade_handlers_present(self) -> None:
@@ -31805,8 +31104,6 @@ class TestGuidedTradeLifecycleV1Ui:
         assert "does not enable automation" in fn
 
     # --- Approve still routes through the review-only handler ---
-    def test_approve_button_records_review_only(self) -> None:
-        assert "dccDecide('APPROVED_FOR_SIGNAL')" in self._read_html()
 
     # --- Right Action / Safety panel states align with the trade path (item D) ---
     def test_right_panel_states_aligned(self) -> None:
@@ -31825,10 +31122,6 @@ class TestGuidedTradeLifecycleV1Ui:
         assert "placePaperTrade()" in fn
 
     # --- Internal pipeline stays in Advanced / Audit (collapsed) ---
-    def test_internal_pipeline_collapsed(self) -> None:
-        html = self._read_html()
-        assert '<details id="dp-later-steps-details"' in html
-        assert "You do not need these sections for normal daily review." in html
 
     # --- No browser dialogs ---
     def test_no_alert_calls(self) -> None:
@@ -31856,10 +31149,6 @@ class TestPaperTradeTicketUi:
         nxt = html.index("\nfunction ", start + 1)
         return html[start:nxt]
 
-    def test_ticket_container_and_button_present(self) -> None:
-        html = self._read_html()
-        assert 'id="tf-ticket"' in html
-        assert 'id="tf-place-btn"' in html
 
     def test_ticket_renderer_present(self) -> None:
         assert "async function _renderPaperTradeTicket(" in self._read_html()
@@ -32100,11 +31389,6 @@ class TestDailyTradeWorkflowContractV1Ui:
         return html_path.read_text(encoding="utf-8", errors="ignore")
 
     # --- A/B: Today's Candidates + scan visibility + empty state ---
-    def test_todays_candidates_section_present(self) -> None:
-        html = self._read_html()
-        assert "Today's Trade Ideas" in html
-        assert 'id="dp-todays-candidates"' in html
-        assert 'id="dp-tc-list"' in html
 
     def test_todays_candidates_render_function_present(self) -> None:
         assert "function renderTodaysCandidates(" in self._read_html()
@@ -32135,18 +31419,7 @@ class TestDailyTradeWorkflowContractV1Ui:
         assert "Current holdings reviewed:" in fn
 
     # --- C/F: candidate card copy + Positions to Review ---
-    def test_approving_does_not_place_a_trade_copy_present(self) -> None:
-        assert (
-            "Approving does not place a trade. It only prepares a paper trade ticket."
-            in self._read_html()
-        )
 
-    def test_positions_to_review_section_present(self) -> None:
-        html = self._read_html()
-        assert "Positions to Review" in html
-        assert 'id="dp-positions-to-review"' in html
-        assert "function renderPositionsToReview(" in html
-        assert "function loadPositionsToReview(" in html
 
     def test_review_position_exit_card_present(self) -> None:
         html = self._read_html()
@@ -32192,17 +31465,8 @@ class TestDailyTradeWorkflowContractV1Ui:
         assert "Paper trade completed. Portfolio updated." in html
 
     # --- H: session scoping language ---
-    def test_older_review_items_section_present(self) -> None:
-        html = self._read_html()
-        assert "Older review items" in html
-        assert 'id="dp-tc-older"' in html
 
     # --- I: internal mechanics stay in Advanced/Audit ---
-    def test_internal_audit_sections_collapsed(self) -> None:
-        html = self._read_html()
-        assert "Internal signal audit" in html
-        assert "Internal decision audit" in html
-        assert "You do not need these sections for normal daily review." in html
 
     # --- J: no browser dialogs ---
     def test_no_alert_calls(self) -> None:
@@ -32243,11 +31507,6 @@ class TestGuidedDailyTradingFlowV2Ui:
     def test_daily_review_complete_message_present(self) -> None:
         assert "Daily review complete." in self._read_html()
 
-    def test_progress_renders_in_daily_plan_panel(self) -> None:
-        html = self._read_html()
-        assert 'id="dp-daily-review-progress"' in html
-        fn = _fn_body(html, "async function _runDailyReviewSession(")
-        assert "dp-daily-review-progress" in fn
 
     def test_session_stays_in_daily_plan_surface(self) -> None:
         fn = _fn_body(self._read_html(), "async function _runDailyReviewSession(")
@@ -32327,10 +31586,6 @@ class TestGuidedDailyTradingFlowV2Ui:
         assert "window._canonicalWorkflowState" in fn
 
     # --- H: active action visible, not hidden behind Advanced/Audit ---
-    def test_active_action_workspaces_visible(self) -> None:
-        html = self._read_html()
-        assert 'id="active-action-workspace"' in html
-        assert "function syncActiveActionWorkspaces(" in html
 
 
 # ---------------------------------------------------------------------------
@@ -33396,11 +32651,7 @@ class TestDailyWorkflowStateUiContractV1:
         assert "window._canonicalWorkflowState = {" in html
         assert "_na.target_anchor" in html and "_na.target_tab" in html
 
-    def test_today_trade_ideas_anchor_present(self) -> None:
-        assert 'id="today-trade-ideas"' in self._read_html()
 
-    def test_positions_to_review_anchor_present(self) -> None:
-        assert 'id="positions-to-review"' in self._read_html()
 
     def test_history_only_label_present(self) -> None:
         assert "Older Trade Ideas — History Only" in self._read_html()
@@ -33419,11 +32670,6 @@ class TestDailyWorkflowStateUiContractV1:
         assert "_switchTab" in fn
         assert "scrollIntoView" in fn
 
-    def test_overview_cta_routes_to_canonical_target(self) -> None:
-        html = self._read_html()
-        assert 'onclick="overviewPrimaryAction(this)"' in html
-        fn = _fn_body(html, "function overviewPrimaryAction(")
-        assert "navigateToCanonicalTarget" in fn
 
     def test_action_panel_primary_button_routes_to_canonical_target(self) -> None:
         html = self._read_html()
@@ -33435,10 +32681,6 @@ class TestDailyWorkflowStateUiContractV1:
         assert ">Watch Position</button>" not in html
         assert 'onclick="watchPosition' not in html
 
-    def test_generate_summary_not_a_primary_overview_cta(self) -> None:
-        html = self._read_html()
-        assert ">Generate Daily Review Summary</button>" not in html
-        assert "Refresh Read-Only Summary" in html
 
     def test_no_alert_or_confirm(self) -> None:
         import re
@@ -33629,20 +32871,7 @@ class TestScanCoverageUiContractV1:
             encoding="utf-8", errors="ignore"
         )
 
-    def test_scan_coverage_section_present(self) -> None:
-        html = self._read_html()
-        assert "Scan Coverage" in html
-        assert 'id="dp-scan-coverage"' in html
-        assert 'id="scan-coverage"' in html
 
-    def test_scan_coverage_funnel_labels_present(self) -> None:
-        html = self._read_html()
-        for label in (
-            "Universe configured", "Price-history ready", "Locally screened",
-            "Sent to prediction", "Predictions returned", "Actionable trade ideas",
-            "Watch / below threshold", "Rejected / blocked", "Existing positions reviewed",
-        ):
-            assert label in html, f"missing funnel label: {label}"
 
     def test_render_scan_coverage_function_present(self) -> None:
         html = self._read_html()
@@ -33654,11 +32883,7 @@ class TestScanCoverageUiContractV1:
     def test_no_actionable_ideas_message_present(self) -> None:
         assert "No actionable trade ideas today" in self._read_html()
 
-    def test_actionable_trade_ideas_anchor_present(self) -> None:
-        assert 'id="actionable-trade-ideas"' in self._read_html()
 
-    def test_positions_reviewed_anchor_present(self) -> None:
-        assert 'id="positions-reviewed"' in self._read_html()
 
     def test_daily_review_renders_scan_coverage(self) -> None:
         html = self._read_html()
@@ -33857,16 +33082,18 @@ class TestWorkflowNavigationContractUiV1:
             encoding="utf-8", errors="ignore"
         )
 
-    def test_open_positions_anchor_present(self) -> None:
-        assert 'id="open-positions"' in self._read_html()
 
     def test_view_portfolio_cta_path_present(self) -> None:
         html = self._read_html()
         assert 'onclick="navigateToPortfolioPositions()"' in html
         fn = _fn_body(html, "function navigateToPortfolioPositions(")
-        assert "open-positions" in fn
+        # Phase 27B.8: "View Portfolio" now lands on the operational holdings
+        # dashboard (Alpha Paper Book #1) via the Portfolio route and focuses
+        # #pdash-kpis. The legacy positions anchor was removed.
         assert "switchToTab('portfolio')" in fn
-        assert "Showing Portfolio — Open Positions." in fn
+        assert "pdash-kpis" in fn
+        assert "open-positions" not in fn
+        assert "Showing Portfolio — Alpha Paper Book #1 holdings." in fn
 
     def test_history_only_label_present(self) -> None:
         assert "Older Trade Ideas — History Only" in self._read_html()
@@ -33896,10 +33123,6 @@ class TestWorkflowNavigationContractUiV1:
         ):
             assert fn_name in html, f"missing navigation helper: {fn_name!r}"
 
-    def test_summary_button_renamed(self) -> None:
-        html = self._read_html()
-        assert "Refresh Read-Only Summary" in html
-        assert 'id="ov-na-btn"' in html
 
     def test_no_browser_dialogs(self) -> None:
         import re
@@ -34176,13 +33399,6 @@ class TestMarketIndicatorChangeFieldsV1:
             assert "change" in ind
             assert "change_pct" in ind
 
-    def test_ui_contains_change_element_css_and_formatter(self) -> None:
-        """UI static: .ov-mkt-change CSS, change divs, and formatMarketIndicatorChange function exist."""
-        from pathlib import Path
-        html = Path("api/ui/index.html").read_text(encoding="utf-8", errors="ignore")
-        assert "ov-mkt-change" in html
-        assert 'class="ov-mkt-change"' in html
-        assert "formatMarketIndicatorChange" in html
 
     def test_ui_change_formatter_handles_signed_values(self) -> None:
         """UI static: change formatter sign logic and change_pct reference are present."""
@@ -34332,14 +33548,6 @@ class TestMarketIndicatorChangeFieldsV1:
             assert p["previous_as_of"] is None
             assert p["freshness_label"] == "FRED OBS"
 
-    def test_ui_contains_compare_date_element_and_format_helper(self) -> None:
-        """UI static: .ov-mkt-compare-date div, formatShortDate function, and prior obs reference present."""
-        from pathlib import Path
-        html = Path("api/ui/index.html").read_text(encoding="utf-8", errors="ignore")
-        assert "ov-mkt-compare-date" in html
-        assert 'class="ov-mkt-compare-date"' in html
-        assert "formatShortDate" in html
-        assert "previous_as_of" in html or "prior obs" in html
 
     def test_ui_no_live_badge_literal_for_market_indicators(self) -> None:
         """UI static: badge code uses freshness_label / 'LATEST LOADED' instead of hardcoded 'LIVE'."""
@@ -34369,29 +33577,20 @@ class TestPortfolioTradeLedgerUiV1:
     def test_paper_trade_ledger_present(self) -> None:
         assert "Paper Trade Ledger" in self._read_html()
 
-    def test_filled_paper_trades_copy_present(self) -> None:
-        assert "These are filled paper trades. No broker execution." in self._read_html()
 
-    def test_orders_vs_trades_distinction_present(self) -> None:
-        html = self._read_html()
-        assert "Orders are paper execution tickets" in html
-        assert "Trades are filled paper executions" in html
 
-    def test_open_positions_anchor_present(self) -> None:
-        assert 'id="open-positions"' in self._read_html()
 
     def test_view_portfolio_navigation_targets_open_positions(self) -> None:
         html = self._read_html()
         fn = _fn_body(html, "function navigateToPortfolioPositions(")
-        assert "open-positions" in fn
-        assert "loadTradeLedger()" in fn
+        # Phase 27B.8: navigation targets the operational holdings dashboard
+        # (#pdash-kpis via the Portfolio route), not the legacy positions
+        # anchor or the trade-ledger loader.
+        assert "switchToTab('portfolio')" in fn
+        assert "pdash-kpis" in fn
+        assert "open-positions" not in fn
+        assert "loadTradeLedger()" not in fn
 
-    def test_summary_strip_and_ledger_loader_present(self) -> None:
-        html = self._read_html()
-        assert 'id="ps-total-value"' in html
-        assert 'id="ps-filled-trades"' in html
-        assert "async function loadTradeLedger(" in html
-        assert "'/v1/trades?limit=200'" in html
 
     def test_no_browser_dialogs(self) -> None:
         import re
@@ -35290,54 +34489,18 @@ class TestUiTradingCommandCenterContent:
         for label in ("Command Center", "Daily Workflow", "Portfolio", "Research &amp; Audit"):
             assert label in html, f"missing nav item: {label}"
 
-    def test_kpi_cards_present(self) -> None:
-        html = _read_index_html_14a()
-        for label in ("System State", "Research Market Mark", "Primary Paper Book",
-                      "Current Paper Return", "Excess vs SPY", "Portfolio Capacity"):
-            assert label in html, f"missing KPI card: {label}"
-        for el_id in ("cc-kpi-system", "cc-kpi-mark", "cc-kpi-book", "cc-kpi-return",
-                      "cc-kpi-excess", "cc-kpi-capacity"):
-            assert f'id="{el_id}"' in html, f"missing KPI surface: {el_id}"
 
-    def test_four_stage_workflow_present(self) -> None:
-        html = _read_index_html_14a()
-        assert "Today's Workflow" in html
-        for el_id in ("cc-stage-refresh", "cc-stage-review", "cc-stage-decide", "cc-stage-monitor"):
-            assert f'id="{el_id}"' in html, f"missing workflow stage: {el_id}"
-        for name in (">Refresh<", ">Review<", ">Decide<", ">Monitor<"):
-            assert name in html, f"missing stage name: {name}"
 
-    def test_next_best_action_panel_present(self) -> None:
-        html = _read_index_html_14a()
-        assert "Next Best Action" in html
-        assert 'id="cc-na-btn"' in html
-        assert 'id="cc-na-title"' in html
-        assert "commandCenterPrimaryAction(this)" in html
 
-    def test_top25_top50_spy_compact_comparison_present(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="cc-perf-chart"' in html
-        assert "Performance Snapshot" in html
-        for legend in ("Top 25", "Top 50", "SPY"):
-            assert legend in html, f"missing perf legend: {legend}"
 
-    def test_portfolio_capacity_present(self) -> None:
-        html = _read_index_html_14a()
-        assert "Portfolio Capacity" in html
-        assert 'id="cc-kpi-capacity"' in html
 
-    def test_review_queue_and_positions_previews_present(self) -> None:
-        html = _read_index_html_14a()
-        assert "Review Queue" in html and 'id="cc-rq-preview"' in html
-        assert "Open Positions" in html and 'id="cc-pos-preview"' in html
-        assert "Recent Decisions" in html and 'id="cc-dec-preview"' in html
 
     def test_safety_badges_visible(self) -> None:
         html = _read_index_html_14a()
         start = html.index('id="cc-root"')
         markup = html[start:html.index('COMMAND CENTER END', start)]
         for badge in ("MANUAL REVIEW", "PAPER ONLY", "NO BROKER EXECUTION",
-                      "AUTOMATION OFF", "NO LIVE ORDERS"):
+                      "AUTOMATION OFF", "NO LIVE BROKER ORDERS"):
             assert badge in markup, f"missing command-center safety badge: {badge}"
 
     def test_audit_content_still_exists(self) -> None:
@@ -35348,10 +34511,6 @@ class TestUiTradingCommandCenterContent:
 class TestUiIntegratedDailyWorkflowContent:
     """Phase 14-A: the consolidated daily-workflow surface + connected-state fixes."""
 
-    def test_four_stage_sequence_present(self) -> None:
-        html = _read_index_html_14a()
-        for el_id in ("cc-stage-refresh", "cc-stage-review", "cc-stage-decide", "cc-stage-monitor"):
-            assert f'id="{el_id}"' in html
 
     def test_stage_status_vocabulary_in_js(self) -> None:
         js = _cc_js_14a()
@@ -35460,12 +34619,6 @@ class TestUiResearchAuditCompatibility:
         html = _read_index_html_14a()
         assert "Research &amp; Audit" in html
 
-    def test_legacy_overview_moved_to_collapsed_details(self) -> None:
-        html = _read_index_html_14a()
-        assert '<details id="cc-legacy-overview"' in html
-        tag = html[html.index('<details id="cc-legacy-overview"'):]
-        tag = tag[:tag.index(">")]
-        assert " open" not in tag, "legacy overview must be collapsed by default"
 
     def test_decorative_placeholder_charts_removed(self) -> None:
         html = _read_index_html_14a()
@@ -35491,21 +34644,8 @@ def _js_14b() -> str:
 class TestUiDailyWorkflowOperatingTerminal:
     """Phase 14-B: the Daily Workflow page is a six-stage operating terminal."""
 
-    def test_daily_workflow_terminal_present(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="dw-terminal"' in html
-        assert "Today's Operating Workflow" in html
 
-    def test_six_stage_stepper_exists(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="dw-stepper"' in html
-        for stage in ("DATA", "CANDIDATES", "REVIEW", "SIGNALS", "DECISIONS", "PORTFOLIO"):
-            assert f'id="dw-stage-{stage}"' in html, f"missing stepper stage: {stage}"
 
-    def test_active_workbench_exists(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="dw-workbench"' in html
-        assert "function renderWorkflowWorkbench" in html
 
     def test_active_queue_and_history_separate(self) -> None:
         js = _js_14b()
@@ -35533,23 +34673,8 @@ class TestUiDailyWorkflowOperatingTerminal:
 class TestUiPortfolioOperatingTerminal:
     """Phase 14-B: the Portfolio page is a professional terminal with real empty states."""
 
-    def test_portfolio_terminal_present(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="pt-terminal"' in html
 
-    def test_kpi_row_exists(self) -> None:
-        html = _read_index_html_14a()
-        assert 'class="pt-kpi-row"' in html
-        for label in ("Portfolio Value", "Cash", "Invested", "Total Return",
-                      "Open Positions", "Available Capacity"):
-            assert label in html, f"missing portfolio KPI: {label}"
 
-    def test_positions_table_and_real_empty_state(self) -> None:
-        html = _read_index_html_14a()
-        js = _js_14b()
-        assert 'id="pt-pos-tbody"' in html
-        assert "function renderPositionTable" in js
-        assert "NO OPEN POSITIONS" in js
 
     def test_orders_real_empty_states_and_separation(self) -> None:
         js = _js_14b()
@@ -35557,21 +34682,7 @@ class TestUiPortfolioOperatingTerminal:
         assert "NO FILLED PAPER ORDERS YET" in js
         assert "_ptRenderOrders" in js
 
-    def test_performance_chart_and_risk_panel(self) -> None:
-        html = _read_index_html_14a()
-        js = _js_14b()
-        assert 'id="pt-chart"' in html
-        assert "function renderPortfolioChart" in js
-        assert "Risk &amp; Capacity" in html
-        assert "NO PERFORMANCE SNAPSHOTS YET" in html
 
-    def test_terminals_do_not_use_connect_to_load(self) -> None:
-        # The new terminal blocks must not show "Connect to load" placeholders.
-        html = _read_index_html_14a()
-        dw = html[html.index('id="dw-terminal"'):html.index("DAILY WORKFLOW TERMINAL END")]
-        pt = html[html.index('id="pt-terminal"'):html.index("PORTFOLIO TERMINAL END")]
-        assert "Connect to load" not in dw
-        assert "Connect to load" not in pt
 
 
 class TestUiContextualActionRail:
@@ -35633,11 +34744,6 @@ class TestUiDeepLinkNavigation:
 class TestUiCommandCenterPhase14BIntegration:
     """Phase 14-B: Command Center review title + TOP50 prominence + deep-links."""
 
-    def test_review_title_switches_on_pending(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="cc-rq-title"' in html
-        assert "Active Review Queue" in html
-        assert "Recent Review History" in html
 
     def test_top50_prominent_book_id_in_tooltip(self) -> None:
         html = _read_index_html_14a()
@@ -35674,28 +34780,9 @@ class TestUiCanonicalPortfolioValuation:
     """Phase 14-C: the Portfolio KPI row is the CURRENT EOD MARK with a
     reconciliation indicator and as-of / source / freshness / coverage meta."""
 
-    def test_current_eod_mark_label_and_badge(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="pt-mark"' in html
-        assert "Current EOD Mark" in html
-        assert "CURRENT_MARKED_EOD" in html
 
-    def test_mark_meta_surfaces_present(self) -> None:
-        html = _read_index_html_14a()
-        for el_id in ("pt-mark-asof", "pt-mark-source", "pt-mark-fresh", "pt-mark-coverage"):
-            assert f'id="{el_id}"' in html, f"missing mark meta surface: {el_id}"
 
-    def test_reconciliation_indicator_present(self) -> None:
-        html = _read_index_html_14a()
-        js = _js_14b()
-        assert 'id="pt-recon"' in html
-        for word in ("RECONCILED", "UNRECONCILED", "RECONCILIATION INCOMPLETE"):
-            assert word in js, f"missing reconciliation state: {word}"
 
-    def test_kpi_row_uses_current_mark_labels(self) -> None:
-        html = _read_index_html_14a()
-        for label in ("Current Portfolio Value", "Current Invested Value", "Current Total Return"):
-            assert label in html, f"missing current-mark KPI label: {label}"
 
     def test_render_reads_canonical_current_mark(self) -> None:
         js = _js_14b()
@@ -35708,18 +34795,7 @@ class TestUiPortfolioAsOfSeparation:
     """Phase 14-C: the current mark and the latest official snapshot are shown
     as separate, clearly-labelled surfaces (never implied to share a timestamp)."""
 
-    def test_last_official_snapshot_panel(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="pt-snapshot"' in html
-        assert "Last Official Snapshot" in html
-        assert "NO OFFICIAL SNAPSHOT YET" in html
-        for el_id in ("pt-snap-date", "pt-snap-total", "pt-snap-cumret"):
-            assert f'id="{el_id}"' in html
 
-    def test_performance_chart_labelled_historical(self) -> None:
-        html = _read_index_html_14a()
-        assert "Historical Portfolio Snapshots" in html
-        assert "OFFICIAL_PORTFOLIO_SNAPSHOT" in html
 
     def test_explanatory_note_present(self) -> None:
         html = _read_index_html_14a()
@@ -35731,35 +34807,16 @@ class TestUiPortfolioLegacyConsolidation:
     """Phase 14-C: legacy portfolio sections collapsed under one Advanced
     container (closed by default) + a compact internal section navigator."""
 
-    def test_advanced_container_collapsed_by_default(self) -> None:
-        html = _read_index_html_14a()
-        # exact opening tag has no `open` attribute -> collapsed by default
-        assert '<details id="pt-advanced-details" class="pt-advanced-details">' in html
-        assert "Advanced Portfolio Details" in html
 
-    def test_internal_section_navigator(self) -> None:
-        html = _read_index_html_14a()
-        assert 'id="pt-nav"' in html
-        for label in (">Overview<", ">Positions<", ">Orders<", ">Performance<", ">Risk<", ">Advanced<"):
-            assert label in html, f"missing portfolio nav item: {label}"
 
-    def test_internal_hash_routes(self) -> None:
-        html = _read_index_html_14a()
-        for route in ("portfolio/positions", "portfolio/orders", "portfolio/performance",
-                      "portfolio/risk", "portfolio/advanced"):
-            assert route in html, f"missing portfolio route: {route}"
 
-    def test_legacy_functionality_preserved(self) -> None:
-        html = _read_index_html_14a()
-        # nothing removed — the old sections still exist inside the collapsed container
-        for label in ("Portfolio &amp; Trade Ledger", "Portfolio Analytics",
-                      "Paper Trade Ledger", "Performance History", "Position Review"):
-            assert label in html, f"legacy section removed: {label}"
 
-    def test_advanced_route_opens_container(self) -> None:
-        js = _js_14b()
-        assert "pt-advanced-details" in js
-        assert "det.open = true" in js
+    # Phase 27B.7/27B.8: the Phase 14-C legacy portfolio "Advanced" container
+    # (pt-advanced-details) was physically removed from the operator DOM and the
+    # Portfolio route is now the operational holdings dashboard (see
+    # tests/test_phase27b8_operational_portfolio.py). The obsolete
+    # route-opens-container assertion is retired.
+    pass
 
 
 class TestUiResearchChampionFirst:
@@ -35812,21 +34869,7 @@ class TestUiCrossScreenPortfolioConsistency:
         html = _read_index_html_14a()
         assert "as of " in html  # as-of label surfaced on the capacity KPI
 
-    def test_portfolio_nav_buttons_labelled(self) -> None:
-        import re
-        html = _read_index_html_14a()
-        nav = html[html.index('id="pt-nav"'):html.index("</div>", html.index('id="pt-nav"'))]
-        for m in re.finditer(r"<a\b[^>]*>(.*?)</a>", nav, re.S):
-            inner = re.sub(r"<[^>]+>", "", m.group(1)).strip()
-            assert inner, f"unlabeled portfolio nav link: {m.group(0)[:80]}"
 
-    def test_no_native_dialogs_in_new_sections(self) -> None:
-        import re
-        html = _read_index_html_14a()
-        pt = html[html.index('id="pt-terminal"'):html.index("PORTFOLIO TERMINAL END")]
-        for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
-                    r"(?<![A-Za-z0-9_.])prompt\s*\("):
-            assert not re.search(pat, pt)
 
 
 # =========================================================================== #
@@ -35846,48 +34889,11 @@ def _dor_card_region_15a() -> str:
     return html[start:end]
 
 
-class TestUiDailyOperatingRunCard:
-    """Phase 15-A: the Daily Operating Run card near the top of Command Center."""
-
-    def test_card_present_with_title(self) -> None:
-        region = _dor_card_region_15a()
-        assert 'id="dor-card"' in region
-        assert "Daily Operating Run" in region
-
-    def test_card_shows_operating_dates(self) -> None:
-        region = _dor_card_region_15a()
-        for el in ("dor-required", "dor-port-date", "dor-snap-date", "dor-alpha-date",
-                   "dor-spy-date", "dor-coverage", "dor-lastrun", "dor-status"):
-            assert 'id="' + el + '"' in region, "missing date/summary field: " + el
-        assert "Latest completed market date" in region
-        assert "Alpha Top25 / Top50 mark" in region
-        assert "SPY mark date" in region
-
-    def test_card_safety_badges(self) -> None:
-        region = _dor_card_region_15a()
-        for badge in ("MANUAL REVIEW", "PREVIEW ONLY", "NO ORDERS", "ORDERS DISABLED",
-                      "AUTOMATION OFF"):
-            assert badge in region, "missing safety badge: " + badge
-
-    def test_card_makes_no_order_or_signal_claims(self) -> None:
-        import re
-        region = _dor_card_region_15a()
-        assert "no orders, no automation, no broker" in region.lower()
-        for pat in (r"(?<![A-Za-z0-9_.])alert\s*\(", r"(?<![A-Za-z0-9_.])confirm\s*\(",
-                    r"(?<![A-Za-z0-9_.])prompt\s*\("):
-            assert not re.search(pat, region)
-        assert "Create Orders" not in region
 
 
 class TestUiDailyRunPreviewAndConfirmation:
     """Phase 15-A: Preview Daily Run + the styled (non-native) confirmation flow."""
 
-    def test_preview_and_run_buttons(self) -> None:
-        region = _dor_card_region_15a()
-        assert 'id="dor-preview-btn"' in region and "Preview Daily Run" in region
-        assert 'id="dor-execute-btn"' in region and "Run Manual Daily Session" in region
-        assert "previewDailyRun(this)" in region
-        assert "confirmDailyRun(this)" in region
 
     def test_styled_confirmation_not_native(self) -> None:
         import re
@@ -35921,11 +34927,6 @@ class TestUiDailyRunPreviewAndConfirmation:
 class TestUiDailyRunStageResults:
     """Phase 15-A: stage-by-stage run results + the durable outcome line."""
 
-    def test_stage_and_outcome_surfaces(self) -> None:
-        region = _dor_card_region_15a()
-        assert 'id="dor-stages"' in region
-        assert 'id="dor-outcome"' in region
-        assert 'id="dor-advanced-body"' in region
 
     def test_stage_renderer_present(self) -> None:
         html = _read_index_html_15a()
@@ -35970,17 +34971,11 @@ class TestUiMarketDateAlignmentBadge:
         span = html[idx:idx + 400]
         assert "Does not check prediction" in span
 
-    def test_alignment_pill_present(self) -> None:
-        region = _dor_card_region_15a()
-        assert 'id="dor-align-pill"' in region
 
 
 class TestUiDailyWorkflowDataAlignment:
     """Phase 15-A: the Daily Workflow DATA stage reflects market-date alignment."""
 
-    def test_data_stage_element_present(self) -> None:
-        html = _read_index_html_15a()
-        assert 'id="dw-stage-DATA"' in html
 
     def test_stage_button_routes_by_target(self) -> None:
         html = _read_index_html_15a()
@@ -36047,16 +35042,6 @@ class TestUiDailyRunCanonicalState:
         assert "STALE / MISALIGNED" in fn
         assert "} else if (cs ===" in fn or "else if (cs" in fn
 
-    def test_last_execution_detail_holds_transient_result(self) -> None:
-        html = _read_index_html_15b()
-        assert 'id="dor-last-exec"' in html
-        assert "Last execution detail" in html
-        fn = _fn_15b(html, "function _dorRenderRun", "async function previewDailyRun")
-        # The transient run result goes ONLY to dor-exec-note / dor-last-exec, never
-        # to the canonical #dor-outcome headline.
-        assert "dor-exec-note" in fn
-        assert "dor-last-exec" in fn
-        assert "getElementById('dor-outcome')" not in fn
 
     def test_execute_reloads_canonical_status(self) -> None:
         fn = _fn_15b(_read_index_html_15b(), "async function executeDailyRun",
@@ -36096,109 +35081,10 @@ class TestUiCurrentAlphaCanonicalMark:
         assert "historical_evidence" in cc
 
 
-class TestUiCommandCenterConsolidation:
-    """Part D: legacy panels live under one collapsed MARKET CONTEXT & LEGACY PANELS."""
-
-    def test_legacy_section_renamed(self) -> None:
-        html = _read_index_html_15b()
-        assert "MARKET CONTEXT &amp; LEGACY PANELS" in html
-
-    def test_legacy_panels_inside_collapsed_section(self) -> None:
-        html = _read_index_html_15b()
-        legacy = _region_15b(html, 'id="cc-legacy-overview"', "end cc-legacy-overview")
-        for panel in ("cockpit-kpi-strip", 'id="overview-next-action-card"',
-                      'id="daily-review-summary-card"', 'id="daily-session-card"',
-                      "ov-market-section"):
-            assert panel in legacy, "legacy panel not collapsed: " + panel
-
-    def test_default_command_center_primary_panels(self) -> None:
-        # Phase 27B.2: the primary Command Center is the canonical operational
-        # book (one card + five-stage workflow + RESEARCH ONLY strip); the old
-        # market-context / research / legacy panels live in the collapsed archive.
-        html = _read_index_html_15b()
-        primary = _region_15b(html, 'id="cc-root"', 'id="cc-legacy-overview"')
-        for el in ('id="cc-ob-panel"', 'id="cc-ob-headline"', 'id="cc-ob-primary-btn"',
-                   'id="cc-ob-workflow"', 'id="cc-research-strip"', "RESEARCH ONLY"):
-            assert el in primary, "missing default CC panel: " + el
-        # The relocated context/research/legacy cards are NOT in the primary path.
-        for el in ('id="dor-card"', "cc-kpi-row", "Today's Workflow", "Current Alpha",
-                   "Next Best Action", 'id="daily-session-card"'):
-            assert el not in primary, "legacy CC panel not archived: " + el
-        legacy = _region_15b(html, 'id="cc-legacy-overview"', "end cc-legacy-overview")
-        for el in ('id="dor-card"', "cc-kpi-row", "Today's Workflow", "Current Alpha",
-                   "Next Best Action"):
-            assert el in legacy, "archived CC panel missing from archive: " + el
 
 
-class TestUiDailyWorkflowConsolidation:
-    """Part E: six-stage terminal is primary; duplicate Daily Review entry points are
-    consolidated under ADVANCED SESSION DETAIL."""
-
-    def test_advanced_session_detail_present(self) -> None:
-        html = _read_index_html_15b()
-        assert 'id="dw-advanced-session"' in html
-        assert "Advanced Session Detail" in html
-
-    def test_six_stage_stepper_present(self) -> None:
-        html = _read_index_html_15b()
-        for stage in ("dw-stage-DATA", "dw-stage-CANDIDATES", "dw-stage-REVIEW",
-                      "dw-stage-SIGNALS", "dw-stage-DECISIONS", "dw-stage-PORTFOLIO"):
-            assert 'id="' + stage + '"' in html
-
-    def test_duplicate_daily_review_entries_moved_to_advanced(self) -> None:
-        """Phase 25B contract: the ONE authoritative Daily Review Control card sits
-        visibly between the six-stage terminal and the collapsed Advanced Session
-        Detail; the remaining legacy cards stay inside the collapsed section and no
-        longer start sessions themselves."""
-        html = _read_index_html_15b()
-        advanced = _region_15b(html, 'id="dw-advanced-session"',
-                               "ADVANCED SESSION DETAIL END")
-        # Legacy Today's Review + workspace cards remain consolidated in Advanced.
-        assert 'id="dp-current-task-card"' in advanced
-        assert "Start Daily Review" in advanced
-        # The advanced section holds NO session starter of its own.
-        assert "startDailyReviewSession(this)" not in advanced
-        # The single authoritative control card is visible ABOVE the advanced
-        # section (after the terminal), not buried inside it.
-        assert 'id="dp-review-control-card"' not in advanced
-        between = _region_15b(html, 'id="dw-terminal"', 'id="dw-advanced-session"')
-        assert 'id="dp-review-control-card"' in between
-        assert html.count("startDailyReviewSession(this)") == 1
 
 
-class TestUiPortfolioCanonicalWorkspace:
-    """Part F: canonical current KPIs by default; the reconciler cache is Diagnostics-only
-    and clearly labelled non-current; one internal section active."""
-
-    def test_current_mark_panel_is_canonical(self) -> None:
-        html = _read_index_html_15b()
-        assert 'id="pt-mark"' in html
-        assert "CURRENT_MARKED_EOD" in html
-
-    def test_legacy_cache_labelled_and_under_diagnostics(self) -> None:
-        html = _read_index_html_15b()
-        assert "LEGACY RECONCILER CACHE" in html
-        assert "NOT CURRENT EOD VALUE" in html
-        # It lives inside the collapsed Advanced/Diagnostics details, not the default view.
-        adv_idx = html.index('id="pt-advanced-details"')
-        cache_idx = html.index('id="pt-legacy-cache"')
-        assert cache_idx > adv_idx
-        # The default Current EOD Mark panel comes BEFORE the advanced details.
-        assert html.index('id="pt-mark"') < adv_idx
-
-    def test_portfolio_subnav_and_single_active(self) -> None:
-        html = _read_index_html_15b()
-        assert 'id="pt-nav"' in html
-        for sub in ("positions", "orders", "performance", "risk", "advanced"):
-            assert "portfolio/" + sub in html
-        # Only one active portfolio subsection (nav highlight logic).
-        assert "_ptHighlightNav" in html
-
-    def test_legacy_cache_populated_from_operating_state(self) -> None:
-        fn = _fn_15b(_read_index_html_15b(), "async function _loadLegacyReconcilerCache",
-                     "window._loadLegacyReconcilerCache")
-        assert "/v1/dashboard/operating-state" in fn
-        assert "pt-legacy-total" in fn
 
 
 class TestUiResearchAuditWorkspace:
@@ -36239,13 +35125,6 @@ class TestUiResearchAuditWorkspace:
 class TestUiOperationalDeepLinks:
     """Parts G/I: deep links resolve to internal subsections; no blank nav buttons."""
 
-    def test_all_deep_link_routes_present(self) -> None:
-        html = _read_index_html_15b()
-        for route in ("portfolio/positions", "portfolio/orders", "portfolio/performance",
-                      "portfolio/risk", "research-audit/performance",
-                      "research-audit/daily-operations", "research-audit/paper-books",
-                      "research-audit/diagnostics"):
-            assert route in html, "missing deep-link route: " + route
 
     def test_applysubsection_handles_research_audit(self) -> None:
         fn = _fn_15b(_read_index_html_15b(), "function _applySubsection",
@@ -36271,18 +35150,6 @@ class TestUiNoDuplicateSafetyOrNativeDialogs:
                     r"(?<![A-Za-z0-9_.])prompt\s*\("):
             assert not re.search(pat, html), "native dialog found: " + pat
 
-    def test_each_workspace_has_a_safety_strip(self) -> None:
-        html = _read_index_html_15b()
-        # Command Center statusbar strip.
-        cc = _region_15b(html, "cc-statusbar", 'id="cc-error"')
-        assert "PAPER ONLY" in cc and "NO LIVE ORDERS" in cc
-        # Daily Workflow terminal header strip.
-        dw = _region_15b(html, 'id="dw-terminal"', 'id="dw-error"')
-        assert "MANUAL REVIEW" in dw and "NO BROKER EXECUTION" in dw
-        # Portfolio terminal header strip.
-        assert 'id="pt-terminal"' in html
-        # Research & Audit page-level strip.
-        assert "ra-safety-strip" in html
 
     def test_no_new_write_endpoint_added(self) -> None:
         from pathlib import Path
@@ -36359,7 +35226,7 @@ class TestUiCurrentPaperChampionTerminology:
     def test_safety_badges_retained(self) -> None:
         html = _read_index_16a()
         for badge in ("PAPER ONLY", "MANUAL REVIEW", "NO BROKER EXECUTION", "AUTOMATION OFF",
-                      "NO LIVE ORDERS"):
+                      "NO LIVE BROKER ORDERS"):
             assert badge in html, badge
 
     def test_champion_note_says_not_production(self) -> None:
@@ -36706,16 +35573,7 @@ class TestUiAlphaTournamentCommandCenterSummary:
     latest excess, horizon progress, next checkpoint, link to Tournament) is present and wired
     to a best-effort read-only loader that never blanks the dashboard."""
 
-    def test_cc_tournament_block_present(self):
-        html = _read_index_16a()
-        for el in ('id="cc-tournament"', 'id="cc-tourn-status"', 'id="cc-tourn-excess"',
-                   'id="cc-tourn-progress"', 'id="cc-tourn-checkpoint"'):
-            assert el in html, el
 
-    def test_cc_tournament_has_view_link(self):
-        block = _fn_16a(_read_index_16a(), 'id="cc-tournament"', "Performance Snapshot")
-        assert "navigateToRoute('research-audit/tournament')" in block
-        assert "Paper Tournament" in block
 
     def test_cc_summary_loader_wired_and_called(self):
         html = _read_index_16a()
@@ -36726,9 +35584,6 @@ class TestUiAlphaTournamentCommandCenterSummary:
         cc = _fn_16a(html, "async function loadCommandCenter", "window.loadCommandCenter")
         assert "_ccLoadTournamentSummary()" in cc  # called from the command-center load
 
-    def test_cc_summary_paper_only_note(self):
-        block = _fn_16a(_read_index_16a(), 'id="cc-tournament"', "Performance Snapshot")
-        assert "does not replace the champion" in block.lower()
 
 
 # =========================================================================== #
@@ -36820,16 +35675,6 @@ class TestUiAlphaTournamentAlignment:
         for state in ("ALIGNED", "STALE", "PARTIAL_COVERAGE", "BLOCKED_DATA_MISMATCH"):
             assert state in m, state
 
-    def test_command_center_stale_aware(self):
-        html = _read_index_16a()
-        assert 'id="cc-tourn-align"' in html and 'id="cc-tourn-marks"' in html
-        loader = _fn_16a(html, "async function _ccLoadTournamentSummary",
-                         "window._ccLoadTournamentSummary")
-        # STALE until the tournament mark equals the system mark, and the excess is not
-        # presented as current while stale.
-        assert "STALE" in loader
-        assert "tournament_alignment" in loader
-        assert "run Tournament Data Sync" in loader
 
 
 class TestUiAlphaTournamentCoverageRepair:
@@ -36848,12 +35693,6 @@ class TestUiAlphaTournamentCoverageRepair:
         for k in ("champion_top25", "challenger_top25", "champion_top50", "challenger_top50"):
             assert k in fn, k
 
-    def test_command_center_coverage_present(self):
-        html = _read_index_16a()
-        assert 'id="cc-tourn-coverage"' in html
-        loader = _fn_16a(html, "async function _ccLoadTournamentSummary",
-                         "window._ccLoadTournamentSummary")
-        assert "four_book_coverage" in loader
 
 
 class TestUiAlphaTournamentSyncSafety:

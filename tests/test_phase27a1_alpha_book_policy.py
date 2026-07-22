@@ -771,7 +771,8 @@ class TestUiStatic:
 
     def test_alpha_band_safety_and_confirm_box(self, html):
         band = html[html.index('id="ab-band"'):html.index('id="pd-band"')]
-        for badge in ("PAPER ONLY", "NO LIVE ORDERS", "NO BROKER", "AUTOMATION OFF",
+        # Phase 27B.7 text rule: the visible badge is NO LIVE BROKER ORDERS.
+        for badge in ("PAPER ONLY", "NO LIVE BROKER ORDERS", "NO BROKER", "AUTOMATION OFF",
                       "MANUAL CONFIRMATION"):
             assert badge in band, badge
         assert 'id="ab-confirm-box"' in band and 'id="ab-confirm-phrase"' in band
@@ -789,21 +790,21 @@ class TestUiStatic:
         assert "'ADD CANDIDATES'" in html
 
     def test_legacy_vs_alpha_distinction(self, html):
-        assert "LEGACY PAPER PORTFOLIO" in html
-        assert "Not part of Alpha Paper Book #1" in html
-        assert "LEGACY SIGNAL PORTFOLIO CAPACITY" in html
+        # Phase 27B.7 hard cutover: the legacy paper-portfolio card was REMOVED from
+        # Portfolio Manager. Only the Alpha Paper Book #1 identity remains.
+        assert "LEGACY PAPER PORTFOLIO" not in html
+        assert "LEGACY SIGNAL PORTFOLIO CAPACITY" not in html
         assert "ALPHA PAPER BOOK #1" in html
         assert "$100,000" in html
         assert "ALPHA BOOK TARGET: <b>25</b>" in html
         assert "TEMPORARY REBALANCE LIMIT: <b>30</b>" in html
 
     def test_capacity_relabels_no_global_five_slot_implication(self, html):
-        assert "Portfolio Capacity (Legacy)" in html
-        assert "Available Capacity (Legacy)" in html
-        assert "Legacy Signal Portfolio Capacity" in html
-        assert "Legacy Paper Portfolio Capacity" in html
+        # Phase 27B.7 hard cutover: the legacy signal-workflow capacity was removed
+        # from the operator UI; only the Alpha Paper Book #1 capacity remains.
+        assert "Legacy Signal Portfolio Capacity" not in html
+        assert "Legacy Paper Portfolio Capacity" not in html
         assert "Alpha Paper Book #1 Capacity" in html
-        assert "never Alpha Paper Book #1" in html
         assert "Max enforced by risk engine" not in html
 
     def test_pm_statusbar_alpha_capacity(self, html):

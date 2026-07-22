@@ -250,7 +250,7 @@ def _cc_primary(html: str) -> str:
 
 class TestUiCommandCenterOperationalBook:
     def test_operational_panel_first_class_before_kpis(self, html):
-        assert html.index('id="cc-ob-panel"') < html.index('class="cc-kpi-row"')
+        assert html.index('id="cc-ob-panel"') < html.index('id="cc-research-strip"')
         panel = html[html.index('id="cc-ob-panel"'):html.index("CURRENT OPERATIONAL BOOK END")]
         assert "Current Operational Book" in panel
         assert "Alpha Paper Book #1" in panel
@@ -259,76 +259,29 @@ class TestUiCommandCenterOperationalBook:
             assert ">" + label + "<" in panel, label
         assert 'id="cc-ob-next"' in panel      # Next Action surface
 
-    def test_kpis_relabeled_as_research_evidence(self, html):
-        # Phase 27B.2: the research KPI cards moved into the collapsed archive;
-        # the primary screen carries the compact RESEARCH ONLY status strip.
-        legacy = html[html.index('id="cc-legacy-overview"'):html.index("end cc-legacy-overview")]
-        assert "Research Primary Paper Book" in legacy
-        assert "Research Current Paper Return" in legacy
-        assert "Excess vs SPY (Research)" in legacy
-        primary = _cc_primary(html)
-        assert 'id="cc-research-strip"' in primary
-        assert "RESEARCH ONLY" in primary
-
-    def test_legacy_previews_live_only_in_the_archive_section(self, html):
-        primary = _cc_primary(html)
-        assert 'id="cc-pos-preview"' not in primary
-        assert 'id="cc-dec-preview"' not in primary
-        legacy = html[html.index('id="cc-legacy-overview"'):html.index("end cc-legacy-overview")]
-        assert 'id="cc-pos-preview"' in legacy
-        assert 'id="cc-dec-preview"' in legacy
-        assert "Open Positions (Legacy Archive)" in legacy
-        assert "Recent Decisions (Legacy Archive)" in legacy
-
-    def test_legacy_section_titled_historical_books(self, html):
-        legacy = html[html.index('id="cc-legacy-overview"'):html.index("end cc-legacy-overview")]
-        assert "HISTORICAL PAPER BOOKS" in legacy
-        assert "READ-ONLY ARCHIVE" in legacy
-
 
 class TestUiPortfolioDefaultsToOperationalBook:
-    def test_operational_card_before_the_archive(self, html):
-        assert (html.index('id="ptob-card"') < html.index('id="pt-archive"')
-                < html.index('id="pt-terminal"'))
-
     def test_operational_card_content(self, html):
-        card = html[html.index('id="ptob-card"'):html.index('id="pt-archive"')]
-        assert "ALPHA PAPER BOOK #1" in card
-        for label in ("Cash", "NAV", "Holdings", "Pending Orders",
-                      "Current Target", "Current Status"):
+        # Phase 27B.8: the Portfolio route is the operational holdings dashboard
+        # (KPI row + real holdings table), from the same canonical payload.
+        card = html[html.index('id="tab-portfolio"'):html.index('id="tab-portfolio-manager"')]
+        assert "Alpha Paper Book #1" in card
+        for label in ("NAV", "Cash", "Invested Value", "Holdings",
+                      "Unrealized P&amp;L", "Valuation Date"):
             assert ">" + label + "<" in card, label
+        assert 'id="pdash-table"' in card
 
-    def test_archive_summary_names_the_legacy_archive(self, html):
-        m = re.search(r'<details[^>]*id="pt-archive"[^>]*>\s*<summary[^>]*>(.*?)</summary>',
-                      html, re.DOTALL)
-        assert m is not None
-        assert "Historical Paper Books" in m.group(1)
-        assert "Legacy Portfolio Archive" in m.group(1)
-        assert "READ-ONLY" in m.group(1)
-
-    def test_archive_not_open_by_default(self, html):
-        m = re.search(r'<details[^>]*id="pt-archive"[^>]*>', html)
-        assert m and "open" not in m.group(0)
-
-    def test_legacy_terminal_relabeled_archived(self, html):
-        assert "Legacy Portfolio Terminal (Archived)" in html
-        assert html.index('id="pt-archive"') < html.index("Legacy Portfolio Terminal (Archived)")
-
-    def test_legacy_terminal_content_preserved_inside_archive(self, html):
-        archive = html[html.index('id="pt-archive"'):html.index("end pt-archive")]
-        for el in ('id="pt-mark"', 'id="pt-positions"', 'id="pt-orders-row"',
-                   'id="pt-performance"', 'id="pt-risk"', 'id="pt-advanced-details"'):
-            assert el in archive, el
-
-    def test_deep_links_open_the_archive(self, html):
+    def test_portfolio_deep_links_target_the_dashboard(self, html):
+        # Phase 27B.8: the legacy archive deep-link is gone; portfolio sub-routes
+        # resolve to the operational holdings dashboard.
         js = _scripts(html)
-        assert "getElementById('pt-archive')" in js
-        assert "arc.open = true" in js
+        assert "_PT_SUB_TARGET[sub || ''] || 'pdash-kpis'" in js
+        assert "getElementById('pt-archive')" not in js
 
 
 class TestUiDailyWorkflowOperationalSteps:
     def test_operational_workflow_card_first(self, html):
-        assert html.index('id="dwob-card"') < html.index('id="dw-terminal"')
+        assert html.index('id="dwob-card"') < html.index('id="tab-review-queue"')
         card = html[html.index('id="dwob-card"'):html.index("OPERATIONAL BOOK WORKFLOW END")]
         assert "Today's Operating Workflow" in card
         assert "Alpha Paper Book #1" in card
@@ -346,25 +299,16 @@ class TestUiDailyWorkflowOperationalSteps:
                     "dwob-step-order-plan", "dwob-step-monitor"):
             assert 'id="%s"' % sid in card, sid
 
-    def test_legacy_stepper_relabeled_but_preserved(self, html):
-        assert "Legacy Signal Workflow" in html
-        for stage in ("dw-stage-DATA", "dw-stage-CANDIDATES", "dw-stage-REVIEW",
-                      "dw-stage-SIGNALS", "dw-stage-DECISIONS", "dw-stage-PORTFOLIO"):
-            assert 'id="%s"' % stage in html, stage
-
 
 class TestUiRightPanelDescribesOperationalBook:
     def test_operational_capacity_listed_before_legacy(self, html):
         i_op = html.index("Operational Book &mdash; Alpha Paper Book #1 Capacity")
-        i_legacy = html.index("Legacy Signal Portfolio Capacity")
+        i_legacy = html.index("Advanced order controls (legacy paper workflow)")
         assert i_op < i_legacy
 
     def test_live_operational_state_surfaces(self, html):
         assert 'id="right-ob-state"' in html
         assert 'id="right-ob-nav"' in html
-
-    def test_legacy_capacity_labeled_archived(self, html):
-        assert "Legacy Signal Portfolio Capacity (Archived)" in html
 
     def test_advanced_order_controls_scoped_to_legacy(self, html):
         assert "Advanced order controls (legacy paper workflow)" in html
@@ -383,11 +327,13 @@ class TestUiSingleSourceOfTruth:
             assert sid in body, sid
 
     def test_every_operational_loader_reuses_the_one_loader(self, html):
-        # Phase 27B.1/27B.2: command center, daily workflow, portfolio terminal,
-        # portfolio manager, the paper-desk action path and the Alpha Portfolio
-        # page all reuse the ONE coalesced loader (never a second fetch path).
+        # Phase 27B.1/27B.2: command center, daily workflow, portfolio manager,
+        # the paper-desk action path and the Alpha Portfolio page all reuse the
+        # ONE coalesced loader (never a second fetch path). Phase 27B.8: the
+        # Portfolio route activation loads the same coalesced loader directly
+        # (replacing the legacy portfolio-terminal fetch) — a 7th reuse site.
         js = _scripts(html)
-        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 6
+        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 7
 
     def test_concurrent_loads_coalesce(self, html):
         js = _scripts(html)
@@ -414,7 +360,7 @@ class TestUiResearchStaysResearch:
     def test_no_blank_buttons_on_new_panels(self, html):
         for start_marker, end_marker in (
                 ('id="cc-ob-panel"', "CURRENT OPERATIONAL BOOK END"),
-                ('id="ptob-card"', 'id="pt-archive"'),
+                ('id="tab-portfolio"', 'id="tab-portfolio-manager"'),
                 ('id="dwob-card"', "OPERATIONAL BOOK WORKFLOW END")):
             region = html[html.index(start_marker):html.index(end_marker)]
             for m in re.finditer(r"<button[^>]*>(.*?)</button>", region, re.DOTALL):

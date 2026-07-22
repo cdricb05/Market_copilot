@@ -147,6 +147,203 @@ def _pending_orders(desk_dir=None) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Phase 27B.8 - per-holding valuation for the operational holdings dashboard.
+#
+# Composes ONLY data the canonical read model already trusts (ledger-replayed
+# holdings + BUY-fill average cost + desk-mark latest prices + confirmed-plan
+# sectors + frozen target weights). No schema, no writes, no engine rebuild, no
+# prediction service. Degrades to [] on any inconsistency so the canonical
+# payload is never broken.
+# --------------------------------------------------------------------------- #
+
+def _holding_status(pnl_pct: Optional[float], drift: Optional[float]) -> str:
+    """Operator-friendly monitoring status (never a raw internal code). Pure."""
+    adr = abs(drift) if drift is not None else None
+    if (pnl_pct is not None and pnl_pct <= -0.10) or (adr is not None and adr >= 0.02):
+        return "REVIEW"
+    if (pnl_pct is not None and pnl_pct <= -0.05) or (adr is not None and adr >= 0.01):
+        return "WATCH"
+    return "HOLD"
+
+
+def _prev_common_mark_date(series_map: dict, held: list, as_of: Optional[str]) -> Optional[str]:
+    """Latest owned-close strictly before `as_of` that EVERY held name has a price
+    at-or-before — so a daily delta is honest (never a partial / fabricated 0)."""
+    if not as_of or not held:
+        return None
+    cand = None
+    for tk in held:
+        for d, v in (series_map.get(tk) or []):
+            if v is not None and d < as_of and (cand is None or d > cand):
+                cand = d
+    if cand is None:
+        return None
+    for tk in held:
+        if desk._series_price_at_or_before(series_map.get(tk) or [], cand) is None:
+            return None
+    return cand
+
+
+def _plan_orders(desk_dir=None) -> list[dict]:
+    """The per-name rows of the latest CONFIRMED order plan (sectors + sizing).
+    Read-only; degrades to []."""
+    try:
+        sdir = desk._desk_dir(desk_dir)
+        rows = desk._read_ledger(sdir, ab.PLANS_FILE)
+        confirmed = [r for r in rows if r.get("event") == "ORDER_PLAN_CONFIRMED"]
+        return list(confirmed[-1].get("orders") or []) if confirmed else []
+    except Exception:  # noqa: BLE001 - the canonical payload must always load
+        return []
+
+
+def build_holdings_detail(*, book: dict, valuation: dict, fills: list,
+                          marks: dict, plan_orders: list,
+                          target_weights: dict) -> tuple[list, Optional[str]]:
+    """Read-only per-holding valuation of the operational book (Phase 27B.8)."""
+    book_id = book.get("book_id")
+    qty_map = valuation.get("holdings") or {}
+    as_of = valuation.get("as_of_date")
+    nav = _f(valuation.get("nav"))
+    series = marks.get("series") or {}
+
+    # BUY-fill average cost + first-open date per ticker (append-only replay).
+    cost: dict[str, dict] = {}
+    for f in fills:
+        if f.get("book_id") != book_id:
+            continue
+        tk = f.get("ticker")
+        try:
+            q = int(f.get("quantity"))
+        except (TypeError, ValueError):
+            continue
+        c = cost.setdefault(tk, {"buy_qty": 0, "buy_cost": 0.0, "opened": None})
+        if f.get("side") == desk.SIDE_BUY:
+            c["buy_qty"] += q
+            ncd = _f(f.get("net_cash_delta"))
+            if ncd is not None:
+                c["buy_cost"] += -ncd            # gross + transaction cost actually paid
+            fd = f.get("fill_date")
+            if fd and (c["opened"] is None or fd < c["opened"]):
+                c["opened"] = fd
+
+    sector_map = {o.get("ticker"): o.get("sector") for o in (plan_orders or [])}
+    prev_date = _prev_common_mark_date(series, list(qty_map.keys()), as_of)
+
+    rows: list[dict] = []
+    for tk, q in qty_map.items():
+        c = cost.get(tk) or {}
+        buy_qty = c.get("buy_qty") or 0
+        avg_cost = (c["buy_cost"] / buy_qty) if buy_qty else None
+        cost_basis = (avg_cost * q) if avg_cost is not None else None
+        hit = (desk._series_price_at_or_before(series.get(tk) or [], as_of)
+               if as_of else None)
+        price = hit[1] if hit else None
+        mv = (q * price) if price is not None else None
+        upnl = (mv - cost_basis) if (mv is not None and cost_basis is not None) else None
+        upnl_pct = (upnl / cost_basis) if (upnl is not None and cost_basis) else None
+        cw = (mv / nav) if (mv is not None and nav) else None
+        tw = _f(target_weights.get(tk))
+        drift = (cw - tw) if (cw is not None and tw is not None) else None
+        # Daily P&L is only honest once the name was HELD through the prior close
+        # (opened strictly before the valuation date) — never fabricate a same-day 0.
+        opened = c.get("opened")
+        dpnl = None
+        if prev_date and price is not None and opened is not None and opened < as_of:
+            ph = desk._series_price_at_or_before(series.get(tk) or [], prev_date)
+            if ph is not None:
+                dpnl = q * (price - ph[1])
+        rows.append({
+            "ticker": tk,
+            "name": None,               # company name not stored on the desk ledgers
+            "sector": sector_map.get(tk) or "Unknown",
+            "quantity": q,
+            "average_cost": (desk._r2(avg_cost) if avg_cost is not None else None),
+            "latest_price": (desk._r2(price) if price is not None else None),
+            "cost_basis": (desk._r2(cost_basis) if cost_basis is not None else None),
+            "market_value": (desk._r2(mv) if mv is not None else None),
+            "unrealized_pnl": (desk._r2(upnl) if upnl is not None else None),
+            "unrealized_pnl_pct": (round(upnl_pct, 6) if upnl_pct is not None else None),
+            "current_weight": (round(cw, 6) if cw is not None else None),
+            "target_weight": (round(tw, 6) if tw is not None else None),
+            "weight_drift": (round(drift, 6) if drift is not None else None),
+            "daily_pnl": (desk._r2(dpnl) if dpnl is not None else None),
+            "status": _holding_status(upnl_pct, drift),
+            "opened_date": opened,
+            "valuation_date": as_of,
+        })
+    rows.sort(key=lambda r: (r["current_weight"] is None,
+                             -(r["current_weight"] or 0.0), r["ticker"]))
+    return rows, prev_date
+
+
+def _portfolio_summary(rows: list, *, cash: Optional[float], nav: Optional[float],
+                       prev_date: Optional[str], target_count: Optional[int],
+                       implementation_count: int) -> dict:
+    """Compact operational summaries for the holdings dashboard. Pure; no I/O."""
+    invested = sum(r["market_value"] for r in rows if r["market_value"] is not None)
+    cost_basis_total = sum(r["cost_basis"] for r in rows if r["cost_basis"] is not None)
+    upnl_total = (invested - cost_basis_total) if rows else None
+    uret = (upnl_total / cost_basis_total) if cost_basis_total else None
+    # Whole-book daily P&L only when EVERY holding has an honest daily figure.
+    daily_ok = bool(rows) and prev_date is not None and all(
+        r["daily_pnl"] is not None for r in rows)
+    daily_pnl = sum(r["daily_pnl"] for r in rows) if daily_ok else None
+    prev_nav = (((cash or 0.0) + invested - daily_pnl)
+                if daily_pnl is not None else None)
+    daily_pnl_pct = ((daily_pnl / prev_nav)
+                     if (daily_pnl is not None and prev_nav) else None)
+    cash_weight = (cash / nav) if (cash is not None and nav) else None
+
+    sect: dict[str, float] = {}
+    for r in rows:
+        if r["current_weight"] is not None:
+            sect[r["sector"]] = sect.get(r["sector"], 0.0) + r["current_weight"]
+    sector_exposure = [{"sector": s, "weight": round(w, 6)}
+                       for s, w in sorted(sect.items(), key=lambda kv: -kv[1])]
+
+    def _mini(r: dict) -> dict:
+        return {"ticker": r["ticker"], "current_weight": r["current_weight"],
+                "market_value": r["market_value"],
+                "unrealized_pnl": r["unrealized_pnl"],
+                "unrealized_pnl_pct": r["unrealized_pnl_pct"]}
+
+    ranked_w = [r for r in rows if r["current_weight"] is not None]
+    ranked_p = [r for r in rows if r["unrealized_pnl_pct"] is not None]
+    largest = [_mini(r) for r in ranked_w[:5]]
+    best = [_mini(r) for r in sorted(ranked_p, key=lambda r: -r["unrealized_pnl_pct"])[:3]]
+    worst = [_mini(r) for r in sorted(ranked_p, key=lambda r: r["unrealized_pnl_pct"])[:3]]
+    drifts = [r for r in rows if r["weight_drift"] is not None]
+    max_drift = max((abs(r["weight_drift"]) for r in drifts), default=None)
+    off_target = sum(1 for r in drifts if abs(r["weight_drift"]) >= 0.01)
+
+    return {
+        "invested_value": desk._r2(invested),
+        "cost_basis_total": desk._r2(cost_basis_total),
+        "unrealized_pnl": (desk._r2(upnl_total) if upnl_total is not None else None),
+        "unrealized_return": (round(uret, 6) if uret is not None else None),
+        "daily_pnl": (desk._r2(daily_pnl) if daily_pnl is not None else None),
+        "daily_pnl_pct": (round(daily_pnl_pct, 6) if daily_pnl_pct is not None else None),
+        "daily_pnl_available": bool(daily_ok),
+        "daily_pnl_basis_date": prev_date if daily_ok else None,
+        "cash": (desk._r2(cash) if cash is not None else None),
+        "cash_weight": (round(cash_weight, 6) if cash_weight is not None else None),
+        "invested_weight": (round(1.0 - cash_weight, 6)
+                            if cash_weight is not None else None),
+        "holdings_count": len(rows),
+        "sector_exposure": sector_exposure,
+        "largest_positions": largest,
+        "best_performers": best,
+        "worst_performers": worst,
+        "drift_summary": {
+            "max_abs_drift": (round(max_drift, 6) if max_drift is not None else None),
+            "names_off_target": off_target,
+            "implemented_count": implementation_count,
+            "target_count": target_count,
+        },
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Phase 27B.1 - canonical workflow view (stages, header status, next action)
 # --------------------------------------------------------------------------- #
 
@@ -627,6 +824,35 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     }
 
     # ------------------------------------------------------------------ #
+    # Phase 27B.8 — per-holding valuation for the operational holdings
+    # dashboard. Read-only; degrades to [] so the canonical payload always
+    # loads. Sourced ONLY from the ledger-replayed holdings + BUY-fill cost +
+    # desk-mark prices + confirmed-plan sectors + frozen target weights.
+    # ------------------------------------------------------------------ #
+    holdings_detail: list = []
+    portfolio_summary: Optional[dict] = None
+    try:
+        if book is not None and holdings:
+            sdir = desk._desk_dir(desk_dir)
+            fills = [f for f in desk._fills(sdir)
+                     if f.get("book_id") == OPERATIONAL_BOOK_ID]
+            marks = desk.read_marks(desk_dir)
+            target_weights = book.get("frozen_target_weights") or {}
+            holdings_detail, prev_date = build_holdings_detail(
+                book=book, valuation=valuation, fills=fills, marks=marks,
+                plan_orders=_plan_orders(desk_dir), target_weights=target_weights)
+            portfolio_summary = _portfolio_summary(
+                holdings_detail, cash=_f(valuation.get("cash")),
+                nav=_f(valuation.get("nav")), prev_date=prev_date,
+                target_count=target_count or None,
+                implementation_count=implementation_count)
+    except Exception as exc:  # noqa: BLE001 - never break the canonical payload
+        warnings.append(f"Holdings detail unavailable: {str(exc)[:160]}")
+        holdings_detail, portfolio_summary = [], None
+    operational_book["holdings_detail"] = holdings_detail
+    operational_book["portfolio_summary"] = portfolio_summary
+
+    # ------------------------------------------------------------------ #
     # Phase 27B.2 — the CANONICAL OPERATIONAL STATE: one flat, explicitly
     # namespaced contract every operator surface renders verbatim.
     # ------------------------------------------------------------------ #
@@ -736,6 +962,19 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "holdings_count": operational_book["holdings_count"],
         "nav": operational_book["nav"],
         "cash": operational_book["cash"],
+        # -- Phase 27B.8: holdings dashboard KPIs (one canonical source) ------ #
+        "invested_value": (portfolio_summary or {}).get("invested_value"),
+        "cost_basis": (portfolio_summary or {}).get("cost_basis_total"),
+        "unrealized_pnl": (portfolio_summary or {}).get("unrealized_pnl"),
+        "unrealized_pnl_pct": (portfolio_summary or {}).get("unrealized_return"),
+        "daily_pnl": (portfolio_summary or {}).get("daily_pnl"),
+        "daily_pnl_pct": (portfolio_summary or {}).get("daily_pnl_pct"),
+        "daily_pnl_available": bool((portfolio_summary or {}).get("daily_pnl_available")),
+        "cash_weight": (portfolio_summary or {}).get("cash_weight"),
+        "invested_weight": (portfolio_summary or {}).get("invested_weight"),
+        "valuation_date": operational_book["desk_mark_date"],
+        "holdings_detail": holdings_detail,
+        "portfolio_summary": portfolio_summary,
         "informational_notices": list(informational),
         "research_summary": {
             "research_champion": RESEARCH_CHAMPION_NAME,

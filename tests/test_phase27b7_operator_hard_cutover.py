@@ -192,10 +192,14 @@ class TestRequiredContent:
         assert "Six-Stage" not in region and "six-stage" not in region
 
     def test_portfolio_operational_book_default(self, static_html):
+        # Phase 27B.8: the Portfolio route defaults to the operational holdings
+        # dashboard (Alpha Paper Book #1) — a real holdings table, never the old
+        # compressed ticker sentence.
         start, end = _ROUTES["portfolio"]
         region = _region(static_html, start, end)
-        assert 'id="ptob-card"' in region
-        assert 'id="ptob-holdings-table"' in region
+        assert 'id="pdash-table"' in region              # real active-holdings table
+        assert 'id="ptob-state"' in region               # operational book badge
+        assert 'id="ptob-holdings-table"' not in region  # compressed sentence removed
 
 
 # --------------------------------------------------------------------------- #

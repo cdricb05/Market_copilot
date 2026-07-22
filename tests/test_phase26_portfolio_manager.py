@@ -614,7 +614,6 @@ class TestUiNavigationAndHierarchy:
     def test_entry_buttons_from_other_views(self, html):
         assert 'id="cc-open-pm-btn"' in html and ">Open Portfolio Manager</button>" in html
         assert 'id="mhz-open-pm"' in html
-        assert 'id="pt-open-pm-btn"' in html and ">View Proposed Alpha Portfolio</button>" in html
 
 
 class TestUiDecisionSurface:

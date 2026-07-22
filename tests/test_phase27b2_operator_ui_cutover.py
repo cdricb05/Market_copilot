@@ -285,11 +285,9 @@ class TestSurfaceAgreement:
 # --------------------------------------------------------------------------- #
 class TestUiCommandCenterCutover:
     def _primary(self, html):
-        return html[html.index('id="cc-root"'):html.index('id="cc-legacy-overview"')]
-
-    def _archive(self, html):
-        return html[html.index('id="cc-legacy-overview"'):
-                    html.index("end cc-legacy-overview")]
+        # Phase 27B.7: the legacy CC archive was removed; the primary Command Center
+        # now spans cc-root to the next tab.
+        return html[html.index('id="cc-root"'):html.index('id="tab-prediction-cockpit"')]
 
     def test_primary_is_canonical_card_plus_research_strip(self):
         html = _html()
@@ -301,20 +299,18 @@ class TestUiCommandCenterCutover:
         for i in range(1, 6):
             assert 'id="cc-wf-stage-%d"' % i in primary, i
 
-    def test_context_research_legacy_panels_archived(self):
+    def test_context_research_legacy_panels_removed(self):
+        # Phase 27B.7 hard cutover: the old Phase-14 Command Center panels were
+        # removed from the operator UI entirely (not merely archived).
         html = _html()
-        primary = self._primary(html)
-        archive = self._archive(html)
-        for el in ('id="dor-card"', "cc-kpi-row", "Today's Workflow",
-                   'id="cc-tournament"', "Next Best Action", 'id="cc-rq-preview"'):
-            assert el not in primary, "still on primary CC: " + el
-            assert el in archive, "missing from CC archive: " + el
+        for el in ('id="dor-card"', 'id="cc-tournament"', "Next Best Action",
+                   'id="cc-rq-preview"', 'id="cc-legacy-overview"'):
+            assert el not in html, "legacy CC element still present: " + el
 
-    def test_archive_titled_and_collapsed(self):
+    def test_legacy_archive_removed(self):
         html = _html()
-        m = re.search(r'<details[^>]*id="cc-legacy-overview"[^>]*>', html)
-        assert m and "open" not in m.group(0)
-        assert "HISTORICAL PAPER BOOKS &mdash; ARCHIVE" in html
+        assert 'id="cc-legacy-overview"' not in html
+        assert "HISTORICAL PAPER BOOKS" not in html
 
     def test_five_stage_strip_rendered_from_canonical_stages(self):
         js = _scripts(_html())
@@ -383,16 +379,13 @@ class TestUiRightPanelAndPrimaryAction:
                     "right-ob-target", "right-ob-mark", "right-ob-impl"):
             assert 'id="%s"' % rid in html, rid
 
-    def test_legacy_archive_one_collapsed_line(self):
+    def test_legacy_archive_removed_from_right_panel(self):
+        # Phase 27B.7 hard cutover: the right-panel legacy archive was removed entirely.
         html = _html()
-        m = re.search(r'<details[^>]*id="right-legacy-capacity"[^>]*>', html)
-        assert m and "open" not in m.group(0)
-        assert 'id="right-legacy-archive-line"' in html
-        assert "Legacy paper book archive" in html
-        # the archived legacy position status is INSIDE the collapsed details
-        region = html[html.index('id="right-legacy-capacity"'):]
-        region = region[:region.index("</details>")]
-        assert 'id="right-completed-summary"' in region
+        assert 'id="right-legacy-capacity"' not in html
+        assert 'id="right-legacy-archive-line"' not in html
+        assert "Legacy paper book archive" not in html
+        assert 'id="right-completed-summary"' not in html
 
     def test_primary_action_labels_and_navigation(self):
         js = _scripts(_html())
@@ -433,7 +426,7 @@ class TestUiQuality27B2:
 
     def test_no_blank_buttons_on_reworked_regions(self):
         html = _html()
-        for start, end in ((('id="cc-root"'), 'id="cc-legacy-overview"'),
+        for start, end in ((('id="cc-root"'), 'id="tab-prediction-cockpit"'),
                            (('id="pm-decision-card"'), 'id="otr-band"'),
                            (('id="otr-band"'), 'id="ab-band"')):
             region = html[html.index(start):html.index(end)]

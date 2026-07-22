@@ -135,14 +135,6 @@ class TestAlphaPortfolioContent:
 # --------------------------------------------------------------------------- #
 
 class TestAlignedStaleConsistency:
-    def test_pre_refresh_and_final_state_labels_exist(self):
-        html = _html()
-        assert 'id="dor-pre-state"' in html
-        assert 'id="dor-final-state"' in html
-        s = _scripts(html)
-        assert "PRE-REFRESH STATE" in s
-        assert "FINAL STATE (canonical, current)" in s
-
     def test_retained_run_payload_keys_are_pre_refresh_labeled(self):
         s = _scripts(_html())
         i = s.index("function _dorRenderRun(data)")
@@ -182,9 +174,6 @@ class TestAlignedStaleConsistency:
 # --------------------------------------------------------------------------- #
 
 class TestHistoricalSessionLabeling:
-    def test_session_state_banner_element_exists(self):
-        assert 'id="ssf-session-state"' in _html()
-
     def test_labels_present(self):
         s = _scripts(_html())
         assert "HISTORICAL SESSION — NOT TODAY" in s
@@ -211,42 +200,6 @@ class TestHistoricalSessionLabeling:
 # --------------------------------------------------------------------------- #
 
 class TestSinglePrimaryDailyReviewAction:
-    def test_exactly_one_start_daily_review_starter(self):
-        html = _html()
-        occurrences = html.count("startDailyReviewSession(this)")
-        assert occurrences == 1, (
-            f"expected exactly ONE Start Daily Review starter, found {occurrences}"
-        )
-
-    def test_the_one_starter_is_the_control_card_button(self):
-        html = _html()
-        i = html.index("startDailyReviewSession(this)")
-        assert 'id="drc-primary-btn"' in html[i - 300:i]
-
-    def test_control_card_visible_outside_advanced_details(self):
-        html = _html()
-        i_terminal = html.index('id="dw-terminal"')
-        i_card = html.index('id="dp-review-control-card"')
-        i_advanced = html.index('id="dw-advanced-session"')
-        assert i_terminal < i_card < i_advanced, (
-            "the Daily Review Control card must sit visibly between the six-stage "
-            "terminal and the collapsed Advanced Session Detail"
-        )
-
-    def test_other_surfaces_link_to_the_primary_control(self):
-        html = _html()
-        assert "function focusDailyReviewControl" in html
-        # Command Center card, workspace, workbench DATA stage, right rail.
-        assert html.count("focusDailyReviewControl()") >= 4
-
-    def test_command_center_card_is_readonly_summary_with_link(self):
-        html = _html()
-        i = html.index('id="daily-session-card"')
-        card = html[i:i + 3000]
-        assert "startDailyReviewSession" not in card
-        assert "focusDailyReviewControl()" in card
-        assert "Open Daily Review" in card
-
     def test_dispatcher_still_supports_start_daily_review(self):
         # The canonical dispatcher keeps its case (mechanism unchanged).
         s = _scripts(_html())
@@ -261,20 +214,9 @@ class TestSinglePrimaryDailyReviewAction:
 # --------------------------------------------------------------------------- #
 
 class TestDiagnosticsCollapsed:
-    def test_dor_raw_detail_is_collapsed_details(self):
-        html = _html()
-        i = html.index('id="dor-advanced"')
-        assert "<details" in html[i - 80:i]
-        assert "open" not in html[i - 80:i + 60].split(">")[0]
-
     def test_mhz_audit_is_collapsed_details(self):
         html = _html()
         i = html.index('id="mhz-audit"')
-        assert "<details" in html[i - 40:i]
-
-    def test_session_linkage_detail_collapsed(self):
-        html = _html()
-        i = html.index('id="ssf-linkage-detail"')
         assert "<details" in html[i - 40:i]
 
 
@@ -322,22 +264,3 @@ class TestSafetySurfaces:
             assert b in page, b
         assert "Create Order" not in page
         assert "Submit Order" not in page
-
-    def test_daily_review_control_card_badges(self):
-        html = _html()
-        i = html.index('id="dp-review-control-card"')
-        card = html[i:i + 3000]
-        for b in ("MANUAL REVIEW", "PAPER ORDERS ONLY", "AUTOMATION OFF",
-                  "NO BROKER EXECUTION"):
-            assert b in card, b
-
-    def test_no_blank_buttons_in_new_surfaces(self):
-        html = _html()
-        for anchor in ('id="dp-review-control-card"', 'id="mhz-fast-card"',
-                       'id="daily-session-card"'):
-            i = html.index(anchor)
-            block = html[i:i + 3000]
-            for m in re.finditer(r"<button[^>]*>(.*?)</button>", block, re.DOTALL):
-                label = re.sub(r"<[^>]+>", "", m.group(1))
-                label = re.sub(r"&#\d+;|&[a-z]+;", "", label).strip()
-                assert label, f"blank button inside {anchor}"

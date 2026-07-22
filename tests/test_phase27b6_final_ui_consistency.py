@@ -149,17 +149,18 @@ class TestNeverNoOrders:
 # 3. "ORDERS DISABLED" invisible in operator-facing content
 # --------------------------------------------------------------------------- #
 class TestOrdersDisabledInvisible:
-    def test_only_archived_instance_remains(self, static_html):
-        hits = [m.start() for m in re.finditer(r">ORDERS DISABLED<", static_html)]
-        assert len(hits) == 1
-        lo, hi = _span(static_html, 'id="cc-legacy-overview"', "end cc-legacy-overview")
-        assert lo < hits[0] < hi  # inside the collapsed CC archive only
+    def test_no_visible_orders_disabled_anywhere(self, static_html):
+        # Phase 27B.7: the legacy CC archive that held the one visible ">ORDERS
+        # DISABLED<" node was removed; the phrase now survives only inside title=
+        # tooltips, never as visible text.
+        assert ">ORDERS DISABLED<" not in static_html
 
-    def test_pm_and_alpha_pages_say_no_live_orders(self, static_html):
+    def test_pm_and_alpha_pages_say_no_live_broker_orders(self, static_html):
+        # Phase 27B.7 text rule: NO LIVE ORDERS -> NO LIVE BROKER ORDERS.
         pm = _region(static_html, 'id="tab-portfolio-manager"', 'id="tab-multi-horizon"')
         mhz = _region(static_html, 'id="tab-multi-horizon"', 'id="tab-audit-advanced"')
-        assert ">NO LIVE ORDERS</span>" in pm
-        assert ">NO LIVE ORDERS</span>" in mhz
+        assert ">NO LIVE BROKER ORDERS</span>" in pm
+        assert ">NO LIVE BROKER ORDERS</span>" in mhz
         assert ">ORDERS DISABLED<" not in pm
         assert ">ORDERS DISABLED<" not in mhz
 
@@ -182,13 +183,10 @@ class TestCommandCenterOneAction:
     def test_no_monitor_the_paper_portfolio_recommendation(self, html):
         assert "Monitor the paper portfolio" not in html
 
-    def test_monitor_portfolio_only_inside_collapsed_archives(self, static_html):
-        allowed = [_span(static_html, '<details id="dw-legacy-archive">',
-                         "end dw-legacy-archive"),
-                   _span(static_html, 'id="right-legacy-capacity"',
-                         'id="cap-status-note"')]
-        for m in re.finditer(r">Monitor Portfolio<", static_html):
-            assert any(lo < m.start() < hi for lo, hi in allowed), m.start()
+    def test_no_monitor_portfolio_recommendation_anywhere(self, static_html):
+        # Phase 27B.7: the legacy "Monitor Portfolio" recommendation was removed
+        # with the legacy archives.
+        assert ">Monitor Portfolio<" not in static_html
 
     def test_lifecycle_headline_owns_the_card(self, js):
         assert "if (ob && view.ordersExist && view.headline) obHeadline.textContent = view.headline;" in js
@@ -198,24 +196,18 @@ class TestCommandCenterOneAction:
 # 6/7. Daily Workflow: legacy collapsed, Start Daily Review inside it
 # --------------------------------------------------------------------------- #
 class TestDailyWorkflowLegacyCollapsed:
-    def test_legacy_archive_closed_by_default(self, html):
-        m = re.search(r'<details[^>]*id="dw-legacy-archive"[^>]*>', html)
-        assert m and " open" not in m.group(0)
+    def test_legacy_archive_removed(self, html):
+        # Phase 27B.7 hard cutover: the legacy signal-workflow archive is gone.
+        assert 'id="dw-legacy-archive"' not in html
 
-    def test_start_daily_review_control_inside_the_archive(self, html):
-        lo, hi = _span(html, '<details id="dw-legacy-archive">', "end dw-legacy-archive")
-        assert lo < html.index('id="dp-review-control-card"') < hi
-        assert lo < html.index('id="drc-primary-btn"') < hi
-        assert lo < html.index('id="start-daily-review-workspace"') < hi
+    def test_no_start_daily_review_control_on_the_route(self, html):
+        # The visible Start Daily Review control lived in the removed archive.
+        assert 'id="dp-review-control-card"' not in html
+        assert 'id="start-daily-review-workspace"' not in html
 
-    def test_no_start_daily_review_button_outside_the_archive(self, static_html):
-        lo, hi = _span(static_html, '<details id="dw-legacy-archive">',
-                       "end dw-legacy-archive")
-        for m in re.finditer(r"&#9654; Start Daily Review", static_html):
-            assert lo < m.start() < hi, m.start()
-
-    def test_operational_stepper_is_first_on_the_page(self, html):
-        assert html.index('id="dwob-card"') < html.index('<details id="dw-legacy-archive">')
+    def test_operational_stepper_is_the_only_workflow(self, html):
+        assert 'id="dwob-card"' in html
+        assert 'id="dw-legacy-archive"' not in html
 
 
 # --------------------------------------------------------------------------- #
@@ -245,11 +237,12 @@ class TestPmSingleOrderTableAndAdvanced:
 
     def test_duplicated_bands_live_inside_the_advanced_section(self, html):
         lo, hi = _span(html, 'id="pm-adv-exec"', "end pm-adv-exec")
+        # Phase 27B.7: pd-audit (raw payload / ledger-integrity JSON) was removed.
         for el in ('id="otr-band"', 'id="ab-band"', 'id="pd-band"',
                    'id="pd-act-refresh"', 'id="pd-act-confirm"',
                    'id="pd-act-preview"', 'id="pd-act-cancel"',
                    'id="otr-act-refresh"', 'id="otr-act-confirm"',
-                   'id="pd-pills"', 'id="pd-panel"', 'id="pd-audit"'):
+                   'id="pd-pills"', 'id="pd-panel"'):
             assert lo < html.index(el) < hi, el
 
     def test_lifecycle_actions_auto_open_the_advanced_section(self, js):
@@ -259,7 +252,8 @@ class TestPmSingleOrderTableAndAdvanced:
     def test_desk_functionality_preserved_not_deleted(self, html):
         lo, hi = _span(html, 'id="pm-adv-exec"', "end pm-adv-exec")
         adv = html[lo:hi]
-        for kept in ("Desk Audit", "pdAskAction('refresh')", "pdAskAction('cancel')",
+        # Phase 27B.7: the raw Desk Audit dump was removed; the desk actions stay.
+        for kept in ("pdAskAction('refresh')", "pdAskAction('cancel')",
                      "otrAskRefresh()", "abGeneratePlan()"):
             assert kept in adv, kept
 
@@ -268,23 +262,17 @@ class TestPmSingleOrderTableAndAdvanced:
 # 11. Portfolio legacy terminal collapsed + compact summary
 # --------------------------------------------------------------------------- #
 class TestPortfolioLegacyCollapsed:
-    def test_archive_closed_by_default(self, html):
-        m = re.search(r'<details[^>]*id="pt-archive"[^>]*>', html)
-        assert m and " open" not in m.group(0)
+    def test_legacy_terminal_removed(self, html):
+        # Phase 27B.7 hard cutover: the legacy Portfolio Terminal archive is gone.
+        assert 'id="pt-archive"' not in html
+        assert 'id="pt-terminal"' not in html
 
-    def test_full_terminal_inside_the_archive(self, html):
-        lo, hi = _span(html, '<details id="pt-archive">', "end pt-archive")
-        assert lo < html.index('id="pt-terminal"') < hi
-
-    def test_collapsed_summary_states_compact_facts(self, html, js):
-        assert 'id="pt-archive-summary-line"' in html
-        assert "Open Archive" in _region(html, '<details id="pt-archive">',
-                                         'id="pt-terminal"')
-        assert "' archived position'" in js       # populated from canonical payload
-        assert "legacy_archive_summary" in js
-
-    def test_operational_card_above_the_archive(self, html):
-        assert html.index('id="ptob-card"') < html.index('<details id="pt-archive">')
+    def test_operational_card_is_the_portfolio(self, html):
+        # Phase 27B.8: the Portfolio route is the operational holdings dashboard
+        # (Alpha Paper Book #1) — a real holdings table, not the legacy archive.
+        assert 'id="pdash-table"' in html
+        assert 'id="ptob-state"' in html
+        assert 'id="pt-archive"' not in html
 
 
 # --------------------------------------------------------------------------- #
@@ -308,9 +296,10 @@ class TestRightPanelCompactAgrees:
         m = re.search(r'<details[^>]*id="right-op-details"[^>]*>', html)
         assert m and " open" not in m.group(0)
         lo, hi = _span(html, 'id="right-op-details"', "end right-op-details")
+        # Phase 27B.7: right-legacy-capacity was removed; operational detail rows stay.
         for el in ('id="right-ob-nav"', 'id="right-ob-cash"', 'id="right-ob-target"',
                    'id="right-ob-mark"', 'id="right-ob-impl"',
-                   'id="right-legacy-capacity"', 'id="right-create-orders-section"'):
+                   'id="right-create-orders-section"'):
             assert lo < html.index(el) < hi, el
 
     def test_compact_card_stays_visible_above_the_details(self, html):
