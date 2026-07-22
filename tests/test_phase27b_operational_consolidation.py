@@ -329,9 +329,12 @@ class TestUiDailyWorkflowOperationalSteps:
         assert "Alpha Paper Book #1" in card
 
     def test_five_operational_steps_in_order(self, html):
+        # Phase 27B.1 cutover: the operational stages are Refresh Desk Marks ->
+        # Verify Alpha Target -> Generate Order Plan -> Review & Confirm Paper
+        # Orders -> Monitor (statuses come from the canonical payload).
         card = html[html.index('id="dwob-card"'):html.index("OPERATIONAL BOOK WORKFLOW END")]
-        labels = ["Refresh Market Data", "Refresh Alpha Target", "Review",
-                  "Generate Order Plan", "Monitor"]
+        labels = ["Refresh Desk Marks", "Verify Alpha Target", "Generate Order Plan",
+                  "Review &amp; Confirm Paper Orders", "Monitor Fills, Holdings &amp; Performance"]
         idx = [card.index(lb) for lb in labels]
         assert idx == sorted(idx)
         for sid in ("dwob-step-refresh-data", "dwob-step-refresh-target", "dwob-step-review",
@@ -375,8 +378,11 @@ class TestUiSingleSourceOfTruth:
             assert sid in body, sid
 
     def test_every_operational_loader_reuses_the_one_loader(self, html):
+        # Phase 27B.1: command center, daily workflow, portfolio terminal,
+        # portfolio manager and the paper-desk action path all reuse the ONE
+        # coalesced loader (never a second fetch path).
         js = _scripts(html)
-        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 3
+        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 5
 
     def test_concurrent_loads_coalesce(self, html):
         js = _scripts(html)

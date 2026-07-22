@@ -1055,6 +1055,96 @@ def load_capacity(desk_dir=None, ledger_dir=None, today: Optional[str] = None) -
             **alpha_safety()}
 
 
+# --------------------------------------------------------------------------- #
+# Phase 27B.1 - desk-mark readiness (read-only sizing-marks gate)
+# --------------------------------------------------------------------------- #
+DESK_MARK_MISSING = "DESK_MARK_MISSING"
+DESK_MARK_BEHIND = "DESK_MARK_BEHIND"
+DESK_MARK_READY = "DESK_MARK_READY"
+DESK_MARK_STATUSES = (DESK_MARK_MISSING, DESK_MARK_BEHIND, DESK_MARK_READY)
+
+
+def load_desk_mark_readiness(desk_dir=None, ledger_dir=None) -> dict:
+    """Read-only: can the confirmed target be SIZED from the desk mark store?
+
+    Backs the operational header, Daily Workflow stage 1 and the order-plan gate.
+    Compares the persisted desk mark date against the SAME clock-resolved latest
+    completed market date the alpha-target readiness uses, and reconciles per-name
+    coverage over the confirmed constituents. Writes nothing; no provider call."""
+    from paper_trader.api import alpha_target as at  # lazy: at imports desk
+    target = _confirmed_target(ledger_dir)
+    cons = list(target["constituents"]) if target else []
+    marks = desk.read_marks(desk_dir)
+    series = marks.get("series") or {}
+    latest = desk.marks_latest_date(marks)
+    required = at.latest_completed()
+    missing = [tk for tk in cons if latest is None or
+               desk._series_price_at_or_before(series.get(tk) or [], latest) is None]
+    priced = len(cons) - len(missing)
+    if latest is None:
+        mark_status = DESK_MARK_MISSING
+    elif latest < required:
+        mark_status = DESK_MARK_BEHIND
+    else:
+        mark_status = DESK_MARK_READY
+    book = alpha_book_record(desk_dir)
+    blockers: list[str] = []
+    if target is None:
+        blockers.append("NO_CONFIRMED_TARGET: no confirmed alpha target snapshot exists; "
+                        "there is nothing to size.")
+    if book is None:
+        blockers.append("ALPHA_BOOK_NOT_INITIALIZED: Alpha Paper Book #1 is not "
+                        "initialized; the order plan has no book to size for.")
+    if latest is None:
+        blockers.append("DESK_MARKS_MISSING: the desk mark store has no completed owned "
+                        "close - run the manual desk data refresh (paper desk, "
+                        "token-gated).")
+    elif latest < required:
+        blockers.append("DESK_MARK_DATE_BEHIND_REQUIRED: the desk mark date (%s) is behind "
+                        "the latest completed market date (%s) - run the manual desk data "
+                        "refresh." % (latest, required))
+    if latest is not None:
+        for tk in missing:
+            blockers.append("TICKER_MARKS_MISSING: %s has no completed owned close at or "
+                            "before %s." % (tk, latest))
+    order_plan_ready = bool(target is not None and book is not None
+                            and mark_status == DESK_MARK_READY and not missing)
+    if target is None:
+        next_action = "CONFIRM_TARGET_SNAPSHOT"
+    elif book is None:
+        next_action = "INITIALIZE_ALPHA_BOOK"
+    elif mark_status != DESK_MARK_READY or missing:
+        next_action = "REFRESH_DESK"
+    else:
+        next_action = "GENERATE_ORDER_PLAN"
+    return {
+        "status": "ALPHA_DESK_MARK_READINESS_OK", "phase": "27B1",
+        "confirmed_target_ticker_count": len(cons),
+        "target_tickers": cons,
+        "target_snapshot_id": target.get("snapshot_id") if target else None,
+        "target_market_date": target.get("market_as_of_date") if target else None,
+        "priced_ticker_count": priced,
+        "missing_ticker_count": len(missing),
+        "missing_tickers": missing,
+        "desk_mark_date": latest,
+        "latest_completed_market_date": required,
+        "desk_mark_status": mark_status,
+        "desk_mark_status_vocabulary": list(DESK_MARK_STATUSES),
+        "benchmark_priced": bool(latest and desk._series_price_at_or_before(
+            series.get(desk.BENCHMARK_TICKER) or [], latest) is not None),
+        "book_initialized": book is not None,
+        "order_plan_ready": order_plan_ready,
+        "order_plan_readiness_note": ("The executable order plan sizes every name from the "
+                                      "desk mark store; readiness requires a mark date at "
+                                      "the latest completed market date with every "
+                                      "confirmed constituent priced."),
+        "blockers": blockers,
+        "next_action": next_action,
+        "refresh_token": desk.REFRESH_CONFIRM_TOKEN,
+        **alpha_safety(),
+    }
+
+
 def load_blocked_targets(desk_dir=None, ledger_dir=None, today: Optional[str] = None) -> dict:
     """Every blocked name with its exact reason, source field and consequence.
     Combines construction-time blocks (validated engine book build) with execution-time
@@ -1102,4 +1192,6 @@ __all__ = [
     "alpha_book_record", "initialization_record",
     "initialize_book", "build_order_plan", "load_order_plan_preview", "confirm_order_plan",
     "load_alpha_status", "load_capacity", "load_blocked_targets",
+    "load_desk_mark_readiness",
+    "DESK_MARK_MISSING", "DESK_MARK_BEHIND", "DESK_MARK_READY", "DESK_MARK_STATUSES",
 ]

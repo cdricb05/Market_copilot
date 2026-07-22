@@ -5252,6 +5252,16 @@ def alpha_book_blocked_targets() -> dict:
     return _abook.load_blocked_targets()
 
 
+@app.get("/v1/alpha-book/desk-mark-readiness", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def alpha_book_desk_mark_readiness() -> dict:
+    """Phase 27B.1 read-only desk-mark readiness: can the confirmed target be SIZED?
+    Confirmed constituent count, per-name mark coverage (priced / missing), the desk
+    mark date vs the clock-resolved latest completed market date, order-plan readiness
+    and explicit blockers. Writes nothing; no provider call; no GCP dependency."""
+    return _abook.load_desk_mark_readiness()
+
+
 @app.post("/v1/alpha-book/initialize", status_code=status.HTTP_200_OK,
           dependencies=[Depends(_verify_api_key)])
 def alpha_book_initialize(body: AlphaBookConfirmRequest | None = None) -> dict:

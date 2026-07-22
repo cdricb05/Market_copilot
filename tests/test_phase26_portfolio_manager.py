@@ -105,6 +105,10 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(at, "REQUIRED_TARGET_COUNT", 8)
     monkeypatch.setattr(at, "_VALUATION_LOADER",
                         lambda: _fake_valuation(positions=[_pos("AAA"), _pos("ZZZ")]))
+    # Phase 27B.1: isolate this suite from the machine's REAL desk ledgers - the
+    # operational-book block degrades to unavailable, preserving the Phase 26
+    # decision semantics these tests pin.
+    monkeypatch.setattr(pm, "_OPERATIONAL_BOOK_LOADER", lambda: {})
     eng.clear_cache()
     plat.clear_caches()
     yield {"panel": panel, "inputs": inputs, "ledger": led, "tmp": tmp_path}

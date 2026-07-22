@@ -142,6 +142,109 @@ def _pending_orders(desk_dir=None) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Phase 27B.1 - canonical workflow view (stages, header status, next action)
+# --------------------------------------------------------------------------- #
+
+#: Operational five-stage workflow (Workstream E). The stage statuses are derived
+#: HERE (server-side, from the one canonical payload) so no page invents its own.
+STAGE_REFRESH_DESK_MARKS = "REFRESH_DESK_MARKS"
+STAGE_VERIFY_ALPHA_TARGET = "VERIFY_ALPHA_TARGET"
+STAGE_GENERATE_ORDER_PLAN = "GENERATE_ORDER_PLAN"
+STAGE_CONFIRM_PAPER_ORDERS = "CONFIRM_PAPER_ORDERS"
+STAGE_MONITOR = "MONITOR"
+
+ST_COMPLETE = "COMPLETE"
+ST_NEEDS_ACTION = "NEEDS_ACTION"
+ST_BLOCKED = "BLOCKED"
+ST_PENDING = "PENDING"
+ST_ACTIVE = "ACTIVE"
+
+#: Operationally precise header vocabulary (Workstream G) - replaces the generic
+#: "MARKET DATA: STALE / MISALIGNED" on operational pages.
+HEADER_TARGET_REFRESH_REQUIRED = "TARGET_REFRESH_REQUIRED"
+HEADER_DESK_MARK_REQUIRED = "DESK_MARK_REQUIRED"
+HEADER_ORDER_PLAN_READY = "ORDER_PLAN_READY"
+HEADER_ORDERS_PENDING = "ORDERS_PENDING"
+HEADER_FORWARD_TRACKING_ACTIVE = "FORWARD_TRACKING_ACTIVE"
+HEADER_DESK_MARK_READY = "DESK_MARK_READY"
+
+_TRACKING_STATES = ("ORDERS_CONFIRMED", "WAITING_FOR_ELIGIBLE_CLOSE",
+                    "PARTIALLY_FILLED", "FULLY_FILLED", "FORWARD_TRACKING_ACTIVE")
+
+
+def _workflow_view(*, current_status: str, target: Optional[dict],
+                   readiness: Optional[dict], initialized: bool,
+                   orders: dict, fills_count: int) -> dict:
+    """Derive the five-stage operational workflow + precise header status + the
+    one next action from the canonical inputs. Pure; no I/O."""
+    t_state = (target or {}).get("state")
+    target_confirmed = t_state == "CONFIRMED"
+    rd = readiness or {}
+    marks_ready = (rd.get("desk_mark_status") == "DESK_MARK_READY"
+                   and not rd.get("missing_ticker_count"))
+    proposed = orders.get("awaiting_manual_confirmation") or 0
+    awaiting_fill = orders.get("awaiting_fill") or 0
+    tracking = current_status in _TRACKING_STATES
+
+    # -- stage statuses ---------------------------------------------------- #
+    s1 = (ST_COMPLETE if marks_ready else
+          ST_NEEDS_ACTION if (initialized and target is not None) else ST_PENDING)
+    s2 = (ST_COMPLETE if target_confirmed else
+          ST_BLOCKED if t_state == "BLOCKED" else
+          ST_NEEDS_ACTION if t_state in ("STALE_TARGET", "READY_TO_CONFIRM") else ST_PENDING)
+    if proposed or awaiting_fill or fills_count or tracking:
+        s3 = ST_COMPLETE
+    elif initialized and target_confirmed:
+        s3 = ST_NEEDS_ACTION if marks_ready else ST_BLOCKED
+    else:
+        s3 = ST_PENDING
+    s4 = (ST_NEEDS_ACTION if proposed else
+          ST_COMPLETE if (awaiting_fill or fills_count or tracking) else ST_PENDING)
+    s5 = ST_ACTIVE if tracking else ST_PENDING
+    stages = [
+        {"stage": 1, "code": STAGE_REFRESH_DESK_MARKS, "label": "Refresh Desk Marks",
+         "status": s1, "detail": (rd.get("desk_mark_date") and
+                                  ("Desk mark %s" % rd.get("desk_mark_date"))) or
+         "No desk mark recorded yet"},
+        {"stage": 2, "code": STAGE_VERIFY_ALPHA_TARGET, "label": "Verify Alpha Target",
+         "status": s2, "detail": (t_state or "UNAVAILABLE") +
+         ((" · " + str((target or {}).get("alpha_market_date")))
+          if (target or {}).get("alpha_market_date") else "")},
+        {"stage": 3, "code": STAGE_GENERATE_ORDER_PLAN, "label": "Generate Order Plan",
+         "status": s3, "detail": ("Blocked until valid desk marks exist"
+                                  if s3 == ST_BLOCKED else "")},
+        {"stage": 4, "code": STAGE_CONFIRM_PAPER_ORDERS,
+         "label": "Review & Confirm Paper Orders", "status": s4,
+         "detail": ("%d proposed order(s) await manual confirmation" % proposed)
+         if proposed else ""},
+        {"stage": 5, "code": STAGE_MONITOR,
+         "label": "Monitor Fills, Holdings & Performance", "status": s5, "detail": ""},
+    ]
+    current_stage = next((s["code"] for s in stages
+                          if s["status"] in (ST_NEEDS_ACTION, ST_BLOCKED)),
+                         STAGE_MONITOR if tracking else STAGE_GENERATE_ORDER_PLAN)
+
+    # -- precise header status (one value; never legacy-derived) ------------ #
+    if target is None or not target_confirmed:
+        header = {"code": HEADER_TARGET_REFRESH_REQUIRED, "label": "TARGET REFRESH REQUIRED"}
+    elif not marks_ready:
+        header = {"code": HEADER_DESK_MARK_REQUIRED, "label": "DESK MARK REQUIRED"}
+    elif proposed or awaiting_fill:
+        header = {"code": HEADER_ORDERS_PENDING, "label": "ORDERS PENDING"}
+    elif current_status in ("FORWARD_TRACKING_ACTIVE", "FULLY_FILLED", "PARTIALLY_FILLED",
+                            "WAITING_FOR_ELIGIBLE_CLOSE", "ORDERS_CONFIRMED"):
+        header = {"code": HEADER_FORWARD_TRACKING_ACTIVE, "label": "FORWARD TRACKING ACTIVE"}
+    elif current_status in ("BOOK_INITIALIZED", "ORDER_PLAN_READY",
+                            "ORDER_PLAN_REVIEW_REQUIRED"):
+        header = {"code": HEADER_ORDER_PLAN_READY, "label": "ORDER PLAN READY"}
+    else:
+        header = {"code": HEADER_DESK_MARK_READY,
+                  "label": "DESK MARK READY — %s" % rd.get("desk_mark_date")}
+    return {"stages": stages, "current_stage": current_stage, "header": header,
+            "marks_ready": marks_ready}
+
+
+# --------------------------------------------------------------------------- #
 # The operational book (single source of truth)
 # --------------------------------------------------------------------------- #
 
@@ -189,18 +292,70 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"Alpha target readiness unavailable: {str(exc)[:160]}")
 
+    # 3b. Desk-mark / sizing readiness (Phase 27B.1) - can the target be sized?
+    readiness: Optional[dict] = None
+    try:
+        readiness = ab.load_desk_mark_readiness(desk_dir=desk_dir, ledger_dir=ledger_dir)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Desk mark readiness unavailable: {str(exc)[:160]}")
+
     current_status = status.get("current_state") or "UNAVAILABLE"
+    fills_count = status.get("n_alpha_fills") or 0
+    policy = status.get("policy") or {}
+    rd = readiness or {}
+
+    # Implementation state (Workstream A): a confirmed target weight is NOT a
+    # current executed position - implemented = target names actually HELD.
+    holdings = valuation.get("holdings") or {}
+    target_tickers = rd.get("target_tickers") or []
+    target_count = (rd.get("confirmed_target_ticker_count")
+                    or policy.get("target_position_count") or 0)
+    implementation_count = sum(1 for tk in target_tickers if holdings.get(tk))
+    implementation_percentage = (round(100.0 * implementation_count / target_count, 2)
+                                 if target_count else None)
+
+    wf = _workflow_view(current_status=current_status, target=target,
+                        readiness=readiness, initialized=initialized,
+                        orders=orders, fills_count=fills_count)
+
+    # The ONE next action. When the book is initialized but the sizing marks are
+    # missing/behind, the desk refresh outranks the plan states.
     next_action = status.get("next_required_action") or (
         "Backend unavailable — reconnect, then reload the operational book.")
+    if (initialized and not wf["marks_ready"]
+            and current_status in ("BOOK_INITIALIZED", "ORDER_PLAN_READY",
+                                   "ORDER_PLAN_REVIEW_REQUIRED")
+            and not (orders.get("pending_count") or 0)):
+        next_action = ("REFRESH_DESK: run the manual desk data refresh (paper desk) - "
+                       "the mark store must reach the latest completed owned market "
+                       "date (%s) before the executable order plan."
+                       % (rd.get("latest_completed_market_date") or "latest completed"))
+    next_action_code = str(next_action).split(":", 1)[0].strip() or None
+    next_action_label = (str(next_action).split(":", 1)[1].strip()
+                         if ":" in str(next_action) else str(next_action))
+
+    blockers: list[str] = []
+    if target and target.get("confirmation_blockers"):
+        blockers.extend(str(b) for b in target["confirmation_blockers"])
+    blockers.extend(str(b) for b in (rd.get("blockers") or []))
+    integrity = status.get("ledger_integrity") or {}
+    if integrity and not integrity.get("all_intact", True):
+        blockers.append("LEDGER_INTEGRITY_BROKEN: an append-only desk ledger failed its "
+                        "chain-hash verification.")
 
     operational_book = {
         "book_id": OPERATIONAL_BOOK_ID,
         "book_label": OPERATIONAL_BOOK_LABEL,
+        "book_type": ROLE_OPERATIONAL,
         "classification": ROLE_OPERATIONAL,
         "initialized": initialized,
         "policy_version": status.get("policy_version"),
+        "strategy_name": policy.get("strategy") or "fundamental_momentum_50_50_v1",
+        "target_name": policy.get("target_book") or "fundamental_momentum_50_50_top25",
         "initial_capital": (_f(book.get("initial_capital")) if book else
-                            _f((status.get("policy") or {}).get("initial_capital"))),
+                            _f(policy.get("starting_virtual_capital"))),
+        "starting_capital": (_f(book.get("initial_capital")) if book else
+                             _f(policy.get("starting_virtual_capital"))),
         "currency": (book or {}).get("currency") or desk.BOOK_CURRENCY,
         # The ONE producer of these numbers is desk.book_nav (ledger replay).
         "cash": _f(valuation.get("cash")),
@@ -208,12 +363,36 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "nav": _f(valuation.get("nav")),
         "nav_as_of_date": valuation.get("as_of_date"),
         "holdings_count": valuation.get("holdings_count") or 0,
-        "holdings": valuation.get("holdings") or {},
+        "holdings": holdings,
         "pending_orders": orders,
-        "fills_count": status.get("n_alpha_fills") or 0,
+        "pending_order_count": orders.get("pending_count") or 0,
+        "fills_count": fills_count,
+        "fill_count": fills_count,
         "current_target": target,
+        "target_count": target_count or None,
+        "target_market_date": (rd.get("target_market_date")
+                               or (target or {}).get("alpha_market_date")),
+        "target_confirmation_status": (target or {}).get("state"),
+        "desk_mark_date": rd.get("desk_mark_date"),
+        "desk_mark_status": rd.get("desk_mark_status") or "UNAVAILABLE",
+        "desk_mark_required_date": rd.get("latest_completed_market_date"),
+        "desk_mark_priced_count": rd.get("priced_ticker_count"),
+        "desk_mark_missing_tickers": rd.get("missing_tickers") or [],
+        "implementation_count": implementation_count,
+        "implementation_percentage": implementation_percentage,
+        "implementation_note": ("A confirmed target weight is NOT a current executed "
+                                "position. Implementation counts only names the alpha "
+                                "book actually holds (ledger-replayed fills)."),
+        "order_plan_ready": bool(rd.get("order_plan_ready")),
+        "workflow_stage": wf["current_stage"],
+        "workflow_stages": wf["stages"],
+        "header_status": wf["header"],
         "current_status": current_status,
         "next_action": next_action,
+        "next_action_code": next_action_code,
+        "next_action_label": next_action_label,
+        "blockers": blockers,
+        "ledger_integrity_ok": bool(integrity.get("all_intact", False)) if integrity else None,
         "latest_desk_mark_date": status.get("latest_desk_mark_date"),
         "initialization": status.get("initialization"),
         "not_initialized_note": (None if initialized else
@@ -336,5 +515,10 @@ __all__ = [
     "ROLE_OPERATIONAL", "ROLE_HISTORICAL", "ROLE_RESEARCH",
     "STATUS_OK", "ARCHIVE_STATUS_OK", "LEGACY_BOOK_ID", "LEGACY_BOOK_LABEL",
     "SINGLE_SOURCE_NOTE", "RESEARCH_BOOKS",
+    "STAGE_REFRESH_DESK_MARKS", "STAGE_VERIFY_ALPHA_TARGET",
+    "STAGE_GENERATE_ORDER_PLAN", "STAGE_CONFIRM_PAPER_ORDERS", "STAGE_MONITOR",
+    "HEADER_TARGET_REFRESH_REQUIRED", "HEADER_DESK_MARK_REQUIRED",
+    "HEADER_ORDER_PLAN_READY", "HEADER_ORDERS_PENDING",
+    "HEADER_FORWARD_TRACKING_ACTIVE", "HEADER_DESK_MARK_READY",
     "load_operational_book", "load_historical_books",
 ]

@@ -134,6 +134,12 @@ BENCHMARK_TICKER = "SPY"
 EXPIRY_TRADING_DAYS = 5
 #: Mark-fetch lookback when no book exists yet (calendar days before today).
 DEFAULT_MARK_LOOKBACK_DAYS = 45
+#: Phase 27B.1: the refresh fetch window always reaches at least this many calendar
+#: days before the required completed date. Root cause of the "marks through None"
+#: false success: a fetch that started AT the snapshot market date on the refresh
+#: day contained zero completed sessions, so the store was written with a null
+#: latest date and an empty series while the refresh still reported success.
+MIN_MARK_WINDOW_DAYS = 14
 
 PRIMARY_MODEL_ID = "fundamental_momentum_50_50_v1"
 
@@ -146,6 +152,11 @@ S_DUPLICATE = "ORDERS_ALREADY_EXIST"
 S_NO_CHANGES = "NO_CHANGES_REQUIRED"
 S_NO_OPEN_ORDERS = "NO_OPEN_ORDERS"
 S_BLOCKED = "DESK_PROVIDER_BLOCKED"
+#: Phase 27B.1: the refresh completed but did NOT produce valid sizing marks
+#: (null resulting date, nothing priced, or the mark date is behind the required
+#: latest completed market date). Never reported as success.
+S_MARKS_BLOCKED = "DESK_MARK_REFRESH_BLOCKED"
+NEXT_ACTION_REPAIR = "REPAIR_OR_REFRESH_MARK_SOURCE"
 
 _today_override: Optional[str] = None   # test seam - monkeypatch for deterministic dates
 
@@ -369,14 +380,24 @@ def _first_close_on_or_after(series: list, on_or_after: str,
 
 
 def sync_marks(*, tickers: list[str], start: str, desk_dir=None,
-               downloader: Optional[Downloader] = None, today: Optional[str] = None) -> dict:
+               downloader: Optional[Downloader] = None, today: Optional[str] = None,
+               completed_through: Optional[str] = None) -> dict:
     """Fetch completed EOD closes for the given tickers (+ SPY) into the desk mark store.
-    Only bars strictly before `today` are kept (a same-day bar may be incomplete). The store
+    When ``completed_through`` is given (the clock-resolved latest COMPLETED session, e.g.
+    today after the US close), bars through that date are kept; otherwise only bars
+    strictly before `today` are kept (a same-day bar may be incomplete). The store
     is a provider cache: series are replaced whole per sync; ledgers embed the prices they
-    used, so recorded history is never restated by a later re-adjusted series."""
+    used, so recorded history is never restated by a later re-adjusted series.
+    Phase 27B.1: if nothing was ever priced (empty resulting series) the store is NOT
+    rewritten and ``store_written`` is False - an empty cache is never a success."""
     sdir = _desk_dir(desk_dir)
     tref = _today(today)
     tdate = date.fromisoformat(tref)
+    if completed_through:
+        # keep bars <= completed_through (equivalently: strictly before the next day)
+        cutoff = date.fromisoformat(str(completed_through)[:10]) + timedelta(days=1)
+    else:
+        cutoff = tdate
     dl, source = _resolve_downloader(downloader)
     fetch = sorted(set([t.strip().upper() for t in tickers if t] + [BENCHMARK_TICKER]))
     prior = read_marks(desk_dir)
@@ -393,7 +414,7 @@ def sync_marks(*, tickers: list[str], start: str, desk_dir=None,
             failed.append(tk)
             per_ticker.append({"ticker": tk, "status": "ERROR", "n_bars": 0})
             continue
-        bars = _completed_bars(_normalize_bars(payload), tdate)
+        bars = _completed_bars(_normalize_bars(payload), cutoff)
         if bars:
             series[tk] = [[d, v] for d, v in bars]
         per_ticker.append({"ticker": tk, "status": "OK" if bars else "EMPTY",
@@ -407,11 +428,20 @@ def sync_marks(*, tickers: list[str], start: str, desk_dir=None,
         for s in series.values():
             if s and (latest is None or s[-1][0] > latest):
                 latest = s[-1][0]
+    if not series:
+        # Phase 27B.1: nothing priced and nothing carried over - do NOT write an
+        # empty store (a null-date cache must never look like a completed sync).
+        return {"synced": False, "store_written": False, "source": source,
+                "n_tickers": len(fetch), "n_failed": len(failed),
+                "failed_tickers": failed, "latest_completed_date": None,
+                "per_ticker": per_ticker}
     store = {"phase": PHASE, "kind": "provider_cache_not_a_ledger", "source": source,
              "updated_at": _iso_now(), "reference_today": tref, "fetch_start": start,
+             "completed_through": (cutoff - timedelta(days=1)).isoformat(),
              "latest_completed_date": latest, "series": series}
     _atomic_write_json(sdir / MARKS_FILE, store)
-    return {"synced": True, "source": source, "n_tickers": len(fetch), "n_failed": len(failed),
+    return {"synced": True, "store_written": True, "source": source,
+            "n_tickers": len(fetch), "n_failed": len(failed),
             "failed_tickers": failed, "latest_completed_date": latest,
             "per_ticker": per_ticker}
 
@@ -948,9 +978,31 @@ def append_performance(*, desk_dir=None) -> dict:
 # --------------------------------------------------------------------------- #
 # One manual refresh (Workstream I step 1): marks sync + settle + expire + perf
 # --------------------------------------------------------------------------- #
+def _required_mark_date(*, completed_through: Optional[str] = None,
+                        today: Optional[str] = None) -> str:
+    """Phase 27B.1: the latest completed owned market date the refresh must reach.
+
+    An explicit ``completed_through`` wins (callers/tests with their own clock).
+    With an explicit ``today`` (or the module override) the deterministic legacy
+    rule applies: the latest weekday strictly before the reference day. Live (no
+    seams) the platform's ET-close clock rule resolves it - the SAME rule the
+    alpha-target readiness uses, so the desk mark date and the target market
+    date can genuinely align on the refresh evening."""
+    if completed_through:
+        return str(completed_through)[:10]
+    if today is None and _today_override is None:
+        from paper_trader.api import alpha_target as at  # lazy: at imports this module
+        return at.latest_completed()
+    d = date.fromisoformat(_today(today)) - timedelta(days=1)
+    while d.weekday() >= 5:  # walk back over the weekend
+        d -= timedelta(days=1)
+    return d.isoformat()
+
+
 def refresh_desk(*, confirm: Optional[str] = None, desk_dir=None, ledger_dir=None,
                  downloader: Optional[Downloader] = None,
-                 today: Optional[str] = None) -> dict:
+                 today: Optional[str] = None,
+                 completed_through: Optional[str] = None) -> dict:
     if confirm != REFRESH_CONFIRM_TOKEN:
         return {"status": S_CONFIRM_REQUIRED, "performed_write": False,
                 "message": "The manual desk refresh requires confirm='%s'." % REFRESH_CONFIRM_TOKEN,
@@ -975,17 +1027,89 @@ def refresh_desk(*, confirm: Optional[str] = None, desk_dir=None, ledger_dir=Non
         return {"status": S_NO_PROPOSAL, "performed_write": False,
                 "message": ("Nothing to refresh: no confirmed snapshot and no paper book. "
                             "Approve a proposal first."), **desk_safety()}
+    required = _required_mark_date(completed_through=completed_through, today=today)
+    # Phase 27B.1 window guard: the fetch always reaches back far enough to contain
+    # completed sessions (a start AT the snapshot market date on the refresh day
+    # yields an empty window - the exact root cause of the null-date store).
+    floor_start = (date.fromisoformat(required)
+                   - timedelta(days=MIN_MARK_WINDOW_DAYS)).isoformat()
     if start is None:
-        start = (date.fromisoformat(_today(today))
+        start = (date.fromisoformat(required)
                  - timedelta(days=DEFAULT_MARK_LOOKBACK_DAYS)).isoformat()
+    elif start > floor_start:
+        start = floor_start
     try:
         sync = sync_marks(tickers=sorted(tickers), start=start, desk_dir=desk_dir,
-                          downloader=downloader, today=today)
+                          downloader=downloader, today=today,
+                          completed_through=required)
     except TournamentSyncBlocked as blocked:
         return {"status": S_BLOCKED, "performed_write": False,
                 "blocked_reason": blocked.result_enum,
+                "requested_ticker_count": len(tickers),
+                "priced_ticker_count": 0, "missing_ticker_count": len(tickers),
+                "missing_tickers": sorted(tickers),
+                "latest_completed_market_date": required,
+                "resulting_desk_mark_date": marks_latest_date(read_marks(desk_dir)),
+                "blockers": ["PROVIDER_BLOCKED: %s - the owned-EODHD transport refused the "
+                             "sync; no data was written." % blocked.result_enum],
+                "next_action": NEXT_ACTION_REPAIR,
                 "message": ("The owned-EODHD refresh was blocked (%s). The mark store and all "
                             "ledgers are unchanged." % blocked.result_enum), **desk_safety()}
+    # ---- Phase 27B.1 coverage reconciliation (from the FINAL persisted store) ---- #
+    marks = read_marks(desk_dir)
+    series = marks.get("series") or {}
+    resulting = marks_latest_date(marks)
+    requested = sorted(tickers)
+    missing = [tk for tk in requested if resulting is None or
+               _series_price_at_or_before(series.get(tk) or [], resulting) is None]
+    priced = len(requested) - len(missing)
+    benchmark_priced = bool(resulting and _series_price_at_or_before(
+        series.get(BENCHMARK_TICKER) or [], resulting) is not None)
+    contract = {
+        "requested_ticker_count": len(requested),
+        "priced_ticker_count": priced,
+        "missing_ticker_count": len(missing),
+        "missing_tickers": missing,
+        "latest_completed_market_date": required,
+        "resulting_desk_mark_date": resulting,
+        "benchmark_priced": benchmark_priced,
+        "mark_coverage": sync.get("per_ticker") or [],
+        "coverage_complete": not missing,
+    }
+    blockers: list[str] = []
+    if resulting is None:
+        blockers.append("NO_COMPLETED_MARKS_RECORDED: the owned provider returned no "
+                        "completed close on or before %s for any requested ticker "
+                        "(fetch window %s..%s)." % (required, start, required))
+    elif priced == 0:
+        blockers.append("NO_REQUESTED_TICKER_PRICED: the store has a completed date (%s) "
+                        "but none of the %d requested tickers has a usable close."
+                        % (resulting, len(requested)))
+    elif resulting < required:
+        blockers.append("DESK_MARK_DATE_BEHIND_REQUIRED: the freshest completed owned "
+                        "close (%s) is behind the required latest completed market date "
+                        "(%s) - the provider may not have published that session yet; "
+                        "retry the refresh later." % (resulting, required))
+    if resulting is not None:
+        for tk in missing:
+            blockers.append("TICKER_MARKS_MISSING: %s has no completed owned close at or "
+                            "before %s; its allocation can only be held as cash."
+                            % (tk, resulting))
+    hard_blocked = resulting is None or priced == 0 or resulting < required
+    if hard_blocked:
+        wrote = bool(sync.get("store_written"))
+        return {"status": S_MARKS_BLOCKED, "performed_write": wrote,
+                "write_note": ("The desk mark store (a provider cache, not a ledger) was "
+                               "rewritten with the fetched completed closes, but the sizing "
+                               "requirements are unmet; no ledger row, order, fill or "
+                               "performance row was created." if wrote else
+                               "Nothing was written: no completed close was available to "
+                               "record."),
+                "marks": sync, **contract, "blockers": blockers,
+                "next_action": NEXT_ACTION_REPAIR,
+                "message": ("Desk mark refresh BLOCKED - no valid sizing marks. %s"
+                            % blockers[0]),
+                **desk_safety(wrote)}
     settle = settle_due_orders(desk_dir=desk_dir, today=today)
     perf = append_performance(desk_dir=desk_dir)
     if book is not None:
@@ -996,12 +1120,18 @@ def refresh_desk(*, confirm: Optional[str] = None, desk_dir=None, ledger_dir=Non
                                        % (sync.get("latest_completed_date"),
                                           sync.get("n_tickers", 0), settle["n_filled"],
                                           settle["n_expired"], perf["n_appended"]))])
+    open_after = [o for o in _orders_state(sdir).values() if o["status"] not in _TERMINAL]
+    next_action = ("MONITOR_FILLS_AND_PERFORMANCE" if (open_after or settle["n_filled"])
+                   else "GENERATE_ORDER_PLAN" if book is not None
+                   else "REVIEW_DESK_STATUS")
     return {"status": S_OK, "performed_write": True, "wrote_to_desk_store_only": True,
             "marks": sync, "settlement": settle, "performance": perf,
+            **contract, "blockers": blockers, "next_action": next_action,
             "message": ("Manual refresh complete: marks through %s; %d paper fill(s); %d "
-                        "performance row(s) appended."
+                        "performance row(s) appended. %d of %d requested tickers priced."
                         % (sync.get("latest_completed_date"), settle["n_filled"],
-                           perf["n_appended"])), **desk_safety(True)}
+                           perf["n_appended"], priced, len(requested))),
+            **desk_safety(True)}
 
 
 # --------------------------------------------------------------------------- #
@@ -1275,6 +1405,7 @@ __all__ = [
     "desk_safety", "verify_ledger", "verify_all_ledgers",
     "sync_marks", "read_marks", "generate_orders", "confirm_orders", "cancel_orders",
     "settle_due_orders", "append_performance", "refresh_desk",
+    "S_MARKS_BLOCKED", "NEXT_ACTION_REPAIR", "MIN_MARK_WINDOW_DAYS",
     "load_status", "load_books", "load_orders", "load_fills", "load_journal",
     "load_timeline", "load_performance", "load_execution_preview", "load_attribution",
     "open_book", "book_cash_holdings", "book_nav",

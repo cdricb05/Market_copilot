@@ -41,10 +41,16 @@ HEADLINE_REVIEW_REBALANCE = "REVIEW PORTFOLIO REBALANCE"
 HEADLINE_REVIEW_RISK = "REVIEW RISK EXCEPTIONS"
 HEADLINE_DATA_REFRESH = "DATA REFRESH REQUIRED"
 HEADLINE_MANUAL_CONFIRMATION = "MANUAL CONFIRMATION REQUIRED"
+# Phase 27B.1: truthful operational-implementation headlines. A confirmed target
+# that the operational Alpha Paper Book #1 has not implemented yet must never be
+# summarized as "NO PORTFOLIO CHANGE REQUIRED".
+HEADLINE_IMPLEMENTATION_PENDING = "TARGET CONFIRMED — INITIAL IMPLEMENTATION PENDING"
+HEADLINE_READY_FOR_ORDER_PLAN = "ALPHA BOOK READY FOR INITIAL ORDER PLAN"
 
 ALL_HEADLINES = [
     HEADLINE_NO_CHANGE, HEADLINE_REVIEW_NEW, HEADLINE_REVIEW_REBALANCE,
     HEADLINE_REVIEW_RISK, HEADLINE_DATA_REFRESH, HEADLINE_MANUAL_CONFIRMATION,
+    HEADLINE_IMPLEMENTATION_PENDING, HEADLINE_READY_FOR_ORDER_PLAN,
 ]
 
 # Portfolio-manager action vocabulary (visible), mapped 1:1 from the internal
@@ -96,6 +102,67 @@ PRIMARY_BOOK_ID = "fundamental_momentum_50_50_top25"
 
 # Injection seam for tests: the canonical valuation loader (DB read).
 _VALUATION_LOADER = portfolio_valuation.load_portfolio_valuation
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27B.1 - operational-book implementation state (the ONE canonical source)
+# --------------------------------------------------------------------------- #
+def _default_operational_book_loader() -> dict:
+    from paper_trader.api import operational_book as ob
+    return ob.load_operational_book()
+
+
+# Injection seam for tests (mirrors _VALUATION_LOADER); degrade-only.
+_OPERATIONAL_BOOK_LOADER = _default_operational_book_loader
+
+
+def _operational_book_block() -> dict:
+    """Compact implementation-state view of Alpha Paper Book #1 straight from the
+    canonical /v1/operational-book payload. Degrades to unavailable; never raises."""
+    try:
+        d = _OPERATIONAL_BOOK_LOADER()
+        o = (d or {}).get("operational_book") or {}
+        if not o:
+            return {"available": False}
+        return {
+            "available": True,
+            "book_id": o.get("book_id"),
+            "book_label": o.get("book_label"),
+            "initialized": bool(o.get("initialized")),
+            "current_status": o.get("current_status"),
+            "cash": o.get("cash"), "nav": o.get("nav"),
+            "holdings_count": o.get("holdings_count"),
+            "holdings": o.get("holdings") or {},
+            "pending_order_count": o.get("pending_order_count"),
+            "fill_count": o.get("fill_count"),
+            "target_count": o.get("target_count"),
+            "target_market_date": o.get("target_market_date"),
+            "target_confirmed": o.get("target_confirmation_status") == "CONFIRMED",
+            "target_confirmation_status": o.get("target_confirmation_status"),
+            "desk_mark_date": o.get("desk_mark_date"),
+            "desk_mark_status": o.get("desk_mark_status"),
+            "implementation_count": o.get("implementation_count"),
+            "implementation_percentage": o.get("implementation_percentage"),
+            "order_plan_ready": bool(o.get("order_plan_ready")),
+            "workflow_stage": o.get("workflow_stage"),
+            "next_action_code": o.get("next_action_code"),
+            "next_action": o.get("next_action"),
+            "blockers": o.get("blockers") or [],
+            "ledger_integrity_ok": o.get("ledger_integrity_ok"),
+        }
+    except Exception:  # noqa: BLE001 - the PM page must load even without the desk
+        return {"available": False}
+
+
+def _implementation_gap(ops: dict) -> bool:
+    """True when a confirmed target awaits its INITIAL implementation: the book is
+    initialized, the target is confirmed, yet nothing is held, pending or filled."""
+    return bool(ops.get("available") and ops.get("initialized")
+                and ops.get("target_confirmed")
+                and (ops.get("target_count") or 0) > 0
+                and (ops.get("implementation_count") or 0) < (ops.get("target_count") or 0)
+                and not (ops.get("pending_order_count") or 0)
+                and not (ops.get("fill_count") or 0))
 
 
 def _iso_now() -> str:
@@ -547,9 +614,15 @@ def _health_items(ctx: dict) -> list[dict]:
     ready = ctx["ready"]
     book = cur["books"]["books"].get(PRIMARY_BOOK_ID) if ready else None
 
+    # Phase 27B.1: every item carries its scope - the executed-valuation items are
+    # the ARCHIVED legacy portfolio, the proposed-book items are MODEL TARGET
+    # diagnostics. Neither is Alpha Paper Book #1 health (see _alpha_health_items).
+    scope_ref = {"scope": "LEGACY_ARCHIVE"}
+
     def item(key, label, status, value, explanation):
         items.append({"key": key, "label": label, "status": status,
-                      "value": value, "explanation": explanation})
+                      "value": value, "explanation": explanation,
+                      "scope": scope_ref["scope"]})
 
     # --- executed portfolio (canonical valuation) ---------------------------- #
     if val.get("available"):
@@ -608,6 +681,7 @@ def _health_items(ctx: dict) -> list[dict]:
              "portfolio not seeded), so executed-portfolio health cannot be assessed.")
 
     # --- proposed target book (owned research inputs) ------------------------ #
+    scope_ref["scope"] = "MODEL_TARGET"
     if ready and book:
         sector_exp = book.get("sector_exposure") or {}
         if sector_exp:
@@ -665,10 +739,70 @@ def _overall_health(items: list[dict]) -> str:
     return HEALTH_HEALTHY
 
 
+def _alpha_health_items(ops: dict) -> list[dict]:
+    """Phase 27B.1: Portfolio Health of the ONE operational book (Alpha Paper
+    Book #1) - the DEFAULT health scope of this page. Legacy CDW/HUM valuation
+    health is archived reference and never populates these items."""
+    items: list[dict] = []
+
+    def item(key, label, status, value, explanation):
+        items.append({"key": key, "label": label, "status": status, "value": value,
+                      "explanation": explanation, "scope": "ALPHA_BOOK"})
+
+    if not ops.get("available"):
+        item("alpha_book", "Alpha Paper Book #1", HEALTH_BLOCKED, "UNAVAILABLE",
+             "The canonical operational-book payload could not be loaded; operational "
+             "health cannot be assessed.")
+        return items
+    if not ops.get("initialized"):
+        item("alpha_book", "Alpha Paper Book #1", HEALTH_REVIEW, "NOT INITIALIZED",
+             "The operational book is not initialized yet; cash, NAV and holdings are "
+             "honestly empty until the manual token-gated initialization.")
+        return items
+    item("alpha_book_state", "Alpha book workflow state", HEALTH_HEALTHY,
+         ops.get("current_status"),
+         "Workflow state of the operational book, replayed from the append-only desk "
+         "ledgers.")
+    item("alpha_nav", "Alpha book NAV", HEALTH_HEALTHY, ops.get("nav"),
+         "NAV of Alpha Paper Book #1 (cash %s + marked holdings), produced once by the "
+         "desk ledger replay." % ops.get("cash"))
+    n_target = ops.get("target_count") or 0
+    n_impl = ops.get("implementation_count") or 0
+    impl_pending = bool(n_target and n_impl < n_target and not (ops.get("fill_count") or 0))
+    item("alpha_implementation", "Target implementation",
+         HEALTH_REVIEW if impl_pending else HEALTH_HEALTHY,
+         "%d of %d implemented (%s%%)" % (n_impl, n_target,
+                                          ops.get("implementation_percentage")),
+         ("The confirmed target is not yet executed by the operational book; a target "
+          "weight is not an owned position. Initial implementation is pending."
+          if impl_pending else
+          "Implemented positions of the confirmed target actually held by the book."))
+    marks_ready = ops.get("desk_mark_status") == "DESK_MARK_READY"
+    item("alpha_desk_marks", "Desk sizing marks",
+         HEALTH_HEALTHY if marks_ready else HEALTH_REVIEW,
+         (ops.get("desk_mark_date") if marks_ready else
+          (ops.get("desk_mark_status") or "UNAVAILABLE")),
+         ("Completed owned closes are recorded through the required market date."
+          if marks_ready else
+          "The desk mark store cannot size the target yet - run the manual Refresh "
+          "Desk Marks (paper desk) first."))
+    item("alpha_pending_orders", "Pending paper orders", HEALTH_HEALTHY,
+         ops.get("pending_order_count"),
+         "Paper orders awaiting manual confirmation or their eligible NEXT_CLOSE fill.")
+    lio = ops.get("ledger_integrity_ok")
+    item("alpha_ledger_integrity", "Ledger integrity",
+         HEALTH_BLOCKED if lio is False else HEALTH_HEALTHY,
+         "INTACT" if lio else ("BROKEN" if lio is False else "UNKNOWN"),
+         "Chain-hash verification of the append-only desk ledgers.")
+    return items
+
+
 # --------------------------------------------------------------------------- #
 # Decision headline (Workstream A) - deterministic, no manufactured urgency
 # --------------------------------------------------------------------------- #
-def _decision(ctx: dict, changes: dict, health_items: list[dict]) -> tuple[str, str]:
+def _decision(ctx: dict, changes: dict, health_items: list[dict],
+              ops: Optional[dict] = None) -> tuple[str, str]:
+    ops = ops or {"available": False}
     if not ctx["ready"]:
         return (HEADLINE_DATA_REFRESH,
                 "Owned research-store inputs are unavailable; scores and the proposed book cannot "
@@ -698,6 +832,27 @@ def _decision(ctx: dict, changes: dict, health_items: list[dict]) -> tuple[str, 
                 "The review period rolled over but the target book is unchanged vs the last "
                 "confirmed snapshot. A manual confirmation keeps the paper ledger current; no "
                 "portfolio change is proposed.")
+    # Phase 27B.1: a confirmed-but-unimplemented target is an OPERATIONAL state, not
+    # "no change required". Model target state (unchanged) and implementation state
+    # (0 of N executed) are distinct - never collapse them.
+    if _implementation_gap(ops):
+        n_target = ops.get("target_count") or 0
+        n_impl = ops.get("implementation_count") or 0
+        if ops.get("order_plan_ready"):
+            return (HEADLINE_READY_FOR_ORDER_PLAN,
+                    "The %d-name alpha target is confirmed and the desk sizing marks are "
+                    "valid (%s), but Alpha Paper Book #1 holds %d of %d target positions. "
+                    "Generate and review the executable order plan (read-only preview, "
+                    "then explicit manual confirms - paper only, no broker)."
+                    % (n_target, ops.get("desk_mark_date"), n_impl, n_target))
+        return (HEADLINE_IMPLEMENTATION_PENDING,
+                "The %d-name alpha target is confirmed (%s) but Alpha Paper Book #1 has "
+                "implemented %d of %d target positions (%.0f%%). The model target being "
+                "unchanged does NOT mean the operational book owns these names. Next: "
+                "%s." % (n_target, ops.get("target_market_date") or "confirmed",
+                         n_impl, n_target,
+                         float(ops.get("implementation_percentage") or 0.0),
+                         ops.get("next_action_code") or "REFRESH_DESK"))
     blocked = [i for i in health_items if i["status"] == HEALTH_BLOCKED]
     if blocked:
         return (HEADLINE_REVIEW_RISK,
@@ -718,7 +873,8 @@ def load_summary(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
     changes = _changeset(ctx) if ctx["ready"] else {"available": False,
                                                     "is_initial_portfolio_proposal": None}
     health_items = _health_items(ctx)
-    headline, reason = _decision(ctx, changes, health_items)
+    ops = _operational_book_block()
+    headline, reason = _decision(ctx, changes, health_items, ops)
     rows = _action_rows(ctx)
     counts = _action_counts(rows)
     dates, date_warnings = _dates_block(ctx)
@@ -746,6 +902,26 @@ def load_summary(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
         "manual_review_status": ctx["state"].get("operating_state"),
         "review_due": bool(rec.get("review_due")) if ctx["ready"] else None,
         "next_manual_review_date": (combined_sleeve or {}).get("next_manual_review_date"),
+        # Phase 27B.1: the ONE operational book + its implementation state. The
+        # legacy "portfolio" block below is the ARCHIVED executed paper portfolio.
+        "operational_book": ops,
+        "implementation_state": ({
+            "target_count": ops.get("target_count"),
+            "implementation_count": ops.get("implementation_count"),
+            "implementation_percentage": ops.get("implementation_percentage"),
+            "order_plan_generated": bool((ops.get("pending_order_count") or 0)
+                                         or (ops.get("fill_count") or 0)),
+            "desk_mark_status": ops.get("desk_mark_status"),
+            "desk_mark_date": ops.get("desk_mark_date"),
+            "next_action_code": ops.get("next_action_code"),
+            "note": ("MODEL TARGET STATE (confirmed / unchanged), IMPLEMENTATION STATE "
+                     "(what Alpha Paper Book #1 has actually executed) and OPERATIONAL "
+                     "HOLDINGS STATE (cash / NAV / holdings) are three distinct states - "
+                     "an unchanged target does not mean the book owns the names."),
+        } if ops.get("available") else {"available": False}),
+        "portfolio_scope_note": ("The 'portfolio' block below is the ARCHIVED legacy "
+                                 "executed paper portfolio (read-only history). The "
+                                 "operational portfolio is 'operational_book'."),
         "portfolio": {
             "valuation_available": val.get("available"),
             "current_portfolio_value": val.get("current_total_value"),
@@ -802,6 +978,12 @@ def load_actions(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
                 "loaded_at": _iso_now(), **_pm_safety()}
     rows = _action_rows(ctx)
     rec = ctx["rec"] or {}
+    # Phase 27B.1: annotate each model row with whether the OPERATIONAL book
+    # actually holds the name - model HOLD is target membership, not ownership.
+    ops = _operational_book_block()
+    op_holdings = ops.get("holdings") or {}
+    for r in rows:
+        r["in_operational_holdings"] = bool(op_holdings.get(r.get("ticker")))
     return {
         "phase": PHASE, "status": "PM_ACTIONS_READY",
         "review_due": bool(rec.get("review_due")),
@@ -811,6 +993,12 @@ def load_actions(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
         "internal_vocabulary": [eng.REC_BUY, eng.REC_HOLD, eng.REC_REDUCE, eng.REC_EXIT, eng.REC_WAIT],
         "vocabulary_note": "Visible headings use portfolio-manager language; the internal "
                            "deterministic vocabulary is retained per row. Never plain BUY or SELL.",
+        "hold_semantics_note": ("HOLD means the name remains in the model target book "
+                                "(unchanged target membership). It does NOT mean Alpha "
+                                "Paper Book #1 currently owns the security - current "
+                                "target weight and current executed weight are distinct; "
+                                "see in_operational_holdings per row."),
+        "operational_holdings_count": ops.get("holdings_count") if ops.get("available") else None,
         "actions": rows,
         "estimated_turnover": rec.get("estimated_turnover"),
         "estimated_transaction_cost": rec.get("estimated_transaction_cost"),
@@ -846,12 +1034,24 @@ def load_health(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec_
                    fast_spec_path=fast_spec_path)
     items = _health_items(ctx)
     dates, date_warnings = _dates_block(ctx)
+    # Phase 27B.1: the DEFAULT health scope is the operational Alpha Paper Book #1;
+    # the legacy/model items above stay available as scoped reference.
+    ops = _operational_book_block()
+    alpha_items = _alpha_health_items(ops)
     return {
         "phase": PHASE,
         "status": "PM_HEALTH_READY" if ctx["ready"] or ctx["valuation"].get("available")
         else "PM_INPUTS_UNAVAILABLE",
         "overall_status": _overall_health(items),
         "status_vocabulary": [HEALTH_HEALTHY, HEALTH_REVIEW, HEALTH_BLOCKED],
+        "default_health_scope": "ALPHA_BOOK",
+        "alpha_book_items": alpha_items,
+        "alpha_book_health_status": _overall_health(alpha_items),
+        "health_scope_note": ("Portfolio Health defaults to Alpha Paper Book #1 "
+                              "(alpha_book_items). The legacy executed-portfolio items "
+                              "(scope LEGACY_ARCHIVE) and the model-target diagnostics "
+                              "(scope MODEL_TARGET) are reference only - legacy CDW/HUM "
+                              "risk and P&L are never Alpha Book health."),
         "items": items,
         "n_healthy": sum(1 for i in items if i["status"] == HEALTH_HEALTHY),
         "n_review": sum(1 for i in items if i["status"] == HEALTH_REVIEW),
@@ -1097,6 +1297,7 @@ __all__ = [
     "PHASE",
     "HEADLINE_NO_CHANGE", "HEADLINE_REVIEW_NEW", "HEADLINE_REVIEW_REBALANCE",
     "HEADLINE_REVIEW_RISK", "HEADLINE_DATA_REFRESH", "HEADLINE_MANUAL_CONFIRMATION",
+    "HEADLINE_IMPLEMENTATION_PENDING", "HEADLINE_READY_FOR_ORDER_PLAN",
     "ALL_HEADLINES",
     "ACTION_ADD", "ACTION_HOLD", "ACTION_WATCH", "ACTION_REDUCE", "ACTION_EXIT",
     "ACTION_WAIT_BLOCKED", "ALL_ACTIONS", "ACTION_DISPLAY_LABELS",

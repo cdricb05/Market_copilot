@@ -2046,7 +2046,10 @@
               <div class="cc-kv"><span class="k">NAV</span><span class="v" id="cc-ob-nav">&mdash;</span></div>
               <div class="cc-kv"><span class="k">Holdings</span><span class="v" id="cc-ob-holdings">&mdash;</span></div>
               <div class="cc-kv"><span class="k">Pending Orders</span><span class="v" id="cc-ob-pending">&mdash;</span></div>
+              <div class="cc-kv"><span class="k">Fills</span><span class="v" id="cc-ob-fills">&mdash;</span></div>
               <div class="cc-kv"><span class="k">Current Target</span><span class="v" id="cc-ob-target">&mdash;</span></div>
+              <div class="cc-kv" title="Completed owned closes recorded in the desk mark store vs the required latest completed market date."><span class="k">Desk Mark</span><span class="v" id="cc-ob-mark">&mdash;</span></div>
+              <div class="cc-kv" title="Target positions the book ACTUALLY holds. A confirmed target weight is not an executed position."><span class="k">Implementation</span><span class="v" id="cc-ob-impl">&mdash;</span></div>
               <div class="cc-kv"><span class="k">Current Status</span><span class="v" id="cc-ob-status">&mdash;</span></div>
             </div>
             <div class="cc-na-note" id="cc-ob-next" style="margin-top:4px;">Next Action: connect to load the operational book.</div>
@@ -2395,27 +2398,27 @@
           </div>
           <div class="dw-stepper" style="margin-top:6px;">
             <div class="dw-stage" id="dwob-step-refresh-data">
-              <div class="dw-stage-hd"><span class="dw-stage-num">1</span><span class="dw-stage-name">Refresh Market Data</span></div>
+              <div class="dw-stage-hd"><span class="dw-stage-num">1</span><span class="dw-stage-name">Refresh Desk Marks</span></div>
               <div class="dw-stage-status" data-role="status">&mdash;</div>
-              <button class="cc-btn ghost dw-stage-btn" title="Run the manual Daily Operating Run (Command Center) to align owned market data to one completed date." onclick="navigateToRoute('command-center')">Open Daily Run</button>
+              <button class="cc-btn ghost dw-stage-btn" title="Refresh Market Data for sizing: the manual desk data refresh records the latest completed owned EOD closes into the desk mark store (token-gated, paper desk)." onclick="navigateToRoute('portfolio-manager')">Open Desk Refresh</button>
             </div>
             <div class="dw-stage" id="dwob-step-refresh-target">
-              <div class="dw-stage-hd"><span class="dw-stage-num">2</span><span class="dw-stage-name">Refresh Alpha Target</span></div>
+              <div class="dw-stage-hd"><span class="dw-stage-num">2</span><span class="dw-stage-name">Verify Alpha Target</span></div>
               <div class="dw-stage-status" data-role="status">&mdash;</div>
-              <button class="cc-btn ghost dw-stage-btn" title="Refresh the 25-name alpha target from owned local data (token-gated, Portfolio Manager)." onclick="navigateToRoute('portfolio-manager')">Open Target Review</button>
-            </div>
-            <div class="dw-stage" id="dwob-step-review">
-              <div class="dw-stage-hd"><span class="dw-stage-num">3</span><span class="dw-stage-name">Review</span></div>
-              <div class="dw-stage-status" data-role="status">&mdash;</div>
-              <button class="cc-btn ghost dw-stage-btn" title="Review the operational target: dates, checklist, complete 25-name table; preview then confirm manually." onclick="navigateToRoute('portfolio-manager')">Review Target</button>
+              <button class="cc-btn ghost dw-stage-btn" title="Verify / refresh the 25-name alpha target from owned local data (token-gated, Portfolio Manager)." onclick="navigateToRoute('portfolio-manager')">Open Target Review</button>
             </div>
             <div class="dw-stage" id="dwob-step-order-plan">
-              <div class="dw-stage-hd"><span class="dw-stage-num">4</span><span class="dw-stage-name">Generate Order Plan</span></div>
+              <div class="dw-stage-hd"><span class="dw-stage-num">3</span><span class="dw-stage-name">Generate Order Plan</span></div>
               <div class="dw-stage-status" data-role="status">&mdash;</div>
               <button class="cc-btn ghost dw-stage-btn" title="Generate and review the executable order plan for Alpha Paper Book #1 (read-only preview; explicit confirms only)." onclick="navigateToRoute('portfolio-manager')">Open Implementation Plan</button>
             </div>
+            <div class="dw-stage" id="dwob-step-review">
+              <div class="dw-stage-hd"><span class="dw-stage-num">4</span><span class="dw-stage-name">Review &amp; Confirm Paper Orders</span></div>
+              <div class="dw-stage-status" data-role="status">&mdash;</div>
+              <button class="cc-btn ghost dw-stage-btn" title="Review the proposed alpha paper orders, preview the NEXT_CLOSE execution, then confirm manually (paper only)." onclick="navigateToRoute('portfolio-manager')">Review Paper Orders</button>
+            </div>
             <div class="dw-stage" id="dwob-step-monitor">
-              <div class="dw-stage-hd"><span class="dw-stage-num">5</span><span class="dw-stage-name">Monitor</span></div>
+              <div class="dw-stage-hd"><span class="dw-stage-num">5</span><span class="dw-stage-name">Monitor Fills, Holdings &amp; Performance</span></div>
               <div class="dw-stage-status" data-role="status">&mdash;</div>
               <button class="cc-btn ghost dw-stage-btn" title="Monitor NAV, fills and pending paper orders on the paper trading desk." onclick="navigateToRoute('portfolio-manager')">Open Paper Desk</button>
             </div>
@@ -2424,6 +2427,11 @@
         </div>
         <!-- ===================== Phase 27B OPERATIONAL BOOK WORKFLOW END ===================== -->
 
+        <!-- Phase 27B.1: the legacy signal/GCP workflow is a collapsed READ-ONLY archive.
+             It never controls the operational next action and never implies the remote
+             prediction tunnel is required for the Alpha Paper Book #1 workflow. -->
+        <details id="dw-legacy-archive">
+        <summary class="pt-advanced-summary" title="The separate legacy signal workflow (scan / candidates / signals / decisions / legacy portfolio). Read-only paper history — it does not drive the operational Alpha Paper Book #1 workflow.">Legacy Signal Workflow Archive &mdash; Separate Paper History <span class="cc-badge">READ-ONLY</span> <span class="cc-badge" title="Archived legacy prediction-path workflow.">ARCHIVED</span></summary>
         <!-- ===================== Phase 14-B DAILY WORKFLOW TERMINAL START ===================== -->
         <div id="dw-terminal" class="dw-terminal">
           <div class="dw-hd">
@@ -3628,6 +3636,8 @@
         </details>
         <!-- ===================== Phase 15-B ADVANCED SESSION DETAIL END ===================== -->
 
+        </details><!-- end dw-legacy-archive (Legacy Signal Workflow Archive — Separate Paper History) -->
+
       </div><!-- end tab-prediction-cockpit -->
 
       <!-- TAB 2: REVIEW QUEUE -->
@@ -3909,10 +3919,34 @@
             <div class="cc-kv"><span class="k">NAV</span><span class="v" id="ptob-nav">&mdash;</span></div>
             <div class="cc-kv"><span class="k">Holdings</span><span class="v" id="ptob-holdings">&mdash;</span></div>
             <div class="cc-kv"><span class="k">Pending Orders</span><span class="v" id="ptob-pending">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Fills</span><span class="v" id="ptob-fills">&mdash;</span></div>
             <div class="cc-kv"><span class="k">Current Target</span><span class="v" id="ptob-target">&mdash;</span></div>
+            <div class="cc-kv" title="Completed owned closes recorded in the desk mark store vs the required latest completed market date."><span class="k">Desk Mark</span><span class="v" id="ptob-mark">&mdash;</span></div>
+            <div class="cc-kv" title="Target positions the book ACTUALLY holds. A confirmed target weight is not an executed position."><span class="k">Implementation</span><span class="v" id="ptob-impl">&mdash;</span></div>
             <div class="cc-kv"><span class="k">Current Status</span><span class="v" id="ptob-status">&mdash;</span></div>
           </div>
           <div class="cc-na-note" id="ptob-next" style="margin-top:4px;">Next Action: connect to load the operational book.</div>
+          <div class="cc-error" id="ptob-blockers" style="display:none; margin-top:4px;"></div>
+          <!-- Explicit empty states (Workstream D): an empty Alpha book is valid and is
+               NEVER replaced by legacy data. -->
+          <div class="dor-grid" style="margin-top:8px;">
+            <div class="cc-panel" style="padding:8px;">
+              <div class="cc-panel-title" style="font-size:var(--fs-0);">Alpha Holdings</div>
+              <div class="cc-na-note" id="ptob-holdings-table" style="margin-top:3px;">No Alpha holdings yet &mdash; initial implementation pending.</div>
+            </div>
+            <div class="cc-panel" style="padding:8px;">
+              <div class="cc-panel-title" style="font-size:var(--fs-0);">Alpha Orders &amp; Fills</div>
+              <div class="cc-na-note" id="ptob-empty-states" style="margin-top:3px;">No Alpha orders yet. No Alpha fills yet. Order history, fills and attribution live on the paper desk (Portfolio Manager) once created.</div>
+            </div>
+            <div class="cc-panel" style="padding:8px;">
+              <div class="cc-panel-title" style="font-size:var(--fs-0);" title="Target-versus-actual allocation of the operational book.">Target vs Actual</div>
+              <div class="cc-na-note" id="ptob-target-actual" style="margin-top:3px;">See the Implementation figure above: confirmed target vs positions actually held. Sector exposure follows the first fills.</div>
+            </div>
+            <div class="cc-panel" style="padding:8px;">
+              <div class="cc-panel-title" style="font-size:var(--fs-0);">Alpha Forward Performance</div>
+              <div class="cc-na-note" style="margin-top:3px;">Forward performance and attribution begin after the first paper fill (append-only, never recomputed). <button class="cc-btn ghost" style="font-size:var(--fs-0); padding:2px 7px;" onclick="navigateToRoute('portfolio-manager')" title="Open the paper trading desk (performance, attribution, journal).">Open Paper Desk &rarr;</button></div>
+            </div>
+          </div>
         </div>
 
         <details id="pt-archive">
@@ -4423,6 +4457,16 @@
             </div>
             <div id="pm-headline" style="font-size:24px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">&mdash;</div>
             <div id="pm-headline-reason" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
+            <!-- Phase 27B.1: three DISTINCT states — model target, implementation,
+                 operational holdings — rendered from /v1/operational-book. -->
+            <div id="pm-impl-strip" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--info,#38bdf8);border-radius:8px;padding:8px 12px;margin:8px 0 0;">
+              <span style="font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--info);" title="Alpha Paper Book #1 — the ONE operational portfolio.">Alpha Paper Book #1</span>
+              <span title="MODEL TARGET STATE: the confirmed validated target. Unchanged membership (HOLD) does not mean the book owns the name.">Model target <b id="pm-impl-target">&mdash;</b></span>
+              <span title="IMPLEMENTATION STATE: target positions the operational book ACTUALLY holds.">Implemented <b id="pm-impl-count">&mdash;</b></span>
+              <span title="Desk sizing marks vs the required latest completed market date.">Desk marks <b id="pm-impl-marks">&mdash;</b></span>
+              <span title="OPERATIONAL HOLDINGS STATE: holdings / pending paper orders / fills / NAV replayed from the append-only desk ledgers.">Operational book <b id="pm-impl-holdings">&mdash;</b></span>
+              <span title="The one next manual action of the operational workflow.">Next <b id="pm-impl-next">&mdash;</b></span>
+            </div>
           </div>
           <!-- KPI STRIP — every date labeled by meaning (Workstream L) -->
           <div id="pm-statusbar" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;">
@@ -4768,6 +4812,8 @@
             </span>
           </div>
           <div class="ra-safety-strip" id="mhz-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 10px;">
+            <span class="cc-badge safe" title="These books and weights are the MODEL TARGET / RESEARCH PORTFOLIO. They are NOT executed holdings — the executed operational portfolio is Alpha Paper Book #1 (Portfolio view). A target weight is not an owned position.">MODEL TARGET / RESEARCH PORTFOLIO</span>
+            <span class="cc-badge" title="Nothing on this page is an executed position of the operational book.">NOT EXECUTED HOLDINGS</span>
             <span class="cc-badge">PAPER ONLY</span>
             <span class="cc-badge danger">ORDERS DISABLED</span>
             <span class="cc-badge">AUTOMATION OFF</span>
@@ -4913,9 +4959,8 @@
         <!-- ===================== Phase 14-C CURRENT CHAMPION (first) START ===================== -->
         <div id="ra-champion-card" class="ra-champion">
           <div class="ra-hd">
-            <span class="ra-title">Current Champion</span>
-            <span class="cc-badge safe">CURRENT PAPER CHAMPION</span>
-            <span class="cc-badge">RESEARCH CHAMPION</span>
+            <span class="ra-title">Research Champion</span>
+            <span class="cc-badge safe" title="Research designation (formerly labeled CURRENT PAPER CHAMPION). composite_sn is the validated research champion — it does NOT operate Alpha Paper Book #1; the operational strategy is fundamental_momentum_50_50_v1.">RESEARCH CHAMPION</span>
             <span class="cc-badge">PAPER ONLY</span>
             <span class="cc-badge">MANUAL REVIEW</span>
             <span class="cc-spacer" style="flex:1;"></span>
@@ -4932,13 +4977,19 @@
             <div class="ra-champion-kpi"><div class="k">Signal Date</div><div class="v" id="ra-champion-signal">—</div></div>
           </div>
           <div class="cc-na-note" id="ra-champion-note" style="margin-top:8px;">composite_sn is the current PAPER champion — a research/paper-only strategy, NOT production and NOT approved for live trading. Its Phase 16-A integrity-gate status is summarized below. The raw candidate, sector-exposure, risk-limit and reconstructed-history tables live under Diagnostics &amp; Archive, not here.</div>
+          <!-- Phase 27B.1: explicit research-vs-operational identity (Workstream H). -->
+          <div id="ra-identity-strip" class="mono" style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:6px 12px;margin-top:8px;">
+            <span title="The validated research champion signal — research evidence, not the operating strategy.">RESEARCH CHAMPION: <b>composite_sn</b></span>
+            <span title="The strategy that operates Alpha Paper Book #1 (the one operational portfolio).">OPERATIONAL STRATEGY: <b>fundamental_momentum_50_50_v1</b></span>
+            <span title="The model target book the operational Alpha Paper Book #1 implements.">OPERATIONAL TARGET: <b>fundamental_momentum_50_50_top25</b></span>
+          </div>
         </div>
         <!-- ===================== Phase 16-A ALPHA INTEGRITY GATE (Champion Overview) START ============ -->
         <div id="ra-integrity-card" class="ra-champion" style="border-color: var(--warning,#f59e0b); background: rgba(245,158,11,.05);">
           <div class="ra-hd">
             <span class="ra-title">Alpha Integrity Gate</span>
             <span class="cc-badge" id="ra-ig-status" title="Phase 16-A paper-test integrity status (read-only).">—</span>
-            <span class="cc-badge safe">CURRENT PAPER CHAMPION</span>
+            <span class="cc-badge safe" title="Research designation (formerly labeled CURRENT PAPER CHAMPION) — not the operational strategy.">RESEARCH CHAMPION</span>
             <span class="cc-badge">PAPER ONLY</span>
             <span class="cc-badge">NO LIVE ORDERS</span>
             <span class="cc-spacer" style="flex:1;"></span>
@@ -5095,8 +5146,8 @@
 
           <!-- Champion vs Challenger identity -->
           <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:2px 0 8px;font-size:12px;">
-            <div>Current Paper Champion: <b class="mono" id="crv-champion-signal">composite_sn</b>
-              <span class="cc-badge safe">CURRENT PAPER CHAMPION</span></div>
+            <div>Research Champion: <b class="mono" id="crv-champion-signal">composite_sn</b>
+              <span class="cc-badge safe" title="Research designation (formerly labeled CURRENT PAPER CHAMPION) — not the strategy operating Alpha Paper Book #1.">RESEARCH CHAMPION</span></div>
             <div>Sector-Repaired Candidate: <b class="mono" id="crv-candidate-signal">composite_sn_repaired</b>
               <span class="cc-badge">SECTOR-REPAIRED PAPER CHALLENGER</span></div>
           </div>
@@ -5187,8 +5238,8 @@
 
           <!-- Champion vs Challenger identity -->
           <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:2px 0 8px;font-size:12px;">
-            <div>Current Paper Champion: <b class="mono" id="ctr-champion-signal">composite_sn</b>
-              <span class="cc-badge safe">CURRENT PAPER CHAMPION</span></div>
+            <div>Research Champion: <b class="mono" id="ctr-champion-signal">composite_sn</b>
+              <span class="cc-badge safe" title="Research designation (formerly labeled CURRENT PAPER CHAMPION) — not the strategy operating Alpha Paper Book #1.">RESEARCH CHAMPION</span></div>
             <div>Sector-Repaired Challenger: <b class="mono" id="ctr-challenger-signal">composite_sn_repaired</b>
               <span class="cc-badge">SECTOR-REPAIRED PAPER CHALLENGER</span></div>
           </div>
@@ -6748,6 +6799,22 @@
         <span class="panel-value" id="right-ob-nav">-</span>
       </div>
       <div class="panel-item">
+        <span>Holdings</span>
+        <span class="panel-value" id="right-ob-holdings">-</span>
+      </div>
+      <div class="panel-item">
+        <span>Pending paper orders</span>
+        <span class="panel-value" id="right-ob-pending">-</span>
+      </div>
+      <div class="panel-item">
+        <span>Target</span>
+        <span class="panel-value" id="right-ob-target">-</span>
+      </div>
+      <div class="panel-item" title="Completed owned closes recorded in the desk mark store vs the required latest completed market date.">
+        <span>Desk mark</span>
+        <span class="panel-value" id="right-ob-mark">-</span>
+      </div>
+      <div class="panel-item">
         <span>Alpha book target</span>
         <span class="panel-value">25</span>
       </div>
@@ -6757,8 +6824,8 @@
       </div>
       <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;">Dedicated $100,000 virtual capital &mdash; the single operational portfolio (manage in Portfolio Manager)</div>
     </div>
-    <div class="panel-section">
-      <div class="panel-section-title" title="Historical archive: legacy signal-workflow capacity only. It never governs Alpha Paper Book #1.">Legacy Signal Portfolio Capacity (Archived)</div>
+    <details class="panel-section" id="right-legacy-capacity">
+      <summary style="cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--label); padding: 6px 0; user-select: none; list-style: none;" title="Historical archive: legacy signal-workflow capacity only. It never governs Alpha Paper Book #1.">&#9654; Legacy Signal Portfolio Capacity (Archived)</summary>
       <div class="panel-item">
         <span>Open positions</span>
         <span class="panel-value" id="cap-open-positions">-</span>
@@ -6772,7 +6839,7 @@
         <span class="panel-value" id="cap-available-slots" style="font-weight: 700;">-</span>
       </div>
       <div style="font-size: 9px; color: var(--label); font-style: italic; margin-top: 4px;" id="cap-status-note">Legacy risk-engine limit &mdash; read-only historical book, never Alpha Paper Book #1</div>
-    </div>
+    </details>
     <div class="panel-section">
       <div class="panel-section-title">Current State</div>
       <div class="panel-item">
@@ -6805,11 +6872,11 @@
       <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 4px;">No orders unless explicitly created</div>
     </div>
 
-    <div id="right-completed-summary" style="display: none; font-size: 10px; color: var(--ok); line-height: 1.5; padding: 8px 10px; background: rgba(34,197,94,.07); border-left: 3px solid rgba(34,197,94,.5); border-radius: 0 3px 3px 0; margin: 0 0 4px 0;">
-      <div style="font-weight: 700; margin-bottom: 3px;">Paper position open</div>
-      <div style="color: var(--label);">No pending paper orders</div>
-      <div style="color: var(--label);">Monitor Portfolio / Performance History</div>
-      <div style="color: var(--label);">Run a new Daily Process Preview when ready</div>
+    <div id="right-completed-summary" style="display: none; font-size: 10px; color: var(--ok); line-height: 1.5; padding: 8px 10px; background: rgba(34,197,94,.07); border-left: 3px solid rgba(34,197,94,.5); border-radius: 0 3px 3px 0; margin: 0 0 4px 0;" title="Archived legacy signal-workflow position status. Not the operational Alpha Paper Book #1.">
+      <div style="font-weight: 700; margin-bottom: 3px;">Legacy: Paper position open (archived)</div>
+      <div style="color: var(--label);">No pending legacy paper orders</div>
+      <div style="color: var(--label);">Monitor Portfolio / Performance History (legacy archive)</div>
+      <div style="color: var(--label);">History: Historical Paper Books archive</div>
     </div>
 
     <details>
@@ -10757,9 +10824,10 @@ async function runPortfolioMonitorWorkspace(btn) {
         exitActionEl.innerHTML = '<div style="padding:6px 10px;font-size:10px;color:var(--ok);">No exit order needed.</div>';
       }
     }
-    // Update right panel to mirror exit state
-    var _rpTaskEl = document.getElementById('right-current-task');
-    var _rpNextEl = document.getElementById('right-next-action');
+    // Update right panel to mirror exit state (legacy flow; the operational-book
+    // payload owns the right-panel task once loaded - Phase 27B.1)
+    var _rpTaskEl = window._obData ? null : document.getElementById('right-current-task');
+    var _rpNextEl = window._obData ? null : document.getElementById('right-next-action');
     if (data.reviewed_for_exit_count > 0) {
       if (_rpTaskEl) _rpTaskEl.textContent = 'Review Exit';
       if (_rpNextEl) _rpNextEl.textContent = 'Create a manual SELL paper order ticket or keep monitoring.';
@@ -20084,10 +20152,10 @@ function updateTodayReview(ctx) {
     renderTradeFlowCard('HIDE');
   }
 
-  // Sync right panel to mirror Today's Review (single source of truth). The
-  // right-side next action mirrors the candidate decision card wording.
-  const _rpTaskEl = document.getElementById('right-current-task');
-  const _rpNextEl = document.getElementById('right-next-action');
+  // Sync right panel to mirror Today's Review (legacy flow). Phase 27B.1: the
+  // operational-book payload owns the right-panel task once loaded.
+  const _rpTaskEl = window._obData ? null : document.getElementById('right-current-task');
+  const _rpNextEl = window._obData ? null : document.getElementById('right-next-action');
   if (_rpTaskEl) _rpTaskEl.textContent = _rpTask;
   if (_rpNextEl) _rpNextEl.textContent = _rightNext || _rpNext;
 
@@ -20162,8 +20230,10 @@ function updateTodayReview(ctx) {
   // a conflicting next action: Review Trade Idea -> Review Paper Trade Ticket ->
   // View Portfolio (or Monitor Portfolio when there is no new trade plan).
   try {
-    const _rt = document.getElementById('right-current-task');
-    const _rn = document.getElementById('right-next-action');
+    // Phase 27B.1: once the operational-book payload owns the right-panel task,
+    // the legacy review flow must not overwrite it.
+    const _rt = window._obData ? null : document.getElementById('right-current-task');
+    const _rn = window._obData ? null : document.getElementById('right-next-action');
     const _st = (window._canonicalWorkflowState || {}).stage;
     let _gtlTask = null, _gtlNext = null;
     if (_st === 'REVIEW_CANDIDATES') {
@@ -20241,6 +20311,9 @@ function applyCanonicalToOverview() {
 function applyCanonicalToActionPanel() {
   const st = window._canonicalWorkflowState;
   if (!st) return;
+  // Phase 27B.1: the operational-book payload owns the right-panel task once
+  // loaded - the legacy canonical state must not overwrite it.
+  if (window._obData) return;
   const taskEl = document.getElementById('right-current-task');
   const nextEl = document.getElementById('right-next-action');
   const btnEl = document.getElementById('right-primary-action-btn');
@@ -20264,6 +20337,12 @@ function switchToTab(tabName) {
 function focusSection(sectionId) {
   const el = document.getElementById(sectionId);
   if (!el) return;
+  // Phase 27B.1: legacy content lives inside collapsed archive <details> —
+  // deep links auto-open every ancestor so existing routes still land.
+  try {
+    let anc = el.closest ? el.closest('details') : null;
+    while (anc) { anc.open = true; anc = anc.parentElement ? anc.parentElement.closest('details') : null; }
+  } catch (e) {}
   try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
   try {
     el.style.transition = 'box-shadow .25s ease';
@@ -22569,6 +22648,11 @@ function _dorText(id, v) { var el = document.getElementById(id); if (el) el.text
 function _renderMarketDataBadge(md) {
   var badge = document.getElementById('market-data-badge');
   if (!badge) return;
+  // Phase 27B.1: once the canonical operational-book payload is loaded, the
+  // header badge shows the PRECISE operational status of Alpha Paper Book #1
+  // (renderOperationalBook owns it) — unrelated legacy/archived mark dates must
+  // not collapse into a generic STALE / MISALIGNED here.
+  if (window._obData) return;
   var base = 'font-size: 9px; padding: 2px 7px; margin-left: 4px; border-radius: 2px; ';
   if (!md || md.status === 'UNAVAILABLE' || !md.status) {
     badge.textContent = 'MARKET DATA: NOT CHECKED';
@@ -23031,6 +23115,10 @@ function _applySubsection(base, sub) {
     }
     if (base === 'daily-workflow') {
       if (!sub) return;
+      // Phase 27B.1: the legacy signal workflow lives inside the collapsed
+      // Legacy Workflow Archive; any legacy deep-link explicitly opens it.
+      var dwArc = document.getElementById('dw-legacy-archive');
+      if (dwArc) dwArc.open = true;
       var st = window._dailyWorkflowState;
       if (st && st.data) { try { renderWorkflowWorkbench(sub.toUpperCase()); } catch (e) {} }
       var wb = document.getElementById('dw-workbench');
@@ -23961,6 +24049,9 @@ window._pmFilter = 'ALL';
 function _pmHeadlineColor(headline) {
   if (headline === 'NO PORTFOLIO CHANGE REQUIRED') return 'var(--ok, #22c55e)';
   if (headline === 'DATA REFRESH REQUIRED') return 'var(--danger, #ef4444)';
+  if (headline === 'ALPHA BOOK READY FOR INITIAL ORDER PLAN') return 'var(--ok, #22c55e)';
+  // TARGET CONFIRMED — INITIAL IMPLEMENTATION PENDING and every review state
+  // stay amber: an action is required, nothing is wrong.
   return 'var(--warning, #f59e0b)';
 }
 
@@ -23970,6 +24061,7 @@ async function loadPortfolioManager() {
   if (st) { st.textContent = 'Loading…'; st.className = 'cc-badge'; }
   if (note) note.textContent = 'Loading the read-only portfolio-manager decision view…';
   try { loadAlphaTargetReview(); } catch (e) {}   // Phase 27A.2 operational target review
+  try { loadOperationalBook(); } catch (e) {}     // Phase 27B.1 canonical implementation strip
   var res = await Promise.all([
     _mhzGet('/v1/portfolio-manager/summary'),
     _mhzGet('/v1/portfolio-manager/actions'),
@@ -24282,11 +24374,15 @@ function renderPmHealth(hd) {
     return;
   }
   var cls = { HEALTHY: 'safe', REVIEW: 'manual', BLOCKED: 'danger' };
+  // Phase 27B.1: Portfolio Health defaults to Alpha Paper Book #1. The badge shows
+  // the ALPHA book rollup; legacy CDW/HUM valuation health never populates it.
+  var alphaStatus = hd.alpha_book_health_status || hd.overall_status;
   if (overall) {
-    overall.textContent = hd.overall_status || '—';
-    overall.className = 'cc-badge ' + (cls[hd.overall_status] || 'muted');
+    overall.textContent = alphaStatus || '—';
+    overall.className = 'cc-badge ' + (cls[alphaStatus] || 'muted');
+    overall.title = 'Health rollup of the operational Alpha Paper Book #1 only. Legacy and model-target items are scoped reference below.';
   }
-  el.innerHTML = (hd.items || []).map(function (i) {
+  function _pmHealthRow(i) {
     var needExplain = i.status !== 'HEALTHY';
     return '<div style="border-top:1px solid var(--border,#2a3550);padding:4px 0;">' +
       '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;">' +
@@ -24295,7 +24391,19 @@ function renderPmHealth(hd) {
       '<span class="cc-badge ' + (cls[i.status] || 'muted') + '">' + escapeHtml(i.status) + '</span></span></div>' +
       (needExplain ? '<div class="cc-na-note" style="font-size:10px;margin-top:2px;">' + escapeHtml(i.explanation || '') + '</div>' : '') +
       '</div>';
-  }).join('') || '—';
+  }
+  var alphaItems = hd.alpha_book_items || [];
+  var refItems = hd.items || [];
+  var html = '';
+  if (alphaItems.length) {
+    html += '<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--info);margin:2px 0;" title="Default health scope: the ONE operational portfolio.">Alpha Paper Book #1 (operational)</div>' +
+      alphaItems.map(_pmHealthRow).join('');
+  }
+  html += (alphaItems.length ?
+    ('<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--label);" title="Reference only: archived legacy executed portfolio + model-target diagnostics. Never Alpha Book health.">&#9654; Legacy archive &amp; model-target reference (' + refItems.length + ')</summary>' +
+      refItems.map(_pmHealthRow).join('') + '</details>')
+    : (refItems.map(_pmHealthRow).join('') || '—'));
+  el.innerHTML = html || '—';
 }
 
 function renderPmOpState(s) {
@@ -24672,6 +24780,21 @@ function _obStateLabel(s) {
   return (s || 'UNAVAILABLE').replace(/_/g, ' ');
 }
 
+function _obTaskLabel(code) {
+  var map = {
+    'REFRESH_DESK': 'Refresh Desk Marks',
+    'CONFIRM_TARGET_SNAPSHOT': 'Confirm Alpha Target',
+    'INITIALIZE_ALPHA_BOOK': 'Initialize Alpha Book',
+    'GENERATE_ORDER_PLAN': 'Generate Order Plan',
+    'REVIEW_ORDER_PLAN': 'Review Order Plan',
+    'CONFIRM_ORDER_PLAN': 'Confirm Order Plan',
+    'CONFIRM_PAPER_ORDERS': 'Confirm Paper Orders',
+    'MONITOR': 'Monitor Alpha Book',
+    'BLOCKED': 'Resolve Ledger Block',
+  };
+  return map[code] || _obStateLabel(code);
+}
+
 function renderOperationalBook(d) {
   var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
   var t = (ob && ob.current_target) || null;
@@ -24679,9 +24802,22 @@ function renderOperationalBook(d) {
   var cash = ob && ob.initialized ? _obMoney(ob.cash) : (ob ? '— (not initialized)' : '—');
   var nav = ob && ob.initialized ? _obMoney(ob.nav) : (ob ? '— (not initialized)' : '—');
   var holdings = ob ? String(ob.holdings_count || 0) : '—';
-  var pending = ob ? String((ob.pending_orders && ob.pending_orders.pending_count) || 0) : '—';
-  var targetTxt = t ? (_obStateLabel(t.state) + (t.alpha_market_date ? (' · ' + t.alpha_market_date) : '')) : '—';
+  var pending = ob ? String(ob.pending_order_count != null ? ob.pending_order_count :
+    ((ob.pending_orders && ob.pending_orders.pending_count) || 0)) : '—';
+  var fills = ob ? String(ob.fill_count != null ? ob.fill_count : (ob.fills_count || 0)) : '—';
+  var targetTxt = t ? (_obStateLabel(t.state) + (t.alpha_market_date ? (' · ' + t.alpha_market_date) : '')
+    + (ob && ob.target_count ? (' · ' + ob.target_count + ' names') : '')) : '—';
   var statusTxt = ob ? _obStateLabel(ob.current_status) : '—';
+  var markReady = !!(ob && ob.desk_mark_status === 'DESK_MARK_READY');
+  var markTxt = !ob ? '—' :
+    (markReady ? ('READY · ' + (ob.desk_mark_date || '')) :
+      (_obStateLabel(ob.desk_mark_status) + (ob.desk_mark_required_date ?
+        (' · required ' + ob.desk_mark_required_date) : '')));
+  var implTxt = !ob ? '—' :
+    ((ob.implementation_count != null && ob.target_count) ?
+      (ob.implementation_count + ' of ' + ob.target_count + ' (' +
+        (ob.implementation_percentage != null ? ob.implementation_percentage : 0) + '%)') : '—');
+  var nextCode = ob ? (ob.next_action_code || null) : null;
   var nextTxt = ob ? ('Next Action: ' + (ob.next_action || '—')) :
     'Next Action: operational book unavailable — check the connection / API key, then refresh.';
 
@@ -24692,8 +24828,11 @@ function renderOperationalBook(d) {
     _obSet(prefix + '-nav', nav);
     _obSet(prefix + '-holdings', holdings + (ob && ob.initialized ? ' names' : ''));
     _obSet(prefix + '-pending', pending);
+    _obSet(prefix + '-fills', fills);
     _obSet(prefix + '-target', targetTxt);
     _obSet(prefix + '-status', statusTxt);
+    _obSet(prefix + '-mark', markTxt);
+    _obSet(prefix + '-impl', implTxt);
     _obSet(prefix + '-next', nextTxt);
     var badge = document.getElementById(pair[1]);
     if (badge) {
@@ -24704,38 +24843,112 @@ function renderOperationalBook(d) {
     }
   });
 
-  // Daily Workflow operational stepper.
+  // Portfolio page — explicit empty states of the operational book.
+  var emptyEl = document.getElementById('ptob-empty-states');
+  if (emptyEl) {
+    if (ob && ob.initialized && !(ob.holdings_count || 0) && !(Number(pending) || 0) && !(Number(fills) || 0)) {
+      emptyEl.style.display = '';
+    } else {
+      emptyEl.style.display = 'none';
+    }
+  }
+  var blockEl = document.getElementById('ptob-blockers');
+  if (blockEl) {
+    var bl = (ob && ob.blockers) || [];
+    if (bl.length) {
+      blockEl.style.display = '';
+      blockEl.textContent = 'Current blockers: ' + bl.join(' | ');
+    } else {
+      blockEl.style.display = 'none';
+      blockEl.textContent = '';
+    }
+  }
+  var holdTbl = document.getElementById('ptob-holdings-table');
+  if (holdTbl) {
+    var hk = ob ? Object.keys(ob.holdings || {}).sort() : [];
+    if (hk.length) {
+      holdTbl.textContent = hk.map(function (tk) { return tk + ' × ' + ob.holdings[tk]; }).join(' · ');
+    } else {
+      holdTbl.textContent = 'No Alpha holdings yet — initial implementation pending.';
+    }
+  }
+
+  // Daily Workflow operational stepper — statuses come from the CANONICAL
+  // payload (workflow_stages), never derived per-page.
   var dwState = document.getElementById('dwob-state');
   if (dwState) { dwState.textContent = stateTxt; dwState.className = 'cc-badge ' + (ob ? (ob.initialized ? 'safe' : 'muted') : 'danger'); }
   _obSet('dwob-next', nextTxt);
-  var s = ob ? ob.current_status : null;
-  var postPlan = ['ORDERS_CONFIRMED', 'WAITING_FOR_ELIGIBLE_CLOSE', 'PARTIALLY_FILLED',
-                  'FULLY_FILLED', 'FORWARD_TRACKING_ACTIVE'];
-  var stages = {
-    'dwob-step-refresh-data': t && t.latest_completed_market_date ?
-      ('Latest completed: ' + t.latest_completed_market_date) : '—',
-    'dwob-step-refresh-target': !t ? '—' :
-      (t.state === 'STALE_TARGET' ? 'REFRESH REQUIRED' :
-        (t.alpha_market_aligned ? ('ALIGNED · ' + (t.alpha_market_date || '')) : _obStateLabel(t.state))),
-    'dwob-step-review': !ob ? '—' :
-      (s !== 'NO_CONFIRMED_TARGET' ? 'TARGET CONFIRMED' :
-        (t && t.snapshot_confirmation_allowed ? 'READY TO CONFIRM' : 'WAITING FOR FRESH TARGET')),
-    'dwob-step-order-plan': !ob ? '—' :
-      (s === 'TARGET_CONFIRMED' ? 'INITIALIZE BOOK' :
-        (s === 'BOOK_INITIALIZED' || s === 'ORDER_PLAN_READY' || s === 'ORDER_PLAN_REVIEW_REQUIRED') ? 'IN PROGRESS' :
-          (postPlan.indexOf(s) >= 0 ? 'DONE' : 'PENDING')),
-    'dwob-step-monitor': !ob ? '—' : (postPlan.indexOf(s) >= 0 ? 'ACTIVE' : 'PENDING'),
+  var stageIds = {
+    'REFRESH_DESK_MARKS': 'dwob-step-refresh-data',
+    'VERIFY_ALPHA_TARGET': 'dwob-step-refresh-target',
+    'GENERATE_ORDER_PLAN': 'dwob-step-order-plan',
+    'CONFIRM_PAPER_ORDERS': 'dwob-step-review',
+    'MONITOR': 'dwob-step-monitor',
   };
-  Object.keys(stages).forEach(function (id) {
-    var el = document.getElementById(id);
+  var stages = (ob && ob.workflow_stages) || [];
+  Object.keys(stageIds).forEach(function (code) {
+    var el = document.getElementById(stageIds[code]);
     if (!el) return;
     var st = el.querySelector('[data-role="status"]');
-    if (st) st.textContent = stages[id];
+    if (!st) return;
+    var row = null;
+    for (var i = 0; i < stages.length; i++) { if (stages[i].code === code) { row = stages[i]; break; } }
+    if (!row) { st.textContent = '—'; return; }
+    st.textContent = row.status.replace(/_/g, ' ') + (row.detail ? (' — ' + row.detail) : '');
+    st.style.color = row.status === 'NEEDS_ACTION' ? 'var(--warning, #f59e0b)' :
+      row.status === 'BLOCKED' ? 'var(--danger, #ef4444)' :
+      (row.status === 'COMPLETE' || row.status === 'ACTIVE') ? 'var(--ok, #22c55e)' : '';
   });
 
-  // Global right panel — operational book first.
+  // Global header — operationally precise status derived from Alpha Book #1
+  // (replaces the generic market-data staleness on operational pages; the
+  // archived legacy mark date can never make this stale).
+  var hb = document.getElementById('market-data-badge');
+  if (hb && ob && ob.header_status) {
+    var hs = ob.header_status;
+    var good = (hs.code === 'ORDER_PLAN_READY' || hs.code === 'FORWARD_TRACKING_ACTIVE' ||
+                hs.code === 'DESK_MARK_READY');
+    hb.textContent = 'OPERATIONAL: ' + (hs.label || hs.code);
+    hb.style.cssText = 'font-size: 9px; padding: 2px 7px; margin-left: 4px; border-radius: 2px; ' +
+      (good ? 'color: var(--ok); background: rgba(34,197,94,.10); border: 1px solid rgba(34,197,94,.35);'
+            : 'color: var(--warning); background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.35);');
+    hb.title = 'Operational status of Alpha Paper Book #1 (canonical operational-book payload). ' +
+      'Legacy/archived mark dates never drive this badge.';
+  }
+
+  // Global right panel — the operational book owns the workflow task + capacity.
   _obSet('right-ob-state', stateTxt);
   _obSet('right-ob-nav', ob && ob.initialized ? _obMoney(ob.nav) : '—');
+  _obSet('right-ob-holdings', ob ? holdings : '—');
+  _obSet('right-ob-pending', ob ? pending : '—');
+  _obSet('right-ob-target', ob ? targetTxt : '—');
+  _obSet('right-ob-mark', ob ? markTxt : '—');
+  if (ob) {
+    _obSet('right-current-task', _obTaskLabel(nextCode));
+    _obSet('right-next-action', ob.next_action_label || ob.next_action || '—');
+    var btn = document.getElementById('right-primary-action-btn');
+    if (btn) {
+      btn.textContent = 'Open Portfolio Manager';
+      btn.onclick = function (ev) { if (ev) ev.stopPropagation(); navigateToRoute('portfolio-manager'); };
+    }
+    var taskEl = document.getElementById('right-current-task');
+    var sec = taskEl && taskEl.closest ? taskEl.closest('.panel-section') : null;
+    if (sec) {
+      sec.onclick = function () { navigateToRoute('portfolio-manager'); };
+      sec.title = 'Open the Portfolio Manager — the operational next action of Alpha Paper Book #1.';
+    }
+    var hint = document.getElementById('right-review-hint');
+    if (hint) hint.style.display = 'none';
+  }
+
+  // Portfolio Manager implementation strip (three distinct states, never mixed).
+  _obSet('pm-impl-target', ob && ob.target_count ?
+    (ob.target_count + ' names · ' + _obStateLabel((ob.target_confirmation_status || '—')) +
+      (ob.target_market_date ? (' · ' + ob.target_market_date) : '')) : '—');
+  _obSet('pm-impl-count', implTxt);
+  _obSet('pm-impl-marks', markTxt);
+  _obSet('pm-impl-holdings', ob ? (holdings + ' held · ' + pending + ' pending · ' + fills + ' fills · NAV ' + nav) : '—');
+  _obSet('pm-impl-next', ob ? _obTaskLabel(nextCode) : '—');
 }
 window.renderOperationalBook = renderOperationalBook;
 /* ===================== Phase 27B — OPERATIONAL BOOK END ===================== */
@@ -25170,18 +25383,31 @@ async function pdDoAction() {
     var d = await r.json();
     if (result) {
       result.style.display = '';
-      if (d.status === 'PAPER_DESK_OK') {
+      if (d.status === 'PAPER_DESK_OK' && !(kind === 'refresh' && d.resulting_desk_mark_date == null)) {
         result.style.color = 'var(--ok, #22c55e)';
         var extra = '';
         if (kind === 'refresh' && d.settlement) {
           extra = ' — ' + d.settlement.n_filled + ' paper fill(s) recorded, ' +
             (d.performance ? d.performance.n_appended : 0) + ' performance row(s) appended.';
+          if (d.resulting_desk_mark_date) {
+            extra += ' Desk mark date: ' + d.resulting_desk_mark_date +
+              (d.priced_ticker_count != null ? (' (' + d.priced_ticker_count + ' of ' +
+                d.requested_ticker_count + ' tickers priced).') : '.');
+          }
           if (d.settlement.n_filled > 0) {
             extra += ' PAPER FILLS RECORDED — holdings and cash updated in the local paper book. No live order was created.';
           }
         }
         result.textContent = (d.message || 'Manual paper-desk action complete.') + extra;
         toast('Paper desk: ' + (d.message || 'done') + ' (paper only)', 'ok');
+      } else if (d.status === 'DESK_MARK_REFRESH_BLOCKED' ||
+                 (kind === 'refresh' && d.status === 'PAPER_DESK_OK' && d.resulting_desk_mark_date == null)) {
+        // Phase 27B.1: a refresh that produced no valid sizing marks is NEVER green.
+        result.style.color = 'var(--warning, #f59e0b)';
+        var bl = (d.blockers && d.blockers.length) ? (' Blockers: ' + d.blockers.join(' | ')) : '';
+        result.textContent = 'DESK MARK REFRESH BLOCKED — no valid sizing marks were recorded. ' +
+          (d.message || '') + bl + ' Next action: ' + (d.next_action || 'REPAIR_OR_REFRESH_MARK_SOURCE') + '.';
+        toast('Paper desk: desk mark refresh blocked', 'info');
       } else {
         result.style.color = 'var(--warning, #f59e0b)';
         result.textContent = (d.status || 'error') + ' — ' + (d.message || 'Nothing was written.');
@@ -25198,6 +25424,7 @@ async function pdDoAction() {
   }
   window._pdPendingAction = null;
   try { loadPaperDesk(); } catch (e2) {}
+  try { loadOperationalBook(); } catch (e) {}
 }
 
 async function pdExecutionPreview() {
