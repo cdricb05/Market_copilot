@@ -46,11 +46,15 @@ HEADLINE_MANUAL_CONFIRMATION = "MANUAL CONFIRMATION REQUIRED"
 # summarized as "NO PORTFOLIO CHANGE REQUIRED".
 HEADLINE_IMPLEMENTATION_PENDING = "TARGET CONFIRMED — INITIAL IMPLEMENTATION PENDING"
 HEADLINE_READY_FOR_ORDER_PLAN = "ALPHA BOOK READY FOR INITIAL ORDER PLAN"
+# Phase 27B.2: the executable order plan EXISTS — the one next action is to
+# review it and manually confirm it (REVIEW_AND_CONFIRM_ORDER_PLAN).
+HEADLINE_ORDER_PLAN_REVIEW = "ORDER PLAN READY FOR REVIEW"
 
 ALL_HEADLINES = [
     HEADLINE_NO_CHANGE, HEADLINE_REVIEW_NEW, HEADLINE_REVIEW_REBALANCE,
     HEADLINE_REVIEW_RISK, HEADLINE_DATA_REFRESH, HEADLINE_MANUAL_CONFIRMATION,
     HEADLINE_IMPLEMENTATION_PENDING, HEADLINE_READY_FOR_ORDER_PLAN,
+    HEADLINE_ORDER_PLAN_REVIEW,
 ]
 
 # Portfolio-manager action vocabulary (visible), mapped 1:1 from the internal
@@ -148,7 +152,9 @@ def _operational_book_block() -> dict:
             "next_action_code": o.get("next_action_code"),
             "next_action": o.get("next_action"),
             "blockers": o.get("blockers") or [],
+            "informational": o.get("informational") or [],
             "ledger_integrity_ok": o.get("ledger_integrity_ok"),
+            "canonical_state": o.get("canonical_state"),
         }
     except Exception:  # noqa: BLE001 - the PM page must load even without the desk
         return {"available": False}
@@ -838,6 +844,17 @@ def _decision(ctx: dict, changes: dict, health_items: list[dict],
     if _implementation_gap(ops):
         n_target = ops.get("target_count") or 0
         n_impl = ops.get("implementation_count") or 0
+        if (ops.get("order_plan_ready")
+                and ops.get("current_status") in ("ORDER_PLAN_READY",
+                                                  "ORDER_PLAN_REVIEW_REQUIRED")):
+            # Phase 27B.2: the deterministic executable order plan already exists.
+            return (HEADLINE_ORDER_PLAN_REVIEW,
+                    "The executable paper-order plan for the confirmed %d-name alpha "
+                    "target is ready (sizing marks %s; the book holds %d of %d target "
+                    "positions). Review the order plan, then confirm it manually to "
+                    "create the dedicated alpha paper orders — paper only, no broker, "
+                    "nothing fills yet. Next: REVIEW_AND_CONFIRM_ORDER_PLAN."
+                    % (n_target, ops.get("desk_mark_date"), n_impl, n_target))
         if ops.get("order_plan_ready"):
             return (HEADLINE_READY_FOR_ORDER_PLAN,
                     "The %d-name alpha target is confirmed and the desk sizing marks are "
@@ -911,6 +928,8 @@ def load_summary(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
             "implementation_percentage": ops.get("implementation_percentage"),
             "order_plan_generated": bool((ops.get("pending_order_count") or 0)
                                          or (ops.get("fill_count") or 0)),
+            "order_plan_ready": ops.get("order_plan_ready"),
+            "operational_book_status": ops.get("current_status"),
             "desk_mark_status": ops.get("desk_mark_status"),
             "desk_mark_date": ops.get("desk_mark_date"),
             "next_action_code": ops.get("next_action_code"),
@@ -1298,6 +1317,7 @@ __all__ = [
     "HEADLINE_NO_CHANGE", "HEADLINE_REVIEW_NEW", "HEADLINE_REVIEW_REBALANCE",
     "HEADLINE_REVIEW_RISK", "HEADLINE_DATA_REFRESH", "HEADLINE_MANUAL_CONFIRMATION",
     "HEADLINE_IMPLEMENTATION_PENDING", "HEADLINE_READY_FOR_ORDER_PLAN",
+    "HEADLINE_ORDER_PLAN_REVIEW",
     "ALL_HEADLINES",
     "ACTION_ADD", "ACTION_HOLD", "ACTION_WATCH", "ACTION_REDUCE", "ACTION_EXIT",
     "ACTION_WAIT_BLOCKED", "ALL_ACTIONS", "ACTION_DISPLAY_LABELS",

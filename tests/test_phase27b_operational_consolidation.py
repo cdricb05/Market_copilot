@@ -260,10 +260,15 @@ class TestUiCommandCenterOperationalBook:
         assert 'id="cc-ob-next"' in panel      # Next Action surface
 
     def test_kpis_relabeled_as_research_evidence(self, html):
+        # Phase 27B.2: the research KPI cards moved into the collapsed archive;
+        # the primary screen carries the compact RESEARCH ONLY status strip.
+        legacy = html[html.index('id="cc-legacy-overview"'):html.index("end cc-legacy-overview")]
+        assert "Research Primary Paper Book" in legacy
+        assert "Research Current Paper Return" in legacy
+        assert "Excess vs SPY (Research)" in legacy
         primary = _cc_primary(html)
-        assert "Research Primary Paper Book" in primary
-        assert "Research Current Paper Return" in primary
-        assert "Excess vs SPY (Research)" in primary
+        assert 'id="cc-research-strip"' in primary
+        assert "RESEARCH ONLY" in primary
 
     def test_legacy_previews_live_only_in_the_archive_section(self, html):
         primary = _cc_primary(html)
@@ -378,11 +383,11 @@ class TestUiSingleSourceOfTruth:
             assert sid in body, sid
 
     def test_every_operational_loader_reuses_the_one_loader(self, html):
-        # Phase 27B.1: command center, daily workflow, portfolio terminal,
-        # portfolio manager and the paper-desk action path all reuse the ONE
-        # coalesced loader (never a second fetch path).
+        # Phase 27B.1/27B.2: command center, daily workflow, portfolio terminal,
+        # portfolio manager, the paper-desk action path and the Alpha Portfolio
+        # page all reuse the ONE coalesced loader (never a second fetch path).
         js = _scripts(html)
-        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 5
+        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 6
 
     def test_concurrent_loads_coalesce(self, html):
         js = _scripts(html)

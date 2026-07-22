@@ -171,6 +171,10 @@ HEADER_DESK_MARK_READY = "DESK_MARK_READY"
 _TRACKING_STATES = ("ORDERS_CONFIRMED", "WAITING_FOR_ELIGIBLE_CLOSE",
                     "PARTIALLY_FILLED", "FULLY_FILLED", "FORWARD_TRACKING_ACTIVE")
 
+#: Phase 27B.2 — the ONE canonical next required operational action once the
+#: deterministic executable order plan exists. Every operator page must agree.
+NEXT_ACTION_REVIEW_AND_CONFIRM = "REVIEW_AND_CONFIRM_ORDER_PLAN"
+
 
 def _workflow_view(*, current_status: str, target: Optional[dict],
                    readiness: Optional[dict], initialized: bool,
@@ -185,6 +189,11 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
     proposed = orders.get("awaiting_manual_confirmation") or 0
     awaiting_fill = orders.get("awaiting_fill") or 0
     tracking = current_status in _TRACKING_STATES
+    # The deterministic executable order plan EXISTS (buildable now) — generation
+    # is complete and the workflow moves to review & confirm (Phase 27B.2).
+    plan_exists = bool(initialized and target_confirmed and marks_ready
+                       and current_status in ("ORDER_PLAN_READY",
+                                              "ORDER_PLAN_REVIEW_REQUIRED"))
 
     # -- stage statuses ---------------------------------------------------- #
     s1 = (ST_COMPLETE if marks_ready else
@@ -192,14 +201,15 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
     s2 = (ST_COMPLETE if target_confirmed else
           ST_BLOCKED if t_state == "BLOCKED" else
           ST_NEEDS_ACTION if t_state in ("STALE_TARGET", "READY_TO_CONFIRM") else ST_PENDING)
-    if proposed or awaiting_fill or fills_count or tracking:
+    if proposed or awaiting_fill or fills_count or tracking or plan_exists:
         s3 = ST_COMPLETE
     elif initialized and target_confirmed:
         s3 = ST_NEEDS_ACTION if marks_ready else ST_BLOCKED
     else:
         s3 = ST_PENDING
     s4 = (ST_NEEDS_ACTION if proposed else
-          ST_COMPLETE if (awaiting_fill or fills_count or tracking) else ST_PENDING)
+          ST_COMPLETE if (awaiting_fill or fills_count or tracking) else
+          ST_NEEDS_ACTION if plan_exists else ST_PENDING)
     s5 = ST_ACTIVE if tracking else ST_PENDING
     stages = [
         {"stage": 1, "code": STAGE_REFRESH_DESK_MARKS, "label": "Refresh Desk Marks",
@@ -211,12 +221,15 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
          ((" · " + str((target or {}).get("alpha_market_date")))
           if (target or {}).get("alpha_market_date") else "")},
         {"stage": 3, "code": STAGE_GENERATE_ORDER_PLAN, "label": "Generate Order Plan",
-         "status": s3, "detail": ("Blocked until valid desk marks exist"
+         "status": s3, "detail": ("Order plan ready" if plan_exists else
+                                  "Blocked until valid desk marks exist"
                                   if s3 == ST_BLOCKED else "")},
         {"stage": 4, "code": STAGE_CONFIRM_PAPER_ORDERS,
          "label": "Review & Confirm Paper Orders", "status": s4,
-         "detail": ("%d proposed order(s) await manual confirmation" % proposed)
-         if proposed else ""},
+         "detail": (("%d proposed order(s) await manual confirmation" % proposed)
+                    if proposed else
+                    "Review and confirm the executable paper-order plan"
+                    if (plan_exists and s4 == ST_NEEDS_ACTION) else "")},
         {"stage": 5, "code": STAGE_MONITOR,
          "label": "Monitor Fills, Holdings & Performance", "status": s5, "detail": ""},
     ]
@@ -241,7 +254,7 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
         header = {"code": HEADER_DESK_MARK_READY,
                   "label": "DESK MARK READY — %s" % rd.get("desk_mark_date")}
     return {"stages": stages, "current_stage": current_stage, "header": header,
-            "marks_ready": marks_ready}
+            "marks_ready": marks_ready, "plan_exists": plan_exists}
 
 
 # --------------------------------------------------------------------------- #
@@ -330,13 +343,35 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
                        "the mark store must reach the latest completed owned market "
                        "date (%s) before the executable order plan."
                        % (rd.get("latest_completed_market_date") or "latest completed"))
+    elif (wf["plan_exists"] and not (orders.get("pending_count") or 0)
+            and not fills_count):
+        # Phase 27B.2: the ONE canonical next action once the deterministic plan
+        # exists — every operator page renders exactly this code.
+        next_action = (NEXT_ACTION_REVIEW_AND_CONFIRM + ": review the executable "
+                       "paper-order plan (read-only), then confirm it manually to "
+                       "create the dedicated alpha paper orders (PROPOSED; paper "
+                       "only, no broker, nothing fills yet).")
     next_action_code = str(next_action).split(":", 1)[0].strip() or None
     next_action_label = (str(next_action).split(":", 1)[1].strip()
                          if ":" in str(next_action) else str(next_action))
 
+    # Phase 27B.2: an already-confirmed target whose only "blocker" is that a
+    # re-confirmation would DUPLICATE the latest confirmed snapshot is NOT an
+    # operational blocker — it is informational (nothing is actionable).
     blockers: list[str] = []
+    informational: list[str] = []
+    t_state = (target or {}).get("state")
     if target and target.get("confirmation_blockers"):
-        blockers.extend(str(b) for b in target["confirmation_blockers"])
+        for b in target["confirmation_blockers"]:
+            sb = str(b)
+            if (t_state == "CONFIRMED"
+                    and sb.startswith("DUPLICATE_OF_LATEST_CONFIRMED_SNAPSHOT")):
+                informational.append(
+                    "TARGET_ALREADY_CONFIRMED: Target already confirmed — no further "
+                    "confirmation required (re-confirming would duplicate the latest "
+                    "confirmed snapshot).")
+            else:
+                blockers.append(sb)
     blockers.extend(str(b) for b in (rd.get("blockers") or []))
     integrity = status.get("ledger_integrity") or {}
     if integrity and not integrity.get("all_intact", True):
@@ -392,6 +427,7 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "next_action_code": next_action_code,
         "next_action_label": next_action_label,
         "blockers": blockers,
+        "informational": informational,
         "ledger_integrity_ok": bool(integrity.get("all_intact", False)) if integrity else None,
         "latest_desk_mark_date": status.get("latest_desk_mark_date"),
         "initialization": status.get("initialization"),
@@ -401,11 +437,84 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
                                  "manual initialization (token-gated, user approval)."),
     }
 
+    # ------------------------------------------------------------------ #
+    # Phase 27B.2 — the CANONICAL OPERATIONAL STATE: one flat, explicitly
+    # namespaced contract every operator surface renders verbatim.
+    # ------------------------------------------------------------------ #
+    if current_status in _TRACKING_STATES:
+        order_plan_status = "ORDERS_CONFIRMED"
+    elif orders.get("awaiting_manual_confirmation"):
+        order_plan_status = "ORDERS_PROPOSED"
+    elif wf["plan_exists"]:
+        order_plan_status = "ORDER_PLAN_READY"
+    elif initialized and not wf["marks_ready"]:
+        order_plan_status = "BLOCKED_DESK_MARKS_REQUIRED"
+    else:
+        order_plan_status = "NOT_GENERATED"
+
+    legacy_summary: dict = {"available": False, "book_id": LEGACY_BOOK_ID,
+                            "label": LEGACY_BOOK_LABEL, "positions_count": None,
+                            "tickers": [],
+                            "line": "Legacy paper book archive (valuation unavailable)"}
+    try:
+        entry = _legacy_archive_entry()
+        n_legacy = entry.get("positions_count")
+        legacy_summary = {
+            "available": bool(entry.get("available")),
+            "book_id": LEGACY_BOOK_ID,
+            "label": LEGACY_BOOK_LABEL,
+            "positions_count": n_legacy,
+            "tickers": entry.get("tickers") or [],
+            "as_of_market_date": entry.get("as_of_market_date"),
+            "line": (("Legacy paper book archive: %d historical position%s"
+                      % (n_legacy, "" if n_legacy == 1 else "s"))
+                     if n_legacy is not None else
+                     "Legacy paper book archive (valuation unavailable)"),
+        }
+    except Exception:  # noqa: BLE001 - the canonical state must always load
+        pass
+
+    canonical_state = {
+        "operational_book_id": OPERATIONAL_BOOK_ID,
+        "operational_book_name": OPERATIONAL_BOOK_LABEL,
+        "operational_book_status": current_status,
+        "operational_nav": operational_book["nav"],
+        "operational_cash": operational_book["cash"],
+        "operational_holdings_count": operational_book["holdings_count"],
+        "operational_pending_order_count": operational_book["pending_order_count"],
+        "operational_fill_count": fills_count,
+        "confirmed_target_name": operational_book["target_name"],
+        "confirmed_target_date": operational_book["target_market_date"],
+        "confirmed_target_count": operational_book["target_count"],
+        "target_confirmation_status": (target or {}).get("state"),
+        "implemented_target_count": implementation_count,
+        "implementation_percentage": implementation_percentage,
+        "desk_mark_status": operational_book["desk_mark_status"],
+        "desk_mark_date": operational_book["desk_mark_date"],
+        "order_plan_status": order_plan_status,
+        "next_required_action": next_action_code,
+        "next_required_action_label": next_action_label,
+        "header_status": wf["header"],
+        "blockers": list(blockers),
+        "informational": list(informational),
+        "safety_mode": {
+            "manual_review": True,
+            "paper_orders_only": True,
+            "broker_execution": False,
+            "automation": False,
+            "line": ("Manual review · Paper orders only · No broker execution · "
+                     "Automation off"),
+        },
+        "legacy_archive_summary": legacy_summary,
+    }
+    operational_book["canonical_state"] = canonical_state
+
     return {
         "status": STATUS_OK,
         "phase": PHASE,
         "generated_at": _now_iso(),
         "operational_book": operational_book,
+        "canonical_state": canonical_state,
         "single_source_of_truth": {
             "endpoint": "/v1/operational-book",
             "value_producer": "paper_trading_desk.book_nav (append-only ledger replay)",
@@ -520,5 +629,6 @@ __all__ = [
     "HEADER_TARGET_REFRESH_REQUIRED", "HEADER_DESK_MARK_REQUIRED",
     "HEADER_ORDER_PLAN_READY", "HEADER_ORDERS_PENDING",
     "HEADER_FORWARD_TRACKING_ACTIVE", "HEADER_DESK_MARK_READY",
+    "NEXT_ACTION_REVIEW_AND_CONFIRM",
     "load_operational_book", "load_historical_books",
 ]

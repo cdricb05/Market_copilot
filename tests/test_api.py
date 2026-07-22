@@ -36112,13 +36112,22 @@ class TestUiCommandCenterConsolidation:
             assert panel in legacy, "legacy panel not collapsed: " + panel
 
     def test_default_command_center_primary_panels(self) -> None:
+        # Phase 27B.2: the primary Command Center is the canonical operational
+        # book (one card + five-stage workflow + RESEARCH ONLY strip); the old
+        # market-context / research / legacy panels live in the collapsed archive.
         html = _read_index_html_15b()
         primary = _region_15b(html, 'id="cc-root"', 'id="cc-legacy-overview"')
+        for el in ('id="cc-ob-panel"', 'id="cc-ob-headline"', 'id="cc-ob-primary-btn"',
+                   'id="cc-ob-workflow"', 'id="cc-research-strip"', "RESEARCH ONLY"):
+            assert el in primary, "missing default CC panel: " + el
+        # The relocated context/research/legacy cards are NOT in the primary path.
+        for el in ('id="dor-card"', "cc-kpi-row", "Today's Workflow", "Current Alpha",
+                   "Next Best Action", 'id="daily-session-card"'):
+            assert el not in primary, "legacy CC panel not archived: " + el
+        legacy = _region_15b(html, 'id="cc-legacy-overview"', "end cc-legacy-overview")
         for el in ('id="dor-card"', "cc-kpi-row", "Today's Workflow", "Current Alpha",
                    "Next Best Action"):
-            assert el in primary, "missing default CC panel: " + el
-        # The duplicate legacy cards are NOT in the primary path.
-        assert 'id="daily-session-card"' not in primary
+            assert el in legacy, "archived CC panel missing from archive: " + el
 
 
 class TestUiDailyWorkflowConsolidation:

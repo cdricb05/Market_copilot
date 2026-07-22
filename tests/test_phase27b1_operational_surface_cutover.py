@@ -145,8 +145,10 @@ class TestCanonicalPayload:
         assert o["desk_mark_date"] == "2026-07-17"
         assert o["order_plan_ready"] is True
         assert o["header_status"]["code"] == "ORDER_PLAN_READY"
-        assert o["workflow_stage"] == "GENERATE_ORDER_PLAN"
-        assert o["next_action_code"] in ("GENERATE_ORDER_PLAN", "CONFIRM_ORDER_PLAN")
+        # Phase 27B.2: the deterministic plan EXISTS -> generation is COMPLETE and
+        # the ONE canonical next action is to review & confirm the plan.
+        assert o["workflow_stage"] == "CONFIRM_PAPER_ORDERS"
+        assert o["next_action_code"] == "REVIEW_AND_CONFIRM_ORDER_PLAN"
 
     def test_marks_missing_state_is_explicit(self, env27b1):
         _confirm_snapshot()
@@ -366,12 +368,16 @@ class TestPortfolioManagerSemantics:
         _init_book("2026-07-18")
         _refresh("2026-07-18")
         s = pm.load_summary()
-        assert s["decision_headline"] == pm.HEADLINE_READY_FOR_ORDER_PLAN
+        # Phase 27B.2: once valid marks exist the deterministic plan EXISTS, so
+        # the truthful headline is the review state (never "ready to generate").
+        assert s["decision_headline"] == pm.HEADLINE_ORDER_PLAN_REVIEW
         assert s["operational_book"]["order_plan_ready"] is True
+        assert s["operational_book"]["next_action_code"] == "REVIEW_AND_CONFIRM_ORDER_PLAN"
 
     def test_headline_vocabulary_extended(self, env27b1):
         assert pm.HEADLINE_IMPLEMENTATION_PENDING in pm.ALL_HEADLINES
         assert pm.HEADLINE_READY_FOR_ORDER_PLAN in pm.ALL_HEADLINES
+        assert pm.HEADLINE_ORDER_PLAN_REVIEW in pm.ALL_HEADLINES
 
     def test_legacy_risk_never_populates_alpha_health(self, env27b1, monkeypatch):
         _confirm_snapshot()
