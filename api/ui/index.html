@@ -2446,9 +2446,9 @@
             <span class="cc-badge safe">OPERATIONAL BOOK</span>
             <span class="cc-badge" id="dwob-state">&mdash;</span>
             <span class="cc-spacer" style="flex:1;"></span>
-            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <!-- Phase 27B.6: global safety badges live in the top bar + right panel;
+                 this card keeps only its own identity badges. -->
             <span class="cc-badge safe">PAPER ONLY</span>
-            <span class="cc-badge">NO BROKER EXECUTION</span>
           </div>
           <div class="dw-stepper" style="margin-top:6px;">
             <div class="dw-stage" id="dwob-step-refresh-data">
@@ -2477,7 +2477,7 @@
               <button class="cc-btn ghost dw-stage-btn" title="Monitor NAV, fills and pending paper orders on the paper trading desk." onclick="navigateToRoute('portfolio-manager')">Open Paper Desk</button>
             </div>
           </div>
-          <div class="cc-na-note" id="dwob-next" style="margin-top:4px;">Next Action: connect to load the operational book.</div>
+          <div class="cc-na-note" id="dwob-next" style="margin-top:6px; font-size:11px; line-height:1.5;">Next Action: connect to load the operational book.</div>
         </div>
         <!-- ===================== Phase 27B OPERATIONAL BOOK WORKFLOW END ===================== -->
 
@@ -4009,7 +4009,7 @@
         </div>
 
         <details id="pt-archive">
-          <summary class="pt-advanced-summary" title="The archived legacy paper portfolio — existing positions, fills, snapshots and P&amp;L. Read-only history; never the operational book.">Historical Paper Books &mdash; Legacy Portfolio Archive <span class="cc-badge">READ-ONLY</span> <span class="cc-badge" title="Archived legacy signal-workflow paper portfolio.">ARCHIVED</span></summary>
+          <summary class="pt-advanced-summary" title="The archived legacy paper portfolio — existing positions, fills, snapshots and P&amp;L. Read-only history; never the operational book.">Historical Paper Books &mdash; Legacy Portfolio Archive <span class="cc-badge">READ-ONLY</span> <span class="cc-badge" title="Archived legacy signal-workflow paper portfolio.">ARCHIVED</span> <span id="pt-archive-summary-line" class="mono" style="font-weight:400;font-size:10px;color:var(--label);margin-left:8px;"></span> <span style="font-size:10px;font-weight:700;color:var(--info);margin-left:8px;">Open Archive &#9656;</span></summary>
         <!-- ===================== Phase 14-B PORTFOLIO TERMINAL START ===================== -->
         <div id="pt-terminal" class="pt-terminal">
           <div class="dw-hd">
@@ -4502,7 +4502,7 @@
           </div>
           <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px;">
             <span class="cc-badge">PAPER ONLY</span>
-            <span class="cc-badge danger">ORDERS DISABLED</span>
+            <span class="cc-badge" title="Live brokerage orders are structurally disabled (ORDERS DISABLED at the platform level). The desk creates paper orders only — 27B.6 wording: paper orders are real, live orders are not.">NO LIVE ORDERS</span>
             <span class="cc-badge">AUTOMATION OFF</span>
             <span class="cc-badge manual">MANUAL REVIEW</span>
             <span class="cc-badge">NO LIVE PROMOTION</span>
@@ -4557,6 +4557,17 @@
           <div id="pm-date-warnings" style="display:none;border:1px solid rgba(245,158,11,.45);border-radius:8px;padding:6px 12px;margin:0 0 8px;font-size:10px;color:var(--warning);"></div>
         </div>
 
+        <!-- =============== Phase 27B.6 ADVANCED ORDER & EXECUTION DETAILS ========
+             The lifecycle card above is the ONE operator surface (headline,
+             counts, primary action, cancel, submitted-order table). The target
+             review, plan band and raw paper desk below it are preserved
+             COMPLETE — execution timeline, decision journal, forward
+             performance, attribution, order history, policy, ledger audit —
+             inside this single collapsed section; the lifecycle-card actions
+             open it automatically whenever a token confirmation is needed. -->
+        <details class="card" id="pm-adv-exec" style="margin-top:14px;">
+          <summary style="cursor:pointer;font-weight:700;">Advanced Order &amp; Execution Details &mdash; target review &middot; order plan &middot; raw paper desk</summary>
+          <div style="margin-top:10px;">
         <!-- =============== Phase 27A.2 OPERATIONAL TARGET REVIEW ===============
              The ONE authoritative snapshot-review workspace: date contract, complete
              25-name target, approval checklist and the gated Refresh -> Preview ->
@@ -4752,6 +4763,8 @@
             <div id="pd-audit-body" class="mono" style="font-size:10px;margin-top:8px;overflow-x:auto;">&mdash;</div>
           </details>
         </div>
+          </div>
+        </details><!-- end pm-adv-exec (Advanced Order & Execution Details) -->
 
         <!-- =============== Phase 27A.2 ADVANCED (relocated Phase 26 cockpit) =======
              The full decision cockpit (action summary, proposed changes, since-last-
@@ -4912,7 +4925,7 @@
             <span class="cc-badge safe" title="These books and weights are the MODEL TARGET / RESEARCH PORTFOLIO. They are NOT executed holdings — the executed operational portfolio is Alpha Paper Book #1 (Portfolio view). A target weight is not an owned position.">MODEL TARGET / RESEARCH PORTFOLIO</span>
             <span class="cc-badge" title="Nothing on this page is an executed position of the operational book.">NOT EXECUTED HOLDINGS</span>
             <span class="cc-badge">PAPER ONLY</span>
-            <span class="cc-badge danger">ORDERS DISABLED</span>
+            <span class="cc-badge" title="Live brokerage orders are structurally disabled (ORDERS DISABLED at the platform level). Paper orders exist only in the operational book — this research page creates none.">NO LIVE ORDERS</span>
             <span class="cc-badge">AUTOMATION OFF</span>
             <span class="cc-badge manual">MANUAL REVIEW</span>
             <span class="cc-badge">NO LIVE PROMOTION</span>
@@ -6896,9 +6909,17 @@
       <div style="font-size: 10px; color: var(--text-accent); line-height: 1.4;" id="right-next-action">Connect and load data to begin.</div>
       <div id="right-review-hint" style="display: none; font-size: 10px; color: var(--warning); font-weight: 700; line-height: 1.4; margin-top: 6px;">Go to Daily Plan → Candidates to Review.</div>
       <button id="right-primary-action-btn" class="btn-sm" style="margin-top: 8px; width: 100%; background: var(--ok); color: #04210f; font-weight: 800; font-size: 10px; padding: 6px 10px;" onclick="event.stopPropagation(); navigateToCanonicalTarget();">Go to next action</button>
+      <!-- Phase 27B.6: one compact safety line inside the operator card. -->
+      <div id="right-safety-line" style="font-size: 9px; color: var(--label); margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.06);"><span style="font-weight:700; text-transform:uppercase; letter-spacing:.07em;">Safety</span> &nbsp;Paper only &middot; No broker &middot; Automation off</div>
     </div>
     <!-- compat: right-next-step/detail still targeted by other JS; hidden, not primary display -->
     <div style="display:none;"><span id="right-next-step"></span><span id="right-next-step-detail"></span></div>
+    <!-- Phase 27B.6: everything below the compact operator card is detail — NAV,
+         cash, target, mark, implementation, capacity, legacy archive, connection
+         diagnostics and the legacy advanced controls collapse into ONE
+         "Operational Details" section. Nothing is removed. -->
+    <details class="panel-section" id="right-op-details">
+      <summary style="cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--label); padding: 6px 0; user-select: none; list-style: none;" title="Detailed operational-book values, capacity, legacy archive and diagnostics. The compact card above always states the current state and next action.">&#9654; Operational Details &mdash; book values &middot; capacity &middot; archive &middot; diagnostics</summary>
     <!-- Phase 27B: the right panel describes the OPERATIONAL book first. -->
     <div class="panel-section" style="border-color: var(--info);">
       <div class="panel-section-title" title="The ONE operational portfolio — dedicated 25-name alpha paper book, governed by its immutable policy (never by the legacy five-position limit).">Operational Book &mdash; Alpha Paper Book #1 Capacity</div>
@@ -7028,10 +7049,14 @@
         <button id="right-cancel-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
       </div>
     </details>
+    </details><!-- end right-op-details (Operational Details) -->
 
     <div class="panel-section">
-      <div style="font-size: 9px; color: var(--ok); font-weight: 600; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); padding: 8px; border-radius: 2px; text-align: center; line-height: 1.4;">
-        Manual Review &nbsp;|&nbsp; No Orders &nbsp;|&nbsp; Automation Off
+      <!-- Phase 27B.6: lifecycle-aware safety footer. Rendered dynamically from
+           the canonical view model — it never claims "No Orders" while
+           submitted paper orders exist. Live orders remain impossible. -->
+      <div id="right-safety-footer" style="font-size: 9px; color: var(--ok); font-weight: 600; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); padding: 8px; border-radius: 2px; text-align: center; line-height: 1.4;">
+        Manual Review &nbsp;|&nbsp; Paper Orders Only &nbsp;|&nbsp; No Live Orders &nbsp;|&nbsp; Automation Off
       </div>
     </div>
   </div>
@@ -24962,7 +24987,36 @@ function deriveOperationalBookUiState(d) {
   var ordersExist = stage === 'PROPOSED' || stage === 'SUBMITTED' ||
                     stage === 'PARTIALLY_FILLED' || stage === 'FILLED';
   var waiting = stage === 'SUBMITTED' || stage === 'PARTIALLY_FILLED';
+  // Phase 27B.6 — ONE operator display vocabulary. The persisted workflow
+  // state (e.g. ORDERS_CONFIRMED) is untouched backend data; the operator
+  // reads the standardized lifecycle wording everywhere instead.
+  var statusLabel = stage === 'SUBMITTED' ? 'ORDERS SUBMITTED'
+    : stage === 'PROPOSED' ? 'ORDERS PROPOSED'
+    : stage === 'PARTIALLY_FILLED' ? 'PARTIALLY FILLED'
+    : stage === 'FILLED' ? 'BOOK ACTIVE' : null;
+  var lifecycleShort = stage === 'SUBMITTED' ? 'AWAITING NEXT ELIGIBLE CLOSE'
+    : stage === 'PROPOSED' ? 'AWAITING MANUAL CONFIRMATION'
+    : stage === 'PARTIALLY_FILLED' ? 'PAPER EXECUTION IN PROGRESS'
+    : stage === 'FILLED' ? 'FORWARD TRACKING' : null;
+  var headerLabel = stage === 'SUBMITTED' ? 'PAPER ORDERS SUBMITTED'
+    : stage === 'PROPOSED' ? 'PAPER ORDERS AWAITING CONFIRMATION'
+    : stage === 'PARTIALLY_FILLED' ? 'PAPER EXECUTION IN PROGRESS'
+    : stage === 'FILLED' ? 'ALPHA PAPER BOOK ACTIVE' : null;
+  var nSubmitted = cs ? cs.submitted_count : null;
+  var nProposed = cs ? cs.proposed_count : null;
+  // Never "No Orders" while paper orders exist: the footer states the count.
+  var footerLine = (stage === 'SUBMITTED' || stage === 'PARTIALLY_FILLED') && nSubmitted
+    ? ('Manual Review  |  ' + nSubmitted + ' Paper Orders Submitted  |  No Live Orders  |  Automation Off')
+    : stage === 'PROPOSED' && nProposed
+      ? ('Manual Review  |  ' + nProposed + ' Paper Orders Proposed  |  No Live Orders  |  Automation Off')
+      : stage === 'FILLED'
+        ? 'Manual Review  |  Alpha Paper Book Active  |  No Live Orders  |  Automation Off'
+        : 'Manual Review  |  Paper Orders Only  |  No Live Orders  |  Automation Off';
   return {
+    statusLabel: statusLabel,
+    lifecycleShort: lifecycleShort,
+    headerLabel: headerLabel,
+    footerLine: footerLine,
     ob: ob, cs: cs,
     lifecycleStage: stage,
     lifecycleLabel: (cs && cs.lifecycle_stage_label) || null,
@@ -25021,6 +25075,17 @@ function _obPrimaryLabel(code) {
   return 'Open Portfolio Manager';
 }
 
+// Phase 27B.6 — the target review / plan band / raw paper desk live inside the
+// collapsed "Advanced Order & Execution Details" section. Lifecycle-card
+// actions open it automatically so every token flow stays one click away.
+function pmOpenAdvExec() {
+  try {
+    var det = document.getElementById('pm-adv-exec');
+    if (det && det.tagName === 'DETAILS') det.open = true;
+  } catch (e) {}
+}
+window.pmOpenAdvExec = pmOpenAdvExec;
+
 function obPrimaryAction() {
   var ob = (window._obData && window._obData.operational_book) || null;
   var code = (ob && ob.next_action_code) || null;
@@ -25031,6 +25096,7 @@ function obPrimaryAction() {
     // Opening the styled token panel writes NOTHING — the manual token click does.
     setTimeout(function () {
       try {
+        pmOpenAdvExec();
         var band = document.getElementById('pd-band');
         if (band && band.scrollIntoView) band.scrollIntoView({ behavior: 'smooth', block: 'start' });
         if (view.lifecycleStage === 'PROPOSED') pdAskAction('submit');
@@ -25046,6 +25112,7 @@ function obPrimaryAction() {
     // Open the order-plan review panel (read-only preview — nothing is written).
     setTimeout(function () {
       try {
+        pmOpenAdvExec();
         var band = document.getElementById('ab-band');
         if (band && band.scrollIntoView) band.scrollIntoView({ behavior: 'smooth', block: 'start' });
         if (code !== 'CONFIRM_PAPER_ORDERS') abGeneratePlan();
@@ -25061,6 +25128,7 @@ function obSecondaryAction() {
   try { navigateToRoute('portfolio-manager'); } catch (e) {}
   setTimeout(function () {
     try {
+      pmOpenAdvExec();
       var band = document.getElementById('pd-band');
       if (band && band.scrollIntoView) band.scrollIntoView({ behavior: 'smooth', block: 'start' });
       pdAskAction('cancel');
@@ -25076,6 +25144,7 @@ function obOpenSubmittedOrders() {
     try {
       var host = document.getElementById('pm-lc-orders');
       var tgt = (host && host.innerHTML) ? host : document.getElementById('pd-band');
+      if (tgt && tgt !== host) pmOpenAdvExec();
       if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {}
   }, 350);
@@ -25116,6 +25185,12 @@ function renderOperationalBook(d) {
   if (ob && view.ordersExist && view.explanation) {
     nextTxt = 'Next Action: ' + primaryLabel + ' — ' + view.explanation;
   }
+  // Phase 27B.6 — the standardized operator vocabulary replaces the raw
+  // persisted state on every display surface (backend data unchanged).
+  var displayStateTxt = (ob && view.statusLabel) ? view.statusLabel : stateTxt;
+  var displayStatusTxt = (ob && view.statusLabel)
+    ? (view.statusLabel + (view.lifecycleShort ? (' — ' + view.lifecycleShort) : ''))
+    : statusTxt;
 
   // Command Center panel + Portfolio default card (identical values, same payload).
   [['cc-ob', 'cc-ob-state'], ['ptob', 'ptob-state']].forEach(function (pair) {
@@ -25126,13 +25201,13 @@ function renderOperationalBook(d) {
     _obSet(prefix + '-pending', pending);
     _obSet(prefix + '-fills', fills);
     _obSet(prefix + '-target', targetTxt);
-    _obSet(prefix + '-status', statusTxt);
+    _obSet(prefix + '-status', displayStatusTxt);
     _obSet(prefix + '-mark', markTxt);
     _obSet(prefix + '-impl', implTxt);
     _obSet(prefix + '-next', nextTxt);
     var badge = document.getElementById(pair[1]);
     if (badge) {
-      badge.textContent = stateTxt;
+      badge.textContent = displayStateTxt;
       badge.className = 'cc-badge ' + (!ob ? 'danger' :
         (t && t.state === 'STALE_TARGET') ? 'manual' :
         (ob.initialized ? 'safe' : 'muted'));
@@ -25231,7 +25306,7 @@ function renderOperationalBook(d) {
   // Daily Workflow operational stepper — statuses come from the CANONICAL
   // payload (workflow_stages), never derived per-page.
   var dwState = document.getElementById('dwob-state');
-  if (dwState) { dwState.textContent = stateTxt; dwState.className = 'cc-badge ' + (ob ? (ob.initialized ? 'safe' : 'muted') : 'danger'); }
+  if (dwState) { dwState.textContent = displayStateTxt; dwState.className = 'cc-badge ' + (ob ? (ob.initialized ? 'safe' : 'muted') : 'danger'); }
   // Phase 27B.5: the Daily Workflow states the canonical current task —
   // "Await Next Eligible Close" is a normal waiting state, never an error.
   _obSet('dwob-next', (ob && view.ordersExist && view.currentTask)
@@ -25302,10 +25377,18 @@ function renderOperationalBook(d) {
             : 'color: var(--warning); background: rgba(245,158,11,.10); border: 1px solid rgba(245,158,11,.35);');
     hb.title = 'Operational status of Alpha Paper Book #1 (canonical operational-book payload). ' +
       'Legacy/archived mark dates never drive this badge.';
+    // Phase 27B.6 — once paper orders exist the header states the lifecycle
+    // ("PAPER ORDERS SUBMITTED"), never the internal pending/confirmed jargon.
+    if (view.ordersExist && view.headerLabel) {
+      hb.textContent = 'OPERATIONAL: ' + view.headerLabel;
+    }
   }
 
   // Global right panel — the operational book owns the workflow task + capacity.
-  _obSet('right-ob-state', stateTxt);
+  _obSet('right-ob-state', displayStateTxt);
+  // Phase 27B.6 — lifecycle-aware safety footer: never "No Orders" while
+  // submitted paper orders exist (paper orders are real; live orders are not).
+  _obSet('right-safety-footer', view.footerLine);
   _obSet('right-ob-nav', ob && ob.initialized ? _obMoney(ob.nav) : '—');
   _obSet('right-ob-cash', ob && ob.initialized ? _obMoney(ob.cash) : '—');
   _obSet('right-ob-holdings', ob ? holdings : '—');
@@ -25318,6 +25401,17 @@ function renderOperationalBook(d) {
   var legacyLine = document.getElementById('right-legacy-archive-line');
   if (legacyLine && cs && cs.legacy_archive_summary && cs.legacy_archive_summary.line) {
     legacyLine.textContent = cs.legacy_archive_summary.line;
+  }
+  // Phase 27B.6 — the Portfolio page's collapsed archive states its compact
+  // facts (N archived positions · as-of date · read-only) without expanding.
+  var ptArcLine = document.getElementById('pt-archive-summary-line');
+  if (ptArcLine && cs && cs.legacy_archive_summary) {
+    var las = cs.legacy_archive_summary;
+    ptArcLine.textContent = (las.positions_count != null
+      ? (las.positions_count + ' archived position' + (las.positions_count === 1 ? '' : 's'))
+      : 'archive') +
+      (las.as_of_market_date ? (' · as of ' + las.as_of_market_date) : '') +
+      ' · read-only';
   }
   // Phase 27B.5: prominent canonical CURRENT STATE line — the panel never says
   // "no orders" or "monitor portfolio" while submitted paper orders exist.
