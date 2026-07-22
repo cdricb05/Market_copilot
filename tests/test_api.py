@@ -35292,7 +35292,7 @@ class TestUiTradingCommandCenterContent:
 
     def test_kpi_cards_present(self) -> None:
         html = _read_index_html_14a()
-        for label in ("System State", "Latest Market Mark", "Primary Paper Book",
+        for label in ("System State", "Research Market Mark", "Primary Paper Book",
                       "Current Paper Return", "Excess vs SPY", "Portfolio Capacity"):
             assert label in html, f"missing KPI card: {label}"
         for el_id in ("cc-kpi-system", "cc-kpi-mark", "cc-kpi-book", "cc-kpi-return",

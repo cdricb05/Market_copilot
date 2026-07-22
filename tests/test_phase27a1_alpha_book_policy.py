@@ -820,9 +820,12 @@ class TestUiStatic:
 
     def test_alpha_buttons_present_and_not_blank(self, html):
         band = html[html.index('id="ab-band"'):html.index('id="pd-band"')]
+        # Phase 27B.2 final cutover: ONE navigation label ("Review Order Plan")
+        # and ONE token-gated confirm label ("Confirm and Create Proposed
+        # Paper Orders") — the older label variants are banned.
         for bid, label in [("ab-act-init", "Initialize Alpha Paper Book #1"),
-                           ("ab-act-plan", "Generate Executable Order Plan"),
-                           ("ab-act-confirm-plan", "Confirm Order Plan"),
+                           ("ab-act-plan", "Review Order Plan"),
+                           ("ab-act-confirm-plan", "Confirm and Create Proposed Paper Orders"),
                            ("ab-act-blocked", "View Blocked Targets"),
                            ("ab-act-policy", "View Policy")]:
             assert 'id="%s"' % bid in band, bid

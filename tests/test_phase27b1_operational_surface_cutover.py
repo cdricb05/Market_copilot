@@ -439,7 +439,8 @@ class TestUiDailyWorkflowCutover:
         i_dw = html.index('id="dw-terminal"')
         i_end = html.index("end dw-legacy-archive")
         assert i_arc < i_dw < i_end
-        assert "Legacy Signal Workflow Archive" in html
+        # Phase 27B.2 final cutover: exact archive section name.
+        assert "Legacy Signal Workflow &amp; Diagnostics" in html
         # collapsed by default - the details tag carries no open attribute
         assert '<details id="dw-legacy-archive" open' not in html
 

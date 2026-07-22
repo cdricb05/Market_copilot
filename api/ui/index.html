@@ -2052,7 +2052,7 @@
         <!-- ===================== Phase 14-A COMMAND CENTER END ===================== -->
 
         <details id="cc-legacy-overview" style="margin-top: 14px;">
-          <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--label); cursor: pointer; padding: 6px 0;">HISTORICAL PAPER BOOKS &mdash; ARCHIVE (MARKET CONTEXT &amp; LEGACY PANELS &middot; RESEARCH DETAIL &middot; READ-ONLY ARCHIVE)</summary>
+          <summary style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--label); cursor: pointer; padding: 6px 0;">HISTORICAL &amp; RESEARCH CONTEXT (HISTORICAL PAPER BOOKS &mdash; ARCHIVE &middot; MARKET CONTEXT &amp; LEGACY PANELS &middot; READ-ONLY ARCHIVE)</summary>
 
         <div class="cc-na-note" style="margin:6px 0 8px 0;">Historical Paper Books: the legacy paper portfolio (existing positions, fills, snapshots and P&amp;L) is preserved here read-only, together with the archived market-context, research-detail and legacy workflow panels. It is never the operational portfolio &mdash; the single operational book is Alpha Paper Book #1 above.</div>
 
@@ -2119,7 +2119,7 @@
           <!-- ROW 1: KPI CARDS -->
           <div class="cc-kpi-row">
             <div class="cc-kpi"><div class="cc-kpi-label">System State</div><div class="cc-kpi-value" id="cc-kpi-system">—</div><div class="cc-kpi-sub" id="cc-kpi-system-sub">&nbsp;</div></div>
-            <div class="cc-kpi"><div class="cc-kpi-label">Latest Market Mark</div><div class="cc-kpi-value" id="cc-kpi-mark">—</div><div class="cc-kpi-sub" id="cc-kpi-mark-sub">&nbsp;</div></div>
+            <div class="cc-kpi"><div class="cc-kpi-label" title="Latest mark of the RESEARCH evidence store — never the operational desk mark.">Research Market Mark</div><div class="cc-kpi-value" id="cc-kpi-mark">—</div><div class="cc-kpi-sub" id="cc-kpi-mark-sub">&nbsp;</div></div>
             <div class="cc-kpi"><div class="cc-kpi-label" title="Research evidence book (frozen Top 25 / Top 50) — never the operational holdings. The operational book is Alpha Paper Book #1 above.">Research Primary Paper Book</div><div class="cc-kpi-value" id="cc-kpi-book">—</div><div class="cc-kpi-sub" id="cc-kpi-book-sub">&nbsp;</div></div>
             <div class="cc-kpi"><div class="cc-kpi-label" title="Return of the frozen research book — evidence, not the operational Alpha Paper Book #1.">Research Current Paper Return</div><div class="cc-kpi-value" id="cc-kpi-return">—</div><div class="cc-kpi-sub" id="cc-kpi-return-sub">&nbsp;</div></div>
             <div class="cc-kpi"><div class="cc-kpi-label" title="Excess return of the frozen research book vs SPY — research evidence only.">Excess vs SPY (Research)</div><div class="cc-kpi-value" id="cc-kpi-excess">—</div><div class="cc-kpi-sub" id="cc-kpi-excess-sub">&nbsp;</div></div>
@@ -2466,7 +2466,7 @@
             <div class="dw-stage" id="dwob-step-review">
               <div class="dw-stage-hd"><span class="dw-stage-num">4</span><span class="dw-stage-name">Review &amp; Confirm Paper Orders</span></div>
               <div class="dw-stage-status" data-role="status">&mdash;</div>
-              <button class="cc-btn ghost dw-stage-btn" title="Review the proposed alpha paper orders, preview the NEXT_CLOSE execution, then confirm manually (paper only)." onclick="navigateToRoute('portfolio-manager')">Review Paper Orders</button>
+              <button class="cc-btn ghost dw-stage-btn" title="Open the read-only executable order-plan review, then confirm manually (paper only; NEXT_CLOSE execution)." onclick="obPrimaryAction()">Review Order Plan</button>
             </div>
             <div class="dw-stage" id="dwob-step-monitor">
               <div class="dw-stage-hd"><span class="dw-stage-num">5</span><span class="dw-stage-name">Monitor Fills, Holdings &amp; Performance</span></div>
@@ -2482,7 +2482,7 @@
              It never controls the operational next action and never implies the remote
              prediction tunnel is required for the Alpha Paper Book #1 workflow. -->
         <details id="dw-legacy-archive">
-        <summary class="pt-advanced-summary" title="The separate legacy signal workflow (scan / candidates / signals / decisions / legacy portfolio). Read-only paper history — it does not drive the operational Alpha Paper Book #1 workflow.">Legacy Signal Workflow Archive &mdash; Separate Paper History <span class="cc-badge">READ-ONLY</span> <span class="cc-badge" title="Archived legacy prediction-path workflow.">ARCHIVED</span></summary>
+        <summary class="pt-advanced-summary" title="The separate legacy signal workflow (scan / candidates / signals / decisions / legacy portfolio). Read-only paper history — it does not drive the operational Alpha Paper Book #1 workflow.">Legacy Signal Workflow &amp; Diagnostics &mdash; Separate Paper History <span class="cc-badge">READ-ONLY</span> <span class="cc-badge" title="Archived legacy prediction-path workflow.">ARCHIVED</span></summary>
         <!-- ===================== Phase 14-B DAILY WORKFLOW TERMINAL START ===================== -->
         <div id="dw-terminal" class="dw-terminal">
           <div class="dw-hd">
@@ -3687,7 +3687,7 @@
         </details>
         <!-- ===================== Phase 15-B ADVANCED SESSION DETAIL END ===================== -->
 
-        </details><!-- end dw-legacy-archive (Legacy Signal Workflow Archive — Separate Paper History) -->
+        </details><!-- end dw-legacy-archive (Legacy Signal Workflow & Diagnostics — Separate Paper History) -->
 
       </div><!-- end tab-prediction-cockpit -->
 
@@ -4645,8 +4645,8 @@
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;">
             <button class="btn-sm" id="ab-act-init" onclick="abAskAction('initialize')" title="Initialize Alpha Paper Book #1: immutable policy v1 + dedicated $100,000 virtual capital, 100% cash. Explicit token required.">Initialize Alpha Paper Book #1</button>
-            <button class="btn-sm" id="ab-act-plan" onclick="abGeneratePlan()" title="Read-only deterministic executable order plan at the latest completed owned closes. Writes nothing.">Generate Executable Order Plan</button>
-            <button class="btn-sm" id="ab-act-confirm-plan" onclick="abAskAction('confirmPlan')" title="Confirm the executable order plan: creates the dedicated alpha paper orders in PROPOSED (desk ledgers only). Explicit token required.">Confirm Order Plan &mdash; Create Paper Orders</button>
+            <button class="btn-sm" id="ab-act-plan" onclick="abGeneratePlan()" title="Open the read-only deterministic executable order plan at the latest completed owned closes. Writes nothing — no orders are created by reviewing.">Review Order Plan</button>
+            <button class="btn-sm" id="ab-act-confirm-plan" onclick="abAskAction('confirmPlan')" title="Confirm the executable order plan: creates the dedicated alpha paper orders in PROPOSED (desk ledgers only). Explicit token required.">Confirm and Create Proposed Paper Orders</button>
             <button class="btn-sm" id="ab-act-blocked" onclick="abShowBlocked()" title="Read-only blocked-target report: exact reason, source field, temporariness, consequence.">View Blocked Targets</button>
             <button class="btn-sm" id="ab-act-policy" onclick="abShowPolicy()" title="Read-only immutable alpha-book policy (append-only versioned).">View Policy</button>
           </div>
@@ -4976,7 +4976,7 @@
               <div class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Preview is read-only. Confirm appends ONE immutable paper snapshot to the dedicated local ledger only &mdash; never an order, fill, trade decision, live signal or database write.</div>
               <!-- Phase 27B.2: once the latest snapshot is CONFIRMED this area is
                    read-only history — no competing confirmation controls. -->
-              <div id="mhz-snapshot-confirmed-note" style="display:none;border:1px solid rgba(34,197,94,.4);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:10px;color:var(--ok,#22c55e);font-weight:700;">Target already confirmed &mdash; no further confirmation required. The snapshot list below is read-only history; the operational workflow continues in the Portfolio Manager.</div>
+              <div id="mhz-snapshot-confirmed-note" style="display:none;border:1px solid rgba(34,197,94,.4);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:10px;color:var(--ok,#22c55e);font-weight:700;">Target already confirmed. Continue the operational workflow in Portfolio Manager. The snapshot list below is read-only history &mdash; no further confirmation is required.</div>
               <button class="btn-sm" id="mhz-preview-btn" onclick="mhzPreviewSnapshot()" title="Read-only preview of the snapshot that would be appended.">Preview Snapshot</button>
               <div id="mhz-preview-facts" style="font-size:11px;margin-top:8px;">&mdash;</div>
               <!-- styled in-page confirmation (NOT a native confirm dialog) -->
@@ -5512,7 +5512,9 @@
             </div>
           </div>
 
-          <!-- RUN ALPHA FACTORY (manual, confirm-gated) -->
+          <!-- RUN ALPHA FACTORY (manual, confirm-gated; collapsed non-operational research tool) -->
+          <details class="ra-tools-nonop" style="margin-bottom:12px;">
+          <summary class="pt-advanced-summary" title="Manual research build form — writes ONLY the local research-artifact store; never the operational workflow, never orders.">Research Tools &mdash; Non-operational &middot; Run Alpha Factory Build <span class="cc-badge">RESEARCH ONLY</span></summary>
           <div id="af-run-wrap" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
             <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Run Alpha Factory Build <span class="cc-badge manual">MANUAL</span></div>
             <div style="font-size:11px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">
@@ -5535,6 +5537,7 @@
             <div id="af-reproduction" style="font-size:11px;margin-top:6px;">&mdash;</div>
             <div id="af-persisted" style="font-size:11px;margin-top:4px;color:var(--text-accent,#8aa0c8);">&mdash;</div>
           </div>
+          </details>
 
           <!-- ADVANCED / AUDIT (collapsed) -->
           <details id="af-advanced" style="margin-bottom:4px;">
@@ -5655,7 +5658,9 @@
             </div>
           </div>
 
-          <!-- RUN PRICE ALPHA FACTORY (manual, confirm-gated) -->
+          <!-- RUN PRICE ALPHA FACTORY (manual, confirm-gated; collapsed non-operational research tool) -->
+          <details class="ra-tools-nonop" style="margin-bottom:12px;">
+          <summary class="pt-advanced-summary" title="Manual research build form — writes ONLY the local research-artifact store; never the operational workflow, never orders.">Research Tools &mdash; Non-operational &middot; Run Price-Alpha Build <span class="cc-badge">RESEARCH ONLY</span></summary>
           <div id="paf-run-wrap" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
             <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Run Price-Alpha Build <span class="cc-badge manual">MANUAL</span></div>
             <div style="font-size:11px;color:var(--text-accent,#8aa0c8);margin-bottom:8px;">
@@ -5678,6 +5683,7 @@
             <div id="paf-run-result" class="cc-na-note" style="display:none;font-size:11px;margin-top:4px;">&mdash;</div>
             <div id="paf-persisted" style="font-size:11px;margin-top:4px;color:var(--text-accent,#8aa0c8);">&mdash;</div>
           </div>
+          </details>
 
           <!-- ADVANCED / AUDIT (collapsed) -->
           <details id="paf-advanced" style="margin-bottom:4px;">
@@ -6005,14 +6011,17 @@
             <span style="color:var(--text-accent);">Available books: <span id="cab-available-books" class="mono" style="color:var(--text-primary);">—</span></span>
           </div>
 
-          <!-- Buttons (Load Active Book + the four workflow actions) -->
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+          <!-- Buttons (Load Active Book + the four workflow actions; collapsed non-operational research tools) -->
+          <details class="ra-tools-nonop" style="margin-bottom:8px;">
+          <summary class="pt-advanced-summary" title="Manual research paper-book actions — local research JSON store only; never Alpha Paper Book #1, never orders.">Research Tools &mdash; Non-operational &middot; Research Paper-Book Actions <span class="cc-badge">RESEARCH ONLY</span></summary>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
             <button class="btn-sm" id="cab-load-btn" onclick="loadActiveBook(this)">Load Active Book</button>
             <button class="btn-sm" id="cab-preview-btn" onclick="previewCreatePaperBook(this)">Preview Create Paper Book</button>
             <button class="btn-sm" id="cab-save-btn" onclick="savePaperBook(this)">Save Paper Book</button>
             <button class="btn-sm" id="cab-snapshot-btn" onclick="snapshotPaperBookToday(this)">Snapshot Today</button>
             <button class="btn-sm" id="cab-history-btn" onclick="loadPaperBookPnlHistory(this)">Load PnL History</button>
           </div>
+          </details>
           <div id="cab-status-line" style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-bottom:6px;color:var(--text-accent);">
             <span>Book: <span id="cab-book-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
             <span>History: <span id="cab-history-status" class="mono" style="color:var(--text-primary);font-weight:700;">Not loaded</span></span>
@@ -24893,22 +24902,24 @@ function _obTaskLabel(code) {
     'INITIALIZE_ALPHA_BOOK': 'Initialize Alpha Book',
     'GENERATE_ORDER_PLAN': 'Generate Order Plan',
     'REVIEW_ORDER_PLAN': 'Review Order Plan',
-    'CONFIRM_ORDER_PLAN': 'Confirm Order Plan',
-    'REVIEW_AND_CONFIRM_ORDER_PLAN': 'Review & Confirm Paper Orders',
-    'CONFIRM_PAPER_ORDERS': 'Confirm Paper Orders',
+    'CONFIRM_ORDER_PLAN': 'Review Order Plan',
+    'REVIEW_AND_CONFIRM_ORDER_PLAN': 'Review Order Plan',
+    'CONFIRM_PAPER_ORDERS': 'Review Order Plan',
     'MONITOR': 'Monitor Alpha Book',
     'BLOCKED': 'Resolve Ledger Block',
   };
   return map[code] || _obStateLabel(code);
 }
 
-// Phase 27B.2 — the ONE canonical primary action. Label + navigation are derived
-// from the canonical next_action_code only (no page invents its own action).
-function _obPrimaryLabel(code, forRightPanel) {
-  if (code === 'REVIEW_AND_CONFIRM_ORDER_PLAN') {
-    return forRightPanel ? 'Review Paper Order Plan' : 'Review & Confirm Paper Orders';
-  }
-  if (code === 'CONFIRM_PAPER_ORDERS') return 'Review & Confirm Paper Orders';
+// Phase 27B.2 final cutover — ONE canonical navigation label everywhere.
+// The label comes from the backend canonical_state (next_action_label); this
+// fallback map mirrors it exactly for the moment before the payload loads.
+function _obPrimaryLabel(code) {
+  var cs = (window._obData && window._obData.canonical_state) || null;
+  if (cs && cs.next_action_code === code && cs.next_action_label) return cs.next_action_label;
+  if (code === 'REVIEW_AND_CONFIRM_ORDER_PLAN' || code === 'REVIEW_ORDER_PLAN' ||
+      code === 'CONFIRM_ORDER_PLAN' || code === 'GENERATE_ORDER_PLAN' ||
+      code === 'CONFIRM_PAPER_ORDERS') return 'Review Order Plan';
   if (code === 'REFRESH_DESK') return 'Refresh Desk Marks';
   if (code === 'MONITOR') return 'Open Paper Desk';
   return 'Open Portfolio Manager';
@@ -24958,6 +24969,9 @@ function renderOperationalBook(d) {
   var nextCode = ob ? (ob.next_action_code || null) : null;
   var nextTxt = ob ? ('Next Action: ' + (ob.next_action || '—')) :
     'Next Action: operational book unavailable — check the connection / API key, then refresh.';
+  // Final 27B.2 cutover: the canonical presentation contract owns the CTA label.
+  var cs = (d && d.canonical_state) || (ob && ob.canonical_state) || null;
+  var primaryLabel = (cs && cs.next_action_label) || _obPrimaryLabel(nextCode);
 
   // Command Center panel + Portfolio default card (identical values, same payload).
   [['cc-ob', 'cc-ob-state'], ['ptob', 'ptob-state']].forEach(function (pair) {
@@ -24984,14 +24998,14 @@ function renderOperationalBook(d) {
   // Phase 27B.2 — canonical headline + the ONE primary action (CC card + PM card).
   var obHeadline = document.getElementById('cc-ob-headline');
   if (obHeadline) {
-    obHeadline.textContent = ob ? ('NEXT: ' + _obPrimaryLabel(nextCode, false).toUpperCase())
+    obHeadline.textContent = ob ? ('NEXT: ' + primaryLabel.toUpperCase())
       : 'Operational book unavailable — check the connection / API key.';
     obHeadline.style.color = ob ? '' : 'var(--danger, #ef4444)';
   }
   ['cc-ob-primary-btn', 'pm-primary-next-btn'].forEach(function (bid) {
     var pb = document.getElementById(bid);
     if (!pb) return;
-    if (ob && nextCode) { pb.style.display = ''; pb.textContent = _obPrimaryLabel(nextCode, false); }
+    if (ob && nextCode) { pb.style.display = ''; pb.textContent = primaryLabel; }
     else { pb.style.display = 'none'; }
   });
 
@@ -25092,7 +25106,6 @@ function renderOperationalBook(d) {
   _obSet('right-ob-mark', ob ? markTxt : '—');
   _obSet('right-ob-impl', implTxt);
   // Collapsed one-line legacy archive summary (canonical legacy_archive_summary).
-  var cs = (ob && ob.canonical_state) || null;
   var legacyLine = document.getElementById('right-legacy-archive-line');
   if (legacyLine && cs && cs.legacy_archive_summary && cs.legacy_archive_summary.line) {
     legacyLine.textContent = cs.legacy_archive_summary.line;
@@ -25102,7 +25115,7 @@ function renderOperationalBook(d) {
     _obSet('right-next-action', ob.next_action_label || ob.next_action || '—');
     var btn = document.getElementById('right-primary-action-btn');
     if (btn) {
-      btn.textContent = _obPrimaryLabel(nextCode, true);
+      btn.textContent = primaryLabel;
       btn.onclick = function (ev) { if (ev) ev.stopPropagation(); obPrimaryAction(); };
     }
     var taskEl = document.getElementById('right-current-task');
@@ -25744,9 +25757,9 @@ function renderAlphaBook() {
       : !ab.book ? 'Initialize Alpha Paper Book #1 first.'
       : 'Generate and review the executable order plan first (desk marks required).',
     'Confirm the executable order plan: creates the dedicated alpha paper orders in PROPOSED (desk ledgers only). Explicit token required.');
-  // Phase 27B.2 — once the plan EXISTS, review-&-confirm is the highlighted action;
-  // "Generate Executable Order Plan" is no longer emphasized (it stays available
-  // as a read-only re-render of the same deterministic plan).
+  // Phase 27B.2 — once the plan EXISTS the token-gated confirm is the highlighted
+  // action inside the review workspace; "Review Order Plan" stays available as a
+  // read-only re-render of the same deterministic plan.
   function _abEmph(id, on) {
     var b = document.getElementById(id);
     if (!b) return;

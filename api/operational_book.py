@@ -175,6 +175,34 @@ _TRACKING_STATES = ("ORDERS_CONFIRMED", "WAITING_FOR_ELIGIBLE_CLOSE",
 #: deterministic executable order plan exists. Every operator page must agree.
 NEXT_ACTION_REVIEW_AND_CONFIRM = "REVIEW_AND_CONFIRM_ORDER_PLAN"
 
+#: Research champion terminology (Research & Audit) — kept separate from the
+#: operational strategy/target names so no page can conflate the two.
+RESEARCH_CHAMPION_NAME = "composite_sn"
+
+#: Next-action codes that resolve to the order-plan review workspace.
+_PLAN_REVIEW_CODES = ("REVIEW_AND_CONFIRM_ORDER_PLAN", "REVIEW_ORDER_PLAN",
+                      "CONFIRM_ORDER_PLAN", "GENERATE_ORDER_PLAN",
+                      "CONFIRM_PAPER_ORDERS")
+
+#: ONE canonical navigation label per next-action code (final 27B.2 cutover).
+#: Every operator CTA renders these verbatim — pages never invent labels.
+NEXT_ACTION_LABELS = {
+    "REVIEW_AND_CONFIRM_ORDER_PLAN": "Review Order Plan",
+    "REVIEW_ORDER_PLAN": "Review Order Plan",
+    "CONFIRM_ORDER_PLAN": "Review Order Plan",
+    "GENERATE_ORDER_PLAN": "Review Order Plan",
+    "CONFIRM_PAPER_ORDERS": "Review Order Plan",
+    "REFRESH_DESK": "Refresh Desk Marks",
+    "REFRESH_ALPHA_TARGET": "Refresh Alpha Target",
+    "CONFIRM_TARGET_SNAPSHOT": "Confirm Target Snapshot",
+    "INITIALIZE_ALPHA_BOOK": "Initialize Alpha Book",
+    "MONITOR": "Monitor Fills & Holdings",
+    "BLOCKED": "Resolve Ledger Block",
+}
+
+#: ONE final token-gated confirmation label (the only write CTA wording).
+CONFIRM_ACTION_LABEL = "Confirm and Create Proposed Paper Orders"
+
 
 def _workflow_view(*, current_status: str, target: Optional[dict],
                    readiness: Optional[dict], initialized: bool,
@@ -474,10 +502,49 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     except Exception:  # noqa: BLE001 - the canonical state must always load
         pass
 
+    # Presentation resolution (final 27B.2): ONE label, ONE route, ONE enabled
+    # flag per next-action code — derived HERE so no page invents its own CTA.
+    plan_summary = status.get("plan_summary") or {}
+    next_action_label_canonical = NEXT_ACTION_LABELS.get(
+        next_action_code or "",
+        (next_action_code or "OPEN_PORTFOLIO_MANAGER").replace("_", " ").title())
+    next_action_route = ("#portfolio-manager/ab-band"
+                         if next_action_code in _PLAN_REVIEW_CODES
+                         else "#portfolio-manager")
+
     canonical_state = {
         "operational_book_id": OPERATIONAL_BOOK_ID,
         "operational_book_name": OPERATIONAL_BOOK_LABEL,
         "operational_book_status": current_status,
+        # -- presentation contract (exact operator wording, one source) ----- #
+        "workflow_state": current_status,
+        "workflow_state_label": str(current_status).replace("_", " "),
+        "next_action_code": next_action_code,
+        "next_action_label": next_action_label_canonical,
+        "next_action_description": next_action_label,
+        "next_action_route_or_anchor": next_action_route,
+        "next_action_enabled": bool(next_action_code and initialized),
+        "confirm_action_label": CONFIRM_ACTION_LABEL,
+        "target_status": (target or {}).get("state"),
+        "target_date": operational_book["target_market_date"],
+        "target_count": operational_book["target_count"],
+        "plan_status": order_plan_status,
+        "planned_position_count": plan_summary.get("executable_count"),
+        "planned_blocked_count": plan_summary.get("blocked_count"),
+        "implemented_position_count": implementation_count,
+        "pending_order_count": operational_book["pending_order_count"],
+        "fill_count": fills_count,
+        "holdings_count": operational_book["holdings_count"],
+        "nav": operational_book["nav"],
+        "cash": operational_book["cash"],
+        "informational_notices": list(informational),
+        "research_summary": {
+            "research_champion": RESEARCH_CHAMPION_NAME,
+            "operational_strategy": operational_book["strategy_name"],
+            "operational_target": operational_book["target_name"],
+            "note": ("RESEARCH ONLY — research evidence informs the target but "
+                     "never drives the operational next action."),
+        },
         "operational_nav": operational_book["nav"],
         "operational_cash": operational_book["cash"],
         "operational_holdings_count": operational_book["holdings_count"],
@@ -629,6 +696,7 @@ __all__ = [
     "HEADER_TARGET_REFRESH_REQUIRED", "HEADER_DESK_MARK_REQUIRED",
     "HEADER_ORDER_PLAN_READY", "HEADER_ORDERS_PENDING",
     "HEADER_FORWARD_TRACKING_ACTIVE", "HEADER_DESK_MARK_READY",
-    "NEXT_ACTION_REVIEW_AND_CONFIRM",
+    "NEXT_ACTION_REVIEW_AND_CONFIRM", "NEXT_ACTION_LABELS",
+    "CONFIRM_ACTION_LABEL", "RESEARCH_CHAMPION_NAME",
     "load_operational_book", "load_historical_books",
 ]

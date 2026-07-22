@@ -397,8 +397,10 @@ class TestUiRightPanelAndPrimaryAction:
     def test_primary_action_labels_and_navigation(self):
         js = _scripts(_html())
         assert "function obPrimaryAction" in js
-        assert "'Review Paper Order Plan'" in js
-        assert "'Review & Confirm Paper Orders'" in js
+        # Final 27B.2 cutover: ONE navigation label everywhere.
+        assert "'Review Order Plan'" in js
+        assert "'Review Paper Order Plan'" not in js
+        assert "'Review & Confirm Paper Orders'" not in js
         assert "REVIEW_AND_CONFIRM_ORDER_PLAN" in js
         fn = js[js.index("function obPrimaryAction"):js.index("window.obPrimaryAction")]
         assert "navigateToRoute('portfolio-manager')" in fn
