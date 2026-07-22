@@ -1991,6 +1991,9 @@
               <div id="cc-ob-headline" style="font-size:16px;font-weight:900;letter-spacing:.02em;">Loading the operational book&hellip;</div>
               <button id="cc-ob-primary-btn" class="cc-btn primary" style="display:none;" onclick="obPrimaryAction()" title="The one canonical next required operational action of Alpha Paper Book #1.">Open Portfolio Manager</button>
             </div>
+            <!-- Phase 27B.5: canonical paper-order lifecycle counts (dynamic; amber =
+                 waiting for the next eligible close, green = book active). -->
+            <div id="cc-ob-lifeline" class="mono" style="display:none;font-size:11px;font-weight:700;margin-top:4px;"></div>
             <div class="dor-grid" style="margin-top:4px;">
               <div class="cc-kv"><span class="k">Cash</span><span class="v" id="cc-ob-cash">&mdash;</span></div>
               <div class="cc-kv"><span class="k">NAV</span><span class="v" id="cc-ob-nav">&mdash;</span></div>
@@ -3988,6 +3991,11 @@
             <div class="cc-panel" style="padding:8px;">
               <div class="cc-panel-title" style="font-size:var(--fs-0);">Alpha Orders &amp; Fills</div>
               <div class="cc-na-note" id="ptob-empty-states" style="margin-top:3px;">No Alpha orders yet. No Alpha fills yet. Order history, fills and attribution live on the paper desk (Portfolio Manager) once created.</div>
+              <!-- Phase 27B.5: once paper orders exist this panel states the lifecycle
+                   (dynamic canonical counts) with a direct link — never "No Alpha orders
+                   yet" while submitted orders exist. -->
+              <div class="cc-na-note" id="ptob-orders-note" style="display:none;margin-top:3px;font-weight:700;"></div>
+              <button class="cc-btn ghost" id="ptob-view-orders-btn" style="display:none;font-size:var(--fs-0);padding:2px 7px;margin-top:4px;" onclick="obOpenSubmittedOrders()" title="Open the submitted paper orders on the Portfolio Manager (read-only view; writes nothing).">View Submitted Orders &rarr;</button>
             </div>
             <div class="cc-panel" style="padding:8px;">
               <div class="cc-panel-title" style="font-size:var(--fs-0);" title="Target-versus-actual allocation of the operational book.">Target vs Actual</div>
@@ -4508,6 +4516,29 @@
             </div>
             <div id="pm-headline" style="font-size:24px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">&mdash;</div>
             <div id="pm-headline-reason" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
+            <!-- Phase 27B.5: canonical order-lifecycle strip. Shown once paper orders
+                 exist; every count / date / label comes from canonical_state (never
+                 hard-coded, never page-derived). The submitted-order table renders
+                 DIRECTLY here — no hidden tab required. -->
+            <div id="pm-lc-strip" style="display:none;margin:8px 0 0;">
+              <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;">
+                <span>Submitted <b id="pm-lc-submitted">&mdash;</b></span>
+                <span>Filled <b id="pm-lc-filled">&mdash;</b></span>
+                <span>Cancelled <b id="pm-lc-cancelled">&mdash;</b></span>
+                <span title="Positions the alpha book actually holds (ledger-replayed fills).">Alpha holdings <b id="pm-lc-holdings">&mdash;</b></span>
+                <span>Cash <b id="pm-lc-cash">&mdash;</b></span>
+                <span>NAV <b id="pm-lc-nav">&mdash;</b></span>
+                <span title="Latest completed owned close recorded in the desk mark store.">Reference mark <b id="pm-lc-mark">&mdash;</b></span>
+                <span title="Frozen execution model of Alpha Paper Book #1 (no hindsight; fills never rewritten).">Execution model <b id="pm-lc-exec">&mdash;</b></span>
+                <span>Submitted on <b id="pm-lc-subdate">&mdash;</b></span>
+              </div>
+              <div class="cc-na-note" id="pm-lc-eligible" style="font-size:10px;margin:6px 0 0;"></div>
+              <div id="pm-lc-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 0;">
+                <button class="btn-sm" id="pm-lc-cancel-btn" style="display:none;border:1px solid var(--danger,#ef4444);color:var(--danger,#ef4444);" onclick="obSecondaryAction()" title="Cancel the open paper orders before any fill (explicit token required; append-only history is never rewritten).">Cancel Submitted Orders</button>
+              </div>
+              <div id="pm-lc-orders" style="margin:8px 0 0;overflow-x:auto;"></div>
+              <div class="cc-na-note mono" id="pm-lc-model-line" style="display:none;font-size:10px;margin:8px 0 0;color:var(--label);"></div>
+            </div>
             <!-- Phase 27B.1: three DISTINCT states — model target, implementation,
                  operational holdings — rendered from /v1/operational-book. -->
             <div id="pm-impl-strip" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--info,#38bdf8);border-radius:8px;padding:8px 12px;margin:8px 0 0;">
@@ -4873,7 +4904,7 @@
             <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">MULTI-HORIZON ALPHA PORTFOLIO
               <span class="cc-badge" id="mhz-status" title="Read-only multi-horizon paper platform status.">&mdash;</span></span>
             <span style="display:flex;gap:6px;align-items:center;">
-              <button class="btn-sm" id="mhz-open-pm" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — today's operational decision built on these model books.">Open Portfolio Manager</button>
+              <button class="btn-sm" id="mhz-open-pm" onclick="navigateToRoute('portfolio-manager')" title="Open the operational book (Alpha Paper Book #1) — the executed paper portfolio and its order lifecycle live in the Portfolio Manager. This page stays the model target / research portfolio.">Open Operational Book</button>
               <button class="btn-sm" id="mhz-refresh" onclick="loadMultiHorizon()" title="Reload the read-only multi-horizon paper platform.">&#8635; Refresh</button>
             </span>
           </div>
@@ -6856,6 +6887,9 @@
     </div>
     <div class="panel-section" style="border-color: var(--info); cursor: pointer;" onclick="openDailyPlanFocused()" title="Go to the current action in Daily Plan">
       <div class="panel-section-title" style="color: var(--info);">Workflow</div>
+      <!-- Phase 27B.5: canonical CURRENT STATE line (same lifecycle payload as every
+           operational page — never "no orders" while submitted orders exist). -->
+      <div id="right-ob-statement" style="display:none; font-size: 10px; font-weight: 700; color: var(--text-primary); line-height: 1.5; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px;"></div>
       <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 2px;">Current task</div>
       <div style="font-size: 11px; color: var(--text-primary); font-weight: 600; margin-bottom: 8px;" id="right-current-task">---</div>
       <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 2px;">Next action</div>
@@ -23245,7 +23279,10 @@ function _initRailTags() {
   if (window.__railTagged) return;
   window.__railTagged = true;
   function tag(el, v) { if (!el) return; var s = (el.closest ? el.closest('.panel-section') : null) || el; s.setAttribute('data-rail-view', v); }
-  tag(document.getElementById('right-current-task'), 'daily-workflow');
+  // Phase 27B.5: the canonical Workflow section (CURRENT STATE + current task +
+  // next action + the one primary CTA) shows on EVERY route — the right panel
+  // always states the same lifecycle as the main page.
+  tag(document.getElementById('right-current-task'), 'all');
   tag(document.getElementById('cap-open-positions'), 'portfolio daily-workflow');
   tag(document.getElementById('right-status'), 'research-audit');
   tag(document.getElementById('right-connect-status'), 'research-audit');
@@ -24209,6 +24246,25 @@ function renderPmDecision(s) {
   var r = document.getElementById('pm-headline-reason');
   var d = document.getElementById('pm-decision-date');
   if (d) d.textContent = (s && s.dates && s.dates.decision_date) || '—';
+  // Phase 27B.5: once paper orders exist the canonical lifecycle owns this card —
+  // the model decision ("no portfolio change required" etc.) must never read as
+  // the operational state. It moves to the small model-status line instead.
+  var view = window._obView || null;
+  if (view && view.ordersExist && view.headline) {
+    if (h) {
+      h.textContent = view.headline;
+      h.style.color = (view.lifecycleStage === 'FILLED') ? 'var(--ok, #22c55e)'
+        : 'var(--warning, #f59e0b)';
+    }
+    if (r) r.textContent = view.explanation || '';
+    var ml = document.getElementById('pm-lc-model-line');
+    if (ml && s && s.decision_headline) {
+      ml.style.display = '';
+      ml.textContent = 'Model target status: ' + s.decision_headline +
+        ' — model/research view; it never describes the paper-order lifecycle above.';
+    }
+    return;
+  }
   if (!s) {
     if (h) { h.textContent = 'DECISION UNAVAILABLE'; h.style.color = 'var(--danger, #ef4444)'; }
     if (r) r.textContent = 'The decision endpoints could not be reached.';
@@ -24895,6 +24951,46 @@ function _obStateLabel(s) {
   return (s || 'UNAVAILABLE').replace(/_/g, ' ');
 }
 
+// Phase 27B.5 — the ONE canonical UI-state derivation. Every operational screen
+// (Command Center, Portfolio Manager, Daily Workflow, Portfolio, right panel)
+// consumes THIS view model, built purely from the backend canonical_state.
+// Pages never independently infer the workflow state.
+function deriveOperationalBookUiState(d) {
+  var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
+  var cs = (d && d.canonical_state) || (ob && ob.canonical_state) || null;
+  var stage = (cs && cs.lifecycle_stage) || null;
+  var ordersExist = stage === 'PROPOSED' || stage === 'SUBMITTED' ||
+                    stage === 'PARTIALLY_FILLED' || stage === 'FILLED';
+  var waiting = stage === 'SUBMITTED' || stage === 'PARTIALLY_FILLED';
+  return {
+    ob: ob, cs: cs,
+    lifecycleStage: stage,
+    lifecycleLabel: (cs && cs.lifecycle_stage_label) || null,
+    ordersExist: ordersExist,
+    waiting: waiting,
+    headline: (cs && cs.primary_headline) || null,
+    explanation: (cs && cs.primary_explanation) || null,
+    currentTask: (cs && cs.current_task_label) || null,
+    primaryLabel: (cs && cs.next_action_label) || null,
+    secondaryLabel: (cs && cs.secondary_action_label) || null,
+    proposed: cs ? cs.proposed_count : null,
+    submitted: cs ? cs.submitted_count : null,
+    filledOrders: cs ? cs.filled_count : null,
+    cancelled: cs ? cs.cancelled_count : null,
+    openOrders: cs ? cs.open_order_count : null,
+    holdings: cs ? cs.holdings_count : null,
+    fills: cs ? cs.fill_count : null,
+    nav: cs ? cs.nav : null,
+    cash: cs ? cs.cash : null,
+    deskMark: cs ? cs.desk_mark_date : null,
+    submittedDate: cs ? cs.submitted_date : null,
+    execModel: cs ? cs.execution_model : null,
+    eligibleExplanation: cs ? cs.next_eligible_fill_explanation : null,
+    noFurtherConfirmation: !!(cs && cs.no_further_confirmation_required),
+  };
+}
+window.deriveOperationalBookUiState = deriveOperationalBookUiState;
+
 function _obTaskLabel(code) {
   var map = {
     'REFRESH_DESK': 'Refresh Desk Marks',
@@ -24928,7 +25024,22 @@ function _obPrimaryLabel(code) {
 function obPrimaryAction() {
   var ob = (window._obData && window._obData.operational_book) || null;
   var code = (ob && ob.next_action_code) || null;
+  var view = window._obView || null;
   try { navigateToRoute('portfolio-manager'); } catch (e) {}
+  if (view && view.ordersExist) {
+    // Phase 27B.5: once paper orders exist the paper desk owns the actions.
+    // Opening the styled token panel writes NOTHING — the manual token click does.
+    setTimeout(function () {
+      try {
+        var band = document.getElementById('pd-band');
+        if (band && band.scrollIntoView) band.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (view.lifecycleStage === 'PROPOSED') pdAskAction('submit');
+        else if (view.lifecycleStage === 'SUBMITTED' ||
+                 view.lifecycleStage === 'PARTIALLY_FILLED') pdAskAction('refresh');
+      } catch (e) {}
+    }, 350);
+    return;
+  }
   if (code === 'REVIEW_AND_CONFIRM_ORDER_PLAN' || code === 'REVIEW_ORDER_PLAN' ||
       code === 'CONFIRM_ORDER_PLAN' || code === 'GENERATE_ORDER_PLAN' ||
       code === 'CONFIRM_PAPER_ORDERS') {
@@ -24943,6 +25054,33 @@ function obPrimaryAction() {
   }
 }
 window.obPrimaryAction = obPrimaryAction;
+
+// Phase 27B.5 — the visually secondary / destructive action (cancel open paper
+// orders). Only opens the styled token confirmation panel; writes nothing.
+function obSecondaryAction() {
+  try { navigateToRoute('portfolio-manager'); } catch (e) {}
+  setTimeout(function () {
+    try {
+      var band = document.getElementById('pd-band');
+      if (band && band.scrollIntoView) band.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      pdAskAction('cancel');
+    } catch (e) {}
+  }, 350);
+}
+window.obSecondaryAction = obSecondaryAction;
+
+// Phase 27B.5 — direct link to the submitted paper orders (read-only).
+function obOpenSubmittedOrders() {
+  try { navigateToRoute('portfolio-manager'); } catch (e) {}
+  setTimeout(function () {
+    try {
+      var host = document.getElementById('pm-lc-orders');
+      var tgt = (host && host.innerHTML) ? host : document.getElementById('pd-band');
+      if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {}
+  }, 350);
+}
+window.obOpenSubmittedOrders = obOpenSubmittedOrders;
 
 function renderOperationalBook(d) {
   var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
@@ -24972,6 +25110,12 @@ function renderOperationalBook(d) {
   // Final 27B.2 cutover: the canonical presentation contract owns the CTA label.
   var cs = (d && d.canonical_state) || (ob && ob.canonical_state) || null;
   var primaryLabel = (cs && cs.next_action_label) || _obPrimaryLabel(nextCode);
+  // Phase 27B.5: the shared canonical lifecycle view model (one derivation).
+  var view = deriveOperationalBookUiState(d);
+  window._obView = view;
+  if (ob && view.ordersExist && view.explanation) {
+    nextTxt = 'Next Action: ' + primaryLabel + ' — ' + view.explanation;
+  }
 
   // Command Center panel + Portfolio default card (identical values, same payload).
   [['cc-ob', 'cc-ob-state'], ['ptob', 'ptob-state']].forEach(function (pair) {
@@ -24996,11 +25140,36 @@ function renderOperationalBook(d) {
   });
 
   // Phase 27B.2 — canonical headline + the ONE primary action (CC card + PM card).
+  // Phase 27B.5: once paper orders exist the lifecycle headline owns the card
+  // ("N PAPER ORDERS SUBMITTED — AWAITING NEXT ELIGIBLE CLOSE"), never jargon.
   var obHeadline = document.getElementById('cc-ob-headline');
   if (obHeadline) {
     obHeadline.textContent = ob ? ('NEXT: ' + primaryLabel.toUpperCase())
       : 'Operational book unavailable — check the connection / API key.';
-    obHeadline.style.color = ob ? '' : 'var(--danger, #ef4444)';
+    if (ob && view.ordersExist && view.headline) obHeadline.textContent = view.headline;
+    obHeadline.style.color = !ob ? 'var(--danger, #ef4444)'
+      : (view.waiting || view.lifecycleStage === 'PROPOSED') ? 'var(--warning, #f59e0b)'
+      : (view.lifecycleStage === 'FILLED') ? 'var(--ok, #22c55e)' : '';
+  }
+  // Canonical lifecycle counts line (amber = waiting for the next eligible
+  // close — a normal state, never an error; green = book active).
+  var lifeline = document.getElementById('cc-ob-lifeline');
+  if (lifeline) {
+    if (ob && view.ordersExist) {
+      lifeline.style.display = '';
+      lifeline.textContent =
+        'Submitted ' + (view.submitted != null ? view.submitted : '—') +
+        ' · Filled ' + (view.filledOrders != null ? view.filledOrders : '—') +
+        ' · Cancelled ' + (view.cancelled != null ? view.cancelled : '—') +
+        ' · Alpha holdings ' + (view.holdings != null ? view.holdings : '—') +
+        (view.deskMark ? (' · Reference mark ' + view.deskMark) : '') +
+        (view.execModel ? (' · Execution ' + view.execModel) : '');
+      lifeline.style.color = view.lifecycleStage === 'FILLED'
+        ? 'var(--ok, #22c55e)' : 'var(--warning, #f59e0b)';
+    } else {
+      lifeline.style.display = 'none';
+      lifeline.textContent = '';
+    }
   }
   ['cc-ob-primary-btn', 'pm-primary-next-btn'].forEach(function (bid) {
     var pb = document.getElementById(bid);
@@ -25016,6 +25185,26 @@ function renderOperationalBook(d) {
       emptyEl.style.display = '';
     } else {
       emptyEl.style.display = 'none';
+    }
+  }
+  // Phase 27B.5: with paper orders in flight the panel states the lifecycle and
+  // links straight to the submitted orders — never "No Alpha orders yet".
+  var ordersNote = document.getElementById('ptob-orders-note');
+  var ordersBtn = document.getElementById('ptob-view-orders-btn');
+  if (ordersNote && ordersBtn) {
+    if (ob && view.ordersExist) {
+      ordersNote.style.display = '';
+      ordersNote.textContent =
+        (view.lifecycleStage === 'PROPOSED'
+          ? ((view.proposed != null ? view.proposed : '—') + ' proposed paper orders await manual confirmation')
+          : ((view.submitted != null ? view.submitted : '—') + ' submitted paper orders await the next eligible completed close')) +
+        ' · ' + (view.filledOrders != null ? view.filledOrders : '—') + ' filled · ' +
+        (view.cancelled != null ? view.cancelled : '—') + ' cancelled.';
+      ordersBtn.style.display = '';
+    } else {
+      ordersNote.style.display = 'none';
+      ordersNote.textContent = '';
+      ordersBtn.style.display = 'none';
     }
   }
   var blockEl = document.getElementById('ptob-blockers');
@@ -25043,7 +25232,12 @@ function renderOperationalBook(d) {
   // payload (workflow_stages), never derived per-page.
   var dwState = document.getElementById('dwob-state');
   if (dwState) { dwState.textContent = stateTxt; dwState.className = 'cc-badge ' + (ob ? (ob.initialized ? 'safe' : 'muted') : 'danger'); }
-  _obSet('dwob-next', nextTxt);
+  // Phase 27B.5: the Daily Workflow states the canonical current task —
+  // "Await Next Eligible Close" is a normal waiting state, never an error.
+  _obSet('dwob-next', (ob && view.ordersExist && view.currentTask)
+    ? ('Current task: ' + view.currentTask + ' · Next action: ' + primaryLabel +
+       (view.explanation ? (' — ' + view.explanation) : ''))
+    : nextTxt);
   var stageIds = {
     'REFRESH_DESK_MARKS': 'dwob-step-refresh-data',
     'VERIFY_ALPHA_TARGET': 'dwob-step-refresh-target',
@@ -25064,6 +25258,21 @@ function renderOperationalBook(d) {
     st.style.color = row.status === 'NEEDS_ACTION' ? 'var(--warning, #f59e0b)' :
       row.status === 'BLOCKED' ? 'var(--danger, #ef4444)' :
       (row.status === 'COMPLETE' || row.status === 'ACTIVE') ? 'var(--ok, #22c55e)' : '';
+    // Phase 27B.5: completed stages visually recede — their buttons hide; the
+    // ACTIVE stage carries the ONE canonical primary action.
+    var sbtn = el.querySelector('button');
+    if (sbtn) {
+      if (row.status === 'COMPLETE') {
+        sbtn.style.display = 'none';
+      } else {
+        sbtn.style.display = '';
+        if (row.status === 'ACTIVE' && view.ordersExist) {
+          sbtn.textContent = primaryLabel;
+          sbtn.onclick = function () { obPrimaryAction(); };
+          sbtn.title = 'The one canonical next operational action of Alpha Paper Book #1 (token-gated; opening this writes nothing).';
+        }
+      }
+    }
   });
 
   // Command Center five-stage strip — the SAME canonical stages (Phase 27B.2).
@@ -25110,9 +25319,31 @@ function renderOperationalBook(d) {
   if (legacyLine && cs && cs.legacy_archive_summary && cs.legacy_archive_summary.line) {
     legacyLine.textContent = cs.legacy_archive_summary.line;
   }
+  // Phase 27B.5: prominent canonical CURRENT STATE line — the panel never says
+  // "no orders" or "monitor portfolio" while submitted paper orders exist.
+  var rightState = document.getElementById('right-ob-statement');
+  if (rightState) {
+    if (ob && view.ordersExist) {
+      rightState.style.display = '';
+      rightState.textContent = 'CURRENT STATE: ' +
+        (view.lifecycleStage === 'PROPOSED'
+          ? ((view.proposed != null ? view.proposed : '—') + ' paper orders awaiting confirmation')
+          : ((view.submitted != null ? view.submitted : '—') + ' paper orders submitted')) +
+        ' · ' + (view.fills != null ? view.fills : '—') + ' fills · ' +
+        (view.holdings != null ? view.holdings : '—') + ' Alpha holdings';
+    } else {
+      rightState.style.display = 'none';
+      rightState.textContent = '';
+    }
+  }
   if (ob) {
-    _obSet('right-current-task', _obTaskLabel(nextCode));
-    _obSet('right-next-action', ob.next_action_label || ob.next_action || '—');
+    _obSet('right-current-task', (view.ordersExist && view.currentTask)
+      ? view.currentTask : _obTaskLabel(nextCode));
+    _obSet('right-next-action', view.waiting
+      ? ('Wait for an eligible completed close. Then run ' + primaryLabel + '.')
+      : (view.ordersExist && view.explanation)
+        ? view.explanation
+        : (ob.next_action_label || ob.next_action || '—'));
     var btn = document.getElementById('right-primary-action-btn');
     if (btn) {
       btn.textContent = primaryLabel;
@@ -25135,7 +25366,8 @@ function renderOperationalBook(d) {
   _obSet('pm-impl-count', implTxt);
   _obSet('pm-impl-marks', markTxt);
   _obSet('pm-impl-holdings', ob ? (holdings + ' held · ' + pending + ' pending · ' + fills + ' fills · NAV ' + nav) : '—');
-  _obSet('pm-impl-next', ob ? _obTaskLabel(nextCode) : '—');
+  _obSet('pm-impl-next', ob ? ((view.ordersExist && view.currentTask)
+    ? view.currentTask : _obTaskLabel(nextCode)) : '—');
 
   // Alpha Portfolio page — once the latest target snapshot is CONFIRMED the
   // Manual Snapshot area is read-only history (no competing confirmation path).
@@ -25146,8 +25378,114 @@ function renderOperationalBook(d) {
   if (mhzNote) mhzNote.style.display = targetConfirmed ? '' : 'none';
   if (mhzPrev && ob) mhzPrev.style.display = targetConfirmed ? 'none' : '';
   if (mhzBox && targetConfirmed) mhzBox.style.display = 'none';
+
+  // Phase 27B.5: the Portfolio Manager lifecycle status card (same view model).
+  try { renderPmLifecycle(view, primaryLabel); } catch (e) {}
 }
 window.renderOperationalBook = renderOperationalBook;
+
+// ===================== Phase 27B.5 — ORDER LIFECYCLE CARD =====================
+// The Portfolio Manager's dominant card once paper orders exist. Everything is
+// rendered from the canonical view model; completed-action buttons recede.
+function renderPmLifecycle(view, primaryLabel) {
+  var strip = document.getElementById('pm-lc-strip');
+  if (!strip) return;
+  var pb = document.getElementById('pm-primary-next-btn');
+  var actions = document.getElementById('pm-lc-actions');
+  var cancelBtn = document.getElementById('pm-lc-cancel-btn');
+  var abBand = document.getElementById('ab-band');
+  if (!view || !view.ordersExist) {
+    strip.style.display = 'none';
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    if (abBand) abBand.style.display = '';
+    return;
+  }
+  strip.style.display = '';
+  // The plan-generation / plan-confirmation band is COMPLETE once orders exist —
+  // it recedes entirely (its read-only detail stays in Advanced / Audit).
+  if (abBand) abBand.style.display = 'none';
+  // Lifecycle headline owns the decision card (both render orders race-safe).
+  var h = document.getElementById('pm-headline');
+  var r = document.getElementById('pm-headline-reason');
+  if (h && view.headline) {
+    h.textContent = view.headline;
+    h.style.color = (view.lifecycleStage === 'FILLED') ? 'var(--ok, #22c55e)'
+      : 'var(--warning, #f59e0b)';
+  }
+  if (r && view.explanation) r.textContent = view.explanation;
+  var modelLine = document.getElementById('pm-lc-model-line');
+  if (modelLine) {
+    var pmSummary = (window._pmData || {}).summary || null;
+    if (pmSummary && pmSummary.decision_headline) {
+      modelLine.style.display = '';
+      modelLine.textContent = 'Model target status: ' + pmSummary.decision_headline +
+        ' — model/research view; it never describes the paper-order lifecycle above.';
+    } else {
+      modelLine.style.display = 'none';
+    }
+  }
+  _obSet('pm-lc-submitted', view.submitted);
+  _obSet('pm-lc-filled', view.filledOrders);
+  _obSet('pm-lc-cancelled', view.cancelled);
+  _obSet('pm-lc-holdings', view.holdings);
+  _obSet('pm-lc-cash', view.cash != null ? _obMoney(view.cash) : null);
+  _obSet('pm-lc-nav', view.nav != null ? _obMoney(view.nav) : null);
+  _obSet('pm-lc-mark', view.deskMark);
+  _obSet('pm-lc-exec', view.execModel);
+  _obSet('pm-lc-subdate', view.submittedDate);
+  var elig = document.getElementById('pm-lc-eligible');
+  if (elig) {
+    elig.textContent = view.eligibleExplanation ||
+      (view.noFurtherConfirmation ? 'No further confirmation is required.' : '');
+  }
+  // ONE primary CTA: the existing canonical button moves into the lifecycle
+  // actions row (same element, same canonical label, same handler).
+  if (pb && actions && pb.parentElement !== actions) {
+    actions.insertBefore(pb, actions.firstChild);
+  }
+  if (pb) {
+    pb.style.borderColor = view.waiting ? 'var(--warning, #f59e0b)' : 'var(--info, #3b82f6)';
+    pb.style.boxShadow = '0 0 0 1px ' + (view.waiting ? 'var(--warning, #f59e0b)' : 'var(--info, #3b82f6)');
+  }
+  if (cancelBtn) {
+    if (view.openOrders) {
+      cancelBtn.style.display = '';
+      cancelBtn.textContent = view.secondaryLabel || 'Cancel Submitted Orders';
+    } else {
+      cancelBtn.style.display = 'none';
+    }
+  }
+  // Race-safe: if the desk rendered before the canonical payload arrived, its
+  // button visibility was derived without the lifecycle — re-apply it now.
+  try { if (window._pdData) renderPaperDesk(); } catch (e) {}
+  renderPmLifecycleOrders();
+}
+window.renderPmLifecycle = renderPmLifecycle;
+
+// The submitted-order table, rendered DIRECTLY on the lifecycle card (read-only;
+// no hidden tab). Reuses the desk order data already fetched by loadPaperDesk.
+function renderPmLifecycleOrders() {
+  var host = document.getElementById('pm-lc-orders');
+  if (!host) return;
+  var view = window._obView || null;
+  if (!view || !view.ordersExist) { host.innerHTML = ''; return; }
+  var pd = window._pdData || null;
+  var orders = pd && pd.orders && pd.orders.orders;
+  if (!orders) {
+    host.innerHTML = '<div class="cc-na-note">Loading the paper orders (read-only)&hellip;</div>';
+    return;
+  }
+  var open = orders.filter(function (o) {
+    return o.status === 'PROPOSED' || o.status === 'APPROVED' || o.status === 'SUBMITTED';
+  });
+  var title = open.length
+    ? ((view.lifecycleStage === 'PROPOSED' ? 'PROPOSED PAPER ORDERS (' : 'SUBMITTED PAPER ORDERS (')
+       + open.length + ') — read-only')
+    : 'PAPER ORDER HISTORY — read-only';
+  host.innerHTML = '<div style="font-weight:800;font-size:10px;letter-spacing:.06em;margin-bottom:4px;">' +
+    title + '</div>' + _pdOrdersTable(open.length ? open : orders);
+}
+window.renderPmLifecycleOrders = renderPmLifecycleOrders;
 /* ===================== Phase 27B — OPERATIONAL BOOK END ===================== */
 
 function _otrOpenBox(kind, title, note, phrase) {
@@ -25369,6 +25707,42 @@ function renderPaperDesk() {
     b.disabled = (nOpen === 0);
     b.title = (nOpen === 0) ? spec[1] : spec[2];
   });
+  // Phase 27B.5: completed actions recede. Once every open order is SUBMITTED
+  // (or the book is fully filled) the confirm / preview buttons are obsolete —
+  // hide them; the refresh action becomes "Refresh After Market Close"; cancel
+  // stays as the visually secondary destructive action.
+  var obView = window._obView || null;
+  var lcTracking = !!(obView && (obView.lifecycleStage === 'SUBMITTED' ||
+    obView.lifecycleStage === 'PARTIALLY_FILLED' || obView.lifecycleStage === 'FILLED'));
+  ['pd-act-confirm', 'pd-act-preview'].forEach(function (bid) {
+    var b = document.getElementById(bid);
+    if (b) b.style.display = lcTracking ? 'none' : '';
+  });
+  var refBtn = document.getElementById('pd-act-refresh');
+  if (refBtn) {
+    refBtn.textContent = lcTracking ? 'Refresh After Market Close' : '1· Refresh Desk Data';
+    if (lcTracking && obView && obView.waiting) {
+      refBtn.style.borderColor = 'var(--warning, #f59e0b)';
+      refBtn.style.boxShadow = '0 0 0 1px var(--warning, #f59e0b)';
+      refBtn.style.fontWeight = '800';
+    } else {
+      refBtn.style.borderColor = '';
+      refBtn.style.boxShadow = '';
+      refBtn.style.fontWeight = '';
+    }
+  }
+  var cancelBtn0 = document.getElementById('pd-act-cancel');
+  if (cancelBtn0) {
+    if (lcTracking && nOpen) {
+      cancelBtn0.textContent = (obView && obView.secondaryLabel) || 'Cancel Submitted Orders';
+      cancelBtn0.style.borderColor = 'var(--danger, #ef4444)';
+      cancelBtn0.style.color = 'var(--danger, #ef4444)';
+    } else {
+      cancelBtn0.textContent = 'Cancel Open Orders';
+      cancelBtn0.style.borderColor = '';
+      cancelBtn0.style.color = '';
+    }
+  }
   var audit = document.getElementById('pd-audit-body');
   if (audit) audit.innerHTML = '<pre style="white-space:pre-wrap;margin:0;">' +
     escapeHtml(JSON.stringify({ status: st.status, order_counts: st.order_counts,
@@ -25376,7 +25750,11 @@ function renderPaperDesk() {
       ledger_integrity: st.ledger_integrity, execution_models: st.execution_models,
       store_dir: st.store_dir, safety_badges: st.safety_badges }, null, 1)) + '</pre>';
   _pdRenderPills();
-  pdShowPill(window._pdActivePill || 'today-orders');
+  // Phase 27B.5: with open orders the default desk view is the order list itself
+  // (never an empty "Today's Orders" on a later calendar day); the lifecycle
+  // card above also shows the same orders directly.
+  pdShowPill(window._pdActivePill || (nOpen ? 'pending' : 'today-orders'));
+  try { renderPmLifecycleOrders(); } catch (e) {}
 }
 
 function _pdRenderPills() {
@@ -25593,9 +25971,30 @@ async function pdDoAction() {
           }
           if (d.settlement.n_filled > 0) {
             extra += ' PAPER FILLS RECORDED — holdings and cash updated in the local paper book. No live order was created.';
+          } else if (window._obView && window._obView.openOrders) {
+            // Phase 27B.5: a refresh with no newer eligible close is EXPECTED —
+            // never imply failure.
+            extra += ' 0 paper fills recorded — the submitted orders remain SUBMITTED. ' +
+              'No later eligible completed close is available yet; this is expected, not a failure.';
           }
         }
         result.textContent = (d.message || 'Manual paper-desk action complete.') + extra;
+        // Phase 27B.5: a successful submission gets a prominent in-page result
+        // (never a browser modal); the old confirmation controls recede on the
+        // lifecycle re-render below.
+        if (kind === 'submit' && d.n_submitted) {
+          result.innerHTML =
+            '<div style="font-size:14px;font-weight:900;letter-spacing:.02em;">' +
+            d.n_submitted + ' PAPER ORDERS SUBMITTED SUCCESSFULLY</div>' +
+            '<div class="cc-na-note" style="font-size:10px;margin:4px 0 6px;">No further confirmation is required. ' +
+            'These orders are awaiting the first eligible completed close after submission' +
+            (d.approval_date ? (' (' + escapeHtml(d.approval_date) + ')') : '') +
+            '. Paper only — no broker, no automation.</div>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+            '<button class="btn-sm" onclick="obOpenSubmittedOrders()" title="Open the submitted paper orders (read-only).">View Submitted Orders</button>' +
+            '<button class="btn-sm" style="border:1px solid var(--danger,#ef4444);color:var(--danger,#ef4444);" onclick="pdAskAction(\'cancel\')" title="Cancel the submitted paper orders before any fill (explicit token required).">Cancel Submitted Orders</button>' +
+            '</div>';
+        }
         toast('Paper desk: ' + (d.message || 'done') + ' (paper only)', 'ok');
       } else if (d.status === 'DESK_MARK_REFRESH_BLOCKED' ||
                  (kind === 'refresh' && d.status === 'PAPER_DESK_OK' && d.resulting_desk_mark_date == null)) {
