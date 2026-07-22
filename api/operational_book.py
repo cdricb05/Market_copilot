@@ -130,6 +130,10 @@ def _pending_orders(desk_dir=None) -> dict:
     for o in orders:
         by_status[o["status"]] = by_status.get(o["status"], 0) + 1
     pending = [o for o in orders if o.get("status") in _PENDING_ORDER_STATUSES]
+    submission_dates = [o.get("approval_date") for o in orders
+                        if o.get("approval_date")
+                        and o.get("status") in (desk.ST_APPROVED, desk.ST_SUBMITTED,
+                                                desk.ST_FILLED)]
     return {
         "pending_count": len(pending),
         "awaiting_manual_confirmation": by_status.get(desk.ST_PROPOSED, 0),
@@ -138,6 +142,7 @@ def _pending_orders(desk_dir=None) -> dict:
         "filled_count": by_status.get(desk.ST_FILLED, 0),
         "total_orders": len(orders),
         "by_status": by_status,
+        "latest_submission_date": max(submission_dates) if submission_dates else None,
     }
 
 
@@ -202,6 +207,161 @@ NEXT_ACTION_LABELS = {
 
 #: ONE final token-gated confirmation label (the only write CTA wording).
 CONFIRM_ACTION_LABEL = "Confirm and Create Proposed Paper Orders"
+
+# --------------------------------------------------------------------------- #
+# Phase 27B.5 — canonical paper-order LIFECYCLE (one state-driven operator view)
+# --------------------------------------------------------------------------- #
+
+#: The six operator-facing lifecycle stages of the paper-order workflow. Every
+#: operational surface (Command Center, Portfolio Manager, Daily Workflow,
+#: Portfolio, right panel) renders THESE labels — no page invents its own.
+LIFECYCLE_PLAN_NOT_CREATED = "PLAN_NOT_CREATED"
+LIFECYCLE_PLAN_READY = "PLAN_READY"
+LIFECYCLE_PROPOSED = "PROPOSED"
+LIFECYCLE_SUBMITTED = "SUBMITTED"
+LIFECYCLE_PARTIALLY_FILLED = "PARTIALLY_FILLED"
+LIFECYCLE_FILLED = "FILLED"
+
+LIFECYCLE_STAGES = (LIFECYCLE_PLAN_NOT_CREATED, LIFECYCLE_PLAN_READY,
+                    LIFECYCLE_PROPOSED, LIFECYCLE_SUBMITTED,
+                    LIFECYCLE_PARTIALLY_FILLED, LIFECYCLE_FILLED)
+
+LIFECYCLE_LABELS = {
+    LIFECYCLE_PLAN_NOT_CREATED: "Order Plan Not Created",
+    LIFECYCLE_PLAN_READY: "Order Plan Ready For Review",
+    LIFECYCLE_PROPOSED: "Paper Orders Awaiting Confirmation",
+    LIFECYCLE_SUBMITTED: "Paper Orders Submitted — Awaiting Next Eligible Close",
+    LIFECYCLE_PARTIALLY_FILLED: "Paper Execution In Progress",
+    LIFECYCLE_FILLED: "Alpha Paper Book Active",
+}
+
+#: Lifecycle stages in which paper orders exist (the "tracking" half of the flow).
+_LIFECYCLE_ORDER_STAGES = (LIFECYCLE_PROPOSED, LIFECYCLE_SUBMITTED,
+                           LIFECYCLE_PARTIALLY_FILLED, LIFECYCLE_FILLED)
+
+
+def derive_lifecycle_view(*, initialized: bool, orders: dict, fills_count: int,
+                          plan_exists: bool, submitted_date: Optional[str] = None,
+                          execution_model: Optional[str] = None) -> dict:
+    """Pure derivation of the canonical operator lifecycle from the existing
+    truth (desk order fold + ledger fill count + stateless plan existence).
+    Never hard-codes counts or dates; performs no I/O and never writes."""
+    by = orders.get("by_status") or {}
+    proposed = by.get("PROPOSED", 0)
+    submitted = by.get("APPROVED", 0) + by.get("SUBMITTED", 0)
+    filled_orders = by.get("FILLED", 0)
+    cancelled = by.get("CANCELLED", 0)
+    expired = by.get("EXPIRED", 0)
+    open_orders = proposed + submitted
+
+    if proposed:
+        stage = LIFECYCLE_PROPOSED
+    elif submitted and not fills_count:
+        stage = LIFECYCLE_SUBMITTED
+    elif open_orders and fills_count:
+        stage = LIFECYCLE_PARTIALLY_FILLED
+    elif plan_exists:
+        # Includes the monthly-rebalance re-emergence: every prior order is
+        # terminal and a NEWER confirmed target produced a fresh plan cycle.
+        stage = LIFECYCLE_PLAN_READY
+    elif fills_count and not open_orders:
+        stage = LIFECYCLE_FILLED
+    else:
+        stage = LIFECYCLE_PLAN_NOT_CREATED
+
+    primary_action_label: Optional[str] = None
+    secondary_action_label: Optional[str] = None
+    current_task_label: Optional[str] = None
+    next_eligible_fill_explanation: Optional[str] = None
+
+    if stage == LIFECYCLE_PLAN_NOT_CREATED:
+        headline = "ORDER PLAN NOT CREATED"
+        explanation = ("No executable paper-order plan exists yet. Complete the "
+                       "prerequisite step first — no paper orders have been "
+                       "created." if initialized else
+                       "Alpha Paper Book #1 is not initialized yet — no order "
+                       "plan and no paper orders exist.")
+    elif stage == LIFECYCLE_PLAN_READY:
+        headline = "ORDER PLAN READY FOR REVIEW"
+        explanation = ("The executable paper-order plan is ready. Review the "
+                       "proposed orders and confirm them manually.")
+        primary_action_label = "Review Order Plan"
+        current_task_label = "Review Order Plan"
+    elif stage == LIFECYCLE_PROPOSED:
+        headline = "PAPER ORDERS AWAITING CONFIRMATION"
+        explanation = ("%d proposed paper order%s await your manual confirmation. "
+                       "Nothing fills until you confirm and submit them — paper "
+                       "only, no broker."
+                       % (proposed, "" if proposed == 1 else "s"))
+        primary_action_label = ("Confirm and Submit %d Paper Order%s"
+                                % (proposed, "" if proposed == 1 else "s"))
+        secondary_action_label = "Cancel Proposed Paper Orders"
+        current_task_label = "Confirm and Submit Paper Orders"
+        next_eligible_fill_explanation = (
+            "Nothing fills while the orders are PROPOSED. After you confirm and "
+            "submit them, fills wait for the first eligible completed owned close "
+            "recorded by a later manual desk refresh.")
+    elif stage == LIFECYCLE_SUBMITTED:
+        headline = ("%d PAPER ORDERS SUBMITTED — AWAITING NEXT ELIGIBLE CLOSE"
+                    % submitted)
+        explanation = ("The paper orders were created successfully. No further "
+                       "confirmation is required. They will fill only after a "
+                       "later eligible completed close is recorded by a manual "
+                       "desk refresh.")
+        primary_action_label = "Refresh After Market Close"
+        secondary_action_label = "Cancel Submitted Orders"
+        current_task_label = "Await Next Eligible Close"
+        next_eligible_fill_explanation = (
+            "Paper fills occur only at the first eligible completed owned close "
+            "on or after %s (the submission date) that a LATER manual desk "
+            "refresh records. A refresh that finds no newer completed close "
+            "records 0 fills and the orders simply remain SUBMITTED — that is "
+            "expected, not a failure." % (submitted_date or "the submission date"))
+    elif stage == LIFECYCLE_PARTIALLY_FILLED:
+        headline = "PAPER EXECUTION IN PROGRESS"
+        explanation = ("%d paper order%s filled; %d still await%s an eligible "
+                       "completed close. Run the manual desk refresh on a later "
+                       "day to settle the rest — no further confirmation is "
+                       "required."
+                       % (filled_orders, "" if filled_orders == 1 else "s",
+                          open_orders, "s" if open_orders == 1 else ""))
+        primary_action_label = "Refresh After Market Close"
+        secondary_action_label = "Cancel Submitted Orders"
+        current_task_label = "Await Remaining Fills"
+        next_eligible_fill_explanation = (
+            "The remaining paper orders fill at the first eligible completed "
+            "owned close on or after %s (the submission date) recorded by a "
+            "later manual desk refresh." % (submitted_date or "their submission"))
+    else:  # LIFECYCLE_FILLED
+        headline = "ALPHA PAPER BOOK ACTIVE"
+        explanation = ("All paper orders are settled and the alpha paper book is "
+                       "live. Monitor holdings, NAV and forward performance; each "
+                       "manual desk refresh appends new marks and performance "
+                       "rows.")
+        primary_action_label = "Monitor Holdings and Performance"
+        current_task_label = "Monitor Holdings and Performance"
+
+    return {
+        "lifecycle_stage": stage,
+        "lifecycle_stage_label": LIFECYCLE_LABELS[stage],
+        "primary_headline": headline,
+        "primary_explanation": explanation,
+        "primary_action_label": primary_action_label,
+        "secondary_action_label": secondary_action_label,
+        "current_task_label": current_task_label,
+        "proposed_count": proposed,
+        "submitted_count": submitted,
+        "filled_count": filled_orders,
+        "cancelled_count": cancelled,
+        "expired_count": expired,
+        "open_order_count": open_orders,
+        "submitted_date": submitted_date,
+        "next_eligible_fill_explanation": next_eligible_fill_explanation,
+        "no_further_confirmation_required": stage in (
+            LIFECYCLE_SUBMITTED, LIFECYCLE_PARTIALLY_FILLED, LIFECYCLE_FILLED),
+        "orders_exist": stage in _LIFECYCLE_ORDER_STAGES,
+        "execution_model": execution_model,
+    }
 
 
 def _workflow_view(*, current_status: str, target: Optional[dict],
@@ -447,6 +607,7 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
                                 "position. Implementation counts only names the alpha "
                                 "book actually holds (ledger-replayed fills)."),
         "order_plan_ready": bool(rd.get("order_plan_ready")),
+        "execution_model": (book or {}).get("execution_model"),
         "workflow_stage": wf["current_stage"],
         "workflow_stages": wf["stages"],
         "header_status": wf["header"],
@@ -508,7 +669,20 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     next_action_label_canonical = NEXT_ACTION_LABELS.get(
         next_action_code or "",
         (next_action_code or "OPEN_PORTFOLIO_MANAGER").replace("_", " ").title())
-    next_action_route = ("#portfolio-manager/ab-band"
+
+    # Phase 27B.5 — the canonical paper-order lifecycle. Once paper orders exist
+    # the lifecycle owns the operator wording (headline, CTA label, explanation);
+    # before that the 27B.2 next-action label map stays authoritative.
+    lifecycle = derive_lifecycle_view(
+        initialized=initialized, orders=orders, fills_count=fills_count,
+        plan_exists=bool(wf["plan_exists"]),
+        submitted_date=orders.get("latest_submission_date"),
+        execution_model=(book or {}).get("execution_model"))
+    if lifecycle["primary_action_label"]:
+        next_action_label_canonical = lifecycle["primary_action_label"]
+    next_action_route = ("#portfolio-manager/pd-band"
+                         if lifecycle["orders_exist"]
+                         else "#portfolio-manager/ab-band"
                          if next_action_code in _PLAN_REVIEW_CODES
                          else "#portfolio-manager")
 
@@ -525,6 +699,31 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "next_action_route_or_anchor": next_action_route,
         "next_action_enabled": bool(next_action_code and initialized),
         "confirm_action_label": CONFIRM_ACTION_LABEL,
+        # -- Phase 27B.5: canonical paper-order lifecycle (one operator view) -- #
+        "lifecycle_stage": lifecycle["lifecycle_stage"],
+        "lifecycle_stage_label": lifecycle["lifecycle_stage_label"],
+        "primary_headline": lifecycle["primary_headline"],
+        "primary_explanation": lifecycle["primary_explanation"],
+        "next_action_explanation": lifecycle["primary_explanation"],
+        "current_task_label": (lifecycle["current_task_label"]
+                               or next_action_label_canonical),
+        "primary_action_enabled": bool(next_action_code and initialized),
+        "primary_action_disabled_reason": (
+            None if (next_action_code and initialized) else
+            "Alpha Paper Book #1 is not initialized yet." if not initialized else
+            "Backend unavailable — reconnect, then reload the operational book."),
+        "secondary_action_label": lifecycle["secondary_action_label"],
+        "proposed_count": lifecycle["proposed_count"],
+        "submitted_count": lifecycle["submitted_count"],
+        "filled_count": lifecycle["filled_count"],
+        "cancelled_count": lifecycle["cancelled_count"],
+        "expired_count": lifecycle["expired_count"],
+        "open_order_count": lifecycle["open_order_count"],
+        "submitted_date": lifecycle["submitted_date"],
+        "next_eligible_fill_explanation": lifecycle["next_eligible_fill_explanation"],
+        "no_further_confirmation_required": lifecycle["no_further_confirmation_required"],
+        "execution_model": lifecycle["execution_model"],
+        "implementation_count": implementation_count,
         "target_status": (target or {}).get("state"),
         "target_date": operational_book["target_market_date"],
         "target_count": operational_book["target_count"],
@@ -698,5 +897,8 @@ __all__ = [
     "HEADER_FORWARD_TRACKING_ACTIVE", "HEADER_DESK_MARK_READY",
     "NEXT_ACTION_REVIEW_AND_CONFIRM", "NEXT_ACTION_LABELS",
     "CONFIRM_ACTION_LABEL", "RESEARCH_CHAMPION_NAME",
+    "LIFECYCLE_PLAN_NOT_CREATED", "LIFECYCLE_PLAN_READY", "LIFECYCLE_PROPOSED",
+    "LIFECYCLE_SUBMITTED", "LIFECYCLE_PARTIALLY_FILLED", "LIFECYCLE_FILLED",
+    "LIFECYCLE_STAGES", "LIFECYCLE_LABELS", "derive_lifecycle_view",
     "load_operational_book", "load_historical_books",
 ]
