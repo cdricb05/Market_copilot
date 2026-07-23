@@ -919,6 +919,15 @@ def load_summary(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
         "manual_review_status": ctx["state"].get("operating_state"),
         "review_due": bool(rec.get("review_due")) if ctx["ready"] else None,
         "next_manual_review_date": (combined_sleeve or {}).get("next_manual_review_date"),
+        # Phase 27B.9 — the canonical operational review clock (single source:
+        # /v1/operational-book). Surfaced here so the Portfolio Manager states the
+        # same "next scheduled review / review due" as every other operator page,
+        # and an unconfirmed newer target never reads as urgent while the book is
+        # active and the review is not due.
+        "operational_next_review_date": (ops.get("canonical_state") or {}).get("next_review_date"),
+        "operational_review_due": (ops.get("canonical_state") or {}).get("review_due"),
+        "operational_target_freshness": (ops.get("canonical_state") or {}).get("target_freshness"),
+        "operational_lifecycle_stage": (ops.get("canonical_state") or {}).get("lifecycle_stage"),
         # Phase 27B.1: the ONE operational book + its implementation state. The
         # legacy "portfolio" block below is the ARCHIVED executed paper portfolio.
         "operational_book": ops,

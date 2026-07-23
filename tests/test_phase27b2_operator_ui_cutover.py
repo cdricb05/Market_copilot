@@ -317,9 +317,13 @@ class TestUiCommandCenterCutover:
         assert "cc-wf-stage-" in js
         assert js.count("workflow_stages") >= 1
 
-    def test_top_bar_mark_labeled_research(self):
+    def test_top_bar_mark_labeled_operational(self):
+        # Phase 27B.9 — the operator top bar shows the OPERATIONAL desk valuation
+        # date (Alpha Paper Book #1), never the research/alpha mark. Research dates
+        # live only in Research & Audit and the compact Research Status strip.
         html = _html()
-        assert "Research mark:" in html
+        assert "Operational mark:" in html
+        assert 'Research mark: <span id="cc-status-mark"' not in html
 
 
 # --------------------------------------------------------------------------- #

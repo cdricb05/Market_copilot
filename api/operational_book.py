@@ -121,6 +121,51 @@ def _f(x: Any) -> Optional[float]:
         return None
 
 
+# --------------------------------------------------------------------------- #
+# Phase 27B.9 — scheduled-review cadence (the canonical review clock).
+#
+# The operational book rebalances on a MONTHLY combined-sleeve cadence. The next
+# scheduled review is the first calendar day of the month AFTER the confirmed
+# target's market month. `review_due` is True only once that date is reached.
+# A newer/unconfirmed alpha target BEFORE that date is informational, never an
+# urgent operator action, so a fully-implemented active book is not flagged for
+# "verify target" just because fresher research data exists.
+# --------------------------------------------------------------------------- #
+
+REVIEW_CADENCE = "MONTHLY"
+
+
+def _parse_iso_date(s: Any):
+    from datetime import date
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(str(s)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _next_month_first(d):
+    from datetime import date
+    return date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
+
+
+def _derive_review(target_date: Any, valuation_date: Any,
+                   today: Optional[str] = None) -> tuple[Optional[str], bool]:
+    """Monthly review clock anchored to the confirmed target's market month.
+
+    Returns ``(next_review_date_iso, review_due)``. Pure; degrades to
+    ``(None, False)`` when no anchor date is available.
+    """
+    from datetime import date
+    anchor = _parse_iso_date(target_date) or _parse_iso_date(valuation_date)
+    if anchor is None:
+        return None, False
+    nrd = _next_month_first(anchor)
+    tdy = _parse_iso_date(today) or date.today()
+    return nrd.isoformat(), bool(tdy >= nrd)
+
+
 def _pending_orders(desk_dir=None) -> dict:
     """Fold the desk order ledger for the operational book (read-only replay)."""
     sdir = desk._desk_dir(desk_dir)
@@ -563,7 +608,8 @@ def derive_lifecycle_view(*, initialized: bool, orders: dict, fills_count: int,
 
 def _workflow_view(*, current_status: str, target: Optional[dict],
                    readiness: Optional[dict], initialized: bool,
-                   orders: dict, fills_count: int) -> dict:
+                   orders: dict, fills_count: int,
+                   review_due: bool = False) -> dict:
     """Derive the five-stage operational workflow + precise header status + the
     one next action from the canonical inputs. Pure; no I/O."""
     t_state = (target or {}).get("state")
@@ -574,6 +620,11 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
     proposed = orders.get("awaiting_manual_confirmation") or 0
     awaiting_fill = orders.get("awaiting_fill") or 0
     tracking = current_status in _TRACKING_STATES
+    # Phase 27B.9 — the operational book is ACTIVE when it holds executed positions
+    # and no paper orders are open (fully implemented / forward tracking). An active
+    # book whose scheduled review is not yet due is not flagged for target work.
+    book_active = ((tracking or bool(fills_count))
+                   and not (proposed or awaiting_fill))
     # The deterministic executable order plan EXISTS (buildable now) — generation
     # is complete and the workflow moves to review & confirm (Phase 27B.2).
     plan_exists = bool(initialized and target_confirmed and marks_ready
@@ -583,9 +634,21 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
     # -- stage statuses ---------------------------------------------------- #
     s1 = (ST_COMPLETE if marks_ready else
           ST_NEEDS_ACTION if (initialized and target is not None) else ST_PENDING)
-    s2 = (ST_COMPLETE if target_confirmed else
-          ST_BLOCKED if t_state == "BLOCKED" else
-          ST_NEEDS_ACTION if t_state in ("STALE_TARGET", "READY_TO_CONFIRM") else ST_PENDING)
+    # Stage 2 (Verify Alpha Target): a STALE / READY_TO_CONFIRM target is only
+    # operator-actionable when the book is NOT yet active, or the scheduled review
+    # is due. An active, fully-implemented book whose review is not due keeps the
+    # current target and treats a fresher one as informational (Phase 27B.9).
+    if target_confirmed:
+        s2 = ST_COMPLETE
+    elif t_state == "BLOCKED":
+        s2 = ST_BLOCKED
+    elif t_state in ("STALE_TARGET", "READY_TO_CONFIRM"):
+        s2 = (ST_NEEDS_ACTION if (not book_active or review_due) else ST_COMPLETE)
+    else:
+        s2 = ST_PENDING
+    # A COMPLETE stage-2 on an active/not-due book reads "Current — review not due"
+    # rather than echoing the raw (still-fresh) readiness state.
+    s2_current_not_due = (s2 == ST_COMPLETE and not target_confirmed and book_active)
     if proposed or awaiting_fill or fills_count or tracking or plan_exists:
         s3 = ST_COMPLETE
     elif initialized and target_confirmed:
@@ -602,9 +665,10 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
                                   ("Desk mark %s" % rd.get("desk_mark_date"))) or
          "No desk mark recorded yet"},
         {"stage": 2, "code": STAGE_VERIFY_ALPHA_TARGET, "label": "Verify Alpha Target",
-         "status": s2, "detail": (t_state or "UNAVAILABLE") +
+         "status": s2, "detail": ("Current — review not due" if s2_current_not_due else
+         (t_state or "UNAVAILABLE") +
          ((" · " + str((target or {}).get("alpha_market_date")))
-          if (target or {}).get("alpha_market_date") else "")},
+          if (target or {}).get("alpha_market_date") else ""))},
         {"stage": 3, "code": STAGE_GENERATE_ORDER_PLAN, "label": "Generate Order Plan",
          "status": s3, "detail": ("Order plan ready" if plan_exists else
                                   "Blocked until valid desk marks exist"
@@ -623,7 +687,13 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
                          STAGE_MONITOR if tracking else STAGE_GENERATE_ORDER_PLAN)
 
     # -- precise header status (one value; never legacy-derived) ------------ #
-    if target is None or not target_confirmed:
+    # Phase 27B.9 — an ACTIVE book whose review is not due is FORWARD TRACKING,
+    # even if a fresher (unconfirmed) target exists. This guard MUST precede the
+    # target-confirmation check so a monitoring book is never labelled
+    # "TARGET REFRESH REQUIRED".
+    if book_active and not review_due:
+        header = {"code": HEADER_FORWARD_TRACKING_ACTIVE, "label": "FORWARD TRACKING ACTIVE"}
+    elif target is None or not target_confirmed:
         header = {"code": HEADER_TARGET_REFRESH_REQUIRED, "label": "TARGET REFRESH REQUIRED"}
     elif not marks_ready:
         header = {"code": HEADER_DESK_MARK_REQUIRED, "label": "DESK MARK REQUIRED"}
@@ -639,7 +709,8 @@ def _workflow_view(*, current_status: str, target: Optional[dict],
         header = {"code": HEADER_DESK_MARK_READY,
                   "label": "DESK MARK READY — %s" % rd.get("desk_mark_date")}
     return {"stages": stages, "current_stage": current_stage, "header": header,
-            "marks_ready": marks_ready, "plan_exists": plan_exists}
+            "marks_ready": marks_ready, "plan_exists": plan_exists,
+            "book_active": book_active, "review_due": bool(review_due)}
 
 
 # --------------------------------------------------------------------------- #
@@ -712,9 +783,19 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     implementation_percentage = (round(100.0 * implementation_count / target_count, 2)
                                  if target_count else None)
 
+    # Phase 27B.9 — the canonical scheduled-review clock (monthly cadence). Anchored
+    # to the CONFIRMED target's market month, not the fresher readiness date, so a
+    # newer unconfirmed target does not move the next review earlier.
+    confirmed_target_date = (rd.get("target_market_date")
+                             or (target or {}).get("alpha_market_date"))
+    next_review_date, review_due = _derive_review(
+        target_date=confirmed_target_date,
+        valuation_date=rd.get("desk_mark_date"), today=today)
+
     wf = _workflow_view(current_status=current_status, target=target,
                         readiness=readiness, initialized=initialized,
-                        orders=orders, fills_count=fills_count)
+                        orders=orders, fills_count=fills_count,
+                        review_due=review_due)
 
     # The ONE next action. When the book is initialized but the sizing marks are
     # missing/behind, the desk refresh outranks the plan states.
@@ -758,6 +839,15 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
             else:
                 blockers.append(sb)
     blockers.extend(str(b) for b in (rd.get("blockers") or []))
+    # Phase 27B.9 — a newer/unconfirmed target on an ACTIVE book whose scheduled
+    # review is not due is INFORMATIONAL, never a blocker and never urgent.
+    if (wf.get("book_active") and not review_due
+            and t_state in ("READY_TO_CONFIRM", "STALE_TARGET")):
+        informational.append(
+            "NEXT_CYCLE_TARGET_AVAILABLE: A newer model target is available, but the "
+            "scheduled monthly review is not due until %s. The active paper holdings "
+            "remain valid; no target action is required now."
+            % (next_review_date or "the next review date"))
     integrity = status.get("ledger_integrity") or {}
     if integrity and not integrity.get("all_intact", True):
         blockers.append("LEDGER_INTEGRITY_BROKEN: an append-only desk ledger failed its "
@@ -912,6 +1002,39 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
                          if next_action_code in _PLAN_REVIEW_CODES
                          else "#portfolio-manager")
 
+    # Phase 27B.9 — target-freshness classification + the monitoring next-action
+    # line. On an ACTIVE book, a fresher unconfirmed target that is not yet due
+    # reads "CURRENT TARGET ACTIVE / NEXT-CYCLE TARGET AVAILABLE — REVIEW NOT DUE",
+    # never "NEEDS ACTION". The classification is the ONE source every surface uses.
+    _book_active = bool(wf.get("book_active"))
+    _tstate = (target or {}).get("state")
+    if _book_active and review_due:
+        target_freshness = {
+            "code": "MODEL_REVIEW_DUE", "label": "MODEL REVIEW DUE",
+            "line": ("The scheduled model review is due (%s). Review the alpha target."
+                     % (next_review_date or "now"))}
+    elif _book_active and _tstate in ("READY_TO_CONFIRM", "STALE_TARGET"):
+        target_freshness = {
+            "code": "NEXT_CYCLE_TARGET_AVAILABLE_REVIEW_NOT_DUE",
+            "label": "NEXT-CYCLE TARGET AVAILABLE — REVIEW NOT DUE",
+            "line": ("A newer model target is available; the next scheduled review is "
+                     "%s. The current active paper holdings remain valid."
+                     % (next_review_date or "pending"))}
+    elif _book_active:
+        target_freshness = {
+            "code": "CURRENT_TARGET_ACTIVE", "label": "CURRENT TARGET ACTIVE",
+            "line": ("Current target active. Next scheduled review: %s."
+                     % (next_review_date or "pending"))}
+    else:
+        target_freshness = {
+            "code": "TARGET_%s" % (_tstate or "UNAVAILABLE"),
+            "label": str(_tstate or "UNAVAILABLE").replace("_", " "),
+            "line": (lifecycle["primary_explanation"] or "")}
+    monitor_next_action_line = (
+        ("Monitor holdings, NAV, drift and forward performance."
+         + (" Next model review: %s." % next_review_date if next_review_date else ""))
+        if lifecycle["lifecycle_stage"] == LIFECYCLE_FILLED else None)
+
     canonical_state = {
         "operational_book_id": OPERATIONAL_BOOK_ID,
         "operational_book_name": OPERATIONAL_BOOK_LABEL,
@@ -953,6 +1076,14 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "target_status": (target or {}).get("state"),
         "target_date": operational_book["target_market_date"],
         "target_count": operational_book["target_count"],
+        # -- Phase 27B.9: the canonical scheduled-review clock (one source) ---- #
+        "next_review_date": next_review_date,
+        "review_due": bool(review_due),
+        "review_cadence": REVIEW_CADENCE,
+        "active_target_date": operational_book["target_market_date"],
+        "desk_valuation_date": operational_book["desk_mark_date"],
+        "target_freshness": target_freshness,
+        "monitor_next_action_line": monitor_next_action_line,
         "plan_status": order_plan_status,
         "planned_position_count": plan_summary.get("executable_count"),
         "planned_blocked_count": plan_summary.get("blocked_count"),

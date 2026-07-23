@@ -304,11 +304,14 @@ class TestUiHoldingsTable:
         assert "function renderPortfolioDashboard" in js
 
     def test_all_required_columns_present(self, portfolio_dom):
-        for key in ("ticker", "name", "sector", "quantity", "average_cost",
+        # Phase 27B.9 removed the empty NAME column (no trusted owned name source —
+        # it was dashes only); every other required column remains.
+        for key in ("ticker", "sector", "quantity", "average_cost",
                     "latest_price", "cost_basis", "market_value",
                     "unrealized_pnl", "unrealized_pnl_pct", "current_weight",
                     "target_weight", "weight_drift", "status"):
             assert ('data-key="%s"' % key) in portfolio_dom, key
+        assert 'data-key="name"' not in portfolio_dom     # 27B.9: NAME column gone
 
     def test_compressed_ticker_sentence_is_gone(self, js, portfolio_dom):
         # the old "ALAB × 12 · AMD × 7 …" builder must not exist anywhere

@@ -1962,7 +1962,7 @@
           <div class="cc-statusbar">
             <span class="cc-status-pill"><span id="cc-dot-ready" class="cc-dot"></span><span id="cc-status-ready">System —</span></span>
             <span class="cc-status-pill"><span id="cc-dot-conn" class="cc-dot"></span><span id="cc-status-conn">Disconnected</span></span>
-            <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;" title="Latest mark of the RESEARCH evidence books — never an operational-book warning.">Research mark: <span id="cc-status-mark" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
+            <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;" title="Operational desk valuation date of Alpha Paper Book #1 (the current operating mark). Research dates live only in Research & Audit.">Operational mark: <span id="cc-status-mark" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
             <span class="cc-spacer"></span>
             <span class="cc-badge manual">MANUAL REVIEW</span>
             <span class="cc-badge safe">PAPER ONLY</span>
@@ -2005,6 +2005,7 @@
               <div class="cc-kv" title="Completed owned closes recorded in the desk mark store vs the required latest completed market date."><span class="k">Desk Mark</span><span class="v" id="cc-ob-mark">&mdash;</span></div>
               <div class="cc-kv" title="Target positions the book ACTUALLY holds. A confirmed target weight is not an executed position."><span class="k">Implementation</span><span class="v" id="cc-ob-impl">&mdash;</span></div>
               <div class="cc-kv"><span class="k">Current Status</span><span class="v" id="cc-ob-status">&mdash;</span></div>
+              <div class="cc-kv" title="Next scheduled combined-model review of Alpha Paper Book #1 (monthly cadence). A newer target before this date is informational — the active holdings stay valid."><span class="k">Next Review</span><span class="v" id="cc-ob-review">&mdash;</span></div>
             </div>
             <!-- Phase 27B.2: five-stage operational workflow — statuses come from the
                  canonical payload's workflow_stages, never derived per page. -->
@@ -2126,6 +2127,18 @@
               <button class="cc-btn ghost dw-stage-btn" title="Monitor NAV, fills and pending paper orders on the paper trading desk." onclick="navigateToRoute('portfolio-manager')">Open Paper Desk</button>
             </div>
           </div>
+          <!-- Phase 27B.9 — compact operator summary so the active-book Daily Plan is
+               never empty: the same canonical NAV / cash / holdings / P&L / dates and
+               the ONE monitoring action. -->
+          <div class="dor-grid" id="dwob-summary" style="margin-top:8px;">
+            <div class="cc-kv"><span class="k">NAV</span><span class="v" id="dwob-sum-nav">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Cash</span><span class="v" id="dwob-sum-cash">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Holdings</span><span class="v" id="dwob-sum-holdings">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Unrealized P&amp;L</span><span class="v" id="dwob-sum-upnl">&mdash;</span></div>
+            <div class="cc-kv"><span class="k">Valuation Date</span><span class="v" id="dwob-sum-valdate">&mdash;</span></div>
+            <div class="cc-kv" title="Next scheduled combined-model review (monthly cadence). A newer target before this date is informational."><span class="k">Next Review</span><span class="v" id="dwob-review">&mdash;</span></div>
+          </div>
+          <button id="dwob-monitor-btn" class="cc-btn primary" style="margin-top:6px;font-size:var(--fs-0);padding:4px 10px;" onclick="navigateToPortfolioPositions()" title="Open the Portfolio — the actual filled Alpha Paper Book #1 holdings, valuation and P&amp;L.">Monitor Holdings and Performance</button>
           <div class="cc-na-note" id="dwob-next" style="margin-top:6px; font-size:11px; line-height:1.5;">Next Action: connect to load the operational book.</div>
         </div>
         <!-- ===================== Phase 27B OPERATIONAL BOOK WORKFLOW END ===================== -->
@@ -2402,7 +2415,10 @@
           .pdash-kpi .v{font-size:17px;font-weight:800;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
           .pdash-kpi .sub{font-size:10px;color:var(--muted,#7c8a99);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
           .pdash-pos{color:var(--ok,#22c55e);} .pdash-neg{color:var(--danger,#ef4444);}
-          .pdash-table-scroll{max-height:520px;overflow:auto;border:1px solid var(--border,#1e2a38);border-radius:8px;}
+          /* Phase 27B.9 — no nested vertical scrollbar: the normal page scrollbar
+             shows all 25 holdings. Only horizontal overflow scrolls inside the
+             container (wide 13-column table on narrow viewports). */
+          .pdash-table-scroll{overflow-x:auto;overflow-y:visible;border:1px solid var(--border,#1e2a38);border-radius:8px;}
           table.pdash-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}
           table.pdash-table thead th{position:sticky;top:0;z-index:2;background:var(--panel2,#131c27);color:var(--muted,#9fb0c0);font-weight:700;text-align:right;padding:7px 9px;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--border,#1e2a38);}
           table.pdash-table thead th.lft{text-align:left;}
@@ -2456,6 +2472,9 @@
           <div class="pdash-kpi"><div class="k">Daily P&amp;L</div><div class="v" id="pdash-kpi-dpnl" title="Daily P&amp;L is shown only once positions have been held through a prior completed close — never a fabricated same-day zero.">&mdash;</div><div class="sub" id="pdash-kpi-dpnl-note">&mdash;</div></div>
           <div class="pdash-kpi"><div class="k">Valuation Date</div><div class="v" id="pdash-kpi-valdate" style="font-size:14px;">&mdash;</div><div class="sub">owned desk mark</div></div>
         </div>
+        <!-- Phase 27B.9 — honest P&L context: the initial unrealized loss is the
+             modeled paper execution cost, not a market-direction loss. -->
+        <div id="pdash-pnl-explain" class="pdash-note" style="display:none;margin:-2px 0 6px;">Initial unrealized P&amp;L includes the paper execution cost of 12.5 bps per side. The portfolio begins slightly negative until market gains offset that modeled cost.</div>
 
         <!-- C. Active holdings table -->
         <div class="pt-panel" style="padding:10px;">
@@ -2474,7 +2493,9 @@
             <table class="pdash-table" id="pdash-table">
               <thead><tr id="pdash-thead-row">
                 <th class="lft" data-key="ticker" data-type="str">Ticker</th>
-                <th class="lft" data-key="name" data-type="str">Name</th>
+                <!-- Phase 27B.9: the NAME column was removed — company names are not
+                     available from a trusted owned source on the desk ledgers, so the
+                     column would be dashes only. -->
                 <th class="lft" data-key="sector" data-type="str">Sector</th>
                 <th data-key="quantity" data-type="num">Qty</th>
                 <th data-key="average_cost" data-type="num">Avg Cost</th>
@@ -20391,8 +20412,13 @@ function renderCommandCenter() {
   var dotConn = document.getElementById('cc-dot-conn');
   if (dotConn) dotConn.className = 'cc-dot ' + (sys.connected ? 'ok' : 'warn');
   _ccSetText('cc-status-conn', sys.connected ? 'Connected' : 'Disconnected');
-  _ccSetText('cc-status-mark', (alpha.latest_mark_date || '—') +
-    (alpha.mark_stale ? ' (STALE)' : (alpha.mark_freshness_status ? '' : '')));
+  // Phase 27B.9 — the operator header shows the OPERATIONAL desk valuation date
+  // (Alpha Paper Book #1), never the research/alpha mark. Research dates live only
+  // in Research & Audit and the compact Research Status strip below.
+  var _obCsHdr = (window._obData && (window._obData.canonical_state ||
+    ((window._obData.operational_book || {}).canonical_state))) || null;
+  _ccSetText('cc-status-mark', (_obCsHdr && (_obCsHdr.desk_valuation_date || _obCsHdr.valuation_date)) ||
+    (pf.as_of_market_date || '—'));
   // Header prediction state — reported (configured target) only; never probed here.
   try { if (typeof renderPredictionHeader === 'function') renderPredictionHeader(sys.prediction_tunnel); } catch (e) {}
   // Phase 15-A: market-date alignment summary card + global badge (read-only).
@@ -22867,6 +22893,15 @@ function deriveOperationalBookUiState(d) {
     execModel: cs ? cs.execution_model : null,
     eligibleExplanation: cs ? cs.next_eligible_fill_explanation : null,
     noFurtherConfirmation: !!(cs && cs.no_further_confirmation_required),
+    // Phase 27B.9 — the canonical scheduled-review clock + monitoring next-action
+    // line. Every operator surface reads THESE (one source) so none contradicts.
+    nextReviewDate: cs ? cs.next_review_date : null,
+    reviewDue: !!(cs && cs.review_due),
+    reviewCadence: cs ? cs.review_cadence : null,
+    valuationDate: cs ? (cs.desk_valuation_date || cs.valuation_date) : null,
+    activeTargetDate: cs ? (cs.active_target_date || cs.target_date) : null,
+    targetFreshness: cs ? cs.target_freshness : null,
+    monitorLine: cs ? cs.monitor_next_action_line : null,
   };
 }
 window.deriveOperationalBookUiState = deriveOperationalBookUiState;
@@ -23039,7 +23074,6 @@ function _pdRenderRows() {
     var r = rows[i];
     html += '<tr>' +
       '<td class="lft"><span class="pdash-tk">' + escapeHtml(r.ticker) + '</span></td>' +
-      '<td class="lft">' + escapeHtml(r.name || '—') + '</td>' +
       '<td class="lft">' + escapeHtml(r.sector || '—') + '</td>' +
       '<td>' + _pdNum(r.quantity, 0) + '</td>' +
       '<td>' + _pdNum(r.average_cost) + '</td>' +
@@ -23139,6 +23173,14 @@ function renderPortfolioDashboard(d) {
   if (upnlEl) { upnlEl.textContent = _pdSignedMoney(upnl); upnlEl.className = 'v ' + _pdCls(upnl); }
   var uretEl = document.getElementById('pdash-kpi-uret');
   if (uretEl) { uretEl.textContent = _pdSignedPct(uret); uretEl.className = 'v ' + _pdCls(uret); }
+  // Phase 27B.9 — show the execution-cost explanation while the book sits at (or
+  // near) its initial cost-only mark: unrealized P&L negative and no daily P&L yet.
+  var pnlExpl = document.getElementById('pdash-pnl-explain');
+  if (pnlExpl) {
+    var atInitialMark = (hd && hd.length) && (upnl != null && upnl < 0) &&
+      !(ps && ps.daily_pnl_available);
+    pnlExpl.style.display = atInitialMark ? '' : 'none';
+  }
   _obSet('pdash-kpi-costbasis', (ps && ps.cost_basis_total != null) ? ('cost basis ' + _obMoney(ps.cost_basis_total)) : '—');
   var dpnlEl = document.getElementById('pdash-kpi-dpnl');
   var dpnlAvail = !!(ps && ps.daily_pnl_available && ps.daily_pnl != null);
@@ -23148,7 +23190,7 @@ function renderPortfolioDashboard(d) {
   }
   _obSet('pdash-kpi-dpnl-note', dpnlAvail
     ? (_pdSignedPct(ps.daily_pnl_pct) + ' vs ' + _pdDateHuman(ps.daily_pnl_basis_date))
-    : 'not held through a prior close yet');
+    : 'Not available — first full holding day pending');
   _obSet('pdash-kpi-valdate', _pdDateHuman(valDate));
 
   // C. Holdings table (or the pre-fill empty state).
@@ -23210,14 +23252,23 @@ function renderPortfolioDashboard(d) {
   var sectEl = document.getElementById('pdash-sum-sector');
   if (sectEl) {
     var se = (ps && ps.sector_exposure) || [];
+    // Phase 27B.9 — the card is labelled "Sector Exposure", so show EVERY
+    // represented sector (never a silently truncated subset).
     sectEl.innerHTML = se.length
-      ? se.slice(0, 6).map(function (s) { return '<div class="row"><span>' + escapeHtml(s.sector) + '</span><span>' + _pdPct(s.weight) + '</span></div>'; }).join('')
+      ? se.map(function (s) { return '<div class="row"><span>' + escapeHtml(s.sector) + '</span><span>' + _pdPct(s.weight) + '</span></div>'; }).join('')
       : '<span class="pdash-note">—</span>';
   }
   var lg = document.getElementById('pdash-sum-largest');
   if (lg) lg.innerHTML = _pdMiniList(ps && ps.largest_positions, function (r) { return _pdPct(r.current_weight); });
+  // Phase 27B.9 — at the initial cost-only mark every name shows the same small
+  // negative (the execution cost), so Best == Worst is misleading. When no holding
+  // is positive yet, state that plainly for Best instead of a duplicate list.
+  var _perf = (ps && ps.best_performers) || [];
+  var _anyPositive = _perf.some(function (r) { return r.unrealized_pnl_pct != null && r.unrealized_pnl_pct > 0; });
   var bp = document.getElementById('pdash-sum-best');
-  if (bp) bp.innerHTML = _pdMiniList(ps && ps.best_performers, function (r) { return '<span class="' + _pdCls(r.unrealized_pnl_pct) + '">' + _pdSignedPct(r.unrealized_pnl_pct) + '</span>'; });
+  if (bp) bp.innerHTML = _anyPositive
+    ? _pdMiniList(ps && ps.best_performers, function (r) { return '<span class="' + _pdCls(r.unrealized_pnl_pct) + '">' + _pdSignedPct(r.unrealized_pnl_pct) + '</span>'; })
+    : '<span class="pdash-note">No positive performers yet — initial execution-cost mark.</span>';
   var wp = document.getElementById('pdash-sum-worst');
   if (wp) wp.innerHTML = _pdMiniList(ps && ps.worst_performers, function (r) { return '<span class="' + _pdCls(r.unrealized_pnl_pct) + '">' + _pdSignedPct(r.unrealized_pnl_pct) + '</span>'; });
   var dr = document.getElementById('pdash-sum-drift');
@@ -23289,11 +23340,31 @@ function renderOperationalBook(d) {
     var badge = document.getElementById(pair[1]);
     if (badge) {
       badge.textContent = displayStateTxt;
-      badge.className = 'cc-badge ' + (!ob ? 'danger' :
-        (t && t.state === 'STALE_TARGET') ? 'manual' :
-        (ob.initialized ? 'safe' : 'muted'));
+      // Phase 27B.9 — an ACTIVE book whose review is not due is never amber: a
+      // fresher (unconfirmed) target is informational, not a "stale" warning.
+      var badgeCls = !ob ? 'danger'
+        : (view.lifecycleStage === 'FILLED') ? 'safe'
+        : (t && t.state === 'STALE_TARGET' && !(view.reviewDue === false && view.lifecycleStage === 'FILLED')) ? 'manual'
+        : (ob.initialized ? 'safe' : 'muted');
+      badge.className = 'cc-badge ' + badgeCls;
     }
   });
+
+  // Phase 27B.9 — operator header mark = OPERATIONAL desk valuation date (single
+  // source), and the canonical Next Review clock on the Command Center card.
+  if (ob) {
+    _obSet('cc-status-mark', view.valuationDate || (ob.desk_mark_date || '—'));
+    var revTxt = view.nextReviewDate
+      ? (view.nextReviewDate + (view.reviewDue ? ' · REVIEW DUE' : ' · review not due'))
+      : '—';
+    _obSet('cc-ob-review', revTxt);
+    _obSet('dwob-review', revTxt);
+  }
+  // Phase 27B.9 — once the book is ACTIVE the canonical next action is monitoring;
+  // the line names the next scheduled review so no surface implies target urgency.
+  if (ob && view.lifecycleStage === 'FILLED' && view.monitorLine) {
+    nextTxt = 'Next Action: ' + view.monitorLine;
+  }
 
   // Phase 27B.2 — canonical headline + the ONE primary action (CC card + PM card).
   // Phase 27B.5: once paper orders exist the lifecycle headline owns the card
@@ -23344,6 +23415,20 @@ function renderOperationalBook(d) {
   // payload (workflow_stages), never derived per-page.
   var dwState = document.getElementById('dwob-state');
   if (dwState) { dwState.textContent = displayStateTxt; dwState.className = 'cc-badge ' + (ob ? (ob.initialized ? 'safe' : 'muted') : 'danger'); }
+  // Phase 27B.9 — compact operator summary on the Daily Plan (canonical values).
+  if (cs) {
+    _obSet('dwob-sum-nav', cs.nav != null ? _obMoney(cs.nav) : '—');
+    _obSet('dwob-sum-cash', cs.cash != null ? _obMoney(cs.cash) : '—');
+    _obSet('dwob-sum-holdings', cs.holdings_count != null ? String(cs.holdings_count) : holdings);
+    var dwUpnl = document.getElementById('dwob-sum-upnl');
+    if (dwUpnl) {
+      dwUpnl.textContent = cs.unrealized_pnl != null ? _pdSignedMoney(cs.unrealized_pnl) : '—';
+      dwUpnl.className = 'v ' + (cs.unrealized_pnl != null ? _pdCls(cs.unrealized_pnl) : '');
+    }
+    _obSet('dwob-sum-valdate', view.valuationDate || cs.valuation_date || '—');
+  }
+  var dwMonBtn = document.getElementById('dwob-monitor-btn');
+  if (dwMonBtn) dwMonBtn.style.display = (view.lifecycleStage === 'FILLED') ? '' : 'none';
   // Phase 27B.5: the Daily Workflow states the canonical current task —
   // "Await Next Eligible Close" is a normal waiting state, never an error.
   _obSet('dwob-next', (ob && view.ordersExist && view.currentTask)
@@ -23459,9 +23544,11 @@ function renderOperationalBook(d) {
       ? view.currentTask : _obTaskLabel(nextCode));
     _obSet('right-next-action', view.waiting
       ? ('Wait for an eligible completed close. Then run ' + primaryLabel + '.')
-      : (view.ordersExist && view.explanation)
-        ? view.explanation
-        : (ob.next_action_label || ob.next_action || '—'));
+      : (view.lifecycleStage === 'FILLED' && view.monitorLine)
+        ? view.monitorLine
+        : (view.ordersExist && view.explanation)
+          ? view.explanation
+          : (ob.next_action_label || ob.next_action || '—'));
     var btn = document.getElementById('right-primary-action-btn');
     if (btn) {
       btn.textContent = primaryLabel;
