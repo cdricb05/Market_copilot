@@ -516,15 +516,32 @@ class TestDates:
         assert "valuation" in s["date_labels"]["portfolio_valuation_date"].lower()
 
     def test_misalignment_warning_when_dates_differ(self, env, monkeypatch):
-        monkeypatch.setattr(pm, "_VALUATION_LOADER", lambda: _fake_valuation(
-            positions=[_pos("AAA")], as_of="2026-07-10"))
+        # Phase 27D: the operator date warning is driven by the CANONICAL OPERATIONAL
+        # dates (the daily action gate), never the archived/reconstructed legacy
+        # portfolio valuation date. A genuine operational mismatch (model market date
+        # vs operational desk mark date) produces a precise, sourced warning.
+        monkeypatch.setattr(pm, "_DAILY_ACTION_GATE_LOADER", lambda current=None: {
+            "outcome": "DATA_NOT_READY", "outcome_label": "DATA NOT READY",
+            "operational_dates": {
+                "latest_completed_market_date": "2026-07-22",
+                "desk_mark_date": "2026-07-20",
+                "book_valuation_date": "2026-07-20"}})
         s = pm.load_summary()
-        assert any("Date misalignment" in w for w in s["date_warnings"])
-        assert any("NOT collapsed into one date" in w for w in s["date_warnings"])
+        assert any("Operational date misalignment" in w for w in s["date_warnings"])
+        assert any("2026-07-22" in w and "2026-07-20" in w for w in s["date_warnings"])
+        assert any("desk mark" in w.lower() for w in s["date_warnings"])
 
-    def test_no_misalignment_warning_when_dates_match(self, env):
-        s = pm.load_summary()  # fixture valuation as_of == market_as_of == 2026-07-17
-        assert not any("Date misalignment" in w for w in s["date_warnings"])
+    def test_no_misalignment_warning_when_dates_match(self, env, monkeypatch):
+        # Phase 27D: the archived legacy portfolio date no longer produces a false
+        # operator misalignment; when the canonical OPERATIONAL dates agree there is
+        # no warning at all.
+        monkeypatch.setattr(pm, "_DAILY_ACTION_GATE_LOADER", lambda current=None: {
+            "outcome": "NO_ACTION_TODAY", "outcome_label": "NO ACTION TODAY",
+            "operational_dates": {
+                "latest_completed_market_date": "2026-07-17",
+                "desk_mark_date": "2026-07-17", "book_valuation_date": "2026-07-17"}})
+        s = pm.load_summary()
+        assert not any("misalignment" in w.lower() for w in s["date_warnings"])
 
     def test_not_ready_when_inputs_stale(self, env):
         _write_fund_panel(env["panel"], month="2026-02", extra_months=())

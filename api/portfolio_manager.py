@@ -146,6 +146,10 @@ def _daily_gate_block(current=None) -> dict:
         "available": True,
         "outcome": g.get("outcome"),
         "outcome_label": g.get("outcome_label"),
+        # Phase 27D — the ONE canonical operator target state (drives every surface;
+        # never re-derived on the page, so a stale "READY TO CONFIRM" cannot appear).
+        "target_state": g.get("target_state"),
+        "target_state_label": g.get("target_state_label"),
         "headline": g.get("headline"),
         "explanation": g.get("explanation"),
         "action_required": g.get("action_required"),
@@ -154,6 +158,7 @@ def _daily_gate_block(current=None) -> dict:
         "current_task": g.get("current_task"),
         "evaluation_date": g.get("evaluation_date"),
         "latest_completed_market_date": g.get("latest_completed_market_date"),
+        "desk_mark_date": g.get("desk_mark_date"),
         "next_scheduled_full_review": g.get("next_scheduled_full_review"),
         "scheduled_review_due": g.get("scheduled_review_due"),
         "trigger_categories": g.get("trigger_categories") or [],
@@ -168,7 +173,66 @@ def _daily_gate_block(current=None) -> dict:
         "current_target_count": g.get("current_target_count"),
         "actual_holding_count": g.get("actual_holding_count"),
         "target_actual_match": g.get("target_actual_match"),
+        # Phase 27D — the canonical daily risk / control checks + operational dates.
+        "checks_performed": g.get("checks_performed") or [],
+        "checks_summary": g.get("checks_summary") or {},
+        "operational_dates": g.get("operational_dates") or {},
         "data_ready": g.get("data_ready"),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27E - the canonical EXPLICIT DAILY CLOSE (single source; passthrough only)
+# --------------------------------------------------------------------------- #
+def _default_daily_close_loader() -> dict:
+    from paper_trader.api import daily_close as dclose
+    return dclose.load_daily_close()
+
+
+# Injection seam for tests; degrade-only. The Portfolio Manager NEVER re-derives
+# the daily-close status — it passes through the ONE canonical contract verbatim.
+_DAILY_CLOSE_LOADER = _default_daily_close_loader
+
+
+def _daily_close_block() -> dict:
+    """Compact passthrough of the canonical daily-close status (Phase 27E). The
+    Portfolio Manager becomes a decision workspace around THIS status: for a
+    documented HOLD it shows the recorded review and hides target / snapshot /
+    order confirmation controls; for a proposal it shows the affected changes.
+    Degrades to unavailable; never raises."""
+    try:
+        d = _DAILY_CLOSE_LOADER() or {}
+    except Exception:  # noqa: BLE001 - the PM page must load even without it
+        return {"available": False}
+    if not d.get("close_status"):
+        return {"available": False}
+    return {
+        "available": True,
+        "close_status": d.get("close_status"),
+        "close_status_label": d.get("close_status_label"),
+        "headline": d.get("headline"),
+        "explanation": d.get("explanation"),
+        "severity": d.get("severity"),
+        "daily_cycle_label": d.get("daily_cycle_label"),
+        "current_task": d.get("current_task"),
+        "next_action": d.get("next_action"),
+        "primary_action": d.get("primary_action") or {},
+        "requires_close_run": bool(d.get("requires_close_run")),
+        "decision": d.get("decision"),
+        "decision_recorded": bool(d.get("decision_recorded")),
+        "latest_eligible_market_date": d.get("latest_eligible_market_date"),
+        "last_processed_market_date": d.get("last_processed_market_date"),
+        "current_valuation_date": d.get("current_valuation_date"),
+        "next_scheduled_full_review": d.get("next_scheduled_full_review"),
+        "scheduled_review_due": d.get("scheduled_review_due"),
+        "pnl": d.get("pnl"),
+        "proposal": d.get("proposal"),
+        "proposed_change_count": d.get("proposed_change_count"),
+        "checks_summary": d.get("checks_summary") or {},
+        "target_state": d.get("target_state"),
+        "target_state_label": d.get("target_state_label"),
+        "daily_cycle_stages": d.get("daily_cycle_stages") or [],
+        "operational_dates": d.get("operational_dates") or {},
     }
 
 
@@ -342,14 +406,25 @@ def _context(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec_pat
 DATE_LABELS = {
     "decision_date": "Decision date (today's calendar date)",
     "latest_alpha_market_date": "Current alpha calculation market date (owned research store)",
-    "portfolio_valuation_date": "Portfolio EOD valuation date (executed paper portfolio mark)",
+    "portfolio_valuation_date": "Archived legacy paper portfolio valuation date (reconstructed history — NOT the operational book)",
     "fundamental_as_of_date": "Fundamental data as-of date (frozen owned panel)",
     "last_confirmed_snapshot_date": "Last confirmed paper-alpha snapshot market date",
     "next_manual_review_date": "Next scheduled manual review date (combined sleeve)",
 }
 
 
-def _dates_block(ctx: dict) -> tuple[dict, list[str]]:
+def _dates_block(ctx: dict, operational_dates: Optional[dict] = None) -> tuple[dict, list[str]]:
+    """Return the labeled date dictionary + the OPERATOR-facing date warnings.
+
+    Phase 27D: the operator-facing misalignment warning compares the CANONICAL
+    OPERATIONAL dates only (the daily-gate market date, the operational desk mark
+    date and the active book valuation date). It never compares the current
+    operational model data against the ARCHIVED / reconstructed legacy paper
+    portfolio valuation date (``portfolio_valuation_date``) — that produced a false
+    "2026-07-22 vs 2026-07-20" misalignment even though the operational book and
+    the model agree. The archived legacy date stays in ``dates`` (labeled archived)
+    for the collapsed Advanced / Audit strip only.
+    """
     cur, state, val = ctx["cur"], ctx["state"], ctx["valuation"]
     combined_sleeve = None
     for s in state.get("sleeves", []):
@@ -364,25 +439,28 @@ def _dates_block(ctx: dict) -> tuple[dict, list[str]]:
         "next_manual_review_date": (combined_sleeve or {}).get("next_manual_review_date"),
     }
     warnings: list[str] = []
-    amd, pvd = dates["latest_alpha_market_date"], dates["portfolio_valuation_date"]
-    if amd and pvd and amd[:10] != str(pvd)[:10]:
+    od = operational_dates or {}
+    op_fields = [
+        ("current alpha calculation market date", od.get("latest_completed_market_date"),
+         "owned research store"),
+        ("operational desk mark date", od.get("desk_mark_date"),
+         "append-only desk mark store"),
+        ("active book valuation date", od.get("book_valuation_date"),
+         "ledger-replayed operational book"),
+    ]
+    present = [(lbl, str(d)[:10], src) for lbl, d, src in op_fields if d]
+    if len({d for _, d, _ in present}) > 1:
         warnings.append(
-            "Date misalignment: the current alpha calculation market date (%s) and the portfolio "
-            "EOD valuation date (%s) differ. Each figure on this page is labeled with its own date; "
-            "they are intentionally NOT collapsed into one date." % (amd[:10], str(pvd)[:10]))
+            "Operational date misalignment: " + "; ".join(
+                "%s = %s (%s)" % (lbl, d, src) for lbl, d, src in present) +
+            ". Run the manual after-market desk refresh so the operational dates align before "
+            "acting on the daily gate.")
     fund_month = cur.get("fundamental_month")
     if ctx["ready"] and eng._is_fundamental_stale(fund_month, cur.get("market_as_of_date")):
         warnings.append(
             "Fundamental data is stale: the fundamental panel month (%s) lags the market date (%s) "
             "by more than one quarter. Fundamental-led decisions are blocked until refresh."
             % (fund_month, cur.get("market_as_of_date")))
-    if val.get("available") and val.get("freshness_status") == portfolio_valuation.STALE:
-        warnings.append(
-            "The executed-portfolio valuation mark is STALE (%s calendar days old). Run the manual "
-            "daily operating session to refresh owned EOD prices." % val.get("age_calendar_days"))
-    if not val.get("available"):
-        warnings.append("Portfolio valuation is unavailable (database not reachable or not seeded); "
-                        "executed-portfolio figures are missing, not zero.")
     return dates, warnings
 
 
@@ -944,10 +1022,13 @@ def load_summary(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
     health_items = _health_items(ctx)
     ops = _operational_book_block()
     daily_gate = _daily_gate_block(current=ctx["cur"])
+    daily_close = _daily_close_block()
     headline, reason = _decision(ctx, changes, health_items, ops)
     rows = _action_rows(ctx)
     counts = _action_counts(rows)
-    dates, date_warnings = _dates_block(ctx)
+    # Phase 27D — the operator date warning is driven by the canonical OPERATIONAL
+    # dates (from the daily action gate), never the archived legacy portfolio date.
+    dates, date_warnings = _dates_block(ctx, operational_dates=daily_gate.get("operational_dates"))
     val = ctx["valuation"]
     rec = ctx["rec"] or {}
     book = ctx["cur"]["books"]["books"].get(PRIMARY_BOOK_ID) if ctx["ready"] else None
@@ -986,6 +1067,12 @@ def load_summary(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
         # verbatim passthrough so the daily task / next action / severity match every
         # other operator surface and are never re-derived on the page.
         "daily_action_gate": daily_gate,
+        # Phase 27E — the canonical EXPLICIT DAILY CLOSE (single source: /v1/
+        # operations/daily-close). Verbatim passthrough so the Portfolio Manager,
+        # Command Center, Daily Workflow and right panel show the SAME daily-close
+        # status, decision, P&L and next action, and the PM hides non-applicable
+        # confirmation controls on a documented HOLD.
+        "daily_close": daily_close,
         # Phase 27B.1: the ONE operational book + its implementation state. The
         # legacy "portfolio" block below is the ARCHIVED executed paper portfolio.
         "operational_book": ops,

@@ -197,9 +197,10 @@ class TestEconomicGate:
         r = dag.evaluate_daily_action_gate(holdings=h, target=tg, target_count=4,
                                            scheduled_review_due=False, data_ready=True)
         assert r["outcome"] == dag.OUTCOME_NO_ACTION_TODAY
-        assert dag.TRIGGER_ECONOMIC_GATE in r["trigger_categories"]
+        # Phase 27D renamed the economic gate to the accurate materiality / cost-control check.
+        assert dag.TRIGGER_MATERIALITY_COST_CONTROL in r["trigger_categories"]
         assert len(r["blocked_changes"]) == 1
-        assert r["blocked_changes"][0]["blocked_reason"] == "ECONOMIC_THRESHOLD_NOT_MET"
+        assert r["blocked_changes"][0]["blocked_reason"] == "MATERIALITY_FLOOR_NOT_MET"
 
     def test_hard_event_bypasses_economic_floor(self):
         # a tiny drift on A + a hard eligibility on D -> proposal is NOT suppressed
@@ -476,7 +477,9 @@ class TestUiStaticNavCutover:
 
     def test_model_target_rename(self, html):
         i_research = html.index('<div class="sidebar-label">Research</div>')
-        i_actions = html.index('<div class="sidebar-label">Actions</div>')
+        # Phase 27E renamed the "Actions" sidebar group to the collapsed
+        # SYSTEM / MAINTENANCE section; it is the boundary after Research.
+        i_actions = html.index('SYSTEM / MAINTENANCE')
         research_block = html[i_research:i_actions]
         assert ">Model Target</a>" in research_block
         assert 'data-route="multi-horizon"' in research_block

@@ -1937,9 +1937,14 @@
       <a class="sidebar-link" id="nav-research-audit" data-route="research-audit" onclick="navigateToRoute('research-audit');">Research &amp; Audit</a>
     </div>
     <div class="sidebar-section">
-      <div class="sidebar-label">Actions</div>
-      <a class="sidebar-link" onclick="window.runUiAction('Refresh Workflow Status', () => refreshWorkflowStatus(), this);">Refresh Status</a>
-      <a class="sidebar-link" onclick="refresh();">Full Refresh</a>
+      <!-- Phase 27E: generic technical refresh actions are diagnostics — collapsed under
+           SYSTEM / MAINTENANCE so they never compete with the daily operating workflow. -->
+      <details id="sidebar-system-maintenance">
+        <summary class="sidebar-label" style="cursor:pointer;list-style:none;">SYSTEM / MAINTENANCE</summary>
+        <div style="font-size:9px;color:var(--label);margin:2px 0 4px;padding-left:2px;">Diagnostics only &mdash; not the daily trading workflow.</div>
+        <a class="sidebar-link" onclick="window.runUiAction('Refresh Workflow Status', () => refreshWorkflowStatus(), this);">Refresh Status</a>
+        <a class="sidebar-link" onclick="refresh();">Full Refresh</a>
+      </details>
     </div>
   </div>
 
@@ -1977,6 +1982,41 @@
 
           <div id="cc-error" class="cc-error" style="display:none;"></div>
 
+          <!-- ===================== Phase 27E TODAY'S DAILY CLOSE ===================== -->
+          <!-- The FIRST primary operator card. ONE canonical daily-close status from
+               /v1/operations/daily-close drives the primary action: Run Daily Close
+               (when due), View Today's Daily Review (documented HOLD), Review
+               Rebalance Proposal, Monitor Pending Paper Orders, Review Data Blocker
+               or Await Next Completed Close. "Monitor Holdings" is never the only
+               action before today's close has been recorded. Paper only, manual. -->
+          <div id="cc-dc-card" class="cc-panel" style="border-left:3px solid var(--info,#3b82f6);display:none;">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title">Today&rsquo;s Daily Close &mdash; Alpha Paper Book #1</span>
+              <span class="cc-badge" id="cc-dc-badge" title="The canonical daily-close status for Alpha Paper Book #1.">&mdash;</span>
+              <span class="cc-badge safe">MANUAL REVIEW</span>
+              <span class="cc-badge safe">PAPER ONLY</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest eligible completed market date to process."><span class="k">Latest Eligible</span><span class="v" id="cc-dc-latest">&mdash;</span></span>
+              <span class="cc-kv" style="font-size:var(--fs-0);" title="Last completed daily-close market date."><span class="k">Last Processed</span><span class="v" id="cc-dc-processed">&mdash;</span></span>
+              <span class="cc-kv" style="font-size:var(--fs-0);" title="Current operational valuation date."><span class="k">Valuation</span><span class="v" id="cc-dc-valdate">&mdash;</span></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;">
+              <div id="cc-dc-headline" style="font-size:16px;font-weight:900;letter-spacing:.02em;">Resolving today&rsquo;s daily close&hellip;</div>
+              <button id="cc-dc-btn" class="cc-btn primary" style="display:none;" onclick="dailyClosePrimaryAction(this)" title="The one required daily action.">Run Daily Close</button>
+            </div>
+            <div id="cc-dc-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+            <div id="cc-dc-kpis" style="display:none;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:11px;">
+              <span class="cc-kv" title="Net asset value (cash + marked holdings)."><span class="k">NAV</span><span class="v" id="cc-dc-nav">&mdash;</span></span>
+              <span class="cc-kv" title="Daily P&amp;L vs the prior completed operational NAV."><span class="k">Daily P&amp;L</span><span class="v" id="cc-dc-dpnl">&mdash;</span></span>
+              <span class="cc-kv" title="Cumulative P&amp;L vs the starting virtual capital."><span class="k">Cumulative P&amp;L</span><span class="v" id="cc-dc-cpnl">&mdash;</span></span>
+              <span class="cc-kv" title="Cumulative return."><span class="k">Cum Ret</span><span class="v" id="cc-dc-cret">&mdash;</span></span>
+              <span class="cc-kv" title="Excess return vs SPY."><span class="k">Excess vs SPY</span><span class="v" id="cc-dc-excess">&mdash;</span></span>
+              <span class="cc-kv" title="Current drawdown."><span class="k">Drawdown</span><span class="v" id="cc-dc-dd">&mdash;</span></span>
+              <span class="cc-kv" title="Proposed portfolio changes from today's close."><span class="k">Proposed Changes</span><span class="v" id="cc-dc-changes">&mdash;</span></span>
+            </div>
+            <div id="cc-dc-checks" class="mono" style="display:none;font-size:11px;margin-top:6px;color:var(--label);" title="Canonical daily risk / control checks — full detail on Portfolio Manager and Daily Workflow.">&mdash;</div>
+          </div>
+
           <!-- ===================== Phase 27C DAILY ACTION GATE ===================== -->
           <!-- The ONE canonical daily result. Every operator surface (Command Center,
                Daily Workflow, Portfolio Manager, right panel) derives its current task
@@ -1988,6 +2028,7 @@
             <div class="cc-preview-hd" style="align-items:center;">
               <span class="cc-panel-title">Daily Action Gate &mdash; Today</span>
               <span class="cc-badge" id="cc-dag-badge" title="The canonical daily action-gate outcome for Alpha Paper Book #1.">&mdash;</span>
+              <span class="cc-badge" id="cc-dag-tstate" style="display:none;" title="Canonical target state (single source; drives every operator surface).">&mdash;</span>
               <span class="cc-badge safe">MANUAL REVIEW</span>
               <span class="cc-spacer" style="flex:1;"></span>
               <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest completed market date the model evaluated (owned data)."><span class="k">Market Date</span><span class="v" id="cc-dag-market">&mdash;</span></span>
@@ -1998,6 +2039,7 @@
               <button id="cc-dag-btn" class="cc-btn primary" style="display:none;" onclick="dagPrimaryAction()" title="The one primary action for today's daily gate result.">Monitor Holdings and Performance</button>
             </div>
             <div id="cc-dag-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+            <div id="cc-dag-checks" class="mono" style="display:none;font-size:11px;margin-top:5px;color:var(--label);" title="Canonical daily risk / control checks — full detail on Portfolio Manager and Daily Workflow.">&mdash;</div>
             <div id="cc-dag-changes" class="mono" style="display:none;font-size:11px;margin-top:6px;line-height:1.5;"></div>
           </div>
 
@@ -2111,6 +2153,26 @@
       <!-- TAB 1: DAILY PLAN -->
       <div id="tab-prediction-cockpit" class="tab-content">
 
+        <!-- ===================== Phase 27E DAILY CLOSE (primary daily action) ===================== -->
+        <div id="dw-dc-card" class="dw-terminal" style="border-left:3px solid var(--info,#3b82f6); margin-bottom:10px; display:none;">
+          <div class="dw-hd">
+            <span class="dw-hd-title">Today&rsquo;s Daily Close &mdash; Alpha Paper Book #1</span>
+            <span class="cc-badge" id="dw-dc-badge">&mdash;</span>
+            <span class="cc-badge safe">MANUAL REVIEW</span>
+            <span class="cc-badge safe">PAPER ONLY</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest eligible completed market date."><span class="k">Latest Eligible</span><span class="v" id="dw-dc-latest">&mdash;</span></span>
+            <span class="cc-kv" style="font-size:var(--fs-0);" title="Last completed daily-close market date."><span class="k">Last Processed</span><span class="v" id="dw-dc-processed">&mdash;</span></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;">
+            <div id="dw-dc-headline" style="font-size:15px;font-weight:900;letter-spacing:.02em;">Resolving today&rsquo;s daily close&hellip;</div>
+            <button id="dw-dc-btn" class="cc-btn primary" style="display:none;" onclick="dailyClosePrimaryAction(this)">Run Daily Close</button>
+          </div>
+          <div id="dw-dc-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+          <!-- The explicit five-stage daily operating cycle -->
+          <div id="dw-dc-cycle" style="display:none;margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+
         <!-- ===================== Phase 27C DAILY ACTION GATE ===================== -->
         <!-- Today's canonical daily gate outcome (same /v1/operations/daily-action-gate
              payload as the Command Center). This is the primary result the operator
@@ -2120,6 +2182,7 @@
           <div class="dw-hd">
             <span class="dw-hd-title">Daily Action Gate</span>
             <span class="cc-badge" id="dw-dag-badge">&mdash;</span>
+            <span class="cc-badge" id="dw-dag-tstate" style="display:none;" title="Canonical target state (single source).">&mdash;</span>
             <span class="cc-badge safe">MANUAL REVIEW</span>
             <span class="cc-spacer" style="flex:1;"></span>
             <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest completed market date evaluated (owned data)."><span class="k">Data Date</span><span class="v" id="dw-dag-market">&mdash;</span></span>
@@ -2131,6 +2194,21 @@
           </div>
           <div id="dw-dag-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
           <div id="dw-dag-changes" class="mono" style="display:none;font-size:11px;margin-top:6px;line-height:1.5;"></div>
+        </div>
+        <!-- Phase 27D: CHECKS PERFORMED TODAY — the canonical daily risk / control
+             checks (13). Compact chips + a collapsed detail; every status/threshold
+             comes from the backend gate contract (JS only renders it). -->
+        <div id="dw-checks-card" class="dw-terminal" style="margin-bottom:10px;display:none;">
+          <div class="dw-hd">
+            <span class="dw-hd-title">Checks Performed Today</span>
+            <span class="cc-badge" id="dw-checks-summary" title="Daily risk / control checks completed.">&mdash;</span>
+            <span class="cc-badge safe">READ-ONLY</span>
+          </div>
+          <div id="dw-checks-body" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+          <details style="margin-top:8px;">
+            <summary style="cursor:pointer;font-size:10px;color:var(--label);">Check detail &mdash; source &amp; thresholds</summary>
+            <div id="dw-checks-detail" class="mono" style="font-size:10px;margin-top:6px;line-height:1.5;"></div>
+          </details>
         </div>
 
         <!-- ===================== Phase 27B OPERATIONAL BOOK WORKFLOW ===================== -->
@@ -2261,6 +2339,41 @@
           </details>
         </div>
 
+        <!-- ===================== Phase 27E DAILY PERFORMANCE — ALPHA PAPER BOOK #1 ===================== -->
+        <!-- The forward daily-mark performance of the operational book, from the ONE
+             canonical /v1/operations/daily-close payload (NAV, daily + cumulative P&L,
+             SPY, excess, drawdown, and the last daily-close status). Honest daily P&L:
+             unavailable on the first mark after implementation (no prior operational
+             NAV). Read-only; paper only. -->
+        <div class="pt-panel" id="dc-perf-panel" style="border-left:3px solid var(--info,#3b82f6);margin-bottom:8px;display:none;">
+          <div class="cc-preview-hd" style="align-items:center;">
+            <span class="dw-hd-title">Daily Performance &mdash; Alpha Paper Book #1</span>
+            <span class="cc-badge" id="dc-perf-status" title="Last daily-close status.">&mdash;</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <button class="cc-btn primary" id="dc-perf-btn" style="display:none;" onclick="dailyClosePrimaryAction(this)" title="The one required daily action.">Run Daily Close</button>
+          </div>
+          <div class="pdash-kpi-row" id="dc-perf-kpis" style="grid-template-columns:repeat(6,1fr);">
+            <div class="pdash-kpi"><div class="k">NAV</div><div class="v" id="dc-perf-nav">&mdash;</div><div class="sub" id="dc-perf-valdate">&mdash;</div></div>
+            <div class="pdash-kpi"><div class="k">Daily P&amp;L</div><div class="v" id="dc-perf-dpnl">&mdash;</div><div class="sub" id="dc-perf-dret">&mdash;</div></div>
+            <div class="pdash-kpi"><div class="k">Cumulative P&amp;L</div><div class="v" id="dc-perf-cpnl">&mdash;</div><div class="sub" id="dc-perf-cret">&mdash;</div></div>
+            <div class="pdash-kpi"><div class="k">SPY Return</div><div class="v" id="dc-perf-spy">&mdash;</div><div class="sub">cumulative</div></div>
+            <div class="pdash-kpi"><div class="k">Excess vs SPY</div><div class="v" id="dc-perf-excess">&mdash;</div><div class="sub">cumulative</div></div>
+            <div class="pdash-kpi"><div class="k">Drawdown</div><div class="v" id="dc-perf-dd">&mdash;</div><div class="sub">current</div></div>
+          </div>
+          <div id="dc-perf-firstnote" class="pdash-note" style="display:none;margin:-2px 0 6px;"></div>
+          <div id="dc-perf-empty" class="cc-na-note" style="display:none;font-size:11px;">No completed daily close yet. Run the daily close to mark the book and record the first performance row.</div>
+          <div class="pdash-table-scroll" id="dc-perf-table-wrap" style="display:none;max-height:260px;overflow-y:auto;">
+            <table class="pdash-table" id="dc-perf-table">
+              <thead><tr>
+                <th class="lft">Market Date</th><th>NAV</th><th>Daily P&amp;L</th>
+                <th>Cumulative P&amp;L</th><th>Daily Ret</th><th>Cum Ret</th>
+                <th>SPY Cum</th><th>Excess</th><th>Drawdown</th>
+              </tr></thead>
+              <tbody id="dc-perf-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- B. KPI row -->
         <div class="pdash-kpi-row" id="pdash-kpis">
           <div class="pdash-kpi"><div class="k">NAV</div><div class="v" id="pdash-kpi-nav">&mdash;</div><div class="sub">Alpha Paper Book #1</div></div>
@@ -2353,6 +2466,35 @@
             <span class="cc-badge">NO LIVE PROMOTION</span>
           </div>
           <div id="pm-load-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only portfolio-manager decision view&hellip;</div>
+          <!-- ===================== Phase 27E DAILY CLOSE — DECISION WORKSPACE ===================== -->
+          <!-- The Portfolio Manager is a decision workspace around the ONE canonical
+               daily-close status. Documented HOLD -> the recorded review + P&L, no
+               target / snapshot / order confirmation controls. Proposal -> the
+               affected names + one manual review flow. Paper only; read only. -->
+          <div id="pm-dc-card" style="border:1px solid var(--info,#3b82f6);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
+              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today&rsquo;s Daily Close &mdash; Alpha Paper Book #1</span>
+              <span class="cc-badge" id="pm-dc-badge" title="Canonical daily-close status.">&mdash;</span>
+            </div>
+            <div id="pm-dc-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Resolving today&rsquo;s daily close&hellip;</div>
+            <div id="pm-dc-explanation" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
+            <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:8px;color:var(--label);">
+              <span title="Latest eligible completed market date.">Latest eligible <b id="pm-dc-latest">&mdash;</b></span>
+              <span title="Last completed daily-close market date.">Last processed <b id="pm-dc-processed">&mdash;</b></span>
+              <span title="Current operational valuation date.">Valuation <b id="pm-dc-valdate">&mdash;</b></span>
+              <span title="Next scheduled full portfolio review.">Next full review <b id="pm-dc-review">&mdash;</b></span>
+            </div>
+            <div id="pm-dc-pnl" class="mono" style="display:none;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:6px;">
+              <span title="Net asset value.">NAV <b id="pm-dc-nav">&mdash;</b></span>
+              <span title="Daily P&amp;L vs prior completed operational NAV.">Daily P&amp;L <b id="pm-dc-dpnl">&mdash;</b></span>
+              <span title="Cumulative P&amp;L vs starting capital.">Cumulative P&amp;L <b id="pm-dc-cpnl">&mdash;</b></span>
+              <span title="Cumulative return.">Cum ret <b id="pm-dc-cret">&mdash;</b></span>
+              <span title="Excess return vs SPY.">Excess vs SPY <b id="pm-dc-excess">&mdash;</b></span>
+            </div>
+            <div id="pm-dc-firstnote" class="cc-na-note" style="display:none;font-size:10px;margin-top:6px;color:var(--label);"></div>
+            <div id="pm-dc-changes" style="display:none;margin-top:8px;font-size:11px;"></div>
+            <button id="pm-dc-btn" class="btn-sm" style="display:none;margin-top:8px;font-weight:800;border:1px solid var(--info,#3b82f6);" onclick="dailyClosePrimaryAction(this)">Run Daily Close</button>
+          </div>
           <!-- Phase 27C: the Portfolio Manager focuses on the canonical DAILY ACTION
                GATE (single source: /v1/operations/daily-action-gate). No action ->
                NO PORTFOLIO CHANGE REQUIRED TODAY with no confirmation controls; a
@@ -2360,7 +2502,10 @@
           <div id="pm-dag-card" style="border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
               <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today's Daily Action Gate</span>
-              <span class="cc-badge" id="pm-dag-badge" title="Canonical daily action-gate outcome.">&mdash;</span>
+              <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                <span class="cc-badge" id="pm-dag-tstate" style="display:none;" title="Canonical target state (single source; drives every operator surface).">&mdash;</span>
+                <span class="cc-badge" id="pm-dag-badge" title="Canonical daily action-gate outcome.">&mdash;</span>
+              </span>
             </div>
             <div id="pm-dag-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Evaluating today&rsquo;s action gate&hellip;</div>
             <div id="pm-dag-explanation" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
@@ -2374,6 +2519,23 @@
             </div>
             <div id="pm-dag-changes" style="display:none;margin-top:8px;font-size:11px;"></div>
             <button id="pm-dag-btn" class="btn-sm" style="display:none;margin-top:8px;font-weight:800;border:1px solid var(--info,#3b82f6);" onclick="dagPrimaryAction()">Review Proposed Changes</button>
+          </div>
+          <!-- Phase 27D: CHECKS PERFORMED TODAY — the canonical 13 daily risk / control
+               checks with a compact summary + chips + collapsed detail. Read-only;
+               every status/threshold is produced by the backend gate contract. -->
+          <div id="pm-checks-card" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:0 0 10px;display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
+              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Checks Performed Today</span>
+              <span style="display:flex;gap:6px;align-items:center;">
+                <span class="cc-badge" id="pm-checks-summary" title="Canonical daily risk / control checks completed.">&mdash;</span>
+                <span class="cc-badge safe">READ-ONLY</span>
+              </span>
+            </div>
+            <div id="pm-checks-body" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+            <details style="margin-top:8px;">
+              <summary style="cursor:pointer;font-size:10px;color:var(--label);">Check detail &mdash; source, thresholds &amp; affected names</summary>
+              <div id="pm-checks-detail" class="mono" style="font-size:10px;margin-top:6px;line-height:1.5;"></div>
+            </details>
           </div>
           <!-- TODAY'S PORTFOLIO DECISION (Workstream A) -->
           <div id="pm-decision-card" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:12px 16px;margin:0 0 10px;">
@@ -2403,7 +2565,13 @@
               <div id="pm-lc-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 0;">
                 <button class="btn-sm" id="pm-lc-cancel-btn" style="display:none;border:1px solid var(--danger,#ef4444);color:var(--danger,#ef4444);" onclick="obSecondaryAction()" title="Cancel the open paper orders before any fill (explicit token required; append-only history is never rewritten).">Cancel Submitted Orders</button>
               </div>
-              <div id="pm-lc-orders" style="margin:8px 0 0;overflow-x:auto;"></div>
+              <!-- Phase 27D: the complete paper-order / paper-fill history is READ-ONLY
+                   audit — it is collapsed here so it never dominates the primary decision
+                   viewport when the daily gate says NO_ACTION_TODAY. -->
+              <details id="pm-order-fill-history" style="margin:8px 0 0;">
+                <summary style="cursor:pointer;font-weight:700;font-size:11px;">Order and Fill History &mdash; Audit <span class="cc-badge muted" style="font-size:8px;">READ-ONLY</span></summary>
+                <div id="pm-lc-orders" style="margin:8px 0 0;overflow-x:auto;"></div>
+              </details>
               <div class="cc-na-note mono" id="pm-lc-model-line" style="display:none;font-size:10px;margin:8px 0 0;color:var(--label);"></div>
             </div>
             <!-- Phase 27B.1: three DISTINCT states — model target, implementation,
@@ -4759,6 +4927,8 @@
     </div>
     <div class="panel-section" style="border-color: var(--info); cursor: pointer;" onclick="openDailyPlanFocused()" title="Go to the current action in Daily Plan">
       <div class="panel-section-title" style="color: var(--info);">Workflow</div>
+      <!-- Phase 27E: compact canonical daily-CLOSE status (same result as every surface). -->
+      <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin: 0 0 6px;">Daily close <span id="right-dc-badge" style="display:none; font-weight:800; letter-spacing:0; text-transform:none; margin-left:4px; color: var(--info,#3b82f6);">&mdash;</span></div>
       <!-- Phase 27C: compact canonical daily-gate outcome (same result as every surface). -->
       <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin: 0 0 6px;">Daily gate <span id="right-dag-badge" style="display:none; font-weight:800; letter-spacing:0; text-transform:none; margin-left:4px; color: var(--ok);">&mdash;</span></div>
       <!-- Phase 27B.5: canonical CURRENT STATE line (same lifecycle payload as every
@@ -22424,9 +22594,22 @@ function renderOtr(d) {
   }
   var r = d.readiness || {};
   var state = d.state || r.state || 'BLOCKED';
+  var otrLabel = _OTR_STATE_LABEL[state] || state;
+  var otrCls = _OTR_STATE_CLS[state] || 'muted';
+  // Phase 27D: this OTR band is the (collapsed, advanced) model-target snapshot
+  // workspace. When the canonical daily gate says the operational book is ALIGNED
+  // (no action / review not due), a fresher unconfirmed model target here is a
+  // NEXT-CYCLE snapshot — NOT an operational "READY TO CONFIRM". Reflect the
+  // canonical state so this surface never contradicts the operator gate.
+  var gate = window._dagData || null;
+  if (gate && (gate.outcome === 'NO_ACTION_TODAY' || gate.target_state === 'CURRENT_ALIGNED') &&
+      !gate.scheduled_review_due && (state === 'READY_TO_CONFIRM' || state === 'STALE_TARGET')) {
+    otrLabel = 'NEXT-CYCLE MODEL TARGET — REVIEW NOT DUE';
+    otrCls = 'muted';
+  }
   if (st) {
-    st.textContent = _OTR_STATE_LABEL[state] || state;
-    st.className = 'cc-badge ' + (_OTR_STATE_CLS[state] || 'muted');
+    st.textContent = otrLabel;
+    st.className = 'cc-badge ' + otrCls;
   }
   if (next) {
     next.innerHTML = 'NEXT MANUAL ACTION: <span class="mono">' + escapeHtml(d.required_next_action || r.required_next_action || '—') + '</span>' +
@@ -22614,9 +22797,11 @@ function loadOperationalBook() {
     window._obData = d;
     renderOperationalBook(d);
     try { loadDailyActionGate(); } catch (e) {}   // Phase 27C: the ONE daily gate result
+    try { loadDailyClose(); } catch (e) {}         // Phase 27E: the ONE daily-close status
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
-    try { loadDailyActionGate(); } catch (e) {} return null; });
+    try { loadDailyActionGate(); } catch (e) {}
+    try { loadDailyClose(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
@@ -22694,6 +22879,7 @@ function renderDailyActionGate(g) {
   [['cc', 'dagPrimaryAction'], ['dw', 'dagPrimaryAction']].forEach(function (px) {
     var p = px[0];
     _dagSet(p + '-dag-badge', g.outcome_label);
+    _dagTstate(p + '-dag-tstate', g, color);
     _dagSet(p + '-dag-headline', g.headline);
     _dagSet(p + '-dag-explanation', g.explanation);
     _dagSet(p + '-dag-market', g.latest_completed_market_date);
@@ -22708,6 +22894,7 @@ function renderDailyActionGate(g) {
 
   // ---- Portfolio Manager (fuller detail; NO confirm controls when no action) ----
   _dagSet('pm-dag-badge', g.outcome_label);
+  _dagTstate('pm-dag-tstate', g, color);
   _dagSet('pm-dag-headline', g.headline);
   _dagSet('pm-dag-explanation', g.explanation);
   _dagSet('pm-dag-eval', g.evaluation_date);
@@ -22726,10 +22913,79 @@ function renderDailyActionGate(g) {
   var pmCh = document.getElementById('pm-dag-changes');
   if (pmCh) { pmCh.innerHTML = changesHtml; pmCh.style.display = changesHtml ? '' : 'none'; }
 
-  // ---- Right panel: compact daily-gate outcome badge ----
-  if (rBadge) { rBadge.textContent = g.outcome_label; rBadge.style.color = color; rBadge.style.display = ''; }
+  // ---- Right panel: compact daily-gate outcome badge (title carries target state) ----
+  if (rBadge) {
+    rBadge.textContent = g.outcome_label; rBadge.style.color = color; rBadge.style.display = '';
+    rBadge.title = 'Daily action gate — ' + (g.target_state_label || g.outcome_label || '');
+  }
+
+  // ---- Checks Performed Today (canonical 13 daily risk / control checks) ----
+  renderChecksPerformed(g);
+  // Re-sync the (collapsed) OTR target-review badge now that the canonical gate is
+  // known, so it never lingers on a stale "READY TO CONFIRM" in the aligned state.
+  try { if (window._otrData) renderOtr(window._otrData); } catch (e) {}
 }
 window.renderDailyActionGate = renderDailyActionGate;
+
+// Canonical target-state chip (single source; never re-derived on the page).
+function _dagTstate(id, g, color) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (g && g.target_state_label) {
+    el.textContent = g.target_state_label;
+    el.style.borderColor = color; el.style.color = color; el.style.display = '';
+  } else { el.style.display = 'none'; }
+}
+
+function _chkColor(status) {
+  if (status === 'PASS') return 'var(--ok, #22c55e)';
+  if (status === 'TRIGGERED') return 'var(--danger, #ef4444)';
+  if (status === 'WARN') return 'var(--warning, #f59e0b)';
+  return 'var(--label, #94a3b8)';   // NOT_AVAILABLE / MONITOR_ONLY
+}
+
+function _chkChipsHtml(checks) {
+  return checks.map(function (c) {
+    var col = _chkColor(c.status);
+    return '<span class="cc-badge" style="border-color:' + col + ';color:' + col +
+      ';" title="' + escapeHtml(c.summary || '') + '">' + escapeHtml(c.label || c.code) +
+      ' &middot; ' + escapeHtml(String(c.status || '').replace(/_/g, ' ')) + '</span>';
+  }).join('');
+}
+
+function _chkDetailHtml(checks) {
+  return checks.map(function (c) {
+    var col = _chkColor(c.status);
+    var aff = (c.affected_tickers && c.affected_tickers.length)
+      ? ' <span style="color:var(--warning, #f59e0b);">[' +
+        c.affected_tickers.map(escapeHtml).join(', ') + ']</span>' : '';
+    return '<div style="margin-bottom:3px;"><span style="color:' + col + ';font-weight:800;">' +
+      escapeHtml(String(c.status || '').replace(/_/g, ' ')) + '</span> ' +
+      escapeHtml(c.label || c.code) + ' &mdash; ' + escapeHtml(c.summary || '') + aff +
+      ' <span style="color:var(--label, #94a3b8);">(' + escapeHtml(c.source || '') +
+      ', as of ' + escapeHtml(c.as_of_date || '—') + ')</span></div>';
+  }).join('');
+}
+
+// Render the canonical checks_performed contract into the PM + Daily Workflow
+// components and the Command Center compact summary line. JS renders only.
+function renderChecksPerformed(g) {
+  var checks = (g && g.checks_performed) || [];
+  var summary = (g && g.checks_summary) || {};
+  var line = summary.line || (checks.length + ' checks completed');
+  ['pm', 'dw'].forEach(function (p) {
+    var card = document.getElementById(p + '-checks-card');
+    if (card) card.style.display = checks.length ? '' : 'none';
+    _dagSet(p + '-checks-summary', line);
+    var body = document.getElementById(p + '-checks-body');
+    if (body) body.innerHTML = _chkChipsHtml(checks);
+    var det = document.getElementById(p + '-checks-detail');
+    if (det) det.innerHTML = _chkDetailHtml(checks);
+  });
+  var ccChecks = document.getElementById('cc-dag-checks');
+  if (ccChecks) { ccChecks.textContent = line; ccChecks.style.display = checks.length ? '' : 'none'; }
+}
+window.renderChecksPerformed = renderChecksPerformed;
 
 function dagPrimaryAction() {
   var g = window._dagData;
@@ -22737,6 +22993,249 @@ function dagPrimaryAction() {
   navigateToRoute('portfolio-manager');   // PROPOSAL / DATA_NOT_READY / ORDERS_SUBMITTED
 }
 window.dagPrimaryAction = dagPrimaryAction;
+
+/* ===================== Phase 27E — EXPLICIT DAILY CLOSE (one canonical daily action) =====================
+   ONE loader fetches /v1/operations/daily-close and renders the canonical daily-close
+   status + P&L + decision on every operator surface (Command Center, Daily Workflow,
+   Portfolio Manager, Portfolio, right panel). The primary action RUNS the daily close
+   only when due (explicit token POST); otherwise it routes to review/monitor. No page
+   invents its own daily-close status; JS renders the backend contract verbatim. */
+window._dcData = null;
+window._dcInFlight = null;
+
+function loadDailyClose() {
+  if (window._dcInFlight) return window._dcInFlight;
+  var p = _mhzGet('/v1/operations/daily-close').then(function (d) {
+    window._dcInFlight = null; window._dcData = d; renderDailyClose(d); return d;
+  }).catch(function () { window._dcInFlight = null; renderDailyClose(null); return null; });
+  window._dcInFlight = p;
+  return p;
+}
+window.loadDailyClose = loadDailyClose;
+
+function _dcSet(id, text) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
+}
+function _dcSevColor(sev) {
+  if (sev === 'green') return 'var(--ok, #22c55e)';
+  if (sev === 'red') return 'var(--danger, #ef4444)';
+  return 'var(--warning, #f59e0b)';
+}
+function _dcMoney(x) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  var n = Number(x);
+  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _dcPct(x) {   // x is already a percentage value (e.g. -0.12 -> "-0.12%")
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return Number(x).toFixed(2) + '%';
+}
+function _dcCycleHtml(stages) {
+  return (stages || []).map(function (s) {
+    var col = s.status === 'COMPLETE' ? 'var(--ok, #22c55e)'
+      : (s.status === 'NEEDS_ACTION' || s.status === 'ACTIVE') ? 'var(--info, #3b82f6)'
+      : s.status === 'BLOCKED' ? 'var(--danger, #ef4444)' : 'var(--label, #94a3b8)';
+    return '<span class="cc-badge" style="border-color:' + col + ';color:' + col +
+      ';" title="' + escapeHtml(s.detail || '') + '">' + s.stage + '. ' +
+      escapeHtml(s.label) + ' &middot; ' + escapeHtml(String(s.status || '').replace(/_/g, ' ')) +
+      '</span>';
+  }).join('');
+}
+function _dcProposalHtml(prop) {
+  var adds = prop.proposed_additions || [], rems = prop.proposed_removals || [],
+      rez = prop.proposed_resizes || [];
+  function block(t, rows, fmt) {
+    if (!rows.length) return '';
+    return '<div style="margin-top:3px;"><b>' + t + ' (' + rows.length + ')</b> ' +
+      rows.map(fmt).join(', ') + '</div>';
+  }
+  var h = '<div style="font-weight:800;color:var(--warning,#f59e0b);">Proposed changes &mdash; manual review required</div>';
+  h += block('Add', adds, function (r) { return escapeHtml(r.ticker); });
+  h += block('Remove', rems, function (r) { return escapeHtml(r.ticker); });
+  h += block('Resize', rez, function (r) { return escapeHtml(r.ticker); });
+  h += '<div style="margin-top:4px;color:var(--label);">Est. turnover ' + _mhzPct(prop.estimated_turnover) +
+    ' &middot; Est. cost ' + _mhzPct(prop.estimated_cost) +
+    ' &middot; Paper orders are created only by a separate explicit confirmation.</div>';
+  return h;
+}
+
+function renderDailyClose(d) {
+  var ok = d && d.close_status;
+  ['cc-dc-card', 'dw-dc-card', 'pm-dc-card', 'dc-perf-panel'].forEach(function (id) {
+    var el = document.getElementById(id); if (el) el.style.display = ok ? '' : 'none';
+  });
+  var rBadge = document.getElementById('right-dc-badge');
+  if (!ok) { if (rBadge) rBadge.style.display = 'none'; return; }
+  var color = _dcSevColor(d.severity);
+  var pa = d.primary_action || {};
+  var pnl = d.pnl || {};
+  var hasPnl = pnl && pnl.nav !== null && pnl.nav !== undefined;
+  var processed = d.last_processed_market_date || '—';
+
+  // ---- Command Center + Daily Workflow ----
+  ['cc', 'dw'].forEach(function (p) {
+    _dcSet(p + '-dc-badge', d.close_status_label);
+    var badge = document.getElementById(p + '-dc-badge');
+    if (badge) { badge.style.borderColor = color; badge.style.color = color; }
+    _dcSet(p + '-dc-headline', d.headline);
+    var hl = document.getElementById(p + '-dc-headline'); if (hl) hl.style.color = color;
+    _dcSet(p + '-dc-explanation', d.explanation);
+    _dcSet(p + '-dc-latest', d.latest_eligible_market_date);
+    _dcSet(p + '-dc-processed', processed);
+    var card = document.getElementById(p + '-dc-card'); if (card) card.style.borderLeftColor = color;
+    var btn = document.getElementById(p + '-dc-btn');
+    if (btn) { btn.textContent = pa.label || 'View'; btn.style.display = pa.enabled === false ? 'none' : ''; }
+  });
+  _dcSet('cc-dc-valdate', d.current_valuation_date);
+  var ccK = document.getElementById('cc-dc-kpis');
+  if (ccK) {
+    if (hasPnl) {
+      ccK.style.display = 'flex';
+      _dcSet('cc-dc-nav', _dcMoney(pnl.nav));
+      _dcSet('cc-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : 'Unavailable (first mark)');
+      _dcSet('cc-dc-cpnl', _dcMoney(pnl.cumulative_pnl));
+      _dcSet('cc-dc-cret', _dcPct(pnl.cumulative_return_pct));
+      _dcSet('cc-dc-excess', _dcPct(pnl.excess_return_pct));
+      _dcSet('cc-dc-dd', _dcPct(pnl.drawdown_pct));
+      _dcSet('cc-dc-changes', String(d.proposed_change_count == null ? 0 : d.proposed_change_count));
+    } else { ccK.style.display = 'none'; }
+  }
+  var ccChecks = document.getElementById('cc-dc-checks');
+  var checkLine = (d.checks_summary && d.checks_summary.line) || '';
+  if (ccChecks) { ccChecks.textContent = checkLine; ccChecks.style.display = checkLine ? '' : 'none'; }
+
+  // ---- Daily Workflow five-stage cycle ----
+  var cyc = document.getElementById('dw-dc-cycle');
+  if (cyc) {
+    cyc.innerHTML = _dcCycleHtml(d.daily_cycle_stages);
+    cyc.style.display = (d.daily_cycle_stages && d.daily_cycle_stages.length) ? 'flex' : 'none';
+  }
+
+  // ---- Portfolio Manager decision workspace ----
+  renderDailyClosePm(d, color);
+  // ---- Portfolio daily-performance ----
+  renderDailyClosePerf(d);
+
+  // ---- Right panel: mirror the canonical daily-close status/task/next action ----
+  if (rBadge) { rBadge.textContent = d.close_status_label; rBadge.style.color = color; rBadge.style.display = ''; }
+  _dcSet('right-current-task', d.current_task);
+  _dcSet('right-next-action', d.next_action);
+}
+window.renderDailyClose = renderDailyClose;
+
+function renderDailyClosePm(d, color) {
+  _dcSet('pm-dc-badge', d.close_status_label);
+  var badge = document.getElementById('pm-dc-badge');
+  if (badge) { badge.style.borderColor = color; badge.style.color = color; }
+  _dcSet('pm-dc-headline', d.headline);
+  var hl = document.getElementById('pm-dc-headline'); if (hl) hl.style.color = color;
+  _dcSet('pm-dc-explanation', d.explanation);
+  _dcSet('pm-dc-latest', d.latest_eligible_market_date);
+  _dcSet('pm-dc-processed', d.last_processed_market_date || '—');
+  _dcSet('pm-dc-valdate', d.current_valuation_date);
+  _dcSet('pm-dc-review', d.next_scheduled_full_review);
+  var card = document.getElementById('pm-dc-card'); if (card) card.style.borderColor = color;
+  var pnl = d.pnl || {}, hasPnl = pnl && pnl.nav !== null && pnl.nav !== undefined;
+  var pnlRow = document.getElementById('pm-dc-pnl');
+  if (pnlRow) {
+    if (hasPnl) {
+      pnlRow.style.display = 'flex';
+      _dcSet('pm-dc-nav', _dcMoney(pnl.nav));
+      _dcSet('pm-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : 'Unavailable (first mark)');
+      _dcSet('pm-dc-cpnl', _dcMoney(pnl.cumulative_pnl));
+      _dcSet('pm-dc-cret', _dcPct(pnl.cumulative_return_pct));
+      _dcSet('pm-dc-excess', _dcPct(pnl.excess_return_pct));
+    } else { pnlRow.style.display = 'none'; }
+  }
+  var fn = document.getElementById('pm-dc-firstnote');
+  if (fn) {
+    if (pnl && pnl.daily_pnl_note) { fn.textContent = pnl.daily_pnl_note; fn.style.display = ''; }
+    else fn.style.display = 'none';
+  }
+  var ch = document.getElementById('pm-dc-changes'), prop = d.proposal;
+  if (ch) {
+    if (prop && (prop.proposed_change_count || 0) > 0) { ch.innerHTML = _dcProposalHtml(prop); ch.style.display = ''; }
+    else { ch.innerHTML = ''; ch.style.display = 'none'; }
+  }
+  var btn = document.getElementById('pm-dc-btn'), pa = d.primary_action || {};
+  if (btn) {
+    if (pa.enabled === false) btn.style.display = 'none';
+    else { btn.textContent = pa.label; btn.style.display = ''; }
+  }
+}
+
+function renderDailyClosePerf(d) {
+  var pnl = d.pnl || {}, hist = d.performance_history || [];
+  var hasPnl = pnl && pnl.nav !== null && pnl.nav !== undefined;
+  _dcSet('dc-perf-status', d.close_status_label);
+  var stEl = document.getElementById('dc-perf-status');
+  if (stEl) { var c = _dcSevColor(d.severity); stEl.style.borderColor = c; stEl.style.color = c; }
+  var btn = document.getElementById('dc-perf-btn'), pa = d.primary_action || {};
+  if (btn) { if (pa.runs_daily_close) { btn.textContent = pa.label; btn.style.display = ''; } else btn.style.display = 'none'; }
+  _dcSet('dc-perf-nav', hasPnl ? _dcMoney(pnl.nav) : '—');
+  _dcSet('dc-perf-valdate', pnl.valuation_date || d.current_valuation_date);
+  _dcSet('dc-perf-dpnl', (hasPnl && pnl.daily_pnl_available) ? _dcMoney(pnl.daily_pnl) : 'Unavailable');
+  _dcSet('dc-perf-dret', (hasPnl && pnl.daily_pnl_available) ? _dcPct(pnl.daily_return_pct) : 'first mark');
+  _dcSet('dc-perf-cpnl', hasPnl ? _dcMoney(pnl.cumulative_pnl) : '—');
+  _dcSet('dc-perf-cret', hasPnl ? _dcPct(pnl.cumulative_return_pct) : '—');
+  _dcSet('dc-perf-spy', hasPnl ? _dcPct(pnl.spy_cumulative_return_pct) : '—');
+  _dcSet('dc-perf-excess', hasPnl ? _dcPct(pnl.excess_return_pct) : '—');
+  _dcSet('dc-perf-dd', hasPnl ? _dcPct(pnl.drawdown_pct) : '—');
+  var fn = document.getElementById('dc-perf-firstnote');
+  if (fn) { if (hasPnl && pnl.daily_pnl_note) { fn.textContent = pnl.daily_pnl_note; fn.style.display = ''; } else fn.style.display = 'none'; }
+  var wrap = document.getElementById('dc-perf-table-wrap'),
+      empty = document.getElementById('dc-perf-empty'),
+      tb = document.getElementById('dc-perf-tbody');
+  function cls(x) { return (x != null && x < 0) ? 'pdash-neg' : (x != null && x > 0 ? 'pdash-pos' : ''); }
+  if (hist.length) {
+    if (empty) empty.style.display = 'none';
+    if (wrap) wrap.style.display = '';
+    if (tb) tb.innerHTML = hist.slice().reverse().map(function (r) {
+      return '<tr><td class="lft">' + escapeHtml(r.market_date || '—') + '</td>' +
+        '<td>' + _dcMoney(r.nav) + '</td>' +
+        '<td class="' + cls(r.daily_pnl) + '">' + (r.daily_pnl == null ? '—' : _dcMoney(r.daily_pnl)) + '</td>' +
+        '<td class="' + cls(r.cumulative_pnl) + '">' + _dcMoney(r.cumulative_pnl) + '</td>' +
+        '<td class="' + cls(r.daily_return_pct) + '">' + (r.daily_return_pct == null ? '—' : _dcPct(r.daily_return_pct)) + '</td>' +
+        '<td class="' + cls(r.cumulative_return_pct) + '">' + _dcPct(r.cumulative_return_pct) + '</td>' +
+        '<td>' + _dcPct(r.spy_cumulative_return_pct) + '</td>' +
+        '<td class="' + cls(r.excess_return_pct) + '">' + _dcPct(r.excess_return_pct) + '</td>' +
+        '<td class="' + cls(r.drawdown_pct) + '">' + _dcPct(r.drawdown_pct) + '</td></tr>';
+    }).join('');
+  } else {
+    if (empty) empty.style.display = '';
+    if (wrap) wrap.style.display = 'none';
+    if (tb) tb.innerHTML = '';
+  }
+}
+
+function dailyClosePrimaryAction(btn) {
+  var d = window._dcData; if (!d) return;
+  var pa = d.primary_action || {};
+  if (pa.runs_daily_close) { runDailyClose(btn); return; }
+  if (pa.enabled === false) return;
+  var route = (pa.route || '#portfolio-manager').replace('#', '').split('/')[0];
+  navigateToRoute(route || 'portfolio-manager');
+}
+window.dailyClosePrimaryAction = dailyClosePrimaryAction;
+
+// Explicit, manual, token-gated daily close (the ONLY write path). No native dialog.
+async function runDailyClose(btn) {
+  var orig = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Running Daily Close…'; }
+  try {
+    var resp = await call('POST', '/v1/operations/daily-close/execute',
+      { confirmation: 'CONFIRM_ALPHA_DAILY_CLOSE', requested_by: 'operator_ui' });
+    var r = await resp.json();
+    if (r && r.close_status) { window._dcData = r; renderDailyClose(r); }
+  } catch (e) { /* inline degrade; never a native dialog */ }
+  finally {
+    if (btn) { btn.disabled = false; if (orig) btn.textContent = orig; }
+    try { loadOperationalBook(); } catch (e) {}   // refresh every operator surface
+  }
+}
+window.runDailyClose = runDailyClose;
 
 function _obSet(id, text) {
   var el = document.getElementById(id);
@@ -23212,7 +23711,13 @@ function renderOperationalBook(d) {
   var pending = ob ? String(ob.pending_order_count != null ? ob.pending_order_count :
     ((ob.pending_orders && ob.pending_orders.pending_count) || 0)) : '—';
   var fills = ob ? String(ob.fill_count != null ? ob.fill_count : (ob.fills_count || 0)) : '—';
-  var targetTxt = t ? (_obStateLabel(t.state) + (t.alpha_market_date ? (' · ' + t.alpha_market_date) : '')
+  // Phase 27D: the operator "Current Target" text uses the CANONICAL target-freshness
+  // label (single source), so an active/aligned book never shows a raw operator
+  // "READY TO CONFIRM" that would contradict the daily action gate.
+  var _tf = (d && d.canonical_state && d.canonical_state.target_freshness) ||
+    (ob && ob.canonical_state && ob.canonical_state.target_freshness) || null;
+  var targetTxt = t ? ((_tf && _tf.label ? _tf.label : _obStateLabel(t.state)) +
+    (t.alpha_market_date ? (' · ' + t.alpha_market_date) : '')
     + (ob && ob.target_count ? (' · ' + ob.target_count + ' names') : '')) : '—';
   var statusTxt = ob ? _obStateLabel(ob.current_status) : '—';
   var markReady = !!(ob && ob.desk_mark_status === 'DESK_MARK_READY');
@@ -23491,8 +23996,14 @@ function renderOperationalBook(d) {
   }
 
   // Portfolio Manager implementation strip (three distinct states, never mixed).
+  // Phase 27D: the model-target state uses the CANONICAL target-freshness label
+  // (single source), so an active/aligned book reads "CURRENT TARGET ACTIVE" /
+  // "NEXT-CYCLE TARGET AVAILABLE — REVIEW NOT DUE" and never a raw operator
+  // "READY TO CONFIRM" that would contradict the daily gate.
+  var _mtLabel = (view && view.targetFreshness && view.targetFreshness.label)
+    || _obStateLabel(ob && ob.target_confirmation_status || '—');
   _obSet('pm-impl-target', ob && ob.target_count ?
-    (ob.target_count + ' names · ' + _obStateLabel((ob.target_confirmation_status || '—')) +
+    (ob.target_count + ' names · ' + _mtLabel +
       (ob.target_market_date ? (' · ' + ob.target_market_date) : '')) : '—');
   _obSet('pm-impl-count', implTxt);
   _obSet('pm-impl-marks', markTxt);

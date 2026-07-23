@@ -220,6 +220,7 @@ from paper_trader.api import alpha_book as _abook
 from paper_trader.api import alpha_target as _alpha_target
 from paper_trader.api import operational_book as _opbook
 from paper_trader.api import daily_action_gate as _dag
+from paper_trader.api import daily_close as _dclose
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -5400,6 +5401,67 @@ def operations_daily_action_gate() -> dict:
     Evaluates every completed market day; manual review is always required and no
     order is ever created here."""
     return _dag.load_daily_action_gate()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27E - EXPLICIT DAILY CLOSE for Alpha Paper Book #1.
+#
+# ONE canonical daily-close status contract (GET, read-only) + ONE explicit
+# token-gated manual execution (POST). The GET writes nothing. The POST is the
+# ONLY write: it refreshes owned completed EOD marks, settles NEXT_CLOSE paper
+# fills and appends the immutable daily performance row (the existing manual desk
+# refresh), recomputes the frozen-model target + the 13 daily checks, and records
+# EXACTLY ONE daily decision-journal row (HOLD / REBALANCE / ORDERS_ALREADY_PENDING).
+# Idempotent on (operational_book_id, market_date): a re-run returns
+# ALREADY_PROCESSED and writes nothing. It NEVER creates a paper order (order
+# creation stays a separate manual token-gated action), never touches a broker,
+# never runs automation, and never changes a model / champion / weight / sleeve.
+# --------------------------------------------------------------------------- #
+class DailyCloseExecuteRequest(BaseModel):
+    """Phase 27E explicit manual daily-close confirmation body."""
+
+    confirmation: str
+    requested_by: str = "manual_ui"
+
+
+@app.get("/v1/operations/daily-close", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def operations_daily_close() -> dict:
+    """Read-only canonical DAILY CLOSE status for Alpha Paper Book #1: the one
+    close status (DAILY_CLOSE_DUE / DAILY_CLOSE_COMPLETE_HOLD /
+    REBALANCE_PROPOSAL_READY / PAPER_ORDERS_SUBMITTED / DATA_BLOCKED /
+    ALREADY_PROCESSED / AWAITING_ELIGIBLE_CLOSE), the latest eligible / last
+    processed / valuation dates, NAV and daily + cumulative P&L (honest daily-P&L
+    unavailability on the first mark), forward-performance history, the recorded
+    daily decision, the 13 daily checks and the target-vs-actual comparison, and
+    the one required next action. Evaluates every completed market day. Writes
+    nothing (no marks, no fills, no performance row, no decision row, no orders)."""
+    return _dclose.load_daily_close()
+
+
+@app.post("/v1/operations/daily-close/execute", status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def operations_daily_close_execute(body: DailyCloseExecuteRequest) -> dict:
+    """Execute ONE explicit, manual DAILY CLOSE for Alpha Paper Book #1.
+
+    Requires ``{"confirmation": "CONFIRM_ALPHA_DAILY_CLOSE"}``; any other value
+    returns HTTP 400. Permitted writes ONLY: the desk mark cache, the settled
+    NEXT_CLOSE paper fills and forward-performance row produced by the existing
+    manual desk refresh, and exactly ONE row in the append-only, chain-hashed
+    daily-close decision journal. Idempotent on (operational_book_id, market_date):
+    a re-run of a processed date returns ALREADY_PROCESSED and writes nothing. It
+    creates NO paper orders (order creation stays a separate manual token-gated
+    action), no broker instruction, no automation, and changes no model / champion
+    / weight / sleeve. A blocked owned-data refresh returns DATA_BLOCKED and leaves
+    no partial performance or decision record (retryable)."""
+    if body.confirmation != _dclose.EXECUTE_CONFIRMATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit confirmation required. Send "
+                    f"{{'confirmation': '{_dclose.EXECUTE_CONFIRMATION}'}} to run the "
+                    f"manual daily close for Alpha Paper Book #1."),
+        )
+    return _dclose.run_daily_close(confirm=body.confirmation, requested_by=body.requested_by)
 
 
 @app.get(
