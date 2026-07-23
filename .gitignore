@@ -21,3 +21,4 @@ Thumbs.db
 alembic.ini
 
 !alembic.ini
+.pytest-phase25-validation/
