@@ -233,6 +233,11 @@ def _daily_close_block() -> dict:
         "target_state_label": d.get("target_state_label"),
         "daily_cycle_stages": d.get("daily_cycle_stages") or [],
         "operational_dates": d.get("operational_dates") or {},
+        # Phase 27F readiness blocks (verbatim passthrough; never re-derived here).
+        "clock": d.get("clock") or {},
+        "provider_readiness": d.get("provider_readiness") or {},
+        "market_data_scope": d.get("market_data_scope") or {},
+        "baseline": d.get("baseline") or {},
     }
 
 

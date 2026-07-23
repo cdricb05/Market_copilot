@@ -2005,6 +2005,7 @@
               <button id="cc-dc-btn" class="cc-btn primary" style="display:none;" onclick="dailyClosePrimaryAction(this)" title="The one required daily action.">Run Daily Close</button>
             </div>
             <div id="cc-dc-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+            <div id="cc-dc-readiness" class="mono" style="display:none;font-size:11px;margin-top:6px;color:var(--label);" title="Market-clock, provider and data-scope readiness for today's close."></div>
             <div id="cc-dc-kpis" style="display:none;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:11px;">
               <span class="cc-kv" title="Net asset value (cash + marked holdings)."><span class="k">NAV</span><span class="v" id="cc-dc-nav">&mdash;</span></span>
               <span class="cc-kv" title="Daily P&amp;L vs the prior completed operational NAV."><span class="k">Daily P&amp;L</span><span class="v" id="cc-dc-dpnl">&mdash;</span></span>
@@ -2169,6 +2170,7 @@
             <button id="dw-dc-btn" class="cc-btn primary" style="display:none;" onclick="dailyClosePrimaryAction(this)">Run Daily Close</button>
           </div>
           <div id="dw-dc-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+          <div id="dw-dc-readiness" class="mono" style="display:none;font-size:11px;margin-top:6px;color:var(--label);" title="Market-clock, provider and data-scope readiness for today's close."></div>
           <!-- The explicit five-stage daily operating cycle -->
           <div id="dw-dc-cycle" style="display:none;margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;"></div>
         </div>
@@ -2372,6 +2374,11 @@
               <tbody id="dc-perf-tbody"></tbody>
             </table>
           </div>
+          <!-- Phase 27F — compact expandable: exactly what market data this close used. -->
+          <details id="dc-market-data-detail" style="margin-top:8px;display:none;">
+            <summary style="cursor:pointer;font-size:11px;font-weight:800;color:var(--label);text-transform:uppercase;letter-spacing:.06em;">Market data used for this close</summary>
+            <div id="dc-market-data-body" class="mono" style="font-size:11px;color:var(--label);margin-top:6px;line-height:1.6;"></div>
+          </details>
         </div>
 
         <!-- B. KPI row -->
@@ -23061,6 +23068,35 @@ function _dcProposalHtml(prop) {
   return h;
 }
 
+// Phase 27F — compact readiness line (clock / provider / data scope) per state.
+function _dcReadinessText(d) {
+  var st = d.close_status, ck = d.clock || {}, pr = d.provider_readiness || {}, sc = d.market_data_scope || {};
+  var parts = [];
+  if (st === 'AWAITING_MARKET_CLOSE') {
+    if (ck.now_et) parts.push('Now (ET) ' + String(ck.now_et).slice(11, 16));
+    parts.push('Market close ' + (ck.market_close || '16:00'));
+    parts.push('Data cutoff ' + (ck.post_close_cutoff_et || '17:30') + ' ET');
+    if (d.last_processed_market_date) parts.push('Last processed ' + d.last_processed_market_date);
+  } else if (st === 'WAITING_FOR_MARKET_DATA') {
+    parts.push('Expected ' + (pr.expected_market_date || d.latest_eligible_market_date || '—'));
+    parts.push('Provider latest ' + (pr.provider_latest_date || '—'));
+    parts.push('Holdings priced ' + (sc.valuation_priced_count == null ? '—' : sc.valuation_priced_count) +
+               '/' + (sc.valuation_ticker_count == null ? '—' : sc.valuation_ticker_count));
+    if (sc.decision_universe_count) parts.push('Decision universe ' + sc.decision_universe_count);
+    if (sc.valuation_missing_tickers && sc.valuation_missing_tickers.length) parts.push('Missing ' + sc.valuation_missing_tickers.length);
+  } else if (st === 'DAILY_CLOSE_DUE' || st === 'INITIAL_BASELINE_DUE') {
+    parts.push('Valuation scope ' + (sc.valuation_ticker_count == null ? '—' : sc.valuation_ticker_count));
+    if (sc.decision_universe_count) parts.push('Decision universe ' + sc.decision_universe_count);
+    parts.push('SPY ' + (sc.benchmark_ready ? 'ready' : 'pending'));
+    parts.push('Provider-confirmed ' + (pr.provider_latest_date || d.latest_eligible_market_date || '—'));
+  } else if (st === 'DATA_BLOCKED') {
+    if (sc.valuation_ticker_count != null)
+      parts.push('Holdings priced ' + (sc.valuation_priced_count || 0) + '/' + (sc.valuation_ticker_count || 0));
+    if (d.data_blocker && d.data_blocker.decision_scope_incomplete) parts.push('Decision scope incomplete — no membership decision recorded');
+  }
+  return parts.join('  ·  ');
+}
+
 function renderDailyClose(d) {
   var ok = d && d.close_status;
   ['cc-dc-card', 'dw-dc-card', 'pm-dc-card', 'dc-perf-panel'].forEach(function (id) {
@@ -23094,7 +23130,7 @@ function renderDailyClose(d) {
     if (hasPnl) {
       ccK.style.display = 'flex';
       _dcSet('cc-dc-nav', _dcMoney(pnl.nav));
-      _dcSet('cc-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : 'Unavailable (first mark)');
+      _dcSet('cc-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : (pnl.daily_pnl_display || 'Unavailable (first mark)'));
       _dcSet('cc-dc-cpnl', _dcMoney(pnl.cumulative_pnl));
       _dcSet('cc-dc-cret', _dcPct(pnl.cumulative_return_pct));
       _dcSet('cc-dc-excess', _dcPct(pnl.excess_return_pct));
@@ -23105,6 +23141,13 @@ function renderDailyClose(d) {
   var ccChecks = document.getElementById('cc-dc-checks');
   var checkLine = (d.checks_summary && d.checks_summary.line) || '';
   if (ccChecks) { ccChecks.textContent = checkLine; ccChecks.style.display = checkLine ? '' : 'none'; }
+
+  // ---- Readiness line (clock / provider / data scope) on CC + DW ----
+  var readyLine = _dcReadinessText(d);
+  ['cc', 'dw'].forEach(function (p) {
+    var el = document.getElementById(p + '-dc-readiness');
+    if (el) { el.textContent = readyLine; el.style.display = readyLine ? '' : 'none'; }
+  });
 
   // ---- Daily Workflow five-stage cycle ----
   var cyc = document.getElementById('dw-dc-cycle');
@@ -23143,7 +23186,7 @@ function renderDailyClosePm(d, color) {
     if (hasPnl) {
       pnlRow.style.display = 'flex';
       _dcSet('pm-dc-nav', _dcMoney(pnl.nav));
-      _dcSet('pm-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : 'Unavailable (first mark)');
+      _dcSet('pm-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : (pnl.daily_pnl_display || 'Unavailable (first mark)'));
       _dcSet('pm-dc-cpnl', _dcMoney(pnl.cumulative_pnl));
       _dcSet('pm-dc-cret', _dcPct(pnl.cumulative_return_pct));
       _dcSet('pm-dc-excess', _dcPct(pnl.excess_return_pct));
@@ -23176,8 +23219,8 @@ function renderDailyClosePerf(d) {
   if (btn) { if (pa.runs_daily_close) { btn.textContent = pa.label; btn.style.display = ''; } else btn.style.display = 'none'; }
   _dcSet('dc-perf-nav', hasPnl ? _dcMoney(pnl.nav) : '—');
   _dcSet('dc-perf-valdate', pnl.valuation_date || d.current_valuation_date);
-  _dcSet('dc-perf-dpnl', (hasPnl && pnl.daily_pnl_available) ? _dcMoney(pnl.daily_pnl) : 'Unavailable');
-  _dcSet('dc-perf-dret', (hasPnl && pnl.daily_pnl_available) ? _dcPct(pnl.daily_return_pct) : 'first mark');
+  _dcSet('dc-perf-dpnl', (hasPnl && pnl.daily_pnl_available) ? _dcMoney(pnl.daily_pnl) : (pnl.daily_pnl_display || 'Unavailable'));
+  _dcSet('dc-perf-dret', (hasPnl && pnl.daily_pnl_available) ? _dcPct(pnl.daily_return_pct) : 'baseline mark');
   _dcSet('dc-perf-cpnl', hasPnl ? _dcMoney(pnl.cumulative_pnl) : '—');
   _dcSet('dc-perf-cret', hasPnl ? _dcPct(pnl.cumulative_return_pct) : '—');
   _dcSet('dc-perf-spy', hasPnl ? _dcPct(pnl.spy_cumulative_return_pct) : '—');
@@ -23193,7 +23236,8 @@ function renderDailyClosePerf(d) {
     if (empty) empty.style.display = 'none';
     if (wrap) wrap.style.display = '';
     if (tb) tb.innerHTML = hist.slice().reverse().map(function (r) {
-      return '<tr><td class="lft">' + escapeHtml(r.market_date || '—') + '</td>' +
+      return '<tr><td class="lft">' + escapeHtml(r.market_date || '—') +
+        (r.row_type === 'INITIAL_BASELINE' ? ' <span class="cc-badge" style="font-size:9px;padding:0 4px;">BASELINE</span>' : '') + '</td>' +
         '<td>' + _dcMoney(r.nav) + '</td>' +
         '<td class="' + cls(r.daily_pnl) + '">' + (r.daily_pnl == null ? '—' : _dcMoney(r.daily_pnl)) + '</td>' +
         '<td class="' + cls(r.cumulative_pnl) + '">' + _dcMoney(r.cumulative_pnl) + '</td>' +
@@ -23208,12 +23252,44 @@ function renderDailyClosePerf(d) {
     if (wrap) wrap.style.display = 'none';
     if (tb) tb.innerHTML = '';
   }
+  // ---- Phase 27F: "market data used for this close" (collapsed unless blocked) ----
+  var mdWrap = document.getElementById('dc-market-data-detail'),
+      mdBody = document.getElementById('dc-market-data-body');
+  if (mdWrap && mdBody) {
+    var sc = d.market_data_scope, pr = d.provider_readiness || {};
+    if (sc && sc.valuation_ticker_count != null) {
+      var rows = [];
+      rows.push('<div>Provider: ' + escapeHtml(pr.provider_name || '—') +
+        ' · latest ' + escapeHtml(pr.provider_latest_date || '—') +
+        ' · retrieved ' + escapeHtml(pr.checked_at ? String(pr.checked_at).slice(0, 19).replace('T', ' ') : '—') + '</div>');
+      rows.push('<div>Market date (expected completed session): ' + escapeHtml(d.latest_eligible_market_date || '—') + '</div>');
+      rows.push('<div>Valuation scope: ' + (sc.valuation_ticker_count || 0) + ' tickers · priced ' +
+        (sc.valuation_priced_count || 0) + ' · SPY ' + (sc.benchmark_ready ? 'ready' : 'pending') +
+        ' · ' + (sc.complete_for_valuation ? 'COMPLETE' : 'INCOMPLETE') + '</div>');
+      rows.push('<div>Decision scope: dynamic universe ' + (sc.decision_universe_count || 0) + ' · priced ' +
+        (sc.decision_priced_count || 0) + ' · holdings ' + (sc.current_holding_count || 0) +
+        ' · open orders ' + (sc.open_order_ticker_count || 0) + ' · ' +
+        (sc.complete_for_decision ? 'COMPLETE' : 'INCOMPLETE') + '</div>');
+      var missV = sc.valuation_missing_tickers || [], missD = sc.decision_missing_tickers || [];
+      if (missV.length) rows.push('<div>Missing valuation marks: ' + escapeHtml(missV.slice(0, 25).join(', ')) + '</div>');
+      if (missD.length) rows.push('<div>Held / open-order names outside the current scoring universe: ' + escapeHtml(missD.slice(0, 25).join(', ')) + '</div>');
+      mdBody.innerHTML = rows.join('');
+      mdWrap.style.display = '';
+      mdWrap.open = (d.close_status === 'DATA_BLOCKED' || d.close_status === 'WAITING_FOR_MARKET_DATA');
+    } else { mdWrap.style.display = 'none'; }
+  }
 }
 
 function dailyClosePrimaryAction(btn) {
   var d = window._dcData; if (!d) return;
   var pa = d.primary_action || {};
   if (pa.runs_daily_close) { runDailyClose(btn); return; }
+  if (pa.refreshes_status) {           // WAITING_FOR_MARKET_DATA: re-check readiness (read-only)
+    if (btn) { btn.disabled = true; var o = btn.textContent; btn.textContent = 'Refreshing…';
+      setTimeout(function () { if (btn) { btn.disabled = false; btn.textContent = o; } }, 1500); }
+    try { loadOperationalBook(); } catch (e) {}
+    return;
+  }
   if (pa.enabled === false) return;
   var route = (pa.route || '#portfolio-manager').replace('#', '').split('/')[0];
   navigateToRoute(route || 'portfolio-manager');

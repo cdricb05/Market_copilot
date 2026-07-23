@@ -114,15 +114,31 @@ def _run(desk_dir, *, today="2026-07-22", ops=None, gate=_hold_loader, refresh=N
         gate_loader=gate, refresh_fn=refresh or _ok_refresh())
 
 
-def _load(desk_dir, *, today="2026-07-22", ops=None, gate=_hold_loader):
+def _ready_probe(*, expected_market_date, tickers, downloader=None, ref_today=None):
+    """Offline provider probe: the owned transport already has the expected date."""
+    return {"provider_latest_date": expected_market_date, "priced": list(tickers or []),
+            "source": "TEST_PROBE", "queried": True}
+
+
+def _load(desk_dir, *, today="2026-07-22", ops=None, gate=_hold_loader, probe=_ready_probe):
     return dc.load_daily_close(
         desk_dir=desk_dir, today=today,
         operational=(ops if ops is not None else _fake_ops()),
-        gate=(gate() if callable(gate) else gate))
+        gate=(gate() if callable(gate) else gate),
+        provider_probe=probe, engine_loader=lambda: None)
 
 
 def _journal_count(desk_dir, book_id="alpha_paper_book_1"):
     return len(dc._journal_rows(desk._desk_dir(desk_dir)))
+
+
+def _seed_baseline(desk_dir, market_date="2026-07-17", book_id="alpha_paper_book_1"):
+    """Append a prior baseline journal row so a run exercises the DAILY (non-baseline)
+    path — the fast-contract HOLD / PROPOSAL scenarios assume the baseline is recorded."""
+    desk._append_ledger(desk._desk_dir(desk_dir), dc.DAILY_CLOSE_JOURNAL_FILE,
+                        [{"event": dc.DAILY_CLOSE_EVENT, "book_id": book_id,
+                          "market_date": market_date, "decision": dc.DECISION_BASELINE,
+                          "close_status": dc.INITIAL_BASELINE_RECORDED, "is_baseline": True}])
 
 
 # --------------------------------------------------------------------------- #
@@ -190,14 +206,26 @@ class TestExecuteContract:
         assert out["performed_write"] is False
         assert _journal_count(tmp_path / "d") == 0
 
-    def test_new_date_records_one_hold_row(self, tmp_path):
+    def test_first_run_records_baseline(self, tmp_path):
+        # Phase 27F: the FIRST close on an active book with no prior completed row
+        # records the INITIAL BASELINE (establishes the starting operational NAV).
         d = tmp_path / "d"
         out = _run(d)
-        assert out["close_status"] == dc.CLOSE_COMPLETE_HOLD
-        assert out["decision"] == dc.DECISION_HOLD
+        assert out["close_status"] == dc.INITIAL_BASELINE_RECORDED
+        assert out["decision"] == dc.DECISION_BASELINE
         assert out["performed_write"] is True
         assert out["last_processed_market_date"] == "2026-07-21"
         assert _journal_count(d) == 1
+
+    def test_daily_hold_after_baseline(self, tmp_path):
+        # With the baseline already recorded, a fresh eligible close is an ordinary
+        # documented HOLD.
+        d = tmp_path / "d"
+        _seed_baseline(d, "2026-07-17")
+        out = _run(d)
+        assert out["close_status"] == dc.CLOSE_COMPLETE_HOLD
+        assert out["decision"] == dc.DECISION_HOLD
+        assert out["last_processed_market_date"] == "2026-07-21"
 
     def test_rerun_same_date_already_processed_no_duplicate(self, tmp_path):
         d = tmp_path / "d"
@@ -210,6 +238,7 @@ class TestExecuteContract:
 
     def test_proposal_when_trigger_fires(self, tmp_path):
         d = tmp_path / "d"
+        _seed_baseline(d, "2026-07-17")                    # past the baseline -> daily path
         out = _run(d, gate=_prop_loader)
         assert out["close_status"] == dc.REBALANCE_PROPOSAL_READY
         assert out["decision"] == dc.DECISION_REBALANCE
@@ -219,6 +248,7 @@ class TestExecuteContract:
 
     def test_proposal_contains_affected_positions_only(self, tmp_path):
         d = tmp_path / "d"
+        _seed_baseline(d, "2026-07-17")
         out = _run(d, gate=_prop_loader)
         adds = [a["ticker"] for a in out["proposal"]["proposed_additions"]]
         rems = [r["ticker"] for r in out["proposal"]["proposed_removals"]]
@@ -249,11 +279,12 @@ class TestExecuteContract:
 
     def test_data_blocked_is_retryable(self, tmp_path):
         d = tmp_path / "d"
+        _seed_baseline(d, "2026-07-17")                    # past the baseline -> daily path
         _run(d, refresh=_blocked_refresh())
         # a later successful run for the same date still records the close
         out = _run(d, refresh=_ok_refresh())
         assert out["close_status"] == dc.CLOSE_COMPLETE_HOLD
-        assert _journal_count(d) == 1
+        assert _journal_count(d) == 2                       # seeded baseline + this HOLD
 
     def test_never_creates_orders(self, tmp_path):
         d = tmp_path / "d"
@@ -265,6 +296,7 @@ class TestExecuteContract:
 
     def test_manual_paper_order_approval_separate(self, tmp_path):
         d = tmp_path / "d"
+        _seed_baseline(d, "2026-07-17")
         out = _run(d, gate=_prop_loader)
         # the proposal explicitly says orders are created by a SEPARATE confirmation,
         # and the daily-close token is not any desk order token.
@@ -305,18 +337,26 @@ class TestReadOnly:
         assert out["read_only"] is True
         assert _journal_count(d) == before
 
-    def test_get_due_when_active_unprocessed(self, tmp_path):
+    def test_get_baseline_due_when_active_unprocessed(self, tmp_path):
+        # Phase 27F: a fresh active book with no prior completed row is BASELINE DUE.
         out = _load(tmp_path / "d")
-        assert out["close_status"] == dc.CLOSE_DUE
+        assert out["close_status"] == dc.INITIAL_BASELINE_DUE
         assert out["primary_action"]["runs_daily_close"] is True
+        assert out["primary_action"]["label"] == "Record Initial Baseline"
+
+    def test_get_daily_due_after_baseline(self, tmp_path):
+        d = tmp_path / "d"
+        _seed_baseline(d, "2026-07-17")
+        out = _load(d)
+        assert out["close_status"] == dc.CLOSE_DUE
         assert out["primary_action"]["label"] == "Run Daily Close"
 
-    def test_get_hold_after_processed(self, tmp_path):
+    def test_get_baseline_recorded_after_processed(self, tmp_path):
         d = tmp_path / "d"
-        _run(d)                                            # records HOLD for 2026-07-21
+        _run(d)                                            # records the baseline for 2026-07-21
         out = _load(d)
-        assert out["close_status"] == dc.CLOSE_COMPLETE_HOLD
-        assert out["decision"] == dc.DECISION_HOLD
+        assert out["close_status"] == dc.INITIAL_BASELINE_RECORDED
+        assert out["decision"] == dc.DECISION_BASELINE
         assert out["primary_action"]["runs_daily_close"] is False
 
     def test_get_five_stage_cycle(self, tmp_path):
@@ -340,7 +380,8 @@ class TestRealDeskPnl:
     def test_first_close_daily_pnl_unavailable_cumulative_shown(self, env27b1):
         _filled_world()                                    # fills 2026-07-20, marks->2026-07-20
         out = self._close(env27b1, today="2026-07-21", marks_through=["2026-07-20"])
-        assert out["close_status"] == dc.CLOSE_COMPLETE_HOLD
+        # Phase 27F: the first close records the INITIAL BASELINE (daily P&L unavailable).
+        assert out["close_status"] == dc.INITIAL_BASELINE_RECORDED
         pnl = out["pnl"]
         assert pnl is not None
         assert pnl["daily_pnl_available"] is False
