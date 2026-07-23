@@ -338,8 +338,10 @@ class TestUiSingleSourceOfTruth:
         # ONE coalesced loader (never a second fetch path). Phase 27B.8: the
         # Portfolio route activation loads the same coalesced loader directly
         # (replacing the legacy portfolio-terminal fetch) — a 7th reuse site.
+        # Phase 27E: after an explicit daily close, runDailyClose() refreshes every
+        # operator surface through the SAME coalesced loader — the 8th reuse site.
         js = _scripts(html)
-        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 7
+        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 8
 
     def test_concurrent_loads_coalesce(self, html):
         js = _scripts(html)

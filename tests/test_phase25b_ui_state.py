@@ -44,7 +44,9 @@ class TestAlphaPortfolioNavigation:
         # is labeled "Model Target" and lives under the Research group.
         html = _html()
         i_research = html.index('<div class="sidebar-label">Research</div>')
-        i_actions = html.index('<div class="sidebar-label">Actions</div>')
+        # Phase 27E renamed the "Actions" sidebar group to the collapsed
+        # SYSTEM / MAINTENANCE section; it bounds the Research group below.
+        i_actions = html.index('SYSTEM / MAINTENANCE')
         research_block = html[i_research:i_actions]
         assert 'data-route="multi-horizon"' in research_block
         assert ">Model Target</a>" in research_block
