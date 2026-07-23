@@ -687,17 +687,18 @@ class TestUiHeaderNeverImpliesTunnelRequired:
         assert "LOCAL ALPHA DATA" in header
         assert "NO PREDICTION TUNNEL REQUIRED" in header
 
-    def test_prediction_badge_is_relabeled_legacy(self, html):
+    def test_prediction_path_badge_removed_phase27c(self, html):
+        # Phase 27C hard cutover: the technical LEGACY PREDICTION PATH header badge
+        # was REMOVED from the operator header. The header still carries the
+        # LOCAL ALPHA DATA reassurance and never implies the tunnel is required.
         header = html[html.index("<header>"):html.index("</header>")]
-        assert "LEGACY PREDICTION PATH" in header
-        # the operator badge text never claims the tunnel is configured/required;
-        # the precise legacy state moved into the tooltip
-        assert "el.textContent = 'LEGACY PREDICTION PATH'" in html
-        assert "var txt = (tunnel && tunnel.target) ? 'PREDICTION TUNNEL CONFIGURED'" \
-            not in html
+        assert "LEGACY PREDICTION PATH" not in header
+        assert 'id="pred-health-badge"' not in header
+        assert "LOCAL ALPHA DATA" in header
+        assert "el.textContent = 'LEGACY PREDICTION PATH'" not in html
 
-    def test_legacy_state_literals_preserved_for_the_lab_check(self, html):
-        # the user-triggered Lab/Admin prediction check keeps its explicit states
-        for state in ("PREDICTION TUNNEL CONFIGURED", "PREDICTION STATUS NOT CHECKED",
-                      "PREDICTION AVAILABLE", "PREDICTION UNAVAILABLE"):
+    def test_lab_check_prediction_states_preserved(self, html):
+        # The user-triggered Lab/Admin prediction check keeps its explicit states
+        # (the header badge is gone, but the Lab/Admin availability check remains).
+        for state in ("PREDICTION AVAILABLE", "PREDICTION UNAVAILABLE"):
             assert state in html, state

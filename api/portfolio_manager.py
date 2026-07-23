@@ -120,6 +120,58 @@ def _default_operational_book_loader() -> dict:
 _OPERATIONAL_BOOK_LOADER = _default_operational_book_loader
 
 
+# --------------------------------------------------------------------------- #
+# Phase 27C - the canonical DAILY ACTION GATE (single source; passthrough only)
+# --------------------------------------------------------------------------- #
+def _default_daily_action_gate_loader(current=None) -> dict:
+    from paper_trader.api import daily_action_gate as dag
+    return dag.load_daily_action_gate(current=current)
+
+
+# Injection seam for tests; degrade-only. The Portfolio Manager NEVER re-derives
+# the daily outcome — it passes through the ONE canonical gate result verbatim.
+_DAILY_ACTION_GATE_LOADER = _default_daily_action_gate_loader
+
+
+def _daily_gate_block(current=None) -> dict:
+    """Compact passthrough of the canonical daily action gate. The Portfolio
+    Manager focuses on this outcome (Phase 27C). Degrades; never raises."""
+    try:
+        g = _DAILY_ACTION_GATE_LOADER(current=current) or {}
+    except Exception:  # noqa: BLE001 - the PM page must load even without the gate
+        return {"available": False}
+    if not g.get("outcome"):
+        return {"available": False}
+    return {
+        "available": True,
+        "outcome": g.get("outcome"),
+        "outcome_label": g.get("outcome_label"),
+        "headline": g.get("headline"),
+        "explanation": g.get("explanation"),
+        "action_required": g.get("action_required"),
+        "action_severity": g.get("action_severity"),
+        "primary_action_label": g.get("primary_action_label"),
+        "current_task": g.get("current_task"),
+        "evaluation_date": g.get("evaluation_date"),
+        "latest_completed_market_date": g.get("latest_completed_market_date"),
+        "next_scheduled_full_review": g.get("next_scheduled_full_review"),
+        "scheduled_review_due": g.get("scheduled_review_due"),
+        "trigger_categories": g.get("trigger_categories") or [],
+        "trigger_reasons": g.get("trigger_reasons") or [],
+        "proposed_additions": g.get("proposed_additions") or [],
+        "proposed_removals": g.get("proposed_removals") or [],
+        "proposed_resizes": g.get("proposed_resizes") or [],
+        "blocked_changes": g.get("blocked_changes") or [],
+        "proposed_change_count": g.get("proposed_change_count"),
+        "estimated_turnover": g.get("estimated_turnover"),
+        "estimated_cost": g.get("estimated_cost"),
+        "current_target_count": g.get("current_target_count"),
+        "actual_holding_count": g.get("actual_holding_count"),
+        "target_actual_match": g.get("target_actual_match"),
+        "data_ready": g.get("data_ready"),
+    }
+
+
 def _operational_book_block() -> dict:
     """Compact implementation-state view of Alpha Paper Book #1 straight from the
     canonical /v1/operational-book payload. Degrades to unavailable; never raises."""
@@ -891,6 +943,7 @@ def load_summary(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
                                                     "is_initial_portfolio_proposal": None}
     health_items = _health_items(ctx)
     ops = _operational_book_block()
+    daily_gate = _daily_gate_block(current=ctx["cur"])
     headline, reason = _decision(ctx, changes, health_items, ops)
     rows = _action_rows(ctx)
     counts = _action_counts(rows)
@@ -928,6 +981,11 @@ def load_summary(*, panel_path=None, inputs_dir=None, ledger_dir=None, fast_spec
         "operational_review_due": (ops.get("canonical_state") or {}).get("review_due"),
         "operational_target_freshness": (ops.get("canonical_state") or {}).get("target_freshness"),
         "operational_lifecycle_stage": (ops.get("canonical_state") or {}).get("lifecycle_stage"),
+        # Phase 27C — the canonical DAILY ACTION GATE (single source: /v1/operations/
+        # daily-action-gate). The Portfolio Manager focuses on THIS outcome; it is a
+        # verbatim passthrough so the daily task / next action / severity match every
+        # other operator surface and are never re-derived on the page.
+        "daily_action_gate": daily_gate,
         # Phase 27B.1: the ONE operational book + its implementation state. The
         # legacy "portfolio" block below is the ARCHIVED executed paper portfolio.
         "operational_book": ops,

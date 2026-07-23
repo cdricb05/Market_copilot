@@ -297,10 +297,12 @@ class TestRightPanelCompactAgrees:
         assert m and " open" not in m.group(0)
         lo, hi = _span(html, 'id="right-op-details"', "end right-op-details")
         # Phase 27B.7: right-legacy-capacity was removed; operational detail rows stay.
+        # Phase 27C: the legacy Create/Fill/Cancel order-controls block was removed
+        # from Operational Details entirely; the operational rows remain.
         for el in ('id="right-ob-nav"', 'id="right-ob-cash"', 'id="right-ob-target"',
-                   'id="right-ob-mark"', 'id="right-ob-impl"',
-                   'id="right-create-orders-section"'):
+                   'id="right-ob-mark"', 'id="right-ob-impl"'):
             assert lo < html.index(el) < hi, el
+        assert 'id="right-create-orders-section"' not in html
 
     def test_compact_card_stays_visible_above_the_details(self, html):
         for el in ('id="right-ob-statement"', 'id="right-current-task"',

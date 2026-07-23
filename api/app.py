@@ -219,6 +219,7 @@ from paper_trader.api import paper_trading_desk as _desk
 from paper_trader.api import alpha_book as _abook
 from paper_trader.api import alpha_target as _alpha_target
 from paper_trader.api import operational_book as _opbook
+from paper_trader.api import daily_action_gate as _dag
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -5372,6 +5373,33 @@ def operational_book_archive() -> dict:
     the default portfolio again), any past/completed desk paper books, and the
     research-book identities (evidence only, never operational holdings)."""
     return _opbook.load_historical_books()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27C - DAILY EVENT-DRIVEN ACTION GATE (read-only).
+#
+# ONE canonical daily result every operator surface derives its message from.
+# A completed EOD refresh recalculates the eligible sleeves (owned data, NO
+# prediction tunnel), rebuilds the combined target, compares it against the
+# actual operational holdings and evaluates risk / eligibility / membership /
+# drift / economic gates. Returns NO_ACTION_TODAY or PROPOSAL_READY (manual
+# review required). A scheduled monthly review is a mandatory checkpoint but
+# never the only date on which action may be proposed, and never suppresses a
+# hard event. Daily recalculation != retraining: no model parameter, weight,
+# champion or sleeve is changed. Strictly read-only: no orders, no fills, no
+# snapshots, no automation, no broker, no silent writes on load.
+# --------------------------------------------------------------------------- #
+@app.get("/v1/operations/daily-action-gate", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def operations_daily_action_gate() -> dict:
+    """Read-only canonical daily action gate for Alpha Paper Book #1: the outcome
+    (DATA_NOT_READY / NO_ACTION_TODAY / PROPOSAL_READY / ORDERS_SUBMITTED), the
+    trigger categories and reasons, the proposed additions / removals / resizes /
+    blocked changes, estimated turnover and modeled execution cost, the current
+    target-versus-actual comparison, and the next scheduled full-review date.
+    Evaluates every completed market day; manual review is always required and no
+    order is ever created here."""
+    return _dag.load_daily_action_gate()
 
 
 @app.get(

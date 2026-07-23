@@ -40,7 +40,7 @@ _UI = Path(__file__).resolve().parents[1] / "api" / "ui" / "index.html"
 # Normal operator routes -> (start marker, end marker) bounding their tab DOM.
 _ROUTES = {
     "command-center":    ('id="tab-overview"',           'id="tab-prediction-cockpit"'),
-    "daily-workflow":    ('id="tab-prediction-cockpit"', 'id="tab-review-queue"'),
+    "daily-workflow":    ('id="tab-prediction-cockpit"', 'id="tab-portfolio"'),
     "portfolio":         ('id="tab-portfolio"',          'id="tab-portfolio-manager"'),
     "portfolio-manager": ('id="tab-portfolio-manager"',  'id="tab-multi-horizon"'),
     "multi-horizon":     ('id="tab-multi-horizon"',      'id="tab-audit-advanced"'),

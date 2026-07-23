@@ -660,7 +660,10 @@ class TestUiStatic:
 
     def test_page_and_nav_present(self):
         html = self._html()
-        assert "MULTI-HORIZON ALPHA PORTFOLIO" in html
+        # Phase 27C: the page/nav were relabeled "Model Target" (the multi-horizon
+        # research portfolio). Route id and alias are unchanged.
+        assert "MODEL TARGET" in html
+        assert "MULTI-HORIZON RESEARCH PORTFOLIO" in html
         assert 'id="tab-multi-horizon"' in html
         assert 'data-route="multi-horizon"' in html
         assert "'multi-horizon': 'multi-horizon'" in html

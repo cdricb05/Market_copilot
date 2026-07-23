@@ -39,13 +39,15 @@ def _scripts(html: str) -> str:
 # --------------------------------------------------------------------------- #
 
 class TestAlphaPortfolioNavigation:
-    def test_nav_item_named_alpha_portfolio_under_views(self):
+    def test_nav_item_named_model_target_under_research(self):
+        # Phase 27C: the nav is grouped OPERATE / RESEARCH; the model-target page
+        # is labeled "Model Target" and lives under the Research group.
         html = _html()
-        i_views = html.index('<div class="sidebar-label">Views</div>')
+        i_research = html.index('<div class="sidebar-label">Research</div>')
         i_actions = html.index('<div class="sidebar-label">Actions</div>')
-        views_block = html[i_views:i_actions]
-        assert 'data-route="multi-horizon"' in views_block
-        assert ">Alpha Portfolio</a>" in views_block
+        research_block = html[i_research:i_actions]
+        assert 'data-route="multi-horizon"' in research_block
+        assert ">Model Target</a>" in research_block
 
     def test_route_and_alias_registered(self):
         html = _html()
@@ -55,7 +57,8 @@ class TestAlphaPortfolioNavigation:
         assert "if (base === 'alpha-portfolio') base = 'multi-horizon';" in html
 
     def test_page_title_present(self):
-        assert "MULTI-HORIZON ALPHA PORTFOLIO" in _html()
+        # Phase 27C: renamed "MODEL TARGET — MULTI-HORIZON RESEARCH PORTFOLIO".
+        assert "MODEL TARGET" in _html()
 
     def test_loading_and_error_states_exist(self):
         html = _html()

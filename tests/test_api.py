@@ -25407,8 +25407,13 @@ class TestUiStaticContent:
     def test_audit_advanced_present(self) -> None:
         assert "Audit / Advanced" in self._read_html()
 
-    def test_execution_safety_summary_present(self) -> None:
-        assert "Execution Safety Summary" in self._read_html()
+    def test_operational_safety_summary_present(self) -> None:
+        # Phase 27C: the legacy signal-workflow "Execution Safety Summary" block was
+        # removed with the orphaned tabs; the operator safety summary is now the
+        # right-panel Safety Mode plus the daily action gate's manual-review safety.
+        html = self._read_html()
+        assert "Safety Mode" in html
+        assert "Manual review" in html
 
     def test_recommended_next_action_present(self) -> None:
         assert "Recommended Next Action" in self._read_html()
@@ -28610,9 +28615,13 @@ class TestUiDailyPlanSignalActionsContent:
         """UI must reference /v1/review/create-signals endpoint."""
         assert "/v1/review/create-signals" in self._read_html()
 
-    def test_approve_first_empty_state_present(self) -> None:
-        """'Approve candidates in Review Queue first' empty-state message must be present."""
-        assert "Approve candidates in Review Queue first" in self._read_html()
+    def test_daily_workflow_gate_present(self) -> None:
+        # Phase 27C: the legacy candidate "Approve candidates in Review Queue first"
+        # empty-state was removed with the orphaned signal-workflow tab. The Daily
+        # Workflow route now shows the canonical daily action gate.
+        html = self._read_html()
+        assert "Daily Action Gate" in html
+        assert 'id="dw-dag-card"' in html
 
     def test_no_alert_calls(self) -> None:
         """No alert() calls must appear in the HTML."""
@@ -29493,19 +29502,14 @@ class TestUiActionPanelConsistencyV1Content:
     def test_right_panel_has_next_action_id(self) -> None:
         assert 'id="right-next-action"' in self._read_html()
 
-    def test_advanced_order_controls_section_present(self) -> None:
-        assert "Advanced order controls" in self._read_html()
-
-    def test_advanced_order_controls_copy_present(self) -> None:
-        assert "Usually not needed. Paper order controls remain manual and create no broker execution." in self._read_html()
-
-    def test_order_controls_inside_details(self) -> None:
-        import re
+    def test_legacy_right_panel_order_controls_removed_phase27c(self) -> None:
+        # Phase 27C hard cutover: the legacy "Advanced order controls (legacy paper
+        # workflow)" Create / Fill / Cancel block was PHYSICALLY REMOVED from the
+        # always-visible operator right panel (superseded presence tests reconciled
+        # to this focused absence regression).
         html = self._read_html()
-        details_blocks = re.findall(r'<details[^>]*>[\s\S]*?</details>', html)
-        aoc_blocks = [b for b in details_blocks if "Advanced order controls" in b]
-        assert len(aoc_blocks) > 0, "No <details> block with 'Advanced order controls' found"
-        assert any("Create Paper Orders" in b for b in aoc_blocks)
+        assert "Advanced order controls (legacy paper workflow)" not in html
+        assert "Usually not needed. Paper order controls remain manual" not in html
 
     def test_manual_review_safety_text_present(self) -> None:
         assert "Manual review" in self._read_html()
@@ -29533,11 +29537,14 @@ class TestUiActionPanelConsistencyV1Content:
         assert m is not None, "right-current-task element not found"
         assert "Review new-entry candidates" not in m.group(1).strip()
 
-    def test_order_button_ids_still_exist(self) -> None:
+    def test_legacy_order_button_ids_removed_phase27c(self) -> None:
+        # Phase 27C: the legacy right-panel Create/Fill/Cancel paper-order buttons
+        # were removed from the operator DOM (see the daily action gate + Portfolio
+        # Manager order plan for the operational order lifecycle).
         html = self._read_html()
-        assert 'id="right-create-orders-btn"' in html
-        assert 'id="right-fill-orders-btn"' in html
-        assert 'id="right-cancel-orders-btn"' in html
+        assert 'id="right-create-orders-btn"' not in html
+        assert 'id="right-fill-orders-btn"' not in html
+        assert 'id="right-cancel-orders-btn"' not in html
 
     def test_sticky_tabs_still_present(self) -> None:
         assert "position: sticky" in self._read_html()
@@ -34706,10 +34713,13 @@ class TestUiContextualActionRail:
         assert 'class="sidebar-link" id="nav-command-center" data-route="command-center"' in html
 
     def test_prediction_header_has_defined_states(self) -> None:
+        # Phase 27C: the technical LEGACY PREDICTION PATH header badge and its
+        # tunnel-state literals were removed. The user-triggered Lab/Admin prediction
+        # check keeps its own AVAILABLE / UNAVAILABLE states.
         html = _read_index_html_14a()
-        for state in ("PREDICTION TUNNEL CONFIGURED", "PREDICTION STATUS NOT CHECKED",
-                      "PREDICTION AVAILABLE", "PREDICTION UNAVAILABLE"):
-            assert state in html, f"missing prediction header state: {state}"
+        for state in ("PREDICTION AVAILABLE", "PREDICTION UNAVAILABLE"):
+            assert state in html, f"missing Lab/Admin prediction state: {state}"
+        assert 'id="pred-health-badge"' not in html
         assert "Prediction: ---" not in html
 
 

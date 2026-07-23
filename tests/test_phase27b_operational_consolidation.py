@@ -281,7 +281,10 @@ class TestUiPortfolioDefaultsToOperationalBook:
 
 class TestUiDailyWorkflowOperationalSteps:
     def test_operational_workflow_card_first(self, html):
-        assert html.index('id="dwob-card"') < html.index('id="tab-review-queue"')
+        # Phase 27C: the orphaned legacy tabs were removed; the daily-workflow route
+        # runs from tab-prediction-cockpit to the next tab (tab-portfolio). The
+        # operational workflow card still precedes the next route's DOM.
+        assert html.index('id="dwob-card"') < html.index('id="tab-portfolio"')
         card = html[html.index('id="dwob-card"'):html.index("OPERATIONAL BOOK WORKFLOW END")]
         assert "Today's Operating Workflow" in card
         assert "Alpha Paper Book #1" in card
@@ -301,17 +304,20 @@ class TestUiDailyWorkflowOperationalSteps:
 
 
 class TestUiRightPanelDescribesOperationalBook:
-    def test_operational_capacity_listed_before_legacy(self, html):
-        i_op = html.index("Operational Book &mdash; Alpha Paper Book #1 Capacity")
-        i_legacy = html.index("Advanced order controls (legacy paper workflow)")
-        assert i_op < i_legacy
+    def test_operational_capacity_present(self, html):
+        # Phase 27C: the legacy order-controls block was removed from the right panel;
+        # the operational book capacity section remains the right-panel detail.
+        assert "Operational Book &mdash; Alpha Paper Book #1 Capacity" in html
 
     def test_live_operational_state_surfaces(self, html):
         assert 'id="right-ob-state"' in html
         assert 'id="right-ob-nav"' in html
 
-    def test_advanced_order_controls_scoped_to_legacy(self, html):
-        assert "Advanced order controls (legacy paper workflow)" in html
+    def test_legacy_order_controls_removed_from_right_panel(self, html):
+        # Phase 27C hard cutover: the legacy Create/Fill/Cancel paper-order controls
+        # are gone from the always-visible operator right panel.
+        assert "Advanced order controls (legacy paper workflow)" not in html
+        assert 'id="right-create-orders-btn"' not in html
 
 
 class TestUiSingleSourceOfTruth:

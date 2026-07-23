@@ -1714,7 +1714,6 @@
   <span class="badge ok" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">PAPER ORDERS ONLY</span>
   <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">AUTOMATION OFF</span>
   <span id="alpha-data-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--ok); background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); border-radius: 2px;" title="The operational alpha workflow (target refresh, snapshot review, alpha book, paper desk) runs entirely on owned local data. The GCP prediction tunnel is a separate legacy path and is never required.">LOCAL ALPHA DATA &middot; NO PREDICTION TUNNEL REQUIRED</span>
-  <span id="pred-health-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;" title="Legacy prediction path (GCP tunnel) - PREDICTION STATUS NOT CHECKED. Used only by the legacy Lab/Admin prediction workflow; the operational alpha workflow never needs it.">LEGACY PREDICTION PATH</span>
   <span id="market-data-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;" title="Whether the portfolio mark, portfolio snapshot and current-alpha marks share one completed market date. Does not check prediction availability.">MARKET DATA: NOT CHECKED</span>
   <div style="flex: 1;"></div>
   <input type="password" id="apiKey" placeholder="API Key" autocomplete="off"
@@ -1926,12 +1925,15 @@
 <div class="app-container">
   <div class="sidebar">
     <div class="sidebar-section">
-      <div class="sidebar-label">Views</div>
+      <div class="sidebar-label">Operate</div>
       <a class="sidebar-link" id="nav-command-center" data-route="command-center" onclick="navigateToRoute('command-center');">Command Center</a>
-      <a class="sidebar-link" id="nav-portfolio-manager" data-route="portfolio-manager" onclick="navigateToRoute('portfolio-manager');" title="Portfolio Manager — today's portfolio decision: headline, actions, proposed changes, health and the manual review flow. Paper only; read only.">Portfolio Manager</a>
-      <a class="sidebar-link" id="nav-daily-workflow" data-route="daily-workflow" onclick="navigateToRoute('daily-workflow');">Daily Workflow</a>
-      <a class="sidebar-link" id="nav-portfolio" data-route="portfolio" onclick="navigateToRoute('portfolio');">Portfolio</a>
-      <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');" title="Multi-Horizon Alpha Portfolio — model books and sleeve evidence (primary 50/50 ensemble book, sleeves, recommendations, books, snapshots).">Alpha Portfolio</a>
+      <a class="sidebar-link" id="nav-portfolio" data-route="portfolio" onclick="navigateToRoute('portfolio');" title="Portfolio — the ONE operational portfolio: the active 25 Alpha Paper Book #1 holdings, NAV, P&amp;L and drift.">Portfolio</a>
+      <a class="sidebar-link" id="nav-daily-workflow" data-route="daily-workflow" onclick="navigateToRoute('daily-workflow');" title="Daily Workflow — today's completed data date, the canonical daily action gate, and the one primary action.">Daily Workflow</a>
+      <a class="sidebar-link" id="nav-portfolio-manager" data-route="portfolio-manager" onclick="navigateToRoute('portfolio-manager');" title="Portfolio Manager — today's daily action gate: proposed changes when applicable, or NO PORTFOLIO CHANGE REQUIRED. Paper only; read only.">Portfolio Manager</a>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Research</div>
+      <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');" title="Model Target — the current model target and research portfolio (50/50 ensemble book, sleeves, recommendations). NOT the executed holdings; creates no orders.">Model Target</a>
       <a class="sidebar-link" id="nav-research-audit" data-route="research-audit" onclick="navigateToRoute('research-audit');">Research &amp; Audit</a>
     </div>
     <div class="sidebar-section">
@@ -1974,6 +1976,30 @@
           </div>
 
           <div id="cc-error" class="cc-error" style="display:none;"></div>
+
+          <!-- ===================== Phase 27C DAILY ACTION GATE ===================== -->
+          <!-- The ONE canonical daily result. Every operator surface (Command Center,
+               Daily Workflow, Portfolio Manager, right panel) derives its current task
+               and next action from /v1/operations/daily-action-gate. A completed EOD
+               refresh recalculates the eligible sleeves (owned data, no prediction
+               tunnel), rebuilds the combined target, compares it against the actual
+               holdings and returns NO_ACTION_TODAY or PORTFOLIO CHANGES PROPOSED. -->
+          <div id="cc-dag-card" class="cc-panel" style="border-left:3px solid var(--ok);display:none;">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title">Daily Action Gate &mdash; Today</span>
+              <span class="cc-badge" id="cc-dag-badge" title="The canonical daily action-gate outcome for Alpha Paper Book #1.">&mdash;</span>
+              <span class="cc-badge safe">MANUAL REVIEW</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest completed market date the model evaluated (owned data)."><span class="k">Market Date</span><span class="v" id="cc-dag-market">&mdash;</span></span>
+              <span class="cc-kv" style="font-size:var(--fs-0);" title="Next scheduled full portfolio review. A material event can still propose action before this date."><span class="k">Next Full Review</span><span class="v" id="cc-dag-review">&mdash;</span></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;">
+              <div id="cc-dag-headline" style="font-size:16px;font-weight:900;letter-spacing:.02em;">Evaluating today&rsquo;s action gate&hellip;</div>
+              <button id="cc-dag-btn" class="cc-btn primary" style="display:none;" onclick="dagPrimaryAction()" title="The one primary action for today's daily gate result.">Monitor Holdings and Performance</button>
+            </div>
+            <div id="cc-dag-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+            <div id="cc-dag-changes" class="mono" style="display:none;font-size:11px;margin-top:6px;line-height:1.5;"></div>
+          </div>
 
           <!-- ===================== Phase 27B CURRENT OPERATIONAL BOOK ===================== -->
           <!-- The ONE operational portfolio. Every operational page renders this same
@@ -2085,6 +2111,28 @@
       <!-- TAB 1: DAILY PLAN -->
       <div id="tab-prediction-cockpit" class="tab-content">
 
+        <!-- ===================== Phase 27C DAILY ACTION GATE ===================== -->
+        <!-- Today's canonical daily gate outcome (same /v1/operations/daily-action-gate
+             payload as the Command Center). This is the primary result the operator
+             reads first: NO PORTFOLIO CHANGE REQUIRED TODAY, PORTFOLIO CHANGES PROPOSED,
+             or MARKET DATA REFRESH REQUIRED — with one primary action. -->
+        <div id="dw-dag-card" class="dw-terminal" style="border-left:3px solid var(--ok); margin-bottom:10px; display:none;">
+          <div class="dw-hd">
+            <span class="dw-hd-title">Daily Action Gate</span>
+            <span class="cc-badge" id="dw-dag-badge">&mdash;</span>
+            <span class="cc-badge safe">MANUAL REVIEW</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest completed market date evaluated (owned data)."><span class="k">Data Date</span><span class="v" id="dw-dag-market">&mdash;</span></span>
+            <span class="cc-kv" style="font-size:var(--fs-0);" title="Next scheduled full portfolio review."><span class="k">Next Full Review</span><span class="v" id="dw-dag-review">&mdash;</span></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;">
+            <div id="dw-dag-headline" style="font-size:15px;font-weight:900;letter-spacing:.02em;">Evaluating today&rsquo;s action gate&hellip;</div>
+            <button id="dw-dag-btn" class="cc-btn primary" style="display:none;" onclick="dagPrimaryAction()">Monitor Holdings and Performance</button>
+          </div>
+          <div id="dw-dag-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
+          <div id="dw-dag-changes" class="mono" style="display:none;font-size:11px;margin-top:6px;line-height:1.5;"></div>
+        </div>
+
         <!-- ===================== Phase 27B OPERATIONAL BOOK WORKFLOW ===================== -->
         <!-- The daily workflow of the ONE operational portfolio (Alpha Paper Book #1):
              Refresh Market Data -> Refresh Alpha Target -> Review -> Generate Order Plan
@@ -2145,261 +2193,13 @@
 
       </div><!-- end tab-prediction-cockpit -->
 
-      <!-- TAB 2: REVIEW QUEUE -->
-      <div id="tab-review-queue" class="tab-content">
-
-        <div class="command-section">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div class="section-title" style="margin-bottom: 0;">Review Queue</div>
-            <button class="btn-sm" onclick="window.runUiAction('Refresh Queue', () => loadReviewQueue(), this)">Refresh</button>
-          </div>
-
-          <!-- Summary cards -->
-          <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px;">
-            <div style="text-align:center; background:rgba(0,0,0,.2); padding:8px; border-radius:2px; border:1px solid var(--border);">
-              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Total</div>
-              <div style="font-size:18px; font-weight:700; color:var(--text-primary);" id="rq-card-total">-</div>
-            </div>
-            <div style="text-align:center; background:rgba(34,197,94,.08); padding:8px; border-radius:2px; border:1px solid rgba(34,197,94,.3);">
-              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Approved</div>
-              <div style="font-size:18px; font-weight:700; color:var(--ok);" id="rq-card-approved">-</div>
-            </div>
-            <div style="text-align:center; background:rgba(245,158,11,.08); padding:8px; border-radius:2px; border:1px solid rgba(245,158,11,.3);">
-              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Watching</div>
-              <div style="font-size:18px; font-weight:700; color:var(--warning);" id="rq-card-watching">-</div>
-            </div>
-            <div style="text-align:center; background:rgba(239,68,68,.08); padding:8px; border-radius:2px; border:1px solid rgba(239,68,68,.3);">
-              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Rejected</div>
-              <div style="font-size:18px; font-weight:700; color:var(--danger);" id="rq-card-rejected">-</div>
-            </div>
-            <div style="text-align:center; background:rgba(0,0,0,.2); padding:8px; border-radius:2px; border:1px solid var(--border);">
-              <div style="font-size:9px; color:var(--label); text-transform:uppercase; margin-bottom:2px;">Pending</div>
-              <div style="font-size:18px; font-weight:700; color:var(--text-accent);" id="rq-card-pending">-</div>
-            </div>
-          </div>
-
-          <!-- Instruction line -->
-          <div style="font-size: 10px; color: var(--text-accent); margin-bottom: 10px; padding: 6px 10px; background: rgba(59,130,246,.06); border-left: 2px solid var(--info); border-radius: 0 2px 2px 0;">
-            Approve only candidates you want eligible for signal creation. Watch or Reject the rest. <strong>Approving does not create orders.</strong>
-          </div>
-
-          <!-- Cycle header — shown after load -->
-          <div id="rq-cycle-header" style="display: none; font-size: 9px; color: var(--label); margin-bottom: 8px; padding: 5px 10px; background: rgba(0,0,0,.15); border-radius: 2px; border-left: 3px solid rgba(59,130,246,.4);">
-            <span style="color: var(--text-primary); font-weight: 600;">Current review cycle</span>
-            <span id="rq-cycle-key" style="margin-left: 6px; color: var(--label);"></span>
-            <span id="rq-cycle-count" style="margin-left: 6px;"></span>
-          </div>
-          <!-- New cycle hint: shown in completed workflow state -->
-          <div id="rq-new-cycle-hint" style="display: none; font-size: 9px; color: var(--ok); margin-bottom: 8px; padding: 5px 10px; background: rgba(34,197,94,.07); border-radius: 2px; border-left: 3px solid rgba(34,197,94,.5);">
-            Paper workflow complete. <strong>Run Daily Process Preview to start a new cycle.</strong>
-          </div>
-
-          <!-- Column legend -->
-          <div style="font-size: 9px; color: var(--label); margin-bottom: 8px;">
-            Decision = app recommendation &nbsp;|&nbsp; Rec = model recommendation &nbsp;|&nbsp; Conf = model confidence &nbsp;|&nbsp; Return % = expected 5-day &nbsp;|&nbsp; RS SPY = relative strength vs SPY 20d
-          </div>
-
-          <div class="filters" style="margin-bottom: 10px;">
-            <select id="rq-status" onchange="loadReviewQueue()" style="padding: 5px 6px; border: 1px solid var(--border); border-radius: 2px; background: rgba(0,0,0,.2); color: var(--text-primary); font-size: 10px; font-family: 'Monaco', monospace;">
-              <option value="">All statuses</option>
-              <option value="NEW">NEW</option>
-              <option value="WATCHING">WATCHING</option>
-              <option value="APPROVED_FOR_SIGNAL">APPROVED</option>
-              <option value="REJECTED">REJECTED</option>
-            </select>
-            <input type="text" id="rq-ticker" placeholder="Search ticker..." style="padding: 5px 6px; border: 1px solid var(--border); border-radius: 2px; background: rgba(0,0,0,.2); color: var(--text-primary); font-size: 10px;">
-            <label style="font-size: 10px; display: flex; align-items: center; gap: 4px;">
-              <input type="checkbox" id="rq-latest-only" checked onchange="filterReviewQueue()">
-              Latest per ticker
-            </label>
-          </div>
-          <div id="rq-filter-info" style="font-size: 9px; color: var(--label); margin-bottom: 6px; padding: 4px 8px; background: rgba(0,0,0,.15); border-radius: 2px; display: none;"></div>
-          <div class="table-wrap scroll-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Ticker</th><th>Status</th><th>Decision</th><th>Score</th><th>Rec</th><th>Conf</th><th>Return %</th><th>RS SPY</th><th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="rq-tbody">
-                <tr><td colspan="9" class="empty">Connect to load</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Action legend -->
-          <div style="font-size: 9px; color: var(--label); margin-top: 8px;">
-            Watch = keep tracking, no signal &nbsp;|&nbsp; Reject = exclude from signal creation &nbsp;|&nbsp; Approve = eligible for signal creation (does not create orders)
-          </div>
-        </div>
-
-      </div><!-- end tab-review-queue -->
-
-      <!-- TAB 3: SIGNALS & DECISIONS -->
-      <div id="tab-signals-decisions" class="tab-content">
-
-        <!-- Execution Safety Summary -->
-        <div class="compact-card" style="flex-shrink: 0;">
-          <div style="font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-accent); margin-bottom: 6px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">Execution Safety Summary</div>
-          <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">
-            <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">MANUAL REVIEW</span>
-            <span class="badge ok" style="font-size: 8px; padding: 2px 5px;">PAPER ORDERS ONLY</span>
-            <span class="badge neutral" style="font-size: 8px; padding: 2px 5px;">AUTOMATION OFF</span>
-            <span class="badge warning" style="font-size: 8px; padding: 2px 5px;">NO BROKER EXECUTION</span>
-          </div>
-          <div style="font-size: 9px; color: var(--label);">Pipeline: Preview Signals &rarr; Create Signals &rarr; Preview Decisions &rarr; Create Decisions &rarr; Preview Orders &rarr; Create Paper Orders &rarr; Fill Pending Paper Orders. No broker execution. No automation. Paper fills only.</div>
-        </div>
-
-        <!-- Decision Outcome Summary (populated after Step C/D run) -->
-        <div id="decision-outcome-summary" style="display:none; margin-top: 10px;">
-          <div style="font-size: 10px; font-weight: 600; color: var(--text-accent); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;">Decision Outcome Summary</div>
-          <div id="decision-outcome-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; margin-bottom: 6px;"></div>
-          <div style="font-size: 9px; color: var(--label); font-style: italic;" id="decision-outcome-source"></div>
-        </div>
-
-        <!-- Execution cockpit row 1: Steps A + B -->
-        <div class="execution-cockpit-grid">
-
-          <!-- Step A: Signal Preview -->
-          <div class="command-section">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-              <div>
-                <div style="font-size: 9px; color: var(--info); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step A</div>
-                <div class="section-title" style="margin-bottom: 0;">Preview Signals</div>
-              </div>
-              <button class="btn-sm" onclick="generateSignalPreview()">Preview Signals</button>
-            </div>
-            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write Signal rows. Reads APPROVED_FOR_SIGNAL candidates from Review Queue.</div>
-            <input type="hidden" id="signal-preview-limit" value="50">
-            <div id="signal-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No signal preview yet. Approve candidates in Review Queue first, then click Preview Signals.</div>
-          </div>
-
-          <!-- Step B: Create Signals -->
-          <div class="command-section">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-              <div>
-                <div style="font-size: 9px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step B</div>
-                <div class="section-title" style="margin-bottom: 0;">Create Signals</div>
-              </div>
-              <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createSignalsFromCandidates()">Create Signals</button>
-            </div>
-            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates Signal rows only. Does not create TradeDecisions or Orders. Requires APPROVED_FOR_SIGNAL candidates in Review Queue.</div>
-            <input type="hidden" id="create-signals-limit" value="50">
-            <div id="create-signals-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready to create signals from candidates</div>
-          </div>
-
-        </div><!-- end execution-cockpit-grid row 1 -->
-
-        <!-- Execution cockpit row 2: Steps C + D -->
-        <div class="execution-cockpit-grid">
-
-          <!-- Step C: Decision Preview -->
-          <div class="command-section">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-              <div>
-                <div style="font-size: 9px; color: var(--warning); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step C</div>
-                <div class="section-title" style="margin-bottom: 0;">Preview Trade Decisions</div>
-              </div>
-              <button class="btn-sm" style="background: var(--warning); color: white;" onclick="previewDecisionsFromSignals()">Preview Decisions</button>
-            </div>
-            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Preview only. Does not write TradeDecision rows. Shows which signals pass risk rules and at what qty/notional. REJECTED = risk rule blocked (e.g. MAX_POSITIONS_REACHED).</div>
-            <input type="hidden" id="decision-preview-limit" value="50">
-            <input type="checkbox" id="decision-preview-received-only" style="display:none;">
-            <div id="decision-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 12px 0; max-height: 300px; overflow-y: auto;">No decision preview yet. Create signals first, then click Preview Decisions.</div>
-          </div>
-
-          <!-- Step D: Create Trade Decisions -->
-          <div class="command-section">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-              <div>
-                <div style="font-size: 9px; color: var(--ok); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; margin-bottom: 2px;">Step D</div>
-                <div class="section-title" style="margin-bottom: 0;">Create Trade Decisions</div>
-              </div>
-              <button class="btn-sm" style="background: var(--ok); color: white;" onclick="createDecisionsFromSignals()">Create Decisions</button>
-            </div>
-            <div style="font-size: 10px; color: var(--label); margin-bottom: 8px;">Creates TradeDecision rows only. Does not create Orders. Requires signals. Safety: no orders created, no automation, no broker submission.</div>
-            <input type="hidden" id="create-decisions-limit" value="50">
-            <input type="checkbox" id="create-decisions-received-only" style="display:none;">
-            <div id="create-decisions-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready to create trade decisions</div>
-          </div>
-
-        </div><!-- end execution-cockpit-grid row 2 -->
-
-        <!-- Step E: Order Preview (collapsed by default, orders disabled) -->
-        <details class="exec-step-e">
-          <summary>
-            <span style="font-size: 9px; color: var(--label);">&#9656;</span>
-            <span>Step E &mdash; Preview Orders</span>
-            <span class="badge ok" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">PAPER ORDERS ONLY</span>
-            <span class="badge neutral" style="font-size: 7px; padding: 1px 5px;">PREVIEW ONLY</span>
-          </summary>
-          <div class="command-section step-e-disabled">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <div style="font-size: 10px; color: var(--label);">Preview only. No orders created here. Use Step F (Create Paper Orders) to create paper order tickets.</div>
-              <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px;" onclick="previewOrdersFromDecisions()">Preview Orders</button>
-            </div>
-            <input type="hidden" id="order-preview-limit" value="50">
-            <input type="checkbox" id="order-preview-approved-only" style="display:none;" checked>
-            <div id="order-preview-content" style="color: var(--label); font-style: italic; font-size: 11px; padding: 4px 0; max-height: 220px; overflow-y: auto;">No order preview yet. Create decisions first, then click Preview Orders.</div>
-          </div>
-        </details>
-
-        <!-- Step F: Create Paper Order Tickets -->
-        <details class="exec-step-e">
-          <summary>
-            <span style="font-size: 9px; color: var(--label);">&#9656;</span>
-            <span>Step F &mdash; Create Paper Order Tickets</span>
-            <span class="badge ok" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">CREATES ORDER TICKETS ONLY</span>
-            <span class="badge warn" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
-            <span class="badge err" style="font-size: 7px; padding: 1px 5px;">NO FILLS</span>
-          </summary>
-          <div class="command-section step-e-disabled">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <div style="font-size: 10px; color: var(--label);">Creates paper Order rows with status=PENDING. <strong style="color: var(--warning);">PAPER ORDERS ONLY.</strong> No broker execution. No fills. No position changes. Automation off. Manual review required.</div>
-              <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
-            </div>
-            <div id="create-orders-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready. Complete Step E (Preview Orders) first to confirm eligibility, then click Create Paper Orders.</div>
-          </div>
-        </details>
-
-        <!-- Step G: Fill Pending Paper Orders -->
-        <details class="exec-step-e">
-          <summary>
-            <span style="font-size: 9px; color: var(--label);">&#9656;</span>
-            <span>Step G &mdash; Fill Pending Paper Orders</span>
-            <span class="badge ok" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">PAPER FILLS ONLY</span>
-            <span class="badge warn" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
-            <span class="badge err" style="font-size: 7px; padding: 1px 5px;">NO LIVE TRADES</span>
-          </summary>
-          <div class="command-section step-e-disabled">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <div style="font-size: 10px; color: var(--label);">Fills PENDING paper Order rows in the local DB only. <strong style="color: var(--warning);">PAPER FILLS ONLY.</strong> No broker. No live trades. Updates paper portfolio positions and cash. Automation off. Manual review required.</div>
-              <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
-            </div>
-            <div id="fill-orders-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready. Complete Step F (Create Paper Orders) first, then click Fill Pending Paper Orders to simulate fills in the paper portfolio.</div>
-          </div>
-        </details>
-
-        <!-- Step H: Cancel Pending Paper Orders -->
-        <details class="exec-step-e">
-          <summary>
-            <span style="font-size: 9px; color: var(--label);">&#9656;</span>
-            <span>Step H &mdash; Cancel Pending Paper Orders</span>
-            <span class="badge ok" style="font-size: 7px; padding: 1px 5px; margin-left: 4px;">PAPER CANCEL ONLY</span>
-            <span class="badge warn" style="font-size: 7px; padding: 1px 5px;">NO BROKER EXECUTION</span>
-            <span class="badge err" style="font-size: 7px; padding: 1px 5px;">NO LIVE TRADES</span>
-          </summary>
-          <div class="command-section step-e-disabled">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <div style="font-size: 10px; color: var(--label);">Cancels PENDING paper Order rows in the local DB only. <strong style="color: var(--danger);">PAPER CANCEL ONLY.</strong> No broker. No live trades. Does not change cash or positions. Automation off. Manual review required.</div>
-              <button class="btn-sm" style="flex-shrink: 0; margin-left: 8px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
-            </div>
-            <div id="cancel-orders-content" style="font-size: 10px; color: var(--text-accent); max-height: 220px; overflow-y: auto;">Ready. Click Cancel Pending Paper Orders to cancel all PENDING paper order tickets. Cash and positions are not changed.</div>
-          </div>
-        </details>
-
-      </div><!-- end tab-signals-decisions -->
-
+      <!-- Phase 27C hard cutover: the orphaned legacy tabs #tab-review-queue
+           (candidate-review funnel) and #tab-signals-decisions (six-step
+           legacy signal->decision->order pipeline, incl. Create/Fill/Cancel
+           paper-order controls) have been REMOVED from the operator DOM. They
+           were unreachable (no OPERATE/RESEARCH nav item, no route, no tab
+           button). The active review funnel lives in the Daily Plan; the
+           operational order lifecycle is governed by the daily action gate. -->
       <!-- TAB 4: PORTFOLIO -->
       <div id="tab-portfolio" class="tab-content">
 
@@ -2553,6 +2353,28 @@
             <span class="cc-badge">NO LIVE PROMOTION</span>
           </div>
           <div id="pm-load-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only portfolio-manager decision view&hellip;</div>
+          <!-- Phase 27C: the Portfolio Manager focuses on the canonical DAILY ACTION
+               GATE (single source: /v1/operations/daily-action-gate). No action ->
+               NO PORTFOLIO CHANGE REQUIRED TODAY with no confirmation controls; a
+               proposal -> only the affected names + one manual review flow. -->
+          <div id="pm-dag-card" style="border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
+              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today's Daily Action Gate</span>
+              <span class="cc-badge" id="pm-dag-badge" title="Canonical daily action-gate outcome.">&mdash;</span>
+            </div>
+            <div id="pm-dag-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Evaluating today&rsquo;s action gate&hellip;</div>
+            <div id="pm-dag-explanation" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
+            <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:8px;color:var(--label);">
+              <span title="Gate evaluation date.">Evaluated <b id="pm-dag-eval">&mdash;</b></span>
+              <span title="Latest completed market date evaluated (owned data).">Market date <b id="pm-dag-market">&mdash;</b></span>
+              <span title="Next scheduled full portfolio review. A material event can still propose action before this date.">Next full review <b id="pm-dag-review">&mdash;</b></span>
+              <span title="Whether the actual holdings match the current model target.">Holdings vs target <b id="pm-dag-match">&mdash;</b></span>
+              <span title="Estimated one-way turnover of the proposal.">Est. turnover <b id="pm-dag-turnover">&mdash;</b></span>
+              <span title="Modeled execution cost at 12.5 bps per side.">Est. cost <b id="pm-dag-cost">&mdash;</b></span>
+            </div>
+            <div id="pm-dag-changes" style="display:none;margin-top:8px;font-size:11px;"></div>
+            <button id="pm-dag-btn" class="btn-sm" style="display:none;margin-top:8px;font-weight:800;border:1px solid var(--info,#3b82f6);" onclick="dagPrimaryAction()">Review Proposed Changes</button>
+          </div>
           <!-- TODAY'S PORTFOLIO DECISION (Workstream A) -->
           <div id="pm-decision-card" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:12px 16px;margin:0 0 10px;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
@@ -2948,8 +2770,8 @@
       <div id="tab-multi-horizon" class="tab-content">
         <div class="card" style="margin-bottom:12px;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">MULTI-HORIZON ALPHA PORTFOLIO
-              <span class="cc-badge" id="mhz-status" title="Read-only multi-horizon paper platform status.">&mdash;</span></span>
+            <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">MODEL TARGET &mdash; MULTI-HORIZON RESEARCH PORTFOLIO
+              <span class="cc-badge" id="mhz-status" title="Read-only model target / multi-horizon research platform status.">&mdash;</span></span>
             <span style="display:flex;gap:6px;align-items:center;">
               <button class="btn-sm" id="mhz-open-pm" onclick="navigateToRoute('portfolio-manager')" title="Open the operational book (Alpha Paper Book #1) — the executed paper portfolio and its order lifecycle live in the Portfolio Manager. This page stays the model target / research portfolio.">Open Operational Book</button>
               <button class="btn-sm" id="mhz-refresh" onclick="loadMultiHorizon()" title="Reload the read-only multi-horizon paper platform.">&#8635; Refresh</button>
@@ -4937,6 +4759,8 @@
     </div>
     <div class="panel-section" style="border-color: var(--info); cursor: pointer;" onclick="openDailyPlanFocused()" title="Go to the current action in Daily Plan">
       <div class="panel-section-title" style="color: var(--info);">Workflow</div>
+      <!-- Phase 27C: compact canonical daily-gate outcome (same result as every surface). -->
+      <div style="font-size: 9px; font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.07em; margin: 0 0 6px;">Daily gate <span id="right-dag-badge" style="display:none; font-weight:800; letter-spacing:0; text-transform:none; margin-left:4px; color: var(--ok);">&mdash;</span></div>
       <!-- Phase 27B.5: canonical CURRENT STATE line (same lifecycle payload as every
            operational page — never "no orders" while submitted orders exist). -->
       <div id="right-ob-statement" style="display:none; font-size: 10px; font-weight: 700; color: var(--text-primary); line-height: 1.5; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px;"></div>
@@ -5037,30 +4861,12 @@
       <div style="font-size: 10px; color: var(--text-accent); line-height: 1.5; margin-bottom: 4px;">No orders unless explicitly created</div>
     </div>
 
-    <details>
-      <summary style="cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--label); padding: 8px 0; user-select: none; list-style: none;">&#9654; Advanced order controls (legacy paper workflow)</summary>
-      <div style="font-size: 9px; color: var(--label); font-style: italic; padding: 4px 0 6px 0; line-height: 1.4;">Usually not needed. Paper order controls remain manual and create no broker execution. Legacy workflow only (archived book) &mdash; they never touch Alpha Paper Book #1.</div>
-      <div id="right-create-orders-section" class="panel-section">
-        <div class="panel-section-title">Create Orders</div>
-        <div style="font-size: 9px; color: var(--ok); font-weight: 600; margin-bottom: 4px;">PAPER ORDERS ONLY</div>
-        <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Creates PENDING order tickets. No broker. No fills. Automation off.</div>
-        <div id="right-create-orders-status" style="display: none; font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;"></div>
-        <button id="right-create-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--ok); color: white;" onclick="createOrdersFromDecisions()">Create Paper Orders</button>
-      </div>
-      <div id="right-fill-orders-section" class="panel-section">
-        <div class="panel-section-title">Fill Orders</div>
-        <div style="font-size: 9px; color: var(--warning); font-weight: 600; margin-bottom: 4px;">PAPER FILLS ONLY &mdash; NO LIVE TRADES</div>
-        <div id="fill-orders-status" style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Fills PENDING paper orders in local DB only. No broker. No automation. Updates paper portfolio.</div>
-        <button id="right-fill-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--warning); color: white;" onclick="fillPendingPaperOrders()">Fill Pending Paper Orders</button>
-      </div>
-      <div id="right-cancel-orders-section" class="panel-section">
-        <div class="panel-section-title">Cancel Orders</div>
-        <div style="font-size: 9px; color: var(--danger); font-weight: 600; margin-bottom: 4px;">PAPER CANCEL ONLY &mdash; NO LIVE TRADES</div>
-        <div style="font-size: 9px; color: var(--label); line-height: 1.4; margin-bottom: 6px;">Cancels PENDING paper orders in local DB only. No broker. No cash changes. No position changes. Automation off.</div>
-        <div id="right-cancel-orders-status" style="display: none; font-size: 9px; color: var(--label); font-style: italic; margin-bottom: 4px;"></div>
-        <button id="right-cancel-orders-btn" class="btn-sm" style="width: 100%; font-size: 9px; background: var(--danger); color: white;" onclick="cancelPendingPaperOrders()">Cancel Pending Paper Orders</button>
-      </div>
-    </details>
+      <!-- Phase 27C hard cutover: the legacy Create / Fill / Cancel paper-order
+           controls have been REMOVED from the normal operator right panel. They
+           belonged to the archived legacy paper workflow and never touched Alpha
+           Paper Book #1. Historical / engineering order controls live under
+           Research & Audit. The operational order lifecycle is governed by the
+           canonical daily action gate + the Portfolio Manager order plan. -->
     </details><!-- end right-op-details (Operational Details) -->
 
     <div class="panel-section">
@@ -20989,22 +20795,17 @@ window._dailyWorkflowState = { data: null, loading: false, error: null, lastLoad
 window._portfolioTerminalState = { data: null, loading: false, error: null, lastLoadedAt: null, requestInFlight: false };
 
 // ---- Header prediction state (reported only — never probes on load) --------
-// Phase 27A.2: the normal operator header shows LEGACY PREDICTION PATH so the
-// tunnel is never implied to be required — the operational alpha workflow runs
-// on LOCAL ALPHA DATA only. The precise legacy state ('PREDICTION TUNNEL
-// CONFIGURED' / 'PREDICTION STATUS NOT CHECKED') moves into the badge tooltip;
-// a user-triggered Lab/Admin check still sets AVAILABLE / UNAVAILABLE.
+// Phase 27C: the technical prediction-path header badge was removed. The operator
+// header keeps only the LOCAL ALPHA DATA reassurance; the operational alpha
+// workflow runs on owned local data and never requires the prediction tunnel. A
+// user-triggered Lab/Admin check still sets its own AVAILABLE / UNAVAILABLE state.
 function renderPredictionHeader(tunnel) {
+  // Phase 27C: the technical prediction-path header badge was removed from the
+  // operator header. The operational alpha workflow runs on owned local data and
+  // never requires the prediction tunnel. This is a guarded no-op kept only so
+  // existing call sites stay valid; it renders nothing.
   var el = document.getElementById('pred-health-badge');
   if (!el) return;
-  var legacyState = (tunnel && tunnel.target) ? 'PREDICTION TUNNEL CONFIGURED' : 'PREDICTION STATUS NOT CHECKED';
-  // Do not clobber a live AVAILABLE/UNAVAILABLE result the user already fetched.
-  var cur = (el.textContent || '');
-  if (cur.indexOf('AVAILABLE') >= 0 || cur.indexOf('UNAVAILABLE') >= 0) return;
-  el.textContent = 'LEGACY PREDICTION PATH';
-  el.title = 'Legacy prediction path (GCP tunnel) - ' + legacyState +
-    ((tunnel && tunnel.target) ? (': ' + tunnel.target + ' (not probed)') : '') +
-    '. Used only by the legacy Lab/Admin prediction workflow; the operational alpha workflow never needs it.';
 }
 window.renderPredictionHeader = renderPredictionHeader;
 
@@ -22812,12 +22613,130 @@ function loadOperationalBook() {
     window._obInFlight = null;
     window._obData = d;
     renderOperationalBook(d);
+    try { loadDailyActionGate(); } catch (e) {}   // Phase 27C: the ONE daily gate result
     return d;
-  }).catch(function () { window._obInFlight = null; renderOperationalBook(null); return null; });
+  }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
+    try { loadDailyActionGate(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
 window.loadOperationalBook = loadOperationalBook;
+
+/* ===================== Phase 27C — DAILY ACTION GATE (one canonical daily result) =====================
+   ONE loader fetches /v1/operations/daily-action-gate once and renders the daily
+   outcome on every operator surface (Command Center, Daily Workflow, Portfolio
+   Manager, right panel) — no page invents its own daily task or next action. */
+window._dagData = null;
+window._dagInFlight = null;
+
+function loadDailyActionGate() {
+  if (window._dagInFlight) return window._dagInFlight;
+  var p = _mhzGet('/v1/operations/daily-action-gate').then(function (g) {
+    window._dagInFlight = null;
+    window._dagData = g;
+    renderDailyActionGate(g);
+    return g;
+  }).catch(function () { window._dagInFlight = null; renderDailyActionGate(null); return null; });
+  window._dagInFlight = p;
+  return p;
+}
+window.loadDailyActionGate = loadDailyActionGate;
+
+function _dagSevColor(sev) {
+  if (sev === 'green') return 'var(--ok)';
+  if (sev === 'red') return 'var(--danger)';
+  return 'var(--warning)';
+}
+
+function _dagSet(id, text) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
+}
+
+function _dagPct(x) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return (Number(x) * 100).toFixed(2) + '%';
+}
+
+function _dagChangesHtml(g) {
+  var adds = g.proposed_additions || [], rems = g.proposed_removals || [], rez = g.proposed_resizes || [];
+  if (!adds.length && !rems.length && !rez.length) return '';
+  function block(title, rows, fmt) {
+    if (!rows.length) return '';
+    return '<div style="margin-top:3px;"><span style="font-weight:800;">' + title + ' (' + rows.length +
+      ')</span> ' + rows.map(fmt).join(', ') + '</div>';
+  }
+  var html = '';
+  html += block('Add', adds, function (r) { return escapeHtml(r.ticker); });
+  html += block('Remove', rems, function (r) {
+    return escapeHtml(r.ticker) + (r.reason ? ' (' + escapeHtml(r.reason) + ')' : ''); });
+  html += block('Resize', rez, function (r) { return escapeHtml(r.ticker); });
+  if (g.blocked_changes && g.blocked_changes.length) {
+    html += block('Below threshold', g.blocked_changes, function (r) { return escapeHtml(r.ticker); });
+  }
+  return html;
+}
+
+function renderDailyActionGate(g) {
+  var ok = g && g.outcome;
+  ['cc-dag-card', 'dw-dag-card', 'pm-dag-card'].forEach(function (id) {
+    var el = document.getElementById(id); if (el) el.style.display = ok ? '' : 'none';
+  });
+  var rBadge = document.getElementById('right-dag-badge');
+  if (!ok) { if (rBadge) rBadge.style.display = 'none'; return; }
+  var color = _dagSevColor(g.action_severity);
+  var reviewTxt = (g.next_scheduled_full_review || '—') +
+    (g.scheduled_review_due ? ' · review due' : ' · review not due');
+  var matchTxt = g.target_actual_match ? 'Aligned' : ((g.proposed_change_count || 0) + ' change(s)');
+  var changesHtml = _dagChangesHtml(g);
+
+  // ---- Command Center + Daily Workflow (same fields) ----
+  [['cc', 'dagPrimaryAction'], ['dw', 'dagPrimaryAction']].forEach(function (px) {
+    var p = px[0];
+    _dagSet(p + '-dag-badge', g.outcome_label);
+    _dagSet(p + '-dag-headline', g.headline);
+    _dagSet(p + '-dag-explanation', g.explanation);
+    _dagSet(p + '-dag-market', g.latest_completed_market_date);
+    _dagSet(p + '-dag-review', reviewTxt);
+    var hl = document.getElementById(p + '-dag-headline'); if (hl) hl.style.color = color;
+    var card = document.getElementById(p + '-dag-card'); if (card) card.style.borderLeftColor = color;
+    var btn = document.getElementById(p + '-dag-btn');
+    if (btn) { btn.textContent = g.primary_action_label; btn.style.display = ''; }
+    var ch = document.getElementById(p + '-dag-changes');
+    if (ch) { ch.innerHTML = changesHtml; ch.style.display = changesHtml ? '' : 'none'; }
+  });
+
+  // ---- Portfolio Manager (fuller detail; NO confirm controls when no action) ----
+  _dagSet('pm-dag-badge', g.outcome_label);
+  _dagSet('pm-dag-headline', g.headline);
+  _dagSet('pm-dag-explanation', g.explanation);
+  _dagSet('pm-dag-eval', g.evaluation_date);
+  _dagSet('pm-dag-market', g.latest_completed_market_date);
+  _dagSet('pm-dag-review', reviewTxt);
+  _dagSet('pm-dag-match', matchTxt);
+  _dagSet('pm-dag-turnover', _dagPct(g.estimated_turnover));
+  _dagSet('pm-dag-cost', _dagPct(g.estimated_cost));
+  var pmHl = document.getElementById('pm-dag-headline'); if (pmHl) pmHl.style.color = color;
+  var pmCard = document.getElementById('pm-dag-card'); if (pmCard) pmCard.style.borderColor = color;
+  var pmBtn = document.getElementById('pm-dag-btn');
+  if (pmBtn) {
+    if (g.action_required) { pmBtn.textContent = g.primary_action_label; pmBtn.style.display = ''; }
+    else pmBtn.style.display = 'none';   // brief B5: no confirmation controls when no action
+  }
+  var pmCh = document.getElementById('pm-dag-changes');
+  if (pmCh) { pmCh.innerHTML = changesHtml; pmCh.style.display = changesHtml ? '' : 'none'; }
+
+  // ---- Right panel: compact daily-gate outcome badge ----
+  if (rBadge) { rBadge.textContent = g.outcome_label; rBadge.style.color = color; rBadge.style.display = ''; }
+}
+window.renderDailyActionGate = renderDailyActionGate;
+
+function dagPrimaryAction() {
+  var g = window._dagData;
+  if (g && g.outcome === 'NO_ACTION_TODAY') { navigateToPortfolioPositions(); return; }
+  navigateToRoute('portfolio-manager');   // PROPOSAL / DATA_NOT_READY / ORDERS_SUBMITTED
+}
+window.dagPrimaryAction = dagPrimaryAction;
 
 function _obSet(id, text) {
   var el = document.getElementById(id);

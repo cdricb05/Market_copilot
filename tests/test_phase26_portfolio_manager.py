@@ -602,7 +602,9 @@ class TestUiNavigationAndHierarchy:
         pf = html.index('id="nav-portfolio"')
         mh = html.index('id="nav-multi-horizon"')
         ra = html.index('id="nav-research-audit"')
-        assert cc < pm_ < dw < pf < mh < ra  # recommended Phase 26 order
+        # Phase 27C: nav grouped OPERATE (Command Center, Portfolio, Daily Workflow,
+        # Portfolio Manager) then RESEARCH (Model Target, Research & Audit).
+        assert cc < pf < dw < pm_ < mh < ra
 
     def test_route_registered(self, html):
         assert "'portfolio-manager': 'portfolio-manager'" in html
