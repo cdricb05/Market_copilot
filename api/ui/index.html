@@ -2178,8 +2178,9 @@
         <!-- ===================== Phase 27C DAILY ACTION GATE ===================== -->
         <!-- Today's canonical daily gate outcome (same /v1/operations/daily-action-gate
              payload as the Command Center). This is the primary result the operator
-             reads first: NO PORTFOLIO CHANGE REQUIRED TODAY, PORTFOLIO CHANGES PROPOSED,
-             or MARKET DATA REFRESH REQUIRED — with one primary action. -->
+             reads first: NO PORTFOLIO CHANGE REQUIRED FROM THE LATEST COMPLETED CLOSE,
+             PORTFOLIO CHANGES PROPOSED, or MARKET DATA REFRESH REQUIRED — with one
+             primary action. -->
         <div id="dw-dag-card" class="dw-terminal" style="border-left:3px solid var(--ok); margin-bottom:10px; display:none;">
           <div class="dw-hd">
             <span class="dw-hd-title">Daily Action Gate</span>
@@ -2333,7 +2334,7 @@
             <span class="cc-badge">MANUAL REVIEW</span>
             <button class="cc-btn ghost" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — model-target review, order plan and paper trading desk for Alpha Paper Book #1.">Manage Book &rarr;</button>
           </div>
-          <div id="pdash-asof" class="pdash-note" style="margin-top:5px;">Holdings valued as of &mdash; &middot; Model target calculated as of &mdash;</div>
+          <div id="pdash-asof" class="pdash-note" style="margin-top:5px;">Holdings valued as of &mdash; &middot; Target composition date &mdash; &middot; Latest price/score refresh &mdash;</div>
           <div id="pdash-target-note" class="pdash-info" style="display:none;"></div>
           <details id="pdash-adv-diag" style="display:none;margin-top:6px;">
             <summary style="cursor:pointer;font-size:11px;color:var(--muted,#9fb0c0);">Advanced diagnostics</summary>
@@ -2369,6 +2370,9 @@
             <span id="dc-dates-align" class="cc-badge" style="margin-left:6px;"></span>
             <div id="dc-dates-rows" style="margin-top:4px;"></div>
           </div>
+          <!-- Phase 28B: one-line TRUE_FORWARD evidence-capture status (detail lives in
+               Research & Audit only — never a duplicated section here). -->
+          <div id="dc-fps-line" class="pdash-note" style="display:none;font-size:11px;margin:0 0 8px;"></div>
           <div id="dc-perf-empty" class="cc-na-note" style="display:none;font-size:11px;">No completed daily close yet. Run the daily close to mark the book and record the first performance row.</div>
           <div class="pdash-table-scroll" id="dc-perf-table-wrap" style="display:none;max-height:260px;overflow-y:auto;">
             <table class="pdash-table" id="dc-perf-table">
@@ -2422,6 +2426,9 @@
             <span class="cc-badge">MANUAL REVIEW</span>
           </div>
           <div id="fe-today-dates" class="pdash-note" style="margin:4px 0 6px;">&mdash;</div>
+          <!-- Phase 28B: compact prediction-skill status link (detail lives ONLY in
+               Research & Audit — no duplicated section here). -->
+          <div id="fe-fps-link" class="pdash-note" style="display:none;font-size:11px;margin:0 0 6px;">&mdash;</div>
           <div id="fe-today-empty" class="cc-na-note" style="display:none;font-size:11px;"></div>
           <div class="pdash-kpi-row" id="fe-today-kpis" style="grid-template-columns:repeat(6,1fr);">
             <div class="pdash-kpi"><div class="k">Daily P&amp;L</div><div class="v" id="fe-k-dpnl">&mdash;</div><div class="sub" id="fe-k-dret">&mdash;</div></div>
@@ -2584,8 +2591,9 @@
           </div>
           <!-- Phase 27C: the Portfolio Manager focuses on the canonical DAILY ACTION
                GATE (single source: /v1/operations/daily-action-gate). No action ->
-               NO PORTFOLIO CHANGE REQUIRED TODAY with no confirmation controls; a
-               proposal -> only the affected names + one manual review flow. -->
+               NO PORTFOLIO CHANGE REQUIRED FROM THE LATEST COMPLETED CLOSE with no
+               confirmation controls; a proposal -> only the affected names + one
+               manual review flow. -->
           <div id="pm-dag-card" style="border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
               <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today's Daily Action Gate</span>
@@ -3213,6 +3221,42 @@
             </table>
           </div>
           <div id="fe-research-warn" class="pdash-note" style="font-size:11px;margin-top:6px;color:var(--warning,#f59e0b);"></div>
+
+          <!-- ===================== Phase 28B FORWARD PREDICTION SKILL ===================== -->
+          <!-- TRUE_FORWARD snapshot/outcome evidence only (never historical reconstruction):
+               evidence summary, per-horizon maturity cards for the ACTIVE model, and the
+               model comparison table where every shadow row is unmistakably research-only
+               (RESEARCH SHADOW BOOK - NOT EXECUTED HOLDINGS). Read-only
+               /v1/evidence/prediction-skill; nothing promotes, retires or changes a model. -->
+          <div id="fps-panel" style="margin-top:16px;border-top:1px solid var(--border,#243044);padding-top:12px;">
+            <div class="ra-hd">
+              <span class="ra-title" style="font-size:13px;">Forward Prediction Skill</span>
+              <span class="cc-badge safe">TRUE FORWARD ONLY</span>
+              <span class="cc-badge">RESEARCH ONLY</span>
+              <span class="cc-badge">NO PROMOTION</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <button class="cc-btn ghost" onclick="loadPredictionSkill()" title="Reload the read-only forward prediction-skill evidence.">&#8635; Refresh</button>
+            </div>
+            <div id="fps-summary" class="pdash-note" style="font-size:12px;margin:6px 0;line-height:1.7;">&mdash;</div>
+            <div id="fps-empty" class="cc-na-note" style="display:none;font-size:11px;"></div>
+            <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--label);margin-top:8px;">Maturity horizons &mdash; active model (eligible completed closes, never calendar days)</div>
+            <div id="fps-horizons" class="pdash-summary" style="grid-template-columns:repeat(4,1fr);margin-top:6px;"></div>
+            <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--label);margin-top:10px;">Model comparison &mdash; active vs research shadow books</div>
+            <div id="fps-shadow-note" class="pdash-info" style="margin-top:6px;">Shadow rows are <b>RESEARCH SHADOW BOOK &mdash; NOT EXECUTED HOLDINGS</b>: paper-only simulations from immutable TRUE_FORWARD snapshots under one consistent convention (equal notional, same eligible dates, same 12.5 bps/side cost, same price source). They never change the active operational model, holdings or orders.</div>
+            <div class="pdash-table-scroll" style="margin-top:6px;">
+              <table class="pdash-table" id="fps-table">
+                <thead><tr>
+                  <th class="lft">Model / Book</th><th class="lft">Evidence</th>
+                  <th>Snapshots</th><th>Matured</th><th>Net %</th><th>Excess pp</th>
+                  <th>Max DD</th><th>Rank IC (1c)</th><th>Turnover</th>
+                  <th>Coverage</th><th class="lft">Status</th>
+                </tr></thead>
+                <tbody id="fps-table-body"></tbody>
+              </table>
+            </div>
+            <div id="fps-flags" class="pdash-note" style="font-size:11px;margin-top:6px;"></div>
+            <div id="fps-note" class="pdash-note" style="font-size:11px;margin-top:6px;">Interpretation gates: &lt;5 matured observations = pipeline verification only; 5&ndash;19 = preliminary diagnostics only; 20&ndash;62 = preliminary challenger comparison; &ge;63 = first horizon-aligned assessment. These gates never promote or retire a model.</div>
+          </div>
         </div>
 
         <!-- ===================== Phase 14-C CURRENT CHAMPION (first) START ===================== -->
@@ -5326,6 +5370,9 @@ window._switchTab = function(tabName, opts) {
     // Phase 28A: the read-only Forward Evidence section (active book vs shadow books,
     // rolling windows) — clearly research-only, active book unchanged.
     try { loadForwardEvidence(); } catch (e) {}
+    // Phase 28B: the read-only FORWARD PREDICTION SKILL evidence (TRUE_FORWARD
+    // snapshots + matured outcomes only; shadow books research-only).
+    try { loadPredictionSkill(); } catch (e) {}
   }
 
   // Phase 25: Multi-Horizon Alpha Portfolio — lazy-load the read-only platform
@@ -23176,6 +23223,21 @@ function renderForwardEvidence(d) {
       todayPanel.style.display = '';
       var dec = (tr && tr.decision) || (d.why_pnl_moved && d.why_pnl_moved.recorded_decision) || '—';
       _dcSet('fe-today-decision', String(dec).replace(/_/g, ' '));
+      // Phase 28B — compact prediction-skill status (detail only in Research & Audit).
+      var fpsl = document.getElementById('fe-fps-link');
+      if (fpsl) {
+        var ps = d.prediction_skill || null;
+        if (ps) {
+          fpsl.style.display = '';
+          fpsl.innerHTML = 'Forward prediction skill: <b>'
+            + escapeHtml(String(ps.evidence_state || '—').replace(/_/g, ' ')) + '</b> · '
+            + (ps.snapshot_count != null ? ps.snapshot_count : 0) + ' snapshots · '
+            + (ps.matured_outcome_count != null ? ps.matured_outcome_count : 0) + ' matured · '
+            + (ps.pending_outcome_count != null ? ps.pending_outcome_count : 0) + ' pending — '
+            + '<a href="#research-audit" onclick="navigateToRoute(\'research-audit\'); return false;" '
+            + 'style="color:var(--info,#3b82f6);">view in Research &amp; Audit</a>';
+        } else { fpsl.style.display = 'none'; }
+      }
       var empty = document.getElementById('fe-today-empty');
       var kpis = document.getElementById('fe-today-kpis');
       var why = document.getElementById('fe-why');
@@ -23296,6 +23358,115 @@ function _feRenderResearch(d) {
     warn.style.display = ws.length ? '' : 'none';
   }
 }
+
+/* ===================== Phase 28B — FORWARD PREDICTION SKILL (read-only) =====================
+   TRUE_FORWARD snapshot/outcome evidence only. One loader fetches
+   /v1/evidence/prediction-skill and renders the evidence summary, the four
+   maturity-horizon cards for the ACTIVE model (eligible completed closes, never
+   calendar days) and the model comparison table where every shadow row is
+   unmistakably research-only. Insufficient samples are stated as such, never
+   presented as model conclusions. No write; no native dialogs; no promotion. */
+window._fpsData = null;
+window._fpsInFlight = null;
+
+function loadPredictionSkill() {
+  if (window._fpsInFlight) return window._fpsInFlight;
+  var p = _mhzGet('/v1/evidence/prediction-skill').then(function (d) {
+    window._fpsInFlight = null; window._fpsData = d; renderPredictionSkill(d); return d;
+  }).catch(function () { window._fpsInFlight = null; renderPredictionSkill(null); return null; });
+  window._fpsInFlight = p;
+  return p;
+}
+window.loadPredictionSkill = loadPredictionSkill;
+
+function _fpsStateLabel(s) { return String(s === null || s === undefined ? '—' : s).replace(/_/g, ' '); }
+
+function renderPredictionSkill(d) {
+  var panel = document.getElementById('fps-panel');
+  if (!panel) return;
+  if (!d) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  var sEl = document.getElementById('fps-summary');
+  if (sEl) {
+    sEl.innerHTML = '<b>Evidence state:</b> ' + escapeHtml(_fpsStateLabel(d.evidence_state))
+      + ' · Latest prediction snapshot ' + escapeHtml(d.latest_snapshot_date || '—')
+      + ' · ' + (d.snapshot_count != null ? d.snapshot_count : 0) + ' snapshots · '
+      + (d.matured_outcome_count != null ? d.matured_outcome_count : 0) + ' matured outcomes · '
+      + (d.pending_outcome_count != null ? d.pending_outcome_count : 0) + ' pending · Active model '
+      + escapeHtml((d.active_book && d.active_book.model_id) || '—') + ' / '
+      + escapeHtml((d.active_book && d.active_book.book_id) || '—');
+  }
+  var empty = document.getElementById('fps-empty');
+  if (empty) {
+    if (!d.snapshot_count) {
+      empty.style.display = '';
+      empty.textContent = 'No TRUE_FORWARD prediction snapshots exist yet. The first snapshots are captured by the next manual Daily Close processed after Phase 28B was installed; earlier dates are never backfilled as forward evidence.';
+    } else { empty.style.display = 'none'; }
+  }
+  var hEl = document.getElementById('fps-horizons');
+  if (hEl) {
+    var activeId = (d.active_book && d.active_book.model_id) || 'fundamental_momentum_50_50_v1';
+    var cells = (d.prediction_skill || []).filter(function (c) { return c.model_id === activeId; });
+    hEl.innerHTML = (d.horizons || [1, 5, 20, 63]).map(function (h) {
+      var c = null;
+      for (var i = 0; i < cells.length; i++) { if (cells[i].horizon_eligible_closes === h) { c = cells[i]; } }
+      var body;
+      if (!c || c.evidence_state === 'NO_FORWARD_SNAPSHOTS') {
+        body = '<span class="pdash-note">No forward snapshots yet.</span>';
+      } else if (!c.matured_observation_count) {
+        body = '<span class="pdash-note">' + escapeHtml(_fpsStateLabel(c.evidence_state)) + ' — 0 matured of '
+          + (c.snapshot_count != null ? c.snapshot_count : 0)
+          + ' snapshots. Insufficient sample — no model conclusion.</span>';
+      } else {
+        body = '<div class="row"><span>Sample</span><span>' + c.matured_observation_count + ' matured</span></div>'
+          + '<div class="row"><span>Rank IC</span><span>' + _feNum(c.ic_mean, 4) + '</span></div>'
+          + '<div class="row"><span>Top25 excess</span><span>' + _feNum(c.top25_excess_pp, 3) + ' pp</span></div>'
+          + '<div class="row"><span>Hit rate</span><span>' + _fePct(c.top25_hit_rate_pct) + '</span></div>'
+          + ((c.matured_observation_count < 20)
+             ? '<div class="pdash-note" style="margin-top:2px;">Insufficient sample — no model conclusion.</div>' : '');
+      }
+      return '<div class="pdash-scard"><div class="h">' + h + ' close' + (h > 1 ? 's' : '') + ' · '
+        + escapeHtml(_fpsStateLabel(c ? c.evidence_state : 'NO_FORWARD_SNAPSHOTS')) + '</div>' + body + '</div>';
+    }).join('');
+  }
+  var tb = document.getElementById('fps-table-body');
+  if (tb) {
+    var ics = {};
+    (d.prediction_skill || []).forEach(function (c) {
+      if (c.horizon_eligible_closes === 1) { ics[c.model_id] = c; }
+    });
+    tb.innerHTML = (d.portfolio_comparison || []).map(function (p) {
+      var isActive = p.book_role === 'ACTIVE';
+      var cell = ics[p.model_id] || {};
+      var badge = isActive
+        ? '<span class="cc-badge safe">ACTIVE MODEL &middot; TRUE FORWARD</span>'
+        : '<span class="cc-badge">RESEARCH SHADOW &mdash; NOT EXECUTED</span>';
+      var cov = (p.coverage && p.coverage.coverage_gap_days != null)
+        ? ((p.coverage.full_days != null ? p.coverage.full_days : 0) + ' full / '
+           + p.coverage.coverage_gap_days + ' gap')
+        : '—';
+      return '<tr' + (isActive ? ' style="background:rgba(59,130,246,.08);"' : '') + '><td class="lft pdash-tk">'
+        + escapeHtml(p.book_id || '—') + '</td><td class="lft">' + badge + '</td><td>'
+        + (p.snapshot_count != null ? p.snapshot_count : 0) + '</td><td>'
+        + (cell.matured_observation_count != null ? cell.matured_observation_count : 0) + '</td><td>'
+        + _fePct(p.net_return_pct) + '</td><td>' + _feNum(p.excess_return_pp, 3) + '</td><td>'
+        + _fePct(p.max_drawdown_pct) + '</td><td>' + _feNum(cell.ic_mean, 4) + '</td><td>'
+        + _feNum(p.cumulative_turnover, 3) + '</td><td>' + escapeHtml(cov)
+        + '</td><td class="lft">' + escapeHtml(_fpsStateLabel(p.status)) + '</td></tr>';
+    }).join('') || '<tr><td class="lft" colspan="11">No supported books.</td></tr>';
+  }
+  var fl = document.getElementById('fps-flags');
+  if (fl) {
+    var flags = d.research_flags || [];
+    fl.innerHTML = flags.length
+      ? ('<b>Research flags (observation-only, never operational):</b> ' + flags.map(function (f) {
+          return escapeHtml(f.flag) + ' (n=' + (f.sample_count != null ? f.sample_count : '—') + ')';
+        }).join(' · '))
+      : '';
+    fl.style.display = flags.length ? '' : 'none';
+  }
+}
+window.renderPredictionSkill = renderPredictionSkill;
 
 function _dcSet(id, text) {
   var el = document.getElementById(id);
@@ -23590,6 +23761,19 @@ function renderDailyClosePerf(d) {
       }
       dsStrip.style.display = '';
     } else dsStrip.style.display = 'none';
+  }
+  // ---- Phase 28B: one-line TRUE_FORWARD evidence-capture status (read-only) ----
+  var fpc = d.forward_prediction_capture, fpcEl = document.getElementById('dc-fps-line');
+  if (fpcEl) {
+    if (fpc && fpc.status) {
+      var fpcTxt = 'Forward prediction evidence: ' + String(fpc.status).replace(/_/g, ' ');
+      if (fpc.snapshots_created) fpcTxt += ' · ' + fpc.snapshots_created + ' snapshot(s) captured';
+      if (fpc.snapshots_already_present) fpcTxt += ' · ' + fpc.snapshots_already_present + ' already present';
+      if (fpc.outcomes_newly_matured) fpcTxt += ' · ' + fpc.outcomes_newly_matured + ' outcome(s) matured';
+      fpcTxt += ' — detail in Research & Audit → Forward Prediction Skill.';
+      fpcEl.textContent = fpcTxt;
+      fpcEl.style.display = '';
+    } else { fpcEl.style.display = 'none'; }
   }
   // ---- Phase 27H: Daily P&L attribution (deterministic; from stored marks) ----
   var at = d.attribution, attrWrap = document.getElementById('dc-attr-detail');
@@ -23985,10 +24169,15 @@ function renderPortfolioDashboard(d) {
   var view = window._obView || deriveOperationalBookUiState(d);
   var valDate = cs ? cs.valuation_date || cs.desk_mark_date : null;
   var tgtDate = cs ? cs.target_date : null;
+  // Phase 28B wording: two separate concepts, never one ambiguous "calculated as
+  // of" date — the CONFIRMED target's composition date vs the latest owned
+  // price/score refresh (alpha market date). The underlying dates are untouched.
+  var refreshDate = (ob && ob.current_target && ob.current_target.alpha_market_date) || null;
 
   // A. As-of line + informational (never red) target-date note.
   _obSet('pdash-asof', 'Holdings valued as of ' + _pdDateHuman(valDate) +
-    ' · Model target calculated as of ' + _pdDateHuman(tgtDate));
+    ' · Target composition date ' + _pdDateHuman(tgtDate) +
+    ' · Latest price/score refresh ' + _pdDateHuman(refreshDate));
   var tnote = document.getElementById('pdash-target-note');
   if (tnote) {
     if (ob && tgtDate && valDate && tgtDate < valDate && (ob.holdings_count || 0) > 0) {

@@ -223,6 +223,7 @@ from paper_trader.api import daily_action_gate as _dag
 from paper_trader.api import daily_close as _dclose
 from paper_trader.api import calibration_study as _calib
 from paper_trader.api import forward_evidence as _fe
+from paper_trader.api import forward_prediction_skill as _fps
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -5558,6 +5559,42 @@ def evidence_shadow_comparison() -> dict:
     clearly separated and never mixed. Research-only; the active book is unchanged and
     nothing is promoted."""
     return _fe.load_shadow_comparison()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 28B — FORWARD PREDICTION SKILL, SHADOW BOOKS AND OUTCOME MATURATION.
+#
+# Read-only evidence over the immutable TRUE_FORWARD prediction snapshots that
+# the manual daily close appends (append-only, chain-hashed, idempotent) and
+# their matured outcomes (exact eligible-close horizons — never calendar-day
+# arithmetic). Shadow books are paper-only research simulations under one
+# consistent convention (equal notional / same dates / same costs / same price
+# source) and are NEVER executed holdings. Nothing here changes the active
+# operational model, weights, holdings, cash, cadence, orders or promotion
+# status; no provider credential or secret is ever returned.
+# --------------------------------------------------------------------------- #
+@app.get("/v1/evidence/prediction-skill", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_prediction_skill() -> dict:
+    """Read-only forward prediction-skill evidence: snapshot/outcome counts, per
+    (model, horizon) rank-IC and bucket metrics from TRUE_FORWARD snapshots and
+    matured outcomes only, the paper-only shadow-book comparison (RESEARCH SHADOW
+    BOOK — NOT EXECUTED HOLDINGS), deterministic research flags and the explicit
+    interpretation gates. Empty states are controlled statuses, never nulls."""
+    return _fps.load_prediction_skill()
+
+
+@app.get("/v1/evidence/prediction-skill/snapshots", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_prediction_snapshots(model_id: str | None = None,
+                                  book_id: str | None = None,
+                                  market_date: str | None = None,
+                                  limit: int = 50) -> dict:
+    """Read-only immutable TRUE_FORWARD snapshot summaries with optional
+    model_id / book_id / market_date filters. Never returns provider
+    credentials, secrets or stack traces."""
+    return _fps.load_prediction_snapshots(model_id=model_id, book_id=book_id,
+                                          market_date=market_date, limit=limit)
 
 
 @app.get(

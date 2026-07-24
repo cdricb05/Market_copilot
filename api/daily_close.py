@@ -99,6 +99,7 @@ from typing import Any, Callable, Optional
 from paper_trader.api import alpha_book as ab
 from paper_trader.api import alpha_target as at
 from paper_trader.api import daily_action_gate as dag
+from paper_trader.api import forward_prediction_skill as fps
 from paper_trader.api import multi_horizon_engine as eng
 from paper_trader.api import operational_book as ob
 from paper_trader.api import paper_trading_desk as desk
@@ -504,6 +505,14 @@ _ENGINE_LOADER: Callable = eng.build_current
 # against, strictly within the frozen monthly model contract (no momentum score /
 # formula / weight is ever changed). Tests inject a fully offline stand-in.
 _ALPHA_REFRESH: Callable = at.run_refresh
+
+# Phase 28B — forward prediction snapshot capture + outcome maturation. Runs ONLY
+# inside the fresh manual close (never on an ALREADY_PROCESSED re-run, so a date
+# processed before Phase 28B was installed is never retroactively backfilled as
+# TRUE_FORWARD). Append-only, idempotent, degrade-safe: a capture failure never
+# aborts or invalidates the close, and it never creates orders / changes the
+# active model, holdings or cash. Tests inject a fully offline stand-in.
+_PREDICTION_CAPTURE: Callable = fps.capture_for_daily_close
 # Model-input refresh result statuses that mean the model inputs are now current
 # for the targeted completed session (advanced this run, or already current).
 _ALPHA_REFRESH_OK = (at.R_REFRESHED, at.R_ALREADY_FRESH)
@@ -851,6 +860,54 @@ def _run_alpha_refresh(*, completed_through: Optional[str], downloader,
         warnings.append("Model-input refresh failed: %s" % str(exc)[:160])
         return {"status": _MODEL_INPUT_ERROR, "error": str(exc)[:160],
                 "performed_write": False}
+
+
+def _read_prediction_capture_status(*, market_date: Optional[str], desk_dir,
+                                    warnings: list) -> Optional[dict]:
+    """READ-ONLY Phase 28B presence summary (no engine build, no fetch, no write)."""
+    try:
+        return fps.read_capture_status(market_date=market_date, desk_dir=desk_dir)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append("Forward prediction capture status unavailable: %s"
+                        % str(exc)[:160])
+        return None
+
+
+def _run_prediction_capture(*, market_date: Optional[str], desk_dir, downloader,
+                            current: Optional[dict], ops: Optional[dict],
+                            prediction_capture_fn: Optional[Callable],
+                            seams_injected: bool,
+                            warnings: list) -> Optional[dict]:
+    """Run the Phase 28B forward-prediction capture + outcome maturation for the
+    exact session just closed. Active only on the LIVE path (no offline test seam
+    injected at all) or when a capture seam is explicitly injected — every
+    pre-28B offline test world keeps its exact prior behavior. Degrade-safe: a
+    failure is surfaced in the payload, never raised, and never changes the
+    close result."""
+    active = prediction_capture_fn is not None or not seams_injected
+    if not active:
+        status = _read_prediction_capture_status(market_date=market_date,
+                                                 desk_dir=desk_dir, warnings=warnings)
+        if status is not None:
+            status["status"] = "CAPTURE_INACTIVE_OFFLINE_SEAM"
+            status["note"] = ("An injected offline desk-refresh seam without a "
+                              "prediction-capture seam skips capture entirely; "
+                              "nothing was written.")
+        return status
+    fn = prediction_capture_fn or _PREDICTION_CAPTURE
+    try:
+        return fn(market_date=market_date, desk_dir=desk_dir, current=current,
+                  downloader=downloader, ops=ops)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append("Forward prediction capture failed: %s" % str(exc)[:160])
+        return {"status": "CAPTURE_ERROR", "market_date": market_date,
+                "snapshots_expected": len(fps.SUPPORTED_BOOKS),
+                "snapshots_created": 0, "snapshots_already_present": 0,
+                "snapshots_unavailable": len(fps.SUPPORTED_BOOKS),
+                "unavailable_reasons": {"__all__": str(exc)[:160]},
+                "outcomes_newly_matured": 0, "idempotent": True,
+                "performed_write": False, "created_orders": False,
+                "changed_operational_model": False}
 
 
 def _model_recalc_block(*, cur: Optional[dict], price_date: Optional[str],
@@ -1427,6 +1484,8 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
                                              .get("recalculation_complete")),
         "attribution": ctx.get("attribution"),
         "forward_performance": ctx.get("forward_performance"),
+        # -- Phase 28B evidence-capture summary (TRUE_FORWARD snapshots) ------ #
+        "forward_prediction_capture": ctx.get("forward_prediction_capture"),
         **_safety(performed_write),
     }
     return out
@@ -1577,7 +1636,10 @@ def load_daily_close(
     context = {"clock": clock, "provider_readiness": provider,
                "market_data_scope": scope, "baseline": baseline,
                "close_dates": close_dates, "model_recalculation": model_recalc,
-               "attribution": attribution, "forward_performance": forward}
+               "attribution": attribution, "forward_performance": forward,
+               "forward_prediction_capture": _read_prediction_capture_status(
+                   market_date=(last_processed or latest_eligible),
+                   desk_dir=desk_dir, warnings=warnings)}
 
     return _assemble(
         close_status=close_status, book=book, gate=gate, pnl=pnl, history=history,
@@ -1624,6 +1686,7 @@ def run_daily_close(
     engine_loader: Optional[Callable] = None,
     provider_probe: Optional[Callable] = None,
     alpha_refresh_fn: Optional[Callable] = None,
+    prediction_capture_fn: Optional[Callable] = None,
 ) -> dict:
     """Execute ONE explicit, manual daily close for Alpha Paper Book #1.
 
@@ -1696,6 +1759,8 @@ def run_daily_close(
         healed = bool(heal and heal.get("status") in _ALPHA_REFRESH_OK
                       and heal.get("performed_write"))
         price_date = book_now.get("desk_mark_date")
+        # Phase 28B: an already-processed date is NEVER retroactively captured as
+        # TRUE_FORWARD — only the read-only presence summary is reported.
         context = {"clock": clock, "provider_readiness": None, "market_data_scope": None,
                    "baseline": None,
                    "close_dates": _close_dates_block(book=book_now, cur=cur,
@@ -1706,7 +1771,10 @@ def run_daily_close(
                    "attribution": _attribution_block(perf=perf, ops=ops_now, desk_dir=desk_dir),
                    "forward_performance": _forward_monitor_block(
                        perf=perf, starting_capital=book_now["starting_capital"],
-                       decision_history=_decision_history(sdir, book_id))}
+                       decision_history=_decision_history(sdir, book_id)),
+                   "forward_prediction_capture": _read_prediction_capture_status(
+                       market_date=latest_eligible, desk_dir=desk_dir,
+                       warnings=warnings)}
         msg = ("The daily close for %s was already processed for %s — the existing review and "
                "mark are shown. No duplicate mark, performance or decision row was created."
                % (latest_eligible, book_now["book_label"]))
@@ -1912,6 +1980,18 @@ def run_daily_close(
     processed_row = _processed_row(sdir, book_id, closed_date)
     baseline = _baseline_block(perf=perf, pnl=pnl, baseline_recorded=True,
                                baseline_required=False)
+    # 8. Phase 28B — capture the immutable TRUE_FORWARD prediction snapshots for
+    #    the session just closed and check earlier snapshots for newly mature
+    #    outcomes. Runs AFTER the decision journal (the close result is already
+    #    durable); append-only + idempotent; a failure never invalidates the close
+    #    and never touches holdings / cash / orders / the model.
+    seams_injected = any(x is not None for x in (
+        refresh_fn, gate_loader, engine_loader, operational_loader,
+        alpha_refresh_fn, provider_probe))
+    prediction_capture = _run_prediction_capture(
+        market_date=closed_date, desk_dir=desk_dir, downloader=downloader,
+        current=model_cur, ops=ops2, prediction_capture_fn=prediction_capture_fn,
+        seams_injected=seams_injected, warnings=warnings)
     context = {"clock": clock, "provider_readiness": None,
                "market_data_scope": None, "baseline": baseline,
                "close_dates": _close_dates_block(book=book2, cur=model_cur, price_date=closed_date,
@@ -1920,7 +2000,8 @@ def run_daily_close(
                "attribution": _attribution_block(perf=perf, ops=ops2, desk_dir=desk_dir),
                "forward_performance": _forward_monitor_block(
                    perf=perf, starting_capital=book2["starting_capital"],
-                   decision_history=_decision_history(sdir, book_id))}
+                   decision_history=_decision_history(sdir, book_id)),
+               "forward_prediction_capture": prediction_capture}
     return _assemble(
         close_status=close_status, book=book2, gate=gate, pnl=pnl,
         history=_perf_history(perf, starting_capital=book2["starting_capital"]),

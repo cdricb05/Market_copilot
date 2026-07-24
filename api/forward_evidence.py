@@ -947,6 +947,14 @@ def load_forward_evidence(*, today: Optional[str] = None, desk_dir=None,
         perf_loader=perf_loader, marks_loader=marks_loader,
         tournament_loader=tournament_loader, multi_history_loader=multi_history_loader)
 
+    # Phase 28B — concise TRUE_FORWARD prediction-skill summary (read-only; the
+    # full detail lives at /v1/evidence/prediction-skill). Degrade-safe.
+    try:
+        from paper_trader.api import forward_prediction_skill as _fps
+        skill_summary = _fps.prediction_skill_summary(desk_dir=desk_dir)
+    except Exception:  # noqa: BLE001
+        skill_summary = None
+
     return {
         "status": "FORWARD_EVIDENCE_READY",
         "phase": PHASE,
@@ -957,6 +965,7 @@ def load_forward_evidence(*, today: Optional[str] = None, desk_dir=None,
         "why_pnl_moved": why,
         "rolling_evidence": rolling,
         "active_vs_shadow": shadow,
+        "prediction_skill": skill_summary,
         "generated_at": _now_iso(),
         **_safety(),
     }
