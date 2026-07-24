@@ -47,6 +47,8 @@ STORAGE (existing append-only desk-store conventions; NO database migration):
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
@@ -70,12 +72,42 @@ EQUAL_SHADOW_NOTIONAL = 100_000.0  # equal initial notional for every shadow sim
 SNAPSHOT_LEDGER_FILE = "forward_prediction_snapshots.json"
 OUTCOME_LEDGER_FILE = "forward_prediction_outcomes.json"
 PRICE_STORE_FILE = "forward_prediction_prices.json"
+# Phase 28B.2 — frozen close-artifact bundles (recovery-only source) and the
+# append-only evidence-incident ledger (missed captures + recovery audit rows).
+ARTIFACT_LEDGER_FILE = "forward_close_artifacts.json"
+INCIDENT_LEDGER_FILE = "forward_evidence_incidents.json"
 
 KIND_CROSS_SECTION = "MODEL_CROSS_SECTION"
 KIND_BOOK_SNAPSHOT = "BOOK_SNAPSHOT"
 KIND_OUTCOME = "OUTCOME"
+KIND_ARTIFACT_BUNDLE = "CLOSE_ARTIFACT_BUNDLE"
+KIND_CAPTURE_MISSED = "FORWARD_CAPTURE_MISSED"
+KIND_RECOVERY = "FORWARD_EVIDENCE_RECOVERED"
 
 TRUE_FORWARD = "TRUE_FORWARD"
+
+# --------------------------------------------------------------------------- #
+# Phase 28B.2 — forward-evidence state of a close (SEPARATE from the operational
+# close status: an operationally valid close may still be evidence-incomplete).
+# --------------------------------------------------------------------------- #
+EVIDENCE_COMPLETE = "FORWARD_EVIDENCE_COMPLETE"
+EVIDENCE_PARTIAL = "FORWARD_EVIDENCE_PARTIAL"
+EVIDENCE_BLOCKED = "FORWARD_EVIDENCE_BLOCKED"
+
+# Recovery statuses (Part E/F).
+REC_RECOVERABLE = "RECOVERABLE_FROM_FROZEN_ARTIFACTS"
+REC_NOT_RECOVERABLE = "NOT_RECOVERABLE_WITHOUT_RECOMPUTATION"
+REC_ALREADY_PRESENT = "SNAPSHOTS_ALREADY_PRESENT"
+REC_DATE_NOT_PROCESSED = "DATE_NOT_PROCESSED"
+
+#: The explicit token for the evidence-only recovery POST (never an operator
+#: default; never called automatically).
+RECOVERY_CONFIRM_TOKEN = "CONFIRM_RECOVER_FROZEN_FORWARD_EVIDENCE"
+
+#: The daily-close decision journal filename. OWNED by api/daily_close.py
+#: (DAILY_CLOSE_JOURNAL_FILE); duplicated here read-only to avoid a circular
+#: import. A regression test pins the two constants equal.
+_CLOSE_JOURNAL_FILE = "daily_close_journal.json"
 
 # --------------------------------------------------------------------------- #
 # Supported model/book universe (the active strategy + the frozen challengers).
@@ -97,6 +129,11 @@ SUPPORTED_BOOKS = (
 )
 SUPPORTED_MODEL_IDS = ("fundamental_momentum_50_50_v1", "mom_6_1", "composite_sn")
 SHADOW_BOOK_LABEL = "RESEARCH SHADOW BOOK — NOT EXECUTED HOLDINGS"
+
+#: Phase 28B.2 — the MANDATORY snapshot: the active operational Top-25 book. A
+#: fresh close is evidence-complete only when this snapshot is persisted; shadow
+#: books are expected but their absence is PARTIAL, not BLOCKED.
+MANDATORY_BOOK_ID = ACTIVE_BOOK_ID
 
 # --------------------------------------------------------------------------- #
 # Maturation horizons (ELIGIBLE COMPLETED SESSIONS, never calendar days).
@@ -524,6 +561,76 @@ def _build_book_snapshot(cur: dict, *, model_id: str, book_id: str, size: int,
 
 
 # --------------------------------------------------------------------------- #
+# Phase 28B.2 Part D — the FROZEN CLOSE-ARTIFACT BUNDLE. The exact point-in-time
+# rows built by a fresh close are frozen (append-only, content-hashed) BEFORE the
+# snapshot append, so a close whose snapshot persistence fails can later be
+# recovered WITHOUT any recalculation, provider refresh or hindsight.
+# --------------------------------------------------------------------------- #
+def _content_hash(obj: Any) -> str:
+    """Deterministic sha256 of the canonical JSON encoding of ``obj``."""
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                                     default=str).encode("utf-8")).hexdigest()
+
+
+def _artifact_rows(desk_dir=None) -> list[dict]:
+    return [r for r in desk._read_ledger(_sdir(desk_dir), ARTIFACT_LEDGER_FILE)
+            if r.get("kind") == KIND_ARTIFACT_BUNDLE]
+
+
+def find_artifact_bundle(market_date: Optional[str], desk_dir=None) -> Optional[dict]:
+    md = str(market_date or "")[:10]
+    for r in _artifact_rows(desk_dir):
+        if r.get("market_date") == md:
+            return r  # first write wins — at most one bundle per market date
+    return None
+
+
+def _freeze_close_artifacts(*, desk_dir, market_date: str,
+                            cross_sections: list[dict],
+                            book_snapshots: list[dict]) -> dict:
+    """Persist the frozen artifact bundle for one close (idempotent: an existing
+    bundle for the date is never rewritten). The bundle holds the EXACT rows the
+    close built — per-ticker scores/ranks/eligibility/sectors, membership,
+    target weights, provenance dates and source identifiers — plus a
+    deterministic content hash, so recovery can only ever replay, never rebuild."""
+    existing = find_artifact_bundle(market_date, desk_dir)
+    if existing is not None:
+        return {"artifact_bundle_id": existing.get("artifact_bundle_id"),
+                "artifact_hash": existing.get("artifact_hash"),
+                "already_present": True, "performed_write": False}
+    artifacts = {"cross_sections": cross_sections, "book_snapshots": book_snapshots}
+    content_hash = _content_hash(artifacts)
+    row = {
+        "kind": KIND_ARTIFACT_BUNDLE,
+        "schema_version": SCHEMA_VERSION,
+        "artifact_bundle_id": "fca_%s" % market_date,
+        "market_date": market_date,
+        "created_at": _now_iso(),
+        "source": "multi_horizon_engine.build_current (frozen model, owned local "
+                  "inputs) — frozen during the original daily close",
+        "forward_evidence_type": TRUE_FORWARD,
+        "model_ids": sorted({r.get("model_id") for r in cross_sections
+                             if r.get("model_id")}),
+        "book_ids": sorted({r.get("book_id") for r in book_snapshots
+                            if r.get("book_id")}),
+        "artifact_hash": content_hash,
+        "artifacts": artifacts,
+        "note": ("Recovery-only frozen close artifacts. Consumed exclusively by the "
+                 "token-gated evidence recovery path; never recalculated, never "
+                 "refreshed from a provider, never used for any operational decision."),
+    }
+    try:
+        desk._append_ledger(_sdir(desk_dir), ARTIFACT_LEDGER_FILE, [row])
+    except Exception as exc:  # noqa: BLE001 — the bundle is belt-and-suspenders
+        return {"artifact_bundle_id": None, "artifact_hash": None,
+                "already_present": False, "performed_write": False,
+                "error": str(exc)[:160]}
+    return {"artifact_bundle_id": row["artifact_bundle_id"],
+            "artifact_hash": content_hash,
+            "already_present": False, "performed_write": True}
+
+
+# --------------------------------------------------------------------------- #
 # Part A — capture immutable TRUE_FORWARD snapshots (append-only, idempotent).
 # --------------------------------------------------------------------------- #
 def _capture_base(market_date: Optional[str]) -> dict:
@@ -541,7 +648,38 @@ def _capture_base(market_date: Optional[str]) -> dict:
         "created_orders": False,
         "changed_operational_model": False,
         "forward_evidence_type": TRUE_FORWARD,
+        # Phase 28B.2 Part H — the explicit close-finalization evidence contract.
+        "mandatory_book_id": MANDATORY_BOOK_ID,
+        "mandatory_active_snapshot_created": False,
+        "mandatory_active_snapshot_persisted": False,
+        "persisted_snapshot_ids": [],
+        "verification_complete": False,
+        "artifact_bundle_id": None,
+        "artifact_hash": None,
+        "evidence_status": EVIDENCE_BLOCKED,
     }
+
+
+def _classify_evidence(*, created: int, present: int, unavailable: int,
+                       mandatory_persisted: bool) -> str:
+    """Part B — mandatory-vs-optional classification. The active Top-25 snapshot
+    decides BLOCKED; a shadow-only gap is explicit PARTIAL; zero-of-six is never
+    an ordinary success."""
+    if not mandatory_persisted:
+        return EVIDENCE_BLOCKED
+    if unavailable:
+        return EVIDENCE_PARTIAL
+    return EVIDENCE_COMPLETE if (created or present) else EVIDENCE_BLOCKED
+
+
+def _progress_call(progress: Optional[Callable], stage: str) -> None:
+    """Best-effort progress signal to the caller's UI writer (never raises)."""
+    if progress is None:
+        return
+    try:
+        progress(stage)
+    except Exception:  # noqa: BLE001 — progress is display-only
+        pass
 
 
 def capture_snapshots(*, market_date: str, desk_dir=None,
@@ -549,11 +687,18 @@ def capture_snapshots(*, market_date: str, desk_dir=None,
                       engine_loader: Optional[Callable] = None,
                       ops: Optional[dict] = None,
                       downloader=None,
-                      fetch_prices: bool = True) -> dict:
+                      fetch_prices: bool = True,
+                      progress: Optional[Callable] = None) -> dict:
     """Capture the immutable TRUE_FORWARD prediction snapshots for ONE completed
     market date (Part A). Append-only and idempotent by (model, book, date);
     a re-run creates nothing. Never retroactive: a date earlier than an already
-    captured snapshot is refused (that would be backfilling 'forward' evidence)."""
+    captured snapshot is refused (that would be backfilling 'forward' evidence).
+
+    Phase 28B.2 ATOMIC ORDERING: the point-in-time artifacts are FROZEN, the
+    snapshot rows are APPENDED and then VERIFIED READABLE from storage BEFORE the
+    (slow, network-bound) maturity-price capture runs — so the evidence is durable
+    the moment it exists in memory, and a crash during the price fetch can no
+    longer lose a close's forward snapshots."""
     md = str(market_date or "")[:10]
     out = _capture_base(md)
     if not md:
@@ -610,6 +755,7 @@ def capture_snapshots(*, market_date: str, desk_dir=None,
             for b in SUPPORTED_BOOKS}
         return out
 
+    _progress_call(progress, "CAPTURE_FORWARD_BOOKS")
     holdings_map = _ops_holdings_map(ops)
     cross_by_model: dict[str, dict] = {}
     for model_id in SUPPORTED_MODEL_IDS:
@@ -637,20 +783,67 @@ def capture_snapshots(*, market_date: str, desk_dir=None,
 
     # A cross-section is stored only alongside its family's book snapshot(s): a
     # build that produced no book appends nothing (no orphan / empty evidence).
-    new_rows: list[dict] = [cross_by_model[m] for m in SUPPORTED_MODEL_IDS
-                            if m in created_models and m not in existing_cs]
-    new_rows.extend(book_rows)
+    new_cs: list[dict] = [cross_by_model[m] for m in SUPPORTED_MODEL_IDS
+                          if m in created_models and m not in existing_cs]
+    new_rows: list[dict] = new_cs + book_rows
 
+    # Phase 28B.2 STEP 1 — FREEZE the exact point-in-time artifacts (Part D)
+    # before anything else is persisted: the recovery source of last resort.
+    bundle = {"artifact_bundle_id": None, "artifact_hash": None,
+              "already_present": False, "performed_write": False}
+    if book_rows:
+        bundle = _freeze_close_artifacts(desk_dir=desk_dir, market_date=md,
+                                         cross_sections=new_cs,
+                                         book_snapshots=book_rows)
+    elif present:
+        prior_bundle = find_artifact_bundle(md, desk_dir)
+        if prior_bundle is not None:
+            bundle = {"artifact_bundle_id": prior_bundle.get("artifact_bundle_id"),
+                      "artifact_hash": prior_bundle.get("artifact_hash"),
+                      "already_present": True, "performed_write": False}
+
+    # STEP 2 — APPEND the immutable snapshots IMMEDIATELY (before the slow price
+    # fetch). A failed append is explicit and recoverable from the frozen bundle.
+    appended = False
+    if new_rows:
+        try:
+            desk._append_ledger(_sdir(desk_dir), SNAPSHOT_LEDGER_FILE, new_rows)
+            appended = True
+        except Exception as exc:  # noqa: BLE001 — surfaced, never silent
+            err = str(exc)[:120]
+            for snap in book_rows:
+                reasons[snap["book_id"]] = (
+                    "SNAPSHOT_APPEND_FAILED: %s — the frozen close artifacts were "
+                    "preserved for token-gated evidence recovery." % err)
+            unavailable += created
+            created = 0
+            book_rows = []
+            new_rows = []
+
+    # STEP 3 — VERIFY the required snapshots are actually readable from storage.
+    try:
+        stored = _snapshot_rows(desk_dir)
+    except Exception:  # noqa: BLE001
+        stored = []
+    stored_ids = {r.get("snapshot_id") for r in stored
+                  if r.get("kind") == KIND_BOOK_SNAPSHOT and r.get("market_date") == md}
+    expected_ids = {"fps_%s_%s" % (b[1], md) for b in SUPPORTED_BOOKS
+                    if (b[0], b[1]) in existing_books
+                    or any(s["book_id"] == b[1] for s in book_rows)}
+    verification_complete = bool(expected_ids) and expected_ids <= stored_ids
+    mandatory_persisted = ("fps_%s_%s" % (MANDATORY_BOOK_ID, md)) in stored_ids
+
+    # STEP 4 — the slow maturity-price capture (network-bound; runs AFTER the
+    # evidence is durable so a crash here can no longer lose snapshots).
     price_capture = {"prices_added": 0, "prices_already_recorded": 0,
                      "store_written": False, "tickers_requested": 0,
                      "tickers_priced": 0, "tickers_failed": 0,
                      "benchmark_priced": None, "fetched": False}
     if fetch_prices and (created or present):
+        _progress_call(progress, "CAPTURE_MATURITY_PRICES")
         price_capture = _capture_prices(desk_dir=desk_dir, market_date=md,
-                                        rows=rows + new_rows, downloader=downloader)
-
-    if new_rows:
-        desk._append_ledger(_sdir(desk_dir), SNAPSHOT_LEDGER_FILE, new_rows)
+                                        rows=(stored if stored else rows + new_rows),
+                                        downloader=downloader)
 
     out.update({
         "status": ("SNAPSHOTS_CAPTURED" if created else
@@ -659,10 +852,21 @@ def capture_snapshots(*, market_date: str, desk_dir=None,
         "snapshots_already_present": present,
         "snapshots_unavailable": unavailable,
         "unavailable_reasons": reasons,
-        "performed_write": bool(new_rows) or bool(price_capture.get("store_written")),
+        "performed_write": appended or bool(price_capture.get("store_written"))
+                           or bool(bundle.get("performed_write")),
         "model_calc_date": model_md,
         "fundamental_data_as_of": cur.get("fundamental_as_of_date"),
         "price_capture": price_capture,
+        "mandatory_active_snapshot_created": any(
+            s["book_id"] == MANDATORY_BOOK_ID for s in book_rows),
+        "mandatory_active_snapshot_persisted": mandatory_persisted,
+        "persisted_snapshot_ids": sorted(stored_ids),
+        "verification_complete": verification_complete,
+        "artifact_bundle_id": bundle.get("artifact_bundle_id"),
+        "artifact_hash": bundle.get("artifact_hash"),
+        "evidence_status": _classify_evidence(
+            created=created, present=present, unavailable=unavailable,
+            mandatory_persisted=mandatory_persisted),
     })
     return out
 
@@ -1388,6 +1592,7 @@ def read_capture_status(*, market_date: Optional[str], desk_dir=None) -> dict:
                and r.get("market_date") == md]
     missing = [b[1] for b in SUPPORTED_BOOKS
                if not any(p.get("book_id") == b[1] for p in present)]
+    mandatory_persisted = any(p.get("book_id") == MANDATORY_BOOK_ID for p in present)
     out.update({
         "status": ("SNAPSHOTS_PRESENT" if present and not missing else
                    "SNAPSHOTS_PARTIAL" if present else "SNAPSHOTS_NOT_CAPTURED"),
@@ -1396,6 +1601,12 @@ def read_capture_status(*, market_date: Optional[str], desk_dir=None) -> dict:
         "unavailable_reasons": ({b: "NOT_CAPTURED_FOR_THIS_DATE" for b in missing}
                                 if md else {}),
         "read_only_presence_check": True,
+        "mandatory_active_snapshot_persisted": mandatory_persisted,
+        "persisted_snapshot_ids": sorted(p.get("snapshot_id") for p in present
+                                         if p.get("snapshot_id")),
+        "evidence_status": _classify_evidence(
+            created=0, present=len(present), unavailable=len(missing),
+            mandatory_persisted=mandatory_persisted),
         "note": ("TRUE_FORWARD snapshots are captured only by a fresh daily close; "
                  "an already-processed date is never retroactively backfilled."),
     })
@@ -1405,13 +1616,17 @@ def read_capture_status(*, market_date: Optional[str], desk_dir=None) -> dict:
 def capture_for_daily_close(*, market_date: str, desk_dir=None,
                             current: Optional[dict] = None,
                             downloader=None,
-                            ops: Optional[dict] = None) -> dict:
+                            ops: Optional[dict] = None,
+                            progress: Optional[Callable] = None) -> dict:
     """The ONE daily-close integration entry point (Part B): capture today's
-    immutable snapshots, then check previously captured snapshots for newly
-    matured outcomes. Degrade-safe by contract of the caller; idempotent —
-    re-running the same close duplicates nothing."""
+    immutable snapshots (frozen -> appended -> verified BEFORE the slow price
+    fetch), then check previously captured snapshots for newly matured outcomes.
+    Degrade-safe by contract of the caller; idempotent — re-running the same
+    close duplicates nothing."""
     capture = capture_snapshots(market_date=market_date, desk_dir=desk_dir,
-                                current=current, ops=ops, downloader=downloader)
+                                current=current, ops=ops, downloader=downloader,
+                                progress=progress)
+    _progress_call(progress, "MATURE_OUTCOMES")
     try:
         matured = mature_outcomes(desk_dir=desk_dir)
     except Exception as exc:  # noqa: BLE001
@@ -1422,6 +1637,256 @@ def capture_for_daily_close(*, market_date: str, desk_dir=None,
     capture["performed_write"] = bool(capture.get("performed_write")
                                       or matured.get("performed_write"))
     return capture
+
+
+# --------------------------------------------------------------------------- #
+# Phase 28B.2 Parts E/F/G — MISSED-CLOSE RECOVERY (evidence-only, token-gated)
+# and the append-only evidence-incident ledger.
+# --------------------------------------------------------------------------- #
+def _incident_rows(desk_dir=None) -> list[dict]:
+    return desk._read_ledger(_sdir(desk_dir), INCIDENT_LEDGER_FILE)
+
+
+def list_evidence_incidents(desk_dir=None) -> list[dict]:
+    """Read-only: every recorded evidence incident (missed captures + recovery
+    audit rows). NEVER counted as snapshots or matured outcomes — the incident
+    ledger is a separate file no snapshot/outcome reader ever touches."""
+    return _incident_rows(desk_dir)
+
+
+def record_missed_capture(*, market_date: str, missing_books: list[str],
+                          reason: str, desk_dir=None,
+                          detected_by: str = "recovery_endpoint") -> dict:
+    """Append ONE explicit FORWARD_CAPTURE_MISSED evidence incident (Part G).
+    Idempotent per market date. The record is documentation only: it is never a
+    snapshot, never an outcome, and never changes the (still valid) operational
+    close. No snapshot is fabricated; the next eligible snapshot date stays
+    unknown until the next genuinely fresh close."""
+    md = str(market_date or "")[:10]
+    existing = [r for r in _incident_rows(desk_dir)
+                if r.get("kind") == KIND_CAPTURE_MISSED and r.get("market_date") == md]
+    if existing:
+        return {"status": "MISSED_CAPTURE_ALREADY_RECORDED", "market_date": md,
+                "performed_write": False, "record": existing[0]}
+    row = {
+        "kind": KIND_CAPTURE_MISSED,
+        "schema_version": SCHEMA_VERSION,
+        "status": "FORWARD_CAPTURE_MISSED",
+        "market_date": md,
+        "expected_books": [b[1] for b in SUPPORTED_BOOKS],
+        "missing_books": sorted(missing_books),
+        "reason": str(reason)[:400],
+        "detected_at": _now_iso(),
+        "detected_by": detected_by,
+        "close_remained_operationally_valid": True,
+        "snapshot_fabricated": False,
+        "counts_as_snapshot": False,
+        "counts_as_outcome": False,
+        "next_eligible_snapshot_date": None,
+        "note": ("The first valid TRUE_FORWARD snapshot date is the next genuinely "
+                 "new eligible close; this date is never hindsight-backfilled."),
+    }
+    desk._append_ledger(_sdir(desk_dir), INCIDENT_LEDGER_FILE, [row])
+    return {"status": "MISSED_CAPTURE_RECORDED", "market_date": md,
+            "performed_write": True, "record": row}
+
+
+_REQUIRED_BUNDLE_BOOK_FIELDS = (
+    "kind", "snapshot_id", "market_date", "model_id", "model_version", "book_id",
+    "book_role", "membership", "target_weights", "price_data_through",
+    "benchmark_date", "schema_version",
+)
+
+
+def load_recovery_status(*, market_date: str, desk_dir=None) -> dict:
+    """READ-ONLY recovery inspection for one processed close date (Part F dry
+    run). Decides — without writing anything and without touching any provider,
+    engine or current data — whether the missing TRUE_FORWARD snapshots can be
+    recovered EXCLUSIVELY from the frozen close-artifact bundle."""
+    md = str(market_date or "")[:10]
+    sdir = _sdir(desk_dir)
+    try:
+        journal = desk._read_ledger(sdir, _CLOSE_JOURNAL_FILE)
+    except Exception:  # noqa: BLE001
+        journal = []
+    close_processed = any(r.get("market_date") == md for r in journal)
+
+    try:
+        rows = _snapshot_rows(desk_dir)
+    except Exception:  # noqa: BLE001
+        rows = []
+    present_books = sorted({r.get("book_id") for r in rows
+                            if r.get("kind") == KIND_BOOK_SNAPSHOT
+                            and r.get("market_date") == md})
+    missing_books = [b[1] for b in SUPPORTED_BOOKS if b[1] not in present_books]
+
+    bundle = find_artifact_bundle(md, desk_dir)
+    artifacts = (bundle or {}).get("artifacts") or {}
+    hash_valid: Optional[bool] = None
+    if bundle is not None:
+        hash_valid = _content_hash(artifacts) == bundle.get("artifact_hash")
+
+    recoverable: list[str] = []
+    unavailable: dict[str, str] = {}
+    requires_recalculation = False
+    if not close_processed:
+        status = REC_DATE_NOT_PROCESSED
+        unavailable = {b: "DATE_NOT_PROCESSED: no daily close was recorded for "
+                          "this date." for b in missing_books}
+    elif not missing_books:
+        status = REC_ALREADY_PRESENT
+    elif bundle is None:
+        status = REC_NOT_RECOVERABLE
+        requires_recalculation = True
+        unavailable = {b: "NO_FROZEN_ARTIFACTS: the original close preserved no "
+                          "artifact bundle — recovery would require recomputation, "
+                          "which is forbidden." for b in missing_books}
+    elif not hash_valid:
+        status = REC_NOT_RECOVERABLE
+        requires_recalculation = True
+        unavailable = {b: "ARTIFACT_HASH_INVALID: the frozen bundle does not match "
+                          "its recorded content hash — provenance cannot be proven."
+                       for b in missing_books}
+    else:
+        by_book = {r.get("book_id"): r for r in (artifacts.get("book_snapshots") or [])}
+        for b in missing_books:
+            row = by_book.get(b)
+            if row is None:
+                unavailable[b] = ("NOT_IN_FROZEN_BUNDLE: the original close did not "
+                                  "produce this book — recovering it would require "
+                                  "recalculation.")
+                continue
+            missing_fields = [f for f in _REQUIRED_BUNDLE_BOOK_FIELDS
+                              if row.get(f) in (None, [], {})]
+            if row.get("market_date") != md:
+                missing_fields.append("market_date(mismatch)")
+            if missing_fields:
+                unavailable[b] = ("BUNDLE_ROW_INCOMPLETE (%s): recovery would "
+                                  "require recalculation." % ", ".join(missing_fields[:6]))
+                continue
+            recoverable.append(b)
+        requires_recalculation = bool(unavailable)
+        status = REC_RECOVERABLE if recoverable else REC_NOT_RECOVERABLE
+    return {
+        "phase": PHASE,
+        "market_date": md,
+        "recovery_status": status,
+        "close_processed": close_processed,
+        "frozen_artifacts_found": bundle is not None,
+        "artifact_bundle_id": (bundle or {}).get("artifact_bundle_id"),
+        "artifact_timestamp": (bundle or {}).get("created_at"),
+        "artifact_hash": (bundle or {}).get("artifact_hash"),
+        "artifact_hash_valid": hash_valid,
+        "snapshots_present": present_books,
+        "recoverable_books": recoverable,
+        "unavailable_books": unavailable,
+        "requires_recalculation": requires_recalculation,
+        "confirmation_required": RECOVERY_CONFIRM_TOKEN,
+        "changes_operational_state": False,
+        "evidence_incidents": [r for r in _incident_rows(desk_dir)
+                               if r.get("market_date") == md],
+        **_safety(False),
+    }
+
+
+def recover_missed_close(*, market_date: str, confirmation: Optional[str],
+                         desk_dir=None, requested_by: str = "manual_api") -> dict:
+    """Token-gated EVIDENCE-ONLY recovery of a processed close whose TRUE_FORWARD
+    snapshots were never persisted (Part F). Replays the frozen artifact bundle
+    VERBATIM — it never refreshes a provider, never fetches a price, never
+    rebuilds a model, and never touches marks, P&L, decisions, holdings, cash,
+    orders or model state. Idempotent: recovered/present books are never
+    duplicated. When recovery is impossible, the explicit FORWARD_CAPTURE_MISSED
+    incident is recorded instead (Part G)."""
+    md = str(market_date or "")[:10]
+    if confirmation != RECOVERY_CONFIRM_TOKEN:
+        return {"status": "RECOVERY_CONFIRM_REQUIRED", "market_date": md,
+                "performed_write": False, "recovered_books": [],
+                "confirmation_required": RECOVERY_CONFIRM_TOKEN,
+                "message": ("Evidence recovery requires confirmation='%s'."
+                            % RECOVERY_CONFIRM_TOKEN),
+                "changes_operational_state": False, **_safety(False)}
+    rs = load_recovery_status(market_date=md, desk_dir=desk_dir)
+    base = {"market_date": md, "recovery_status": rs["recovery_status"],
+            "artifact_bundle_id": rs["artifact_bundle_id"],
+            "artifact_hash": rs["artifact_hash"],
+            "artifact_hash_valid": rs["artifact_hash_valid"],
+            "unavailable_books": rs["unavailable_books"],
+            "changes_operational_state": False, "idempotent": True}
+    if rs["recovery_status"] == REC_DATE_NOT_PROCESSED:
+        return {"status": "RECOVERY_REJECTED_DATE_NOT_PROCESSED", **base,
+                "performed_write": False, "recovered_books": [],
+                "message": ("No daily close was recorded for %s — there is no "
+                            "close whose evidence could be recovered." % md),
+                **_safety(False)}
+    if rs["recovery_status"] == REC_ALREADY_PRESENT:
+        return {"status": "RECOVERY_REJECTED_SNAPSHOTS_ALREADY_PRESENT", **base,
+                "performed_write": False, "recovered_books": [],
+                "message": ("Every expected TRUE_FORWARD snapshot for %s already "
+                            "exists — nothing to recover, nothing written." % md),
+                **_safety(False)}
+    if rs["recovery_status"] != REC_RECOVERABLE:
+        missed = record_missed_capture(
+            market_date=md, missing_books=list(rs["unavailable_books"]),
+            reason=("Recovery rejected: %s" % "; ".join(
+                sorted(set(rs["unavailable_books"].values()))[:3]) or
+                    REC_NOT_RECOVERABLE),
+            desk_dir=desk_dir, detected_by=requested_by)
+        return {"status": "RECOVERY_REJECTED_NOT_RECOVERABLE", **base,
+                "performed_write": bool(missed.get("performed_write")),
+                "recovered_books": [], "missed_capture_record": missed,
+                "message": ("The frozen artifacts cannot support recovery without "
+                            "recomputation — %s was recorded as "
+                            "FORWARD_CAPTURE_MISSED; no snapshot was fabricated."
+                            % md),
+                **_safety(bool(missed.get("performed_write")))}
+
+    bundle = find_artifact_bundle(md, desk_dir)
+    artifacts = (bundle or {}).get("artifacts") or {}
+    by_book = {r.get("book_id"): r for r in (artifacts.get("book_snapshots") or [])}
+    rows = _snapshot_rows(desk_dir)
+    present_cs = {r.get("model_id") for r in rows
+                  if r.get("kind") == KIND_CROSS_SECTION and r.get("market_date") == md}
+    recover_books = [by_book[b] for b in rs["recoverable_books"]]
+    need_models = {r.get("model_id") for r in recover_books} - present_cs
+    recover_cs = [c for c in (artifacts.get("cross_sections") or [])
+                  if c.get("model_id") in need_models and c.get("market_date") == md]
+    new_rows = recover_cs + recover_books  # VERBATIM frozen rows — nothing rebuilt
+    desk._append_ledger(_sdir(desk_dir), SNAPSHOT_LEDGER_FILE, new_rows)
+    stored_ids = {r.get("snapshot_id") for r in _snapshot_rows(desk_dir)
+                  if r.get("kind") == KIND_BOOK_SNAPSHOT and r.get("market_date") == md}
+    verified = all(("fps_%s_%s" % (b, md)) in stored_ids
+                   for b in rs["recoverable_books"])
+    audit = {
+        "kind": KIND_RECOVERY,
+        "schema_version": SCHEMA_VERSION,
+        "status": "FORWARD_EVIDENCE_RECOVERED",
+        "market_date": md,
+        "recovered_books": sorted(rs["recoverable_books"]),
+        "recovered_cross_sections": sorted(need_models),
+        "unavailable_books": rs["unavailable_books"],
+        "artifact_bundle_id": rs["artifact_bundle_id"],
+        "artifact_hash": rs["artifact_hash"],
+        "recovered_at": _now_iso(),
+        "requested_by": requested_by,
+        "source": "frozen close-artifact bundle (verbatim replay; no recalculation)",
+    }
+    try:
+        desk._append_ledger(_sdir(desk_dir), INCIDENT_LEDGER_FILE, [audit])
+    except Exception:  # noqa: BLE001 — the recovery itself already succeeded
+        pass
+    return {"status": "RECOVERED_FROM_FROZEN_ARTIFACTS", **base,
+            "performed_write": True,
+            "recovered_books": sorted(rs["recoverable_books"]),
+            "recovered_cross_sections": sorted(need_models),
+            "verification_complete": verified,
+            "persisted_snapshot_ids": sorted(stored_ids),
+            "recovery_audit_recorded": True,
+            "message": ("Recovered %d TRUE_FORWARD snapshot(s) for %s verbatim from "
+                        "the frozen close artifacts (no recalculation, no provider "
+                        "access, no operational change)."
+                        % (len(rs["recoverable_books"]), md)),
+            **_safety(True)}
 
 
 # --------------------------------------------------------------------------- #
@@ -1610,9 +2075,15 @@ def verify_prediction_ledgers(desk_dir=None) -> dict:
 __all__ = [
     "PHASE", "SCHEMA_VERSION", "TRUE_FORWARD", "HORIZONS",
     "SNAPSHOT_LEDGER_FILE", "OUTCOME_LEDGER_FILE", "PRICE_STORE_FILE",
+    "ARTIFACT_LEDGER_FILE", "INCIDENT_LEDGER_FILE",
     "KIND_CROSS_SECTION", "KIND_BOOK_SNAPSHOT", "KIND_OUTCOME",
-    "ACTIVE_MODEL_ID", "ACTIVE_BOOK_ID", "SUPPORTED_BOOKS", "SUPPORTED_MODEL_IDS",
+    "KIND_ARTIFACT_BUNDLE", "KIND_CAPTURE_MISSED", "KIND_RECOVERY",
+    "ACTIVE_MODEL_ID", "ACTIVE_BOOK_ID", "MANDATORY_BOOK_ID",
+    "SUPPORTED_BOOKS", "SUPPORTED_MODEL_IDS",
     "SHADOW_BOOK_LABEL", "EQUAL_SHADOW_NOTIONAL",
+    "EVIDENCE_COMPLETE", "EVIDENCE_PARTIAL", "EVIDENCE_BLOCKED",
+    "REC_RECOVERABLE", "REC_NOT_RECOVERABLE", "REC_ALREADY_PRESENT",
+    "REC_DATE_NOT_PROCESSED", "RECOVERY_CONFIRM_TOKEN",
     "OUT_PENDING", "OUT_MATURED", "OUT_COVERAGE_INCOMPLETE",
     "OUT_BENCHMARK_UNAVAILABLE", "OUT_SYMBOL_UNAVAILABLE", "OUT_NOT_ENOUGH_CLOSES",
     "EV_NO_SNAPSHOTS", "EV_OUTCOMES_PENDING", "EV_INSUFFICIENT", "EV_PRELIMINARY",
@@ -1620,6 +2091,8 @@ __all__ = [
     "read_price_store", "eligible_calendar",
     "capture_snapshots", "mature_outcomes", "derive_outcome_detail",
     "capture_for_daily_close", "read_capture_status",
+    "find_artifact_bundle", "load_recovery_status", "recover_missed_close",
+    "record_missed_capture", "list_evidence_incidents",
     "build_shadow_portfolio", "build_prediction_skill", "build_research_flags",
     "prediction_skill_summary", "load_prediction_skill",
     "load_prediction_snapshots", "verify_prediction_ledgers",

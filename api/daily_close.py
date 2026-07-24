@@ -93,7 +93,9 @@ from __future__ import annotations
 
 import math
 import os
+import threading
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from paper_trader.api import alpha_book as ab
@@ -121,6 +123,45 @@ EXECUTE_CONFIRMATION = "CONFIRM_ALPHA_DAILY_CLOSE"
 # --------------------------------------------------------------------------- #
 DAILY_CLOSE_JOURNAL_FILE = "daily_close_journal.json"
 DAILY_CLOSE_EVENT = "DAILY_CLOSE"
+
+# --------------------------------------------------------------------------- #
+# Phase 28B.2 — single-flight close execution + best-effort progress document.
+#
+# The manual close POST can legitimately run for several minutes (owned mark
+# refresh + model-input recalculation + the maturity-price capture across the
+# full snapshot universe). Two protections:
+#   * ONE process-wide non-blocking lock — a second POST while a close is running
+#     returns DAILY_CLOSE_IN_PROGRESS and writes nothing (the July-24 incident
+#     showed a mid-flight duplicate view of a half-finished close).
+#   * A small mutable progress document (atomic overwrite, display-only, NEVER a
+#     gate and NEVER evidence) that the read-only progress GET serves so the UI
+#     can show the current stage and elapsed time instead of appearing frozen.
+# --------------------------------------------------------------------------- #
+CLOSE_PROGRESS_FILE = "daily_close_progress.json"
+CLOSE_IN_PROGRESS = "DAILY_CLOSE_IN_PROGRESS"
+_CLOSE_LOCK = threading.Lock()
+
+#: Progress staleness cutoff: a "running" document older than this is a crash
+#: leftover and is reported as not running.
+_PROGRESS_STALE_MINUTES = 45
+
+CLOSE_STAGES = (
+    ("VALIDATE_EOD_DATA", "Validate provider EOD data readiness"),
+    ("VALUE_HOLDINGS", "Refresh owned marks and value the holdings"),
+    ("RECALCULATE_DECISION_UNIVERSE", "Recalculate the frozen-model decision universe"),
+    ("EVALUATE_GATE", "Recompute the model target and the daily checks"),
+    ("RECORD_DECISION", "Record the daily decision journal row"),
+    ("CAPTURE_FORWARD_BOOKS", "Freeze, append and verify the six TRUE_FORWARD books"),
+    ("CAPTURE_MATURITY_PRICES", "Record completed closes for outcome maturation (slow)"),
+    ("MATURE_OUTCOMES", "Mature prior snapshots whose horizons completed"),
+    ("FINALIZE", "Finalize the operational and evidence outcome"),
+)
+_STAGE_LABELS = dict(CLOSE_STAGES)
+
+# Forward-evidence display states beyond the fps COMPLETE/PARTIAL/BLOCKED core.
+EVIDENCE_IN_PROGRESS = "FORWARD_EVIDENCE_CAPTURE_IN_PROGRESS"
+EVIDENCE_PENDING_CLOSE = "FORWARD_EVIDENCE_PENDING_CLOSE"
+EVIDENCE_INACTIVE_OFFLINE = "FORWARD_EVIDENCE_INACTIVE_OFFLINE"
 
 # --------------------------------------------------------------------------- #
 # Post-close data-readiness safety cutoff (US/Eastern). Regular NYSE close is
@@ -366,6 +407,155 @@ def _safety(performed_write: bool = False) -> dict:
         "safety_badges": ["PAPER ONLY", "MANUAL REVIEW", "NO BROKER", "AUTOMATION OFF",
                           "NO LIVE ORDERS", "NO AUTO ORDER CREATION"],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Phase 28B.2 — close-progress document (display-only; never a gate, never
+# evidence, never operational state).
+# --------------------------------------------------------------------------- #
+class _CloseProgress:
+    """Best-effort progress writer for the minutes-long close POST. Every write
+    is wrapped: a progress failure can never affect the close itself."""
+
+    def __init__(self, desk_dir, *, market_date: Optional[str],
+                 evaluation_date: Optional[str]):
+        self._path = Path(desk._desk_dir(desk_dir)) / CLOSE_PROGRESS_FILE
+        self._started = _now_iso()
+        self._doc = {
+            "phase": "28B.2",
+            "running": True,
+            "done": False,
+            "market_date": market_date,
+            "evaluation_date": evaluation_date,
+            "started_at": self._started,
+            "updated_at": self._started,
+            "stage": None,
+            "stage_label": None,
+            "stages": [{"key": k, "label": lbl, "status": "pending"}
+                       for k, lbl in CLOSE_STAGES],
+            "warning": ("The daily close is still running — do not refresh the page "
+                        "and do not click Run Daily Close again."),
+            "final_close_status": None,
+            "final_evidence_status": None,
+        }
+        self._write()
+
+    def _write(self) -> None:
+        try:
+            self._doc["updated_at"] = _now_iso()
+            desk._atomic_write_json(self._path, self._doc)
+        except Exception:  # noqa: BLE001 — display only, never load-bearing
+            pass
+
+    def stage(self, key: str) -> None:
+        if key not in _STAGE_LABELS:
+            return
+        self._doc["stage"] = key
+        self._doc["stage_label"] = _STAGE_LABELS[key]
+        reached = False
+        for s in self._doc["stages"]:
+            if s["key"] == key:
+                s["status"] = "current"
+                reached = True
+            elif not reached and s["status"] != "done":
+                s["status"] = "done"
+            elif reached and s["status"] != "pending":
+                s["status"] = "pending"
+        self._write()
+
+
+def _progress_finalize(desk_dir, result: Optional[dict]) -> None:
+    """Mark a running progress document finished (called once per POST, under the
+    close lock). A missing/already-finished document is left untouched."""
+    try:
+        path = Path(desk._desk_dir(desk_dir)) / CLOSE_PROGRESS_FILE
+        doc = desk._read_json(path)
+        if not isinstance(doc, dict) or not doc.get("running"):
+            return
+        doc["running"] = False
+        doc["done"] = True
+        doc["updated_at"] = _now_iso()
+        for s in doc.get("stages") or []:
+            if s.get("status") == "current":
+                s["status"] = "done"
+        if result is None:
+            doc["final_close_status"] = "EXECUTION_ERROR"
+            doc["final_evidence_status"] = None
+            doc["warning"] = ("The close request ended with an error — reload the "
+                              "Daily Close status before acting.")
+        else:
+            doc["final_close_status"] = result.get("close_status") or result.get("status")
+            doc["final_evidence_status"] = result.get("forward_evidence_status")
+            doc["warning"] = None
+        desk._atomic_write_json(path, doc)
+    except Exception:  # noqa: BLE001 — display only
+        pass
+
+
+def load_close_progress(desk_dir=None) -> dict:
+    """READ-ONLY progress for the (possibly running) daily close POST. Serves the
+    UI's single active progress poll; writes nothing; never a gate."""
+    try:
+        doc = desk._read_json(Path(desk._desk_dir(desk_dir)) / CLOSE_PROGRESS_FILE)
+    except Exception:  # noqa: BLE001
+        doc = None
+    if not isinstance(doc, dict) or not doc.get("started_at"):
+        return {"status": "NO_CLOSE_PROGRESS", "running": False, "done": False,
+                "stages": [{"key": k, "label": lbl, "status": "pending"}
+                           for k, lbl in CLOSE_STAGES],
+                **_safety(False)}
+    running = bool(doc.get("running"))
+    stale = False
+    if running:
+        try:
+            updated = datetime.fromisoformat(str(doc.get("updated_at")))
+            age_min = (datetime.now(tz=timezone.utc) - updated).total_seconds() / 60.0
+            stale = age_min > _PROGRESS_STALE_MINUTES
+        except (TypeError, ValueError):
+            stale = True
+    return {"status": ("CLOSE_RUNNING" if running and not stale else
+                       "CLOSE_PROGRESS_STALE" if running and stale else
+                       "CLOSE_FINISHED"),
+            "running": running and not stale,
+            "stale": stale,
+            **{k: doc.get(k) for k in (
+                "phase", "done", "market_date", "evaluation_date", "started_at",
+                "updated_at", "stage", "stage_label", "stages", "warning",
+                "final_close_status", "final_evidence_status")},
+            **_safety(False)}
+
+
+def _capture_in_flight(desk_dir, market_date: Optional[str]) -> bool:
+    """True when a close POST is currently running for exactly this market date
+    (used by the GET so a half-finished capture reads as IN PROGRESS, never as a
+    missed capture)."""
+    try:
+        prog = load_close_progress(desk_dir)
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(prog.get("running")) and prog.get("market_date") == market_date
+
+
+def _forward_evidence_status(fpc: Optional[dict], *, close_processed: bool,
+                             capture_in_flight: bool = False) -> Optional[str]:
+    """Part B/H — ONE explicit forward-evidence state per close payload, always
+    SEPARATE from the operational close status. Zero-of-six on a processed close
+    is BLOCKED (never an ordinary success); an unprocessed date is merely
+    PENDING; a running capture is IN PROGRESS; an injected offline test world
+    without a capture seam is explicitly INACTIVE."""
+    if fpc is None:
+        return None
+    status = fpc.get("status")
+    if status == "CAPTURE_INACTIVE_OFFLINE_SEAM":
+        return EVIDENCE_INACTIVE_OFFLINE
+    if capture_in_flight and status in ("SNAPSHOTS_NOT_CAPTURED", "SNAPSHOTS_PARTIAL"):
+        return EVIDENCE_IN_PROGRESS
+    if status == "SNAPSHOTS_NOT_CAPTURED" and not close_processed:
+        return EVIDENCE_PENDING_CLOSE
+    ev = fpc.get("evidence_status")
+    if ev:
+        return ev
+    return fps.EVIDENCE_BLOCKED
 
 
 # --------------------------------------------------------------------------- #
@@ -877,7 +1067,8 @@ def _run_prediction_capture(*, market_date: Optional[str], desk_dir, downloader,
                             current: Optional[dict], ops: Optional[dict],
                             prediction_capture_fn: Optional[Callable],
                             seams_injected: bool,
-                            warnings: list) -> Optional[dict]:
+                            warnings: list,
+                            progress: Optional[Callable] = None) -> Optional[dict]:
     """Run the Phase 28B forward-prediction capture + outcome maturation for the
     exact session just closed. Active only on the LIVE path (no offline test seam
     injected at all) or when a capture seam is explicitly injected — every
@@ -896,8 +1087,13 @@ def _run_prediction_capture(*, market_date: Optional[str], desk_dir, downloader,
         return status
     fn = prediction_capture_fn or _PREDICTION_CAPTURE
     try:
-        return fn(market_date=market_date, desk_dir=desk_dir, current=current,
-                  downloader=downloader, ops=ops)
+        try:
+            return fn(market_date=market_date, desk_dir=desk_dir, current=current,
+                      downloader=downloader, ops=ops, progress=progress)
+        except TypeError:
+            # An injected capture seam without the 28B.2 ``progress`` kwarg.
+            return fn(market_date=market_date, desk_dir=desk_dir, current=current,
+                      downloader=downloader, ops=ops)
     except Exception as exc:  # noqa: BLE001
         warnings.append("Forward prediction capture failed: %s" % str(exc)[:160])
         return {"status": "CAPTURE_ERROR", "market_date": market_date,
@@ -907,7 +1103,12 @@ def _run_prediction_capture(*, market_date: Optional[str], desk_dir, downloader,
                 "unavailable_reasons": {"__all__": str(exc)[:160]},
                 "outcomes_newly_matured": 0, "idempotent": True,
                 "performed_write": False, "created_orders": False,
-                "changed_operational_model": False}
+                "changed_operational_model": False,
+                "mandatory_active_snapshot_created": False,
+                "mandatory_active_snapshot_persisted": False,
+                "persisted_snapshot_ids": [], "verification_complete": False,
+                "artifact_bundle_id": None, "artifact_hash": None,
+                "evidence_status": fps.EVIDENCE_BLOCKED}
 
 
 def _model_recalc_block(*, cur: Optional[dict], price_date: Optional[str],
@@ -1486,6 +1687,9 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         "forward_performance": ctx.get("forward_performance"),
         # -- Phase 28B evidence-capture summary (TRUE_FORWARD snapshots) ------ #
         "forward_prediction_capture": ctx.get("forward_prediction_capture"),
+        # -- Phase 28B.2: the forward-evidence state, ALWAYS separate from the
+        #    operational close status (a valid close may be evidence-incomplete).
+        "forward_evidence_status": ctx.get("forward_evidence_status"),
         **_safety(performed_write),
     }
     return out
@@ -1633,13 +1837,23 @@ def load_daily_close(
     attribution = _attribution_block(perf=perf, ops=ops, desk_dir=desk_dir)
     forward = _forward_monitor_block(perf=perf, starting_capital=book["starting_capital"],
                                      decision_history=_decision_history(sdir, book_id))
+    fpc = _read_prediction_capture_status(
+        market_date=(last_processed or latest_eligible),
+        desk_dir=desk_dir, warnings=warnings)
+    # Phase 28B.2 — evidence semantics for the read-only GET: a capture running
+    # RIGHT NOW reads as IN PROGRESS (the July-24 incident was a mid-flight
+    # presence check misread as a missed capture); an unprocessed date is merely
+    # PENDING; a processed date with missing snapshots is an explicit anomaly.
+    fpc_md = (fpc or {}).get("market_date")
     context = {"clock": clock, "provider_readiness": provider,
                "market_data_scope": scope, "baseline": baseline,
                "close_dates": close_dates, "model_recalculation": model_recalc,
                "attribution": attribution, "forward_performance": forward,
-               "forward_prediction_capture": _read_prediction_capture_status(
-                   market_date=(last_processed or latest_eligible),
-                   desk_dir=desk_dir, warnings=warnings)}
+               "forward_prediction_capture": fpc,
+               "forward_evidence_status": _forward_evidence_status(
+                   fpc,
+                   close_processed=bool(fpc_md and fpc_md == last_processed),
+                   capture_in_flight=_capture_in_flight(desk_dir, fpc_md))}
 
     return _assemble(
         close_status=close_status, book=book, gate=gate, pnl=pnl, history=history,
@@ -1672,6 +1886,58 @@ def _headline_for(close_status: str, market_date: Optional[str],
 # Public — POST (explicit manual daily close; the ONLY write path)
 # --------------------------------------------------------------------------- #
 def run_daily_close(
+    *,
+    confirm: Optional[str] = None,
+    requested_by: str = "manual_ui",
+    today: Optional[str] = None,
+    now: Optional[datetime] = None,
+    desk_dir=None,
+    ledger_dir=None,
+    downloader=None,
+    refresh_fn: Optional[Callable] = None,
+    operational_loader: Optional[Callable] = None,
+    gate_loader: Optional[Callable] = None,
+    engine_loader: Optional[Callable] = None,
+    provider_probe: Optional[Callable] = None,
+    alpha_refresh_fn: Optional[Callable] = None,
+    prediction_capture_fn: Optional[Callable] = None,
+) -> dict:
+    """Phase 28B.2 single-flight wrapper around the manual daily close: a second
+    POST while a close is running returns DAILY_CLOSE_IN_PROGRESS (with the live
+    progress document) and writes nothing — duplicate submission can no longer
+    race a half-finished close. On completion the progress document is finalized
+    with the operational close status AND the forward-evidence status."""
+    if confirm != EXECUTE_CONFIRMATION:
+        return {"status": "DAILY_CLOSE_CONFIRM_REQUIRED", "phase": PHASE,
+                "close_status": None, "performed_write": False,
+                "confirmation_required": EXECUTE_CONFIRMATION,
+                "message": ("Running the daily close requires confirm='%s'."
+                            % EXECUTE_CONFIRMATION),
+                **_safety(False)}
+    if not _CLOSE_LOCK.acquire(blocking=False):
+        return {"status": CLOSE_IN_PROGRESS, "phase": PHASE, "close_status": None,
+                "performed_write": False,
+                "progress": load_close_progress(desk_dir=desk_dir),
+                "message": ("A daily close is already running — duplicate execution "
+                            "is prevented; nothing was written. Watch the progress "
+                            "display and do not click Run Daily Close again."),
+                **_safety(False)}
+    result: Optional[dict] = None
+    try:
+        result = _run_daily_close_locked(
+            confirm=confirm, requested_by=requested_by, today=today, now=now,
+            desk_dir=desk_dir, ledger_dir=ledger_dir, downloader=downloader,
+            refresh_fn=refresh_fn, operational_loader=operational_loader,
+            gate_loader=gate_loader, engine_loader=engine_loader,
+            provider_probe=provider_probe, alpha_refresh_fn=alpha_refresh_fn,
+            prediction_capture_fn=prediction_capture_fn)
+        return result
+    finally:
+        _progress_finalize(desk_dir, result)
+        _CLOSE_LOCK.release()
+
+
+def _run_daily_close_locked(
     *,
     confirm: Optional[str] = None,
     requested_by: str = "manual_ui",
@@ -1775,12 +2041,20 @@ def run_daily_close(
                    "forward_prediction_capture": _read_prediction_capture_status(
                        market_date=latest_eligible, desk_dir=desk_dir,
                        warnings=warnings)}
+        # Phase 28B.2 — a processed date with missing snapshots is an explicit
+        # evidence anomaly (never retroactively captured, never silent).
+        context["forward_evidence_status"] = _forward_evidence_status(
+            context["forward_prediction_capture"], close_processed=True)
         msg = ("The daily close for %s was already processed for %s — the existing review and "
                "mark are shown. No duplicate mark, performance or decision row was created."
                % (latest_eligible, book_now["book_label"]))
         if healed:
             msg += (" The price-sensitive model inputs were advanced to %s to complete the "
                     "atomic cycle." % latest_eligible)
+        if context["forward_evidence_status"] == fps.EVIDENCE_BLOCKED:
+            msg += (" FORWARD EVIDENCE IS MISSING for this processed close — an "
+                    "already-processed date is never retroactively captured; inspect "
+                    "the evidence recovery status.")
         return _assemble(
             close_status=ALREADY_PROCESSED, book=book_now, gate=gate, pnl=pnl,
             history=_perf_history(perf, starting_capital=book_now["starting_capital"]),
@@ -1805,6 +2079,11 @@ def run_daily_close(
     last_processed = _last_processed_date(sdir, book_id)
     baseline_required = last_processed is None
 
+    # Phase 28B.2 — the display-only progress document (finalized by the wrapper).
+    prog = _CloseProgress(desk_dir, market_date=latest_eligible,
+                          evaluation_date=evaluation_date)
+    prog.stage("VALIDATE_EOD_DATA")
+
     # 3. SERVER-SIDE readiness revalidation (never trust a stale GET). The expected
     #    session is always a FINAL completed session (yesterday before today's cutoff,
     #    today after it) — the wall clock is a GET-display concern, not a POST gate.
@@ -1825,6 +2104,7 @@ def run_daily_close(
 
     # 4. refresh owned completed EOD marks + settle fills + append performance,
     #    targeting the clock-resolved required completed date.
+    prog.stage("VALUE_HOLDINGS")
     refresh: dict = {}
     try:
         refresh = (refresh_fn or desk.refresh_desk)(
@@ -1877,6 +2157,7 @@ def run_daily_close(
     #     inject a fake desk refresh but no alpha seam keep their pre-27H behavior; the
     #     live path (no fake desk refresh) advances the real owned inputs.
     alpha_active = alpha_refresh_fn is not None or refresh_fn is None
+    prog.stage("RECALCULATE_DECISION_UNIVERSE")
     alpha_refresh = _run_alpha_refresh(
         completed_through=closed_date, downloader=downloader,
         alpha_refresh_fn=alpha_refresh_fn, warnings=warnings, active=alpha_active)
@@ -1887,6 +2168,7 @@ def run_daily_close(
                         "date." % alpha_refresh.get("status"))
 
     # 6. recompute the frozen-model target + checks against the fresh marks + inputs.
+    prog.stage("EVALUATE_GATE")
     ops2 = _safe_ops(op_loader, today, warnings)
     book2 = _book_state(ops2)
     cur2 = None if gate_loader is not None else _safe_engine(engine_loader, warnings)
@@ -1947,6 +2229,7 @@ def run_daily_close(
     model_recalc = _model_recalc_block(cur=model_cur, price_date=closed_date,
                                        alpha_refresh=alpha_refresh)
 
+    prog.stage("RECORD_DECISION")
     journal_row = {
         "event": DAILY_CLOSE_EVENT,
         "book_id": book_id,
@@ -1988,10 +2271,14 @@ def run_daily_close(
     seams_injected = any(x is not None for x in (
         refresh_fn, gate_loader, engine_loader, operational_loader,
         alpha_refresh_fn, provider_probe))
+    prog.stage("CAPTURE_FORWARD_BOOKS")
     prediction_capture = _run_prediction_capture(
         market_date=closed_date, desk_dir=desk_dir, downloader=downloader,
         current=model_cur, ops=ops2, prediction_capture_fn=prediction_capture_fn,
-        seams_injected=seams_injected, warnings=warnings)
+        seams_injected=seams_injected, warnings=warnings, progress=prog.stage)
+    evidence_status = _forward_evidence_status(prediction_capture,
+                                               close_processed=True)
+    prog.stage("FINALIZE")
     context = {"clock": clock, "provider_readiness": None,
                "market_data_scope": None, "baseline": baseline,
                "close_dates": _close_dates_block(book=book2, cur=model_cur, price_date=closed_date,
@@ -2001,7 +2288,8 @@ def run_daily_close(
                "forward_performance": _forward_monitor_block(
                    perf=perf, starting_capital=book2["starting_capital"],
                    decision_history=_decision_history(sdir, book_id)),
-               "forward_prediction_capture": prediction_capture}
+               "forward_prediction_capture": prediction_capture,
+               "forward_evidence_status": evidence_status}
     return _assemble(
         close_status=close_status, book=book2, gate=gate, pnl=pnl,
         history=_perf_history(perf, starting_capital=book2["starting_capital"]),
@@ -2010,8 +2298,10 @@ def run_daily_close(
         decision_history=_decision_history(sdir, book_id), warnings=warnings,
         performed_write=True, evaluation_date=evaluation_date, context=context,
         headline_override=_headline_for(close_status, closed_date, pnl),
-        message=_completed_message(close_status, closed_date, pcount, pnl,
-                                   model_recalc=model_recalc))
+        message=_evidence_message_suffix(
+            _completed_message(close_status, closed_date, pcount, pnl,
+                               model_recalc=model_recalc),
+            evidence_status, prediction_capture))
 
 
 # --------------------------------------------------------------------------- #
@@ -2063,6 +2353,28 @@ def _no_write_state(close_status: str, book: dict, ops: dict, g_loader: Callable
         message=message)
 
 
+def _evidence_message_suffix(message: str, evidence_status: Optional[str],
+                             fpc: Optional[dict]) -> str:
+    """Part H — a fresh close whose forward-evidence capture failed or was
+    partial must SAY SO in the operator message; a split state is never silent.
+    A complete capture stays quiet (the payload block carries the detail)."""
+    if evidence_status == fps.EVIDENCE_BLOCKED:
+        created = (fpc or {}).get("snapshots_created") or 0
+        expected = (fpc or {}).get("snapshots_expected") or len(fps.SUPPORTED_BOOKS)
+        return (message + " OPERATIONAL CLOSE COMPLETE — FORWARD EVIDENCE CAPTURE "
+                "FAILED (%d of %d TRUE_FORWARD snapshots persisted; the mandatory "
+                "active-book snapshot is missing). The valuation, P&L and decision "
+                "above remain valid; inspect the forward evidence detail and the "
+                "recovery status before the next close." % (created, expected))
+    if evidence_status == fps.EVIDENCE_PARTIAL:
+        unavailable = (fpc or {}).get("snapshots_unavailable") or 0
+        return (message + " Forward evidence capture PARTIAL — the mandatory active "
+                "snapshot is persisted but %d research shadow book(s) were "
+                "unavailable (explicit per-book reasons in the forward evidence "
+                "detail)." % unavailable)
+    return message
+
+
 def _completed_message(close_status: str, closed_date: str, pcount: int,
                        pnl: Optional[dict] = None,
                        model_recalc: Optional[dict] = None) -> str:
@@ -2104,5 +2416,8 @@ __all__ = [
     "DECISION_HOLD", "DECISION_REBALANCE", "DECISION_DATA_BLOCKED",
     "DECISION_ORDERS_PENDING", "DECISION_BASELINE",
     "resolve_daily_close_status", "load_daily_close", "run_daily_close",
+    "CLOSE_PROGRESS_FILE", "CLOSE_IN_PROGRESS", "CLOSE_STAGES",
+    "EVIDENCE_IN_PROGRESS", "EVIDENCE_PENDING_CLOSE", "EVIDENCE_INACTIVE_OFFLINE",
+    "load_close_progress",
     "_latest_eligible_market_date", "_resolve_clock",
 ]

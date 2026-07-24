@@ -569,8 +569,11 @@ class TestSafety:
     def test_only_prediction_stores_are_written(self, tmp_path):  # (31b)
         self._world(tmp_path)
         names = {p.name for p in desk._desk_dir(tmp_path).iterdir()}
+        # Phase 28B.2 adds the frozen close-artifact bundle (recovery-only) to
+        # the closed allow-list — still ONLY prediction-evidence stores, never an
+        # operational book / order / fill / performance file.
         assert names == {fps.SNAPSHOT_LEDGER_FILE, fps.OUTCOME_LEDGER_FILE,
-                         fps.PRICE_STORE_FILE}
+                         fps.PRICE_STORE_FILE, fps.ARTIFACT_LEDGER_FILE}
 
     def test_safety_contract_fields(self, tmp_path):  # (34, 35, 36, 37)
         _ops_b, _f, payload = self._world(tmp_path)

@@ -5597,6 +5597,72 @@ def evidence_prediction_snapshots(model_id: str | None = None,
                                           market_date=market_date, limit=limit)
 
 
+# --------------------------------------------------------------------------- #
+# Phase 28B.2 — close progress (read-only) + evidence-only missed-close recovery.
+#
+# The progress GET serves the UI's single active poll while the minutes-long
+# manual close POST runs (display only — never a gate, never evidence). The
+# recovery endpoints act ONLY on the frozen close-artifact bundle: the GET is a
+# dry-run inspection; the POST requires the explicit recovery token, replays the
+# frozen artifacts verbatim (no provider access, no recalculation, no current
+# data), records an audit/missed-capture incident, and never touches marks, P&L,
+# decisions, holdings, cash, orders, models, weights or automation.
+# --------------------------------------------------------------------------- #
+@app.get("/v1/operations/daily-close/progress", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def operations_daily_close_progress() -> dict:
+    """Read-only progress of the (possibly running) manual daily close: current
+    stage, stage list, started/updated timestamps and — once finished — the final
+    operational close status and forward-evidence status. Writes nothing."""
+    return _dclose.load_close_progress()
+
+
+@app.get("/v1/evidence/prediction-skill/recovery-status",
+         status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_recovery_status(market_date: str) -> dict:
+    """Read-only recovery inspection for one processed close date: whether the
+    missing TRUE_FORWARD snapshots are RECOVERABLE_FROM_FROZEN_ARTIFACTS or
+    NOT_RECOVERABLE_WITHOUT_RECOMPUTATION, the frozen-bundle provenance
+    (timestamp + content-hash validity) and the per-book breakdown. Dry run:
+    performs no write, fetches nothing, recalculates nothing."""
+    return _fps.load_recovery_status(market_date=market_date)
+
+
+class EvidenceRecoveryRequest(BaseModel):
+    """Phase 28B.2 explicit evidence-recovery confirmation body."""
+
+    market_date: str
+    confirmation: str
+    requested_by: str = "manual_api"
+
+
+@app.post("/v1/evidence/prediction-skill/recover-missed-close",
+          status_code=status.HTTP_200_OK,
+          dependencies=[Depends(_verify_api_key)])
+def evidence_recover_missed_close(body: EvidenceRecoveryRequest) -> dict:
+    """Token-gated EVIDENCE-ONLY recovery of a processed close whose TRUE_FORWARD
+    snapshots were never persisted. Requires
+    ``{"confirmation": "CONFIRM_RECOVER_FROZEN_FORWARD_EVIDENCE"}`` (any other
+    value -> HTTP 400). Replays the frozen close-artifact bundle VERBATIM after
+    hash/provenance validation; rejects unprocessed dates, dates whose snapshots
+    already exist, absent/invalid bundles and anything that would require
+    recalculation. When recovery is impossible it records the explicit
+    FORWARD_CAPTURE_MISSED incident instead. Never fetches market data, never
+    recalculates a model, never changes marks / P&L / decisions / holdings /
+    cash / orders / model state, and never creates orders or automation."""
+    if body.confirmation != _fps.RECOVERY_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit confirmation required. Send "
+                    f"{{'confirmation': '{_fps.RECOVERY_CONFIRM_TOKEN}'}} to run the "
+                    f"evidence-only recovery for a missed forward capture."),
+        )
+    return _fps.recover_missed_close(market_date=body.market_date,
+                                     confirmation=body.confirmation,
+                                     requested_by=body.requested_by)
+
+
 @app.get(
     "/v1/dashboard/command-center",
     status_code=status.HTTP_200_OK,

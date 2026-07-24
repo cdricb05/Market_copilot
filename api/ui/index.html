@@ -2364,6 +2364,10 @@
             <div class="pdash-kpi"><div class="k">Drawdown</div><div class="v" id="dc-perf-dd">&mdash;</div><div class="sub">current</div></div>
           </div>
           <div id="dc-perf-firstnote" class="pdash-note" style="display:none;margin:-2px 0 6px;"></div>
+          <!-- Phase 28B.2: the operational-vs-evidence split state. Shown ONLY when a
+               processed close is evidence-blocked / partial / still capturing — a
+               zero-of-six capture must never look like an ordinary complete close. -->
+          <div id="dc-evidence-banner" style="display:none;font-size:11.5px;font-weight:700;margin:2px 0 8px;padding:8px 10px;border:1px solid var(--warn,#d97706);border-radius:6px;line-height:1.6;"></div>
           <!-- Phase 27H — the explicit atomic date set (each date shown with its own meaning). -->
           <div id="dc-dates-strip" class="mono" style="display:none;font-size:11px;color:var(--label);margin:2px 0 8px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;line-height:1.7;">
             <span style="font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Operating dates</span>
@@ -5217,6 +5221,19 @@
 </div><!-- .app-container -->
 
 <div id="toast"></div>
+
+<!-- Phase 28B.2: daily-close run progress (plain div overlay; NOT a native dialog).
+     Shown only while the manual close POST is in flight; fed by ONE active poll of
+     the read-only progress endpoint. -->
+<div id="dc-run-overlay" style="display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9999;min-width:420px;max-width:640px;background:var(--bg-panel,#0f172a);border:1px solid var(--info,#3b82f6);border-radius:10px;padding:12px 16px;box-shadow:0 8px 30px rgba(0,0,0,.45);">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+    <b style="font-size:13px;">DAILY CLOSE RUNNING</b>
+    <span class="mono" id="dc-run-elapsed" style="font-size:12px;font-weight:700;">0:00</span>
+  </div>
+  <div id="dc-run-stage" class="mono" style="font-size:11px;color:var(--label,#94a3b8);margin-top:6px;">Starting&hellip;</div>
+  <div id="dc-run-warning" style="font-size:11px;color:var(--warn,#d97706);margin-top:6px;font-weight:700;">Do not refresh the page and do not click Run Daily Close again &mdash; a full close can take several minutes.</div>
+  <div id="dc-run-steps" class="mono" style="font-size:10.5px;color:var(--label,#94a3b8);margin-top:6px;line-height:1.6;"></div>
+</div>
 
 <!-- Confirm Modal -->
 <!-- Daily Review Session confirm panel -->
@@ -23808,6 +23825,31 @@ function renderDailyClosePerf(d) {
       fpcEl.style.display = '';
     } else { fpcEl.style.display = 'none'; }
   }
+  // ---- Phase 28B.2: operational close vs forward evidence — an explicit split
+  //      state. BLOCKED / PARTIAL / IN-PROGRESS evidence on a processed close is
+  //      shown prominently; complete evidence needs no banner. ----
+  var evs = d.forward_evidence_status, evEl = document.getElementById('dc-evidence-banner');
+  if (evEl) {
+    var evMissing = fpc ? (fpc.snapshots_unavailable || 0) : 0;
+    var evTotal = fpc ? (fpc.snapshots_expected || 6) : 6;
+    if (evs === 'FORWARD_EVIDENCE_BLOCKED') {
+      evEl.textContent = 'Operational close complete — FORWARD EVIDENCE CAPTURE FAILED (' +
+        evMissing + ' of ' + evTotal + ' TRUE_FORWARD snapshots missing, including the mandatory active book). ' +
+        'NAV, P&L and the recorded decision above remain valid. Inspect the evidence recovery status before the next close.';
+      evEl.style.borderColor = 'var(--neg,#dc2626)'; evEl.style.color = 'var(--neg,#dc2626)';
+      evEl.style.display = '';
+    } else if (evs === 'FORWARD_EVIDENCE_PARTIAL') {
+      evEl.textContent = 'Operational close complete — forward evidence PARTIAL: the mandatory active-book snapshot is persisted, but ' +
+        evMissing + ' research shadow book(s) were unavailable (explicit per-book reasons in Research & Audit).';
+      evEl.style.borderColor = 'var(--warn,#d97706)'; evEl.style.color = 'var(--warn,#d97706)';
+      evEl.style.display = '';
+    } else if (evs === 'FORWARD_EVIDENCE_CAPTURE_IN_PROGRESS') {
+      evEl.textContent = 'A daily close is still running for this date — forward evidence capture is IN PROGRESS. ' +
+        'Do not run the close again; this status resolves when the close finishes.';
+      evEl.style.borderColor = 'var(--info,#3b82f6)'; evEl.style.color = 'var(--info,#3b82f6)';
+      evEl.style.display = '';
+    } else { evEl.style.display = 'none'; }
+  }
   // ---- Phase 27H: Daily P&L attribution (deterministic; from stored marks) ----
   var at = d.attribution, attrWrap = document.getElementById('dc-attr-detail');
   if (attrWrap) {
@@ -23874,17 +23916,93 @@ function dailyClosePrimaryAction(btn) {
 window.dailyClosePrimaryAction = dailyClosePrimaryAction;
 
 // Explicit, manual, token-gated daily close (the ONLY write path). No native dialog.
+// Phase 28B.2: single-flight on the client too — every Run Daily Close button is
+// disabled while a close runs, an elapsed-time + stage overlay replaces the
+// frozen-looking wait, and ONE active poll reads the read-only progress endpoint.
+var _dcRunInFlight = false;
+var _DC_RUN_BTN_IDS = ['cc-dc-btn', 'dw-dc-btn', 'dc-perf-btn', 'pm-dc-btn'];
+
+function _dcRunButtons() {
+  return _DC_RUN_BTN_IDS.map(function (id) { return document.getElementById(id); })
+    .filter(function (b) { return !!b; });
+}
+
+function _dcFmtElapsed(ms) {
+  var s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function _dcRenderRunSteps(stages) {
+  var el = document.getElementById('dc-run-steps');
+  if (!el || !stages || !stages.length) return;
+  el.innerHTML = stages.map(function (s) {
+    var mark = s.status === 'done' ? '&#10003;' : (s.status === 'current' ? '&#9654;' : '&middot;');
+    var style = s.status === 'current' ? 'color:var(--info,#3b82f6);font-weight:700;' :
+                (s.status === 'done' ? 'color:var(--pos,#16a34a);' : '');
+    return '<span style="' + style + '">' + mark + ' ' + escapeHtml(s.label || s.key || '') + '</span>';
+  }).join('<br>');
+}
+
+function _dcShowRunOutcome(r) {
+  if (!r) { toast('Daily close request failed — reload the Daily Close status before acting.', 'err'); return; }
+  if (r.status === 'DAILY_CLOSE_IN_PROGRESS') {
+    toast('A daily close is already running — duplicate execution was prevented; nothing was written.', 'warning');
+    return;
+  }
+  var op = r.close_status ? String(r.close_status).replace(/_/g, ' ') : (r.status || 'UNKNOWN');
+  var evs = r.forward_evidence_status;
+  if (evs === 'FORWARD_EVIDENCE_BLOCKED') {
+    toast('Operational close: ' + op + ' — FORWARD EVIDENCE CAPTURE FAILED (see the banner in Daily Performance).', 'err');
+  } else if (evs === 'FORWARD_EVIDENCE_PARTIAL') {
+    toast('Operational close: ' + op + ' — forward evidence PARTIAL (shadow books unavailable; detail in Research & Audit).', 'warning');
+  } else if (evs) {
+    toast('Operational close: ' + op + ' · Forward evidence: ' + String(evs).replace(/_/g, ' ') + '.', 'ok');
+  } else {
+    toast('Daily close finished: ' + op + '.', 'ok');
+  }
+}
+
 async function runDailyClose(btn) {
+  if (_dcRunInFlight) return;               // duplicate submission prevented client-side
+  _dcRunInFlight = true;
+  var btns = _dcRunButtons();
+  btns.forEach(function (b) { b.disabled = true; });
   var orig = btn ? btn.textContent : null;
-  if (btn) { btn.disabled = true; btn.textContent = 'Running Daily Close…'; }
+  if (btn) btn.textContent = 'Running Daily Close…';
+  var t0 = Date.now(), tick = null, poll = null, polling = false;
+  var ov = document.getElementById('dc-run-overlay');
+  var stageEl = document.getElementById('dc-run-stage');
+  if (stageEl) stageEl.textContent = 'Starting: validate EOD data → value holdings → recalculate decision universe → capture six forward books → mature outcomes → finalize decision.';
+  if (ov) ov.style.display = '';
+  tick = setInterval(function () {
+    var el = document.getElementById('dc-run-elapsed');
+    if (el) el.textContent = _dcFmtElapsed(Date.now() - t0);
+  }, 1000);
+  poll = setInterval(async function () {   // ONE active progress poll
+    if (polling) return;
+    polling = true;
+    try {
+      var pr = await call('GET', '/v1/operations/daily-close/progress');
+      var p = await pr.json();
+      if (p && p.stage_label && stageEl) stageEl.textContent = 'Current stage: ' + p.stage_label;
+      if (p && p.stages) _dcRenderRunSteps(p.stages);
+    } catch (e) { /* progress is display-only */ }
+    polling = false;
+  }, 3000);
+  var r = null;
   try {
     var resp = await call('POST', '/v1/operations/daily-close/execute',
       { confirmation: 'CONFIRM_ALPHA_DAILY_CLOSE', requested_by: 'operator_ui' });
-    var r = await resp.json();
+    r = await resp.json();
     if (r && r.close_status) { window._dcData = r; renderDailyClose(r); }
   } catch (e) { /* inline degrade; never a native dialog */ }
   finally {
-    if (btn) { btn.disabled = false; if (orig) btn.textContent = orig; }
+    clearInterval(tick); clearInterval(poll);
+    if (ov) ov.style.display = 'none';
+    btns.forEach(function (b) { b.disabled = false; });
+    if (btn && orig) btn.textContent = orig;
+    _dcRunInFlight = false;
+    _dcShowRunOutcome(r);
     try { loadOperationalBook(); } catch (e) {}   // refresh every operator surface
   }
 }
