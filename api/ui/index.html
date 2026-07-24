@@ -2407,6 +2407,60 @@
           </details>
         </div>
 
+        <!-- ===================== Phase 28A TODAY'S REVIEW — FORWARD EVIDENCE ===================== -->
+        <!-- A concise operator answer to: what happened today, why, did we outperform SPY,
+             is action required. Rendered from the read-only /v1/evidence/forward payload
+             (canonical attribution + deterministic Why-P&L-Moved narrative). Read-only;
+             paper only; the active book is never changed. -->
+        <div class="pt-panel" id="fe-today" style="border-left:3px solid var(--info,#3b82f6);margin-bottom:8px;display:none;">
+          <div class="cc-preview-hd" style="align-items:center;">
+            <span class="dw-hd-title">Today's Review</span>
+            <span class="cc-badge" id="fe-today-decision" title="The recorded daily-close decision.">&mdash;</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <span class="cc-badge safe">FORWARD EVIDENCE</span>
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge">MANUAL REVIEW</span>
+          </div>
+          <div id="fe-today-dates" class="pdash-note" style="margin:4px 0 6px;">&mdash;</div>
+          <div id="fe-today-empty" class="cc-na-note" style="display:none;font-size:11px;"></div>
+          <div class="pdash-kpi-row" id="fe-today-kpis" style="grid-template-columns:repeat(6,1fr);">
+            <div class="pdash-kpi"><div class="k">Daily P&amp;L</div><div class="v" id="fe-k-dpnl">&mdash;</div><div class="sub" id="fe-k-dret">&mdash;</div></div>
+            <div class="pdash-kpi"><div class="k">SPY Return</div><div class="v" id="fe-k-spy">&mdash;</div><div class="sub">daily</div></div>
+            <div class="pdash-kpi"><div class="k">Excess vs SPY</div><div class="v" id="fe-k-excess">&mdash;</div><div class="sub" id="fe-k-excess-note">daily</div></div>
+            <div class="pdash-kpi"><div class="k">Cumulative P&amp;L</div><div class="v" id="fe-k-cpnl">&mdash;</div><div class="sub">since inception</div></div>
+            <div class="pdash-kpi"><div class="k">Drawdown</div><div class="v" id="fe-k-dd">&mdash;</div><div class="sub">current</div></div>
+            <div class="pdash-kpi"><div class="k">Top Contributors</div><div class="v" id="fe-k-topc" style="font-size:12px;">&mdash;</div><div class="sub" id="fe-k-topc-neg">&mdash;</div></div>
+          </div>
+          <!-- Collapsible: WHY P&L MOVED (deterministic; every statement traceable). -->
+          <details id="fe-why" style="margin-top:6px;">
+            <summary style="cursor:pointer;font-size:11px;font-weight:800;color:var(--label);text-transform:uppercase;letter-spacing:.06em;">Why P&amp;L Moved</summary>
+            <div style="margin-top:6px;">
+              <div id="fe-why-narrative" class="pdash-note" style="font-size:12px;line-height:1.6;color:var(--text,#e2e8f0);"></div>
+              <div id="fe-why-coverage" class="pdash-note mono" style="font-size:11px;margin:6px 0;"></div>
+              <div class="pdash-table-scroll" style="margin-top:6px;">
+                <table class="pdash-table" id="fe-why-holdings">
+                  <thead><tr>
+                    <th class="lft">Ticker</th><th class="lft">Sector</th><th>Qty</th>
+                    <th>Prev</th><th>Last</th><th>Prev MV</th><th>$ Contrib</th>
+                    <th>Ret %</th><th>Contrib pp</th><th>Cum Unrl</th><th>Weight %</th>
+                  </tr></thead>
+                  <tbody id="fe-why-holdings-body"></tbody>
+                </table>
+              </div>
+              <div class="pdash-table-scroll" style="margin-top:6px;">
+                <table class="pdash-table" id="fe-why-sectors">
+                  <thead><tr>
+                    <th class="lft">Sector</th><th>Weight %</th><th>$ Contrib</th>
+                    <th>Ret Contrib pp</th><th>Holdings</th>
+                  </tr></thead>
+                  <tbody id="fe-why-sectors-body"></tbody>
+                </table>
+              </div>
+              <div id="fe-why-recon" class="pdash-note" style="font-size:11px;margin-top:6px;"></div>
+            </div>
+          </details>
+        </div>
+
         <!-- B. KPI row -->
         <div class="pdash-kpi-row" id="pdash-kpis">
           <div class="pdash-kpi"><div class="k">NAV</div><div class="v" id="pdash-kpi-nav">&mdash;</div><div class="sub">Alpha Paper Book #1</div></div>
@@ -3127,6 +3181,38 @@
           <span class="cc-badge">NO BROKER EXECUTION</span>
           <span class="cc-badge">AUTOMATION OFF</span>
           <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+        </div>
+
+        <!-- ===================== Phase 28A FORWARD EVIDENCE (RESEARCH) ===================== -->
+        <!-- The active operational book's FORWARD OPERATIONAL evidence beside the existing
+             research/shadow books (HISTORICAL RECONSTRUCTION). The two evidence classes are
+             clearly separated and never mixed. Research-only: the active book is unchanged
+             and nothing is promoted. Read-only /v1/evidence/forward payload. -->
+        <div id="fe-research" class="ra-champion" style="display:none;">
+          <div class="ra-hd">
+            <span class="ra-title">Forward Evidence</span>
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge">NO PROMOTION</span>
+            <span class="cc-badge">FORWARD vs HISTORICAL</span>
+            <span class="cc-spacer" style="flex:1;"></span>
+            <button class="cc-btn ghost" onclick="loadForwardEvidence()" title="Reload the read-only forward-evidence view.">&#8635; Refresh</button>
+          </div>
+          <div id="fe-research-active" class="pdash-note" style="font-size:12px;margin:6px 0;line-height:1.7;">&mdash;</div>
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--label);margin-top:8px;">Rolling windows &mdash; active book</div>
+          <div id="fe-research-rolling" class="pdash-summary" style="grid-template-columns:repeat(3,1fr);margin-top:6px;"></div>
+          <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--label);margin-top:10px;">Active vs shadow books</div>
+          <div id="fe-research-separation" class="pdash-info" style="margin-top:6px;">FORWARD OPERATIONAL evidence (real accumulated marks) and HISTORICAL RECONSTRUCTION (backtest/reconstruction series) are shown separately and never mixed. Shadow rows are research context only &mdash; the active book is unchanged regardless of these comparisons.</div>
+          <div class="pdash-table-scroll" style="margin-top:6px;">
+            <table class="pdash-table" id="fe-research-shadow">
+              <thead><tr>
+                <th class="lft">Book</th><th class="lft">Evidence</th><th class="lft">Cadence</th>
+                <th>Obs</th><th>Cum %</th><th>Excess</th><th>Max DD</th>
+                <th>Vol %</th><th>+Day %</th><th>Out-SPY %</th>
+              </tr></thead>
+              <tbody id="fe-research-shadow-body"></tbody>
+            </table>
+          </div>
+          <div id="fe-research-warn" class="pdash-note" style="font-size:11px;margin-top:6px;color:var(--warning,#f59e0b);"></div>
         </div>
 
         <!-- ===================== Phase 14-C CURRENT CHAMPION (first) START ===================== -->
@@ -5237,6 +5323,9 @@ window._switchTab = function(tabName, opts) {
   // Phase 14-C: Research & Audit opens with the CURRENT CHAMPION summary first.
   if (tabName === 'audit-advanced' && window._appState?.connected) {
     try { loadResearchChampionSummary(); } catch (e) {}
+    // Phase 28A: the read-only Forward Evidence section (active book vs shadow books,
+    // rolling windows) — clearly research-only, active book unchanged.
+    try { loadForwardEvidence(); } catch (e) {}
   }
 
   // Phase 25: Multi-Horizon Alpha Portfolio — lazy-load the read-only platform
@@ -5279,6 +5368,8 @@ window._switchTab = function(tabName, opts) {
     // Phase 27B.8: the Portfolio route is the operational holdings dashboard,
     // rendered from the ONE canonical operational-book payload.
     try { loadOperationalBook(); } catch (e) {}
+    // Phase 28A: the read-only Today's Review + Why P&L Moved forward-evidence card.
+    try { loadForwardEvidence(); } catch (e) {}
   }
 
   // Phase 14-B: single-nav highlight + contextual action rail + hash sync so the
@@ -23045,6 +23136,166 @@ function loadDailyClose() {
   return p;
 }
 window.loadDailyClose = loadDailyClose;
+
+/* ===================== Phase 28A — FORWARD EVIDENCE (read-only diagnostic) =====================
+   ONE loader fetches /v1/evidence/forward and renders the Portfolio "Today's Review" +
+   collapsible "Why P&L Moved" and the Research & Audit "Forward Evidence" section. Every
+   value is the backend contract verbatim (attribution / narrative / rolling / shadow). The
+   active book is never changed; shadow rows are HISTORICAL RECONSTRUCTION, never mixed with
+   the active book's FORWARD OPERATIONAL evidence. No page write; no native dialogs. */
+window._feData = null;
+window._feInFlight = null;
+
+function loadForwardEvidence() {
+  if (window._feInFlight) return window._feInFlight;
+  var p = _mhzGet('/v1/evidence/forward').then(function (d) {
+    window._feInFlight = null; window._feData = d; renderForwardEvidence(d); return d;
+  }).catch(function () { window._feInFlight = null; renderForwardEvidence(null); return null; });
+  window._feInFlight = p;
+  return p;
+}
+window.loadForwardEvidence = loadForwardEvidence;
+
+function _feMoney(x) { return _dcMoney(x); }
+function _fePct(x) { return _dcPct(x); }
+function _feNum(x, dp) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return Number(x).toFixed(dp === undefined ? 2 : dp);
+}
+function _feWpct(x) {   // fraction weight -> percent display
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return (Number(x) * 100).toFixed(2) + '%';
+}
+
+function renderForwardEvidence(d) {
+  var todayPanel = document.getElementById('fe-today');
+  var tr = (d && d.todays_review) || null;
+  if (todayPanel) {
+    if (!d) { todayPanel.style.display = 'none'; }
+    else {
+      todayPanel.style.display = '';
+      var dec = (tr && tr.decision) || (d.why_pnl_moved && d.why_pnl_moved.recorded_decision) || '—';
+      _dcSet('fe-today-decision', String(dec).replace(/_/g, ' '));
+      var empty = document.getElementById('fe-today-empty');
+      var kpis = document.getElementById('fe-today-kpis');
+      var why = document.getElementById('fe-why');
+      if (!tr || tr.available === false) {
+        if (empty) { empty.style.display = ''; empty.textContent = (tr && tr.message) || 'No completed daily close with a prior mark yet — attribution begins after the second eligible close.'; }
+        if (kpis) kpis.style.display = 'none';
+        if (why) why.style.display = 'none';
+        _dcSet('fe-today-dates', '—');
+      } else {
+        if (empty) empty.style.display = 'none';
+        if (kpis) kpis.style.display = '';
+        if (why) why.style.display = '';
+        _dcSet('fe-today-dates', 'Market date ' + (tr.market_date || '—') + ' · Prior comparison ' + (tr.prior_market_date || '—'));
+        _dcSet('fe-k-dpnl', _feMoney(tr.daily_pnl)); _dcSet('fe-k-dret', _fePct(tr.daily_return_pct));
+        _dcSet('fe-k-spy', _fePct(tr.spy_daily_return_pct));
+        _dcSet('fe-k-excess', _fePct(tr.daily_excess_return_pct));
+        _dcSet('fe-k-excess-note', tr.outperformed_spy ? 'outperformed SPY' : 'underperformed SPY');
+        _dcSet('fe-k-cpnl', _feMoney(tr.cumulative_pnl));
+        _dcSet('fe-k-dd', _fePct(tr.drawdown_pct));
+        _dcSet('fe-k-topc', tr.top_positive ? (tr.top_positive.ticker + ' ' + _feMoney(tr.top_positive.pnl_contribution)) : '—');
+        _dcSet('fe-k-topc-neg', tr.top_negative ? (tr.top_negative.ticker + ' ' + _feMoney(tr.top_negative.pnl_contribution)) : 'no detractor');
+        _feRenderWhy(d);
+      }
+    }
+  }
+  _feRenderResearch(d);
+}
+window.renderForwardEvidence = renderForwardEvidence;
+
+function _feRenderWhy(d) {
+  var w = d.why_pnl_moved || {}, a = d.attribution || {};
+  _dcSet('fe-why-narrative', w.narrative || '—');
+  var cov = a.coverage || {};
+  _dcSet('fe-why-coverage', 'Price data through ' + (a.market_date || '—') + ' · Prior comparison '
+    + (a.prior_market_date || '—') + ' · Coverage ' + (cov.priced != null ? cov.priced : '—') + '/'
+    + (cov.total != null ? cov.total : '—') + ' priced' + (cov.complete === false ? ' (incomplete)' : ''));
+  var hb = document.getElementById('fe-why-holdings-body');
+  if (hb) {
+    var hs = (a.holdings || []).slice().sort(function (x, y) { return (y.pnl_contribution || 0) - (x.pnl_contribution || 0); });
+    hb.innerHTML = hs.map(function (h) {
+      var neg = (h.pnl_contribution || 0) < 0;
+      return '<tr><td class="lft pdash-tk">' + escapeHtml(h.ticker) + '</td><td class="lft">' + escapeHtml(h.sector || '—')
+        + '</td><td>' + _feNum(h.quantity, 0) + '</td><td>' + _feNum(h.prior_price) + '</td><td>' + _feNum(h.current_price)
+        + '</td><td>' + _feMoney(h.prior_market_value) + '</td><td class="' + (neg ? 'pdash-neg' : 'pdash-pos') + '">'
+        + _feMoney(h.pnl_contribution) + '</td><td>' + _fePct(h.daily_return_pct) + '</td><td>' + _feNum(h.contribution_pp, 3)
+        + '</td><td>' + _feMoney(h.cumulative_unrealized_pnl) + '</td><td>' + _feWpct(h.portfolio_weight) + '</td></tr>';
+    }).join('') || '<tr><td class="lft" colspan="11">—</td></tr>';
+  }
+  var sb = document.getElementById('fe-why-sectors-body');
+  if (sb) {
+    sb.innerHTML = (a.sectors || []).map(function (s) {
+      var neg = (s.pnl_contribution || 0) < 0;
+      return '<tr><td class="lft">' + escapeHtml(s.sector || '—') + '</td><td>' + _feWpct(s.sector_weight_pct)
+        + '</td><td class="' + (neg ? 'pdash-neg' : 'pdash-pos') + '">' + _feMoney(s.pnl_contribution) + '</td><td>'
+        + _feNum(s.return_contribution_pp, 3) + '</td><td>' + _feNum(s.n_holdings, 0) + '</td></tr>';
+    }).join('') || '<tr><td class="lft" colspan="5">—</td></tr>';
+  }
+  var rc = a.reconciliation || {};
+  _dcSet('fe-why-recon', 'Reconciliation: position contributions ' + _feMoney(rc.position_contribution_sum)
+    + ' vs NAV move ' + _feMoney(rc.market_movement) + ' · residual ' + _feMoney(rc.residual) + ' · '
+    + (rc.reconciles ? 'RECONCILES' : 'does not reconcile'));
+}
+
+function _feRenderResearch(d) {
+  var panel = document.getElementById('fe-research');
+  if (!panel) return;
+  if (!d) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  var avs = d.active_vs_shadow || {}, ab = avs.active_book || {}, roll = d.rolling_evidence || {};
+  var actEl = document.getElementById('fe-research-active');
+  if (actEl) {
+    var samp = (ab.sample_status === 'FORWARD_SAMPLE_SUFFICIENT') ? '' : ' — INSUFFICIENT FORWARD SAMPLE — NO MODEL CONCLUSION';
+    actEl.innerHTML = '<b>Active book (FORWARD OPERATIONAL):</b> ' + escapeHtml(ab.book_label || 'Alpha Paper Book #1')
+      + ' · ' + (ab.observations != null ? ab.observations : 0) + ' obs · ' + (ab.start_date || '—') + ' → '
+      + (ab.end_date || '—') + ' · Cum ' + _fePct(ab.cumulative_return_pct) + ' · Excess '
+      + _fePct(ab.cumulative_excess_return_pct) + ' · Max DD ' + _fePct(ab.max_drawdown_pct) + ' · +Day '
+      + _fePct(ab.positive_day_rate_pct) + escapeHtml(samp);
+  }
+  var rEl = document.getElementById('fe-research-rolling');
+  if (rEl) {
+    var wins = (roll.windows || []).concat(roll.since_inception ? [roll.since_inception] : []);
+    rEl.innerHTML = wins.map(function (wnd) {
+      var body;
+      if (!wnd.available) {
+        body = '<span class="pdash-note">UNAVAILABLE — ' + (wnd.observations_available || 0) + '/' + (wnd.observations_required || 0) + ' obs</span>';
+      } else {
+        body = '<div class="row"><span>Return</span><span>' + _fePct(wnd.return_pct) + '</span></div>'
+          + '<div class="row"><span>Excess</span><span>' + _fePct(wnd.excess_return_pct) + '</span></div>'
+          + '<div class="row"><span>Vol</span><span>' + _fePct(wnd.annualized_volatility_pct) + (wnd.annualized_volatility_warning ? ' ⚠' : '') + '</span></div>'
+          + '<div class="row"><span>Max DD</span><span>' + _fePct(wnd.max_drawdown_pct) + '</span></div>'
+          + '<div class="row"><span>Hit</span><span>' + _fePct(wnd.hit_rate_pct) + '</span></div>';
+      }
+      return '<div class="pdash-scard"><div class="h">' + escapeHtml(wnd.label || '') + '</div>' + body + '</div>';
+    }).join('');
+  }
+  var sbody = document.getElementById('fe-research-shadow-body');
+  if (sbody) {
+    var rows = ['<tr style="background:rgba(59,130,246,.08);"><td class="lft pdash-tk">'
+      + escapeHtml(ab.book_label || 'Alpha Paper Book #1') + '</td><td class="lft"><span class="cc-badge safe">FORWARD OPERATIONAL</span></td>'
+      + '<td class="lft">daily</td><td>' + (ab.observations != null ? ab.observations : 0) + '</td><td>'
+      + _fePct(ab.cumulative_return_pct) + '</td><td>' + _fePct(ab.cumulative_excess_return_pct) + '</td><td>'
+      + _fePct(ab.max_drawdown_pct) + '</td><td>' + _fePct(ab.annualized_volatility_pct) + '</td><td>'
+      + _fePct(ab.positive_day_rate_pct) + '</td><td>' + _fePct(ab.spy_outperformance_rate_pct) + '</td></tr>'];
+    (avs.shadow_books || []).forEach(function (b) {
+      var posDay = (b.positive_day_rate_pct != null) ? b.positive_day_rate_pct : b.positive_period_rate_pct;
+      rows.push('<tr><td class="lft pdash-tk">' + escapeHtml(b.book || '') + '</td><td class="lft"><span class="cc-badge">HISTORICAL RECONSTRUCTION</span></td>'
+        + '<td class="lft">' + escapeHtml(b.cadence || '—') + '</td><td>' + (b.observations != null ? b.observations : '—') + '</td><td>'
+        + _fePct(b.cumulative_return_pct) + '</td><td>' + _fePct(b.cumulative_excess_return_pct) + '</td><td>'
+        + _fePct(b.max_drawdown_pct) + '</td><td>' + _fePct(b.annualized_volatility_pct) + '</td><td>'
+        + _fePct(posDay) + '</td><td>' + _fePct(b.spy_outperformance_rate_pct) + '</td></tr>');
+    });
+    sbody.innerHTML = rows.join('');
+  }
+  var warn = document.getElementById('fe-research-warn');
+  if (warn) {
+    var ws = (avs.warnings || []);
+    warn.textContent = ws.length ? ('Notes: ' + ws.join(' ')) : '';
+    warn.style.display = ws.length ? '' : 'none';
+  }
+}
 
 function _dcSet(id, text) {
   var el = document.getElementById(id);

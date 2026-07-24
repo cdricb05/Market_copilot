@@ -222,6 +222,7 @@ from paper_trader.api import operational_book as _opbook
 from paper_trader.api import daily_action_gate as _dag
 from paper_trader.api import daily_close as _dclose
 from paper_trader.api import calibration_study as _calib
+from paper_trader.api import forward_evidence as _fe
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -5486,6 +5487,77 @@ def research_calibration_study() -> dict:
     INSUFFICIENT_FORWARD_SAMPLE evidence status and NO_OPERATIONAL_CHANGE
     recommendation — nothing is promoted, reweighted or written."""
     return _calib.load_calibration_study()
+
+
+# --------------------------------------------------------------------------- #
+# Phase 28A — FORWARD EVIDENCE, ATTRIBUTION AND SHADOW-BOOK COMPARISON.
+#
+# Read-only diagnostic cockpit built from the EXISTING append-only daily-close /
+# mark / performance records of Alpha Paper Book #1. Every route is strictly read
+# only and deterministic: it creates no orders / signals / trade decisions, mutates
+# no holdings / cash / model selection / model weights, connects to no broker, runs
+# no automation, calls no prediction service and writes nothing. The active book is
+# never changed. Shadow-book rows are HISTORICAL RECONSTRUCTION and are explicitly
+# separated from the active book's FORWARD OPERATIONAL evidence — never mixed — and
+# nothing is promoted. Empty states return controlled statuses (HTTP 200), not nulls.
+# --------------------------------------------------------------------------- #
+@app.get("/v1/evidence/forward", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_forward() -> dict:
+    """The ONE read-only forward-evidence payload: today's review, canonical daily
+    attribution, the deterministic 'Why P&L Moved' narrative, rolling 5/20/inception
+    windows and the active-vs-shadow comparison (FORWARD OPERATIONAL vs HISTORICAL
+    RECONSTRUCTION, never mixed). Writes nothing; changes no holdings / model."""
+    return _fe.load_forward_evidence()
+
+
+@app.get("/v1/evidence/daily-attribution", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_daily_attribution(market_date: str | None = None) -> dict:
+    """Read-only canonical daily attribution for a processed operational close
+    (default: the latest close with a prior mark). Reconciled to the NAV change from
+    the immutable desk marks; explicit availability/coverage when marks are missing."""
+    return _fe.load_daily_attribution(market_date=market_date)
+
+
+@app.get("/v1/evidence/attribution-history", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_attribution_history(limit: int = 60) -> dict:
+    """Read-only compact per-close attribution across every eligible processed close."""
+    return _fe.load_attribution_history(limit=limit)
+
+
+@app.get("/v1/evidence/holding-contributions", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_holding_contributions(market_date: str | None = None) -> dict:
+    """Read-only per-holding daily contribution table for a processed close."""
+    return _fe.load_holding_contributions(market_date=market_date)
+
+
+@app.get("/v1/evidence/sector-contributions", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_sector_contributions(market_date: str | None = None) -> dict:
+    """Read-only per-sector daily contribution table for a processed close."""
+    return _fe.load_sector_contributions(market_date=market_date)
+
+
+@app.get("/v1/evidence/rolling", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_rolling() -> dict:
+    """Read-only rolling evidence (5 / 20 eligible closes + since inception) for the
+    active book, with explicit availability before enough observations and a clear
+    warning when volatility is annualised from a short sample."""
+    return _fe.load_rolling_evidence()
+
+
+@app.get("/v1/evidence/shadow-comparison", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def evidence_shadow_comparison() -> dict:
+    """Read-only active-vs-shadow comparison: the active book's FORWARD OPERATIONAL
+    evidence beside the existing research/shadow books (HISTORICAL RECONSTRUCTION),
+    clearly separated and never mixed. Research-only; the active book is unchanged and
+    nothing is promoted."""
+    return _fe.load_shadow_comparison()
 
 
 @app.get(
