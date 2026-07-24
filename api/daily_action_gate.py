@@ -309,8 +309,11 @@ _PRESENTATION = {
         "current_task": "Refresh owned EOD market data",
     },
     OUTCOME_NO_ACTION_TODAY: {
+        # Phase 28B wording: never claim "today" before today's session has been
+        # closed — the decision is anchored to the LATEST COMPLETED close (the
+        # assembled payload appends that date when it is known).
         "label": "NO ACTION TODAY",
-        "headline": "NO PORTFOLIO CHANGE REQUIRED TODAY",
+        "headline": "NO PORTFOLIO CHANGE REQUIRED FROM THE LATEST COMPLETED CLOSE",
         "severity": SEV_GREEN,
         "primary_action_label": "Monitor Holdings and Performance",
         "current_task": "Monitor holdings, NAV, drift and forward performance",
@@ -911,6 +914,12 @@ def evaluate_daily_action_gate(
                                   OUTCOME_APPROVAL_REQUIRED)
 
     pres = dict(_PRESENTATION[outcome])
+    # Phase 28B wording: the no-action decision is anchored to the latest
+    # COMPLETED close, never an ambiguous "today" (the underlying date is
+    # untouched — only the label carries it explicitly).
+    if outcome == OUTCOME_NO_ACTION_TODAY and latest_completed_market_date:
+        pres["headline"] = ("NO PORTFOLIO CHANGE REQUIRED FROM THE LATEST "
+                            "COMPLETED CLOSE — %s" % latest_completed_market_date)
     target_state, target_state_label = _target_state_for(outcome)
     explanation = _explanation(outcome, proposed_additions, proposed_removals,
                                proposed_resizes, blocked_changes, scheduled_review_due,

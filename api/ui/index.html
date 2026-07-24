@@ -2011,7 +2011,7 @@
               <span class="cc-kv" title="Daily P&amp;L vs the prior completed operational NAV."><span class="k">Daily P&amp;L</span><span class="v" id="cc-dc-dpnl">&mdash;</span></span>
               <span class="cc-kv" title="Cumulative P&amp;L vs the starting virtual capital."><span class="k">Cumulative P&amp;L</span><span class="v" id="cc-dc-cpnl">&mdash;</span></span>
               <span class="cc-kv" title="Cumulative return."><span class="k">Cum Ret</span><span class="v" id="cc-dc-cret">&mdash;</span></span>
-              <span class="cc-kv" title="Excess return vs SPY."><span class="k">Excess vs SPY</span><span class="v" id="cc-dc-excess">&mdash;</span></span>
+              <span class="cc-kv" title="Cumulative excess return vs SPY since the baseline, in percentage points."><span class="k">Cum Excess vs SPY</span><span class="v" id="cc-dc-excess">&mdash;</span></span>
               <span class="cc-kv" title="Current drawdown."><span class="k">Drawdown</span><span class="v" id="cc-dc-dd">&mdash;</span></span>
               <span class="cc-kv" title="Proposed portfolio changes from today's close."><span class="k">Proposed Changes</span><span class="v" id="cc-dc-changes">&mdash;</span></span>
             </div>
@@ -2360,7 +2360,7 @@
             <div class="pdash-kpi"><div class="k">Daily P&amp;L</div><div class="v" id="dc-perf-dpnl">&mdash;</div><div class="sub" id="dc-perf-dret">&mdash;</div></div>
             <div class="pdash-kpi"><div class="k">Cumulative P&amp;L</div><div class="v" id="dc-perf-cpnl">&mdash;</div><div class="sub" id="dc-perf-cret">&mdash;</div></div>
             <div class="pdash-kpi"><div class="k">SPY Return</div><div class="v" id="dc-perf-spy">&mdash;</div><div class="sub">cumulative</div></div>
-            <div class="pdash-kpi"><div class="k">Excess vs SPY</div><div class="v" id="dc-perf-excess">&mdash;</div><div class="sub">cumulative</div></div>
+            <div class="pdash-kpi"><div class="k" title="Cumulative portfolio return minus cumulative SPY return since the baseline, in percentage points.">Cumulative Excess vs SPY</div><div class="v" id="dc-perf-excess">&mdash;</div><div class="sub">since baseline</div></div>
             <div class="pdash-kpi"><div class="k">Drawdown</div><div class="v" id="dc-perf-dd">&mdash;</div><div class="sub">current</div></div>
           </div>
           <div id="dc-perf-firstnote" class="pdash-note" style="display:none;margin:-2px 0 6px;"></div>
@@ -2379,7 +2379,7 @@
               <thead><tr>
                 <th class="lft">Market Date</th><th>NAV</th><th>Daily P&amp;L</th>
                 <th>Cumulative P&amp;L</th><th>Daily Ret</th><th>Cum Ret</th>
-                <th>SPY Cum</th><th>Excess</th><th>Drawdown</th>
+                <th>SPY Cum</th><th>Cum Excess</th><th>Drawdown</th>
               </tr></thead>
               <tbody id="dc-perf-tbody"></tbody>
             </table>
@@ -2393,7 +2393,7 @@
                 <div class="pdash-kpi"><div class="k">Ending NAV</div><div class="v" id="dc-attr-end">&mdash;</div></div>
                 <div class="pdash-kpi"><div class="k">Market Movement</div><div class="v" id="dc-attr-move">&mdash;</div></div>
                 <div class="pdash-kpi"><div class="k">Cost Charged Today</div><div class="v" id="dc-attr-cost">&mdash;</div></div>
-                <div class="pdash-kpi"><div class="k">Excess vs SPY</div><div class="v" id="dc-attr-excess">&mdash;</div></div>
+                <div class="pdash-kpi"><div class="k" title="This close's portfolio return minus SPY's daily return, in percentage points.">Daily Excess vs SPY</div><div class="v" id="dc-attr-excess">&mdash;</div></div>
               </div>
               <div id="dc-attr-note" class="pdash-note" style="font-size:11px;margin:4px 0;"></div>
               <div id="dc-attr-tables" class="mono" style="font-size:11px;color:var(--label);line-height:1.6;"></div>
@@ -2433,11 +2433,13 @@
           <div class="pdash-kpi-row" id="fe-today-kpis" style="grid-template-columns:repeat(6,1fr);">
             <div class="pdash-kpi"><div class="k">Daily P&amp;L</div><div class="v" id="fe-k-dpnl">&mdash;</div><div class="sub" id="fe-k-dret">&mdash;</div></div>
             <div class="pdash-kpi"><div class="k">SPY Return</div><div class="v" id="fe-k-spy">&mdash;</div><div class="sub">daily</div></div>
-            <div class="pdash-kpi"><div class="k">Excess vs SPY</div><div class="v" id="fe-k-excess">&mdash;</div><div class="sub" id="fe-k-excess-note">daily</div></div>
-            <div class="pdash-kpi"><div class="k">Cumulative P&amp;L</div><div class="v" id="fe-k-cpnl">&mdash;</div><div class="sub">since inception</div></div>
+            <div class="pdash-kpi"><div class="k" title="Daily portfolio return minus daily SPY return, in percentage points.">Daily Excess vs SPY</div><div class="v" id="fe-k-excess">&mdash;</div><div class="sub" id="fe-k-excess-note">daily</div></div>
+            <div class="pdash-kpi"><div class="k">Cumulative P&amp;L</div><div class="v" id="fe-k-cpnl">&mdash;</div><div class="sub" id="fe-k-cumx" title="Cumulative portfolio return minus cumulative SPY return since the baseline, in percentage points. Includes the initial execution-cost baseline.">since inception</div></div>
             <div class="pdash-kpi"><div class="k">Drawdown</div><div class="v" id="fe-k-dd">&mdash;</div><div class="sub">current</div></div>
             <div class="pdash-kpi"><div class="k">Top Contributors</div><div class="v" id="fe-k-topc" style="font-size:12px;">&mdash;</div><div class="sub" id="fe-k-topc-neg">&mdash;</div></div>
           </div>
+          <!-- Phase 28B.1 — sector contribution line from the SAME canonical attribution payload. -->
+          <div id="fe-today-sectors" class="pdash-note" style="display:none;font-size:11px;margin-top:4px;">&mdash;</div>
           <!-- Collapsible: WHY P&L MOVED (deterministic; every statement traceable). -->
           <details id="fe-why" style="margin-top:6px;">
             <summary style="cursor:pointer;font-size:11px;font-weight:800;color:var(--label);text-transform:uppercase;letter-spacing:.06em;">Why P&amp;L Moved</summary>
@@ -2583,7 +2585,7 @@
               <span title="Daily P&amp;L vs prior completed operational NAV.">Daily P&amp;L <b id="pm-dc-dpnl">&mdash;</b></span>
               <span title="Cumulative P&amp;L vs starting capital.">Cumulative P&amp;L <b id="pm-dc-cpnl">&mdash;</b></span>
               <span title="Cumulative return.">Cum ret <b id="pm-dc-cret">&mdash;</b></span>
-              <span title="Excess return vs SPY.">Excess vs SPY <b id="pm-dc-excess">&mdash;</b></span>
+              <span title="Cumulative excess return vs SPY since the baseline, in percentage points.">Cum excess vs SPY <b id="pm-dc-excess">&mdash;</b></span>
             </div>
             <div id="pm-dc-firstnote" class="cc-na-note" style="display:none;font-size:10px;margin-top:6px;color:var(--label);"></div>
             <div id="pm-dc-changes" style="display:none;margin-top:8px;font-size:11px;"></div>
@@ -3214,7 +3216,7 @@
             <table class="pdash-table" id="fe-research-shadow">
               <thead><tr>
                 <th class="lft">Book</th><th class="lft">Evidence</th><th class="lft">Cadence</th>
-                <th>Obs</th><th>Cum %</th><th>Excess</th><th>Max DD</th>
+                <th>Obs</th><th>Cum %</th><th>Cum Excess</th><th>Max DD</th>
                 <th>Vol %</th><th>+Day %</th><th>Out-SPY %</th>
               </tr></thead>
               <tbody id="fe-research-shadow-body"></tbody>
@@ -3611,8 +3613,8 @@
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin:4px 0 12px;">
             <div><div style="font-size:11px;color:var(--label);margin-bottom:2px;">Cumulative return</div>
               <svg id="ctr-chart-cum" class="cc-perf-chart" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Cumulative return"></svg></div>
-            <div><div style="font-size:11px;color:var(--label);margin-bottom:2px;">Excess vs SPY</div>
-              <svg id="ctr-chart-excess" class="cc-perf-chart" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Excess vs SPY"></svg></div>
+            <div><div style="font-size:11px;color:var(--label);margin-bottom:2px;">Cum excess vs SPY</div>
+              <svg id="ctr-chart-excess" class="cc-perf-chart" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Cumulative excess vs SPY"></svg></div>
             <div><div style="font-size:11px;color:var(--label);margin-bottom:2px;">Drawdown</div>
               <svg id="ctr-chart-dd" class="cc-perf-chart" viewBox="0 0 320 96" preserveAspectRatio="none" role="img" aria-label="Drawdown"></svg></div>
           </div>
@@ -4592,7 +4594,7 @@
           <div style="margin-top:12px;font-size:11px;font-weight:800;color:var(--text-primary);letter-spacing:.5px;">TOP 25 — cumulative · excess vs SPY · drawdown</div>
           <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;">
             <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Cumulative return</div><div id="cap-chart-top25-cum" style="min-height:40px;"></div></div>
-            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Excess vs SPY</div><div id="cap-chart-top25-excess" style="min-height:40px;"></div></div>
+            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Cum excess vs SPY</div><div id="cap-chart-top25-excess" style="min-height:40px;"></div></div>
             <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Drawdown</div><div id="cap-chart-top25-dd" style="min-height:40px;"></div></div>
           </div>
 
@@ -4600,7 +4602,7 @@
           <div style="margin-top:12px;font-size:11px;font-weight:800;color:var(--text-primary);letter-spacing:.5px;">TOP 50 — cumulative · excess vs SPY · drawdown</div>
           <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;">
             <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Cumulative return</div><div id="cap-chart-top50-cum" style="min-height:40px;"></div></div>
-            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Excess vs SPY</div><div id="cap-chart-top50-excess" style="min-height:40px;"></div></div>
+            <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Cum excess vs SPY</div><div id="cap-chart-top50-excess" style="min-height:40px;"></div></div>
             <div style="flex:1;min-width:240px;"><div style="font-size:10px;color:var(--text-accent);margin-bottom:2px;">Drawdown</div><div id="cap-chart-top50-dd" style="min-height:40px;"></div></div>
           </div>
 
@@ -7010,7 +7012,7 @@ function _cadRenderBook(prefix, book) {
       + (insufficient ? ' <span style="color:var(--danger,#e74c3c);">(coverage &lt; 90%: full-book PnL not claimed)</span>' : '') + '<br>'
     + 'Change since previous mark: <span style="color:var(--text-primary);">' + _cadPP(book.change_since_previous_mark_pct_points) + '</span><br>'
     + 'SPY return: <span style="color:var(--text-primary);">' + _cadPct(book.benchmark_return_pct) + '</span> · '
-      + 'Excess vs SPY: <span style="color:var(--text-primary);font-weight:700;">' + _cadPP(book.excess_return_vs_spy_pct_points) + '</span><br>'
+      + 'Cum excess vs SPY: <span style="color:var(--text-primary);font-weight:700;">' + _cadPP(book.excess_return_vs_spy_pct_points) + '</span><br>'
     + 'Hit rate: <span style="color:var(--text-primary);">' + (book.hit_rate_pct != null ? book.hit_rate_pct + '%' : '—') + '</span><br>'
     + 'Previous mark: <span style="color:var(--text-accent);">' + escapeHtml(book.previous_mark_date || '—') + '</span> · '
       + 'Current mark: <span style="color:var(--text-primary);">' + escapeHtml(book.mark_date || '—') + '</span><br>'
@@ -7418,7 +7420,7 @@ function _cdgScorecard(prefix, book) {
       + ' <span class="mono" style="font-size:10px;color:var(--text-accent);font-weight:600;">' + escapeHtml(book.book_id || '') + '</span></div>'
     + '<div class="mono" style="line-height:1.8;">'
     + 'Current return: <span style="color:var(--text-primary);font-weight:700;">' + _capPct(book.current_return_pct) + '</span> · '
-      + 'Excess vs SPY: <span style="color:var(--text-primary);font-weight:700;">' + _capPP(book.current_excess_return_pct_points) + '</span><br>'
+      + 'Cum excess vs SPY: <span style="color:var(--text-primary);font-weight:700;">' + _capPP(book.current_excess_return_pct_points) + '</span><br>'
     + 'Current drawdown: <span style="color:var(--danger,#e74c3c);font-weight:700;">' + _capPct(book.current_drawdown_pct) + '</span> · '
       + 'Max drawdown: <span style="color:var(--text-primary);">' + _capPct(book.max_drawdown_pct) + '</span><br>'
     + 'Rolling 5 / 10 / 20 return: <span style="color:var(--text-primary);">'
@@ -7757,7 +7759,7 @@ function _ctrBookCard(title, b, tone) {
     + '<div style="font-weight:700;font-size:12px;margin-bottom:2px;">' + escapeHtml(title) + '</div>'
     + '<div style="font-size:11px;color:var(--label);margin-bottom:4px;">' + escapeHtml(b.signal || '') + ' &middot; ' + (b.n_marks != null ? b.n_marks : '—') + ' marks</div>'
     + row('Return', _ctrPct(b.cumulative_return_pct))
-    + '<div style="display:flex;justify-content:space-between;font-size:12px;"><span>Excess vs SPY</span><b class="mono" style="color:' + exColor + ';">' + _ctrPct(ex) + '</b></div>'
+    + '<div style="display:flex;justify-content:space-between;font-size:12px;"><span>Cum excess vs SPY</span><b class="mono" style="color:' + exColor + ';">' + _ctrPct(ex) + '</b></div>'
     + row('Drawdown', _ctrPct(b.max_drawdown_pct))
     + row('Volatility', _ctrFx(b.daily_volatility_pct_points, 2))
     + row('Hit rate', _ctrPct(b.positive_day_rate_pct))
@@ -7771,7 +7773,7 @@ function _ctrH2HRows(tblId, h) {
   h = h || {}; var champ = h.champion || {}, chall = h.challenger || {}, delta = h.challenger_minus_champion || {};
   var body = document.querySelector('#' + tblId + ' tbody');
   if (!body) return;
-  var rows = [['Return', 'cumulative_return_pct', 2, true], ['Excess vs SPY', 'excess_return_vs_spy_pct_points', 2, true],
+  var rows = [['Return', 'cumulative_return_pct', 2, true], ['Cum excess vs SPY', 'excess_return_vs_spy_pct_points', 2, true],
     ['Drawdown', 'max_drawdown_pct', 2, true], ['Volatility', 'daily_volatility_pct_points', 2, false],
     ['Hit rate', 'positive_day_rate_pct', 1, true], ['Days > SPY', 'days_outperforming_spy_pct', 1, true],
     ['Concentration', 'contributor_concentration_top5_pct', 1, true], ['Coverage', 'coverage_pct', 1, true]];
@@ -16160,7 +16162,6 @@ const WORKFLOW_STEPS = [
 
 async function generateDailyReviewSummary(btn) {
   if (btn) btn.disabled = true;
-  const el = document.getElementById('daily-review-summary-result');
   try {
     const r = await call('GET', '/v1/review/daily-review-summary');
     if (!r.ok) { toast('Daily Review Summary error: ' + r.status, 'error'); return; }
@@ -16227,8 +16228,11 @@ async function generateDailyReviewSummary(btn) {
     html += '<div style="font-size: 9px; color: var(--label); margin-top: 3px; font-family: monospace; opacity: .7;">' + escapeHtml(_wfState.code) + '</div>';
     html += '</div>';
 
-    el.innerHTML = html;
-    el.style.display = 'block';
+    // The dedicated summary card was physically removed in the Phase 27B.7
+    // legacy cutover; on today's pages this function's durable effects are the
+    // fetch + _syncDrsToUi above. Render the card only where it still exists.
+    const el = _setHtml('daily-review-summary-result', html);
+    if (el) el.style.display = 'block';
     if (btn) toast('Daily Review Summary generated', 'ok');
   } catch (e) {
     toast('Daily Review Summary error: ' + e.message, 'error');
@@ -23213,6 +23217,10 @@ function _feWpct(x) {   // fraction weight -> percent display
   if (x === null || x === undefined || isNaN(x)) return '—';
   return (Number(x) * 100).toFixed(2) + '%';
 }
+function _fePp(x) {     // percentage-POINT difference (excess-return) display
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  return (Number(x) >= 0 ? '+' : '') + Number(x).toFixed(2) + 'pp';
+}
 
 function renderForwardEvidence(d) {
   var todayPanel = document.getElementById('fe-today');
@@ -23241,10 +23249,12 @@ function renderForwardEvidence(d) {
       var empty = document.getElementById('fe-today-empty');
       var kpis = document.getElementById('fe-today-kpis');
       var why = document.getElementById('fe-why');
+      var secLine = document.getElementById('fe-today-sectors');
       if (!tr || tr.available === false) {
         if (empty) { empty.style.display = ''; empty.textContent = (tr && tr.message) || 'No completed daily close with a prior mark yet — attribution begins after the second eligible close.'; }
         if (kpis) kpis.style.display = 'none';
         if (why) why.style.display = 'none';
+        if (secLine) secLine.style.display = 'none';
         _dcSet('fe-today-dates', '—');
       } else {
         if (empty) empty.style.display = 'none';
@@ -23253,12 +23263,27 @@ function renderForwardEvidence(d) {
         _dcSet('fe-today-dates', 'Market date ' + (tr.market_date || '—') + ' · Prior comparison ' + (tr.prior_market_date || '—'));
         _dcSet('fe-k-dpnl', _feMoney(tr.daily_pnl)); _dcSet('fe-k-dret', _fePct(tr.daily_return_pct));
         _dcSet('fe-k-spy', _fePct(tr.spy_daily_return_pct));
-        _dcSet('fe-k-excess', _fePct(tr.daily_excess_return_pct));
-        _dcSet('fe-k-excess-note', tr.outperformed_spy ? 'outperformed SPY' : 'underperformed SPY');
+        _dcSet('fe-k-excess', _fePp(tr.daily_excess_return_pct));
+        _dcSet('fe-k-excess-note', tr.outperformed_spy ? 'outperformed SPY (daily)' : 'underperformed SPY (daily)');
         _dcSet('fe-k-cpnl', _feMoney(tr.cumulative_pnl));
+        // Cumulative excess is a DIFFERENT concept than the daily excess above —
+        // label both explicitly (Phase 28B.1) and never show a bare "Excess vs SPY".
+        _dcSet('fe-k-cumx', tr.cumulative_excess_return_pct != null
+          ? ('Cumulative excess vs SPY ' + _fePp(tr.cumulative_excess_return_pct))
+          : 'since inception');
         _dcSet('fe-k-dd', _fePct(tr.drawdown_pct));
         _dcSet('fe-k-topc', tr.top_positive ? (tr.top_positive.ticker + ' ' + _feMoney(tr.top_positive.pnl_contribution)) : '—');
         _dcSet('fe-k-topc-neg', tr.top_negative ? (tr.top_negative.ticker + ' ' + _feMoney(tr.top_negative.pnl_contribution)) : 'no detractor');
+        if (secLine) {
+          var ss = tr.strongest_sector, ws = tr.weakest_sector;
+          if (ss || ws) {
+            secLine.style.display = '';
+            secLine.innerHTML = 'Strongest sector: <b>' + escapeHtml((ss && ss.sector) || '—') + '</b> '
+              + _feMoney(ss && ss.pnl_contribution)
+              + ' · Weakest sector: <b>' + escapeHtml((ws && ws.sector) || '—') + '</b> '
+              + _feMoney(ws && ws.pnl_contribution);
+          } else { secLine.style.display = 'none'; }
+        }
         _feRenderWhy(d);
       }
     }
@@ -23312,8 +23337,8 @@ function _feRenderResearch(d) {
     var samp = (ab.sample_status === 'FORWARD_SAMPLE_SUFFICIENT') ? '' : ' — INSUFFICIENT FORWARD SAMPLE — NO MODEL CONCLUSION';
     actEl.innerHTML = '<b>Active book (FORWARD OPERATIONAL):</b> ' + escapeHtml(ab.book_label || 'Alpha Paper Book #1')
       + ' · ' + (ab.observations != null ? ab.observations : 0) + ' obs · ' + (ab.start_date || '—') + ' → '
-      + (ab.end_date || '—') + ' · Cum ' + _fePct(ab.cumulative_return_pct) + ' · Excess '
-      + _fePct(ab.cumulative_excess_return_pct) + ' · Max DD ' + _fePct(ab.max_drawdown_pct) + ' · +Day '
+      + (ab.end_date || '—') + ' · Cum ' + _fePct(ab.cumulative_return_pct) + ' · Cum excess vs SPY '
+      + _fePp(ab.cumulative_excess_return_pct) + ' · Max DD ' + _fePct(ab.max_drawdown_pct) + ' · +Day '
       + _fePct(ab.positive_day_rate_pct) + escapeHtml(samp);
   }
   var rEl = document.getElementById('fe-research-rolling');
@@ -23325,7 +23350,7 @@ function _feRenderResearch(d) {
         body = '<span class="pdash-note">UNAVAILABLE — ' + (wnd.observations_available || 0) + '/' + (wnd.observations_required || 0) + ' obs</span>';
       } else {
         body = '<div class="row"><span>Return</span><span>' + _fePct(wnd.return_pct) + '</span></div>'
-          + '<div class="row"><span>Excess</span><span>' + _fePct(wnd.excess_return_pct) + '</span></div>'
+          + '<div class="row"><span>Excess vs SPY (window)</span><span>' + _fePp(wnd.excess_return_pct) + '</span></div>'
           + '<div class="row"><span>Vol</span><span>' + _fePct(wnd.annualized_volatility_pct) + (wnd.annualized_volatility_warning ? ' ⚠' : '') + '</span></div>'
           + '<div class="row"><span>Max DD</span><span>' + _fePct(wnd.max_drawdown_pct) + '</span></div>'
           + '<div class="row"><span>Hit</span><span>' + _fePct(wnd.hit_rate_pct) + '</span></div>';
@@ -23338,14 +23363,14 @@ function _feRenderResearch(d) {
     var rows = ['<tr style="background:rgba(59,130,246,.08);"><td class="lft pdash-tk">'
       + escapeHtml(ab.book_label || 'Alpha Paper Book #1') + '</td><td class="lft"><span class="cc-badge safe">FORWARD OPERATIONAL</span></td>'
       + '<td class="lft">daily</td><td>' + (ab.observations != null ? ab.observations : 0) + '</td><td>'
-      + _fePct(ab.cumulative_return_pct) + '</td><td>' + _fePct(ab.cumulative_excess_return_pct) + '</td><td>'
+      + _fePct(ab.cumulative_return_pct) + '</td><td>' + _fePp(ab.cumulative_excess_return_pct) + '</td><td>'
       + _fePct(ab.max_drawdown_pct) + '</td><td>' + _fePct(ab.annualized_volatility_pct) + '</td><td>'
       + _fePct(ab.positive_day_rate_pct) + '</td><td>' + _fePct(ab.spy_outperformance_rate_pct) + '</td></tr>'];
     (avs.shadow_books || []).forEach(function (b) {
       var posDay = (b.positive_day_rate_pct != null) ? b.positive_day_rate_pct : b.positive_period_rate_pct;
       rows.push('<tr><td class="lft pdash-tk">' + escapeHtml(b.book || '') + '</td><td class="lft"><span class="cc-badge">HISTORICAL RECONSTRUCTION</span></td>'
         + '<td class="lft">' + escapeHtml(b.cadence || '—') + '</td><td>' + (b.observations != null ? b.observations : '—') + '</td><td>'
-        + _fePct(b.cumulative_return_pct) + '</td><td>' + _fePct(b.cumulative_excess_return_pct) + '</td><td>'
+        + _fePct(b.cumulative_return_pct) + '</td><td>' + _fePp(b.cumulative_excess_return_pct) + '</td><td>'
         + _fePct(b.max_drawdown_pct) + '</td><td>' + _fePct(b.annualized_volatility_pct) + '</td><td>'
         + _fePct(posDay) + '</td><td>' + _fePct(b.spy_outperformance_rate_pct) + '</td></tr>');
     });
@@ -23472,6 +23497,14 @@ function _dcSet(id, text) {
   var el = document.getElementById(id);
   if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
 }
+// Phase 28B.1 — safe HTML analog of _dcSet: a renderer must never assume a
+// page-specific element exists. Updates only when present; returns the element
+// (or null) so callers can apply extra styling without re-querying.
+function _setHtml(id, html) {
+  var el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+  return el;
+}
 function _dcSevColor(sev) {
   if (sev === 'green') return 'var(--ok, #22c55e)';
   if (sev === 'red') return 'var(--danger, #ef4444)';
@@ -23590,7 +23623,7 @@ function renderDailyClose(d) {
       _dcSet('cc-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : (pnl.daily_pnl_display || 'Unavailable (first mark)'));
       _dcSet('cc-dc-cpnl', _dcMoney(pnl.cumulative_pnl));
       _dcSet('cc-dc-cret', _dcPct(pnl.cumulative_return_pct));
-      _dcSet('cc-dc-excess', _dcPct(pnl.excess_return_pct));
+      _dcSet('cc-dc-excess', _fePp(pnl.excess_return_pct));
       _dcSet('cc-dc-dd', _dcPct(pnl.drawdown_pct));
       _dcSet('cc-dc-changes', String(d.proposed_change_count == null ? 0 : d.proposed_change_count));
     } else { ccK.style.display = 'none'; }
@@ -23646,7 +23679,7 @@ function renderDailyClosePm(d, color) {
       _dcSet('pm-dc-dpnl', pnl.daily_pnl_available ? _dcMoney(pnl.daily_pnl) : (pnl.daily_pnl_display || 'Unavailable (first mark)'));
       _dcSet('pm-dc-cpnl', _dcMoney(pnl.cumulative_pnl));
       _dcSet('pm-dc-cret', _dcPct(pnl.cumulative_return_pct));
-      _dcSet('pm-dc-excess', _dcPct(pnl.excess_return_pct));
+      _dcSet('pm-dc-excess', _fePp(pnl.excess_return_pct));
     } else { pnlRow.style.display = 'none'; }
   }
   var fn = document.getElementById('pm-dc-firstnote');
@@ -23681,7 +23714,7 @@ function renderDailyClosePerf(d) {
   _dcSet('dc-perf-cpnl', hasPnl ? _dcMoney(pnl.cumulative_pnl) : '—');
   _dcSet('dc-perf-cret', hasPnl ? _dcPct(pnl.cumulative_return_pct) : '—');
   _dcSet('dc-perf-spy', hasPnl ? _dcPct(pnl.spy_cumulative_return_pct) : '—');
-  _dcSet('dc-perf-excess', hasPnl ? _dcPct(pnl.excess_return_pct) : '—');
+  _dcSet('dc-perf-excess', hasPnl ? _fePp(pnl.excess_return_pct) : '—');
   _dcSet('dc-perf-dd', hasPnl ? _dcPct(pnl.drawdown_pct) : '—');
   var fn = document.getElementById('dc-perf-firstnote');
   if (fn) { if (hasPnl && pnl.daily_pnl_note) { fn.textContent = pnl.daily_pnl_note; fn.style.display = ''; } else fn.style.display = 'none'; }
@@ -23701,7 +23734,7 @@ function renderDailyClosePerf(d) {
         '<td class="' + cls(r.daily_return_pct) + '">' + (r.daily_return_pct == null ? '—' : _dcPct(r.daily_return_pct)) + '</td>' +
         '<td class="' + cls(r.cumulative_return_pct) + '">' + _dcPct(r.cumulative_return_pct) + '</td>' +
         '<td>' + _dcPct(r.spy_cumulative_return_pct) + '</td>' +
-        '<td class="' + cls(r.excess_return_pct) + '">' + _dcPct(r.excess_return_pct) + '</td>' +
+        '<td class="' + cls(r.excess_return_pct) + '">' + _fePp(r.excess_return_pct) + '</td>' +
         '<td class="' + cls(r.drawdown_pct) + '">' + _dcPct(r.drawdown_pct) + '</td></tr>';
     }).join('');
   } else {
@@ -23783,7 +23816,7 @@ function renderDailyClosePerf(d) {
       _dcSet('dc-attr-end', _dcMoney(at.ending_nav));
       _dcSet('dc-attr-move', _dcMoney(at.market_movement_pnl));
       _dcSet('dc-attr-cost', _dcMoney(at.execution_cost_charged_today));
-      _dcSet('dc-attr-excess', _dcPct(at.excess_return_pct));
+      _dcSet('dc-attr-excess', _fePp(at.excess_return_pct));
       var an = document.getElementById('dc-attr-note');
       if (an) an.textContent = (at.reconciles ? 'Reconciled: position contributions sum to the NAV move within tolerance. ' : '') + (at.cost_note || '');
       function contribRows(list, label) {

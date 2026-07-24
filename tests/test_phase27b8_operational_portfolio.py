@@ -343,7 +343,11 @@ class TestUiHoldingsTable:
     def test_header_title_and_as_of_labels(self, portfolio_dom):
         assert "Portfolio &mdash; Alpha Paper Book #1" in portfolio_dom
         assert "Holdings valued as of" in portfolio_dom
-        assert "Model target calculated as of" in portfolio_dom
+        # Phase 28B wording: two separate concepts replace the ambiguous
+        # "Model target calculated as of" label.
+        assert "Target composition date" in portfolio_dom
+        assert "Latest price/score refresh" in portfolio_dom
+        assert "Model target calculated as of" not in portfolio_dom
         assert 'id="ptob-state"' in portfolio_dom               # BOOK ACTIVE badge
 
     def test_book_active_label_is_reachable(self, js):

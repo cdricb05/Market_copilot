@@ -84,7 +84,13 @@ class TestPureGateNoAction:
         assert r["action_severity"] == "green"
         assert r["proposed_change_count"] == 0
         assert r["target_actual_match"] is True
-        assert r["headline"] == "NO PORTFOLIO CHANGE REQUIRED TODAY"
+        # Phase 28B wording: the no-action decision is anchored to the latest
+        # COMPLETED close, never an ambiguous "today".
+        assert r["headline"].startswith(
+            "NO PORTFOLIO CHANGE REQUIRED FROM THE LATEST COMPLETED CLOSE")
+        assert "TODAY" not in r["headline"]
+        if r.get("latest_completed_market_date"):
+            assert r["headline"].endswith(r["latest_completed_market_date"])
 
     def test_immaterial_drift_no_action(self):
         # 4. every name drifts 0.01 (< 0.02 band) -> NO_ACTION, no churn

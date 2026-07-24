@@ -221,7 +221,7 @@ def _median(vals):
 
 def _safety(performed_write: bool = False) -> dict:
     """The explicit Phase 28B safety contract attached to every payload."""
-    return {
+    out = {
         "read_only": not performed_write,
         "performed_write": bool(performed_write),
         "paper_only": True,
@@ -241,6 +241,15 @@ def _safety(performed_write: bool = False) -> dict:
         "safety_badges": ["TRUE FORWARD EVIDENCE", "PAPER ONLY", "RESEARCH ONLY",
                           "NO ORDERS", "NO PROMOTION", "AUTOMATION OFF"],
     }
+    # Phase 28B.1 — stable nested contract for API clients ($payload.safety).
+    # Values mirror the top-level fields exactly; the top-level fields stay for
+    # compatibility and must never be removed or renamed.
+    out["safety"] = {k: out[k] for k in (
+        "read_only", "paper_only", "diagnostic_only", "creates_orders",
+        "broker_execution", "automation_enabled", "changes_operational_model",
+        "changes_operational_holdings", "changes_model_weights",
+        "promotes_challenger", "retrains_model")}
+    return out
 
 
 def _sdir(desk_dir):

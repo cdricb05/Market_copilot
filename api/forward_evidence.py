@@ -338,10 +338,16 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
     coverage = {"priced": priced, "total": total, "missing_tickers": sorted(missing),
                 "complete": bool(total and priced == total)}
     if priced == 0:
+        # Two distinct failure modes deserve two distinct honest reasons: no
+        # holdings resolved at all vs holdings present but marks missing.
+        reason = (("The operational holdings could not be resolved from the "
+                   "operational book payload, so a position-level decomposition "
+                   "cannot be supported.") if total == 0 else
+                  ("Per-ticker completed marks for the two dates are not available, "
+                   "so a position-level decomposition cannot be supported."))
         return {**base, "status": ATTRIB_COVERAGE_INCOMPLETE, "available": False,
                 "market_date": d1, "prior_market_date": d0,
-                "reason": ("Per-ticker completed marks for the two dates are not available, "
-                           "so a position-level decomposition cannot be supported."),
+                "reason": reason,
                 "portfolio": portfolio, "coverage": coverage}
 
     sum_contrib = sum(p["pnl_contribution"] for p in positions
@@ -879,8 +885,12 @@ def build_active_vs_shadow(*, desk_dir=None, ops: Optional[dict] = None,
 # Degrade-safe ops loader.
 # --------------------------------------------------------------------------- #
 def _safe_ops(ops_loader: Optional[Callable], today: Optional[str]) -> dict:
+    # The default loader takes keyword-only arguments; a positional call raises
+    # TypeError, which this guard used to swallow into {} — zero live holdings.
     try:
-        return (ops_loader or _OPS_LOADER)(today)
+        if ops_loader is not None:
+            return ops_loader(today)
+        return _OPS_LOADER(today=today)
     except Exception:  # noqa: BLE001
         return {}
 
@@ -898,6 +908,9 @@ def _todays_review(attribution: dict, why: dict, decision_row: Optional[dict]) -
     p = attribution["portfolio"]
     winners = attribution.get("winners") or []
     losers = attribution.get("losers") or []
+    sectors = attribution.get("sectors") or []   # already sorted best -> worst
+    strongest = sectors[0] if sectors else None
+    weakest = sectors[-1] if sectors else None
     return {
         "available": True,
         "market_date": attribution.get("market_date"),
@@ -908,10 +921,19 @@ def _todays_review(attribution: dict, why: dict, decision_row: Optional[dict]) -
         "spy_daily_return_pct": p.get("spy_daily_return_pct"),
         "daily_excess_return_pct": p.get("daily_excess_return_pct"),
         "cumulative_pnl": p.get("cumulative_pnl"),
+        "cumulative_return_pct": p.get("cumulative_return_pct"),
+        "spy_cumulative_return_pct": p.get("spy_cumulative_return_pct"),
+        "cumulative_excess_return_pct": p.get("cumulative_excess_return_pct"),
         "drawdown_pct": p.get("drawdown_pct"),
         "outperformed_spy": why.get("outperformed_spy"),
         "top_positive": (winners[0] if winners else None),
         "top_negative": (losers[0] if losers else None),
+        "strongest_sector": ({"sector": strongest.get("sector"),
+                              "pnl_contribution": strongest.get("pnl_contribution")}
+                             if strongest else None),
+        "weakest_sector": ({"sector": weakest.get("sector"),
+                            "pnl_contribution": weakest.get("pnl_contribution")}
+                           if weakest else None),
         "coverage": attribution.get("coverage"),
     }
 
