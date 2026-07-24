@@ -2363,6 +2363,12 @@
             <div class="pdash-kpi"><div class="k">Drawdown</div><div class="v" id="dc-perf-dd">&mdash;</div><div class="sub">current</div></div>
           </div>
           <div id="dc-perf-firstnote" class="pdash-note" style="display:none;margin:-2px 0 6px;"></div>
+          <!-- Phase 27H — the explicit atomic date set (each date shown with its own meaning). -->
+          <div id="dc-dates-strip" class="mono" style="display:none;font-size:11px;color:var(--label);margin:2px 0 8px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;line-height:1.7;">
+            <span style="font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Operating dates</span>
+            <span id="dc-dates-align" class="cc-badge" style="margin-left:6px;"></span>
+            <div id="dc-dates-rows" style="margin-top:4px;"></div>
+          </div>
           <div id="dc-perf-empty" class="cc-na-note" style="display:none;font-size:11px;">No completed daily close yet. Run the daily close to mark the book and record the first performance row.</div>
           <div class="pdash-table-scroll" id="dc-perf-table-wrap" style="display:none;max-height:260px;overflow-y:auto;">
             <table class="pdash-table" id="dc-perf-table">
@@ -2374,8 +2380,28 @@
               <tbody id="dc-perf-tbody"></tbody>
             </table>
           </div>
+          <!-- Phase 27H — Daily P&L Attribution (deterministic, from stored marks only). -->
+          <details id="dc-attr-detail" style="margin-top:8px;display:none;">
+            <summary style="cursor:pointer;font-size:11px;font-weight:800;color:var(--label);text-transform:uppercase;letter-spacing:.06em;">Daily P&amp;L attribution</summary>
+            <div id="dc-attr-body" style="margin-top:6px;">
+              <div class="pdash-kpi-row" id="dc-attr-kpis" style="grid-template-columns:repeat(5,1fr);">
+                <div class="pdash-kpi"><div class="k">Beginning NAV</div><div class="v" id="dc-attr-begin">&mdash;</div></div>
+                <div class="pdash-kpi"><div class="k">Ending NAV</div><div class="v" id="dc-attr-end">&mdash;</div></div>
+                <div class="pdash-kpi"><div class="k">Market Movement</div><div class="v" id="dc-attr-move">&mdash;</div></div>
+                <div class="pdash-kpi"><div class="k">Cost Charged Today</div><div class="v" id="dc-attr-cost">&mdash;</div></div>
+                <div class="pdash-kpi"><div class="k">Excess vs SPY</div><div class="v" id="dc-attr-excess">&mdash;</div></div>
+              </div>
+              <div id="dc-attr-note" class="pdash-note" style="font-size:11px;margin:4px 0;"></div>
+              <div id="dc-attr-tables" class="mono" style="font-size:11px;color:var(--label);line-height:1.6;"></div>
+            </div>
+          </details>
+          <!-- Phase 27H — Forward-performance monitor (withholds ratios below the sample floor). -->
+          <details id="dc-fwd-detail" style="margin-top:6px;display:none;">
+            <summary style="cursor:pointer;font-size:11px;font-weight:800;color:var(--label);text-transform:uppercase;letter-spacing:.06em;">Forward-performance monitor</summary>
+            <div id="dc-fwd-body" class="mono" style="font-size:11px;color:var(--label);margin-top:6px;line-height:1.7;"></div>
+          </details>
           <!-- Phase 27F — compact expandable: exactly what market data this close used. -->
-          <details id="dc-market-data-detail" style="margin-top:8px;display:none;">
+          <details id="dc-market-data-detail" style="margin-top:6px;display:none;">
             <summary style="cursor:pointer;font-size:11px;font-weight:800;color:var(--label);text-transform:uppercase;letter-spacing:.06em;">Market data used for this close</summary>
             <div id="dc-market-data-body" class="mono" style="font-size:11px;color:var(--label);margin-top:6px;line-height:1.6;"></div>
           </details>
@@ -23094,6 +23120,15 @@ function _dcReadinessText(d) {
       parts.push('Holdings priced ' + (sc.valuation_priced_count || 0) + '/' + (sc.valuation_ticker_count || 0));
     if (d.data_blocker && d.data_blocker.decision_scope_incomplete) parts.push('Decision scope incomplete — no membership decision recorded');
   }
+  // Phase 27H — for a completed / recorded state show the atomic date reconciliation:
+  // price data and the model target date agree; the fundamental date is separate.
+  var cd = d.close_dates;
+  if (cd && (st === 'DAILY_CLOSE_COMPLETE_HOLD' || st === 'REBALANCE_PROPOSAL_READY' ||
+             st === 'ALREADY_PROCESSED' || st === 'INITIAL_BASELINE_RECORDED')) {
+    parts.push('Price ' + (cd.price_data_through || '—') + ' · Target ' + (cd.target_calculation_date || '—') +
+               (cd.price_and_target_aligned ? ' (aligned)' : ' (model date pending)'));
+    parts.push('Fundamental as of ' + (cd.fundamental_data_as_of || '—'));
+  }
   return parts.join('  ·  ');
 }
 
@@ -23277,6 +23312,80 @@ function renderDailyClosePerf(d) {
       mdWrap.style.display = '';
       mdWrap.open = (d.close_status === 'DATA_BLOCKED' || d.close_status === 'WAITING_FOR_MARKET_DATA');
     } else { mdWrap.style.display = 'none'; }
+  }
+  // ---- Phase 27H: the explicit atomic date set (each date shown with its own meaning) ----
+  var cd = d.close_dates, dsStrip = document.getElementById('dc-dates-strip');
+  if (dsStrip) {
+    if (cd && (cd.price_data_through || cd.target_calculation_date)) {
+      var dr = [
+        ['Price data through', cd.price_data_through],
+        ['Fundamental data as of', cd.fundamental_data_as_of],
+        ['Operational valuation date', cd.operational_valuation_date],
+        ['Target calculation date', cd.target_calculation_date],
+        ['Benchmark date', cd.benchmark_date],
+        ['Decision date', cd.decision_date]
+      ].map(function (p) {
+        return '<span style="display:inline-block;min-width:230px;">' + p[0] + ': <b>' +
+          escapeHtml(p[1] || '—') + '</b></span>';
+      }).join('');
+      var rowsEl = document.getElementById('dc-dates-rows');
+      if (rowsEl) rowsEl.innerHTML = dr;
+      var al = document.getElementById('dc-dates-align');
+      if (al) {
+        var aligned = !!cd.price_and_target_aligned;
+        al.textContent = aligned ? 'PRICE + TARGET ALIGNED' : 'MODEL DATE PENDING';
+        al.style.color = aligned ? 'var(--pos,#16a34a)' : 'var(--warn,#d97706)';
+        al.style.borderColor = al.style.color;
+      }
+      dsStrip.style.display = '';
+    } else dsStrip.style.display = 'none';
+  }
+  // ---- Phase 27H: Daily P&L attribution (deterministic; from stored marks) ----
+  var at = d.attribution, attrWrap = document.getElementById('dc-attr-detail');
+  if (attrWrap) {
+    if (at && at.available) {
+      _dcSet('dc-attr-begin', _dcMoney(at.beginning_nav));
+      _dcSet('dc-attr-end', _dcMoney(at.ending_nav));
+      _dcSet('dc-attr-move', _dcMoney(at.market_movement_pnl));
+      _dcSet('dc-attr-cost', _dcMoney(at.execution_cost_charged_today));
+      _dcSet('dc-attr-excess', _dcPct(at.excess_return_pct));
+      var an = document.getElementById('dc-attr-note');
+      if (an) an.textContent = (at.reconciles ? 'Reconciled: position contributions sum to the NAV move within tolerance. ' : '') + (at.cost_note || '');
+      function contribRows(list, label) {
+        if (!list || !list.length) return '';
+        return '<div style="margin-top:4px;"><b>' + label + '</b>: ' + list.map(function (p) {
+          return escapeHtml(p.ticker || p.sector) + ' ' + _dcMoney(p.pnl_contribution);
+        }).join(' · ') + '</div>';
+      }
+      var body = contribRows(at.winners, 'Winners') + contribRows(at.losers, 'Losers') +
+        contribRows(at.sector_contributions, 'By sector');
+      var atb = document.getElementById('dc-attr-tables'); if (atb) atb.innerHTML = body;
+      attrWrap.style.display = '';
+    } else attrWrap.style.display = 'none';
+  }
+  // ---- Phase 27H: Forward-performance monitor (ratios withheld below the floor) ----
+  var fm = d.forward_performance, fwdWrap = document.getElementById('dc-fwd-detail'),
+      fwdBody = document.getElementById('dc-fwd-body');
+  if (fwdWrap && fwdBody) {
+    if (fm && fm.status) {
+      var fr = [];
+      if (!fm.sufficient_sample) {
+        fr.push('<div class="cc-badge" style="color:var(--warn,#d97706);border-color:var(--warn,#d97706);">' +
+          escapeHtml(fm.insufficient_message || 'INSUFFICIENT FORWARD SAMPLE') + '</div>');
+      }
+      fr.push('<div>Observations: ' + (fm.n_daily_returns || 0) + ' daily return(s) · ratios require ' + (fm.min_ratio_observations || 20) + '</div>');
+      fr.push('<div>1d ' + _dcPct(fm.return_1d_pct) + ' · 5d ' + _dcPct(fm.return_5d_pct) +
+        ' · 20d ' + _dcPct(fm.return_20d_pct) + ' · 63d ' + _dcPct(fm.return_63d_pct) + '</div>');
+      fr.push('<div>Cumulative ' + _dcPct(fm.cumulative_return_pct) + ' · SPY ' + _dcPct(fm.spy_cumulative_return_pct) +
+        ' · excess ' + _dcPct(fm.excess_cumulative_return_pct) + '</div>');
+      fr.push('<div>Vol ' + _dcPct(fm.annualized_volatility_pct) + ' · hit-rate ' + _dcPct(fm.hit_rate_pct) +
+        ' · max DD ' + _dcPct(fm.max_drawdown_pct) + '</div>');
+      fr.push('<div>Sharpe ' + (fm.sharpe_ratio == null ? '— (withheld)' : fm.sharpe_ratio) +
+        ' · beta ' + (fm.beta_vs_spy == null ? '— (withheld)' : fm.beta_vs_spy) +
+        ' · IR ' + (fm.information_ratio == null ? '— (withheld)' : fm.information_ratio) + '</div>');
+      fwdBody.innerHTML = fr.join('');
+      fwdWrap.style.display = '';
+    } else fwdWrap.style.display = 'none';
   }
 }
 

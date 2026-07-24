@@ -221,6 +221,7 @@ from paper_trader.api import alpha_target as _alpha_target
 from paper_trader.api import operational_book as _opbook
 from paper_trader.api import daily_action_gate as _dag
 from paper_trader.api import daily_close as _dclose
+from paper_trader.api import calibration_study as _calib
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
 _EASTERN = ZoneInfo("America/New_York")
@@ -5462,6 +5463,29 @@ def operations_daily_close_execute(body: DailyCloseExecuteRequest) -> dict:
                     f"manual daily close for Alpha Paper Book #1."),
         )
     return _dclose.run_daily_close(confirm=body.confirmation, requested_by=body.requested_by)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27H Part F — RESEARCH-ONLY calibration diagnostic (read-only).
+#
+# Compares the operational fixed 50/50 fundamental/momentum blend against alternative
+# fixed configurations. It NEVER promotes, reweights or replaces the operational model,
+# champion or sleeve, never touches the operational book / desk / daily close / orders,
+# and performs NO writes. It reports current-cross-section membership sensitivity only
+# and explicitly withholds any forward, cost-adjusted performance conclusion until the
+# research walk-forward harness AND sufficient forward evidence exist
+# (forward_evidence_status = INSUFFICIENT_FORWARD_SAMPLE; recommendation =
+# NO_OPERATIONAL_CHANGE). No parameter is ever selected from a single day's result.
+# --------------------------------------------------------------------------- #
+@app.get("/v1/research/calibration-study", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_calibration_study() -> dict:
+    """Read-only research-only calibration diagnostic. Compares the operational fixed
+    50/50 blend against alternative fixed blends by current-cross-section Top-25
+    membership overlap / turnover (owned data, point-in-time). Emits an explicit
+    INSUFFICIENT_FORWARD_SAMPLE evidence status and NO_OPERATIONAL_CHANGE
+    recommendation — nothing is promoted, reweighted or written."""
+    return _calib.load_calibration_study()
 
 
 @app.get(

@@ -150,7 +150,10 @@ class TestOperatorDateWarning:
         assert "Operational date misalignment" in w
         assert "2026-07-22" in w and "2026-07-20" in w      # each date
         assert "market date" in w.lower() and "desk mark" in w.lower()  # each field name
-        assert "manual after-market desk refresh" in w.lower()          # required action
+        # Phase 27H: the required action is now the ATOMIC daily close (which refreshes
+        # marks + model inputs together), NOT a separate manual after-market desk refresh.
+        assert "daily close" in w.lower()
+        assert "no separate after-market desk refresh is required" in w.lower()
 
     def test_archived_label_is_explicit(self):
         assert "Archived legacy" in pm.DATE_LABELS["portfolio_valuation_date"]

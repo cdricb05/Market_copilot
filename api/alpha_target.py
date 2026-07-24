@@ -693,9 +693,15 @@ def _returns(bars: list[tuple]) -> list[tuple[str, float]]:
 
 
 def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloader] = None,
-                panel_path=None, inputs_dir=None, ledger_dir=None) -> dict:
+                panel_path=None, inputs_dir=None, ledger_dir=None,
+                completed_through: Optional[str] = None) -> dict:
     """The ONE manual REFRESH ALPHA TARGET action. Owned local/EODHD data only -
-    never the prediction service, never the tunnel, never a trading instruction."""
+    never the prediction service, never the tunnel, never a trading instruction.
+
+    ``completed_through`` (Phase 27H) lets an atomic caller (the daily close) target
+    the EXACT clock-resolved completed session it also marked the desk against, so
+    the model-input market date and the desk mark date advance together. When absent
+    the standalone refresh resolves the latest completed session from its own clock."""
     base = {
         "phase": PHASE,
         "snapshot_confirmed": False,
@@ -727,7 +733,7 @@ def run_refresh(*, confirm: Optional[str] = None, downloader: Optional[Downloade
     prev_amd = next((str(r.get("market_as_of_date") or "")[:10]
                      for r in mom_rows if r.get("market_as_of_date")), None)
     month_label = next((r.get("month_label") for r in mom_rows if r.get("month_label")), None)
-    lcd = latest_completed()
+    lcd = str(completed_through)[:10] if completed_through else latest_completed()
 
     if prev_amd and prev_amd >= lcd:
         return {"status": R_ALREADY_FRESH, **base,

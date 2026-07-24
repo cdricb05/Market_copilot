@@ -7,6 +7,22 @@ without ever making the operator run, mark and record a daily close. A no-trade
 day is only a valid *recorded decision* AFTER the latest eligible completed close
 has been processed — not "doing nothing".
 
+Phase 27H makes the daily close ONE ATOMIC operational cycle. Before 27H the close
+refreshed only the desk mark / valuation pipeline (the 25 holdings + SPY) and then
+evaluated the gate against the SEPARATE owned model-input pipeline
+(``current_momentum_scores.csv`` / ``current_risk_stats.csv``, whose ``market_as_of_date``
+drives ``multi_horizon_engine.build_current``). Those two pipelines advance
+independently, so after a successful close the desk mark date moved forward while the
+daily-action-gate and model-target market date stayed a session behind — and the
+operator was told to run a SECOND, separate after-market refresh. 27H composes the
+EXISTING owned-data model-input refresh (``alpha_target.run_refresh``, strictly within
+the frozen monthly model contract — it never changes a momentum score, formula or
+weight) into the same cycle, targeting the exact completed session the desk was marked
+against. The gate/model-target then recalculate at the SAME price date, the fundamental
+panel keeps its own (older) as-of date labelled separately, and no second refresh is
+required. 27H also adds a deterministic daily P&L attribution block and a forward-
+performance monitor (both derived only from stored marks/rows; never fabricated).
+
 Phase 27F fixes three remaining defects:
 
   1. INITIAL BASELINE SEMANTICS — the very first operational close has no prior
@@ -75,18 +91,20 @@ ALREADY_PROCESSED and writes nothing. A provider key is never returned or logged
 """
 from __future__ import annotations
 
+import math
 import os
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from paper_trader.api import alpha_book as ab
+from paper_trader.api import alpha_target as at
 from paper_trader.api import daily_action_gate as dag
 from paper_trader.api import multi_horizon_engine as eng
 from paper_trader.api import operational_book as ob
 from paper_trader.api import paper_trading_desk as desk
 from paper_trader.engine import market_hours as mh
 
-PHASE = "27F"
+PHASE = "27H"
 
 # --------------------------------------------------------------------------- #
 # Explicit manual confirmation token (the ONLY write path).
@@ -480,6 +498,16 @@ def _default_provider_probe(*, expected_market_date: Optional[str], tickers: lis
 _PROVIDER_PROBE: Callable = _default_provider_probe
 _ENGINE_LOADER: Callable = eng.build_current
 
+# The owned-data model-input refresh (Phase 27H). Composing this into the close is
+# what makes the cycle atomic: it advances the SAME model inputs the gate/model
+# target read (``market_as_of_date``) to the completed session the desk was marked
+# against, strictly within the frozen monthly model contract (no momentum score /
+# formula / weight is ever changed). Tests inject a fully offline stand-in.
+_ALPHA_REFRESH: Callable = at.run_refresh
+# Model-input refresh result statuses that mean the model inputs are now current
+# for the targeted completed session (advanced this run, or already current).
+_ALPHA_REFRESH_OK = (at.R_REFRESHED, at.R_ALREADY_FRESH)
+
 
 def _provider_readiness(*, expected_market_date: Optional[str], probe_result: Optional[dict],
                         mark_cache_date: Optional[str]) -> dict:
@@ -762,6 +790,347 @@ def _baseline_block(*, perf: dict, pnl: Optional[dict], baseline_recorded: bool,
         "prior_completed_nav_available": bool(prior_nav_available),
         "daily_pnl_available": bool((pnl or {}).get("daily_pnl_available")),
         "explanation": explanation,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Phase 27H — atomic model-input refresh + labeled dates + attribution + monitor
+# --------------------------------------------------------------------------- #
+# Forward-performance sample floors. Multi-horizon point returns are shown once the
+# horizon exists; ratios (Sharpe / information ratio / beta) are statistically
+# meaningless on a handful of observations and are suppressed until this many daily
+# returns exist. Below the floor the monitor reports INSUFFICIENT_FORWARD_SAMPLE.
+_FORWARD_MIN_RATIO_OBS = 20
+_ATTRIB_RECONCILE_TOL = 1.00  # $ tolerance: per-position contributions vs NAV move
+
+_MODEL_INPUT_ERROR = "MODEL_INPUT_REFRESH_ERROR"
+
+
+def _holdings_map(ops: dict) -> dict:
+    """{ticker: {quantity, sector, weight}} for the actual operational holdings."""
+    cs = (ops or {}).get("canonical_state") or {}
+    ob_book = (ops or {}).get("operational_book") or {}
+    out: dict[str, dict] = {}
+    for r in (cs.get("holdings_detail") or ob_book.get("holdings_detail") or []):
+        tk = r.get("ticker")
+        if not tk:
+            continue
+        out[str(tk).upper()] = {
+            "quantity": _f(r.get("quantity")),
+            "sector": r.get("sector") or "Unknown",
+            "weight": _f(r.get("current_weight") if r.get("current_weight") is not None
+                         else r.get("weight")),
+        }
+    if not out:
+        for tk, q in (ob_book.get("holdings") or {}).items():
+            out[str(tk).upper()] = {"quantity": _f(q), "sector": "Unknown", "weight": None}
+    return out
+
+
+def _run_alpha_refresh(*, completed_through: Optional[str], downloader,
+                       alpha_refresh_fn: Optional[Callable], warnings: list,
+                       active: bool) -> Optional[dict]:
+    """Run the owned-data model-input refresh for the exact completed session the
+    desk was marked against (Phase 27H). Degrade-safe: a failure never aborts the
+    close (the valuation still stands) — it is surfaced and the decision honestly
+    reports that the model recalculation did not complete."""
+    if not active:
+        return None
+    fn = alpha_refresh_fn or _ALPHA_REFRESH
+    try:
+        return fn(confirm=at.REFRESH_CONFIRM_TOKEN, downloader=downloader,
+                  completed_through=completed_through)
+    except TypeError:
+        try:  # a fake seam without completed_through
+            return fn(confirm=at.REFRESH_CONFIRM_TOKEN, downloader=downloader)
+        except Exception as exc:  # noqa: BLE001
+            warnings.append("Model-input refresh failed: %s" % str(exc)[:160])
+            return {"status": _MODEL_INPUT_ERROR, "error": str(exc)[:160],
+                    "performed_write": False}
+    except Exception as exc:  # noqa: BLE001
+        warnings.append("Model-input refresh failed: %s" % str(exc)[:160])
+        return {"status": _MODEL_INPUT_ERROR, "error": str(exc)[:160],
+                "performed_write": False}
+
+
+def _model_recalc_block(*, cur: Optional[dict], price_date: Optional[str],
+                        alpha_refresh: Optional[dict]) -> dict:
+    """The model recalculation summary: whether the price-sensitive model inputs
+    now reflect the SAME completed session as the desk marks (the atomic goal), the
+    separate fundamental as-of date, and the (safety) confirmation that no momentum
+    score / formula / weight moved."""
+    md = str((cur or {}).get("market_as_of_date") or "")[:10] or None
+    fund = (cur or {}).get("fundamental_as_of_date")
+    pd = str(price_date or "")[:10] or None
+    complete = bool(md and pd and md == pd)
+    ar = alpha_refresh or {}
+    status = ar.get("status")
+    return {
+        "model_calc_date": md,
+        "fundamental_as_of_date": fund,
+        "price_data_through": pd,
+        "recalculation_complete": complete,
+        "model_input_refresh_status": status,
+        "model_input_refresh_performed_write": bool(ar.get("performed_write")),
+        "model_input_refresh_ran": alpha_refresh is not None,
+        # Frozen-model safety (the refresh advances the date + owned risk/liquidity
+        # observations ONLY — never a momentum score, formula or weight).
+        "momentum_scores_changed": bool(ar.get("momentum_scores_changed")),
+        "model_formulas_changed": bool(ar.get("model_formulas_changed")),
+        "model_weights_changed": bool(ar.get("model_weights_changed")),
+        "note": (
+            "Price-sensitive model inputs recalculated to the completed session; "
+            "the fundamental panel keeps its own quarterly as-of date."
+            if complete else
+            "The price-sensitive model inputs did not fully advance to the completed "
+            "session this run (see model_input_refresh_status); the decision reflects "
+            "the model calculation date shown, not the price date."),
+    }
+
+
+def _close_dates_block(*, book: dict, cur: Optional[dict],
+                       price_date: Optional[str], evaluation_date: Optional[str]) -> dict:
+    """The explicit operator-facing date set (Phase 27H part A). Every date is shown
+    with its OWN meaning — the fundamental as-of date is intentionally allowed to lag
+    and is never relabelled as the price date."""
+    md = str((cur or {}).get("market_as_of_date") or "")[:10] or None
+    fund = (cur or {}).get("fundamental_as_of_date")
+    pd = str(price_date or "")[:10] or book.get("desk_mark_date")
+    return {
+        "price_data_through": pd,
+        "fundamental_data_as_of": fund,
+        "operational_valuation_date": book.get("valuation_date") or book.get("desk_mark_date"),
+        "desk_mark_date": book.get("desk_mark_date"),
+        "target_calculation_date": md,
+        "benchmark_date": pd,
+        "decision_date": evaluation_date,
+        "price_and_target_aligned": bool(md and pd and md == str(pd)[:10]),
+        "labels": {
+            "price_data_through": "Price data through",
+            "fundamental_data_as_of": "Fundamental data as of",
+            "operational_valuation_date": "Operational valuation date",
+            "target_calculation_date": "Target calculation date",
+            "benchmark_date": "Benchmark date",
+            "decision_date": "Decision date",
+        },
+        "fundamental_note": (
+            "Fundamental data follows its own quarterly cadence and is intentionally "
+            "older than the price date; it is labelled separately, never as today's "
+            "price date."),
+    }
+
+
+def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
+    """Deterministic daily P&L attribution from the stored immutable marks/rows only
+    (Phase 27H part D). Never invents a decomposition it cannot support: with fewer
+    than two completed marks, or without per-ticker prices, it reports available=False."""
+    rows = _sorted_perf_rows(perf)
+    if len(rows) < 2:
+        return {"available": False,
+                "reason": ("Daily P&L attribution needs at least two completed operational "
+                           "marks (a prior NAV and today's NAV). The baseline mark has no "
+                           "prior day.")}
+    last, prev = rows[-1], rows[-2]
+    d1 = str(last.get("date") or "")[:10] or None
+    d0 = str(prev.get("date") or "")[:10] or None
+    nav1, nav0 = _f(last.get("nav")), _f(prev.get("nav"))
+    market_movement = (nav1 - nav0) if (nav1 is not None and nav0 is not None) else None
+
+    holdings = _holdings_map(ops)
+    series: dict = {}
+    try:
+        series = (desk.read_marks(desk_dir).get("series") or {})
+    except Exception:  # noqa: BLE001
+        series = {}
+
+    positions: list[dict] = []
+    priced = 0
+    for tk, h in sorted(holdings.items()):
+        qty = h.get("quantity")
+        # ``_series_price_at_or_before`` returns (date, price) or None.
+        h1 = desk._series_price_at_or_before(series.get(tk) or [], d1) if d1 else None
+        h0 = desk._series_price_at_or_before(series.get(tk) or [], d0) if d0 else None
+        p1 = h1[1] if h1 else None
+        p0 = h0[1] if h0 else None
+        contrib = None
+        ret = None
+        if qty is not None and p1 is not None and p0 is not None:
+            contrib = qty * (p1 - p0)
+            ret = (p1 / p0 - 1.0) if p0 else None
+            priced += 1
+        positions.append({
+            "ticker": tk, "sector": h.get("sector") or "Unknown",
+            "quantity": qty, "price_prev": _r2(p0), "price_last": _r2(p1),
+            "price_return_pct": (round(ret * 100.0, 4) if ret is not None else None),
+            "pnl_contribution": _r2(contrib),
+            "weight": h.get("weight"),
+        })
+    if priced == 0:
+        return {"available": False,
+                "reason": ("Per-ticker completed marks for the two dates are not available, "
+                           "so a position-level decomposition cannot be supported."),
+                "beginning_nav": _r2(nav0), "ending_nav": _r2(nav1),
+                "market_movement_pnl": _r2(market_movement)}
+
+    sum_contrib = sum(p["pnl_contribution"] for p in positions
+                      if p["pnl_contribution"] is not None)
+    # sector aggregation (known contributions only)
+    sec: dict[str, float] = {}
+    for p in positions:
+        if p["pnl_contribution"] is None:
+            continue
+        sec[p["sector"]] = sec.get(p["sector"], 0.0) + p["pnl_contribution"]
+    sector_rows = sorted(({"sector": s, "pnl_contribution": _r2(v)} for s, v in sec.items()),
+                         key=lambda r: (r["pnl_contribution"] is None, -(r["pnl_contribution"] or 0.0)))
+    ranked = sorted((p for p in positions if p["pnl_contribution"] is not None),
+                    key=lambda p: p["pnl_contribution"], reverse=True)
+    winners = ranked[:5]
+    losers = [p for p in ranked[::-1] if p["pnl_contribution"] < 0][:5]
+    spy_cum1 = _f(last.get("benchmark_cumulative_return_pct"))
+    spy_cum0 = _f(prev.get("benchmark_cumulative_return_pct"))
+    spy_daily = None
+    if spy_cum1 is not None and spy_cum0 is not None:
+        spy_daily = ((1.0 + spy_cum1 / 100.0) / (1.0 + spy_cum0 / 100.0) - 1.0) * 100.0
+    port_daily = ((nav1 / nav0 - 1.0) * 100.0) if (nav0 and nav1 is not None) else None
+    residual = (market_movement - sum_contrib) if market_movement is not None else None
+    return {
+        "available": True,
+        "attribution_date": d1,
+        "prior_date": d0,
+        "beginning_nav": _r2(nav0),
+        "ending_nav": _r2(nav1),
+        "market_movement_pnl": _r2(market_movement),
+        "execution_cost_charged_today": 0.0,
+        "cash_contribution": 0.0,
+        "gross_return_pct": (round(port_daily, 4) if port_daily is not None else None),
+        "net_return_pct": (round(port_daily, 4) if port_daily is not None else None),
+        "spy_return_pct": (round(spy_daily, 4) if spy_daily is not None else None),
+        "excess_return_pct": (round(port_daily - spy_daily, 4)
+                              if (port_daily is not None and spy_daily is not None) else None),
+        "drawdown_pct": _f(last.get("drawdown_pct")),
+        "priced_position_count": priced,
+        "total_position_count": len(positions),
+        "position_contributions": positions,
+        "sector_contributions": sector_rows,
+        "winners": winners,
+        "losers": losers,
+        "position_contribution_sum": _r2(sum_contrib),
+        "reconciliation_residual": _r2(residual),
+        "reconciles": bool(residual is not None and abs(residual) <= _ATTRIB_RECONCILE_TOL),
+        "cost_note": (
+            "The modeled 12.5 bps/side paper execution cost is embedded once at fill and "
+            "carried in the baseline NAV; it is never re-charged on a daily mark, so today's "
+            "P&L is pure market movement."),
+        "method_note": (
+            "Position contribution = quantity x (completed close today - completed close prior "
+            "day) from the append-only desk mark store; sector contribution sums positions by "
+            "the owned GICS sector; nothing is estimated."),
+    }
+
+
+def _forward_monitor_block(*, perf: dict, starting_capital: Optional[float],
+                           decision_history: Optional[list] = None) -> dict:
+    """Forward-performance monitor (Phase 27H part E). Multi-horizon point returns are
+    reported once the horizon exists; ratios that are misleading on a tiny sample are
+    withheld until the sample floor is met (INSUFFICIENT_FORWARD_SAMPLE)."""
+    rows = _sorted_perf_rows(perf)
+    navs = [_f(r.get("nav")) for r in rows if _f(r.get("nav")) is not None]
+    n_marks = len(navs)
+    daily_rets = [navs[i] / navs[i - 1] - 1.0 for i in range(1, n_marks) if navs[i - 1]]
+    n_returns = len(daily_rets)
+
+    def _hz(k: int) -> Optional[float]:
+        if n_marks > k and navs[-1 - k]:
+            return round((navs[-1] / navs[-1 - k] - 1.0) * 100.0, 4)
+        return None
+
+    # benchmark cumulative return series -> spy daily returns
+    spy_cum = [_f(r.get("benchmark_cumulative_return_pct")) for r in rows]
+    spy_rets: list[float] = []
+    for i in range(1, len(spy_cum)):
+        a, b = spy_cum[i - 1], spy_cum[i]
+        if a is not None and b is not None:
+            spy_rets.append((1.0 + b / 100.0) / (1.0 + a / 100.0) - 1.0)
+        else:
+            spy_rets.append(float("nan"))
+
+    sc = _f(starting_capital)
+    cum_ret = ((navs[-1] / sc - 1.0) * 100.0) if (n_marks and sc) else None
+    spy_cum_last = spy_cum[-1] if spy_cum else None
+    excess_cum = ((cum_ret - spy_cum_last) if (cum_ret is not None and spy_cum_last is not None)
+                  else None)
+
+    vol_ann = None
+    if n_returns >= 2:
+        m = sum(daily_rets) / n_returns
+        var = sum((r - m) ** 2 for r in daily_rets) / (n_returns - 1)
+        vol_ann = round(math.sqrt(var) * math.sqrt(252) * 100.0, 4)
+    up_days = sum(1 for r in daily_rets if r > 0)
+    hit_rate = (round(up_days / n_returns * 100.0, 2) if n_returns else None)
+
+    sufficient = n_returns >= _FORWARD_MIN_RATIO_OBS
+    sharpe = beta = info_ratio = None
+    if sufficient:
+        m = sum(daily_rets) / n_returns
+        sd = math.sqrt(sum((r - m) ** 2 for r in daily_rets) / (n_returns - 1)) if n_returns >= 2 else None
+        sharpe = round((m / sd) * math.sqrt(252), 4) if sd else None
+        pairs = [(daily_rets[i], spy_rets[i]) for i in range(min(len(daily_rets), len(spy_rets)))
+                 if spy_rets[i] == spy_rets[i]]  # drop NaN
+        if len(pairs) >= _FORWARD_MIN_RATIO_OBS:
+            mx = sum(p[0] for p in pairs) / len(pairs)
+            my = sum(p[1] for p in pairs) / len(pairs)
+            var_y = sum((p[1] - my) ** 2 for p in pairs) / (len(pairs) - 1)
+            cov = sum((p[0] - mx) * (p[1] - my) for p in pairs) / (len(pairs) - 1)
+            beta = round(cov / var_y, 4) if var_y else None
+            diff = [p[0] - p[1] for p in pairs]
+            md_ = sum(diff) / len(diff)
+            sdd = math.sqrt(sum((x - md_) ** 2 for x in diff) / (len(diff) - 1))
+            info_ratio = round((md_ / sdd) * math.sqrt(252), 4) if sdd else None
+
+    max_dd = None
+    if navs:
+        peak, worst = navs[0], 0.0
+        for v in navs:
+            peak = max(peak, v)
+            if peak:
+                worst = min(worst, v / peak - 1.0)
+        max_dd = round(worst * 100.0, 4)
+
+    turnover = None
+    if decision_history:
+        moves = [int(r.get("proposed_change_count") or 0) for r in decision_history]
+        turnover = sum(moves)
+
+    status = ("FORWARD_SAMPLE_SUFFICIENT" if sufficient
+              else "INSUFFICIENT_FORWARD_SAMPLE")
+    return {
+        "status": status,
+        "sufficient_sample": bool(sufficient),
+        "n_marks": n_marks,
+        "n_daily_returns": n_returns,
+        "min_ratio_observations": _FORWARD_MIN_RATIO_OBS,
+        "insufficient_message": (None if sufficient else
+                                 "INSUFFICIENT FORWARD SAMPLE — NO MODEL CONCLUSION"),
+        "return_1d_pct": _hz(1),
+        "return_5d_pct": _hz(5),
+        "return_20d_pct": _hz(20),
+        "return_63d_pct": _hz(63),
+        "cumulative_return_pct": (round(cum_ret, 4) if cum_ret is not None else None),
+        "spy_cumulative_return_pct": spy_cum_last,
+        "excess_cumulative_return_pct": (round(excess_cum, 4) if excess_cum is not None else None),
+        "annualized_volatility_pct": vol_ann,
+        "hit_rate_pct": hit_rate,
+        "max_drawdown_pct": max_dd,
+        "proposed_change_total": turnover,
+        # Ratios withheld below the sample floor (never a misleading 1-2 obs value).
+        "sharpe_ratio": sharpe,
+        "beta_vs_spy": beta,
+        "information_ratio": info_ratio,
+        "note": (
+            "Forward-performance is descriptive monitoring of the live paper book only. "
+            "Risk-adjusted ratios (Sharpe / information ratio / beta) are withheld until at "
+            "least %d daily observations exist so a one- or two-day sample never produces a "
+            "misleading number." % _FORWARD_MIN_RATIO_OBS),
     }
 
 
@@ -1051,6 +1420,13 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         "provider_readiness": ctx.get("provider_readiness"),
         "market_data_scope": ctx.get("market_data_scope"),
         "baseline": ctx.get("baseline"),
+        # -- Phase 27H atomic blocks (dates / recalc / attribution / monitor) - #
+        "close_dates": ctx.get("close_dates"),
+        "model_recalculation": ctx.get("model_recalculation"),
+        "model_recalculation_complete": bool((ctx.get("model_recalculation") or {})
+                                             .get("recalculation_complete")),
+        "attribution": ctx.get("attribution"),
+        "forward_performance": ctx.get("forward_performance"),
         **_safety(performed_write),
     }
     return out
@@ -1187,8 +1563,21 @@ def load_daily_close(
     history = _perf_history(perf, starting_capital=book["starting_capital"])
     baseline = _baseline_block(perf=perf, pnl=pnl, baseline_recorded=baseline_recorded,
                                baseline_required=baseline_required)
+    # Phase 27H — read-only date reconciliation + attribution + forward monitor. The
+    # GET NEVER refreshes anything (no alpha refresh here); it honestly reports the
+    # CURRENT model calc date vs the desk price date so a stale (pre-atomic) book is
+    # visible, and shows aligned dates once a close has recalculated the model inputs.
+    price_date = book.get("desk_mark_date") or last_processed
+    close_dates = _close_dates_block(book=book, cur=cur, price_date=price_date,
+                                     evaluation_date=(today or date.today().isoformat()))
+    model_recalc = _model_recalc_block(cur=cur, price_date=price_date, alpha_refresh=None)
+    attribution = _attribution_block(perf=perf, ops=ops, desk_dir=desk_dir)
+    forward = _forward_monitor_block(perf=perf, starting_capital=book["starting_capital"],
+                                     decision_history=_decision_history(sdir, book_id))
     context = {"clock": clock, "provider_readiness": provider,
-               "market_data_scope": scope, "baseline": baseline}
+               "market_data_scope": scope, "baseline": baseline,
+               "close_dates": close_dates, "model_recalculation": model_recalc,
+               "attribution": attribution, "forward_performance": forward}
 
     return _assemble(
         close_status=close_status, book=book, gate=gate, pnl=pnl, history=history,
@@ -1234,8 +1623,16 @@ def run_daily_close(
     gate_loader: Optional[Callable] = None,
     engine_loader: Optional[Callable] = None,
     provider_probe: Optional[Callable] = None,
+    alpha_refresh_fn: Optional[Callable] = None,
 ) -> dict:
     """Execute ONE explicit, manual daily close for Alpha Paper Book #1.
+
+    Phase 27H — ONE ATOMIC cycle: after the desk marks reach the completed session
+    it also advances the SAME owned model inputs the gate/model target read
+    (``alpha_target.run_refresh`` — frozen monthly contract; no momentum score,
+    formula or weight changes), so the gate recalculates at the SAME price date and
+    no separate after-market refresh is required. The fundamental panel keeps its own
+    older as-of date, labelled separately.
 
     Revalidates readiness SERVER-SIDE (never relies on a previously loaded GET):
     an unprocessed date before the post-close cutoff -> AWAITING_MARKET_CLOSE, and
@@ -1270,27 +1667,60 @@ def run_daily_close(
     clock = _resolve_clock(today=today, now=now)
     latest_eligible = clock["expected_market_date"]
 
-    # 2. idempotency — an already-processed date performs no write.
+    # 2. idempotency — an already-processed date creates no duplicate mark /
+    #    performance / decision row. Phase 27H self-heal: a date closed under the
+    #    pre-27H NON-atomic code advanced the desk marks but may have left the model
+    #    inputs a session behind. Completing the atomic cycle (advancing ONLY the
+    #    owned model inputs to the processed date) is not a duplicate of any mark,
+    #    performance or decision row, so it is permitted here.
     existing = _processed_row(sdir, book_id, latest_eligible) if latest_eligible else None
     if existing is not None:
+        cur = None if gate_loader is not None else _safe_engine(engine_loader, warnings)
+        model_date = str((cur or {}).get("market_as_of_date") or "")[:10] or None
+        heal = None
+        if cur is not None and model_date and latest_eligible and model_date < latest_eligible:
+            heal = _run_alpha_refresh(completed_through=latest_eligible, downloader=downloader,
+                                      alpha_refresh_fn=alpha_refresh_fn, warnings=warnings,
+                                      active=True)
+            if heal and heal.get("status") in _ALPHA_REFRESH_OK:
+                cur = _safe_engine(engine_loader, warnings)
+        ops_now = _safe_ops(op_loader, today, warnings) or ops
+        book_now = _book_state(ops_now)
         gate = {}
         try:
-            gate = g_loader(today, ops)
+            gate = g_loader(today, ops_now) if gate_loader is not None else g_loader(today, ops_now, cur)
         except Exception as exc:  # noqa: BLE001
             warnings.append("Gate unavailable: %s" % str(exc)[:160])
         perf = _safe_perf(desk_dir, warnings)
-        pnl = _pnl_block(perf, starting_capital=book["starting_capital"], cash=book["cash"])
+        pnl = _pnl_block(perf, starting_capital=book_now["starting_capital"], cash=book_now["cash"])
+        healed = bool(heal and heal.get("status") in _ALPHA_REFRESH_OK
+                      and heal.get("performed_write"))
+        price_date = book_now.get("desk_mark_date")
+        context = {"clock": clock, "provider_readiness": None, "market_data_scope": None,
+                   "baseline": None,
+                   "close_dates": _close_dates_block(book=book_now, cur=cur,
+                                                     price_date=price_date,
+                                                     evaluation_date=evaluation_date),
+                   "model_recalculation": _model_recalc_block(cur=cur, price_date=price_date,
+                                                              alpha_refresh=heal),
+                   "attribution": _attribution_block(perf=perf, ops=ops_now, desk_dir=desk_dir),
+                   "forward_performance": _forward_monitor_block(
+                       perf=perf, starting_capital=book_now["starting_capital"],
+                       decision_history=_decision_history(sdir, book_id))}
+        msg = ("The daily close for %s was already processed for %s — the existing review and "
+               "mark are shown. No duplicate mark, performance or decision row was created."
+               % (latest_eligible, book_now["book_label"]))
+        if healed:
+            msg += (" The price-sensitive model inputs were advanced to %s to complete the "
+                    "atomic cycle." % latest_eligible)
         return _assemble(
-            close_status=ALREADY_PROCESSED, book=book, gate=gate, pnl=pnl,
-            history=_perf_history(perf, starting_capital=book["starting_capital"]),
+            close_status=ALREADY_PROCESSED, book=book_now, gate=gate, pnl=pnl,
+            history=_perf_history(perf, starting_capital=book_now["starting_capital"]),
             processed_row=existing, last_processed_date=_last_processed_date(sdir, book_id),
             latest_eligible=latest_eligible,
             decision_history=_decision_history(sdir, book_id), warnings=warnings,
-            performed_write=False, evaluation_date=evaluation_date,
-            context=_min_context(clock),
-            message=("The daily close for %s was already processed for %s — the existing "
-                     "review and mark are shown. No duplicate record was created."
-                     % (latest_eligible, book["book_label"])))
+            performed_write=healed, evaluation_date=evaluation_date,
+            context=context, message=msg)
 
     # A non-active / uninitialized book (or one with pending orders) cannot run a
     # fresh close — surface the state, write nothing.
@@ -1371,7 +1801,24 @@ def run_daily_close(
                      "retry the daily close later." % latest_eligible))
     closed_date = resulting
 
-    # 6. recompute the frozen-model target + checks against fresh marks.
+    # 4b. ATOMIC MODEL RECALCULATION (Phase 27H). Advance the SAME owned model inputs
+    #     the gate / model target read (``market_as_of_date``) to the completed session
+    #     just marked, so the gate recalculates at the SAME price date and no separate
+    #     after-market refresh is required. Strictly within the frozen monthly model
+    #     contract (no momentum score / formula / weight changes). Offline tests that
+    #     inject a fake desk refresh but no alpha seam keep their pre-27H behavior; the
+    #     live path (no fake desk refresh) advances the real owned inputs.
+    alpha_active = alpha_refresh_fn is not None or refresh_fn is None
+    alpha_refresh = _run_alpha_refresh(
+        completed_through=closed_date, downloader=downloader,
+        alpha_refresh_fn=alpha_refresh_fn, warnings=warnings, active=alpha_active)
+    if alpha_refresh and alpha_refresh.get("status") is not None \
+            and alpha_refresh.get("status") not in _ALPHA_REFRESH_OK:
+        warnings.append("Model-input refresh did not fully advance the model date (%s); "
+                        "the decision reflects the model calculation date, not the price "
+                        "date." % alpha_refresh.get("status"))
+
+    # 6. recompute the frozen-model target + checks against the fresh marks + inputs.
     ops2 = _safe_ops(op_loader, today, warnings)
     book2 = _book_state(ops2)
     cur2 = None if gate_loader is not None else _safe_engine(engine_loader, warnings)
@@ -1383,6 +1830,11 @@ def run_daily_close(
             gate = g_loader(today, ops2, cur2)
     except Exception as exc:  # noqa: BLE001
         warnings.append("Gate evaluation failed: %s" % str(exc)[:160])
+    # The model cross-section that drives the recalculation date / attribution: the
+    # gate's own engine cross-section on the live path, or (offline) the injected
+    # engine loader even when a fake gate loader stands in for the gate itself.
+    model_cur = cur2 if cur2 is not None else (
+        _safe_engine(engine_loader, warnings) if engine_loader is not None else None)
     outcome = gate.get("outcome")
     pcount = int(gate.get("proposed_change_count") or 0)
     pending_after = int((ops2.get("canonical_state") or {}).get("pending_order_count") or 0)
@@ -1424,6 +1876,8 @@ def run_daily_close(
 
     perf = _safe_perf(desk_dir, warnings)
     pnl = _pnl_block(perf, starting_capital=book2["starting_capital"], cash=book2["cash"])
+    model_recalc = _model_recalc_block(cur=model_cur, price_date=closed_date,
+                                       alpha_refresh=alpha_refresh)
 
     journal_row = {
         "event": DAILY_CLOSE_EVENT,
@@ -1444,6 +1898,11 @@ def run_daily_close(
         "cumulative_return_pct": (pnl or {}).get("cumulative_return_pct"),
         "settlement_fills": (refresh.get("settlement") or {}).get("n_filled"),
         "performance_rows_appended": (refresh.get("performance") or {}).get("n_appended"),
+        # Phase 27H — atomic model-recalculation provenance (separate model + fund dates).
+        "model_calc_date": model_recalc["model_calc_date"],
+        "fundamental_as_of_date": model_recalc["fundamental_as_of_date"],
+        "model_recalculation_complete": model_recalc["recalculation_complete"],
+        "model_input_refresh_status": model_recalc["model_input_refresh_status"],
     }
     try:
         desk._append_ledger(sdir, DAILY_CLOSE_JOURNAL_FILE, [journal_row])
@@ -1454,7 +1913,14 @@ def run_daily_close(
     baseline = _baseline_block(perf=perf, pnl=pnl, baseline_recorded=True,
                                baseline_required=False)
     context = {"clock": clock, "provider_readiness": None,
-               "market_data_scope": None, "baseline": baseline}
+               "market_data_scope": None, "baseline": baseline,
+               "close_dates": _close_dates_block(book=book2, cur=model_cur, price_date=closed_date,
+                                                 evaluation_date=evaluation_date),
+               "model_recalculation": model_recalc,
+               "attribution": _attribution_block(perf=perf, ops=ops2, desk_dir=desk_dir),
+               "forward_performance": _forward_monitor_block(
+                   perf=perf, starting_capital=book2["starting_capital"],
+                   decision_history=_decision_history(sdir, book_id))}
     return _assemble(
         close_status=close_status, book=book2, gate=gate, pnl=pnl,
         history=_perf_history(perf, starting_capital=book2["starting_capital"]),
@@ -1463,7 +1929,8 @@ def run_daily_close(
         decision_history=_decision_history(sdir, book_id), warnings=warnings,
         performed_write=True, evaluation_date=evaluation_date, context=context,
         headline_override=_headline_for(close_status, closed_date, pnl),
-        message=_completed_message(close_status, closed_date, pcount, pnl))
+        message=_completed_message(close_status, closed_date, pcount, pnl,
+                                   model_recalc=model_recalc))
 
 
 # --------------------------------------------------------------------------- #
@@ -1516,24 +1983,33 @@ def _no_write_state(close_status: str, book: dict, ops: dict, g_loader: Callable
 
 
 def _completed_message(close_status: str, closed_date: str, pcount: int,
-                       pnl: Optional[dict] = None) -> str:
+                       pnl: Optional[dict] = None,
+                       model_recalc: Optional[dict] = None) -> str:
+    suffix = ""
+    if model_recalc is not None and not model_recalc.get("recalculation_complete"):
+        suffix = (" Note: the price-sensitive model inputs reflect %s, not the price date "
+                  "— a fresh target-membership evaluation is pending (%s)."
+                  % (model_recalc.get("model_calc_date") or "an earlier session",
+                     model_recalc.get("model_input_refresh_status") or "not advanced"))
     if close_status == INITIAL_BASELINE_RECORDED:
         nav = (pnl or {}).get("nav")
         nav_txt = ("$%s" % format(nav, ",.2f")) if isinstance(nav, (int, float)) else "the current mark"
         return ("Initial baseline recorded for %s. Starting NAV: %s. Daily P&L will become "
                 "available after the next eligible completed close. This first run establishes "
-                "the operational baseline — it is not an ordinary daily HOLD." % (closed_date, nav_txt))
+                "the operational baseline — it is not an ordinary daily HOLD." % (closed_date, nav_txt)
+                + suffix)
     if close_status == CLOSE_COMPLETE_HOLD:
         return ("Daily close complete for %s. Documented decision: HOLD CURRENT PORTFOLIO — "
-                "target and holdings remain aligned; no paper orders. This is a recorded "
-                "decision, not inaction." % closed_date)
+                "target and holdings remain aligned at the same price date; no paper orders. "
+                "This is a recorded decision, not inaction." % closed_date + suffix)
     if close_status == REBALANCE_PROPOSAL_READY:
         return ("Daily close complete for %s. A material trigger produced %d proposed change(s) "
-                "— manual review required. No paper orders were created." % (closed_date, pcount))
+                "— manual review required. No paper orders were created." % (closed_date, pcount)
+                + suffix)
     if close_status == PAPER_ORDERS_SUBMITTED:
         return ("Daily close complete for %s. Paper orders from a prior proposal are still "
-                "working — monitor pending paper orders." % closed_date)
-    return "Daily close complete for %s." % closed_date
+                "working — monitor pending paper orders." % closed_date + suffix)
+    return "Daily close complete for %s." % closed_date + suffix
 
 
 __all__ = [

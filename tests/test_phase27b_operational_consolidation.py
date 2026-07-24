@@ -340,8 +340,10 @@ class TestUiSingleSourceOfTruth:
         # (replacing the legacy portfolio-terminal fetch) — a 7th reuse site.
         # Phase 27E: after an explicit daily close, runDailyClose() refreshes every
         # operator surface through the SAME coalesced loader — the 8th reuse site.
+        # Phase 27F: the WAITING_FOR_MARKET_DATA "Refresh Status" action re-checks
+        # readiness through the SAME coalesced loader — the 9th reuse site.
         js = _scripts(html)
-        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 8
+        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 9
 
     def test_concurrent_loads_coalesce(self, html):
         js = _scripts(html)

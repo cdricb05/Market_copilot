@@ -238,6 +238,12 @@ def _daily_close_block() -> dict:
         "provider_readiness": d.get("provider_readiness") or {},
         "market_data_scope": d.get("market_data_scope") or {},
         "baseline": d.get("baseline") or {},
+        # Phase 27H atomic blocks (labeled dates / model recalc / attribution / monitor).
+        "close_dates": d.get("close_dates") or {},
+        "model_recalculation": d.get("model_recalculation") or {},
+        "model_recalculation_complete": bool(d.get("model_recalculation_complete")),
+        "attribution": d.get("attribution") or {},
+        "forward_performance": d.get("forward_performance") or {},
     }
 
 
@@ -458,8 +464,9 @@ def _dates_block(ctx: dict, operational_dates: Optional[dict] = None) -> tuple[d
         warnings.append(
             "Operational date misalignment: " + "; ".join(
                 "%s = %s (%s)" % (lbl, d, src) for lbl, d, src in present) +
-            ". Run the manual after-market desk refresh so the operational dates align before "
-            "acting on the daily gate.")
+            ". Run the daily close — it now atomically refreshes the desk marks and the "
+            "price-sensitive model inputs together, so the operational dates align in one "
+            "step. No separate after-market desk refresh is required.")
     fund_month = cur.get("fundamental_month")
     if ctx["ready"] and eng._is_fundamental_stale(fund_month, cur.get("market_as_of_date")):
         warnings.append(
