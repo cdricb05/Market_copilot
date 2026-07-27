@@ -20996,8 +20996,8 @@ async function loadCommandCenter() {
     renderCommandCenter();
   } finally {
     st.loading = false;
-    // Phase 31A (Part C): the operational book is fed by a SEPARATE endpoint
-    // (/v1/operational-book) and self-renders. Refresh it whenever a load was
+    // Phase 31A (Part C): the operational book is fed by a SEPARATE backend
+    // endpoint and self-renders. Refresh it whenever a load was
     // attempted — even if /v1/dashboard/command-center failed — so connected
     // sections never keep a "connect to load" placeholder. loadOperationalBook()
     // coalesces concurrent calls via _obInFlight, so calling it here is safe.
