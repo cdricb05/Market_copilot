@@ -36037,3 +36037,264 @@ class TestUiPriceAlphaSafety:
         # the combination header states the champion is never replaced
         assert "never a champion replacement" in panel.lower()
 
+
+class TestPhase31aWorkflowStateAndRedesign:
+    """Phase 31A — workflow-state repair + Visual Redesign v2 (surgical, additive).
+
+    All assertions are read-only. UI checks parse api/ui/index.html; backend checks use
+    the module-scoped TestClient and touch only read-only endpoints (no signal/decision/
+    trade creation, no DB writes).
+    """
+
+    # ---- helpers ----------------------------------------------------------
+    @staticmethod
+    def _html() -> str:
+        from pathlib import Path
+        p = Path(__file__).parent.parent / "api" / "ui" / "index.html"
+        return p.read_text(encoding="utf-8", errors="ignore")
+
+    @staticmethod
+    def _scripts() -> str:
+        import re
+        return "\n".join(
+            re.findall(r"<script[^>]*>([\s\S]*?)</script>",
+                       TestPhase31aWorkflowStateAndRedesign._html()))
+
+    @staticmethod
+    def _html_path() -> str:
+        from pathlib import Path
+        return str(Path(__file__).parent.parent / "api" / "ui" / "index.html")
+
+    @staticmethod
+    def _run_node(driver_js: str, *args):
+        import shutil, subprocess, tempfile, os
+        import pytest
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node not available for JS functional check")
+        fd, path = tempfile.mkstemp(suffix=".js")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(driver_js)
+            return subprocess.run([node, path, *args],
+                                  capture_output=True, text=True, timeout=60)
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    # ---- Part C: operational book decoupled from command-center success ----
+    def test_operational_book_loads_even_if_command_center_fails(self) -> None:
+        js = self._scripts()
+        i = js.index("async function loadCommandCenter()")
+        body = js[i:i + 1800]
+        fin = body.index("finally")
+        # loadOperationalBook runs in the finally block (after the load attempt), so a
+        # failed /v1/dashboard/command-center still refreshes the operational book —
+        # connected sections never keep a "connect to load" placeholder.
+        assert "loadOperationalBook()" in body[fin:], "operational book must load in finally"
+        assert body[:fin].count("loadOperationalBook()") == 0, "must not be success-only"
+
+    # ---- Part A: single additive state facade -----------------------------
+    def test_ui_state_facade_fields_and_setters(self) -> None:
+        js = self._scripts()
+        for field in ("health:", "ready:", "predictionRemote:",
+                      "lastRefreshAt:", "lastError:", "panels:"):
+            assert field in js, f"missing _appState field: {field}"
+        assert "window._setUiState = function" in js
+        assert "window._setPanelState = function" in js
+        assert "window._renderUiStateStamp = function" in js
+        assert 'id="ui-refresh-stamp"' in self._html()
+
+    # ---- Part B: no false Ready after a failed refresh --------------------
+    def test_no_false_ready_after_failed_refresh(self) -> None:
+        js = self._scripts()
+        assert "_ccRefreshFailed" in js
+        i = js.index("var _ccRefreshFailed")
+        seg = js[i:i + 500]
+        assert "STALE" in seg
+        assert "last refresh failed" in seg
+
+    # ---- Part E: deterministic dedup --------------------------------------
+    def test_dedupe_helper_defined_and_used(self) -> None:
+        js = self._scripts()
+        assert "function _dedupeCandidatesByTicker(list)" in js
+        assert "function _candIdGreater(" in js
+        assert "hiddenCount" in js
+        # replaces the ad-hoc per-view latestMap loops at every review reducer
+        assert js.count("_dedupeCandidatesByTicker(") >= 3
+        assert "duplicate" in js and "hidden" in js  # hidden-count surfaced
+
+    def test_dedupe_is_deterministic_and_correct(self) -> None:
+        driver = r"""
+const fs = require('fs');
+const html = fs.readFileSync(process.argv[2], 'utf8');
+const S = 'function _candIdKey(c) {';
+const E = 'window._dedupeCandidatesByTicker = _dedupeCandidatesByTicker;';
+const i = html.indexOf(S), j = html.indexOf(E);
+if (i < 0 || j < 0) { console.error('MARKERS_NOT_FOUND'); process.exit(2); }
+const src = html.slice(i, j + E.length);
+var window = {};
+eval(src);
+const dedupe = window._dedupeCandidatesByTicker;
+if (typeof dedupe !== 'function') { console.error('NO_DEDUPE_FN'); process.exit(9); }
+const base = [
+  { ticker:'AAPL', id:1,  created_at:'2026-07-20T10:00:00Z' },
+  { ticker:'AAPL', id:2,  created_at:'2026-07-24T10:00:00Z' },
+  { ticker:'MSFT', id:10, created_at:'2026-07-24T10:00:00Z' },
+  { ticker:'MSFT', id:11, created_at:'2026-07-24T10:00:00Z' },
+  { ticker:'TSLA', id:5,  created_at:'2026-07-22T10:00:00Z' },
+];
+function keyOf(rows){ return rows.map(function(r){ return r.ticker + ':' + r.id; }).join('|'); }
+function rot(arr, n){ var a = arr.slice(); for (var k=0;k<n;k++){ a.push(a.shift()); } return a; }
+var outs = [];
+for (var s=0; s<5; s++){ var r = dedupe(rot(base, s)); outs.push(JSON.stringify({k:keyOf(r.rows), h:r.hiddenCount})); }
+for (var t=0;t<outs.length;t++){ if (outs[t] !== outs[0]) { console.error('NONDETERMINISTIC ' + JSON.stringify(outs)); process.exit(3); } }
+var r0 = dedupe(base);
+var m = {}; r0.rows.forEach(function(x){ m[x.ticker] = x.id; });
+if (m.AAPL !== 2)  { console.error('AAPL_WRONG ' + m.AAPL); process.exit(4); }
+if (m.MSFT !== 11) { console.error('MSFT_TIE_WRONG ' + m.MSFT); process.exit(5); }
+if (m.TSLA !== 5)  { console.error('TSLA_WRONG ' + m.TSLA); process.exit(6); }
+if (r0.hiddenCount !== 2) { console.error('HIDDEN_WRONG ' + r0.hiddenCount); process.exit(7); }
+var order = r0.rows.map(function(x){ return x.ticker; });
+if (order[order.length-1] !== 'TSLA') { console.error('ORDER_WRONG ' + order.join(',')); process.exit(8); }
+console.log('DETERMINISM_OK');
+"""
+        res = self._run_node(driver, self._html_path())
+        assert "DETERMINISM_OK" in (res.stdout or ""), (res.returncode, res.stdout, res.stderr)
+
+    # ---- Part F: MAX_POSITIONS explanation from API values only -----------
+    def test_capacity_explanation_from_api_values_only(self) -> None:
+        js = self._scripts()
+        assert "function _ccCapacityExplanation(pf)" in js
+        i = js.index("function _ccCapacityExplanation(pf)")
+        seg = js[i:i + 1800]
+        assert "MAX_POSITIONS" in seg
+        assert "not weakened or bypassed" in seg
+        # echoes the backend-authoritative explanation verbatim when present
+        assert "pf.capacity_explanation" in seg
+        # reconstruction fallback still uses only API portfolio fields (no fabrication)
+        assert "pf.open_positions" in seg and "pf.max_positions" in seg
+
+    def test_capacity_explanation_reaches_a_live_element(self) -> None:
+        # The command-center cc-kpi-capacity grid is a legacy/orphaned render path; the
+        # LIVE, visible capacity readout is #pm-sb-alpha-capacity. Part F's plain-language
+        # capacity explanation must reach a rendered element via an aria-label, and must
+        # describe THAT element's own policy (alpha book), not the legacy 5-slot limit.
+        html = self._html()
+        i = html.index('id="pm-sb-alpha-capacity"')
+        tag = html[i - 20:i + 360]
+        assert "aria-label=" in tag
+        assert "weakened or bypassed" in tag
+        assert "manual review" in tag
+
+    # ---- Part G: confirm modal accessibility ------------------------------
+    def test_confirm_modal_is_accessible(self) -> None:
+        html = self._html()
+        i = html.index('id="confirm-modal"')
+        tag = html[i - 40:i + 300]
+        assert 'role="dialog"' in tag
+        assert 'aria-modal="true"' in tag
+        assert 'aria-labelledby="confirm-title"' in tag
+        assert 'aria-describedby="confirm-message"' in tag
+        js = self._scripts()
+        assert "e.key === 'Escape'" in js
+        assert "_confirmPrevFocus" in js  # focus saved + restored
+
+    # ---- Part D: shared button lock ---------------------------------------
+    def test_button_lock_helpers_present_and_applied(self) -> None:
+        js = self._scripts()
+        assert "window._lockBtn = function" in js
+        assert "window._unlockBtn = function" in js
+        assert "aria-busy" in js
+        assert "_lockBtn(btn, 'Refreshing" in js   # applied to Refresh
+        assert "_lockBtn(btn, 'Loading" in js      # applied to read-only loaders
+
+    # ---- Part I: remote prediction + focus visibility ---------------------
+    def test_remote_prediction_indicator_present(self) -> None:
+        html = self._html()
+        assert 'id="prediction-mode-badge"' in html
+        assert 'data-prediction-location="remote"' in html
+        assert "PREDICTION: REMOTE" in html
+
+    def test_focus_visible_style_present(self) -> None:
+        assert ":focus-visible" in self._html()
+
+    # ---- Safety + no-native-dialog invariants -----------------------------
+    def test_safety_badges_present(self) -> None:
+        html = self._html()
+        assert "MANUAL REVIEW" in html
+        assert "AUTOMATION OFF" in html
+        assert ("PAPER ORDERS ONLY" in html) or ("PAPER ONLY" in html)
+        assert ("NO LIVE ORDERS" in html) or ("NO BROKER EXECUTION" in html)
+
+    def test_no_native_dialogs_anywhere(self) -> None:
+        import re
+        html = self._html()
+        assert not re.search(r"(?<![A-Za-z0-9_.])alert\s*\(", html)
+        assert not re.search(r"(?<![A-Za-z0-9_.])confirm\s*\(", html)
+        assert not re.search(r"(?<![A-Za-z0-9_.])prompt\s*\(", html)
+
+    def test_no_blank_header_or_modal_buttons(self) -> None:
+        import re
+        html = self._html()
+        for m in re.finditer(r"<button\b[^>]*>(.*?)</button>", html, re.S):
+            inner = re.sub(r"<[^>]+>", "", m.group(1))
+            inner = (inner.replace("&rarr;", "").replace("&#8635;", "")
+                          .replace("&mdash;", "").strip())
+            # acceptable if it has visible text OR an aria-label
+            assert inner or "aria-label=" in m.group(0), f"blank button: {m.group(0)[:80]}"
+
+    def test_no_live_broker_execution_or_automation(self) -> None:
+        # Phase 31A adds no order flow. The committed app already ships a paper-only
+        # "Create Paper Order Ticket" step (PENDING, NEXT_CLOSE fill, no broker, no
+        # automation); the safety invariant that matters is that LIVE brokerage
+        # execution and automation are structurally OFF and declared as such.
+        import re
+        low = self._html().lower()
+        assert "automation off" in low
+        assert ("no live broker orders" in low) or ("no live orders" in low)
+        assert (("orders disabled" in low) or ("structurally disabled" in low)
+                or ("live orders remain impossible" in low))
+        # no live-broker / execute-to-broker handler is wired anywhere
+        assert not re.search(r"submittobroker|executeorder\s*\(|/orders/execute|/broker/", low)
+
+    def test_inline_scripts_compile(self) -> None:
+        driver = r"""
+const fs = require('fs'); const vm = require('vm');
+const html = fs.readFileSync(process.argv[2], 'utf8');
+const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+let m, idx = 0, errors = 0;
+function lineAt(o){ return html.slice(0, o).split('\n').length; }
+while ((m = re.exec(html)) !== null) {
+  const attrs = m[1] || '', code = m[2] || ''; idx++;
+  if (/\bsrc\s*=/.test(attrs)) continue;
+  if (/\btype\s*=/.test(attrs) && !/text\/javascript|application\/javascript|module/i.test(attrs)) continue;
+  try { new vm.Script(code, { filename: 's' + idx }); }
+  catch (err) { errors++; console.error('SYNTAX@' + lineAt(m.index) + ': ' + (err && err.message)); }
+}
+if (errors) { console.error('ERRORS=' + errors); process.exit(1); }
+console.log('SCRIPTS_OK');
+"""
+        res = self._run_node(driver, self._html_path())
+        assert "SCRIPTS_OK" in (res.stdout or ""), (res.returncode, res.stdout, res.stderr)
+
+    # ---- Backend read-only safety (no DB writes) --------------------------
+    def test_health_and_ready_ok(self, client: TestClient) -> None:
+        assert client.get("/v1/health").status_code == 200
+        assert client.get("/v1/ready").status_code == 200
+
+    def test_auth_check_requires_key(self, client: TestClient) -> None:
+        assert client.get("/v1/auth/check").status_code == 401
+        assert client.get("/v1/auth/check", headers=_AUTH).status_code == 200
+
+    def test_max_positions_rule_exists_and_is_enforced(self) -> None:
+        from pathlib import Path
+        from paper_trader.constants import RejectionReason
+        assert hasattr(RejectionReason, "MAX_POSITIONS_REACHED")
+        risk = (Path(__file__).parent.parent / "engine" / "risk.py").read_text(
+            encoding="utf-8", errors="ignore")
+        # the rule is enforced by the risk engine, not merely defined
+        assert "RejectionReason.MAX_POSITIONS_REACHED" in risk
+

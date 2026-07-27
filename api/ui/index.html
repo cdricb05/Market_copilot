@@ -818,6 +818,17 @@
       color: white;
     }
 
+    /* Phase 31A (Part I): visible keyboard-focus ring on interactive controls, so
+       keyboard users can always see where focus is (never conveyed by colour alone). */
+    button:focus-visible,
+    a:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid var(--info, #3b82f6);
+      outline-offset: 1px;
+    }
+
     /* Clickable ticker affordance — subtle, does not clutter compact tables. */
     .ticker-link {
       cursor: pointer;
@@ -1709,10 +1720,12 @@
     <span class="status-light neutral" id="health-light"></span>
     <span class="status-text" id="health-status">Connecting...</span>
     <span class="status-debug" id="health-debug"></span>
+    <span class="status-debug" id="ui-refresh-stamp" aria-live="polite"></span>
   </div>
   <span class="badge warning" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">MANUAL REVIEW</span>
   <span class="badge ok" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">PAPER ORDERS ONLY</span>
   <span class="badge neutral" style="font-size: 9px; padding: 2px 7px;">AUTOMATION OFF</span>
+  <span id="prediction-mode-badge" data-prediction-location="remote" aria-label="Prediction inference runs remotely on GCP through a local tunnel; it is never run locally." style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--info); background: rgba(59,130,246,.06); border: 1px solid rgba(59,130,246,.3); border-radius: 2px;" title="Prediction inference is REMOTE (GCP, via the local tunnel on port 9000). No prediction model runs locally.">PREDICTION: REMOTE (GCP)</span>
   <span id="alpha-data-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--ok); background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.3); border-radius: 2px;" title="The operational alpha workflow (target refresh, snapshot review, alpha book, paper desk) runs entirely on owned local data. The GCP prediction tunnel is a separate legacy path and is never required.">LOCAL ALPHA DATA &middot; NO PREDICTION TUNNEL REQUIRED</span>
   <span id="market-data-badge" style="font-size: 9px; padding: 2px 7px; margin-left: 4px; color: var(--label); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 2px;" title="Whether the portfolio mark, portfolio snapshot and current-alpha marks share one completed market date. Does not check prediction availability.">MARKET DATA: NOT CHECKED</span>
   <div style="flex: 1;"></div>
@@ -2910,7 +2923,7 @@
             <span title="Invested value of the ARCHIVED legacy paper portfolio.">Legacy invested <b id="pm-sb-invested">&mdash;</b></span>
             <span title="Open executed paper positions of the SEPARATE legacy manual trade workflow. Not part of Alpha Paper Book #1.">Legacy positions <b id="pm-sb-positions">&mdash;</b></span>
             <span title="Proposed primary Top-25 target book size.">Target names <b id="pm-sb-target">&mdash;</b></span>
-            <span title="Alpha Paper Book #1 capacity: validated target 25 names, up to 30 temporary holdings during rebalance. Governed by the immutable alpha-book policy, never by the legacy five-position limit.">Alpha capacity <b id="pm-sb-alpha-capacity">25 / 30</b></span>
+            <span title="Alpha Paper Book #1 capacity: validated target 25 names, up to 30 temporary holdings during rebalance. Governed by the immutable alpha-book policy, never by the legacy five-position limit.">Alpha capacity <b id="pm-sb-alpha-capacity" aria-label="Alpha Paper Book #1 capacity: validated target of 25 names, up to 30 temporary holdings during a rebalance. Buy ideas beyond the target are held for manual review; this capacity rule is governed by the immutable alpha-book policy and is never weakened or bypassed.">25 / 30</b></span>
             <span>Est. turnover <b id="pm-sb-turnover">&mdash;</b></span>
             <span title="25 bps round-trip assumption.">Est. cost <b id="pm-sb-cost">&mdash;</b></span>
             <span>Review due <b id="pm-sb-review">&mdash;</b></span>
@@ -5302,13 +5315,14 @@
   </div>
 </div>
 
-<div id="confirm-modal" class="confirm-modal">
+<div id="confirm-modal" class="confirm-modal" role="dialog" aria-modal="true"
+     aria-labelledby="confirm-title" aria-describedby="confirm-message" aria-hidden="true">
   <div class="confirm-modal-content">
     <div class="confirm-modal-title" id="confirm-title">Confirm Action</div>
     <div class="confirm-modal-message" id="confirm-message"></div>
     <div class="confirm-modal-buttons">
-      <button class="btn-cancel" onclick="window._hideConfirmModal()">Cancel</button>
-      <button class="btn-confirm" onclick="window._confirmAction()">Confirm</button>
+      <button type="button" class="btn-cancel" aria-label="Cancel — take no action" onclick="window._hideConfirmModal()">Cancel</button>
+      <button type="button" class="btn-confirm" aria-label="Confirm the described action" onclick="window._confirmAction()">Confirm</button>
     </div>
   </div>
 </div>
@@ -5467,6 +5481,20 @@ window._showToast = function(message, type='info', duration=3000) {
 };
 
 window._currentConfirmCallback = null;
+window._confirmPrevFocus = null;
+
+// Phase 31A (Part G): open the styled modal with focus management + a11y state.
+// Stores the previously-focused element (restored on close) and moves focus to the
+// Cancel button — the safe, no-action default — so keyboard users start on "no".
+function _openConfirmModal(modal) {
+  if (!modal) return;
+  window._confirmPrevFocus = (document.activeElement && document.activeElement !== document.body)
+    ? document.activeElement : null;
+  modal.classList.add('active');
+  modal.setAttribute('aria-hidden', 'false');
+  var cancelBtn = modal.querySelector('.btn-cancel');
+  if (cancelBtn) { try { cancelBtn.focus(); } catch (e) {} }
+}
 
 window._showConfirmModal = function(message, onConfirm, onCancel) {
   const modal = document.getElementById('confirm-modal');
@@ -5480,18 +5508,24 @@ window._showConfirmModal = function(message, onConfirm, onCancel) {
   msgEl.textContent = message;
   window._currentConfirmCallback = onConfirm;
   window._currentConfirmOnCancel = onCancel;
-  modal.classList.add('active');
+  _openConfirmModal(modal);
 };
 
 window._hideConfirmModal = function() {
   const modal = document.getElementById('confirm-modal');
   if (modal) {
     modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
     if (window._currentConfirmOnCancel) {
       window._currentConfirmOnCancel();
     }
     window._currentConfirmCallback = null;
     window._currentConfirmOnCancel = null;
+    // Restore focus to whatever was focused before the modal opened.
+    if (window._confirmPrevFocus && typeof window._confirmPrevFocus.focus === 'function') {
+      try { window._confirmPrevFocus.focus(); } catch (e) {}
+    }
+    window._confirmPrevFocus = null;
   }
 };
 
@@ -5503,6 +5537,26 @@ window._confirmAction = function() {
   window._currentConfirmOnCancel = null;
   window._hideConfirmModal();
 };
+
+// Phase 31A (Part G): keyboard support for the styled modal. Escape cancels (== the
+// safe no-action Cancel) and Tab is trapped between Cancel/Confirm while it is open,
+// so focus can never escape the dialog to controls behind it.
+document.addEventListener('keydown', function (e) {
+  var modal = document.getElementById('confirm-modal');
+  if (!modal || !modal.classList.contains('active')) return;
+  if (e.key === 'Escape' || e.key === 'Esc') {
+    e.preventDefault();
+    window._hideConfirmModal();
+    return;
+  }
+  if (e.key === 'Tab') {
+    var focusables = modal.querySelectorAll('button:not([disabled])');
+    if (!focusables.length) return;
+    var first = focusables[0], last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+});
 
 window._showWriteConfirm = function(opts) {
   const modal = document.getElementById('confirm-modal');
@@ -5528,7 +5582,7 @@ window._showWriteConfirm = function(opts) {
   msgEl.innerHTML = body;
   window._currentConfirmCallback = opts.onConfirm || null;
   window._currentConfirmOnCancel = opts.onCancel || null;
-  modal.classList.add('active');
+  _openConfirmModal(modal);
 };
 
 // Replace alert with toast
@@ -5537,20 +5591,16 @@ window.alert = function(message) {
   window._showToast(message, 'info', 5000);
 };
 
-// Replace confirm with modal
+// Phase 31A (Part G): route any legacy native confirm invocation through the styled
+// modal so a browser-native dialog can NEVER appear. Native confirm is synchronous but
+// the styled modal is not, so this returns false (never auto-proceeds) and points callers
+// at the async API. Every in-app write flow already uses _showConfirmModal /
+// _showWriteConfirm with an explicit callback, so nothing depends on a return value.
 window._originalConfirm = window.confirm;
 window.confirm = function(message) {
-  let result = false;
-  const promise = new Promise(resolve => {
-    window._showConfirmModal(message, () => {
-      result = true;
-      resolve(true);
-    }, () => {
-      resolve(false);
-    });
-  });
-  // For now, return true if confirm is called, but proper handling requires async
-  return result;
+  try { window._showConfirmModal(String(message == null ? '' : message), null, null); } catch (e) {}
+  try { console.warn('[paper_trader] native confirm dialog is disabled; use _showConfirmModal / _showWriteConfirm with a callback.'); } catch (e) {}
+  return false;   // never auto-proceed on a legacy synchronous call
 };
 </script>
 
@@ -5854,11 +5904,57 @@ const _appState = {
   filledOrders: null,
   hasPositions: false,
   hasHistory: false,
+  // Phase 31A (Part A) — additive UI-state facade. Existing fields above are
+  // preserved and untouched; these give one coherent place for cross-panel
+  // status so no panel has to re-derive connection/health/refresh truth.
+  health: null,           // 'ok' | 'degraded' | null (unknown)
+  ready: null,            // true | false | null (unknown)
+  predictionRemote: true, // prediction inference is REMOTE (GCP tunnel); never run locally
+  lastRefreshAt: null,    // local time string of the last successful data refresh
+  lastError: null,        // last user-facing load error, or null when the last refresh was clean
+  panels: {},             // per-panel load state: { <panelId>: 'loading'|'loaded'|'error'|'empty' }
 };
 // Expose _appState on window so the independent connection script
 // (earlier <script> block) can set _appState.connected = true on success,
 // and so _switchTab can check window._appState?.connected correctly.
 window._appState = _appState;
+
+// Phase 31A (Part A) — single additive mutator. Lifecycle points (connect, each
+// command-center / operational-book load) call this so the facade stays coherent.
+// It never removes fields and re-renders only the small header refresh stamp.
+window._setUiState = function (patch) {
+  if (!patch || typeof patch !== 'object') return window._appState;
+  var s = window._appState;
+  for (var k in patch) {
+    if (Object.prototype.hasOwnProperty.call(patch, k)) s[k] = patch[k];
+  }
+  try { if (typeof window._renderUiStateStamp === 'function') window._renderUiStateStamp(); } catch (e) {}
+  return s;
+};
+// Mark one panel's load state without disturbing the others (honest empty/error states).
+window._setPanelState = function (panelId, state) {
+  if (!panelId) return;
+  window._appState.panels[panelId] = state;
+};
+// Render the header "updated HH:MM:SS" / "refresh failed" stamp from the facade.
+// No-op if the stamp element is absent, so it is safe to call anywhere.
+window._renderUiStateStamp = function () {
+  var el = document.getElementById('ui-refresh-stamp');
+  if (!el) return;
+  var s = window._appState;
+  if (s.lastError) {
+    el.textContent = '· refresh failed';
+    el.style.color = 'var(--danger)';
+    el.title = String(s.lastError);
+  } else if (s.lastRefreshAt) {
+    el.textContent = '· updated ' + s.lastRefreshAt;
+    el.style.color = 'var(--label)';
+    el.title = 'Last successful data refresh at ' + s.lastRefreshAt;
+  } else {
+    el.textContent = '';
+    el.title = '';
+  }
+};
 
 let _latestMarketScan = null;
 
@@ -7173,8 +7269,34 @@ function _capText(id, val) {
 }
 
 // Isolated fetch that surfaces errors to the performance panel's own error box.
+// Phase 31A (Part D): shared button lock/unlock. Prevents double submission, gives a
+// consistent loading/disabled/restore cycle, and NEVER leaves a button blank — with no
+// explicit loading label it keeps the original text and only disables. Re-entrant calls
+// on an already-locked button are ignored, so a rapid double-click cannot fire twice.
+window._lockBtn = function (btn, loadingLabel) {
+  if (!btn) return;
+  if (btn.dataset && btn.dataset.locked === '1') return;
+  if (btn.dataset) {
+    btn.dataset.locked = '1';
+    btn.dataset.prevLabel = (btn.textContent != null ? btn.textContent : '');
+    btn.dataset.prevDisabled = btn.disabled ? '1' : '0';
+  }
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  if (loadingLabel) btn.textContent = loadingLabel;
+};
+window._unlockBtn = function (btn, restoreLabel) {
+  if (!btn) return;
+  btn.disabled = (btn.dataset && btn.dataset.prevDisabled === '1') ? true : false;
+  btn.removeAttribute('aria-busy');
+  var prev = (btn.dataset && btn.dataset.prevLabel != null) ? btn.dataset.prevLabel : null;
+  var label = (restoreLabel != null) ? restoreLabel : prev;
+  if (label != null && label !== '') btn.textContent = label;   // never blank
+  if (btn.dataset) { btn.dataset.locked = '0'; delete btn.dataset.prevLabel; delete btn.dataset.prevDisabled; }
+};
+
 async function _capFetch(btn, method, url, body) {
-  if (btn) btn.disabled = true;
+  if (btn) window._lockBtn(btn, 'Loading…');
   const err = document.getElementById('cap-error');
   if (err) err.style.display = 'none';
   try {
@@ -7192,7 +7314,7 @@ async function _capFetch(btn, method, url, body) {
     if (err) err.style.display = 'block';
     throw e;
   } finally {
-    if (btn) btn.disabled = false;
+    if (btn) window._unlockBtn(btn);
   }
 }
 
@@ -14319,6 +14441,50 @@ function _dpRqRowHtml(c) {
   </tr>`;
 }
 
+// Phase 31A (Part E): one deterministic "latest per ticker" reducer shared by every
+// review-queue view, so dedup is identical and reproducible everywhere.
+//   identity  = ticker
+//   winner    = max created_at, ties broken by greater id (order-INDEPENDENT)
+//   ordering  = newest created_at first, then ticker asc (stable)
+// Returns { rows, hiddenCount }. It NEVER merges unrelated tickers or runs together and
+// NEVER writes anything — this is pure client-side presentation of candidates already read.
+function _candIdKey(c) {
+  var raw = (c && c.id != null) ? c.id : (c && c.candidate_id != null ? c.candidate_id : '');
+  var s = String(raw);
+  var n = Number(s);
+  var isNum = s !== '' && isFinite(n);
+  return { isNum: isNum, num: isNum ? n : 0, str: s };
+}
+function _candIdGreater(a, b) {
+  var ka = _candIdKey(a), kb = _candIdKey(b);
+  if (ka.isNum && kb.isNum) return ka.num > kb.num;
+  if (ka.isNum !== kb.isNum) return ka.isNum;   // numeric ids sort above non-numeric, deterministically
+  return ka.str.localeCompare(kb.str) > 0;
+}
+function _dedupeCandidatesByTicker(list) {
+  var arr = Array.isArray(list) ? list : [];
+  var best = {};
+  arr.forEach(function (c) {
+    if (!c || c.ticker == null) return;
+    var key = String(c.ticker);
+    var cur = best[key];
+    if (!cur) { best[key] = c; return; }
+    var ct = new Date(c.created_at || 0).getTime();
+    var pt = new Date(cur.created_at || 0).getTime();
+    if (ct > pt) { best[key] = c; return; }
+    if (ct === pt && _candIdGreater(c, cur)) best[key] = c;   // deterministic tie-break
+  });
+  var rows = Object.keys(best).map(function (k) { return best[k]; });
+  rows.sort(function (a, b) {
+    var at = new Date(a.created_at || 0).getTime(), bt = new Date(b.created_at || 0).getTime();
+    if (bt !== at) return bt - at;
+    return String(a.ticker).localeCompare(String(b.ticker));
+  });
+  var considered = arr.filter(function (c) { return c && c.ticker != null; }).length;
+  return { rows: rows, hiddenCount: Math.max(0, considered - rows.length) };
+}
+window._dedupeCandidatesByTicker = _dedupeCandidatesByTicker;
+
 function renderDpInlineReviewQueue(candidates) {
   const tbody = document.getElementById('dp-rq-tbody');
   if (!tbody) return;
@@ -14329,14 +14495,10 @@ function renderDpInlineReviewQueue(candidates) {
     if (olderEl) olderEl.innerHTML = '';
     return;
   }
-  // Show latest per ticker
-  const latestMap = {};
-  candidates.forEach(c => {
-    if (!latestMap[c.ticker] || new Date(c.created_at) > new Date(latestMap[c.ticker].created_at)) {
-      latestMap[c.ticker] = c;
-    }
-  });
-  const latest = Object.values(latestMap);
+  // Phase 31A (Part E): deterministic latest-per-ticker dedup via the shared helper.
+  const _dpDedup = _dedupeCandidatesByTicker(candidates);
+  const latest = _dpDedup.rows;
+  window._reviewQueueHiddenCount = _dpDedup.hiddenCount;
   if (latest.length === 0) {
     tbody.innerHTML = emptyMsg;
     if (olderEl) olderEl.innerHTML = '';
@@ -14886,14 +15048,9 @@ function filterReviewQueue() {
   const beforeLatestCount = filtered.length;
 
   // If latest per ticker is checked, keep only the most recent entry per ticker
+  // (Phase 31A Part E: deterministic, order-independent dedup via the shared helper).
   if (latestOnly) {
-    const latestMap = {};
-    filtered.forEach(c => {
-      if (!latestMap[c.ticker] || new Date(c.created_at) > new Date(latestMap[c.ticker].created_at)) {
-        latestMap[c.ticker] = c;
-      }
-    });
-    filtered = Object.values(latestMap);
+    filtered = _dedupeCandidatesByTicker(filtered).rows;
   }
 
   renderReviewQueue(filtered);
@@ -16090,7 +16247,8 @@ function updateConnectStatus(msg) {
 
 async function refresh() {
   const btn = document.getElementById('refreshBtn');
-  btn.disabled = true;
+  // Phase 31A (Part D): shared lock prevents double-submit + shows a loading label.
+  window._lockBtn(btn, 'Refreshing…');
   try {
     await loadHealth();
     if (!key()) { toast('Enter API key', 'err'); return; }
@@ -16106,7 +16264,7 @@ async function refresh() {
   } catch (e) {
     toast('Refresh error: ' + (e.message || 'unknown'), 'err');
   } finally {
-    btn.disabled = false;
+    window._unlockBtn(btn, 'Refresh');
   }
 }
 
@@ -19109,13 +19267,10 @@ function viewPortfolio() {
 
 function updateCockpitReviewSummary() {
   const all = window._lastReviewQueueData || [];
-  const latestMap = {};
-  all.forEach(c => {
-    if (!latestMap[c.ticker] || new Date(c.created_at) > new Date(latestMap[c.ticker].created_at)) {
-      latestMap[c.ticker] = c;
-    }
-  });
-  const latest = Object.values(latestMap);
+  // Phase 31A (Part E): deterministic latest-per-ticker dedup via the shared helper.
+  const _cockDedup = _dedupeCandidatesByTicker(all);
+  const latest = _cockDedup.rows;
+  window._reviewQueueHiddenCount = _cockDedup.hiddenCount;
   const total = latest.length;
   const approved = latest.filter(c => c.review_status === 'APPROVED_FOR_SIGNAL').length;
   const watching = latest.filter(c => c.review_status === 'WATCHING').length;
@@ -19172,7 +19327,10 @@ function updateCockpitReviewSummary() {
 
   const _srcEl = document.getElementById('stage-review-count');
   if (_srcEl && total > 0) {
-    _srcEl.textContent = approved + ' approved / ' + total + ' in queue (latest per ticker)';
+    // Phase 31A (Part E): report how many older duplicate rows were hidden by dedup.
+    var _hidden = window._reviewQueueHiddenCount || 0;
+    _srcEl.textContent = approved + ' approved / ' + total + ' in queue (latest per ticker)' +
+      (_hidden > 0 ? ' · ' + _hidden + ' duplicate' + (_hidden === 1 ? '' : 's') + ' hidden' : '');
   }
 
   // Update inline Daily Plan center-column stats
@@ -20563,6 +20721,37 @@ function renderNextAction(next) {
   _ccSetText('cc-na-capacity', next.capacity_context || ' ');
 }
 
+// Phase 31A (Part F): plain-language explanation of the MAX_POSITIONS capacity rule,
+// built ONLY from API-returned portfolio fields (never fabricated figures). It explains
+// the rule; it does not weaken, bypass or override the risk limit in any way.
+function _ccCapacityExplanation(pf) {
+  pf = pf || {};
+  var open = pf.open_positions, max = pf.max_positions;
+  var state = String(pf.capacity_state || '');
+  var enforced = ' MAX_POSITIONS is a hard risk limit enforced by the risk engine — it is not weakened or bypassed here.';
+  // Prefer the backend-authoritative explanation verbatim when the API supplies it
+  // (display only values returned by the API); only append the enforced-rule note if
+  // the backend text does not already state it. Reconstruct locally only as a fallback.
+  if (pf.capacity_explanation) {
+    var t = String(pf.capacity_explanation);
+    return /weakened|bypass/i.test(t) ? t : (t + enforced);
+  }
+  if (open == null || max == null) {
+    return 'Position capacity loads from the paper book. New BUY ideas are rejected as MAX_POSITIONS_REACHED once the book is full.' + enforced;
+  }
+  var slots = (typeof open === 'number' && typeof max === 'number') ? Math.max(0, max - open) : null;
+  var atCap = (slots === 0) || /FULL|AT_CAP|REACHED|MAX/i.test(state);
+  var lead;
+  if (atCap) {
+    lead = 'AT CAPACITY: ' + open + ' of ' + max + ' position slots used. New BUY ideas are held (rejected as MAX_POSITIONS_REACHED) until an exit frees a slot.';
+  } else if (slots != null) {
+    lead = open + ' of ' + max + ' position slots used · ' + slots + ' slot' + (slots === 1 ? '' : 's') + ' available for new BUY ideas.';
+  } else {
+    lead = open + ' of ' + max + ' position slots used.';
+  }
+  return lead + enforced;
+}
+
 function renderCommandCenter() {
   var d = window._commandCenter.data;
   var errEl = document.getElementById('cc-error');
@@ -20593,8 +20782,14 @@ function renderCommandCenter() {
   try { _renderDailyOperatingRun(d.market_data); } catch (e) {}
 
   // ROW 1 KPI cards
-  _ccSetText('cc-kpi-system', sys.backend_ready ? 'READY' : 'DEGRADED');
-  _ccSetText('cc-kpi-system-sub', sys.connected ? 'Connected · paper only' : 'Not connected');
+  // Phase 31A (Part B): never show a clean READY when the latest refresh errored —
+  // the values on screen are then STALE (a prior payload). Reflect that honestly so
+  // the operator is not misled into acting on stale workflow status.
+  var _ccRefreshFailed = !!window._commandCenter.error;
+  _ccSetText('cc-kpi-system', _ccRefreshFailed ? 'STALE' : (sys.backend_ready ? 'READY' : 'DEGRADED'));
+  _ccSetText('cc-kpi-system-sub', _ccRefreshFailed
+    ? 'last refresh failed — showing prior data'
+    : (sys.connected ? 'Connected · paper only' : 'Not connected'));
   _ccSetText('cc-kpi-mark', alpha.latest_mark_date || '—');
   _ccSetText('cc-kpi-mark-sub', alpha.mark_freshness_status ?
     alpha.mark_freshness_status.replace(/_/g, ' ') : (alpha.available ? '' : 'no mark'));
@@ -20612,13 +20807,24 @@ function renderCommandCenter() {
   _ccSetText('cc-kpi-capacity', (pf.open_positions != null ? pf.open_positions : '—') + ' / ' + (pf.max_positions != null ? pf.max_positions : '—'));
   // Phase 14-C: same canonical current mark as Portfolio Terminal + an as-of label.
   var ccAsOf = pf.as_of_market_date ? ('as of ' + pf.as_of_market_date) : '';
-  _ccSetText('cc-kpi-capacity-sub', ((pf.capacity_state || '').replace(/_/g, ' ').toLowerCase() || '') + (ccAsOf ? (' · ' + ccAsOf) : ''));
+  // Phase 31A (Part F): explain the MAX_POSITIONS rule in words, from API values only.
+  var _capExplain = _ccCapacityExplanation(pf);
+  var _capState = (pf.capacity_state || '').replace(/_/g, ' ').toLowerCase();
+  var _capSlots = (typeof pf.open_positions === 'number' && typeof pf.max_positions === 'number')
+    ? Math.max(0, pf.max_positions - pf.open_positions) : null;
+  var _capAtCap = (_capSlots === 0) || /FULL|AT_CAP|REACHED|MAX/i.test(String(pf.capacity_state || ''));
+  _ccSetText('cc-kpi-capacity-sub',
+    (_capAtCap ? 'AT CAPACITY — new buys held' : (_capState || 'capacity'))
+    + (ccAsOf ? (' · ' + ccAsOf) : ''));
   var ccCapEl = document.getElementById('cc-kpi-capacity');
   if (ccCapEl) {
-    ccCapEl.title = 'Current portfolio value ' + (pf.total_value != null ? ('$' + pf.total_value) : '—') +
+    ccCapEl.title = _capExplain + '  ·  Current portfolio value ' + (pf.total_value != null ? ('$' + pf.total_value) : '—') +
       ' (cash ' + (pf.cash != null ? ('$' + pf.cash) : '—') + ' + invested ' + (pf.invested_value != null ? ('$' + pf.invested_value) : '—') + ')' +
       (pf.as_of_market_date ? (' · current EOD mark as of ' + pf.as_of_market_date) : '') +
       ' — same canonical valuation as the Portfolio Terminal.';
+    ccCapEl.setAttribute('aria-label', 'Position capacity ' +
+      (pf.open_positions != null ? pf.open_positions : 'unknown') + ' of ' +
+      (pf.max_positions != null ? pf.max_positions : 'unknown') + '. ' + _capExplain);
   }
 
   // ROW 2 workflow stages
@@ -20773,21 +20979,29 @@ async function loadCommandCenter() {
     var resp = await call('GET', '/v1/dashboard/command-center');
     if (!resp.ok) {
       st.error = 'Command center unavailable (HTTP ' + resp.status + ').';
+      try { window._setUiState && window._setUiState({ lastError: st.error, health: 'degraded' }); } catch (e) {}
       renderCommandCenter();
       return;
     }
     st.data = await resp.json();
     st.error = null;
     st.lastLoadedAt = new Date().toLocaleTimeString();
+    try { window._setUiState && window._setUiState({ connected: true, health: 'ok', ready: true, lastRefreshAt: st.lastLoadedAt, lastError: null }); } catch (e) {}
     renderCommandCenter();
     _ccLoadPreviews();               // secondary; failure here never blanks the dashboard
     _ccLoadTournamentSummary();      // secondary read-only; failure never blanks the dashboard
-    try { loadOperationalBook(); } catch (e) {}   // Phase 27B single-source operational book
   } catch (e) {
     st.error = 'Command center request failed: ' + (e && e.message ? e.message : e);
+    try { window._setUiState && window._setUiState({ lastError: st.error, health: 'degraded' }); } catch (e2) {}
     renderCommandCenter();
   } finally {
     st.loading = false;
+    // Phase 31A (Part C): the operational book is fed by a SEPARATE endpoint
+    // (/v1/operational-book) and self-renders. Refresh it whenever a load was
+    // attempted — even if /v1/dashboard/command-center failed — so connected
+    // sections never keep a "connect to load" placeholder. loadOperationalBook()
+    // coalesces concurrent calls via _obInFlight, so calling it here is safe.
+    try { loadOperationalBook(); } catch (e) {}
   }
 }
 window.loadCommandCenter = loadCommandCenter;
@@ -22372,7 +22586,10 @@ function renderPmActionSummary(a) {
   if (filtersEl) {
     filtersEl.innerHTML = _PM_FILTERS.map(function (f) {
       var active = (window._pmFilter === f[0]);
-      return '<button class="btn-sm" style="' + (active ? 'font-weight:800;border-color:var(--info,#3b82f6);' : '') +
+      // Phase 31A (Part I): aria-pressed conveys the active filter without relying on
+      // colour/weight alone; aria-label disambiguates terse chips (e.g. "Blocked").
+      return '<button class="btn-sm" aria-pressed="' + (active ? 'true' : 'false') +
+        '" aria-label="Filter action rows: show ' + escapeHtml(f[1]) + '" style="' + (active ? 'font-weight:800;border-color:var(--info,#3b82f6);' : '') +
         '" onclick="pmFilterActions(\'' + f[0] + '\')" title="Show ' + escapeHtml(f[1]) + ' rows.">' + escapeHtml(f[1]) + '</button>';
     }).join('');
   }
