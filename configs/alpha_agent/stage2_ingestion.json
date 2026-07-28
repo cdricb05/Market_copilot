@@ -1,0 +1,176 @@
+{
+  "stage": "2",
+  "config_version": "1.0.0",
+  "description": "Alpha Agent Stage 2 — autonomous data-acquisition foundation. Deterministic, incremental, bounded ingestion of real source data. Contains NO credentials; allowed environment-variable NAMES only.",
+  "safety": {
+    "paper_only": true,
+    "no_orders": true,
+    "no_automation": true,
+    "no_model_api": true,
+    "no_postgres": true,
+    "read_only_operational_stores": true,
+    "read_only_stage1_registry": true,
+    "secrets_never_persisted": true
+  },
+  "stage1_registry_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\registry",
+  "operational_ledger_roots": [
+    "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
+    "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger"
+  ],
+  "output_contract": {
+    "layout_version": "1.0.0",
+    "state_dir": "state",
+    "state_db": "source_state.sqlite",
+    "raw_dir": "raw",
+    "normalized_dir": "normalized",
+    "runs_dir": "runs",
+    "latest_file": "latest.json",
+    "required_run_files": [
+      "source_inventory.json",
+      "entitlement_audit.json",
+      "source_health.csv",
+      "collection_manifest.json",
+      "raw_object_index.csv",
+      "normalized_record_counts.csv",
+      "data_quality_report.json",
+      "coverage_gap_mapping.csv",
+      "checkpoint_summary.json",
+      "daily_ingestion_report.md",
+      "run_manifest.json"
+    ]
+  },
+  "limits": {
+    "http_timeout_seconds": 30,
+    "max_retries": 3,
+    "backoff_base_seconds": 1.0,
+    "backoff_multiplier": 2.0,
+    "raw_object_max_bytes": 33554432,
+    "max_raw_objects_per_source": 200,
+    "max_normalized_records_per_source": 120000,
+    "circuit_breaker_threshold": 5
+  },
+  "secret_redaction": {
+    "redacted_query_params": ["api_token", "api_key", "apikey", "token", "key", "apiKey"],
+    "redaction_placeholder": "REDACTED",
+    "forbid_full_url_when_query_redacted": true
+  },
+  "user_agent": {
+    "product": "paper-trader-alpha-agent/2.0",
+    "contact_resolution_policy": "git_config_user_email",
+    "mask_contact_in_logs": true
+  },
+  "sources": {
+    "norgate_local": {
+      "enabled": true,
+      "priority": 1,
+      "kind": "local_vendor",
+      "license_note": "Norgate Data - licensed local market data; local analytical use only; do not redistribute raw content.",
+      "min_interval_seconds": 0.0,
+      "sample_symbols": ["AAPL", "MSFT", "NVDA", "AMZN", "JPM", "XOM", "SPY"],
+      "index_partition_symbols": ["AAPL", "MSFT", "JPM", "XOM"],
+      "index_name": "S&P 500",
+      "recent_bar_days": 30,
+      "max_watchlists": 100,
+      "freshness_threshold_days": 6
+    },
+    "eodhd": {
+      "enabled": true,
+      "priority": 2,
+      "kind": "entitled_provider",
+      "license_note": "EODHD - subscriber-entitled market data; local analytical use per subscription terms; do not redistribute.",
+      "base_url": "https://eodhd.com/api",
+      "allowed_env_vars": ["EODHD_API_KEY"],
+      "min_interval_seconds": 0.25,
+      "sample_symbols": ["AAPL.US", "MSFT.US", "NVDA.US", "AMZN.US", "JPM.US", "XOM.US", "SPY.US"],
+      "fundamentals_sample_symbols": ["AAPL.US", "JPM.US", "XOM.US"],
+      "recent_bar_days": 10,
+      "corporate_actions_window_days": 30,
+      "earnings_window_days": 7,
+      "news_window_days": 3,
+      "news_limit_per_symbol": 10,
+      "insider_limit": 100,
+      "entitlement_probe_families": ["eod", "dividends", "splits", "earnings", "fundamentals", "insider", "news"],
+      "freshness_threshold_days": 6
+    },
+    "sec_edgar": {
+      "enabled": true,
+      "priority": 3,
+      "kind": "public_official",
+      "license_note": "SEC EDGAR - official U.S. government public filing data; public domain.",
+      "base_url_www": "https://www.sec.gov",
+      "base_url_data": "https://data.sec.gov",
+      "min_interval_seconds": 0.34,
+      "filing_window_business_days": 3,
+      "forms_of_interest": ["8-K", "8-K/A", "10-Q", "10-Q/A", "10-K", "10-K/A", "4", "4/A"],
+      "max_filings_per_day": 6000,
+      "store_filing_text": false,
+      "ticker_map_path": "/files/company_tickers.json",
+      "freshness_threshold_days": 6
+    },
+    "finra": {
+      "enabled": true,
+      "priority": 4,
+      "kind": "public_official",
+      "license_note": "FINRA Reg SHO daily short-sale volume files - official public data. Daily short-sale VOLUME, not short interest.",
+      "base_url": "https://cdn.finra.org/equity/regsho/daily",
+      "markets": ["CNMS"],
+      "window_business_days": 3,
+      "min_interval_seconds": 0.5,
+      "freshness_threshold_days": 6
+    },
+    "nasdaq_trader": {
+      "enabled": true,
+      "priority": 5,
+      "kind": "public_official",
+      "license_note": "Nasdaq Trader public symbol directory and trading-halt feed - official public data (NOT the paid Nasdaq Data Link product).",
+      "symbol_directory_urls": {
+        "nasdaqlisted": "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt",
+        "otherlisted": "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
+      },
+      "halts_feed_url": "https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts",
+      "min_interval_seconds": 0.5,
+      "freshness_threshold_days": 6
+    },
+    "fred_alfred": {
+      "enabled": true,
+      "priority": 6,
+      "kind": "public_api_keyed",
+      "license_note": "FRED/ALFRED - Federal Reserve Bank of St. Louis public economic data; cite FRED as source.",
+      "base_url": "https://api.stlouisfed.org/fred",
+      "allowed_env_vars": ["FRED_API_KEY", "PAPER_TRADER_FRED_API_KEY"],
+      "min_interval_seconds": 0.5,
+      "observation_window_days": 45,
+      "use_alfred_vintages": true,
+      "series_allowlist": [
+        {"series_id": "DGS2", "macro_family": "interest_rates", "title": "2-Year Treasury Constant Maturity"},
+        {"series_id": "DGS10", "macro_family": "interest_rates", "title": "10-Year Treasury Constant Maturity"},
+        {"series_id": "T10Y2Y", "macro_family": "yield_curve", "title": "10Y minus 2Y Treasury Spread"},
+        {"series_id": "DFF", "macro_family": "interest_rates", "title": "Effective Federal Funds Rate"},
+        {"series_id": "SOFR", "macro_family": "liquidity_financial_conditions", "title": "Secured Overnight Financing Rate"},
+        {"series_id": "BAMLH0A0HYM2", "macro_family": "credit_conditions", "title": "ICE BofA US High Yield OAS"},
+        {"series_id": "BAMLC0A0CM", "macro_family": "credit_conditions", "title": "ICE BofA US Corporate OAS"},
+        {"series_id": "CPIAUCSL", "macro_family": "inflation", "title": "CPI All Urban Consumers"},
+        {"series_id": "UNRATE", "macro_family": "labor", "title": "Unemployment Rate"},
+        {"series_id": "ICSA", "macro_family": "labor", "title": "Initial Jobless Claims"},
+        {"series_id": "NFCI", "macro_family": "liquidity_financial_conditions", "title": "Chicago Fed National Financial Conditions Index"},
+        {"series_id": "VIXCLS", "macro_family": "volatility_regime", "title": "CBOE Volatility Index"}
+      ],
+      "freshness_threshold_days": 45
+    },
+    "gdelt": {
+      "enabled": false,
+      "deferred": true,
+      "defer_reason": "Deferred by design: the six core collectors take priority in Stage 2. Adapter is fully specified and fixture-tested (metadata-only storage, canonical-URL + content-fingerprint dedup, bounded snippets, no unrestricted copyrighted full text). Enable after core collectors are proven in daily operation.",
+      "priority": 7,
+      "kind": "public_discovery",
+      "license_note": "GDELT - open metadata discovery feed; store metadata/headline/URL/timestamps/themes/bounded snippet only; never archive unrestricted copyrighted full article text.",
+      "base_url": "https://api.gdeltproject.org/api/v2/doc/doc",
+      "min_interval_seconds": 1.0,
+      "max_articles": 50,
+      "metadata_only": true,
+      "snippet_max_chars": 280,
+      "query_symbols": ["AAPL", "MSFT", "NVDA", "AMZN", "JPM", "XOM"],
+      "freshness_threshold_days": 6
+    }
+  }
+}
