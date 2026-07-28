@@ -1,0 +1,108 @@
+{
+  "stage": "1",
+  "config_name": "alpha_agent_stage1_registry",
+  "config_version": 1,
+  "description": "Pre-registered configuration for Alpha Agent Stage 1: the Unified Research Memory and Canonical Registry. RESEARCH MEMORY ONLY. READ ONLY with respect to every source root. No new alpha search, no backtest, no model execution, no LLM call, no network, no database. All generated data is written only under output_root; every source root is treated as immutable.",
+
+  "safety": {
+    "research_memory_only": true,
+    "no_new_experiment": true,
+    "no_backtest": true,
+    "no_model_execution": true,
+    "no_llm_call": true,
+    "no_network_call": true,
+    "no_gcp_call": true,
+    "no_provider_call": true,
+    "no_database_connection": true,
+    "no_database_write": true,
+    "no_source_mutation": true,
+    "no_operational_ledger_mutation": true,
+    "no_active_book_change": true,
+    "no_orders": true,
+    "no_automation": true,
+    "writes_only_to_output_root": true
+  },
+
+  "hashing": {
+    "full_hash_max_bytes": 268435456,
+    "full_hash_algorithm": "sha256",
+    "sampled_fingerprint_label": "PARTIAL_CONTENT_FINGERPRINT",
+    "sampled_fingerprint_edge_bytes": 1048576,
+    "read_chunk_bytes": 4194304
+  },
+
+  "parsing": {
+    "row_count_max_bytes": 134217728,
+    "csv_column_sniff_bytes": 65536,
+    "jsonl_first_record_only_for_columns": true,
+    "supported_structured_formats": ["json", "jsonl", "csv", "md", "txt", "toml", "yaml", "yml", "sqlite", "db", "parquet"],
+    "code_formats": ["py"],
+    "binary_or_unsupported_formats": ["pkl", "pickle", "npz", "npy", "zip", "gz", "pyc", "html", "htm", "png", "jpg", "jpeg", "pdf", "xlsx"]
+  },
+
+  "excluded_roots": [
+    "D:\\Stock_Prediction_app_data\\alpha_agent"
+  ],
+
+  "source_roots": [
+    {"id": "autonomous_alpha_daemon", "path": "D:\\Stock_Prediction_app_data\\autonomous_alpha_daemon", "kind": "research_output"},
+    {"id": "data_family_expansion_signal_factory", "path": "D:\\Stock_Prediction_app_data\\data_family_expansion_signal_factory", "kind": "research_output"},
+    {"id": "external_adapters", "path": "D:\\Stock_Prediction_app_data\\external_adapters", "kind": "research_output"},
+    {"id": "external_normalized", "path": "D:\\Stock_Prediction_app_data\\external_normalized", "kind": "research_output"},
+    {"id": "external_raw", "path": "D:\\Stock_Prediction_app_data\\external_raw", "kind": "research_output"},
+    {"id": "phase13g_daily_alpha_marks", "path": "D:\\Stock_Prediction_app_data\\phase13g_daily_alpha_marks", "kind": "research_output"},
+    {"id": "phase20_alpha_factory", "path": "D:\\Stock_Prediction_app_data\\phase20_alpha_factory", "kind": "research_output"},
+    {"id": "phase21_price_alpha_factory", "path": "D:\\Stock_Prediction_app_data\\phase21_price_alpha_factory", "kind": "research_output"},
+    {"id": "phase22_cache", "path": "D:\\Stock_Prediction_app_data\\phase22_cache", "kind": "research_output"},
+    {"id": "phase23_cache", "path": "D:\\Stock_Prediction_app_data\\phase23_cache", "kind": "research_output"},
+    {"id": "phase24_cache", "path": "D:\\Stock_Prediction_app_data\\phase24_cache", "kind": "research_output"},
+    {"id": "phase25_fast_ohlc", "path": "D:\\Stock_Prediction_app_data\\phase25_fast_ohlc", "kind": "research_output"},
+    {"id": "phase25_multi_horizon_alpha", "path": "D:\\Stock_Prediction_app_data\\phase25_multi_horizon_alpha", "kind": "research_output"},
+    {"id": "phase2k_g", "path": "D:\\Stock_Prediction_app_data\\phase2k_g", "kind": "research_output"},
+    {"id": "phase7i_broad_universe", "path": "D:\\Stock_Prediction_app_data\\phase7i_broad_universe", "kind": "research_output"},
+    {"id": "phase7j_broad_universe_signal_retest", "path": "D:\\Stock_Prediction_app_data\\phase7j_broad_universe_signal_retest", "kind": "research_output"},
+    {"id": "phase7k_survivorship_data_foundation", "path": "D:\\Stock_Prediction_app_data\\phase7k_survivorship_data_foundation", "kind": "research_output"},
+    {"id": "provider_cache", "path": "D:\\Stock_Prediction_app_data\\provider_cache", "kind": "research_output"},
+    {"id": "research_agent", "path": "D:\\Stock_Prediction_app_data\\research_agent", "kind": "research_output"},
+    {"id": "research_panels", "path": "D:\\Stock_Prediction_app_data\\research_panels", "kind": "research_output"},
+    {"id": "self_expanding_alpha_factory", "path": "D:\\Stock_Prediction_app_data\\self_expanding_alpha_factory", "kind": "research_output"},
+    {"id": "paper_trader_research", "path": "D:\\Stock_Prediction_app_data\\paper_trader_research", "kind": "research_output"},
+    {"id": "paper_trading_desk", "path": "C:\\Users\\binis\\.paper_trader\\paper_trading_desk", "kind": "operational_ledger"},
+    {"id": "multi_horizon_alpha_ledger", "path": "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger", "kind": "operational_ledger"},
+    {"id": "repo_configs", "path": "C:\\Users\\binis\\paper_trader\\configs", "kind": "repo_config"},
+    {"id": "repo_engine", "path": "C:\\Users\\binis\\paper_trader\\engine", "kind": "repo_code"},
+    {"id": "repo_scripts", "path": "C:\\Users\\binis\\paper_trader\\scripts", "kind": "repo_code"}
+  ],
+
+  "operational_ledger_roots": [
+    "paper_trading_desk",
+    "multi_horizon_alpha_ledger"
+  ],
+
+  "current_state": {
+    "active_book_id": "alpha_paper_book_1",
+    "benchmark_ticker": "SPY",
+    "desk_dir": "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
+    "forward_performance_file": "forward_performance.json",
+    "paper_books_file": "paper_books.json",
+    "daily_close_journal_file": "daily_close_journal.json",
+    "phase31b_package_root": "D:\\Stock_Prediction_app_data\\paper_trader_research"
+  },
+
+  "duplicate_prevention": {
+    "exact_match_classes": ["EXACT_DUPLICATE", "PARAMETER_VARIANT", "SAME_INFORMATION_FAMILY", "DISTINCT_INFORMATION", "INCOMPLETE_METADATA", "CONFLICTING_METADATA"],
+    "contract_results": ["NEW_INFORMATION", "EXACT_DUPLICATE", "PARAMETER_DUPLICATE", "NEW_DATA_AVAILABLE", "PRIOR_TEST_INCOMPLETE", "METADATA_INSUFFICIENT"]
+  },
+
+  "evidence_classifications": [
+    "PROVEN_DISTINCT",
+    "TESTED_AND_REJECTED",
+    "TESTED_INCONCLUSIVE",
+    "DUPLICATE_INFORMATION",
+    "BLOCKED_BY_MISSING_DATA",
+    "NOT_YET_TESTED",
+    "METADATA_INSUFFICIENT"
+  ],
+
+  "notes": "Source-root taxonomy, field-alias maps, information-family classifiers and record-type classifiers are versioned in code (importer_version) so their determinism is captured by the run id. This config carries only the operational knobs: source roots, hashing/parse thresholds, safety flags and current-state pointers."
+}
