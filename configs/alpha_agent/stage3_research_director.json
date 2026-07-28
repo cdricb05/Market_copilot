@@ -1,0 +1,141 @@
+{
+  "stage": "3",
+  "description": "Alpha Agent Stage 3 — grounded LLM research director. Consumes ONLY the verified Stage 1 registry and verified Stage 2 normalized records; interprets events, proposes hypotheses, prioritizes research; NEVER executes experiments, code, orders, promotions or Paper Trader mutations. No credential is ever stored in this file — env-var NAMES only.",
+  "safety": {
+    "paper_only": true,
+    "no_orders": true,
+    "no_automation": true,
+    "no_postgresql": true,
+    "no_paper_trader_db_mutation": true,
+    "no_llm_tool_use": true,
+    "no_llm_code_execution": true,
+    "no_llm_web_access": true,
+    "no_experiment_execution": true,
+    "no_model_promotion": true,
+    "secrets_in_config_forbidden": true
+  },
+  "stage1_registry_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\registry",
+  "stage2_ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
+  "operational_ledger_roots": [
+    "C:\\Users\\binis\\.paper_trader\\paper_trading_desk"
+  ],
+  "output_contract": {
+    "dirs": ["state", "prompts", "runs"],
+    "required_run_files": [
+      "input_snapshot.json", "selected_event_records.jsonl",
+      "registry_context.json", "prompt_manifest.json", "provider_receipt.json",
+      "structured_event_analysis.jsonl", "hypothesis_proposals.json",
+      "duplicate_gate_results.json", "rejected_proposals.json",
+      "research_queue.json", "director_decisions.json",
+      "token_cost_report.json", "stage3_daily_report.md",
+      "stage3_5_news_rss_requirements.json", "run_manifest.json"
+    ]
+  },
+  "input_selection": {
+    "eligible_record_types": [
+      "NEWS_EVENT", "FILING_EVENT", "INSIDER_FILING", "EARNINGS_EVENT",
+      "TRADING_HALT", "MACRO_OBSERVATION", "SHORT_VOLUME", "CORPORATE_ACTION",
+      "SOURCE_HEALTH"
+    ],
+    "market_bar_individual_records_forbidden": true,
+    "require_source_states": ["HEALTHY", "DEGRADED"],
+    "max_event_records_per_cycle": 40,
+    "max_records_per_source": 15,
+    "max_records_per_ticker": 3,
+    "max_snippet_chars": 500,
+    "focus_tickers": ["AAPL", "MSFT", "NVDA", "AMZN", "JPM", "XOM", "SPY"]
+  },
+  "budgets": {
+    "max_calls_per_cycle": 6,
+    "max_input_tokens_per_cycle": 120000,
+    "max_output_tokens_per_cycle": 12000,
+    "max_output_tokens_per_call": 8000,
+    "max_input_tokens_per_day": 300000,
+    "max_output_tokens_per_day": 50000,
+    "daily_cost_warning_usd": 0.75,
+    "daily_cost_hard_stop_usd": 1.25,
+    "monthly_cost_warning_usd": 20.0,
+    "monthly_cost_hard_stop_usd": 30.0,
+    "max_event_records_per_cycle": 40,
+    "max_records_per_ticker": 3,
+    "max_prompt_characters": 120000,
+    "max_response_characters": 60000
+  },
+  "providers": {
+    "priority": ["anthropic_http", "claude_code"],
+    "anthropic_http": {
+      "allowed_env_vars": ["ANTHROPIC_API_KEY"],
+      "model_env_var": "ALPHA_AGENT_LLM_MODEL",
+      "default_model": "claude-sonnet-4-5",
+      "api_url": "https://api.anthropic.com/v1/messages",
+      "anthropic_version": "2023-06-01",
+      "timeout_seconds": 120,
+      "max_retries": 2,
+      "backoff_seconds": 2.0,
+      "circuit_breaker_threshold": 3,
+      "pricing": [
+        {
+          "model": "claude-sonnet-4-5",
+          "effective_date": "2025-09-29",
+          "input_usd_per_mtok": 3.0,
+          "output_usd_per_mtok": 15.0,
+          "cache_write_usd_per_mtok": 3.75,
+          "cache_read_usd_per_mtok": 0.30,
+          "source_note": "Published Anthropic API list pricing for claude-sonnet-4-5 (docs.anthropic.com pricing page). Operator must re-verify against the current price sheet before enabling unattended Stage 4 production; changing the model REQUIRES adding its pricing row here or cost is recorded UNAVAILABLE."
+        }
+      ]
+    },
+    "claude_code": {
+      "executable": "claude",
+      "timeout_seconds": 600,
+      "max_retries": 0,
+      "circuit_breaker_threshold": 2,
+      "disallowed_tools": [
+        "Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch",
+        "Task", "Agent", "Glob", "Grep", "Read", "TodoWrite", "Skill",
+        "Workflow", "SlashCommand", "KillShell", "BashOutput",
+        "EnterPlanMode", "ExitPlanMode"
+      ],
+      "classification_note": "CLAUDE_CODE_DEVELOPMENT_ONLY — bounded development-time fallback; not acceptable as the unattended Stage 4 production provider; cost recorded UNAVAILABLE.",
+      "development_profile": {
+        "enabled": true,
+        "max_event_records_per_cycle": 6,
+        "balanced_sample_targets": [
+          ["NEWS_EVENT", 2],
+          ["FILING_EVENT", 1],
+          ["INSIDER_FILING", 1],
+          ["MACRO_OBSERVATION", 1],
+          ["TRADING_HALT", 1]
+        ],
+        "per_call_max_output_tokens": {
+          "event_interpretation": 4000,
+          "hypothesis_generation": 3000,
+          "research_prioritization": 1500
+        },
+        "output_field_limits": {
+          "max_event_analyses": 6,
+          "factual_summary_max_chars": 240,
+          "what_is_new_max_chars": 180,
+          "economic_mechanism_max_chars": 240,
+          "max_positive_implications": 2,
+          "max_negative_implications": 2,
+          "implication_max_chars": 120,
+          "peer_or_sector_implications_max_chars": 180,
+          "max_missing_context": 3,
+          "max_unsupported_claims": 3,
+          "max_hypotheses": 3
+        },
+        "use_json_schema": true,
+        "effort": "low",
+        "model": "claude-fable-5",
+        "disable_narrative_llm_call": true,
+        "note": "Development-ONLY bounded proof profile for the claude_code provider. Bounds the single live cycle so event_interpretation AND hypothesis_generation both complete within the UNCHANGED 12000 per-cycle output cap (event<=4000 + hypothesis<=3000 + prioritize<=1500 + >=3500 reserve). Uses only locally-confirmed CLI flags: --json-schema, --effort, --model, --disallowedTools, -p, --output-format. The anthropic_http production profile and all budgets are unaffected; cost stays UNAVAILABLE."
+      }
+    }
+  },
+  "duplicate_gate": {
+    "parameter_duplicate_permitted": false,
+    "contract": "alpha_agent.research_registry.classify_candidate_experiment"
+  },
+  "narrative_enabled": true
+}
