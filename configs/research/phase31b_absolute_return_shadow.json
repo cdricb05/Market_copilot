@@ -1,0 +1,147 @@
+{
+  "phase": "31B",
+  "config_name": "phase31b_absolute_return_shadow",
+  "config_version": 1,
+  "description": "Pre-registered parameters for the Phase 31B absolute-return diagnosis and risk-controlled shadow-challenger study. RESEARCH ONLY, READ ONLY with respect to Paper Trader. All parameters are fixed BEFORE observing any outcome and must not be tuned on the evaluation period.",
+  "objective": "Produce positive absolute returns over time with controlled drawdown, while preserving measurable stock-selection alpha. Diagnose the current book; test risk-controlled shadow portfolios; never alter the active book.",
+  "active_book_id": "alpha_paper_book_1",
+  "benchmark_ticker": "SPY",
+
+  "sources": {
+    "note": "Machine paths; env vars override. Every source is an owned local file. No network, no database.",
+    "desk_dir_env": "PAPER_TRADER_DESK_DIR",
+    "desk_dir_default": "~/.paper_trader/paper_trading_desk",
+    "mhz_inputs_dir_env": "PAPER_TRADER_MHZ_INPUTS_DIR",
+    "mhz_inputs_dir_default": "D:\\Stock_Prediction_app_data\\phase25_multi_horizon_alpha\\_inputs",
+    "risk_stats_file": "current_risk_stats.csv",
+    "momentum_scores_file": "current_momentum_scores.csv",
+    "sector_map_env": "PAPER_TRADER_MHZ_SECTOR_MAP",
+    "sector_map_default": "C:\\Users\\binis\\Stock_Prediction_app_push\\research\\output\\phase10f_owned_sector_mapping_repair\\repaired_sector_mapping.csv",
+    "sector_source_priority": ["forward_prediction_snapshots_cross_section", "repaired_sector_mapping_csv"],
+    "price_source_priority": ["forward_prediction_prices_store", "desk_marks_cache"]
+  },
+
+  "reconciliation": {
+    "accounting_nav_abs_tolerance_usd": 0.01,
+    "accounting_return_abs_tolerance_bps": 1.0,
+    "attribution_return_abs_tolerance_bps": 1.0,
+    "attribution_nav_abs_tolerance_usd": 1.0
+  },
+
+  "risk": {
+    "covariance_estimator": "shrinkage_constant_correlation",
+    "covariance_diagonal_fallback": true,
+    "covariance_shrinkage_intensity": 0.5,
+    "covariance_correlation_lookback_returns_preferred": 60,
+    "diagonal_vol_source": "owned_realized_vol_63d",
+    "beta_vs_spy_lookback_returns_preferred": 60,
+    "beta_proxy_source": "owned_beta_universe",
+    "trading_days_per_year": 252,
+    "downside_target_return": 0.0,
+    "min_returns_for_annualization": 20,
+    "min_returns_for_rolling_corr": 5,
+    "rolling_windows_returns": [5, 20]
+  },
+
+  "signal_decay": {
+    "requested_horizons_eligible_closes": [1, 5, 10, 20, 40],
+    "system_native_horizons_eligible_closes": [1, 5, 20, 63],
+    "ic_method": "spearman_rank",
+    "min_names_for_ic": 3,
+    "min_matured_dates_for_conclusion": 20,
+    "top_bottom_quantile": 0.1,
+    "never_mix_pending_into_matured": true
+  },
+
+  "shadow_variants": {
+    "universe_rule": "active_book_25_holdings",
+    "eligible_universe_benchmark_rule": "equal_weight_price_store_universe",
+    "alpha_rank_source": "owned_mom_6_1_current_scores",
+    "variant_a_current_control": {
+      "id": "A",
+      "label": "CURRENT CONTROL (frozen)",
+      "construction": "reproduce_actual_operational_holdings",
+      "long_only": true
+    },
+    "variant_b_risk_controlled_long_only": {
+      "id": "B",
+      "label": "RISK-CONTROLLED LONG-ONLY",
+      "long_only": true,
+      "allow_leverage": false,
+      "allow_cash": true,
+      "max_individual_weight": 0.05,
+      "max_active_sector_deviation_pp": 0.05,
+      "annualized_volatility_target": 0.10,
+      "covariance_aware_sizing": true,
+      "marginal_risk_contribution_control": true,
+      "turnover_penalty_lambda": 0.10,
+      "no_new_alpha_factor": true,
+      "no_future_data": true
+    },
+    "variant_c_beta_controlled": {
+      "id": "C",
+      "label": "BETA-CONTROLLED SHADOW",
+      "base_variant": "B",
+      "primary_net_beta_target": 0.25,
+      "preregistered_net_beta_sensitivity_targets": [0.0, 0.25, 0.5],
+      "hedge_instrument": "SPY",
+      "simulation_only": true,
+      "no_single_stock_shorting": true,
+      "allow_cash": true,
+      "max_gross_exposure": 1.0
+    }
+  },
+
+  "transaction_costs": {
+    "one_way_cost_grid_bps": [0, 5, 10, 20],
+    "brief_primary_cost_bps": 10,
+    "authoritative_paper_trader_cost_bps_per_side": 12.5,
+    "primary_cost_bps_used": 12.5,
+    "primary_cost_rationale": "The alpha_book policy records one_way_transaction_cost_bps = 12.5 as the authoritative Paper Trader execution-cost assumption, which exceeds the brief's 10bps default; the brief permits using a higher authoritative realized cost as primary. 10bps is retained in the grid."
+  },
+
+  "walk_forward": {
+    "use_only_prior_or_asof_information": true,
+    "no_full_sample_optimizer": true,
+    "no_retroactive_target_reconstruction": true,
+    "insufficient_history_fallback": "hold_cash_or_diagonal_covariance",
+    "record_every_fallback": true
+  },
+
+  "promotion_gates": {
+    "min_completed_trading_days": 60,
+    "preferred_completed_trading_days": 120,
+    "min_matured_observations": 100,
+    "require_positive_net_excess_after_cost": true,
+    "net_excess_cost_bps": 10,
+    "require_multiple_rolling_windows": true,
+    "require_stable_ic_or_spread": true,
+    "forbid_single_sector_majority": true,
+    "require_controlled_beta": true,
+    "require_lower_drawdown_or_better_risk_adjusted": true,
+    "forbid_lookahead_survivorship_or_reconciliation_failure": true,
+    "allowed_decisions": [
+      "CONTINUE_CONTROL_AND_SHADOW_TEST",
+      "RESEARCH_DATA_INSUFFICIENT",
+      "CHALLENGER_EVIDENCE_PROMISING_NOT_PROMOTABLE",
+      "CHALLENGER_REJECTED"
+    ],
+    "promote_now_forbidden": true
+  },
+
+  "safety": {
+    "research_only": true,
+    "read_only_paper_trader": true,
+    "writes_only_to_output_root": true,
+    "no_database_write": true,
+    "no_database_connection": true,
+    "no_orders": true,
+    "no_broker": true,
+    "no_automation": true,
+    "no_hedge_activation": true,
+    "no_short_activation": true,
+    "no_model_promotion": true,
+    "no_active_book_change": true,
+    "no_external_market_data_calls": true
+  }
+}
