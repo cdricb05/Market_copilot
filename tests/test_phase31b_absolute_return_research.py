@@ -249,6 +249,145 @@ class TestVariantBLive:
         for s, wsum in sec.items():
             assert wsum <= bench.get(s, 0.0) + dev + 1e-4
 
+    def test_variant_b_name_cap_holds_after_final_scaling_live(self, live_S):
+        # Regression for the Phase 31B name-cap breach: on the live 25-name book
+        # the max position stayed at 0.05033778 (> 0.05) because the trailing
+        # sector-cap redistribution re-inflated a name above the 5% cap. The
+        # deterministic joint projection must keep it at/under the cap after every
+        # later transformation (turnover blend, joint caps, volatility scaling).
+        vb = are.construct_variant_b(live_S, _cfg())
+        w = vb["weights"]
+        name_cap = _cfg()["shadow_variants"]["variant_b_risk_controlled_long_only"]["max_individual_weight"]
+        assert w, "live book produced no Variant B weights"
+        assert max(w.values()) <= name_cap + 1e-9          # strict: no tolerance slack needed
+        assert vb["gross"] <= 1.0 + 1e-12                   # unlevered
+        assert vb["cash"] >= -1e-12                         # residual held as cash, never negative
+        assert min(w.values()) >= -1e-12                    # long only
+        assert abs(vb["gross"] + vb["cash"] - 1.0) < 1e-6   # gross + cash accounts for the whole book
+
+
+# =========================================================================== #
+# 11 (regression). Deterministic proofs that the joint name/sector projection
+# never breaches the 5% name cap or a sector cap, and holds residual as cash
+# instead of renormalizing concentration back above a cap. Hermetic — the
+# projection needs only a sector map, so no live store / DB / network.
+# =========================================================================== #
+class TestVariantBNameCapProjection:
+    # 9 sectors / 25 names, mirroring the live book's shape: a few single-name
+    # sectors whose 5% name cap binds below their sector cap, so the book cannot
+    # be fully invested and ~4% must be held as cash.
+    _SECT = {
+        "IT1": "IT", "IT2": "IT", "IT3": "IT", "IT4": "IT", "IT5": "IT", "IT6": "IT",
+        "IND1": "Ind", "IND2": "Ind", "IND3": "Ind", "IND4": "Ind", "IND5": "Ind", "IND6": "Ind",
+        "EN1": "En", "EN2": "En", "EN3": "En", "EN4": "En",
+        "HC1": "HC", "HC2": "HC", "HC3": "HC",
+        "CS1": "CS", "CS2": "CS",
+        "MAT1": "Mat", "RE1": "RE", "COM1": "Com", "CD1": "CD",
+    }
+    _BENCH = {"IT": 0.15, "Ind": 0.15, "En": 0.06, "HC": 0.15, "CS": 0.05,
+              "Mat": 0.07, "RE": 0.03, "Com": 0.04, "CD": 0.06}
+    _NAME_CAP = 0.05
+    _DEV = 0.05
+
+    def _S(self):
+        return {"snap_sector": dict(self._SECT), "sector_by_ticker": {}}
+
+    def _skewed_weights(self):
+        # a heavily concentrated pre-cap tilt: two IT names dominate, one big
+        # single-name sector, the rest small — exactly the shape that made naive
+        # sector redistribution push a name back above the cap.
+        w = {t: 0.01 for t in self._SECT}
+        w["IT1"] = 0.30
+        w["IT2"] = 0.25
+        w["IND1"] = 0.15
+        w["EN1"] = 0.10
+        w["CD1"] = 0.12
+        s = sum(w.values())
+        return {t: v / s for t, v in w.items()}
+
+    def _sector_shares(self, S, w):
+        gross = sum(w.values()) or 1.0
+        sec = {}
+        for t, v in w.items():
+            sec[are.sector_of(S, t)] = sec.get(are.sector_of(S, t), 0.0) + v / gross
+        return sec
+
+    def test_25_name_input_never_exceeds_name_cap(self):
+        # (1) live-style 25-name input cannot exceed the 5% cap.
+        S = self._S()
+        out = are._apply_joint_caps(S, self._skewed_weights(), self._BENCH,
+                                    self._NAME_CAP, self._DEV)
+        assert max(out.values()) <= self._NAME_CAP + 1e-12
+
+    def test_multiple_initially_capped_names_stay_capped(self):
+        # (2) several names start far above the cap; all end at/under it.
+        S = self._S()
+        w0 = self._skewed_weights()
+        over = [t for t, v in w0.items() if v > self._NAME_CAP]
+        assert len(over) >= 2                                # IT1, IT2, IND1, EN1, CD1 ...
+        out = are._apply_joint_caps(S, w0, self._BENCH, self._NAME_CAP, self._DEV)
+        for t in over:
+            assert out[t] <= self._NAME_CAP + 1e-12
+        # the dominant names remain pinned exactly at the cap (not zeroed out)
+        assert out["IT1"] == pytest.approx(self._NAME_CAP, abs=1e-9)
+        assert out["IT2"] == pytest.approx(self._NAME_CAP, abs=1e-9)
+
+    def test_residual_is_held_as_cash_when_no_legal_recipient(self):
+        # (3) with single-name sectors capped at 5%, the book cannot be fully
+        # invested; the unplaceable remainder is cash (gross < 1), never forced
+        # onto a name above its cap.
+        S = self._S()
+        out = are._apply_joint_caps(S, self._skewed_weights(), self._BENCH,
+                                    self._NAME_CAP, self._DEV)
+        gross = sum(out.values())
+        assert gross < 1.0 - 1e-6                            # cash strictly held
+        cash = 1.0 - gross
+        assert cash > 0.0
+        assert max(out.values()) <= self._NAME_CAP + 1e-12   # cap still intact with cash held
+
+    def test_gross_never_exceeds_one_and_weights_nonnegative(self):
+        # (4) gross <= 1.0  and  (5) all weights >= 0.
+        S = self._S()
+        out = are._apply_joint_caps(S, self._skewed_weights(), self._BENCH,
+                                    self._NAME_CAP, self._DEV)
+        assert sum(out.values()) <= 1.0 + 1e-12
+        assert all(v >= 0.0 for v in out.values())
+
+    def test_sector_limits_remain_satisfied(self):
+        # (6) every sector's invested share stays within benchmark + deviation.
+        S = self._S()
+        out = are._apply_joint_caps(S, self._skewed_weights(), self._BENCH,
+                                    self._NAME_CAP, self._DEV)
+        for s, share in self._sector_shares(S, out).items():
+            assert share <= self._BENCH.get(s, 0.0) + self._DEV + 1e-9
+
+    def test_repeated_construction_is_identical(self):
+        # (7) deterministic output for identical inputs.
+        S = self._S()
+        w0 = self._skewed_weights()
+        a = are._apply_joint_caps(S, w0, self._BENCH, self._NAME_CAP, self._DEV)
+        b = are._apply_joint_caps(S, dict(w0), self._BENCH, self._NAME_CAP, self._DEV)
+        assert a == b
+
+    def test_full_investment_when_caps_are_slack(self):
+        # sanity: when the caps are easily satisfiable the projection invests the
+        # whole book (no spurious cash) and still honors the name cap.
+        S = self._S()
+        loose_bench = {s: 0.50 for s in self._BENCH}         # 55% sector cap -> slack
+        out = are._apply_joint_caps(S, self._skewed_weights(), loose_bench,
+                                    self._NAME_CAP, self._DEV)
+        assert sum(out.values()) == pytest.approx(1.0, abs=1e-9)
+        assert max(out.values()) <= self._NAME_CAP + 1e-12
+
+    def test_waterfill_respects_cap_and_conserves_mass(self):
+        # the within-sector placer never exceeds the cap and places exactly the
+        # requested mass when the cap allows it.
+        alloc = are._waterfill(["A", "B", "C"], {"A": 100.0, "B": 1.0, "C": 1.0},
+                               0.12, 0.05)
+        assert max(alloc.values()) <= 0.05 + 1e-12
+        assert sum(alloc.values()) == pytest.approx(0.12, abs=1e-9)
+        assert alloc["A"] == pytest.approx(0.05, abs=1e-9)   # dominant name pinned at cap
+
 
 # =========================================================================== #
 # 1/2/3/4/17. Read-only: no DB connection, no desk mutation.

@@ -1208,12 +1208,15 @@ def construct_variant_b(S: dict, cfg: dict) -> dict:
         w = {t: v for t, v in w.items() if t in tickers}
         s = sum(w.values()) or 1.0
         w = {t: v / s for t, v in w.items()}
-    # alternate name-cap / sector-cap to a joint fixed point (deterministic)
-    capped = set()
-    for _ in range(24):
-        w = _apply_name_cap(w, name_cap)
-        w, c = _apply_sector_cap(S, w, bench, sector_dev)
-        capped |= c
+    # Enforce the per-name and per-sector caps SIMULTANEOUSLY with a
+    # deterministic bounded projection. Weight that cannot be placed without
+    # breaching a cap is held as CASH (the weights may sum to < 1); it is never
+    # redistributed in a way that lifts a name back above its own cap.
+    # (Alternating single-constraint projections settle into a limit cycle whose
+    # trailing sector-cap step re-inflates a name above the name cap — the
+    # Phase 31B name-cap regression.)
+    w = _apply_joint_caps(S, w, bench, name_cap, sector_dev)
+    capped = _sectors_at_cap(S, w, bench, sector_dev)
     if capped:
         fallbacks.append("sector_active_deviation_capped:%s" % ";".join(sorted(capped)))
 
@@ -1294,6 +1297,130 @@ def _apply_sector_cap(S: dict, w: dict, bench: dict, dev_pp: float):
             break
     s = sum(w.values()) or 1.0
     return {t: v / s for t, v in w.items()}, capped
+
+
+def _waterfill(items: list, desired: dict, total: float, cap) -> dict:
+    """Place exactly ``total`` mass across ``items`` proportional to ``desired``,
+    with no item exceeding its cap; mass that spills over an item's cap is
+    re-spread across the items still under cap. ``cap`` is either a scalar (same
+    ceiling for every item) or a ``{item: ceiling}`` mapping. Deterministic —
+    items are processed in sorted order — and terminates in at most ``len+2``
+    passes (each pass either finishes or retires at least one saturated item).
+    The caller guarantees ``sum(caps) >= total`` so all of ``total`` is placed.
+    """
+    items = sorted(items)
+
+    def _cap(t):
+        return cap[t] if isinstance(cap, dict) else cap
+
+    alloc = {t: 0.0 for t in items}
+    if total <= 0.0:
+        return alloc
+    active = set(items)
+    for _ in range(len(items) + 2):
+        if not active:
+            break
+        remaining = total - sum(alloc.values())
+        if remaining <= 1e-15:
+            break
+        d = sum(max(0.0, desired.get(t, 0.0)) for t in active)
+        overflow = []
+        if d <= 0.0:                                   # no signal -> equal split
+            share = remaining / len(active)
+            for t in sorted(active):
+                give = min(share, _cap(t) - alloc[t])
+                alloc[t] += give
+                if alloc[t] >= _cap(t) - 1e-15:
+                    overflow.append(t)
+        else:
+            for t in sorted(active):
+                give = remaining * (max(0.0, desired.get(t, 0.0)) / d)
+                room = _cap(t) - alloc[t]
+                if give >= room:
+                    give = room
+                    overflow.append(t)
+                alloc[t] += give
+        if not overflow:
+            break
+        for t in overflow:
+            active.discard(t)
+    return alloc
+
+
+def _apply_joint_caps(S: dict, w: dict, bench: dict, name_cap: float,
+                      sector_dev: float, *, iters: int = 200) -> dict:
+    """Deterministic bounded projection enforcing the per-name cap AND the
+    per-sector active-deviation cap SIMULTANEOUSLY, while keeping the invested
+    book proportional to the ``w`` tilt.
+
+    The per-name cap is absolute (weight <= ``name_cap``). The per-sector cap is
+    on the *invested* book: sector weight / invested-gross <= benchmark + active
+    deviation. Because some sectors have too few names to reach their sector cap
+    without breaching the 5% name cap, the whole book cannot always be fully
+    invested; the largest investable gross ``T`` (<= 1) is found by bisection on
+    ``sum_s min(sector_cap_s * T, n_s * name_cap) >= T`` and the unplaceable
+    remainder is held as CASH. Exactly ``T`` is then placed — first across
+    sectors (proportional to each sector's tilt, capped at
+    ``min(sector_cap*T, n_s*name_cap)``), then within each sector across its
+    names (proportional to the tilt, capped at ``name_cap``). Mass is never
+    redistributed in a way that lifts a name — or a sector's invested share —
+    above its cap; both caps are exact by construction. (Naive alternating
+    single-constraint projections instead settle into a limit cycle whose
+    trailing sector step re-inflates a name above the name cap — the Phase 31B
+    regression.)
+    """
+    names = sorted(w)
+    w = {t: max(0.0, _f(w.get(t)) or 0.0) for t in names}
+    sec_of = {t: sector_of(S, t) for t in names}
+    sectors: dict = {}
+    for t in names:
+        sectors.setdefault(sec_of[t], []).append(t)
+    sec_cap = {s: bench.get(s, 0.0) + sector_dev for s in sectors}
+    n_of = {s: len(ts) for s, ts in sectors.items()}
+
+    def _max_placeable(t: float) -> float:
+        return sum(min(sec_cap[s] * t, n_of[s] * name_cap) for s in sectors)
+
+    if _max_placeable(1.0) >= 1.0:                     # full investment feasible
+        total = 1.0
+    else:                                              # largest investable gross
+        lo, hi = 0.0, 1.0
+        for _ in range(iters):
+            mid = (lo + hi) / 2.0
+            if _max_placeable(mid) >= mid:
+                lo = mid
+            else:
+                hi = mid
+        total = lo
+
+    # (1) place `total` across sectors, proportional to each sector's tilt, each
+    #     sector capped by min(sector share cap at gross `total`, name-cap room).
+    sector_names = sorted(sectors)
+    sector_desired = {s: sum(w[t] for t in sectors[s]) for s in sector_names}
+    sector_cap_mass = {s: min(sec_cap[s] * total, n_of[s] * name_cap) for s in sector_names}
+    sector_mass = _waterfill(sector_names, sector_desired, total, sector_cap_mass)
+
+    # (2) place each sector's mass across its names, proportional to the tilt,
+    #     capped at the per-name ceiling.
+    out = {t: 0.0 for t in names}
+    for s in sector_names:
+        alloc = _waterfill(sectors[s], {t: w[t] for t in sectors[s]},
+                           sector_mass[s], name_cap)
+        out.update(alloc)
+    # defensive final clamp (guarantees the per-name post-condition against drift)
+    return {t: min(out[t], name_cap) for t in names}
+
+
+def _sectors_at_cap(S: dict, w: dict, bench: dict, dev_pp: float,
+                    tol: float = 1e-9) -> set:
+    """Sectors whose invested share is bound at (or numerically at) their active
+    deviation cap after projection — recorded as a fallback annotation."""
+    tot: dict = {}
+    for t, v in w.items():
+        s = sector_of(S, t)
+        tot[s] = tot.get(s, 0.0) + v
+    gross = sum(tot.values()) or 1.0
+    return {s for s, v in tot.items() if v / gross >= bench.get(s, 0.0) + dev_pp - tol}
 
 
 def construct_variant_c(S: dict, cfg: dict, variant_b: dict, target_beta: float) -> dict:
