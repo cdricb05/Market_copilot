@@ -29,8 +29,9 @@ promotion, order or Paper Trader mutation ever occurs.
 from __future__ import annotations
 
 from . import (event_clustering, feed_contracts, feed_registry, ingestion,
-               llm_budget, llm_contracts, llm_providers, research_director,
-               research_importers, research_registry, source_contracts)
+               llm_budget, llm_contracts, llm_providers, report_renderer,
+               research_director, research_importers, research_registry,
+               runtime, runtime_contracts, source_contracts)
 
 SCHEMA_VERSION = research_registry.SCHEMA_VERSION
 IMPORTER_VERSION = research_importers.IMPORTER_VERSION
@@ -74,6 +75,19 @@ STAGE3_BLOCKED = research_director.BLOCKED
 NO_NEW_DIRECTOR_INPUT = research_director.NO_NEW
 run_director = research_director.run_director
 
+# Stage 4 — persistent Windows research runtime + friendly email reports.
+RUNTIME_SCHEMA_VERSION = runtime_contracts.RUNTIME_SCHEMA_VERSION
+RUNTIME_VERSION = runtime_contracts.RUNTIME_VERSION
+STAGE4_READY = runtime_contracts.READY
+STAGE4_DEGRADED = runtime_contracts.DEGRADED
+STAGE4_EMAIL_CREDENTIAL_REQUIRED = runtime_contracts.EMAIL_CREDENTIAL_REQUIRED
+STAGE4_NO_NEW_RESEARCH_INPUT = runtime_contracts.NO_NEW_RESEARCH_INPUT
+STAGE4_VERIFIED = runtime_contracts.VERIFIED
+STAGE4_BLOCKED = runtime_contracts.BLOCKED
+ALPHA_AGENT_TASK_NAMES = runtime_contracts.ALPHA_AGENT_TASK_NAMES
+Runtime = runtime.Runtime
+RealStageDrivers = runtime.RealStageDrivers
+
 __all__ = [
     "research_importers", "research_registry", "source_contracts", "ingestion",
     "llm_contracts", "llm_budget", "llm_providers", "research_director",
@@ -91,4 +105,9 @@ __all__ = [
     "STAGE3_READY", "STAGE3_DEV_READY", "STAGE3_BUDGET_EXHAUSTED",
     "STAGE3_VERIFIED", "STAGE3_PARTIAL", "STAGE3_BLOCKED",
     "NO_NEW_DIRECTOR_INPUT", "run_director",
+    "report_renderer", "runtime", "runtime_contracts",
+    "RUNTIME_SCHEMA_VERSION", "RUNTIME_VERSION", "STAGE4_READY",
+    "STAGE4_DEGRADED", "STAGE4_EMAIL_CREDENTIAL_REQUIRED",
+    "STAGE4_NO_NEW_RESEARCH_INPUT", "STAGE4_VERIFIED", "STAGE4_BLOCKED",
+    "ALPHA_AGENT_TASK_NAMES", "Runtime", "RealStageDrivers",
 ]

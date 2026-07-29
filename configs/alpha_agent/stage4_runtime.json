@@ -1,0 +1,95 @@
+{
+  "stage": "4",
+  "config_version": "1.0.0",
+  "description": "Alpha Agent Stage 4 — persistent Windows research runtime + deterministic friendly email reports. RESEARCH AUTOMATION ONLY. Never creates orders, fills, signals, trade decisions, model promotions, Alpha Paper Book changes, Paper Trader DB writes or Daily Close triggers; never runs the prediction service or PostgreSQL. Contains NO secret — environment-variable and credential-store references only; Gmail credentials live exclusively in Windows DPAPI storage outside this repository and are never read by the Python runtime or exposed to the LLM.",
+  "safety": {
+    "research_automation_only": true,
+    "paper_only": true,
+    "no_orders": true,
+    "no_fills": true,
+    "no_signals": true,
+    "no_trade_decisions": true,
+    "no_model_promotion": true,
+    "no_paper_book_mutation": true,
+    "no_paper_trader_db_mutation": true,
+    "no_daily_close_trigger": true,
+    "no_prediction_service": true,
+    "no_postgres": true,
+    "no_llm_tool_use": true,
+    "no_llm_code_execution": true,
+    "secrets_never_persisted": true,
+    "email_credentials_dpapi_only": true,
+    "automation_off": true
+  },
+  "runtime_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\runtime",
+  "recipient_email": "binisti@gmail.com",
+  "stage1_registry_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\registry",
+  "stage2_ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
+  "stage3_director_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\director",
+  "stage3_5_news_rss_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\news_rss",
+  "stage_configs": {
+    "stage2_ingestion": "configs/alpha_agent/stage2_ingestion.json",
+    "stage3_5_news_rss": "configs/alpha_agent/stage3_5_news_rss.json",
+    "stage3_research_director": "configs/alpha_agent/stage3_research_director.json"
+  },
+  "operational_ledger_roots": [
+    "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
+    "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger",
+    "C:\\Users\\binis\\.paper_trader\\current_alpha_paper_book"
+  ],
+  "report_labels": {
+    "morning": "Morning",
+    "post_close": "Post-Close",
+    "manual": "Manual"
+  },
+  "cadence": {
+    "collect_interval_minutes": 30,
+    "morning_report_local_time": "08:00",
+    "post_close_report_local_time": "18:30",
+    "post_close_days": ["MON", "TUE", "WED", "THU", "FRI"],
+    "watchdog_interval_minutes": 60,
+    "max_research_cycles_per_day": 2,
+    "max_emails_per_scheduled_cycle": 1,
+    "collection_timeout_seconds": 1200,
+    "research_timeout_seconds": 1500,
+    "watchdog_timeout_seconds": 300,
+    "stale_lock_seconds": 1800,
+    "heartbeat_stale_seconds": 7200,
+    "max_retries": 2,
+    "retry_backoff_seconds": 30
+  },
+  "retention": {
+    "runtime_logs_days": 90,
+    "reports_days": 365,
+    "sent_email_manifests_days": 365,
+    "immutable_research_packages": "never_auto_deleted",
+    "credentials_in_retention": "never"
+  },
+  "provider_order": ["claude_code", "anthropic_http"],
+  "provider_notes": {
+    "claude_code": "CLAUDE_CODE_DEVELOPMENT_ONLY — fastest initial operating mode; noninteractive, tools disabled, six-record bounded development profile; cost recorded UNAVAILABLE.",
+    "anthropic_http": "Optional production-grade provider with cost accounting; requires ANTHROPIC_API_KEY (env-var NAME only) to be provisioned before enabling unattended scheduled cycles."
+  },
+  "email": {
+    "recipient": "binisti@gmail.com",
+    "delivery_provider": "gmail_api_oauth",
+    "credential_dir": "C:\\Users\\binis\\.paper_trader\\alpha_agent_email",
+    "oauth_client_file": "google_oauth_client.json",
+    "refresh_token_file": "gmail_oauth_refresh_token.dpapi",
+    "account_file": "gmail_oauth_account.txt",
+    "gmail_api_send_endpoint": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    "token_endpoint": "https://oauth2.googleapis.com/token",
+    "oauth_minimum_scope": "https://www.googleapis.com/auth/gmail.send",
+    "send_timeout_seconds": 120,
+    "attach_markdown": true,
+    "email_llm_tokens": 0,
+    "credential_storage": "windows_dpapi_current_user_only",
+    "configuration_hint": "configure via scripts/configure_alpha_agent_email.ps1"
+  },
+  "allowed_task_names": [
+    "AlphaAgent-Collect",
+    "AlphaAgent-Morning-Report",
+    "AlphaAgent-PostClose-Report",
+    "AlphaAgent-Watchdog"
+  ]
+}

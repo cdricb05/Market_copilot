@@ -2019,3 +2019,30 @@ def test_98_coverage_flags_and_section_dynamic():
     assert "Generalized RSS collection exists:** YES" in section
     assert "Enabled feeds / attempted / healthy" in section
     assert "Event clusters created" in section
+
+
+# =========================================================================== #
+# 99-100: Stage 4 readiness-language correction (report item #30). Once the
+# verified Stage 3.5 package makes generalized RSS/Atom collection operational,
+# the report must state Stage 3.5 IMPLEMENTED / OPERATIONAL_PARTIAL and must NOT
+# claim it remains unimplemented; the non-generalized path is unchanged.
+# =========================================================================== #
+def test_99_stage4_readiness_operational_when_generalized():
+    m = {"classification": rd.PC_PRODUCTION_READY,
+         "news_rss_coverage": {"generalized_rss_collection_exists": True}}
+    line = rd._stage4_readiness_line(m)
+    assert line.startswith("30. ")
+    assert "OPERATIONAL_PARTIAL" in line
+    assert "Stage 3.5: IMPLEMENTED" in line
+    assert "ACTIVE only after installation and verification" in line
+    assert "GDELT disabled" in line
+    assert "STAGE3_5_NEWS_RSS_EXPANSION_REQUIRED" not in line
+
+
+def test_100_stage4_readiness_marker_when_not_generalized():
+    m = {"classification": "SOFTWARE_ONLY",
+         "news_rss_coverage": {"generalized_rss_collection_exists": False}}
+    line = rd._stage4_readiness_line(m)
+    assert line.startswith("30. ")
+    assert "STAGE3_5_NEWS_RSS_EXPANSION_REQUIRED" in line
+    assert "24/7" in line

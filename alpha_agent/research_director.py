@@ -2182,15 +2182,7 @@ def _render_daily_report(run_id, run_dir, as_of, token, terminal, stage1,
         "29. **External blockers:** %s."
         % (terminal.split("— ", 1)[1] if token == PARTIAL and "— " in terminal
            else "none"),
-        "30. **Stage 4 readiness:** %s; %s — broad RSS/Atom acquisition "
-        "(Stage 3.5) is mandatory before the persistent 24/7 runtime (see "
-        "stage3_5_news_rss_requirements.json)."
-        % ("production provider ready; queue and evidence contracts in place"
-           if metrics["classification"] == PC_PRODUCTION_READY else
-           "software ready; ANTHROPIC_API_KEY (and optionally "
-           "ALPHA_AGENT_LLM_MODEL) must be provisioned for unattended "
-           "production cycles — the claude_code provider is development-only",
-           STAGE3_5_MARKER)]
+        _stage4_readiness_line(metrics)]
     lines += _news_rss_section(metrics)
     ds = metrics.get("development_sample")
     if ds:
@@ -2211,6 +2203,39 @@ def _render_daily_report(run_id, run_dir, as_of, token, terminal, stage1,
         lines += ["## LLM narrative (restates verified values only)", "",
                   narrative, ""]
     return "\n".join(lines)
+
+
+def _stage4_readiness_line(metrics: dict) -> str:
+    """Report item #30 — Stage 4 readiness.
+
+    Corrected for the verified Stage 3.5 package: once generalized official
+    RSS/Atom collection is OPERATIONAL, the report no longer states that Stage
+    3.5 remains unimplemented / mandatory-before-runtime. It reports Stage 3.5
+    IMPLEMENTED with generalized collection OPERATIONAL_PARTIAL, the remaining
+    coverage gaps (company-direct sparse, international partial, GDELT disabled)
+    and that the Stage 4 runtime is ACTIVE only after installation and
+    verification. When generalized collection does NOT yet exist the original
+    STAGE3_5_NEWS_RSS_EXPANSION_REQUIRED language is preserved unchanged.
+    """
+    cov = metrics.get("news_rss_coverage") or {}
+    generalized = bool(cov.get("generalized_rss_collection_exists", False))
+    provider = ("production provider ready; queue and evidence contracts in "
+                "place" if metrics.get("classification") == PC_PRODUCTION_READY
+                else "software ready; ANTHROPIC_API_KEY (and optionally "
+                "ALPHA_AGENT_LLM_MODEL) must be provisioned for unattended "
+                "production cycles — the claude_code provider is "
+                "development-only")
+    if generalized:
+        return ("30. **Stage 4 readiness:** %s; generalized RSS/Atom "
+                "collection: OPERATIONAL_PARTIAL; Stage 3.5: IMPLEMENTED "
+                "(company-direct feed coverage still missing or sparse; "
+                "international coverage still partial; GDELT disabled); Stage 4 "
+                "runtime status: ACTIVE only after installation and "
+                "verification." % provider)
+    return ("30. **Stage 4 readiness:** %s; %s — broad RSS/Atom acquisition "
+            "(Stage 3.5) is mandatory before the persistent 24/7 runtime (see "
+            "stage3_5_news_rss_requirements.json)." % (provider,
+                                                       STAGE3_5_MARKER))
 
 
 _NEWS_COVERAGE_LABELS = {
