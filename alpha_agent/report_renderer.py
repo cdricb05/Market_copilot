@@ -78,6 +78,22 @@ def fmt_int(value: Any, *, dash: str = "0") -> str:
     return "{:,}".format(int(round(n)))
 
 
+def _fmt_stat(value: Any, *, dash: str = "n/a") -> str:
+    n = _num(value)
+    if n is None:
+        return dash
+    return "{:.2f}".format(n)
+
+
+def _fmt_ret(value: Any, *, dash: str = "n/a") -> str:
+    """Format a fractional return (0.12 → +12.00%)."""
+    n = _num(value)
+    if n is None:
+        return dash
+    sign = "+" if n >= 0 else "−"
+    return "%s%s%%" % (sign, "{:.2f}".format(abs(n) * 100.0))
+
+
 def _sign_class(value: Any) -> str:
     n = _num(value)
     if n is None:
@@ -249,6 +265,64 @@ def render_html(model: dict) -> str:
                          e(r.get("notes")))
     parts.append('</div>')
 
+    # 6b. Experiment & Evidence (Stage 5).
+    exp = model.get("experiment")
+    parts.append('<div class="section"><h2>Experiment &amp; Evidence</h2>')
+    if not exp:
+        parts.append('<p class="muted">Stage 5 experiment engine not run this '
+                     'cycle.</p>')
+    else:
+        parts.append('<table class="kv">')
+        parts.append(_kv_row("Stage 5 run", exp.get("run_id") or "n/a"))
+        parts.append(_kv_row("Outcome", "%s (%s)" % (exp.get("terminal"),
+                                                     exp.get("status"))))
+        parts.append(_kv_row("Hypotheses considered",
+                             fmt_int(exp.get("hypotheses_considered"))))
+        parts.append(_kv_row(
+            "Experiments started / completed / failed",
+            "%s / %s / %s" % (fmt_int(exp.get("experiments_started")),
+                              fmt_int(exp.get("experiments_completed")),
+                              fmt_int(exp.get("experiments_failed")))))
+        parts.append(_kv_row("Data gaps", fmt_int(exp.get("data_gaps"))))
+        parts.append(_kv_row("Duplicates rejected",
+                             fmt_int(exp.get("duplicates_rejected"))))
+        parts.append(_kv_row("KEEP_FOR_RESEARCH",
+                             fmt_int(exp.get("keep_for_research"))))
+        dc = exp.get("decision_counts") or {}
+        if dc:
+            parts.append(_kv_row("Evidence decisions", ", ".join(
+                "%s=%s" % (k, v) for k, v in sorted(dc.items()))))
+        st = exp.get("strongest")
+        if st:
+            parts.append(_kv_row("Strongest result", "%s [%s] rank-IC t %s" % (
+                st.get("hypothesis_id"), st.get("template"),
+                _fmt_stat(st.get("rank_ic_t")))))
+        wk = exp.get("weakest")
+        if wk and wk is not st:
+            parts.append(_kv_row("Weakest result", "%s [%s] rank-IC t %s" % (
+                wk.get("hypothesis_id"), wk.get("template"),
+                _fmt_stat(wk.get("rank_ic_t")))))
+        bc = exp.get("benchmark_comparison")
+        if bc:
+            parts.append(_kv_row("Benchmark excess (annualized)",
+                                 _fmt_ret(bc.get("excess_annualized")),
+                                 _sign_class(bc.get("excess_annualized"))))
+            parts.append(_kv_row("Champion", exp.get("champion_model")
+                                 or "n/a"))
+        cs = exp.get("cost_sensitivity")
+        if cs:
+            parts.append(_kv_row("Cost flips sign",
+                                 "YES" if cs.get("flips_sign") else "NO",
+                                 "neg" if cs.get("flips_sign") else "pos"))
+        parts.append(_kv_row("Next research action",
+                             exp.get("next_action") or "n/a"))
+        parts.append('</table>')
+        parts.append('<p class="muted">KEEP_FOR_RESEARCH is not model '
+                     'promotion; every result awaits human review. Stage 5 is '
+                     'research-only and creates no order, signal or trade '
+                     'decision.</p>')
+    parts.append('</div>')
+
     # 7. Paper-book context.
     pb = model.get("paper_book", {})
     parts.append('<div class="section"><h2>Paper-book context</h2>'
@@ -406,6 +480,47 @@ def render_text(model: dict) -> str:
         if r.get("notes"):
             lines.append("  %s" % r.get("notes"))
     lines.append("")
+    exp = model.get("experiment")
+    lines.append("EXPERIMENT & EVIDENCE (STAGE 5)")
+    if not exp:
+        lines.append("  (Stage 5 experiment engine not run this cycle)")
+    else:
+        lines.append("  Run / outcome     : %s / %s (%s)" % (
+            exp.get("run_id") or "n/a", exp.get("terminal"), exp.get("status")))
+        lines.append("  Hypotheses cons.  : %s" %
+                     fmt_int(exp.get("hypotheses_considered")))
+        lines.append("  Exp start/done/fail: %s / %s / %s" % (
+            fmt_int(exp.get("experiments_started")),
+            fmt_int(exp.get("experiments_completed")),
+            fmt_int(exp.get("experiments_failed"))))
+        lines.append("  Data gaps / dupes : %s / %s" % (
+            fmt_int(exp.get("data_gaps")),
+            fmt_int(exp.get("duplicates_rejected"))))
+        lines.append("  KEEP_FOR_RESEARCH : %s" %
+                     fmt_int(exp.get("keep_for_research")))
+        dc = exp.get("decision_counts") or {}
+        if dc:
+            lines.append("  Decisions         : %s" % ", ".join(
+                "%s=%s" % (k, v) for k, v in sorted(dc.items())))
+        st = exp.get("strongest")
+        if st:
+            lines.append("  Strongest         : %s [%s] rank-IC t %s" % (
+                st.get("hypothesis_id"), st.get("template"),
+                _fmt_stat(st.get("rank_ic_t"))))
+        bc = exp.get("benchmark_comparison")
+        if bc:
+            lines.append("  Benchmark excess  : %s (champion %s)" % (
+                _fmt_ret(bc.get("excess_annualized")),
+                exp.get("champion_model") or "n/a"))
+        cs = exp.get("cost_sensitivity")
+        if cs:
+            lines.append("  Cost flips sign   : %s" %
+                         ("YES" if cs.get("flips_sign") else "NO"))
+        lines.append("  Next action       : %s" % (exp.get("next_action")
+                                                    or "n/a"))
+        lines.append("  (KEEP_FOR_RESEARCH is not promotion; human review "
+                     "only; research-only.)")
+    lines.append("")
     pb = model.get("paper_book", {})
     lines.append("PAPER-BOOK CONTEXT")
     lines.append("  Valuation date     : %s" % (pb.get("valuation_date") or "n/a"))
@@ -493,5 +608,6 @@ def report_manifest(model: dict, html_body: str, text_body: str) -> dict:
         "news_rss": model.get("news_rss"),
         "llm": model.get("llm"),
         "evidence": model.get("evidence"),
+        "experiment": model.get("experiment"),
         "email_llm_tokens": 0,
     }

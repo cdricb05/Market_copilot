@@ -1324,3 +1324,90 @@ def test_34_no_credential_or_token_leakage(monkeypatch, tmp_path):
                          "stage4_runtime.json")
     assert rc.scan_for_secrets(cfg) == []
     assert cfg["email"]["delivery_provider"] == "gmail_api_oauth"
+
+
+# --------------------------------------------------------------------------- #
+# Stage 5 integration (optional experiment & evidence engine).
+# --------------------------------------------------------------------------- #
+_S5_RESULT = {
+    "run_id": "stage5_fake123", "terminal": rt.ec.READY,
+    "status": "EXPERIMENTS_COMPLETE", "run_dir": "d",
+    "champion_model": "fundamental_momentum_50_50_v1",
+    "counts": {"grounded_hypotheses": 1, "hypotheses_considered": 1,
+               "specs_generated": 1, "experiments_completed": 1,
+               "experiments_failed": 0, "data_gaps": 0,
+               "duplicates_rejected": 0, "keep_for_research": 1,
+               "deferred_to_next_cycle": 0},
+    "results": [{"experiment_id": "exp_1", "hypothesis_id": "h1",
+                 "template": "price_momentum_rank", "rank_ic_t": 3.1,
+                 "rank_ic_mean": 0.05, "net_annualized_return": 0.2,
+                 "benchmark_name": "equal_weight_universe",
+                 "benchmark_excess_annualized": 0.05,
+                 "champion_complementarity": 0.6, "cost_flips_sign": False}],
+    "decisions": [{"experiment_id": "exp_1", "hypothesis_id": "h1",
+                   "template": "price_momentum_rank",
+                   "decision": "KEEP_FOR_RESEARCH", "reasons": ["ok"]}],
+    "data_gaps": [], "duplicates": [],
+}
+
+
+class _S5Drivers(FakeDrivers):
+    def run_stage5(self, mode):
+        return {"component": rt.COMPONENT_STAGE5, "status": rt.ec.READY,
+                "terminal": rt.ec.READY, "ok": True, "no_new": False,
+                "verified": False, "run_id": "stage5_fake123", "run_dir": "d",
+                "counts": _S5_RESULT["counts"], "metrics": {},
+                "result": _S5_RESULT}
+
+
+def test_stage5_integration_in_research(env):
+    cfg = dict(env["cfg"])
+    cfg["stage5_enabled"] = True
+    cfg["stage5_experiments_root"] = str(env["base"] / "experiments")
+    r = rt.Runtime(cfg, drivers=_S5Drivers(), email_sender=FakeSender(),
+                   clock=_clock())
+    res = r.run_research(label="morning")
+    assert rt.COMPONENT_STAGE5 in [c.get("component") for c in res.components]
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "Experiment &amp; Evidence" in html
+    assert "stage5_fake123" in html
+
+
+def test_stage5_disabled_by_default(env):
+    """Without stage5_enabled the runtime never calls run_stage5 (Stage 4
+    behaviour is unchanged) and the report shows 'not run'."""
+    r = _runtime(env, drivers=_S5Drivers())
+    res = r.run_research(label="morning")
+    assert rt.COMPONENT_STAGE5 not in [c.get("component")
+                                       for c in res.components]
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "Stage 5 experiment engine not run" in html
+
+
+def test_stage5_report_only_reads_latest(env):
+    exp_root = env["base"] / "experiments"
+    rid = "stage5_diskabc"
+    run_dir = exp_root / "runs" / rid
+    run_dir.mkdir(parents=True)
+    _w(exp_root / "latest.json",
+       {"run_id": rid, "terminal": rt.ec.DATA_HOLD,
+        "status": "ALL_HYPOTHESES_DATA_HELD",
+        "champion_model": "fundamental_momentum_50_50_v1"})
+    _w(run_dir / "run_manifest.json",
+       {"terminal": rt.ec.DATA_HOLD, "status": "ALL_HYPOTHESES_DATA_HELD",
+        "counts": {"grounded_hypotheses": 1, "hypotheses_considered": 1,
+                   "specs_generated": 0, "experiments_completed": 0,
+                   "experiments_failed": 0, "data_gaps": 1,
+                   "duplicates_rejected": 0, "keep_for_research": 0}})
+    for f in ("hypothesis_intake.jsonl", "experiment_specs.jsonl",
+              "experiment_results.jsonl", "evidence_decisions.jsonl",
+              "data_gaps.jsonl", "rejected_duplicates.jsonl"):
+        (run_dir / f).write_text("", encoding="utf-8")
+    cfg = dict(env["cfg"])
+    cfg["stage5_experiments_root"] = str(exp_root)
+    r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
+                   clock=_clock())
+    res = r.run_report_only(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "Experiment &amp; Evidence" in html
+    assert rid in html

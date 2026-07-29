@@ -37,6 +37,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from . import experiment_contracts as ec
+from . import experiment_factory as ef
 from . import report_renderer as rr
 from . import runtime_contracts as rc
 
@@ -45,6 +47,11 @@ REQUIRED_RUN_FILES = (
     "research_summary.json", "portfolio_context.json", "email_manifest.json",
     "scheduler_state.json", "runtime_report.md", "run_manifest.json",
 )
+
+# Stage 5 experiment & evidence component id (Stage 5 is optional and only run
+# when the config sets ``stage5_enabled``). Defined here — not in
+# runtime_contracts — so the Stage 4 contract schema is untouched.
+COMPONENT_STAGE5 = "stage5_experiment_factory"
 
 
 # --------------------------------------------------------------------------- #
@@ -433,6 +440,20 @@ class StageDrivers:
     def verify_stage3(self) -> dict:
         raise NotImplementedError
 
+    # Stage 5 is optional: the base returns a SKIPPED component so existing
+    # drivers that predate Stage 5 keep working unchanged. Only invoked by the
+    # runtime when the config sets ``stage5_enabled``.
+    def run_stage5(self, mode: str) -> dict:
+        return {"component": COMPONENT_STAGE5, "status": "STAGE5_SKIPPED",
+                "terminal": "STAGE5_SKIPPED", "ok": True, "no_new": False,
+                "verified": False, "skipped": True, "run_id": None,
+                "run_dir": None, "counts": {}, "metrics": {}, "result": {}}
+
+    def verify_stage5(self) -> dict:
+        return {"component": COMPONENT_STAGE5, "status": "STAGE5_SKIPPED",
+                "terminal": "STAGE5_SKIPPED", "ok": True, "verified": False,
+                "skipped": True}
+
 
 class RealStageDrivers(StageDrivers):
     """Drives the verified Stage 1-3.5 packages via their public functions.
@@ -560,6 +581,30 @@ class RealStageDrivers(StageDrivers):
             rc.COMPONENT_STAGE3, {**res, "status": res.get("token")},
             success_tokens=(rd.READY,), verified_token=rd.VERIFIED,
             no_new_token=rd.NO_NEW)
+
+    def _stage5_cfg(self) -> dict:
+        _cfg, path = self._load_cfg("stage5_experiment_factory")
+        return ec.load_config(path)
+
+    def run_stage5(self, mode: str) -> dict:
+        """Run one bounded Stage 5 experiment & evidence cycle over the verified
+        packages. Read-only w.r.t. every operational ledger (fingerprinted)."""
+        s5cfg = self._stage5_cfg()
+        result = ef.run_stage5_cycle(
+            s5cfg, as_of="latest",
+            ledger_fingerprint=lambda: fingerprint_ledgers(s5cfg))
+        return _norm_stage5(result)
+
+    def verify_stage5(self) -> dict:
+        s5cfg = self._stage5_cfg()
+        result = ef.verify_cycle(
+            s5cfg, ledger_fingerprint=lambda: fingerprint_ledgers(s5cfg))
+        return {"component": COMPONENT_STAGE5,
+                "status": result.get("terminal"),
+                "terminal": result.get("terminal"),
+                "ok": result.get("terminal") != ec.BLOCKED,
+                "verified": result.get("terminal") == ec.VERIFIED,
+                "result": result, "run_id": result.get("run_id")}
 
 
 # --------------------------------------------------------------------------- #
@@ -722,6 +767,43 @@ def _stage3_latest(cfg: dict) -> dict:
     return _read_json(root / "latest.json") or {}
 
 
+def _norm_stage5(result: dict) -> dict:
+    """Normalize a Stage 5 cycle result into a runtime component record."""
+    terminal = result.get("terminal")
+    return {
+        "component": COMPONENT_STAGE5, "status": terminal, "terminal": terminal,
+        "ok": terminal != ec.BLOCKED,
+        "no_new": terminal == ec.NO_EXPERIMENTABLE_HYPOTHESES,
+        "verified": False, "run_id": result.get("run_id"),
+        "run_dir": result.get("run_dir"),
+        "counts": result.get("counts") or {}, "metrics": {},
+        "result": result, "raw": result,
+    }
+
+
+def _stage5_report_model(cfg: dict,
+                         fresh_result: Optional[dict] = None) -> Optional[dict]:
+    """Deterministic Experiment & Evidence report model — from this cycle's
+    fresh Stage 5 result if present, else the latest package on disk, else None.
+    All numbers originate in deterministic Python (no LLM)."""
+    if fresh_result:
+        return ef.experiment_report_model(fresh_result)
+    root = cfg.get("stage5_experiments_root")
+    if not root:
+        return None
+    latest = _read_json(Path(root) / "latest.json") or {}
+    rid = latest.get("run_id")
+    if not rid:
+        return None
+    run_dir = Path(root) / "runs" / rid
+    manifest = _read_json(run_dir / "run_manifest.json") or {}
+    result = ef._load_result(Path(root), rid, manifest)
+    result["terminal"] = latest.get("terminal") or manifest.get("terminal")
+    result["status"] = latest.get("status") or manifest.get("status")
+    result["champion_model"] = latest.get("champion_model")
+    return ef.experiment_report_model(result)
+
+
 def _load_stage3_run(cfg: dict, run_dir: Optional[str]) -> dict:
     if not run_dir:
         return {}
@@ -820,7 +902,8 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
                        run_id: str, run_dir: str,
                        degraded: bool = False,
                        llm_skipped_reason: Optional[str] = None,
-                       subject_override: Optional[str] = None) -> dict:
+                       subject_override: Optional[str] = None,
+                       stage5_model: Optional[dict] = None) -> dict:
     """Assemble the deterministic report model. Pure data; no side effects."""
     s35 = _stage35_latest(cfg)
     s3 = _stage3_latest(cfg)
@@ -952,6 +1035,8 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
         "llm": llm,
         "operating_action": operating_action,
         "evidence": evidence,
+        "experiment": (stage5_model if stage5_model is not None
+                       else _stage5_report_model(cfg)),
     }
 
 
@@ -1320,6 +1405,7 @@ class Runtime:
 
         components: list[dict] = []
         llm_skipped_reason = None
+        stage5_result: dict = {}
         research_norm: dict = {"no_new": True, "counts": {}, "metrics": {},
                                "llm_invoked": False}
         try:
@@ -1390,6 +1476,19 @@ class Runtime:
             vcomp["mode"] = "verify"
             components.append(vcomp)
             self._record_component(conn, run_id, vcomp)
+
+            # Stage 5 — bounded experiment & evidence cycle (research-only).
+            # Optional: only when the config enables it. Reads the just-refreshed
+            # Stage 1-3.5 packages; never touches operational state.
+            if self.cfg.get("stage5_enabled"):
+                s5 = self.drivers.run_stage5("incremental")
+                s5["mode"] = "incremental"
+                components.append(s5)
+                self._record_component(conn, run_id, s5)
+                stage5_result = s5.get("result") or {}
+                if not s5.get("ok"):
+                    self._record_error(conn, run_id, s5.get("component"),
+                                       "WARNING", s5.get("terminal"))
         finally:
             release_lock(lock, clock=self.clock, conn=conn)
 
@@ -1399,12 +1498,14 @@ class Runtime:
         degraded = llm_skipped_reason == rc.LLM_SKIPPED_PROVIDER_UNAVAILABLE
         subject_override = (rc.report_subject(label, cycle_date, test=True)
                             if test_report else None)
+        stage5_model = (_stage5_report_model(self.cfg, stage5_result)
+                        if stage5_result else None)
         model = build_report_model(
             self.cfg, clock=self.clock, label=label, cycle_date=cycle_date,
             research=research_norm, portfolio=portfolio, run_id=run_id,
             run_dir=str(run_dir), degraded=degraded,
             llm_skipped_reason=llm_skipped_reason,
-            subject_override=subject_override)
+            subject_override=subject_override, stage5_model=stage5_model)
         html_body = rr.render_html(model)
         text_body = rr.render_text(model)
         manifest = rr.report_manifest(model, html_body, text_body)

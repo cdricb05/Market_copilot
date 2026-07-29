@@ -1,0 +1,77 @@
+{
+  "stage": "5",
+  "config_version": "1.0.0",
+  "description": "Alpha Agent Stage 5 — autonomous experiment & evidence engine. RESEARCH-ONLY. Turns grounded Stage 3 hypotheses into deterministic, bounded, reproducible historical experiments over verified Stage 1-3.5 packages and applies deterministic evidence gates. Never creates orders, fills, signals, trade decisions, model promotions, portfolio or Alpha Paper Book changes, Paper Trader DB writes, Daily Close triggers, prediction-service calls or PostgreSQL access; never executes or imports LLM-authored code. Experiment specifications come exclusively from allowlisted deterministic templates. Contains NO secret — no credential value appears anywhere.",
+  "safety": {
+    "research_only": true,
+    "no_orders": true,
+    "no_fills": true,
+    "no_signals": true,
+    "no_trade_decisions": true,
+    "no_model_promotion": true,
+    "no_portfolio_mutation": true,
+    "no_paper_book_mutation": true,
+    "no_paper_trader_db_mutation": true,
+    "no_daily_close_trigger": true,
+    "no_prediction_service": true,
+    "no_postgres": true,
+    "no_llm_call": true,
+    "no_llm_code_execution": true,
+    "no_dynamic_import_of_llm_output": true,
+    "experiment_specs_from_allowlisted_templates_only": true,
+    "operational_ledger_read_only": true
+  },
+  "experiments_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\experiments",
+  "stage1_registry_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\registry",
+  "stage2_ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
+  "stage3_director_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\director",
+  "stage3_5_news_rss_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\news_rss",
+  "operational_ledger_roots": [
+    "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
+    "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger",
+    "C:\\Users\\binis\\.paper_trader\\current_alpha_paper_book"
+  ],
+  "bounds": {
+    "max_new_hypotheses": 3,
+    "max_specs_per_hypothesis": 2,
+    "max_experiments": 6,
+    "max_runtime_seconds": 1800,
+    "max_workers": 2,
+    "max_symbols": 800
+  },
+  "templates_enabled": [
+    "price_momentum_rank",
+    "fundamental_momentum_rank",
+    "event_window_cross_sectional_return",
+    "earnings_filing_event_drift",
+    "insider_activity_event_study",
+    "news_regulatory_event_study",
+    "sector_relative_ranking",
+    "combined_factor_ranking"
+  ],
+  "benchmark": {
+    "name": "equal_weight_universe",
+    "market_proxy": "SPY"
+  },
+  "cost_bps": [10, 25, 50],
+  "gates": {
+    "min_observations": 200,
+    "min_universe": 30,
+    "min_periods": 12,
+    "min_ic_t": 2.0,
+    "min_ic_positive_ratio": 0.50,
+    "min_spread_t": 1.5,
+    "min_oos_ic_mean": 0.0,
+    "max_turnover": 1.5,
+    "min_net_annualized_return": 0.0,
+    "max_drawdown_floor": -0.60,
+    "min_subperiod_consistency": 1.0,
+    "min_regime_consistency": 0.50,
+    "max_missing_data_rate": 0.35,
+    "max_cost_erosion_ratio": 0.75,
+    "min_champion_complementarity": 0.0
+  },
+  "control": {
+    "enable_champion_health_check": true
+  }
+}

@@ -28,7 +28,8 @@ promotion, order or Paper Trader mutation ever occurs.
 """
 from __future__ import annotations
 
-from . import (event_clustering, feed_contracts, feed_registry, ingestion,
+from . import (event_clustering, experiment_contracts, experiment_factory,
+               experiment_runner, feed_contracts, feed_registry, ingestion,
                llm_budget, llm_contracts, llm_providers, report_renderer,
                research_director, research_importers, research_registry,
                runtime, runtime_contracts, source_contracts)
@@ -88,6 +89,20 @@ ALPHA_AGENT_TASK_NAMES = runtime_contracts.ALPHA_AGENT_TASK_NAMES
 Runtime = runtime.Runtime
 RealStageDrivers = runtime.RealStageDrivers
 
+# Stage 5 — autonomous experiment & evidence engine.
+STAGE5_SCHEMA_VERSION = experiment_contracts.STAGE5_SCHEMA_VERSION
+STAGE5_ENGINE_VERSION = experiment_contracts.STAGE5_ENGINE_VERSION
+STAGE5_READY = experiment_contracts.READY
+STAGE5_VERIFIED = experiment_contracts.VERIFIED
+STAGE5_NO_EXPERIMENTABLE_HYPOTHESES = \
+    experiment_contracts.NO_EXPERIMENTABLE_HYPOTHESES
+STAGE5_DATA_HOLD = experiment_contracts.DATA_HOLD
+STAGE5_PARTIAL = experiment_contracts.PARTIAL
+STAGE5_BLOCKED = experiment_contracts.BLOCKED
+STAGE5_TEMPLATES = experiment_contracts.SUPPORTED_TEMPLATES
+run_stage5_cycle = experiment_factory.run_stage5_cycle
+verify_stage5_cycle = experiment_factory.verify_cycle
+
 __all__ = [
     "research_importers", "research_registry", "source_contracts", "ingestion",
     "llm_contracts", "llm_budget", "llm_providers", "research_director",
@@ -110,4 +125,9 @@ __all__ = [
     "STAGE4_DEGRADED", "STAGE4_EMAIL_CREDENTIAL_REQUIRED",
     "STAGE4_NO_NEW_RESEARCH_INPUT", "STAGE4_VERIFIED", "STAGE4_BLOCKED",
     "ALPHA_AGENT_TASK_NAMES", "Runtime", "RealStageDrivers",
+    "experiment_contracts", "experiment_factory", "experiment_runner",
+    "STAGE5_SCHEMA_VERSION", "STAGE5_ENGINE_VERSION", "STAGE5_READY",
+    "STAGE5_VERIFIED", "STAGE5_NO_EXPERIMENTABLE_HYPOTHESES",
+    "STAGE5_DATA_HOLD", "STAGE5_PARTIAL", "STAGE5_BLOCKED", "STAGE5_TEMPLATES",
+    "run_stage5_cycle", "verify_stage5_cycle",
 ]

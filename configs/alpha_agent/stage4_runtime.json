@@ -27,10 +27,13 @@
   "stage2_ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
   "stage3_director_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\director",
   "stage3_5_news_rss_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\news_rss",
+  "stage5_experiments_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\experiments",
+  "stage5_enabled": true,
   "stage_configs": {
     "stage2_ingestion": "configs/alpha_agent/stage2_ingestion.json",
     "stage3_5_news_rss": "configs/alpha_agent/stage3_5_news_rss.json",
-    "stage3_research_director": "configs/alpha_agent/stage3_research_director.json"
+    "stage3_research_director": "configs/alpha_agent/stage3_research_director.json",
+    "stage5_experiment_factory": "configs/alpha_agent/stage5_experiment_factory.json"
   },
   "operational_ledger_roots": [
     "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
