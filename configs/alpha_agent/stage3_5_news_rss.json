@@ -1,0 +1,75 @@
+{
+  "stage": "3.5",
+  "config_version": "1.0.0",
+  "description": "Alpha Agent Stage 3.5 — generalized News/RSS-Atom + event-clustering layer. Deterministic, bounded, incremental collection of official RSS/Atom feeds with conditional polling, immutable raw archival, PIT normalization, cross-source event clustering and a feed-state database. Contains NO credentials; allowed environment-variable NAMES only. Does NOT call the prediction service. Does NOT mutate Paper Trader data.",
+  "safety": {
+    "paper_only": true,
+    "no_orders": true,
+    "no_automation": true,
+    "no_model_api": true,
+    "no_postgres": true,
+    "no_prediction_service": true,
+    "read_only_operational_stores": true,
+    "read_only_stage2_records": true,
+    "secrets_never_persisted": true,
+    "bounded_snippets_only": true,
+    "no_full_article_bodies": true
+  },
+  "feed_registry_config": "configs/alpha_agent/news_rss_feeds.json",
+  "stage2_ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
+  "operational_ledger_roots": [
+    "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
+    "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger"
+  ],
+  "sensitive_env_vars": ["EODHD_API_KEY", "FRED_API_KEY", "PAPER_TRADER_FRED_API_KEY", "ANTHROPIC_API_KEY"],
+  "output_contract": {
+    "layout_version": "1.0.0",
+    "state_dir": "state",
+    "state_db": "feed_state.sqlite",
+    "registry_dir": "registry",
+    "raw_dir": "raw",
+    "normalized_dir": "normalized",
+    "runs_dir": "runs",
+    "latest_file": "latest.json",
+    "required_run_files": [
+      "feed_inventory.json",
+      "feed_discovery_results.json",
+      "feed_health.csv",
+      "collection_manifest.json",
+      "raw_object_index.csv",
+      "normalized_record_counts.csv",
+      "event_clusters.jsonl",
+      "data_quality_report.json",
+      "source_coverage_report.json",
+      "stage3_5_news_rss_report.md",
+      "run_manifest.json"
+    ]
+  },
+  "limits": {
+    "http_timeout_seconds": 30,
+    "max_retries": 2,
+    "backoff_base_seconds": 1.0,
+    "backoff_multiplier": 2.0,
+    "raw_object_max_bytes": 8388608,
+    "circuit_breaker_threshold": 4,
+    "summary_max_chars": 600,
+    "title_max_chars": 300
+  },
+  "per_feed_min_interval_seconds": 0.5,
+  "clustering": {
+    "window_days": 2,
+    "high_threshold": 0.6,
+    "medium_threshold": 0.4,
+    "stage2_cap_per_type": 400
+  },
+  "secret_redaction": {
+    "redacted_query_params": ["api_token", "api_key", "apikey", "token", "key", "apiKey"],
+    "redaction_placeholder": "REDACTED",
+    "forbid_full_url_when_query_redacted": true
+  },
+  "user_agent": {
+    "product": "paper-trader-alpha-agent/2.0 (+official-rss-atom-collector)",
+    "contact_resolution_policy": "git_config_user_email",
+    "mask_contact_in_logs": true
+  }
+}

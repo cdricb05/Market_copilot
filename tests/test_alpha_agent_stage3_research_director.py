@@ -1522,7 +1522,7 @@ def test_74_news_rss_coverage_section_present(rig):
     for rep in (rig["report"], rig["report2"]):
         assert "## NEWS_AND_RSS_COVERAGE" in rep
         assert "STAGE3_5_NEWS_RSS_EXPANSION_REQUIRED" in rep
-        for label in ("EODHD NEWS_EVENT", "SEC FILING_EVENT",
+        for label in ("NEWS_EVENT (EODHD+RSS)", "SEC FILING_EVENT",
                       "SEC INSIDER_FILING", "Nasdaq TRADING_HALT",
                       "EARNINGS_EVENT", "CORPORATE_ACTION"):
             assert label in rep
@@ -1888,3 +1888,134 @@ def test_93_dev_news_rss_addendum_intact(tmp_path):
     assert "## NEWS_AND_RSS_COVERAGE" in report
     assert "STAGE3_5_NEWS_RSS_EXPANSION_REQUIRED" in report
     assert "## DEVELOPMENT PROFILE" in report
+
+
+# ======================================================================= #
+# Stage 3.5 integration into the Stage 3 director (additional_event_roots,
+# new record types, cross-source cluster dedup, dynamic coverage flags).
+# ======================================================================= #
+def _ievt(rid, rt, source_id, title=None, ticker=None, link=None,
+          avail="2026-07-27T21:00:00+00:00"):
+    payload = {}
+    if title:
+        payload["title"] = title
+    if link:
+        payload["canonical_link"] = link
+    return {"record_id": rid, "record_type": rt, "source_id": source_id,
+            "ticker": ticker, "provenance": "test %s" % source_id,
+            "payload_hash": "ph_" + rid, "available_at": avail,
+            "effective_at": avail[:10], "normalized_payload": payload}
+
+
+def _iwrite(root: Path, rec: dict, run="r1"):
+    d = str(rec["effective_at"])[:10]
+    yyyy, mm, dd = d.split("-")
+    p = root / "normalized" / rec["record_type"] / yyyy / mm / dd / ("%s.jsonl" % run)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(rec) + "\n")
+
+
+def _is35(base: Path, *, token="ALPHA_AGENT_STAGE3_5_READY", records=(), clusters=()):
+    base.mkdir(parents=True, exist_ok=True)
+    run_dir = base / "runs" / "stage3_5_x"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (base / "latest.json").write_text(json.dumps({
+        "run_id": "stage3_5_x", "run_dir": "runs/stage3_5_x",
+        "terminal_token": token}), encoding="utf-8")
+    with (run_dir / "event_clusters.jsonl").open("w", encoding="utf-8") as fh:
+        for c in clusters:
+            fh.write(json.dumps(c) + "\n")
+    (run_dir / "source_coverage_report.json").write_text(json.dumps({
+        "enabled_feeds": 5, "healthy_feeds": 5, "clusters_created": len(clusters),
+        "multi_source_clusters": len([c for c in clusters
+                                      if len(c["member_record_ids"]) > 1]),
+        "company_feeds": 0, "government_regulatory_feeds": 5,
+        "entity_resolution": {"UNMATCHED": 1}, "gdelt_state": "NOT_RUN"}),
+        encoding="utf-8")
+    (run_dir / "feed_health.csv").write_text(
+        "feed_id,attempted,health,duplicates_prevented,latest_item_time\n"
+        "sec_press,True,HEALTHY,0,2026-07-27T14:00:00+00:00\n", encoding="utf-8")
+    for rec in records:
+        _iwrite(base, rec)
+    return base
+
+
+def _istage2(root):
+    return {"ok": True, "run_id": "stage2_x", "root": Path(root),
+            "source_health": {}, "record_type_counts": {}, "as_of": "2026-07-27"}
+
+
+def test_94_new_record_types_eligible():
+    assert "REGULATORY_EVENT" in rd.ELIGIBLE_RECORD_TYPES
+    assert "PRESS_RELEASE" in rd.ELIGIBLE_RECORD_TYPES
+
+
+def test_95_read_additional_roots_verify_and_reject(tmp_path):
+    ok_root = _is35(tmp_path / "ok")
+    out = rd.read_additional_roots({"additional_event_roots": [str(ok_root)]})
+    assert out["verified_count"] == 1 and out["rejected"] == []
+    bad_root = _is35(tmp_path / "bad", token="ALPHA_AGENT_STAGE3_5_BLOCKED — x")
+    out2 = rd.read_additional_roots({"additional_event_roots": [str(bad_root)]})
+    assert out2["verified_count"] == 0 and len(out2["rejected"]) == 1
+
+
+def test_96_select_reads_rss_and_backward_compatible(tmp_path):
+    root = _is35(tmp_path / "nr", records=[
+        _ievt("rss_reg1", "REGULATORY_EVENT", "rss_atom", "SEC issues rule"),
+        _ievt("rss_pr1", "PRESS_RELEASE", "rss_atom", "Acme buyback", "AAPL")])
+    s2 = tmp_path / "s2"
+    _iwrite(s2, _ievt("e1", "NEWS_EVENT", "eodhd", "Market wrap", "MSFT"))
+    extra = rd.read_additional_roots({"additional_event_roots": [str(root)]})
+    sel = rd.select_input_records({"input_selection": {}}, _istage2(s2), set(),
+                                  extra_roots=extra["roots"],
+                                  cluster_index=extra["clusters"])
+    assert sel["rss_atom_selected"] == 2
+    types = {r["record_type"] for r in sel["selected"]}
+    assert {"REGULATORY_EVENT", "PRESS_RELEASE"} <= types
+    # Backward compatible: no extra roots -> only the Stage 2 record.
+    base = rd.select_input_records({"input_selection": {}}, _istage2(s2), set())
+    assert base["rss_atom_considered"] == 0 and len(base["selected"]) == 1
+
+
+def test_97_cluster_dedup_keeps_representative_members(tmp_path):
+    sec = _ievt("f1", "FILING_EVENT", "sec_edgar", "Acme 8-K deal", "AAPL",
+                link="https://x.com/deal")
+    rss = _ievt("r1", "REGULATORY_EVENT", "rss_atom", "Regulator notes Acme deal",
+                "AAPL", link="https://x.com/deal")
+    cluster = {"cluster_id": "clu_1", "representative_record_id": "f1",
+               "member_record_ids": ["f1", "r1"], "corroborating_source_count": 2,
+               "clustering_confidence": "EXACT"}
+    root = _is35(tmp_path / "nr", records=[rss], clusters=[cluster])
+    s2 = tmp_path / "s2"
+    _iwrite(s2, sec)
+    extra = rd.read_additional_roots({"additional_event_roots": [str(root)]})
+    sel = rd.select_input_records({"input_selection": {}}, _istage2(s2), set(),
+                                  extra_roots=extra["roots"],
+                                  cluster_index=extra["clusters"])
+    ids = {r["record_id"] for r in sel["selected"]}
+    assert sel["clustered_duplicates_dropped"] == 1
+    assert len(ids & {"f1", "r1"}) == 1
+    keeper = [r for r in sel["selected"] if r["record_id"] in ("f1", "r1")][0]
+    assert set(keeper["_cluster_member_ids"]) == {"f1", "r1"}
+
+
+def test_98_coverage_flags_and_section_dynamic():
+    sel = {"type_considered": {"REGULATORY_EVENT": 3}, "type_freshness": {},
+           "type_selected": {"REGULATORY_EVENT": 2}, "rss_atom_considered": 3,
+           "rss_atom_selected": 2, "clusters_selected": ["clu_1"],
+           "multi_source_clusters_selected": ["clu_1"]}
+    extra = {"verified_count": 1, "cluster_count": 4,
+             "feed_evidence": {"enabled_feeds": 5, "healthy_feeds": 5,
+                               "attempted_feeds": 5, "degraded_feeds": 0,
+                               "blocked_feeds": 0, "clusters_created": 4,
+                               "multi_source_clusters": 1,
+                               "government_regulatory_feeds": 5,
+                               "unresolved_entity_mappings": 1}}
+    cov = rd.build_news_rss_coverage({"source_health": {}}, sel, extra)
+    assert cov["generalized_rss_collection_exists"] is True
+    assert cov["stage3_5_status"] == "IMPLEMENTED_PARTIAL"
+    section = "\n".join(rd._news_rss_section({"news_rss_coverage": cov}))
+    assert "Generalized RSS collection exists:** YES" in section
+    assert "Enabled feeds / attempted / healthy" in section
+    assert "Event clusters created" in section

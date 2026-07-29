@@ -42,12 +42,20 @@ RT_MACRO_OBSERVATION = "MACRO_OBSERVATION"
 RT_SHORT_VOLUME = "SHORT_VOLUME"
 RT_TRADING_HALT = "TRADING_HALT"
 RT_SOURCE_HEALTH = "SOURCE_HEALTH"
+# Stage 3.5 generalized News/RSS-Atom event contracts. RSS/Atom items are
+# normalized into NEWS_EVENT (industry/other-official aggregators),
+# REGULATORY_EVENT (official regulator / government / central-bank / economic /
+# cybersecurity / health-safety / market-infrastructure feeds) or PRESS_RELEASE
+# (company investor-relations / newsroom feeds). They carry the SAME point-in-
+# time normalized-record contract as every Stage 2 record.
+RT_REGULATORY_EVENT = "REGULATORY_EVENT"
+RT_PRESS_RELEASE = "PRESS_RELEASE"
 
 RECORD_TYPES = (
     RT_MARKET_BAR, RT_CORPORATE_ACTION, RT_UNIVERSE_MEMBERSHIP, RT_SECURITY_IDENTITY,
     RT_FILING_EVENT, RT_FUNDAMENTAL_FACT, RT_INSIDER_FILING, RT_EARNINGS_EVENT,
     RT_NEWS_EVENT, RT_MACRO_OBSERVATION, RT_SHORT_VOLUME, RT_TRADING_HALT,
-    RT_SOURCE_HEALTH,
+    RT_SOURCE_HEALTH, RT_REGULATORY_EVENT, RT_PRESS_RELEASE,
 )
 
 # --------------------------------------------------------------------------- #

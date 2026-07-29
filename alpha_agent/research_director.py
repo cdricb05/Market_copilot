@@ -52,6 +52,7 @@ from .llm_contracts import (COST_UNAVAILABLE, DIRECTOR_SCHEMA_VERSION,
                             wrap_untrusted)
 from .llm_providers import (AnthropicHttpProvider, ClaudeCodeProvider)
 from .llm_providers.claude_code import CLAUDE_CODE_DEVELOPMENT_ONLY
+from .event_clustering import index_clusters
 
 READY = "ALPHA_AGENT_STAGE3_READY"
 DEV_READY = "ALPHA_AGENT_STAGE3_DEV_READY"
@@ -64,8 +65,12 @@ BLOCKED = "ALPHA_AGENT_STAGE3_BLOCKED"
 ELIGIBLE_RECORD_TYPES = (
     "NEWS_EVENT", "FILING_EVENT", "INSIDER_FILING", "EARNINGS_EVENT",
     "TRADING_HALT", "MACRO_OBSERVATION", "SHORT_VOLUME", "CORPORATE_ACTION",
-    "SOURCE_HEALTH")
+    "SOURCE_HEALTH",
+    # Stage 3.5 generalized RSS/Atom event contracts (source_id 'rss_atom'),
+    # read from the verified additional_event_roots alongside Stage 2 records.
+    "REGULATORY_EVENT", "PRESS_RELEASE")
 _FORBIDDEN_INDIVIDUAL_TYPES = ("MARKET_BAR",)
+_RSS_SOURCE_ID = "rss_atom"
 
 # Verified news/RSS acquisition state. Stage 3 must never imply comprehensive
 # news or RSS coverage: only EODHD financial news (NEWS_EVENT), SEC EDGAR
@@ -76,7 +81,8 @@ _FORBIDDEN_INDIVIDUAL_TYPES = ("MARKET_BAR",)
 # regulatory feeds and no cross-feed event clustering exist yet.
 STAGE3_5_MARKER = "STAGE3_5_NEWS_RSS_EXPANSION_REQUIRED"
 _NEWS_COVERAGE_TYPES = ("NEWS_EVENT", "FILING_EVENT", "INSIDER_FILING",
-                        "TRADING_HALT", "EARNINGS_EVENT", "CORPORATE_ACTION")
+                        "TRADING_HALT", "EARNINGS_EVENT", "CORPORATE_ACTION",
+                        "REGULATORY_EVENT", "PRESS_RELEASE")
 _NEWS_RSS_INVENTORY = {
     "news_sources": {
         "eodhd_financial_news": "ENTITLED — normalized NEWS_EVENT records",
@@ -305,6 +311,113 @@ def read_stage2(config: dict) -> dict:
             "as_of": str(latest.get("as_of") or "")}
 
 
+_STAGE3_5_ACCEPTED_TOKENS = ("ALPHA_AGENT_STAGE3_5_READY",
+                             "ALPHA_AGENT_STAGE3_5_VERIFIED")
+_STAGE3_5_PARTIAL_PREFIX = "ALPHA_AGENT_STAGE3_5_PARTIAL"
+_HEALTHY_FEED_STATES = ("HEALTHY", "HEALTHY_NOT_MODIFIED", "DEGRADED")
+_BLOCKED_FEED_STATES = ("FAILED", "CIRCUIT_OPEN")
+
+
+def _load_stage35_feed_evidence(run_dir: Path) -> dict:
+    """Read the Stage 3.5 run's feed-level evidence (feed_health.csv +
+    source_coverage_report.json) so the Stage 3 report can state enabled /
+    attempted / healthy / degraded / blocked feeds, the newest feed item and the
+    clustering totals. Read-only; tolerant of missing files."""
+    ev = {"enabled_feeds": 0, "attempted_feeds": 0, "healthy_feeds": 0,
+          "degraded_feeds": 0, "blocked_feeds": 0, "newest_feed_item": None,
+          "duplicate_items_prevented": 0, "clusters_created": 0,
+          "multi_source_clusters": 0, "company_feeds": 0,
+          "government_regulatory_feeds": 0, "unresolved_entity_mappings": 0,
+          "gdelt_state": "NOT_RUN"}
+    scr = _read_json(run_dir / "source_coverage_report.json")
+    if isinstance(scr, dict):
+        ev["enabled_feeds"] = int(scr.get("enabled_feeds", 0))
+        ev["healthy_feeds"] = int(scr.get("healthy_feeds", 0))
+        ev["clusters_created"] = int(scr.get("clusters_created", 0))
+        ev["multi_source_clusters"] = int(scr.get("multi_source_clusters", 0))
+        ev["company_feeds"] = int(scr.get("company_feeds", 0))
+        ev["government_regulatory_feeds"] = int(
+            scr.get("government_regulatory_feeds", 0))
+        ev["gdelt_state"] = str(scr.get("gdelt_state", "NOT_RUN"))
+        er = scr.get("entity_resolution", {}) or {}
+        ev["unresolved_entity_mappings"] = int(er.get("UNMATCHED", 0)) \
+            + int(er.get("AMBIGUOUS", 0))
+    hp = run_dir / "feed_health.csv"
+    if hp.exists():
+        try:
+            with open(hp, encoding="utf-8-sig", newline="") as fh:
+                for row in csv.DictReader(fh):
+                    if str(row.get("attempted")).lower() in ("true", "1"):
+                        ev["attempted_feeds"] += 1
+                    health = str(row.get("health") or "")
+                    if health == "DEGRADED":
+                        ev["degraded_feeds"] += 1
+                    if health in _BLOCKED_FEED_STATES:
+                        ev["blocked_feeds"] += 1
+                    ev["duplicate_items_prevented"] += int(
+                        row.get("duplicates_prevented") or 0)
+                    lit = str(row.get("latest_item_time") or "")
+                    if lit and (ev["newest_feed_item"] is None
+                                or lit > ev["newest_feed_item"]):
+                        ev["newest_feed_item"] = lit
+        except (OSError, ValueError):
+            pass
+    return ev
+
+
+def read_additional_roots(config: dict) -> dict:
+    """Read verified additional event roots (e.g. the Stage 3.5 News/RSS root).
+
+    Each root MUST publish a latest.json whose terminal token is an accepted
+    Stage 3.5 token (READY / PARTIAL / VERIFIED); unverified or missing roots are
+    REJECTED (recorded, never read). For every accepted root the run's
+    event_clusters.jsonl is loaded into a record_id -> cluster-membership index so
+    selection can prefer representative records and retain member ids for
+    grounding. Never mutates any source record."""
+    verified: list[Path] = []
+    rejected: list[dict] = []
+    file_clusters: list[dict] = []
+    evidences: list[dict] = []
+    for root_str in config.get("additional_event_roots", []):
+        root = Path(root_str)
+        latest = _read_json(root / "latest.json")
+        if not isinstance(latest, dict) or not latest.get("run_id"):
+            rejected.append({"root": str(root_str),
+                             "reason": "missing or invalid latest.json"})
+            continue
+        token = str(latest.get("terminal_token") or "")
+        if token not in _STAGE3_5_ACCEPTED_TOKENS \
+                and not token.startswith(_STAGE3_5_PARTIAL_PREFIX):
+            rejected.append({"root": str(root_str),
+                             "reason": "unverified terminal token: %s" % token})
+            continue
+        run_dir = root / str(latest.get("run_dir", "")).replace("\\", os.sep)
+        cf = run_dir / "event_clusters.jsonl"
+        if cf.exists():
+            for line in cf.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    file_clusters.append(json.loads(line))
+                except ValueError:
+                    continue
+        evidences.append(_load_stage35_feed_evidence(run_dir))
+        verified.append(root)
+    clusters = index_clusters(file_clusters) if file_clusters else {}
+    feed_evidence: dict = {}
+    for ev in evidences:
+        for k, v in ev.items():
+            if k in ("newest_feed_item", "gdelt_state"):
+                cur = feed_evidence.get(k)
+                feed_evidence[k] = max(cur, v) if (cur and v) else (v or cur)
+            else:
+                feed_evidence[k] = feed_evidence.get(k, 0) + (v or 0)
+    return {"roots": verified, "rejected": rejected, "clusters": clusters,
+            "cluster_count": len({c["cluster_id"] for c in file_clusters}),
+            "verified_count": len(verified), "feed_evidence": feed_evidence}
+
+
 # --------------------------------------------------------------------------- #
 # State DB.
 # --------------------------------------------------------------------------- #
@@ -362,10 +475,17 @@ def _iter_normalized(stage2_root: Path, record_type: str):
             continue
 
 
-def select_input_records(config: dict, stage2: dict,
-                         known_ids: set[str]) -> dict:
+def select_input_records(config: dict, stage2: dict, known_ids: set[str], *,
+                         extra_roots: Optional[list] = None,
+                         cluster_index: Optional[dict] = None) -> dict:
     """Deterministic pre-filter. Returns selection evidence + selected records.
-    Never mutates any source record."""
+    Never mutates any source record.
+
+    Reads normalized records from the Stage 2 ingestion root AND every verified
+    additional event root (Stage 3.5 News/RSS). Record ids are deduplicated
+    ACROSS roots. When a cluster index is supplied, records sharing a multi-member
+    cluster collapse to the cluster's representative (retaining the member ids for
+    grounding) so the LLM never sees the same event twice."""
     sel_cfg = config.get("input_selection", {})
     eligible = tuple(sel_cfg.get("eligible_record_types",
                                  ELIGIBLE_RECORD_TYPES))
@@ -376,6 +496,8 @@ def select_input_records(config: dict, stage2: dict,
     max_per_ticker = int(sel_cfg.get("max_records_per_ticker", 3))
     focus = [str(t).upper() for t in sel_cfg.get("focus_tickers", [])]
     health = stage2.get("source_health", {})
+    roots = [stage2["root"]] + list(extra_roots or [])
+    cluster_index = cluster_index or {}
 
     considered = 0
     malformed = 0
@@ -383,6 +505,9 @@ def select_input_records(config: dict, stage2: dict,
     skipped_unhealthy = 0
     skipped_no_provenance = 0
     dup_payloads = 0
+    cross_root_dups = 0
+    rss_considered = 0
+    seen_record_ids: set[str] = set()
     seen_payloads: set[str] = set()
     seen_titles: set[str] = set()
     candidates: list[dict] = []
@@ -396,59 +521,70 @@ def select_input_records(config: dict, stage2: dict,
     for rt in eligible:
         if rt in _FORBIDDEN_INDIVIDUAL_TYPES:
             continue
-        for rec in _iter_normalized(stage2["root"], rt):
-            considered += 1
-            if rec.get("_malformed_line") or not rec.get("record_id"):
-                malformed += 1
-                continue
-            type_considered[rt] = type_considered.get(rt, 0) + 1
-            ts = str(rec.get("available_at") or rec.get("effective_at") or "")
-            if ts and ts > type_freshness.get(rt, ""):
-                type_freshness[rt] = ts
-            rid = rec["record_id"]
-            if rid in known_ids:
-                skipped_processed += 1
-                continue
-            if not rec.get("provenance"):
-                skipped_no_provenance += 1
-                skipped_ids.append((rid, rt, rec.get("source_id", ""),
-                                    "NO_PROVENANCE"))
-                continue
-            state = health.get(str(rec.get("source_id")))
-            if state is not None and state not in healthy_states:
-                skipped_unhealthy += 1
-                skipped_ids.append((rid, rt, rec.get("source_id", ""),
-                                    "SOURCE_UNHEALTHY:%s" % state))
-                continue
-            ph = rec.get("payload_hash") or rid
-            if ph in seen_payloads:
-                dup_payloads += 1
-                skipped_ids.append((rid, rt, rec.get("source_id", ""),
-                                    "DUPLICATE_PAYLOAD"))
-                continue
-            seen_payloads.add(ph)
-            if rt == "SHORT_VOLUME":
-                short_volume.append(rec)
-                continue
-            if rt == "MACRO_OBSERVATION":
-                macro_all.append(rec)
-                series = str((rec.get("normalized_payload") or {})
-                             .get("series_id") or rec.get("source_native_id"))
-                prev = macro_by_series.get(series)
-                key = str(rec.get("available_at") or "")
-                if prev is None or key > str(prev.get("available_at") or ""):
-                    macro_by_series[series] = rec
-                continue
-            title = (rec.get("normalized_payload") or {}).get("title")
-            if title:
-                tkey = sha256_text(str(title).strip().lower())
-                if tkey in seen_titles:
+        for root in roots:
+            for rec in _iter_normalized(root, rt):
+                considered += 1
+                if rec.get("_malformed_line") or not rec.get("record_id"):
+                    malformed += 1
+                    continue
+                rid = rec["record_id"]
+                if rid in seen_record_ids:
+                    # Same record present in more than one root — counted once.
+                    cross_root_dups += 1
+                    continue
+                seen_record_ids.add(rid)
+                type_considered[rt] = type_considered.get(rt, 0) + 1
+                if rec.get("source_id") == _RSS_SOURCE_ID:
+                    rss_considered += 1
+                ts = str(rec.get("available_at") or rec.get("effective_at") or "")
+                if ts and ts > type_freshness.get(rt, ""):
+                    type_freshness[rt] = ts
+                if rid in known_ids:
+                    skipped_processed += 1
+                    continue
+                if not rec.get("provenance"):
+                    skipped_no_provenance += 1
+                    skipped_ids.append((rid, rt, rec.get("source_id", ""),
+                                        "NO_PROVENANCE"))
+                    continue
+                state = health.get(str(rec.get("source_id")))
+                if state is not None and state not in healthy_states:
+                    skipped_unhealthy += 1
+                    skipped_ids.append((rid, rt, rec.get("source_id", ""),
+                                        "SOURCE_UNHEALTHY:%s" % state))
+                    continue
+                ph = rec.get("payload_hash") or rid
+                if ph in seen_payloads:
                     dup_payloads += 1
                     skipped_ids.append((rid, rt, rec.get("source_id", ""),
-                                        "DUPLICATE_TITLE"))
+                                        "DUPLICATE_PAYLOAD"))
                     continue
-                seen_titles.add(tkey)
-            candidates.append(rec)
+                seen_payloads.add(ph)
+                info = cluster_index.get(rid)
+                if info:
+                    rec["_cluster"] = info
+                if rt == "SHORT_VOLUME":
+                    short_volume.append(rec)
+                    continue
+                if rt == "MACRO_OBSERVATION":
+                    macro_all.append(rec)
+                    series = str((rec.get("normalized_payload") or {})
+                                 .get("series_id") or rec.get("source_native_id"))
+                    prev = macro_by_series.get(series)
+                    key = str(rec.get("available_at") or "")
+                    if prev is None or key > str(prev.get("available_at") or ""):
+                        macro_by_series[series] = rec
+                    continue
+                title = (rec.get("normalized_payload") or {}).get("title")
+                if title:
+                    tkey = sha256_text(str(title).strip().lower())
+                    if tkey in seen_titles:
+                        dup_payloads += 1
+                        skipped_ids.append((rid, rt, rec.get("source_id", ""),
+                                            "DUPLICATE_TITLE"))
+                        continue
+                    seen_titles.add(tkey)
+                candidates.append(rec)
 
     chosen_macro = {r["record_id"] for r in macro_by_series.values()}
     for rec in macro_all:
@@ -476,6 +612,36 @@ def select_input_records(config: dict, stage2: dict,
             if by_type[t]:
                 interleaved.append(by_type[t].pop(0))
     candidates = interleaved
+
+    # Cross-source cluster dedup: when several candidates belong to the SAME
+    # multi-member event cluster, keep only the deterministic representative and
+    # attach the full member id list to it for grounding. The others are dropped
+    # as CLUSTERED_DUPLICATE so the LLM never re-reads one corroborated event.
+    clustered_dropped = 0
+    if cluster_index:
+        by_cluster: dict[str, list[dict]] = {}
+        for rec in candidates:
+            info = cluster_index.get(rec["record_id"])
+            if info and info.get("cluster_id") \
+                    and len(info.get("member_record_ids", [])) > 1:
+                by_cluster.setdefault(info["cluster_id"], []).append(rec)
+        drop_ids: set[str] = set()
+        for cid, recs in by_cluster.items():
+            present = {r["record_id"] for r in recs}
+            rep_id = cluster_index[recs[0]["record_id"]]["representative_record_id"]
+            keeper_id = rep_id if rep_id in present else min(present)
+            keeper = next(r for r in recs if r["record_id"] == keeper_id)
+            keeper["_cluster_member_ids"] = \
+                cluster_index[keeper_id]["member_record_ids"]
+            for r in recs:
+                if r["record_id"] != keeper_id:
+                    drop_ids.add(r["record_id"])
+                    skipped_ids.append((r["record_id"], r.get("record_type", ""),
+                                        r.get("source_id", ""),
+                                        "CLUSTERED_DUPLICATE"))
+        if drop_ids:
+            candidates = [r for r in candidates if r["record_id"] not in drop_ids]
+            clustered_dropped = len(drop_ids)
 
     # SHORT_VOLUME: never sent individually beyond a bounded focus set — a
     # compact deterministic summary is computed in Python instead.
@@ -542,11 +708,24 @@ def select_input_records(config: dict, stage2: dict,
         if hits:
             injection[rec["record_id"]] = hits
 
+    rss_selected = sum(1 for r in selected
+                       if r.get("source_id") == _RSS_SOURCE_ID)
+    clusters_selected = sorted({r["_cluster"]["cluster_id"] for r in selected
+                                if r.get("_cluster")})
+    multi_source_selected = sorted(
+        {r["_cluster"]["cluster_id"] for r in selected if r.get("_cluster")
+         and r["_cluster"].get("corroborating_source_count", 0) > 1})
     return {"considered": considered, "malformed": malformed,
             "skipped_already_processed": skipped_processed,
             "skipped_unhealthy": skipped_unhealthy,
             "skipped_no_provenance": skipped_no_provenance,
             "duplicates_skipped": dup_payloads, "cap_dropped": cap_dropped,
+            "cross_root_duplicates": cross_root_dups,
+            "clustered_duplicates_dropped": clustered_dropped,
+            "rss_atom_considered": rss_considered,
+            "rss_atom_selected": rss_selected,
+            "clusters_selected": clusters_selected,
+            "multi_source_clusters_selected": multi_source_selected,
             "selected": selected, "skipped_ids": skipped_ids,
             "deferred_ids": deferred_ids,
             "type_considered": type_considered,
@@ -634,6 +813,13 @@ def apply_development_sample(sel: dict, dev_profile: dict) -> dict:
         rt = str(r.get("record_type", ""))
         type_selected[rt] = type_selected.get(rt, 0) + 1
     out["type_selected"] = type_selected
+    out["rss_atom_selected"] = sum(1 for r in chosen
+                                   if r.get("source_id") == _RSS_SOURCE_ID)
+    out["clusters_selected"] = sorted({r["_cluster"]["cluster_id"] for r in chosen
+                                       if r.get("_cluster")})
+    out["multi_source_clusters_selected"] = sorted(
+        {r["_cluster"]["cluster_id"] for r in chosen if r.get("_cluster")
+         and r["_cluster"].get("corroborating_source_count", 0) > 1})
     injection: dict[str, list[str]] = {}
     for r in chosen:
         hits = detect_injection_indicators(
@@ -652,10 +838,14 @@ def apply_development_sample(sel: dict, dev_profile: dict) -> dict:
     return out
 
 
-def build_news_rss_coverage(stage2: dict, sel: dict) -> dict:
+def build_news_rss_coverage(stage2: dict, sel: dict,
+                            extra: Optional[dict] = None) -> dict:
     """Deterministic NEWS_AND_RSS_COVERAGE evidence: exact per-type counts of
-    the event sources represented, source freshness, verified coverage gaps
-    and the mandatory Stage 3.5 expansion marker. Never LLM-derived."""
+    the event sources represented, source freshness, cross-feed clustering
+    evidence and verified coverage gaps. The generalized-RSS flags are computed
+    from ACTUAL live evidence — they only report that generalized RSS/Atom
+    collection exists once real rss_atom records have been read. Never LLM-derived."""
+    extra = extra or {}
     counts = {}
     for rt in _NEWS_COVERAGE_TYPES:
         counts[rt] = {"considered": sel["type_considered"].get(rt, 0),
@@ -668,21 +858,54 @@ def build_news_rss_coverage(stage2: dict, sel: dict) -> dict:
              if rt not in _NEWS_COVERAGE_TYPES}
     gdelt_state = str((stage2.get("source_health") or {})
                       .get("gdelt", "NOT_RUN"))
+    rss_considered = int(sel.get("rss_atom_considered", 0))
+    rss_selected = int(sel.get("rss_atom_selected", 0))
+    press_considered = int(sel["type_considered"].get("PRESS_RELEASE", 0))
+    regulatory_considered = int(sel["type_considered"].get("REGULATORY_EVENT", 0))
+    generalized_exists = rss_considered > 0
+    verified_roots = int(extra.get("verified_count", 0))
+    news_sources = dict(_NEWS_RSS_INVENTORY["news_sources"])
+    rss_feeds = list(_NEWS_RSS_INVENTORY["rss_feeds"])
+    if generalized_exists:
+        news_sources["generalized_rss_atom"] = (
+            "OPERATIONAL (Stage 3.5) — official RSS/Atom feeds normalized into "
+            "NEWS_EVENT / REGULATORY_EVENT / PRESS_RELEASE records")
+        rss_feeds = ["generalized official RSS/Atom registry (Stage 3.5): "
+                     "%d rss_atom records read" % rss_considered,
+                     "nasdaq_trader_trading_halts (Stage 2)"]
+        gaps = ["company investor-relations / newsroom RSS coverage still sparse",
+                "broader international / multi-language official feeds pending",
+                "GDELT discovery feed intentionally disabled"]
+    else:
+        gaps = list(_NEWS_RSS_INVENTORY["source_gaps"])
     return {
         "marker": STAGE3_5_MARKER,
-        "current_news_sources": _NEWS_RSS_INVENTORY["news_sources"],
-        "current_rss_feeds": _NEWS_RSS_INVENTORY["rss_feeds"],
+        "stage3_5_status": ("IMPLEMENTED_PARTIAL" if generalized_exists
+                            else "REQUIRED_BEFORE_PERSISTENT_24_7_RUNTIME"),
+        "current_news_sources": news_sources,
+        "current_rss_feeds": rss_feeds,
         "record_counts": counts,
         "other_event_sources": other,
         "source_health": stage2.get("source_health", {}),
         "gdelt_state": gdelt_state,
         "gdelt_remains_disabled": gdelt_state in
             ("NOT_RUN", "DISABLED", "SKIPPED", "DEFERRED"),
-        "company_direct_rss_atom_feeds_exist":
-            _NEWS_RSS_INVENTORY["company_direct_rss_atom_feeds_exist"],
-        "generalized_rss_collection_exists":
-            _NEWS_RSS_INVENTORY["generalized_rss_collection_exists"],
-        "source_gaps": _NEWS_RSS_INVENTORY["source_gaps"]}
+        "company_direct_rss_atom_feeds_exist": press_considered > 0,
+        "generalized_rss_collection_exists": generalized_exists,
+        "rss_atom_records_considered": rss_considered,
+        "rss_atom_records_selected": rss_selected,
+        "rss_regulatory_considered": regulatory_considered,
+        "rss_press_release_considered": press_considered,
+        "additional_event_roots_verified": verified_roots,
+        "additional_event_roots_rejected": extra.get("rejected", []),
+        "event_clusters_available": int(extra.get("cluster_count", 0)),
+        "clusters_selected": len(sel.get("clusters_selected", [])),
+        "multi_source_clusters_selected":
+            len(sel.get("multi_source_clusters_selected", [])),
+        "clustered_duplicates_dropped": int(sel.get("clustered_duplicates_dropped", 0)),
+        "cross_root_duplicates": int(sel.get("cross_root_duplicates", 0)),
+        "feed_evidence": extra.get("feed_evidence", {}),
+        "source_gaps": gaps}
 
 
 def _stage3_5_requirements(run_id: str, stage1: dict, stage2: dict,
@@ -690,16 +913,19 @@ def _stage3_5_requirements(run_id: str, stage1: dict, stage2: dict,
     """Immutable Stage 3.5 implementation contract. Recording this file is a
     hard precondition for ever classifying Stage 4 as fully ready."""
     cov = metrics.get("news_rss_coverage", {})
+    generalized = bool(cov.get("generalized_rss_collection_exists", False))
     return {
         "marker": STAGE3_5_MARKER,
-        "status": "REQUIRED_BEFORE_PERSISTENT_24_7_RUNTIME",
+        "status": cov.get("stage3_5_status",
+                          "REQUIRED_BEFORE_PERSISTENT_24_7_RUNTIME"),
         "produced_by_run": run_id,
         "stage1_run_id": stage1["run_id"], "stage2_run_id": stage2["run_id"],
         "schema_version": DIRECTOR_SCHEMA_VERSION,
         "current_state": {
             "financial_news_operational": True,
             "narrow_rss_operational": True,
-            "broad_rss_atom_acquisition_missing": True,
+            "generalized_rss_atom_operational": generalized,
+            "broad_rss_atom_acquisition_missing": not generalized,
             "gdelt_remains_disabled": cov.get("gdelt_remains_disabled", True),
             "coverage_evidence": cov},
         "implementation_contract": {
@@ -1118,7 +1344,21 @@ def _run_cycle(config: dict, out_root: Path, mode: str, as_of: str, *,
 
     # ---------------- input selection -------------------------------------- #
     known = _known_processed(conn)
-    sel = select_input_records(config, stage2, known)
+    # Verified additional event roots (Stage 3.5 News/RSS) are read alongside
+    # Stage 2; unverified roots are rejected (never read). Cross-feed clusters are
+    # used to collapse duplicate coverage to a single representative record.
+    extra = read_additional_roots(config)
+    for rej in extra["rejected"]:
+        decide("additional_event_root", rej["root"], "REJECTED_UNVERIFIED",
+               rej["reason"])
+    if extra["verified_count"]:
+        decide("additional_event_root", None,
+               "VERIFIED_%d_ROOTS" % extra["verified_count"],
+               "%d cross-feed clusters available for dedup/grounding"
+               % extra["cluster_count"])
+    sel = select_input_records(config, stage2, known,
+                               extra_roots=extra["roots"],
+                               cluster_index=extra["clusters"])
     selected = sel["selected"]
     if sel["new_eligible"] == 0 or not selected:
         # Nothing genuinely new: no immutable run dir, no LLM call.
@@ -1509,7 +1749,16 @@ def _run_cycle(config: dict, out_root: Path, mode: str, as_of: str, *,
         "provider": provider_name, "classification": classification,
         "model": model, "llm_calls": len(receipts),
         "development_sample": sel.get("dev_sample"),
-        "news_rss_coverage": build_news_rss_coverage(stage2, sel),
+        "rss_atom_selected": sel.get("rss_atom_selected", 0),
+        "additional_roots_verified": extra["verified_count"],
+        "additional_roots_rejected": extra["rejected"],
+        "event_clusters_available": extra["cluster_count"],
+        "clusters_selected": sel.get("clusters_selected", []),
+        "multi_source_clusters_selected":
+            sel.get("multi_source_clusters_selected", []),
+        "clustered_duplicates_dropped": sel.get("clustered_duplicates_dropped", 0),
+        "cross_root_duplicates": sel.get("cross_root_duplicates", 0),
+        "news_rss_coverage": build_news_rss_coverage(stage2, sel, extra),
         "budget": ledger.snapshot()}
 
     # Role 4 — narrative (values are Python-verified; LLM restates only).
@@ -1965,11 +2214,13 @@ def _render_daily_report(run_id, run_dir, as_of, token, terminal, stage1,
 
 
 _NEWS_COVERAGE_LABELS = {
-    "NEWS_EVENT": "EODHD NEWS_EVENT", "FILING_EVENT": "SEC FILING_EVENT",
+    "NEWS_EVENT": "NEWS_EVENT (EODHD+RSS)", "FILING_EVENT": "SEC FILING_EVENT",
     "INSIDER_FILING": "SEC INSIDER_FILING",
     "TRADING_HALT": "Nasdaq TRADING_HALT",
     "EARNINGS_EVENT": "EARNINGS_EVENT",
-    "CORPORATE_ACTION": "CORPORATE_ACTION"}
+    "CORPORATE_ACTION": "CORPORATE_ACTION",
+    "REGULATORY_EVENT": "RSS REGULATORY_EVENT",
+    "PRESS_RELEASE": "RSS PRESS_RELEASE"}
 
 
 def _news_rss_section(metrics: dict) -> list[str]:
@@ -1989,29 +2240,78 @@ def _news_rss_section(metrics: dict) -> list[str]:
     other = cov.get("other_event_sources") or {}
     other_str = ", ".join("%s %d/%d" % (rt, v["considered"], v["selected"])
                           for rt, v in sorted(other.items())) or "none"
-    return [
+    generalized = bool(cov.get("generalized_rss_collection_exists", False))
+    company_direct = bool(cov.get("company_direct_rss_atom_feeds_exist", False))
+    fe = cov.get("feed_evidence") or {}
+    lines = [
         "", "## NEWS_AND_RSS_COVERAGE", "",
-        "- **Current news sources:** EODHD financial news (ENTITLED, "
-        "NEWS_EVENT); SEC EDGAR (FILING_EVENT + INSIDER_FILING); Nasdaq "
-        "Trader trading-halt RSS (narrow, TRADING_HALT); GDELT implemented "
-        "but intentionally disabled.",
-        "- **Current RSS feeds:** Nasdaq Trader trading-halt feed only — no "
-        "generalized RSS/Atom feed registry or collector exists.",
+        "- **Current news sources:** %s." % "; ".join(
+            "%s = %s" % (k, v) for k, v in sorted(
+                (cov.get("current_news_sources")
+                 or _NEWS_RSS_INVENTORY["news_sources"]).items())),
+        "- **Current RSS feeds:** %s." % "; ".join(
+            cov.get("current_rss_feeds") or _NEWS_RSS_INVENTORY["rss_feeds"]),
+        "- **Enabled feeds / attempted / healthy / degraded / blocked:** "
+        "%d / %d / %d / %d / %d." % (
+            fe.get("enabled_feeds", 0), fe.get("attempted_feeds", 0),
+            fe.get("healthy_feeds", 0), fe.get("degraded_feeds", 0),
+            fe.get("blocked_feeds", 0)),
+        "- **Newest feed item:** %s." % (fe.get("newest_feed_item") or "n/a"),
+        "- **RSS/Atom records considered / selected this cycle:** %d / %d "
+        "(REGULATORY_EVENT %d, PRESS_RELEASE %d considered)." % (
+            cov.get("rss_atom_records_considered", 0),
+            cov.get("rss_atom_records_selected", 0),
+            cov.get("rss_regulatory_considered", 0),
+            cov.get("rss_press_release_considered", 0)),
+        "- **Official government/regulatory feeds represented:** %d; "
+        "official-company feeds represented: %d." % (
+            fe.get("government_regulatory_feeds", 0), fe.get("company_feeds", 0)),
         "- **Records considered / selected this cycle:** %s; other event "
         "sources: %s." % ("; ".join(parts), other_str),
         "- **Source freshness (newest record per type):** %s."
         % ", ".join(fresh),
-        "- **Source gaps:** %s."
-        % "; ".join(cov.get("source_gaps")
-                    or _NEWS_RSS_INVENTORY["source_gaps"]),
+        "- **Event clusters created (Stage 3.5):** %d (%d multi-source "
+        "corroborated); clusters represented in this cycle's selection: %d "
+        "(%d multi-source); clustered duplicate items prevented: %d; "
+        "cross-root duplicates prevented: %d." % (
+            fe.get("clusters_created", cov.get("event_clusters_available", 0)),
+            fe.get("multi_source_clusters", 0),
+            cov.get("clusters_selected", 0),
+            cov.get("multi_source_clusters_selected", 0),
+            cov.get("clustered_duplicates_dropped", 0),
+            cov.get("cross_root_duplicates", 0)),
+        "- **Duplicate feed items prevented (Stage 3.5 collection):** %d."
+        % fe.get("duplicate_items_prevented", 0),
+        "- **Unresolved entity mappings (Stage 3.5):** %d (UNMATCHED + "
+        "AMBIGUOUS; never guessed)." % fe.get("unresolved_entity_mappings", 0),
+        "- **Verified additional event roots:** %d; rejected (unverified): %d."
+        % (cov.get("additional_event_roots_verified", 0),
+           len(cov.get("additional_event_roots_rejected") or [])),
+        "- **Source gaps:** %s." % "; ".join(
+            cov.get("source_gaps") or _NEWS_RSS_INVENTORY["source_gaps"]),
         "- **GDELT remains disabled:** %s (state %s)."
         % ("YES" if cov.get("gdelt_remains_disabled", True) else "NO",
            cov.get("gdelt_state", "NOT_RUN")),
-        "- **Company-direct RSS/Atom feeds exist:** NO.",
-        "- **Generalized RSS collection exists:** NO.",
-        "- **Coverage verdict:** news collection is NOT complete — EODHD "
-        "financial news plus the narrow Nasdaq halt RSS do not constitute "
-        "comprehensive news/RSS coverage. %s." % STAGE3_5_MARKER]
+        "- **Company-direct RSS/Atom feeds exist:** %s."
+        % ("YES" if company_direct else "NO"),
+        "- **Generalized RSS collection exists:** %s."
+        % ("YES (Stage 3.5 operational — partial coverage)" if generalized
+           else "NO"),
+    ]
+    if generalized:
+        lines.append(
+            "- **Coverage verdict:** news collection is now BROADER but still "
+            "PARTIAL — generalized official RSS/Atom collection is OPERATIONAL "
+            "(Stage 3.5) alongside EODHD financial news, SEC filings and the "
+            "Nasdaq halt feed; company investor-relations and international "
+            "coverage remain to be expanded. Stage 3.5 status: %s."
+            % cov.get("stage3_5_status", "IMPLEMENTED_PARTIAL"))
+    else:
+        lines.append(
+            "- **Coverage verdict:** news collection is NOT complete — EODHD "
+            "financial news plus the narrow Nasdaq halt RSS do not constitute "
+            "comprehensive news/RSS coverage. %s." % STAGE3_5_MARKER)
+    return lines
 
 
 # --------------------------------------------------------------------------- #
@@ -2255,8 +2555,8 @@ def verify_run(config: dict, output_root: str, *,
 
 __all__ = ["READY", "DEV_READY", "NO_NEW", "BUDGET_EXHAUSTED", "VERIFIED",
            "PARTIAL", "BLOCKED", "ELIGIBLE_RECORD_TYPES", "run_director",
-           "verify_run", "read_stage1", "read_stage2", "select_input_records",
-           "apply_development_sample",
+           "verify_run", "read_stage1", "read_stage2", "read_additional_roots",
+           "select_input_records", "apply_development_sample",
            "build_packets", "build_market_context", "run_duplicate_gate",
            "check_data_adequacy", "queue_policy", "compute_run_id",
            "ledger_fingerprints", "scan_outputs_for_secrets",

@@ -16,6 +16,9 @@
   },
   "stage1_registry_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\registry",
   "stage2_ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
+  "additional_event_roots": [
+    "D:\\Stock_Prediction_app_data\\alpha_agent\\news_rss"
+  ],
   "operational_ledger_roots": [
     "C:\\Users\\binis\\.paper_trader\\paper_trading_desk"
   ],
@@ -35,7 +38,7 @@
     "eligible_record_types": [
       "NEWS_EVENT", "FILING_EVENT", "INSIDER_FILING", "EARNINGS_EVENT",
       "TRADING_HALT", "MACRO_OBSERVATION", "SHORT_VOLUME", "CORPORATE_ACTION",
-      "SOURCE_HEALTH"
+      "SOURCE_HEALTH", "REGULATORY_EVENT", "PRESS_RELEASE"
     ],
     "market_bar_individual_records_forbidden": true,
     "require_source_states": ["HEALTHY", "DEGRADED"],
@@ -101,10 +104,11 @@
         "enabled": true,
         "max_event_records_per_cycle": 6,
         "balanced_sample_targets": [
-          ["NEWS_EVENT", 2],
+          ["REGULATORY_EVENT", 1],
+          ["NEWS_EVENT", 1],
+          ["PRESS_RELEASE", 1],
           ["FILING_EVENT", 1],
           ["INSIDER_FILING", 1],
-          ["MACRO_OBSERVATION", 1],
           ["TRADING_HALT", 1]
         ],
         "per_call_max_output_tokens": {

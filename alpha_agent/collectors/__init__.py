@@ -11,6 +11,7 @@ from .fred_alfred import FredAlfredCollector
 from .gdelt import GdeltCollector
 from .nasdaq_trader import NasdaqTraderCollector
 from .norgate_local import NorgateLocalCollector
+from .rss_atom import RssAtomCollector
 from .sec_edgar import SecEdgarCollector
 
 COLLECTOR_CLASSES = {
@@ -27,5 +28,5 @@ __all__ = [
     "BaseCollector", "CollectorContext", "RawArchive", "default_transport",
     "COLLECTOR_CLASSES", "NorgateLocalCollector", "EodhdCollector",
     "SecEdgarCollector", "FinraCollector", "NasdaqTraderCollector",
-    "FredAlfredCollector", "GdeltCollector",
+    "FredAlfredCollector", "GdeltCollector", "RssAtomCollector",
 ]

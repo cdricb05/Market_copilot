@@ -28,9 +28,9 @@ promotion, order or Paper Trader mutation ever occurs.
 """
 from __future__ import annotations
 
-from . import (ingestion, llm_budget, llm_contracts, llm_providers,
-               research_director, research_importers, research_registry,
-               source_contracts)
+from . import (event_clustering, feed_contracts, feed_registry, ingestion,
+               llm_budget, llm_contracts, llm_providers, research_director,
+               research_importers, research_registry, source_contracts)
 
 SCHEMA_VERSION = research_registry.SCHEMA_VERSION
 IMPORTER_VERSION = research_importers.IMPORTER_VERSION
@@ -53,6 +53,16 @@ STAGE2_VERIFIED = ingestion.VERIFIED
 NO_NEW_SOURCE_DATA = ingestion.NO_NEW
 run_ingestion = ingestion.run_ingestion
 
+FEED_SCHEMA_VERSION = feed_contracts.FEED_SCHEMA_VERSION
+RSS_COLLECTOR_VERSION = feed_contracts.RSS_COLLECTOR_VERSION
+STAGE35_READY = feed_registry.READY
+STAGE35_PARTIAL = feed_registry.PARTIAL
+STAGE35_NO_NEW = feed_registry.NO_NEW
+STAGE35_VERIFIED = feed_registry.VERIFIED
+STAGE35_BLOCKED = feed_registry.BLOCKED
+run_news_rss = feed_registry.run_news_rss
+cluster_events = event_clustering.cluster_events
+
 DIRECTOR_SCHEMA_VERSION = llm_contracts.DIRECTOR_SCHEMA_VERSION
 PROMPT_VERSION = llm_contracts.PROMPT_VERSION
 STAGE3_READY = research_director.READY
@@ -67,6 +77,10 @@ run_director = research_director.run_director
 __all__ = [
     "research_importers", "research_registry", "source_contracts", "ingestion",
     "llm_contracts", "llm_budget", "llm_providers", "research_director",
+    "feed_contracts", "feed_registry", "event_clustering",
+    "FEED_SCHEMA_VERSION", "RSS_COLLECTOR_VERSION", "STAGE35_READY",
+    "STAGE35_PARTIAL", "STAGE35_NO_NEW", "STAGE35_VERIFIED", "STAGE35_BLOCKED",
+    "run_news_rss", "cluster_events",
     "SCHEMA_VERSION", "IMPORTER_VERSION", "STAGE",
     "READY", "BLOCKED", "VERIFIED", "NO_CHANGES",
     "build_registry", "classify_candidate_experiment",
