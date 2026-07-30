@@ -1,0 +1,119 @@
+{
+  "stage": "7",
+  "config_version": "1.0.0",
+  "description": "Alpha Agent Stage 7 — alpha recovery: evidence observatory, champion autopsy, risk-overlay tournament and bounded alpha campaign. RESEARCH-ONLY and strictly READ-ONLY with respect to every operational surface: never creates an order, fill, signal or trade decision; never promotes a model; never mutates any portfolio, Alpha Paper Book, target or operational ledger; never writes Paper Trader PostgreSQL; never calls the prediction service or a Daily Close; never runs or executes LLM-authored code; never installs a package; never creates a scheduled task; never rewrites prior immutable evidence. All evidence is reconstructed on owned, point-in-time-safe data; the fundamental leg of the champion is UNVERIFIABLE historically and is NEVER fabricated. Contains NO secret — no credential value appears anywhere.",
+  "safety": {
+    "research_and_read_only": true,
+    "no_orders": true,
+    "no_fills": true,
+    "no_signals": true,
+    "no_trade_decisions": true,
+    "no_model_promotion": true,
+    "no_target_change": true,
+    "no_portfolio_mutation": true,
+    "no_paper_book_mutation": true,
+    "no_operational_ledger_mutation": true,
+    "no_paper_trader_db_mutation": true,
+    "no_daily_close_trigger": true,
+    "no_prediction_service": true,
+    "no_llm_code_execution": true,
+    "no_package_install": true,
+    "no_scheduled_task": true,
+    "no_broker": true,
+    "no_rewrite_prior_evidence": true,
+    "point_in_time_fundamental_never_fabricated": true
+  },
+  "recovery_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\recovery",
+  "ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
+  "stage5_config": "configs\\alpha_agent\\stage5_experiment_factory.json",
+  "stage_roots": {
+    "stage1": "D:\\Stock_Prediction_app_data\\alpha_agent\\registry",
+    "stage2": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
+    "stage3": "D:\\Stock_Prediction_app_data\\alpha_agent\\director",
+    "stage3_5": "D:\\Stock_Prediction_app_data\\alpha_agent\\news_rss",
+    "stage4": "D:\\Stock_Prediction_app_data\\alpha_agent\\runtime",
+    "stage5": "D:\\Stock_Prediction_app_data\\alpha_agent\\experiments",
+    "stage6": "D:\\Stock_Prediction_app_data\\alpha_agent\\backfill",
+    "stage7": "D:\\Stock_Prediction_app_data\\alpha_agent\\recovery"
+  },
+  "operational_ledger_roots": [
+    "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
+    "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger",
+    "C:\\Users\\binis\\.paper_trader\\current_alpha_paper_book"
+  ],
+  "champion": {
+    "model_id": "fundamental_momentum_50_50_v1",
+    "book_id": "alpha_paper_book_1",
+    "book_name": "Alpha Paper Book #1",
+    "target_book": "fundamental_momentum_50_50_top25",
+    "strategy": "fundamental_momentum_50_50_v1",
+    "target_position_count": 25,
+    "target_weight_per_name_pct": 4.0,
+    "maximum_position_weight_pct": 5.0,
+    "maximum_sector_weight_pct": 25.0,
+    "one_way_transaction_cost_bps": 10.0,
+    "operational_context_defaults": {
+      "nav": 98125.23,
+      "cumulative_pnl": -1874.77,
+      "cumulative_pnl_pct": -1.8748,
+      "holdings_count": 25,
+      "invested_pct": 95.3,
+      "spy_cumulative_return": -2.4016,
+      "excess_vs_spy_pct": 0.5268,
+      "portfolio_realized_vol": 43.8,
+      "forward_observations": 5,
+      "risk_checks_status": "MONITOR_ONLY"
+    }
+  },
+  "benchmark_symbol": "SPY",
+  "benchmark_fallback_symbol": "$SPX",
+  "universe": {
+    "survivorship_watchlist": "S&P 500 Current & Past",
+    "current_watchlist": "S&P 500"
+  },
+  "date_range": {
+    "start": "2015-01-01",
+    "end": "latest"
+  },
+  "bounds": {
+    "max_new_hypotheses": 6,
+    "max_specs_per_hypothesis": 2,
+    "max_experiments": 12,
+    "max_workers": 2,
+    "max_runtime_seconds": 3600,
+    "max_symbols": 600,
+    "max_files": 12000,
+    "reconstruction_top_n": 25
+  },
+  "overlays": {
+    "name_cap_pct": 5.0,
+    "vol_targets_pct": [15.0, 20.0, 25.0],
+    "risk_contribution_cap_mult": 1.5,
+    "sector_risk_cap_pct": 40.0,
+    "extreme_annual_vol_pct": 60.0,
+    "regime_risk_off_scale": 0.5,
+    "cost_bps": 10.0
+  },
+  "gates": {
+    "min_observations": 200,
+    "min_universe": 30,
+    "min_periods": 24,
+    "min_ic_t": 2.0,
+    "min_ic_positive_ratio": 0.50,
+    "min_spread_t": 1.5,
+    "min_forward_observations": 20
+  },
+  "promotion_gate": {
+    "require_positive_out_of_sample": true,
+    "require_net_of_cost_improvement": true,
+    "require_acceptable_drawdown": true,
+    "require_stability_periods_regimes": true,
+    "require_adequate_breadth": true,
+    "require_low_concentration": true,
+    "require_no_leakage": true,
+    "require_forward_shadow_evaluation": true
+  },
+  "freshness": {
+    "stale_after_days": 7
+  }
+}

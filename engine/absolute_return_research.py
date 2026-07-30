@@ -525,21 +525,62 @@ def build_data_adequacy(S: dict) -> dict:
 # =========================================================================== #
 # PART B — ACCOUNTING RECONCILIATION.
 # =========================================================================== #
+#: Controlled provenance tokens for how each historical accounting row was
+#: reconstructed. A row that used ANY revisable-cache mark is downgraded to the
+#: fallback token and can never silently claim frozen-close quality.
+MARK_EVIDENCE_FROZEN = "FROZEN_CLOSE_MARKS"
+MARK_EVIDENCE_FALLBACK = "HISTORICAL_MARK_FALLBACK"
+MARK_EVIDENCE_NONE = "NO_MARKS"
+
+
 def build_accounting_reconciliation(S: dict, cfg: dict) -> dict:
     tol_usd = _f(((cfg.get("reconciliation") or {}).get("accounting_nav_abs_tolerance_usd"))) or 0.01
     tol_bps = _f(((cfg.get("reconciliation") or {}).get("accounting_return_abs_tolerance_bps"))) or 1.0
+    # Durable as-of-close valuation. Source precedence for every historical mark:
+    #   1) FROZEN_CLOSE_MARKS — the immutable first-write-wins forward-prediction
+    #      price store (api.forward_prediction_skill.read_price_store, exposed as
+    #      S["price_series"]). An already-recorded (ticker, date) close is NEVER
+    #      overwritten, so it preserves the exact mark the operational Daily Close
+    #      used on that date. We take the EXACT as-of-date entry only (never a
+    #      prior-date carry) so a frozen mark means "this date's close".
+    #   2) HISTORICAL_MARK_FALLBACK — the mutable desk_marks cache, which a later
+    #      close revises in place when a vendor publishes an adjusted-close for a
+    #      prior date. It is used ONLY when the immutable store has no exact
+    #      as-of-close mark for a (ticker, date); any row that needed it is flagged
+    #      NOT fully reproducible from immutable close evidence.
+    # This guarantees a frozen historical NAV is never reconciled against a later-
+    # revised current mark whenever the original close mark is available.
+    frozen_series = S.get("price_series") or {}
     marks = S["marks_series"]
     rows = S["perf_rows"]
 
-    def _mark(t, d):
+    def _frozen_exact(t, d):
+        for e in (frozen_series.get(t) or frozen_series.get(t.upper()) or []):
+            if isinstance(e, (list, tuple)) and len(e) >= 2 and e[0] == d:
+                return _f(e[1])
+        return None
+
+    def _fallback_at_or_before(t, d):
         hit = desk._series_price_at_or_before(marks.get(t) or marks.get(t.upper()) or [], d)
-        return hit[1] if hit else None
+        return _f(hit[1]) if hit else None
+
+    def _mark(t, d):
+        """Return (price, provenance) under the immutable-first precedence."""
+        p = _frozen_exact(t, d)
+        if p is not None:
+            return p, MARK_EVIDENCE_FROZEN
+        p = _fallback_at_or_before(t, d)
+        if p is not None:
+            return p, MARK_EVIDENCE_FALLBACK
+        return None, None
 
     out_rows = []
     prev_nav = None
     max_resid_nav = 0.0
     max_resid_ret_bps = 0.0
     all_ok = True
+    frozen_rows = 0
+    fallback_rows = 0
     for i, r in enumerate(rows):
         d = r.get("date")
         recorded_nav = _f(r.get("nav"))
@@ -548,14 +589,29 @@ def build_accounting_reconciliation(S: dict, cfg: dict) -> dict:
         holdings = {k.upper(): _f(v) for k, v in (r.get("holdings") or {}).items()}
         recon_invested = 0.0
         priced = 0
+        priced_frozen = 0
+        priced_fallback = 0
         missing = []
         for t, q in holdings.items():
-            m = _mark(t, d)
+            m, src = _mark(t, d)
             if m is None or q is None:
                 missing.append(t)
                 continue
             recon_invested += q * m
             priced += 1
+            if src == MARK_EVIDENCE_FROZEN:
+                priced_frozen += 1
+            elif src == MARK_EVIDENCE_FALLBACK:
+                priced_fallback += 1
+        # A single revisable-cache mark downgrades the whole row's provenance.
+        if priced == 0:
+            mark_evidence = MARK_EVIDENCE_NONE
+        elif priced_fallback:
+            mark_evidence = MARK_EVIDENCE_FALLBACK
+            fallback_rows += 1
+        else:
+            mark_evidence = MARK_EVIDENCE_FROZEN
+            frozen_rows += 1
         recon_nav = (cash + recon_invested) if cash is not None else None
         nav_resid = (recon_nav - recorded_nav) if (recon_nav is not None and recorded_nav is not None) else None
         recorded_daily_ret = _f(r.get("daily_return_pct"))
@@ -586,7 +642,11 @@ def build_accounting_reconciliation(S: dict, cfg: dict) -> dict:
             "reconstructed_daily_return_pct": _r(recon_daily_ret, 6),
             "return_residual_bps": _r(ret_resid_bps, 6),
             "priced_holdings": priced,
+            "priced_from_frozen_close": priced_frozen,
+            "priced_from_historical_fallback": priced_fallback,
             "missing_marks": ";".join(sorted(missing)),
+            "mark_evidence": mark_evidence,
+            "fully_reproducible_from_frozen_close": (mark_evidence == MARK_EVIDENCE_FROZEN),
             "nav_reconciles": nav_ok,
             "return_reconciles": ret_ok,
         })
@@ -599,8 +659,15 @@ def build_accounting_reconciliation(S: dict, cfg: dict) -> dict:
         "max_abs_return_residual_bps": _r(max_resid_ret_bps, 6),
         "all_rows_reconcile": all_ok,
         "control_reconciled": all_ok,
-        "method": "reconstructed_nav = cash + sum(qty_i * owned_completed_close_i); "
-                  "reconstructed_return = ending_nav/starting_nav - 1",
+        "rows_from_frozen_close_marks": frozen_rows,
+        "rows_from_historical_fallback": fallback_rows,
+        "all_rows_from_frozen_close_marks": (frozen_rows == len(out_rows) and len(out_rows) > 0),
+        "mark_source_precedence": [MARK_EVIDENCE_FROZEN, MARK_EVIDENCE_FALLBACK],
+        "method": ("reconstructed_nav = cash + sum(qty_i * as_of_close_mark_i), where "
+                   "as_of_close_mark_i is the immutable first-write-wins price-store close "
+                   "for (ticker, date) [FROZEN_CLOSE_MARKS], falling back to the revisable "
+                   "desk_marks cache [HISTORICAL_MARK_FALLBACK] only when no frozen close "
+                   "exists; reconstructed_return = ending_nav/starting_nav - 1"),
     }
     return {"rows": out_rows, "reconciliation": reconciliation}
 

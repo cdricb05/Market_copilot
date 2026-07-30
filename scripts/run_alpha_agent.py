@@ -82,6 +82,12 @@ def main(argv=None) -> int:
                     action="store_false", help="Suppress email delivery.")
     ap.add_argument("--test-report", action="store_true",
                     help="Use the one-off TEST email subject.")
+    ap.add_argument("--executive-test-email", dest="exec_test",
+                    action="store_true",
+                    help="Render ONE deterministic executive report from the "
+                         "latest verified evidence and send exactly one TEST "
+                         "email (only if Gmail OAuth credentials are present). "
+                         "Enables no scheduled task and mutates nothing.")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
@@ -93,7 +99,12 @@ def main(argv=None) -> int:
 
     runtime = _build_runtime(cfg)
     try:
-        if args.mode == rc.MODE_COLLECT:
+        if args.exec_test:
+            # WS7 executive test email: one email, latest real evidence, no
+            # scheduled task. Requires Gmail OAuth credentials; otherwise the
+            # deterministic sender returns EMAIL_CREDENTIAL_REQUIRED.
+            result = runtime.run_report_only(label=args.label, exec_test=True)
+        elif args.mode == rc.MODE_COLLECT:
             result = runtime.run_collect()
         elif args.mode == rc.MODE_RESEARCH:
             send = True if args.send_email is None else args.send_email

@@ -3199,6 +3199,7 @@
           <a id="ra-nav-tournament" data-rasub="tournament" onclick="navigateToRoute('research-audit/tournament')" title="Parallel paper tournament: champion vs sector-repaired challenger, four frozen books">Tournament</a>
           <a id="ra-nav-alpha-factory" data-rasub="alpha-factory" onclick="navigateToRoute('research-audit/alpha-factory')" title="Alpha Factory: registry, leaderboard, correlation matrix and family taxonomy of many candidate alphas">Alpha Factory</a>
           <a id="ra-nav-price-alpha" data-rasub="price-alpha" onclick="navigateToRoute('research-audit/price-alpha')" title="Price Alpha Lab: the five trailing-price families activated on the owned point-in-time price panel, multi-horizon validated, ranked and correlation-checked vs the champion">Price Alpha Lab</a>
+          <a id="ra-nav-alpha-agent" data-rasub="alpha-agent" onclick="navigateToRoute('research-audit/alpha-agent')" title="Alpha Agent Evidence Observatory: the autonomous alpha agent's Stage 1-7 evidence — data collected, analyses, experiments, weak ideas rejected, data gaps, current champion status and recovery disposition. Read-only, paper-only, no promotion, no orders.">Alpha Agent Observatory</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -3681,6 +3682,77 @@
           </div>
         </div>
         <!-- ===================== Phase 18 PARALLEL PAPER TOURNAMENT (subsection) END ============ -->
+
+        <!-- ===================== Stage 7 ALPHA AGENT EVIDENCE OBSERVATORY (subsection) START ===== -->
+        <!-- Managed panel: shown ONLY on the Research & Audit "Alpha Agent Observatory" subsection
+             (#research-audit/alpha-agent). Renders GET /v1/research/alpha-agent-observatory. ONE
+             strictly READ-ONLY view of the autonomous alpha agent's Stage 1-7 evidence. Creates no
+             order, signal or trade decision, promotes no model, mutates no ledger/portfolio/target,
+             calls no prediction service and writes nothing. PAPER ONLY. -->
+        <div class="card" id="aao-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Alpha Agent Evidence Observatory <span class="cc-badge" id="aao-status" title="Read-only Stage 1-7 evidence status.">&mdash;</span></span>
+            <button class="btn-sm" id="aao-refresh" onclick="loadAlphaAgentObservatory()" title="Reload the read-only evidence observatory.">&#8635; Refresh</button>
+          </div>
+
+          <div id="aao-banner" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:2px 0 10px;font-weight:800;letter-spacing:.04em;">
+            ALPHA AGENT EVIDENCE OBSERVATORY &mdash; <span id="aao-banner-status">STAGE 1-7 EVIDENCE</span>
+          </div>
+
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">READ-ONLY EVIDENCE</span>
+            <span class="cc-badge">DATA COLLECTED</span>
+            <span class="cc-badge">ANALYSES COMPLETED</span>
+            <span class="cc-badge">EXPERIMENTS COMPLETED</span>
+            <span class="cc-badge">WEAK IDEAS REJECTED</span>
+            <span class="cc-badge">DATA GAPS</span>
+            <span class="cc-badge manual">NO MODEL PROMOTION</span>
+            <span class="cc-badge">NO ORDERS</span>
+            <span class="cc-badge">PAPER ONLY</span>
+          </div>
+
+          <!-- KPI row -->
+          <div id="aao-kpis" style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px;">
+            <div class="af-kpi"><div class="af-kpi-v mono" id="aao-kpi-records">&mdash;</div><div class="af-kpi-l">Data collected (records)</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="aao-kpi-analyses">&mdash;</div><div class="af-kpi-l">Analyses completed</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="aao-kpi-experiments">&mdash;</div><div class="af-kpi-l">Experiments completed</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="aao-kpi-rejected">&mdash;</div><div class="af-kpi-l">Weak ideas rejected</div></div>
+            <div class="af-kpi"><div class="af-kpi-v mono" id="aao-kpi-gaps">&mdash;</div><div class="af-kpi-l">Data gaps</div></div>
+          </div>
+
+          <!-- Champion status + recovery disposition -->
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px;">
+            <div style="flex:1 1 340px;min-width:300px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Current Champion Status</div>
+              <div id="aao-champion" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;font-size:12px;">&mdash;</div>
+            </div>
+            <div style="flex:1 1 340px;min-width:300px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Recovery Disposition</div>
+              <div id="aao-disposition" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;font-size:12px;">&mdash;</div>
+            </div>
+          </div>
+
+          <!-- Portfolio scorecard (canonical, reconciled with email + report) -->
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px;">
+            <div style="flex:1 1 340px;min-width:300px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Portfolio Scorecard</div>
+              <div id="aao-scorecard" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;font-size:12px;">&mdash;</div>
+            </div>
+            <div style="flex:1 1 340px;min-width:300px;">
+              <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Forward Risk Shadows <span class="cc-badge" style="font-size:9px;">SHADOW ONLY</span></div>
+              <div id="aao-shadows" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;font-size:12px;">&mdash;</div>
+              <div class="cc-na-note" style="margin-top:4px;">No shadow portfolio changes the active paper portfolio.</div>
+            </div>
+          </div>
+
+          <!-- Stage evidence + immutable evidence paths -->
+          <div style="margin-bottom:8px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Stage 1-7 Evidence &amp; Immutable Packages</div>
+            <div id="aao-stages" class="compact-scroll-region" style="max-height:360px;overflow:auto;font-size:11px;">&mdash;</div>
+          </div>
+          <div class="cc-na-note" style="margin-top:6px;">Every path below is an immutable, read-only evidence package. This observatory creates no order, signal or trade decision, promotes no model and changes no holding.</div>
+        </div>
+        <!-- ===================== Stage 7 ALPHA AGENT EVIDENCE OBSERVATORY END =================== -->
 
         <!-- ===================== Phase 20 AUTONOMOUS ALPHA FACTORY V1 (subsection) START ========= -->
         <!-- Managed panel: shown ONLY on the Research & Audit "Alpha Factory" subsection
@@ -8249,6 +8321,136 @@ async function loadAlphaFactory() {
   }
 }
 window.loadAlphaFactory = loadAlphaFactory;
+
+// Stage 7 — Alpha Agent Evidence Observatory (read-only).
+async function loadAlphaAgentObservatory() {
+  var status = document.getElementById('aao-status');
+  if (status) status.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/alpha-agent-observatory');
+    var d = {}; try { d = await r.json(); } catch (e) {}
+    window._aaoData = d;
+    renderAlphaAgentObservatory(d);
+  } catch (e) {
+    if (status) { status.textContent = 'ERROR'; }
+  }
+}
+window.loadAlphaAgentObservatory = loadAlphaAgentObservatory;
+
+function _aaoNum(v) {
+  if (v === undefined || v === null || v === '') return '&mdash;';
+  if (typeof v === 'number') return v.toLocaleString();
+  return escapeHtml(String(v));
+}
+
+function renderAlphaAgentObservatory(d) {
+  d = d || {};
+  var status = document.getElementById('aao-status');
+  var banner = document.getElementById('aao-banner-status');
+  if (d.status === 'UNAVAILABLE') {
+    if (status) { status.textContent = 'UNAVAILABLE'; status.className = 'cc-badge danger'; }
+    var st0 = document.getElementById('aao-stages');
+    if (st0) st0.innerHTML = '<div class="cc-na-note">' + escapeHtml(d.reason || 'Evidence observatory unavailable.') + '</div>';
+    return;
+  }
+  if (status) { status.textContent = d.status || 'OK'; status.className = 'cc-badge safe'; }
+  if (banner) banner.textContent = 'STAGE 1-7 EVIDENCE';
+
+  var hl = d.highlights || {};
+  var setT = function (id, v) { var e = document.getElementById(id); if (e) e.innerHTML = _aaoNum(v); };
+  setT('aao-kpi-records', hl.data_collected_records);
+  setT('aao-kpi-analyses', hl.analyses_completed);
+  setT('aao-kpi-experiments', hl.experiments_completed);
+  setT('aao-kpi-rejected', hl.weak_ideas_rejected);
+  setT('aao-kpi-gaps', hl.data_gaps);
+
+  var champ = d.champion || {};
+  var book = d.operational_paper_book || {};
+  var chEl = document.getElementById('aao-champion');
+  if (chEl) {
+    chEl.innerHTML =
+      '<div><b>' + escapeHtml(champ.model_id || champ.champion_model || book.champion_model || '—') + '</b> '
+      + '<span class="cc-badge">PAPER ONLY</span></div>'
+      + '<div class="mono" style="margin-top:4px;">NAV: ' + _aaoNum(champ.nav != null ? champ.nav : book.nav)
+      + ' &middot; holdings: ' + _aaoNum(champ.holdings_count != null ? champ.holdings_count : book.holdings_count)
+      + ' &middot; invested: ' + _aaoNum(champ.invested_pct != null ? champ.invested_pct : book.invested_pct) + '%</div>'
+      + '<div class="mono" style="margin-top:2px;">cum P&amp;L: ' + _aaoNum(champ.cumulative_pnl_pct) + '% '
+      + '&middot; excess vs SPY: ' + _aaoNum(champ.excess_vs_spy_pct) + 'pp</div>';
+  }
+  var dispEl = document.getElementById('aao-disposition');
+  if (dispEl) {
+    var disp = d.recovery_disposition || 'NONE_YET';
+    dispEl.innerHTML = '<div><span class="cc-badge manual">' + escapeHtml(disp) + '</span></div>'
+      + '<div class="cc-na-note" style="margin-top:6px;">No model promotion. No orders. The champion remains paper-only regardless of disposition.</div>';
+  }
+
+  var stages = d.stages || {};
+  var order = ['stage1', 'stage2', 'stage3', 'stage3_5', 'stage4', 'stage5', 'stage6', 'stage7'];
+  var rows = order.map(function (k) {
+    var b = stages[k] || {};
+    var extra = [];
+    if (b.records_written != null) extra.push('records ' + _aaoNum(b.records_written));
+    if (b.experiments_completed != null) extra.push('exp ' + _aaoNum(b.experiments_completed));
+    if (b.events_analyzed != null) extra.push('analyses ' + _aaoNum(b.events_analyzed));
+    if (b.recovery_disposition) extra.push('disp ' + escapeHtml(b.recovery_disposition));
+    var stale = b.stale ? ' <span class="cc-badge manual">STALE</span>' : '';
+    return '<tr>'
+      + '<td>' + escapeHtml(b.label || k) + '</td>'
+      + '<td>' + escapeHtml(String(b.status || '—')) + stale + '</td>'
+      + '<td class="mono">' + escapeHtml(String(b.run_id || '—')) + '</td>'
+      + '<td class="mono" style="font-size:10px;">' + escapeHtml(String(b.run_dir || b.root || '—')) + '</td>'
+      + '<td>' + escapeHtml(String(extra.join(' · '))) + '</td>'
+      + '</tr>';
+  }).join('');
+  var stEl = document.getElementById('aao-stages');
+  if (stEl) {
+    stEl.innerHTML = '<table class="mini-table" style="width:100%;border-collapse:collapse;font-size:11px;">'
+      + '<thead><tr><th style="text-align:left;">Stage</th><th style="text-align:left;">Status</th>'
+      + '<th style="text-align:left;">Latest run</th><th style="text-align:left;">Evidence path</th>'
+      + '<th style="text-align:left;">Counts</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // Portfolio scorecard — canonical signed strings from the API (same value +
+  // rounding source as the email and report). Rendered verbatim: no re-rounding.
+  var scEl = document.getElementById('aao-scorecard');
+  if (scEl) {
+    var sc = (d.scorecard && d.scorecard.rows) ? d.scorecard.rows : [];
+    if (!sc.length) {
+      scEl.innerHTML = '<div class="cc-na-note">Scorecard not available.</div>';
+    } else {
+      scEl.innerHTML = '<table class="mini-table" style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>'
+        + sc.map(function (r) {
+            var cls = r.sign === 'pos' ? 'style="color:#3fb950;"' : (r.sign === 'neg' ? 'style="color:#f85149;"' : '');
+            return '<tr><td style="text-align:left;color:var(--muted,#8b98b0);">' + escapeHtml(r.label || '')
+              + '</td><td class="mono" ' + cls + ' style="text-align:right;">' + escapeHtml(String(r.value || '')) + '</td></tr>';
+          }).join('')
+        + '</tbody></table>';
+    }
+  }
+
+  // Forward risk shadows — read-only; exactly the three tracked overlays.
+  var shEl = document.getElementById('aao-shadows');
+  if (shEl) {
+    var fs = d.forward_shadows || {};
+    var sh = fs.shadows || [];
+    var pretty = { 'CURRENT_CONTROL': 'Current book (control)', 'MARKET_REGIME_CASH_OVERLAY': 'Market-regime cash overlay', 'PORTFOLIO_VOL_TARGET_20': 'Volatility target 20%' };
+    var fmtRet = function (v) { return (v == null) ? 'Not available' : ((v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'); };
+    if (!sh.length) {
+      shEl.innerHTML = '<div class="cc-na-note">Forward shadow tracking begins at the next eligible close (no completed observations yet).</div>';
+    } else {
+      shEl.innerHTML = '<table class="mini-table" style="width:100%;border-collapse:collapse;font-size:11px;">'
+        + '<thead><tr><th style="text-align:left;">Shadow</th><th style="text-align:right;">Return</th><th style="text-align:right;">Drawdown</th><th style="text-align:right;">Obs</th></tr></thead><tbody>'
+        + sh.map(function (s) {
+            return '<tr><td style="text-align:left;">' + escapeHtml(pretty[s.overlay] || s.overlay || '')
+              + '</td><td class="mono" style="text-align:right;">' + escapeHtml(fmtRet(s.cumulative_return))
+              + '</td><td class="mono" style="text-align:right;">' + escapeHtml(fmtRet(s.drawdown))
+              + '</td><td class="mono" style="text-align:right;">' + _aaoNum(s.observations) + '</td></tr>';
+          }).join('')
+        + '</tbody></table>';
+    }
+  }
+}
+window.renderAlphaAgentObservatory = renderAlphaAgentObservatory;
 
 function renderAlphaFactory(d) {
   d = d || {};
@@ -21454,9 +21656,10 @@ var _RA_SECTIONS = {
   'tournament':       { panels: ['ctr-panel'], champion: false },
   'alpha-factory':    { panels: ['af-panel'], champion: false },
   'price-alpha':      { panels: ['paf-panel'], champion: false },
+  'alpha-agent':      { panels: ['aao-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -21505,6 +21708,7 @@ function _raLoadSection(sub) {
     'tournament': ['loadCurrentAlphaTournament'],
     'alpha-factory': ['loadAlphaFactory'],
     'price-alpha': ['loadPriceAlpha'],
+    'alpha-agent': ['loadAlphaAgentObservatory'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {

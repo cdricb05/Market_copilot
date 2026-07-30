@@ -36298,3 +36298,97 @@ console.log('SCRIPTS_OK');
         # the rule is enforced by the risk engine, not merely defined
         assert "RejectionReason.MAX_POSITIONS_REACHED" in risk
 
+
+
+# ---------------------------------------------------------------------------
+# Stage 7 — Alpha Agent Evidence Observatory (read-only) + UI safety
+# ---------------------------------------------------------------------------
+class TestAlphaAgentObservatory:
+    _URL = "/v1/research/alpha-agent-observatory"
+
+    def test_requires_api_key(self, client: TestClient) -> None:
+        assert client.get(self._URL).status_code == 401
+
+    def test_returns_200_read_only(self, client: TestClient) -> None:
+        resp = client.get(self._URL, headers=_AUTH)
+        assert resp.status_code == 200
+        body = resp.json()
+        # Always a controlled payload (OK or UNAVAILABLE), never an error.
+        assert "safety_badges" in body
+        assert "PAPER ONLY" in body["safety_badges"]
+        if body.get("status") == "OK":
+            assert "stages" in body and "champion" in body
+
+    def test_read_only_is_idempotent(self, client: TestClient) -> None:
+        a = client.get(self._URL, headers=_AUTH)
+        b = client.get(self._URL, headers=_AUTH)
+        assert a.status_code == 200 and b.status_code == 200
+        # No POST/mutation route exists for the observatory.
+        assert client.post(self._URL, headers=_AUTH).status_code in (404, 405)
+
+    def test_scorecard_reconciles_with_report_formatter(self) -> None:
+        # The API scorecard is produced by the SAME deterministic formatter the
+        # email/report use — one value + rounding source across every surface.
+        from pathlib import Path as _P
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        from paper_trader.alpha_agent import report_renderer as _rr
+        pb = {"nav": 98125.23, "daily_pnl": -391.68, "cumulative_pnl": -1874.77,
+              "daily_return_pct": -0.40, "cumulative_return_pct": -1.87,
+              "drawdown_pct": -1.87, "spy_cumulative_pct": -2.40,
+              "cumulative_excess_pp": 0.53}
+        cfgp = (_P(__file__).resolve().parents[1] / "configs" / "alpha_agent"
+                / "stage7_alpha_recovery.json")
+        payload = _eo.observatory_payload(config_path=str(cfgp), book_context=pb)
+        assert payload["scorecard"] == _rr.scorecard(pb)
+        assert payload["scorecard"]["formatted"]["daily_pnl"] == "-$391.68"
+        assert payload["scorecard"]["formatted"]["cumulative_excess_pp"] \
+            == "+0.53 pp"
+        assert payload["status_flags"] == list(_rr.STATUS_FLAGS)
+
+    def test_forward_shadows_at_most_three(self, client: TestClient) -> None:
+        body = client.get(self._URL, headers=_AUTH).json()
+        fs = body.get("forward_shadows") or {}
+        shadows = fs.get("shadows") or []
+        assert len(shadows) <= 3
+        allowed = {"CURRENT_CONTROL", "MARKET_REGIME_CASH_OVERLAY",
+                   "PORTFOLIO_VOL_TARGET_20"}
+        for s in shadows:
+            assert s.get("overlay") in allowed
+
+
+class TestAlphaAgentObservatoryUI:
+    def _panel(self) -> str:
+        from pathlib import Path
+        html = (Path(__file__).parent.parent / "api" / "ui"
+                / "index.html").read_text(encoding="utf-8", errors="ignore")
+        start = html.index("ALPHA AGENT EVIDENCE OBSERVATORY (subsection) START")
+        end = html.index("ALPHA AGENT EVIDENCE OBSERVATORY END")
+        return html[start:end]
+
+    def test_panel_has_no_dialogs(self) -> None:
+        panel = self._panel()
+        assert "alert(" not in panel
+        assert "confirm(" not in panel
+        assert "prompt(" not in panel
+
+    def test_panel_shows_required_labels(self) -> None:
+        panel = self._panel()
+        for label in ("DATA COLLECTED", "ANALYSES COMPLETED",
+                      "EXPERIMENTS COMPLETED", "WEAK IDEAS REJECTED",
+                      "DATA GAPS", "NO MODEL PROMOTION", "NO ORDERS",
+                      "PAPER ONLY", "READ-ONLY EVIDENCE"):
+            assert label in panel, label
+
+    def test_panel_has_no_order_or_automation_controls(self) -> None:
+        panel = self._panel()
+        low = panel.lower()
+        assert "create order" not in low
+        assert "submit order" not in low
+
+    def test_panel_shows_scorecard_and_forward_shadows(self) -> None:
+        panel = self._panel()
+        assert "Portfolio Scorecard" in panel
+        assert "aao-scorecard" in panel
+        assert "Forward Risk Shadows" in panel
+        assert "aao-shadows" in panel
+        assert "No shadow portfolio changes the active paper portfolio." in panel

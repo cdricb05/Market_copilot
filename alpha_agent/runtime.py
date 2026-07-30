@@ -41,6 +41,7 @@ from . import experiment_contracts as ec
 from . import experiment_factory as ef
 from . import historical_backfill as hb
 from . import report_renderer as rr
+from . import risk_overlay_research as ro_recovery
 from . import runtime_contracts as rc
 
 REQUIRED_RUN_FILES = (
@@ -53,6 +54,10 @@ REQUIRED_RUN_FILES = (
 # when the config sets ``stage5_enabled``). Defined here — not in
 # runtime_contracts — so the Stage 4 contract schema is untouched.
 COMPONENT_STAGE5 = "stage5_experiment_factory"
+
+# WS7 — the exact subject line for the one-off executive test email. Defined
+# here (not in runtime_contracts) so the Stage 4 contract schema is untouched.
+EXEC_TEST_SUBJECT_PREFIX = "TEST — Alpha Agent Executive Research Brief"
 
 
 # --------------------------------------------------------------------------- #
@@ -375,6 +380,38 @@ class PortfolioReader:
                       == "MATURED")
         pb["matured_evidence"] = matured
         pb["pending_evidence"] = max(0, len(orows) - matured)
+
+        # Forward return series for the read-only risk-shadow tracker (WS5).
+        # Each entry carries the active book's realized daily return and the
+        # aligned SPY daily return; read-only, derived from the same marks.
+        fseries: list[dict] = []
+        prev_bc: Optional[float] = None
+        for r in rows:
+            row = r.get("row", {})
+            dr = row.get("daily_return_pct")
+            bc = row.get("benchmark_close")
+            spy_ret = None
+            try:
+                if bc is not None and prev_bc:
+                    spy_ret = float(bc) / float(prev_bc) - 1.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                spy_ret = None
+            book_ret = None
+            try:
+                if dr is not None:
+                    book_ret = float(dr) / 100.0
+            except (TypeError, ValueError):
+                book_ret = None
+            fseries.append({"date": row.get("date"), "book_return": book_ret,
+                            "spy_return": spy_ret})
+            if bc is not None:
+                try:
+                    prev_bc = float(bc)
+                except (TypeError, ValueError):
+                    pass
+        pb["forward_series"] = fseries
+        pb["forward_baseline_date"] = (rows[0].get("row", {}).get("date")
+                                       if rows else None)
         return pb
 
 
@@ -812,9 +849,53 @@ def _stage6_report_model(cfg: dict,
     None. All numbers originate in deterministic Python (no LLM). Read-only: the
     backfill itself is a bounded manual/resumable process, never run inside the
     scheduled research cycle."""
-    if fresh_result:
-        return hb.backfill_report_model(fresh_result)
-    return hb.latest_report_model(cfg)
+    model = (hb.backfill_report_model(fresh_result) if fresh_result
+             else hb.latest_report_model(cfg))
+    if model:
+        _repair_stage6_window_universe(cfg, model)
+    return model
+
+
+def _repair_stage6_window_universe(cfg: dict, model: dict) -> None:
+    """Backfill the Stage-6 window + universe that ``latest_report_model`` leaves
+    empty (it reads ``date_start`` from the manifest, which lacks it, and never
+    reads ``date_end`` or the universe). Sourced from the immutable
+    ``stage6_input.json`` and the coverage families — never fabricated. This
+    kills the '? .. ?' window and '0 / 0' universe defects (WS2)."""
+    root = cfg.get("stage6_backfill_root") or cfg.get("backfill_root")
+    fams = {f.get("family"): f for f in (model.get("families") or [])}
+    prices = fams.get("prices") or {}
+    memb = fams.get("universe_membership") or {}
+    if root and model.get("run_id") and (not model.get("date_start")
+                                         or not model.get("date_end")):
+        run_dir = Path(root) / "runs" / model["run_id"]
+        si = _read_json(run_dir / "stage6_input.json") or {}
+        model["date_start"] = model.get("date_start") or si.get("date_start")
+        model["date_end"] = model.get("date_end") or si.get("date_end")
+    # Fall back to the price-coverage span when the input file is unavailable.
+    model["date_start"] = model.get("date_start") or prices.get("date_min")
+    model["date_end"] = model.get("date_end") or prices.get("date_max")
+    # Universe: survivorship-free priced tickers / current index members.
+    if not model.get("universe_full_size"):
+        model["universe_full_size"] = prices.get("tickers")
+    if not model.get("universe_size"):
+        model["universe_size"] = memb.get("tickers") or prices.get("tickers")
+
+
+def _stage7_report_model(cfg: dict,
+                         fresh_model: Optional[dict] = None) -> Optional[dict]:
+    """Deterministic Alpha Recovery model — from a fresh Stage 7 model if given,
+    else the latest recovery package on disk, else None. All numbers originate in
+    deterministic Python (no LLM). Read-only: the recovery run is a bounded
+    manual/research process, never run inside the scheduled cycle."""
+    root = cfg.get("stage7_recovery_root")
+    if not root and fresh_model is None:
+        return None
+    try:
+        return ro_recovery.latest_recovery_report_model(
+            {"recovery_root": root}, fresh_model)
+    except Exception:  # noqa: BLE001 — report is best-effort, never fatal
+        return None
 
 
 def _load_stage3_run(cfg: dict, run_dir: Optional[str]) -> dict:
@@ -917,7 +998,12 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
                        llm_skipped_reason: Optional[str] = None,
                        subject_override: Optional[str] = None,
                        stage5_model: Optional[dict] = None,
-                       stage6_model: Optional[dict] = None) -> dict:
+                       stage6_model: Optional[dict] = None,
+                       stage7_model: Optional[dict] = None,
+                       prior: Optional[dict] = None,
+                       attention: bool = False,
+                       ledgers_unchanged: bool = True,
+                       no_new_evidence: bool = False) -> dict:
     """Assemble the deterministic report model. Pure data; no side effects."""
     s35 = _stage35_latest(cfg)
     s3 = _stage3_latest(cfg)
@@ -1027,32 +1113,76 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
         ],
     }
 
+    # Resolve the three research sub-models once (fresh cycle result → latest
+    # package on disk → None), then derive the executive presentation blocks.
+    experiment_model = (stage5_model if stage5_model is not None
+                        else _stage5_report_model(cfg))
+    historical_model = (stage6_model if stage6_model is not None
+                        else _stage6_report_model(cfg))
+    recovery_model = (stage7_model if stage7_model is not None
+                      else _stage7_report_model(cfg))
+
+    sc = rr.scorecard(portfolio)
+    shadows = ro_recovery.build_forward_shadows(
+        {"recovery_root": cfg.get("stage7_recovery_root")},
+        forward_series=portfolio.get("forward_series") or [],
+        baseline_date=portfolio.get("forward_baseline_date"))
+    hist_summary, hist_gap = _historical_readiness_summary(historical_model)
+    research_decisions = _research_decisions_block(experiment_model,
+                                                   recovery_model)
+
+    shadow_ready = bool(recovery_model and (
+        recovery_model.get("shadow_challenger_allowed_now")
+        or int(recovery_model.get("campaign_keep_for_research") or 0) > 0))
+    manual_review = _gate_triggered(portfolio.get("risk_gate"))
+    healthy_feeds = news_rss.get("healthy")
+    attention_flag = bool(attention or degraded or (not ledgers_unchanged)
+                          or (healthy_feeds == 0
+                              and (news_rss.get("enabled") or 0) > 0))
+    source_agent_health = {
+        "provider_ok": not degraded,
+        "ledgers_unchanged": ledgers_unchanged,
+        "stage7_age_note": _stage7_age_note(cfg, cycle_date, recovery_model),
+    }
+
     return {
         "report_schema_version": rr.REPORT_SCHEMA_VERSION,
-        "report_title": "Alpha Agent %s Research Report" % _label_title(label),
+        "report_title": "Alpha Agent %s Executive Research Brief"
+        % _label_title(label),
         "generated_at": clock.iso(),
         "cycle_label": label,
         "cycle_date": cycle_date,
         "subject": subject_override
         or rc.report_subject(label, cycle_date, degraded=degraded),
         "degraded": degraded,
+        "attention": attention_flag,
+        "shadow_ready": shadow_ready,
+        "manual_review": manual_review,
+        "no_new_evidence": no_new_evidence,
         "provider_status": provider,
         "source_coverage_status": s35.get("status"),
+        "status_flags": list(rr.STATUS_FLAGS),
         "badges": badges,
         "executive_summary": exec_summary,
+        "scorecard": sc,
+        "prior": prior,
         "kpis": kpis,
         "material_events": _material_events_from_run(run_art)
         if not (no_new or llm_skipped_reason) else [],
         "research": research_block,
+        "research_decisions": research_decisions,
+        "risk_and_shadow": shadows,
+        "historical_readiness_summary": hist_summary,
+        "historical_gap_note": hist_gap,
+        "source_agent_health": source_agent_health,
         "paper_book": portfolio,
         "news_rss": news_rss,
         "llm": llm,
         "operating_action": operating_action,
         "evidence": evidence,
-        "experiment": (stage5_model if stage5_model is not None
-                       else _stage5_report_model(cfg)),
-        "historical_readiness": (stage6_model if stage6_model is not None
-                                 else _stage6_report_model(cfg)),
+        "experiment": experiment_model,
+        "historical_readiness": historical_model,
+        "recovery_readiness": recovery_model,
     }
 
 
@@ -1063,11 +1193,12 @@ def _label_title(label: str) -> str:
 
 def _build_badges(*, provider: str, degraded: bool, news_status: Optional[str],
                   llm_skipped: bool) -> list[dict]:
+    # The prominent status-flag row (RESEARCH SCHEDULE: ON / TRADING AUTOMATION:
+    # OFF / BROKER EXECUTION: OFF / PAPER ONLY) now carries the automation state,
+    # so no generic "AUTOMATION OFF" badge is shown here (WS6). Only the
+    # conditional badges remain.
     badges = [
-        {"text": "STAGE 4 ACTIVE", "kind": "safe"},
         {"text": "RESEARCH ONLY", "kind": "safe"},
-        {"text": "PAPER PORTFOLIO ONLY", "kind": "safe"},
-        {"text": "AUTOMATION OFF", "kind": "safe"},
         {"text": "NO LIVE ORDERS", "kind": "safe"},
     ]
     if llm_skipped:
@@ -1083,6 +1214,96 @@ def _build_badges(*, provider: str, degraded: bool, news_status: Optional[str],
     if degraded:
         badges.append({"text": "ACTION REQUIRED", "kind": "crit"})
     return badges
+
+
+# --------------------------------------------------------------------------- #
+# Executive presentation helpers (deterministic, plain-English, no LLM).
+# --------------------------------------------------------------------------- #
+def _gate_triggered(risk_gate: Optional[str]) -> bool:
+    """True only when the latest daily gate reports a non-zero triggered count —
+    a HOLD with zero triggers never asks for a manual review."""
+    import re
+    m = re.search(r"([0-9]+)\s+triggered", str(risk_gate or ""))
+    return bool(m and int(m.group(1)) > 0)
+
+
+def _historical_readiness_summary(model: Optional[dict]):
+    """WS6 plain-English readiness summary + one gap note. Empty when there is
+    no Stage 6 package."""
+    if not model:
+        return [], None
+    fams = {f.get("family"): f for f in (model.get("families") or [])}
+    prices = fams.get("prices") or {}
+    start = str(model.get("date_start") or prices.get("date_min") or "2015")
+    end = str(model.get("date_end") or prices.get("date_max") or "latest")
+    n = rr.fmt_int(model.get("universe_full_size") or prices.get("tickers"))
+    price_ready = bool(prices.get("survivorship_safe")
+                       or prices.get("record_count"))
+    summary = [
+        {"label": "Price history",
+         "status": "READY" if price_ready else "NOT READY",
+         "note": "%s through %s, %s tickers, survivorship-free."
+                 % (start[:4], end, n)},
+        {"label": "Historical membership", "status": "READY",
+         "note": "survivorship-aware index-membership spans."},
+        {"label": "Point-in-time fundamentals", "status": "NOT READY",
+         "note": "owned fundamentals are a current snapshot without "
+                 "lookahead-free filing dates."},
+        {"label": "Earnings history", "status": "NOT READY",
+         "note": "too few historical earnings events with real availability "
+                 "timestamps."},
+        {"label": "Historical sector classifications", "status": "NOT READY",
+         "note": "the sector map has no dated time-series coverage."},
+    ]
+    gap = ("These gaps prevent the agent from validating fundamental, "
+           "earnings-driven and sector-neutral strategies on point-in-time-safe "
+           "history; only price-based ideas can be tested today.")
+    return summary, gap
+
+
+def _research_decisions_block(experiment: Optional[dict],
+                              recovery: Optional[dict]) -> dict:
+    """Plain-English translation of the latest experiment + recovery-campaign
+    outcomes. No raw machine tokens appear in the label or plain text."""
+    items: list[dict] = []
+    bits: list[str] = []
+    if experiment:
+        term = experiment.get("terminal")
+        plain = rr.translate(term) if term else None
+        items.append({
+            "label": "Latest experiment engine",
+            "plain": plain or ("Completed; %s idea(s) passed the first gate."
+                               % rr.fmt_int(experiment.get("keep_for_research")))
+        })
+    if recovery:
+        completed = recovery.get("campaign_experiments")
+        keep = recovery.get("campaign_keep_for_research")
+        if completed is not None:
+            bits.append("The latest recovery campaign ran %s experiment(s); %s "
+                        "passed the first gate and none were promoted."
+                        % (rr.fmt_int(completed), rr.fmt_int(keep)))
+        counts = recovery.get("campaign_decision_counts") or {}
+        for token in sorted(counts):
+            items.append({"label": "%s experiment result(s)"
+                                   % rr.fmt_int(counts[token]),
+                          "plain": rr.translate(token)})
+        disp = recovery.get("disposition")
+        if disp:
+            bits.append("Champion verdict: %s" % rr.translate(disp))
+    summary = " ".join(bits) or "No new research decisions this cycle."
+    return {"summary": summary, "items": items}
+
+
+def _stage7_age_note(cfg: dict, cycle_date: str,
+                     recovery: Optional[dict]) -> Optional[str]:
+    root = cfg.get("stage7_recovery_root")
+    if not root or not recovery:
+        return None
+    latest = _read_json(Path(root) / "latest.json") or {}
+    age = ro_recovery._age_days(latest.get("as_of"), cycle_date)
+    if age is None:
+        return "latest verdict on record (age unknown)"
+    return "%d day(s) old%s" % (age, " — STALE" if age > 7 else "")
 
 
 def _parse_failed_feeds(terminal: Optional[str]) -> list[str]:
@@ -1234,7 +1455,8 @@ class Runtime:
                  portfolio: Optional[PortfolioReader] = None,
                  email_sender: Optional[EmailSender] = None,
                  clock: Optional[Clock] = None,
-                 recovery_launcher: Optional[Callable[[str], Any]] = None):
+                 recovery_launcher: Optional[Callable[[str], Any]] = None,
+                 stage7_launcher: Optional[Callable[[dict], Any]] = None):
         self.cfg = cfg
         self.root = runtime_root(cfg)
         self.drivers = drivers
@@ -1243,8 +1465,80 @@ class Runtime:
         self.email_sender = email_sender
         self.clock = clock or Clock()
         self.recovery_launcher = recovery_launcher
+        # Separate from recovery_launcher (missed-report label launcher): the
+        # Stage 7 launcher receives a cadence decision dict and refreshes the
+        # recovery package out-of-band. Never runs the heavy backfill in-cycle.
+        self.stage7_launcher = stage7_launcher
         self.stale_seconds = int(rc.cadence_value(cfg, "stale_lock_seconds",
                                                   1800))
+
+    # ---- Stage 7 recurring cadence (WS4) --------------------------------- #
+    def _prior_report_dict(self, conn, cycle_id) -> Optional[dict]:
+        """Scorecard + disposition of the most recent report from a DIFFERENT
+        cycle — the basis for the 'what changed' section."""
+        row = conn.execute(
+            "SELECT manifest_path FROM report_runs WHERE cycle_id<>?"
+            " ORDER BY id DESC LIMIT 1", (cycle_id,)).fetchone()
+        if not row:
+            return None
+        man = _read_json(Path(row[0]))
+        if not man:
+            return None
+        return {"scorecard": man.get("paper_book"),
+                "disposition": (man.get("recovery_readiness")
+                                or {}).get("disposition")}
+
+    def _stage7_cadence(self, label: str, cycle_date: str) -> dict:
+        """Deterministic Stage 7 cadence decision for this cycle (reuse latest /
+        delta refresh / Friday full refresh) — read-only."""
+        cfg = self.cfg
+        root = cfg.get("stage7_recovery_root")
+        latest_manifest = None
+        latest_as_of = None
+        if root:
+            latest = _read_json(Path(root) / "latest.json") or {}
+            latest_as_of = latest.get("as_of")
+            rid = latest.get("run_id")
+            if rid:
+                latest_manifest = _read_json(
+                    Path(root) / "runs" / rid / "run_manifest.json")
+        fp = ro_recovery.upstream_evidence_fingerprint(cfg)
+        try:
+            weekday = self.clock.now().weekday()
+        except (AttributeError, ValueError):
+            weekday = 0
+        stale_days = int(rc.cadence_value(cfg, "stage7_stale_after_days", 7))
+        return ro_recovery.stage7_cadence_decision(
+            label=label, weekday=weekday,
+            current_fingerprint=fp.get("fingerprint"),
+            latest_manifest=latest_manifest, latest_as_of=latest_as_of,
+            today=cycle_date, stale_after_days=stale_days)
+
+    def _maybe_launch_stage7(self, conn, run_id, cadence, *,
+                             cycle_id: str) -> Optional[dict]:
+        """Launch a Stage 7 refresh out-of-band when the cadence calls for it and
+        it is explicitly enabled — never in-cycle heavy compute, never twice per
+        cycle. Idempotency uses a per-cycle marker file (robust to identical run
+        ids / DB cascade). Returns the launcher result or None."""
+        if cadence.get("action") not in (ro_recovery.CAD_RUN_DELTA,
+                                         ro_recovery.CAD_RUN_FULL):
+            return None
+        if not rc.cadence_value(self.cfg, "stage7_launch_in_cycle", False):
+            return None
+        if self.stage7_launcher is None:
+            return None
+        marker = self.root / "state" / ("stage7_launch_%s.marker" % cycle_id)
+        if marker.exists():
+            return None
+        try:
+            result = self.stage7_launcher(cadence)
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(self.clock.iso(), encoding="utf-8")
+            return result
+        except Exception as exc:  # noqa: BLE001
+            self._record_error(conn, run_id, "stage7_cadence", "WARNING",
+                               "stage7 launch failed: %s" % exc)
+            return None
 
     # ---- run bookkeeping ------------------------------------------------- #
     def _open(self) -> sqlite3.Connection:
@@ -1516,12 +1810,25 @@ class Runtime:
                             if test_report else None)
         stage5_model = (_stage5_report_model(self.cfg, stage5_result)
                         if stage5_result else None)
+
+        # Stage 7 recurring cadence: reuse the latest verified package, or (only
+        # when explicitly enabled) launch a delta/Friday refresh out-of-band.
+        prior_dict = self._prior_report_dict(conn, cycle_id)
+        cadence = self._stage7_cadence(label, cycle_date)
+        self._maybe_launch_stage7(conn, run_id, cadence, cycle_id=cycle_id)
+        stage7_model = _stage7_report_model(self.cfg)
+        if stage7_model is not None:
+            stage7_model = {**stage7_model, "cadence": cadence}
+        no_new_evidence = cadence.get("action") == ro_recovery.CAD_REUSE
+
         model = build_report_model(
             self.cfg, clock=self.clock, label=label, cycle_date=cycle_date,
             research=research_norm, portfolio=portfolio, run_id=run_id,
             run_dir=str(run_dir), degraded=degraded,
             llm_skipped_reason=llm_skipped_reason,
-            subject_override=subject_override, stage5_model=stage5_model)
+            subject_override=subject_override, stage5_model=stage5_model,
+            stage7_model=stage7_model, prior=prior_dict,
+            no_new_evidence=no_new_evidence)
         html_body = rr.render_html(model)
         text_body = rr.render_text(model)
         manifest = rr.report_manifest(model, html_body, text_body)
@@ -1636,10 +1943,20 @@ class Runtime:
 
     # ---- REPORT-ONLY ----------------------------------------------------- #
     def run_report_only(self, *, label: str = rc.LABEL_MANUAL,
-                        send_email: bool = False) -> RuntimeResult:
+                        send_email: bool = False,
+                        exec_test: bool = False,
+                        subject_override: Optional[str] = None
+                        ) -> RuntimeResult:
         conn = self._open()
         cycle_date = self.clock.date()
-        cycle_id = rc.report_cycle_id(label, cycle_date)
+        # An executive test email is its own idempotency key (one per date) and
+        # forces exactly one delivery — never colliding with a scheduled report.
+        cycle_key = "exec_test" if exec_test else label
+        if exec_test:
+            send_email = True
+            subject_override = subject_override or (
+                "%s — %s" % (EXEC_TEST_SUBJECT_PREFIX, cycle_date))
+        cycle_id = rc.report_cycle_id(cycle_key, cycle_date)
         run_id = rc.runtime_run_id(cycle_id, rc.MODE_REPORT_ONLY,
                                    self.clock.iso())
         self._begin_run(conn, run_id, cycle_id, rc.MODE_REPORT_ONLY, label,
@@ -1648,17 +1965,26 @@ class Runtime:
         research_norm = {"no_new": True, "counts": {}, "metrics": {},
                          "llm_invoked": False}
         run_dir = self.root / "runs" / run_id
+        prior_dict = self._prior_report_dict(conn, cycle_id)
+        cadence = self._stage7_cadence(label, cycle_date)
+        stage7_model = _stage7_report_model(self.cfg)
+        if stage7_model is not None:
+            stage7_model = {**stage7_model, "cadence": cadence}
         model = build_report_model(
             self.cfg, clock=self.clock, label=label, cycle_date=cycle_date,
             research=research_norm, portfolio=portfolio, run_id=run_id,
             run_dir=str(run_dir), degraded=False,
-            llm_skipped_reason="report-only (no collection, no LLM)")
+            llm_skipped_reason="report-only (no collection, no LLM)",
+            subject_override=subject_override,
+            stage7_model=stage7_model, prior=prior_dict,
+            no_new_evidence=cadence.get("action") == ro_recovery.CAD_REUSE)
         html_body = rr.render_html(model)
         text_body = rr.render_text(model)
         manifest = rr.report_manifest(model, html_body, text_body)
-        report_paths = self._write_report(cycle_date, label, html_body,
+        report_paths = self._write_report(cycle_date, cycle_key, html_body,
                                           text_body, manifest)
         email_status = rc.EMAIL_SKIPPED
+        email_result = {"status": rc.EMAIL_SKIPPED}
         if send_email:
             email_result = self._deliver_email(
                 conn, cycle_id=cycle_id, run_id=run_id, label=label,
@@ -1689,7 +2015,14 @@ class Runtime:
                              mode=rc.MODE_REPORT_ONLY, run_id=run_id,
                              cycle_id=cycle_id, label=label,
                              run_dir=str(run_dir), email_status=email_status,
-                             detail={"report_html": str(report_paths["html"])})
+                             email_diagnostic=email_result.get("diagnostic"),
+                             email_message_id=email_result.get("message_id"),
+                             detail={"report_html": str(report_paths["html"]),
+                                     "report_text": str(report_paths["text"]),
+                                     "subject": model["subject"],
+                                     "email_status": email_status,
+                                     "email_message_id":
+                                     email_result.get("message_id")})
 
     # ---- WATCHDOG -------------------------------------------------------- #
     def run_watchdog(self) -> RuntimeResult:

@@ -5542,6 +5542,86 @@ def evidence_sector_contributions(market_date: str | None = None) -> dict:
     return _fe.load_sector_contributions(market_date=market_date)
 
 
+# --------------------------------------------------------------------------- #
+# Alpha Agent — Evidence Observatory (Stage 7).
+#
+# ONE strictly READ-ONLY payload spanning the autonomous alpha agent's Stage 1..7
+# evidence (data collected, analyses completed, experiments completed, weak ideas
+# rejected, remaining data gaps, current champion status, recovery disposition,
+# operational paper-book context). It creates/reads no order, signal, trade
+# decision or model; writes nothing; mutates no ledger, portfolio, target or
+# model; promotes nothing. Empty/missing states return controlled HTTP-200
+# statuses, never nulls.
+# --------------------------------------------------------------------------- #
+def _alpha_agent_observatory_config_path():
+    from pathlib import Path as _P
+    return (_P(__file__).resolve().parents[1] / "configs" / "alpha_agent"
+            / "stage7_alpha_recovery.json")
+
+
+def _alpha_agent_book_context() -> dict:
+    """Best-effort read-only operational paper-book context for the observatory.
+    Never writes; any failure degrades to an empty context. Enriched with the
+    same read-only scorecard fields the email uses (via the Stage 4
+    PortfolioReader) so the API/UI/email reconcile to one value + rounding
+    source."""
+    ctx: dict = {}
+    try:
+        payload = _opbook.load_operational_book()
+        nav = payload.get("nav")
+        invested = payload.get("invested")
+        invested_pct = (round(100.0 * float(invested) / float(nav), 2)
+                        if (nav and invested) else None)
+        ctx.update({
+            "champion_model": payload.get("strategy_name"),
+            "book_name": payload.get("book_label"),
+            "nav": nav,
+            "holdings_count": payload.get("holdings_count"),
+            "invested_pct": invested_pct,
+        })
+    except Exception:  # noqa: BLE001
+        pass
+    # Read-only scorecard + forward-series enrichment from the operational
+    # ledgers (identical source the email uses). Never writes; degrades quietly.
+    try:
+        import json as _json
+        from paper_trader.alpha_agent import runtime as _rt
+        cfgp = _alpha_agent_observatory_config_path()
+        scfg = _json.loads(cfgp.read_text(encoding="utf-8-sig"))
+        pb = _rt.PortfolioReader(
+            scfg.get("operational_ledger_roots") or []).read()
+        for k in ("daily_pnl", "daily_return_pct", "cumulative_pnl",
+                  "cumulative_return_pct", "drawdown_pct", "spy_cumulative_pct",
+                  "daily_excess_pp", "cumulative_excess_pp", "forward_series",
+                  "forward_baseline_date"):
+            if pb.get(k) is not None:
+                ctx[k] = pb.get(k)
+        if ctx.get("nav") is None and pb.get("nav") is not None:
+            ctx["nav"] = pb.get("nav")
+    except Exception:  # noqa: BLE001
+        pass
+    return ctx
+
+
+@app.get("/v1/research/alpha-agent-observatory", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_agent_observatory() -> dict:
+    """Read-only Alpha Agent Evidence Observatory: Stage 1..7 status, latest run
+    ids + evidence paths, collection/record/experiment counts, data gaps, current
+    champion and recovery disposition, and operational paper-book context.
+    Creates nothing, writes nothing, promotes nothing, changes no holding."""
+    try:
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "UNAVAILABLE", "reason": str(exc)[:200], "stages": {},
+                "champion": {}, "safety_badges": ["NO ORDERS", "PAPER ONLY",
+                                                   "READ-ONLY EVIDENCE"]}
+    book_context = _alpha_agent_book_context()
+    return _eo.observatory_payload(
+        config_path=str(_alpha_agent_observatory_config_path()),
+        book_context=book_context)
+
+
 @app.get("/v1/evidence/rolling", status_code=status.HTTP_200_OK,
          dependencies=[Depends(_verify_api_key)])
 def evidence_rolling() -> dict:

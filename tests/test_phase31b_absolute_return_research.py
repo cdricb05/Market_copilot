@@ -134,6 +134,178 @@ class TestAccountingFixture:
 
 
 # =========================================================================== #
+# 5 (durable as-of-close). Immutable frozen-close marks take precedence over the
+#    revisable desk_marks cache; fallback is explicit and never fabricated.
+# =========================================================================== #
+class TestFrozenCloseMarkPrecedence:
+    """As-of-close reconciliation source precedence (durable-reconciliation fix).
+
+    The immutable first-write-wins price store (``S["price_series"]``, written by
+    api.forward_prediction_skill and never overwritten per (ticker, date)) is the
+    primary valuation source; the revisable ``desk_marks`` cache
+    (``S["marks_series"]``) is an explicit, clearly-labelled fallback used ONLY
+    when no frozen close exists. A frozen historical NAV must never be reconciled
+    against a later-revised current mark when the original close mark is preserved.
+    """
+    FROZEN = "FROZEN_CLOSE_MARKS"
+    FALLBACK = "HISTORICAL_MARK_FALLBACK"
+    NONE = "NO_MARKS"
+
+    def _S(self, *, frozen, marks, holdings_extra=None):
+        """Two-date book (AAA x10, FANG x20, cash 100). The frozen close marks
+        make both rows reconcile to the penny; ``marks`` is supplied separately so
+        a later vendor revision can be injected into the fallback source only."""
+        holdings = {"AAA": 10, "FANG": 20}
+        if holdings_extra:
+            holdings = {**holdings, **holdings_extra}
+        return {
+            "perf": {"summary": {}},
+            "perf_rows": [
+                {"date": "2026-01-02", "nav": 4400.0, "cash": 100.0, "invested": 4300.0,
+                 "holdings": dict(holdings), "daily_return_pct": None, "transaction_cost": 0.0},
+                {"date": "2026-01-05", "nav": 4430.0, "cash": 100.0, "invested": 4330.0,
+                 "holdings": dict(holdings), "daily_return_pct": 0.681818, "transaction_cost": 0.0},
+            ],
+            "price_series": frozen,
+            "marks_series": marks,
+        }
+
+    def _frozen_ok(self):
+        # Correct immutable close marks: both rows reconcile exactly.
+        return {"AAA": [["2026-01-02", 50.0], ["2026-01-05", 51.0]],
+                "FANG": [["2026-01-02", 190.0], ["2026-01-05", 191.0]]}
+
+    def _marks_revised(self):
+        # desk_marks REVISES FANG 2026-01-02 up by $0.005/sh (x20 = +$0.10) --
+        # exactly the live 2026-07-28 vendor adjusted-close drift.
+        return {"AAA": [["2026-01-02", 50.0], ["2026-01-05", 51.0]],
+                "FANG": [["2026-01-02", 190.005], ["2026-01-05", 191.0]]}
+
+    # 1. A frozen row reconciles against its exact immutable marks even when the
+    #    current desk_marks later revises that date.
+    def test_frozen_marks_reconcile_despite_revised_desk_marks(self):
+        S = self._S(frozen=self._frozen_ok(), marks=self._marks_revised())
+        out = are.build_accounting_reconciliation(S, _cfg())
+        rec = out["reconciliation"]
+        assert rec["all_rows_reconcile"] is True
+        assert rec["max_abs_nav_residual_usd"] <= 0.01
+        assert rec["rows_from_frozen_close_marks"] == 2
+        assert rec["rows_from_historical_fallback"] == 0
+        assert rec["all_rows_from_frozen_close_marks"] is True
+        for r in out["rows"]:
+            assert r["mark_evidence"] == self.FROZEN
+            assert r["fully_reproducible_from_frozen_close"] is True
+            assert r["priced_from_historical_fallback"] == 0
+        # the 2026-01-02 row used the frozen 190.0, not the revised 190.005
+        assert out["rows"][0]["reconstructed_invested"] == pytest.approx(4300.0, abs=1e-6)
+
+    # 2. The July-28-style $0.10 vendor revision breaks reconciliation only when
+    #    the frozen store is absent; with it present the row is unaffected.
+    def test_ten_cent_revision_breaks_only_when_frozen_absent(self):
+        no_frozen = self._S(frozen={}, marks=self._marks_revised())
+        bad = are.build_accounting_reconciliation(no_frozen, _cfg())
+        assert bad["reconciliation"]["all_rows_reconcile"] is False
+        assert bad["reconciliation"]["max_abs_nav_residual_usd"] == pytest.approx(0.10, abs=1e-6)
+        assert bad["rows"][0]["mark_evidence"] == self.FALLBACK      # honestly labelled
+        with_frozen = self._S(frozen=self._frozen_ok(), marks=self._marks_revised())
+        good = are.build_accounting_reconciliation(with_frozen, _cfg())
+        assert good["reconciliation"]["all_rows_reconcile"] is True
+
+    # 3. The strict $0.01 NAV tolerance is unchanged: the fix moves the SOURCE,
+    #    never the tolerance, so a frozen mark wrong by > $0.01 still fails.
+    def test_strict_penny_tolerance_still_binds(self):
+        ok = self._S(frozen=self._frozen_ok(), marks=self._frozen_ok())
+        out = are.build_accounting_reconciliation(ok, _cfg())
+        assert out["reconciliation"]["tolerance_nav_usd"] == pytest.approx(0.01)
+        bad_frozen = self._frozen_ok()
+        bad_frozen["AAA"][1][1] = 51.002            # 10 sh x $0.002 = $0.02 > $0.01
+        Sb = self._S(frozen=bad_frozen, marks=bad_frozen)
+        outb = are.build_accounting_reconciliation(Sb, _cfg())
+        assert outb["reconciliation"]["all_rows_reconcile"] is False
+        assert outb["reconciliation"]["max_abs_nav_residual_usd"] == pytest.approx(0.02, abs=1e-6)
+
+    # 4. Current mutable historical marks cannot override exact frozen close marks.
+    def test_revised_marks_cannot_override_frozen(self):
+        marks = self._frozen_ok()
+        marks["AAA"][0][1] = 999.0                  # absurd revision on the fallback source
+        S = self._S(frozen=self._frozen_ok(), marks=marks)
+        out = are.build_accounting_reconciliation(S, _cfg())
+        assert out["rows"][0]["reconstructed_invested"] == pytest.approx(4300.0, abs=1e-6)
+        assert out["rows"][0]["mark_evidence"] == self.FROZEN
+        assert out["reconciliation"]["all_rows_reconcile"] is True
+
+    # 5. Rows without a frozen close mark use an explicit, labelled fallback and
+    #    are flagged not fully reproducible from immutable evidence.
+    def test_missing_frozen_mark_uses_explicit_labelled_fallback(self):
+        frozen = self._frozen_ok()
+        del frozen["FANG"]                          # no frozen close for FANG at all
+        marks = self._frozen_ok()                   # desk_marks still has a correct FANG close
+        S = self._S(frozen=frozen, marks=marks)
+        out = are.build_accounting_reconciliation(S, _cfg())
+        rec = out["reconciliation"]
+        assert rec["all_rows_reconcile"] is True                 # fallback value is correct
+        assert rec["all_rows_from_frozen_close_marks"] is False
+        assert rec["rows_from_historical_fallback"] == 2
+        for r in out["rows"]:
+            assert r["mark_evidence"] == self.FALLBACK
+            assert r["fully_reproducible_from_frozen_close"] is False
+            assert r["priced_from_frozen_close"] == 1            # AAA frozen
+            assert r["priced_from_historical_fallback"] == 1     # FANG fell back
+
+    # 6. Missing immutable evidence is reported honestly and never fabricated.
+    def test_missing_marks_reported_never_fabricated(self):
+        S = self._S(frozen=self._frozen_ok(), marks=self._frozen_ok(),
+                    holdings_extra={"ZZZ": 5})
+        out = are.build_accounting_reconciliation(S, _cfg())
+        r0 = out["rows"][0]
+        assert "ZZZ" in r0["missing_marks"].split(";")
+        assert r0["priced_holdings"] == 2                        # AAA + FANG only
+        assert r0["reconstructed_invested"] == pytest.approx(4300.0, abs=1e-6)  # ZZZ not invented
+        # a row where EVERY holding is unmarked is NO_MARKS, not a fabricated frozen row
+        S2 = {"perf": {"summary": {}},
+              "perf_rows": [{"date": "2026-01-02", "nav": 100.0, "cash": 100.0,
+                             "invested": 0.0, "holdings": {"ZZZ": 5},
+                             "daily_return_pct": None, "transaction_cost": 0.0}],
+              "price_series": {}, "marks_series": {}}
+        out2 = are.build_accounting_reconciliation(S2, _cfg())
+        assert out2["rows"][0]["mark_evidence"] == self.NONE
+        assert out2["rows"][0]["priced_holdings"] == 0
+
+    # 9. Every legacy accounting-row column is preserved (no downstream CSV break)
+    #    and the new provenance columns are added.
+    def test_row_schema_is_backward_compatible(self):
+        S = self._S(frozen=self._frozen_ok(), marks=self._frozen_ok())
+        out = are.build_accounting_reconciliation(S, _cfg())
+        legacy = {"market_date", "starting_nav", "ending_nav", "cash", "recorded_invested",
+                  "reconstructed_invested", "reconstructed_nav", "nav_residual_usd",
+                  "gross_position_contribution", "execution_cost", "recorded_daily_return_pct",
+                  "reconstructed_daily_return_pct", "return_residual_bps", "priced_holdings",
+                  "missing_marks", "nav_reconciles", "return_reconciles"}
+        added = {"priced_from_frozen_close", "priced_from_historical_fallback",
+                 "mark_evidence", "fully_reproducible_from_frozen_close"}
+        for r in out["rows"]:
+            assert legacy.issubset(set(r.keys()))               # no column removed
+            assert added.issubset(set(r.keys()))
+
+    # 7/8. The reconciliation is a pure read: it mutates no desk file / ledger.
+    def test_reconciliation_writes_no_desk_file_live(self, live_S):
+        sdir = Path(live_S["desk_dir"])
+        before = _hash_dir(sdir)
+        are.build_accounting_reconciliation(live_S, _cfg())
+        assert _hash_dir(sdir) == before
+
+    # The live operational closes are all preserved in the immutable store, so
+    # every live accounting row is frozen-quality and reconciles to the penny.
+    def test_live_rows_reconcile_from_frozen_close_marks(self, live_S):
+        out = are.build_accounting_reconciliation(live_S, _cfg())
+        rec = out["reconciliation"]
+        assert rec["all_rows_reconcile"] is True
+        assert rec["rows_from_historical_fallback"] == 0
+        assert rec["all_rows_from_frozen_close_marks"] is True
+        assert rec["max_abs_nav_residual_usd"] <= 0.01
+
+
+# =========================================================================== #
 # 15. Covariance fallback is deterministic (diagonal when window too short).
 # =========================================================================== #
 class TestCovarianceFallback:

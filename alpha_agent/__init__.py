@@ -28,12 +28,13 @@ promotion, order or Paper Trader mutation ever occurs.
 """
 from __future__ import annotations
 
-from . import (backfill_contracts, event_clustering, experiment_contracts,
-               experiment_factory, experiment_runner, feed_contracts,
-               feed_registry, historical_backfill, ingestion, llm_budget,
-               llm_contracts, llm_providers, report_renderer, research_director,
-               research_importers, research_registry, runtime, runtime_contracts,
-               source_contracts)
+from . import (backfill_contracts, champion_forensics, event_clustering,
+               evidence_observatory, experiment_contracts, experiment_factory,
+               experiment_runner, feed_contracts, feed_registry,
+               historical_backfill, ingestion, llm_budget, llm_contracts,
+               llm_providers, report_renderer, research_director,
+               research_importers, research_registry, risk_overlay_research,
+               runtime, runtime_contracts, source_contracts)
 
 SCHEMA_VERSION = research_registry.SCHEMA_VERSION
 IMPORTER_VERSION = research_importers.IMPORTER_VERSION
@@ -117,6 +118,25 @@ STAGE6_BLOCKED = backfill_contracts.BLOCKED
 run_historical_backfill = historical_backfill.run_backfill
 verify_historical_backfill = historical_backfill.verify_backfill
 
+# Stage 7 — alpha recovery: evidence observatory, champion autopsy, risk-overlay
+# tournament and bounded alpha campaign (research-only, read-only).
+STAGE7_SCHEMA_VERSION = evidence_observatory.STAGE7_SCHEMA_VERSION
+STAGE7_ENGINE_VERSION = evidence_observatory.STAGE7_ENGINE_VERSION
+STAGE7_READY = evidence_observatory.READY
+STAGE7_PARTIAL = evidence_observatory.PARTIAL
+STAGE7_VERIFIED = evidence_observatory.VERIFIED
+STAGE7_DRY_RUN = evidence_observatory.DRY_RUN
+STAGE7_NEED_MORE_EVIDENCE = evidence_observatory.NEED_MORE_EVIDENCE_TERMINAL
+STAGE7_BLOCKED = evidence_observatory.BLOCKED
+RECOVERY_DISPOSITIONS = evidence_observatory.RECOVERY_DISPOSITIONS
+build_evidence_inventory = evidence_observatory.build_evidence_inventory
+observatory_payload = evidence_observatory.observatory_payload
+promotion_checklist = evidence_observatory.promotion_checklist
+reconstruct_champion = champion_forensics.reconstruct_champion
+run_overlay_tournament = risk_overlay_research.run_overlay_tournament
+run_price_factor_campaign = experiment_runner.run_price_factor_campaign
+verify_recovery = risk_overlay_research.verify_recovery
+
 __all__ = [
     "research_importers", "research_registry", "source_contracts", "ingestion",
     "llm_contracts", "llm_budget", "llm_providers", "research_director",
@@ -149,4 +169,11 @@ __all__ = [
     "STAGE6_VERIFIED", "STAGE6_PARTIAL", "STAGE6_DATA_HOLD", "STAGE6_DRY_RUN",
     "STAGE6_NO_NEW_DATA", "STAGE6_BLOCKED", "run_historical_backfill",
     "verify_historical_backfill",
+    "evidence_observatory", "champion_forensics", "risk_overlay_research",
+    "STAGE7_SCHEMA_VERSION", "STAGE7_ENGINE_VERSION", "STAGE7_READY",
+    "STAGE7_PARTIAL", "STAGE7_VERIFIED", "STAGE7_DRY_RUN",
+    "STAGE7_NEED_MORE_EVIDENCE", "STAGE7_BLOCKED", "RECOVERY_DISPOSITIONS",
+    "build_evidence_inventory", "observatory_payload", "promotion_checklist",
+    "reconstruct_champion", "run_overlay_tournament",
+    "run_price_factor_campaign", "verify_recovery",
 ]

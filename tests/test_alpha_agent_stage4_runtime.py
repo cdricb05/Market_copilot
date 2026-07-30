@@ -1369,7 +1369,9 @@ def test_stage5_integration_in_research(env):
     res = r.run_research(label="morning")
     assert rt.COMPONENT_STAGE5 in [c.get("component") for c in res.components]
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "Experiment &amp; Evidence" in html
+    # Executive layout: research decisions in the main body, the raw Stage 5
+    # run id lives in the technical appendix.
+    assert "5. Research decisions" in html
     assert "stage5_fake123" in html
 
 
@@ -1381,7 +1383,8 @@ def test_stage5_disabled_by_default(env):
     assert rt.COMPONENT_STAGE5 not in [c.get("component")
                                        for c in res.components]
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "Stage 5 experiment engine not run" in html
+    # No Stage 5 result and no recovery package → no research decisions.
+    assert "No new research decisions this cycle." in html
 
 
 def test_stage5_report_only_reads_latest(env):
@@ -1409,5 +1412,409 @@ def test_stage5_report_only_reads_latest(env):
                    clock=_clock())
     res = r.run_report_only(label="morning")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "Experiment &amp; Evidence" in html
+    assert "5. Research decisions" in html
     assert rid in html
+
+
+def test_stage7_recovery_report_only_reads_latest(env):
+    rec_root = env["base"] / "recovery"
+    rid = "stage7_diskrecov"
+    run_dir = rec_root / "runs" / rid
+    run_dir.mkdir(parents=True)
+    _w(rec_root / "latest.json",
+       {"run_id": rid, "disposition": "NEED_MORE_EVIDENCE",
+        "terminal": "ALPHA_AGENT_STAGE7_READY"})
+    _w(run_dir / "recovery_disposition.json",
+       {"disposition": "NEED_MORE_EVIDENCE",
+        "rationale": "fundamental leg unverifiable; forward sample too small"})
+    _w(run_dir / "champion_reconstruction.json",
+       {"champion_model": "fundamental_momentum_50_50_v1",
+        "classification": [
+            {"component": "portfolio_construction",
+             "class": "EXACT_RECONSTRUCTION"},
+            {"component": "fundamental_leg_point_in_time",
+             "class": "UNVERIFIABLE_COMPONENT"}],
+        "forensics": {"rank_ic_t": 0.24, "max_drawdown": -0.22,
+                      "annualized_vol": 0.21, "top5_contribution_share": 0.3,
+                      "equal_dollar_implies_unequal_risk": True}})
+    _w(run_dir / "manual_risk_preview.json",
+       {"status": "WITHHELD_NO_ROBUST_EVIDENCE"})
+    _w(run_dir / "run_manifest.json", {"safety": {}})
+    (run_dir / "overlay_results.csv").write_text(
+        "overlay,net_annualized_return,annualized_vol,max_drawdown,worst_20d,"
+        "spy_excess_annualized,avg_cash_weight\n"
+        "CURRENT_CONTROL,0.05,0.21,-0.22,-0.08,0.005,0.047\n", encoding="utf-8")
+    (run_dir / "alpha_evidence_decisions.jsonl").write_text(
+        json.dumps({"experiment_id": "e1", "decision": "REJECT_WEAK_EVIDENCE"})
+        + "\n", encoding="utf-8")
+    (run_dir / "remaining_data_gaps.jsonl").write_text(
+        json.dumps({"gap": "POINT_IN_TIME_FUNDAMENTALS"}) + "\n",
+        encoding="utf-8")
+    cfg = dict(env["cfg"])
+    cfg["stage7_recovery_root"] = str(rec_root)
+    r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
+                   clock=_clock())
+    res = r.run_report_only(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "Alpha Recovery" in html
+    assert "NEED_MORE_EVIDENCE" in html
+    assert rid in html
+    assert "UNVERIFIABLE_COMPONENT" in html
+    manifest = json.loads(Path(res.detail["report_html"]).with_name(
+        "report_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["recovery_readiness"]["disposition"] == "NEED_MORE_EVIDENCE"
+
+
+def test_stage7_recovery_report_absent_is_controlled(env):
+    # With no recovery root configured, the report renders a controlled empty
+    # state — never an error, never a fabricated disposition.
+    r = rt.Runtime(dict(env["cfg"]), drivers=FakeDrivers(),
+                   email_sender=FakeSender(), clock=_clock())
+    res = r.run_report_only(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "No Stage 7 recovery package yet" in html
+
+
+# --------------------------------------------------------------------------- #
+# Stage 7.1 — executive email, signed metrics, translation, cadence, shadows.
+# --------------------------------------------------------------------------- #
+def _make_recovery_pkg(base: Path, *, as_of="2026-07-29",
+                       disposition="NEED_MORE_EVIDENCE", forward_shadows=None,
+                       upstream_fp="fp_current", decisions=None) -> str:
+    rec_root = base / "recovery"
+    rid = "stage7_t_%s" % as_of.replace("-", "")
+    rd = rec_root / "runs" / rid
+    rd.mkdir(parents=True, exist_ok=True)
+    _w(rec_root / "latest.json",
+       {"run_id": rid, "as_of": as_of, "disposition": disposition,
+        "terminal": "ALPHA_AGENT_STAGE7_READY",
+        "holdings_source": "RECONSTRUCTED_CHAMPION_PROXY"})
+    _w(rd / "recovery_disposition.json",
+       {"disposition": disposition,
+        "rationale": "fundamental leg unverifiable; forward sample too small"})
+    _w(rd / "champion_reconstruction.json",
+       {"champion_model": "fundamental_momentum_50_50_v1",
+        "classification": [
+            {"component": "portfolio_construction",
+             "class": "EXACT_RECONSTRUCTION"},
+            {"component": "fundamental_leg_point_in_time",
+             "class": "UNVERIFIABLE_COMPONENT"}],
+        "forensics": {"rank_ic_t": 0.23, "max_drawdown": -0.25,
+                      "annualized_vol": 0.27, "top5_contribution_share": 0.16,
+                      "equal_dollar_implies_unequal_risk": True}})
+    _w(rd / "manual_risk_preview.json",
+       {"status": "WITHHELD_NO_ROBUST_EVIDENCE"})
+    _w(rd / "run_manifest.json",
+       {"safety": {}, "upstream_fingerprint": upstream_fp,
+        "forward_shadows": forward_shadows or []})
+    (rd / "overlay_results.csv").write_text(
+        "overlay,net_annualized_return,annualized_vol,max_drawdown,worst_20d,"
+        "spy_excess_annualized,avg_cash_weight,turnover_annualized,"
+        "cost_drag_annualized\n"
+        "CURRENT_CONTROL,0.05,0.28,-0.37,-0.31,0.19,0.047,0.5,0.005\n"
+        "MARKET_REGIME_CASH_OVERLAY,0.04,0.24,-0.29,-0.28,0.17,0.121,0.6,0.006\n"
+        "PORTFOLIO_VOL_TARGET_20,0.03,0.17,-0.23,-0.23,0.05,0.354,0.4,0.004\n",
+        encoding="utf-8")
+    (rd / "alpha_evidence_decisions.jsonl").write_text(
+        "".join(json.dumps(d) + "\n" for d in (decisions or [
+            {"experiment_id": "e1", "decision": "REJECT_WEAK_EVIDENCE"},
+            {"experiment_id": "e2", "decision": "REJECT_INSTABILITY"}])),
+        encoding="utf-8")
+    (rd / "remaining_data_gaps.jsonl").write_text(
+        json.dumps({"gap": "POINT_IN_TIME_FUNDAMENTALS"}) + "\n",
+        encoding="utf-8")
+    return str(rec_root)
+
+
+def test_signed_money_pct_pp_formatting():
+    assert rr.fmt_signed_money(123.45) == "+$123.45"
+    assert rr.fmt_signed_money(-123.45) == "-$123.45"
+    assert rr.fmt_signed_money(0) == "+$0.00"
+    assert rr.fmt_pct(0.5) == "+0.50%"
+    assert rr.fmt_pct(-0.5) == "-0.50%"
+    assert rr.fmt_pp(0.53) == "+0.53 pp"
+    assert rr.fmt_pp(-0.53) == "-0.53 pp"
+    assert rr.fmt_money(1234.5) == "$1,234.50"
+    assert rr.fmt_money(None) == "Not available"
+
+
+def test_negative_values_cannot_lose_their_sign():
+    assert rr.fmt_signed_money(-0.01).startswith("-")
+    assert rr.fmt_pct(-0.01).startswith("-")
+    assert rr.fmt_pp(-0.01).startswith("-")
+    assert rr._fmt_ret(-0.01).startswith("-")
+    # A positive value is explicitly '+', never bare.
+    assert rr.fmt_signed_money(0.01).startswith("+")
+    assert rr.fmt_pct(0.01).startswith("+")
+
+
+def test_no_color_only_negative_indicator(env):
+    # The env ledger has a negative daily P&L; the sign must be in the TEXT.
+    res = _runtime(env).run_research(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    text = Path(res.detail["report_text"]).read_text(encoding="utf-8")
+    assert "-$391.68" in html
+    assert "-$391.68" in text  # plain text carries the sign with no colour
+
+
+def test_exactly_one_action_today(env):
+    res = _runtime(env).run_research(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    present = [s for s in rr.ACTION_STATES if s in html]
+    assert len(present) == 1
+    # Healthy env (no degrade, feeds partial-not-zero, gate 0 triggered).
+    assert present[0] == rr.ACTION_NO_TRADE
+
+
+def test_hold_is_not_called_proof_of_acceptable_risk(env):
+    res = _runtime(env).run_research(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "not a statement that the portfolio&#x27;s absolute risk is " \
+           "acceptable" in html or "absolute risk is acceptable" in html
+
+
+def test_action_data_attention_when_degraded(env):
+    d = FakeDrivers(research=_norm(rc.COMPONENT_STAGE3, ok=False,
+                                   status="ALPHA_AGENT_STAGE3_BLOCKED"))
+    res = _runtime(env, drivers=d).run_research(label="post_close")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert rr.ACTION_DATA_ATTENTION in html
+    present = [s for s in rr.ACTION_STATES if s in html]
+    assert len(present) == 1
+
+
+def test_machine_status_translation():
+    assert "too weak" in rr.translate("REJECT_WEAK_EVIDENCE").lower()
+    assert "consistently" in rr.translate("REJECT_INSTABILITY").lower()
+    assert "neither confirmed nor rejected" in \
+        rr.translate("NEED_MORE_EVIDENCE").lower()
+    assert "cannot yet be validated" in \
+        rr.translate("UNVERIFIABLE_COMPONENT").lower()
+    assert "not yet available" in \
+        rr.translate("ALPHA_AGENT_STAGE5_DATA_HOLD").lower()
+    assert rr.translate("SOME_UNKNOWN_TOKEN") == "SOME_UNKNOWN_TOKEN"
+
+
+def test_no_internal_tokens_in_main_sections(env):
+    cfg = dict(env["cfg"])
+    cfg["stage7_recovery_root"] = _make_recovery_pkg(env["base"])
+    r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
+                   clock=_clock())
+    res = r.run_report_only(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    main, _, appendix = html.partition("10. Technical appendix")
+    assert appendix  # the appendix section exists
+    # Raw machine tokens live ONLY in the technical appendix.
+    for token in ("NEED_MORE_EVIDENCE", "UNVERIFIABLE_COMPONENT"):
+        assert token not in main, token
+        assert token in appendix, token
+    # The plain-English verdict appears in the main body.
+    assert "neither confirmed nor rejected" in main.lower()
+
+
+def test_appendix_contains_run_ids_and_evidence_paths(env):
+    res = _runtime(env).run_research(label="post_close")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    main, _, appendix = html.partition("10. Technical appendix")
+    assert res.run_id in appendix and res.run_id not in main
+    assert "Stage 3.5 news/RSS root" in appendix
+    assert "Report schema version" in appendix
+
+
+def test_status_flags_prominent_no_generic_automation_off(env):
+    res = _runtime(env).run_research(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    for flag in ("RESEARCH SCHEDULE: ON", "TRADING AUTOMATION: OFF",
+                 "BROKER EXECUTION: OFF", "PAPER ONLY"):
+        assert flag in html, flag
+    # The generic standalone "AUTOMATION OFF" badge is gone.
+    assert ">AUTOMATION OFF<" not in html
+
+
+def test_email_html_and_text_have_executive_sections(env):
+    res = _runtime(env).run_research(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    text = Path(res.detail["report_text"]).read_text(encoding="utf-8")
+    for h in ("1. Bottom line", "2. Action today", "3. Portfolio scorecard",
+              "4. What changed since the last report", "5. Research decisions",
+              "6. Model health", "7. Risk and shadow portfolios",
+              "8. Historical data readiness", "9. Source / agent health",
+              "10. Technical appendix"):
+        assert h in html, h
+    for h in ("1. BOTTOM LINE", "2. ACTION TODAY", "3. PORTFOLIO SCORECARD",
+              "10. TECHNICAL APPENDIX"):
+        assert h in text, h
+
+
+def test_no_dialogs_in_email_html(env):
+    res = _runtime(env).run_research(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    for bad in ("alert(", "confirm(", "prompt("):
+        assert bad not in html
+
+
+def test_stage6_window_and_universe_corrected(env):
+    base = env["base"]
+    bf_root = base / "backfill"
+    rid = "stage6_t1"
+    rd = bf_root / "runs" / rid
+    rd.mkdir(parents=True)
+    _w(bf_root / "latest.json",
+       {"run_id": rid, "terminal": "ALPHA_AGENT_STAGE6_PARTIAL",
+        "status": "TEMPLATES_UNLOCKED_WITH_REMAINING_GAPS",
+        "records_written": 1531490, "data_version": "dv6_test"})
+    _w(rd / "run_manifest.json", {"terminal": "ALPHA_AGENT_STAGE6_PARTIAL"})
+    _w(rd / "stage6_input.json",
+       {"date_start": "2015-01-01", "date_end": "2026-07-29"})
+    (rd / "coverage_after.csv").write_text(
+        "family,record_type,provider,min_effective_date,max_effective_date,"
+        "unique_tickers,record_count,point_in_time_usable,survivorship_safe\n"
+        "prices,MARKET_BAR,norgate_local,2015-01-02,2026-07-29,572,1530376,"
+        "false,true\n"
+        "universe_membership,UNIVERSE_MEMBERSHIP,norgate_local,2015-01-02,"
+        "2026-07-29,548,640,false,true\n", encoding="utf-8")
+    (rd / "reopened_hypotheses.jsonl").write_text("", encoding="utf-8")
+    (rd / "unresolved_data_gaps.jsonl").write_text("", encoding="utf-8")
+    cfg = dict(env["cfg"])
+    cfg["stage6_backfill_root"] = str(bf_root)
+    r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
+                   clock=_clock())
+    res = r.run_report_only(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "? .. ?" not in html and "? through ?" not in html
+    assert "2015 through 2026-07-29" in html
+    assert "572" in html and "548" in html
+    # The universe never renders the invalid 0 / 0.
+    man = json.loads(Path(res.detail["report_html"]).with_name(
+        "report_manifest.json").read_text(encoding="utf-8"))
+    hr = man["historical_readiness"]
+    assert hr["date_start"] == "2015-01-01" and hr["date_end"] == "2026-07-29"
+    assert hr["universe_full_size"] == 572 and hr["universe_size"] == 548
+
+
+def test_latest_stage7_results_and_stale_age(env):
+    cfg = dict(env["cfg"])
+    # as_of far in the past → stale age shown.
+    cfg["stage7_recovery_root"] = _make_recovery_pkg(env["base"],
+                                                     as_of="2026-06-01")
+    r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
+                   clock=_clock())  # clock date is 2026-07-29
+    res = r.run_report_only(label="morning")
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "fundamental_momentum_50_50_v1" in html
+    assert "day(s) old" in html and "STALE" in html
+
+
+def test_cadence_reuse_delta_and_friday():
+    ro = rt.ro_recovery
+    friday = ro.stage7_cadence_decision(
+        label="post_close", weekday=4, current_fingerprint="x",
+        latest_manifest={"upstream_fingerprint": "x"})
+    assert friday["action"] == ro.CAD_RUN_FULL and friday["weekly"] is True
+    delta = ro.stage7_cadence_decision(
+        label="morning", weekday=1, current_fingerprint="y",
+        latest_manifest={"upstream_fingerprint": "x"})
+    assert delta["action"] == ro.CAD_RUN_DELTA
+    reuse = ro.stage7_cadence_decision(
+        label="morning", weekday=1, current_fingerprint="x",
+        latest_manifest={"upstream_fingerprint": "x"})
+    assert reuse["action"] == ro.CAD_REUSE
+    assert "No new research evidence" in reuse["reason"]
+    none = ro.stage7_cadence_decision(
+        label="morning", weekday=1, current_fingerprint="x",
+        latest_manifest=None)
+    assert none["action"] == ro.CAD_NONE
+
+
+def test_no_new_evidence_phrase_in_what_changed():
+    model = {"scorecard": rr.scorecard({"nav": 100.0}),
+             "prior": {"scorecard": {"nav": 100.0}}, "no_new_evidence": True}
+    bullets = rr.what_changed(model)
+    assert any("No new research evidence since the prior report." in b
+               for b in bullets)
+
+
+def test_stage7_launch_is_idempotent_and_gated(env):
+    launches = []
+    cfg = dict(env["cfg"])
+    cfg["stage7_recovery_root"] = _make_recovery_pkg(env["base"],
+                                                     upstream_fp="OLD")
+    cfg["cadence"] = dict(cfg["cadence"])
+    cfg["cadence"]["stage7_launch_in_cycle"] = True
+    r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
+                   clock=_clock(),
+                   stage7_launcher=lambda dec: launches.append(dec))
+    # Upstream fingerprint differs from the package's 'OLD' → a refresh is due.
+    r.run_research(label="morning")
+    assert len(launches) == 1  # launched once
+    r.run_research(label="morning")  # same cycle → idempotent, no relaunch
+    assert len(launches) == 1
+
+
+def test_stage7_not_launched_when_disabled(env):
+    launches = []
+    cfg = dict(env["cfg"])
+    cfg["stage7_recovery_root"] = _make_recovery_pkg(env["base"],
+                                                     upstream_fp="OLD")
+    # stage7_launch_in_cycle defaults to False.
+    r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
+                   clock=_clock(),
+                   stage7_launcher=lambda dec: launches.append(dec))
+    r.run_research(label="morning")
+    assert launches == []
+
+
+def test_forward_shadows_exactly_three_and_read_only(env):
+    fwd = [{"overlay": "CURRENT_CONTROL", "invested_gross": 0.95, "cash": 0.05,
+            "forward_scale": 1.0},
+           {"overlay": "MARKET_REGIME_CASH_OVERLAY", "invested_gross": 0.475,
+            "cash": 0.525, "forward_scale": 0.5},
+           {"overlay": "PORTFOLIO_VOL_TARGET_20", "invested_gross": 0.6,
+            "cash": 0.4, "forward_scale": 0.63}]
+    cfg = dict(env["cfg"])
+    cfg["stage7_recovery_root"] = _make_recovery_pkg(env["base"],
+                                                     forward_shadows=fwd)
+    before = _fingerprint(env["ledger"])
+    r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
+                   clock=_clock())
+    res = r.run_report_only(label="morning")
+    after = _fingerprint(env["ledger"])
+    assert before == after  # forward shadows never mutate any ledger
+    man = json.loads(Path(res.detail["report_html"]).with_name(
+        "report_manifest.json").read_text(encoding="utf-8"))
+    shadows = man["forward_shadows"]
+    assert shadows is not None and len(shadows) == 3
+    names = {s["overlay"] for s in shadows}
+    assert names == {"CURRENT_CONTROL", "MARKET_REGIME_CASH_OVERLAY",
+                     "PORTFOLIO_VOL_TARGET_20"}
+    # The control scale is 1; the vol-target is scaled below 1 (de-risked).
+    by = {s["overlay"]: s for s in shadows}
+    assert by["CURRENT_CONTROL"]["scale"] == 1.0
+    assert by["PORTFOLIO_VOL_TARGET_20"]["scale"] < 1.0
+    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
+    assert "No shadow portfolio changes the active paper portfolio." in html
+
+
+def test_executive_test_email_subject_and_single_send(env):
+    sender = FakeSender(rc.EMAIL_SENT, message_id="gmail_msgid_123")
+    r = rt.Runtime(dict(env["cfg"]), drivers=FakeDrivers(),
+                   email_sender=sender, clock=_clock())
+    res = r.run_report_only(label="morning", exec_test=True)
+    assert res.detail["subject"] == \
+        "TEST — Alpha Agent Executive Research Brief — 2026-07-29"
+    assert res.email_status == rc.EMAIL_SENT
+    assert res.email_message_id == "gmail_msgid_123"
+    assert len(sender.calls) == 1
+    # A second executive test on the same date does not send again.
+    res2 = r.run_report_only(label="morning", exec_test=True)
+    assert len(sender.calls) == 1
+    assert res2.email_status == rc.EMAIL_ALREADY_SENT
+
+
+def test_exec_test_creates_no_orders_or_ledger_change(env):
+    before = _fingerprint(env["ledger"])
+    r = rt.Runtime(dict(env["cfg"]), drivers=FakeDrivers(),
+                   email_sender=FakeSender(rc.EMAIL_SENT), clock=_clock())
+    r.run_report_only(label="morning", exec_test=True)
+    after = _fingerprint(env["ledger"])
+    assert before == after
