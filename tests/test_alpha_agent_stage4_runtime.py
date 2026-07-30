@@ -112,8 +112,10 @@ def env(tmp_path):
         "provider_order": ["claude_code", "anthropic_http"],
         "allowed_task_names": list(rc.ALPHA_AGENT_TASK_NAMES),
         "email": {"credential_dir": str(tmp_path / "no_creds"),
-                  "refresh_token_file": "gmail_oauth_refresh_token.dpapi",
-                  "delivery_provider": "gmail_api_oauth"},
+                  "app_credential_file": "gmail_smtp_app_password.dpapi",
+                  "smtp_host": "smtp.gmail.com", "smtp_port": 587,
+                  "transport": "gmail_smtp",
+                  "delivery_provider": "gmail_smtp"},
     }
     return {"cfg": cfg, "root": runtime_root, "ledger": ledger,
             "base": tmp_path}
@@ -365,8 +367,8 @@ def test_provider_unavailable_degraded(env):
     res = _runtime(env, drivers=d).run_research(label="post_close")
     assert res.terminal == rc.DEGRADED
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "ACTION REQUIRED" in html
-    assert "LLM SKIPPED" in html
+    # A degraded runtime surfaces as the single DATA / AGENT ATTENTION action.
+    assert rr.ACTION_DATA_ATTENTION in html
 
 
 def test_max_two_research_cycles_per_day(env):
@@ -393,12 +395,13 @@ def test_idempotent_no_duplicate_email(env):
 
 
 def test_email_credential_absent(env):
-    # Real sender, no credential dir -> credential-required, no subprocess.
+    # Real SMTP sender, no App Password -> credential-missing, no subprocess.
     r = rt.Runtime(env["cfg"], drivers=FakeDrivers(), email_sender=None,
                    clock=_clock())
     res = r.run_research(label="post_close")
     assert res.terminal == rc.EMAIL_CREDENTIAL_REQUIRED
-    assert res.email_status == rc.EMAIL_CREDENTIAL_REQUIRED_STATUS
+    assert res.email_status == rt.EMAIL_SMTP_CREDENTIAL_MISSING
+    assert res.email_transport == rt.EMAIL_TRANSPORT_SMTP
 
 
 def test_email_outbox_transitions_sent(env):
@@ -461,15 +464,13 @@ def test_deterministic_html_and_text(env):
 
 
 def test_html_escaping():
+    # Dynamic values (here, failed-feed names surfaced in the Data & System
+    # Issues section) are HTML-escaped so untrusted content can never inject.
     model = {"cycle_label": "morning", "cycle_date": "2026-07-29",
-             "subject": "S", "generated_at": "t", "badges": [],
-             "executive_summary": "x", "kpis": {},
-             "material_events": [{"summary": "<script>alert(1)</script>",
-                                  "entity": "A&B", "materiality": "high",
-                                  "source_ids": ["r<1"]}],
-             "research": {"no_new_action": True, "notes": ""},
-             "paper_book": {}, "news_rss": {"failed_feeds": []},
-             "llm": {}, "operating_action": "", "evidence": {}}
+             "subject": "S", "generated_at": "t",
+             "schedule_status": "Off", "status_flags": list(rr.STATUS_FLAGS),
+             "paper_book": {}, "recovery_readiness": {},
+             "news_rss": {"failed_feeds": ["<script>alert(1)</script>", "A&B"]}}
     html = rr.render_html(model)
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html
@@ -713,6 +714,15 @@ _SENDER_PY = _SCRIPTS / "send_alpha_agent_email.py"
 _SENDER_PS1 = _SCRIPTS / "send_alpha_agent_email.ps1"
 _AUTHORIZE_PY = _SCRIPTS / "authorize_alpha_agent_gmail.py"
 _CONFIGURE_PS1 = _SCRIPTS / "configure_alpha_agent_email.ps1"
+# Stage 7.2 — read-only Gmail credential diagnostic (token-exchange probe).
+_DIAG_PY = _SCRIPTS / "diagnose_alpha_agent_gmail.py"
+_DIAG_PS1 = _SCRIPTS / "diagnose_alpha_agent_gmail.ps1"
+# Gmail SMTP (App Password) — the PRIMARY, active transport (replaces OAuth).
+_SMTP_SENDER_PY = _SCRIPTS / "send_alpha_agent_smtp.py"
+_SMTP_SENDER_PS1 = _SCRIPTS / "send_alpha_agent_smtp.ps1"
+_SMTP_DIAG_PY = _SCRIPTS / "diagnose_alpha_agent_smtp.py"
+_SMTP_DIAG_PS1 = _SCRIPTS / "diagnose_alpha_agent_smtp.ps1"
+_SMTP_CONFIGURE_PS1 = _SCRIPTS / "configure_alpha_agent_smtp.ps1"
 
 # Deterministic, obviously-fake secrets. Never real; never transmitted.
 _REFRESH_TOKEN = "1//0refresh-token-FAKE-not-a-real-value"
@@ -862,18 +872,19 @@ def test_05_no_smtplib_in_active_implementation():
         assert "smtplib" not in p.read_text(encoding="utf-8"), p.name
 
 
-# 6. No smtp.gmail.com anywhere in the active implementation or config.
-def test_06_no_smtp_gmail_host():
-    for p in (_SENDER_PY, _SENDER_PS1, _CONFIGURE_PS1, _AUTHORIZE_PY,
-              _REPO / "alpha_agent" / "runtime.py",
-              _REPO / "configs" / "alpha_agent" / "stage4_runtime.json"):
+# 6. smtp.gmail.com must NOT appear in the LEGACY Gmail-API OAuth transport
+#    files (kept unmuddled). Gmail SMTP is now the primary transport, so the host
+#    legitimately lives in the new SMTP scripts, runtime and config.
+def test_06_no_smtp_gmail_host_in_legacy_oauth_files():
+    for p in (_SENDER_PY, _SENDER_PS1, _CONFIGURE_PS1, _AUTHORIZE_PY):
         assert "smtp.gmail.com" not in p.read_text(encoding="utf-8"), p.name
 
 
-# 7. No App Password references in the active implementation.
-def test_07_no_app_password_references():
-    for p in (_SENDER_PY, _SENDER_PS1, _CONFIGURE_PS1,
-              _REPO / "configs" / "alpha_agent" / "stage4_runtime.json"):
+# 7. App Password references must NOT appear in the LEGACY OAuth transport files;
+#    they must never carry the SMTP credential. They legitimately live in the new
+#    SMTP scripts + config.
+def test_07_no_app_password_in_legacy_oauth_files():
+    for p in (_SENDER_PY, _SENDER_PS1, _CONFIGURE_PS1, _AUTHORIZE_PY):
         low = p.read_text(encoding="utf-8").lower()
         assert "app password" not in low, p.name
         assert "app_password" not in low, p.name
@@ -956,6 +967,86 @@ def test_12_missing_refresh_token_rejected():
         {"refresh_token": "r", "scope": "https://mail.google.com/"},
         required_scope=am._GMAIL_SEND_SCOPE)
     assert status2 == am.AUTHORIZATION_SCOPE_INSUFFICIENT
+
+
+# ---------------------------------------------------------------------------- #
+# Stage 7.2 — read-only Gmail credential DIAGNOSTIC (token-exchange probe).
+# It classifies a delivery-blocking credential state without sending an email,
+# authorizing, writing a file, or exposing any secret.
+# ---------------------------------------------------------------------------- #
+def _load_diag_module():
+    return _load_module(_DIAG_PY, "aa_gmail_diagnostic_test")
+
+
+def test_diag_probe_compiles_and_is_stdin_only():
+    src = _DIAG_PY.read_text(encoding="utf-8")
+    compile(src, str(_DIAG_PY), "exec")
+    assert "sys.stdin.readline" in src        # refresh token only from stdin
+    assert "--refresh-token" not in src        # never a CLI flag
+    assert "import smtplib" not in src         # Gmail/OAuth over HTTPS, no SMTP
+    assert '"w"' not in src and "'w'" not in src   # read-only: never writes
+
+
+def test_diag_classifier_mappings():
+    dm = _load_diag_module()
+    assert dm.classify_token_error("invalid_grant", 400) == \
+        dm.TOKEN_EXCHANGE_INVALID_GRANT
+    assert dm.classify_token_error("invalid_client", 401) == \
+        dm.TOKEN_EXCHANGE_CLIENT_MISMATCH
+    assert dm.classify_token_error("access_denied", 403) == \
+        dm.TOKEN_EXCHANGE_POLICY_REJECTION
+    assert dm.classify_token_error("", 400) == \
+        dm.TOKEN_EXCHANGE_POLICY_REJECTION
+    assert dm.classify_token_error("", 0) == dm.TOKEN_EXCHANGE_UNREACHABLE
+
+
+def test_diag_probe_emits_safe_invalid_grant_json(monkeypatch, tmp_path):
+    dm = _load_diag_module()
+    client = _client_json(tmp_path)
+    monkeypatch.setattr(dm.urllib.request, "urlopen", _fake_urlopen(
+        token_error=_http_error(400, {"error": "invalid_grant",
+                                      "error_description": "Bad Request"})))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(_REFRESH_TOKEN + "\n"))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = dm.main(["--oauth-client-path", str(client),
+                        "--expected-account", "binisti@gmail.com",
+                        "--token-endpoint", "https://oauth2.example.test/token",
+                        "--timeout-seconds", "5"])
+    out = buf.getvalue()
+    result = json.loads([ln for ln in out.splitlines()
+                         if ln.strip().startswith("{")][-1])
+    assert code == 1
+    assert result["classification"] == dm.TOKEN_EXCHANGE_INVALID_GRANT
+    assert result["google_error"] == "invalid_grant"
+    assert _REFRESH_TOKEN not in out           # refresh token never printed
+    assert "test-secret-not-real" not in out   # client secret never printed
+
+
+def test_diag_probe_empty_stdin_is_token_file_not_found(monkeypatch, tmp_path):
+    dm = _load_diag_module()
+    client = _client_json(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n"))
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = dm.main(["--oauth-client-path", str(client)])
+    result = json.loads([ln for ln in buf.getvalue().splitlines()
+                         if ln.strip().startswith("{")][-1])
+    assert result["classification"] == dm.TOKEN_FILE_NOT_FOUND
+    assert code == 1
+
+
+@pytest.mark.parametrize("ps1", [_DIAG_PS1])
+def test_diag_ps1_is_readonly_stdin_only_no_python_dash_c(ps1):
+    src = ps1.read_text(encoding="utf-8")
+    low = src.lower()
+    assert "python -c" not in low and " -c " not in src
+    for marker in ('@"', '"@', "@'", "'@"):
+        assert marker not in src               # no embedded Python here-string
+    assert "StandardInput" in src              # refresh token only via stdin
+    assert "Move-Item" not in src              # moves nothing
+    assert "Set-Content" not in src            # writes nothing
+    assert "Out-File" not in src
 
 
 # 13. The refresh token is captured but never printed except in the one result.
@@ -1323,7 +1414,9 @@ def test_34_no_credential_or_token_leakage(monkeypatch, tmp_path):
     cfg = rc.load_config(_REPO / "configs" / "alpha_agent" /
                          "stage4_runtime.json")
     assert rc.scan_for_secrets(cfg) == []
-    assert cfg["email"]["delivery_provider"] == "gmail_api_oauth"
+    # Gmail SMTP is now the primary, active transport (OAuth retired).
+    assert cfg["email"]["transport"] == "gmail_smtp"
+    assert cfg["email"]["delivery_provider"] == "gmail_smtp"
 
 
 # --------------------------------------------------------------------------- #
@@ -1369,10 +1462,10 @@ def test_stage5_integration_in_research(env):
     res = r.run_research(label="morning")
     assert rt.COMPONENT_STAGE5 in [c.get("component") for c in res.components]
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    # Executive layout: research decisions in the main body, the raw Stage 5
-    # run id lives in the technical appendix.
-    assert "5. Research decisions" in html
-    assert "stage5_fake123" in html
+    # Executive layout: research progress in the main body; raw Stage 5 run ids
+    # no longer leak into the email (they live in the API/UI observatory).
+    assert "4. Research progress" in html
+    assert "stage5_fake123" not in html
 
 
 def test_stage5_disabled_by_default(env):
@@ -1383,8 +1476,11 @@ def test_stage5_disabled_by_default(env):
     assert rt.COMPONENT_STAGE5 not in [c.get("component")
                                        for c in res.components]
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    # No Stage 5 result and no recovery package → no research decisions.
-    assert "No new research decisions this cycle." in html
+    # No Stage 5 result and no recovery package → research progress still states
+    # the verdict once and reports that nothing was evaluated / promoted.
+    assert "4. Research progress" in html
+    assert rr.VERDICT_SENTENCE in html
+    assert "no model was promoted" in html.lower()
 
 
 def test_stage5_report_only_reads_latest(env):
@@ -1412,8 +1508,12 @@ def test_stage5_report_only_reads_latest(env):
                    clock=_clock())
     res = r.run_report_only(label="morning")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "5. Research decisions" in html
-    assert rid in html
+    assert "4. Research progress" in html
+    # A Stage 5 data-held study is reported SEPARATELY (never merged into the
+    # Stage 7 recovery evaluated count), and the raw run id stays out of the
+    # email.
+    assert "could not run" in html.lower()
+    assert rid not in html
 
 
 def test_stage7_recovery_report_only_reads_latest(env):
@@ -1456,10 +1556,13 @@ def test_stage7_recovery_report_only_reads_latest(env):
                    clock=_clock())
     res = r.run_report_only(label="morning")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "Alpha Recovery" in html
-    assert "NEED_MORE_EVIDENCE" in html
-    assert rid in html
-    assert "UNVERIFIABLE_COMPONENT" in html
+    body, _, appendix = html.partition(rr.BODY_APPENDIX_SEPARATOR)
+    # Plain-English verdict in the body; the raw run id is a single reference in
+    # the compact appendix; no machine tokens leak into the body.
+    assert rr.VERDICT_SENTENCE in body
+    assert rid in appendix and rid not in body
+    assert "NEED_MORE_EVIDENCE" not in body
+    assert "UNVERIFIABLE_COMPONENT" not in html
     manifest = json.loads(Path(res.detail["report_html"]).with_name(
         "report_manifest.json").read_text(encoding="utf-8"))
     assert manifest["recovery_readiness"]["disposition"] == "NEED_MORE_EVIDENCE"
@@ -1472,7 +1575,8 @@ def test_stage7_recovery_report_absent_is_controlled(env):
                    email_sender=FakeSender(), clock=_clock())
     res = r.run_report_only(label="morning")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "No Stage 7 recovery package yet" in html
+    assert rr.VERDICT_SENTENCE in html
+    assert "No new recovery ideas were evaluated this cycle" in html
 
 
 # --------------------------------------------------------------------------- #
@@ -1602,32 +1706,42 @@ def test_no_internal_tokens_in_main_sections(env):
                    clock=_clock())
     res = r.run_report_only(label="morning")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    main, _, appendix = html.partition("10. Technical appendix")
-    assert appendix  # the appendix section exists
-    # Raw machine tokens live ONLY in the technical appendix.
-    for token in ("NEED_MORE_EVIDENCE", "UNVERIFIABLE_COMPONENT"):
-        assert token not in main, token
-        assert token in appendix, token
-    # The plain-English verdict appears in the main body.
-    assert "neither confirmed nor rejected" in main.lower()
+    body, _, appendix = html.partition(rr.BODY_APPENDIX_SEPARATOR)
+    assert appendix  # the compact audit appendix exists after the separator
+    # No raw machine tokens appear in the plain-English executive body at all.
+    for token in ("NEED_MORE_EVIDENCE", "UNVERIFIABLE_COMPONENT",
+                  "REJECT_WEAK_EVIDENCE", "KEEP_FOR_RESEARCH"):
+        assert token not in body, token
+    # The plain-English verdict appears in the body, exactly once.
+    assert rr.VERDICT_SENTENCE in body
+    assert html.count(rr.VERDICT_SENTENCE) == 1
 
 
-def test_appendix_contains_run_ids_and_evidence_paths(env):
+def test_appendix_is_compact_with_no_paths(env):
     res = _runtime(env).run_research(label="post_close")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    main, _, appendix = html.partition("10. Technical appendix")
-    assert res.run_id in appendix and res.run_id not in main
-    assert "Stage 3.5 news/RSS root" in appendix
-    assert "Report schema version" in appendix
+    body, _, appendix = html.partition(rr.BODY_APPENDIX_SEPARATOR)
+    assert appendix
+    # The compact appendix carries exactly the five allowed audit lines and one
+    # research-run reference — no per-stage run-id list, no evidence paths.
+    for label in ("Generated", "Market data through", "Latest research run",
+                  "Data quality", "Safety"):
+        assert label in appendix, label
+    # No local file path anywhere in the email (body or appendix).
+    for bad in ("C:\\", "D:\\", "/runs/", "\\runs\\", ".paper_trader"):
+        assert bad not in html, bad
+    # The per-stage evidence-path list of the old appendix is gone.
+    assert "Stage 3.5 news/RSS root" not in html
 
 
-def test_status_flags_prominent_no_generic_automation_off(env):
+def test_schedule_state_not_reported_on_when_disabled(env):
+    # The safety band shows the RESOLVED schedule state, never a hardcoded ON.
     res = _runtime(env).run_research(label="morning")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    for flag in ("RESEARCH SCHEDULE: ON", "TRADING AUTOMATION: OFF",
+    assert "RESEARCH SCHEDULE: ON" not in html
+    for flag in ("AUTOMATIC SCHEDULE:", "TRADING AUTOMATION: OFF",
                  "BROKER EXECUTION: OFF", "PAPER ONLY"):
         assert flag in html, flag
-    # The generic standalone "AUTOMATION OFF" badge is gone.
     assert ">AUTOMATION OFF<" not in html
 
 
@@ -1635,14 +1749,15 @@ def test_email_html_and_text_have_executive_sections(env):
     res = _runtime(env).run_research(label="morning")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
     text = Path(res.detail["report_text"]).read_text(encoding="utf-8")
-    for h in ("1. Bottom line", "2. Action today", "3. Portfolio scorecard",
-              "4. What changed since the last report", "5. Research decisions",
-              "6. Model health", "7. Risk and shadow portfolios",
-              "8. Historical data readiness", "9. Source / agent health",
-              "10. Technical appendix"):
+    for h in ("1. Bottom line", "2. Your action today", "3. Portfolio today",
+              "4. Research progress", "5. Risk experiments",
+              "6. Data and system issues"):
         assert h in html, h
-    for h in ("1. BOTTOM LINE", "2. ACTION TODAY", "3. PORTFOLIO SCORECARD",
-              "10. TECHNICAL APPENDIX"):
+    # No seventh numbered section in the primary body.
+    assert "7. " not in html.partition(rr.BODY_APPENDIX_SEPARATOR)[0]
+    for h in ("1. BOTTOM LINE", "2. YOUR ACTION TODAY", "3. PORTFOLIO TODAY",
+              "4. RESEARCH PROGRESS", "5. RISK EXPERIMENTS",
+              "6. DATA AND SYSTEM ISSUES"):
         assert h in text, h
 
 
@@ -1680,11 +1795,9 @@ def test_stage6_window_and_universe_corrected(env):
     r = rt.Runtime(cfg, drivers=FakeDrivers(), email_sender=FakeSender(),
                    clock=_clock())
     res = r.run_report_only(label="morning")
-    html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "? .. ?" not in html and "? through ?" not in html
-    assert "2015 through 2026-07-29" in html
-    assert "572" in html and "548" in html
-    # The universe never renders the invalid 0 / 0.
+    # The Stage 6 window/universe repair is verified on the report MODEL (the
+    # compact email no longer renders Stage 6 internals; they live in the
+    # observatory). The invalid "? .. ?" / 0-of-0 must never appear.
     man = json.loads(Path(res.detail["report_html"]).with_name(
         "report_manifest.json").read_text(encoding="utf-8"))
     hr = man["historical_readiness"]
@@ -1701,7 +1814,8 @@ def test_latest_stage7_results_and_stale_age(env):
                    clock=_clock())  # clock date is 2026-07-29
     res = r.run_report_only(label="morning")
     html = Path(res.detail["report_html"]).read_text(encoding="utf-8")
-    assert "fundamental_momentum_50_50_v1" in html
+    # The latest-research-run reference in the compact appendix shows the age and
+    # the STALE flag when the verdict is old.
     assert "day(s) old" in html and "STALE" in html
 
 
@@ -1727,11 +1841,13 @@ def test_cadence_reuse_delta_and_friday():
 
 
 def test_no_new_evidence_phrase_in_what_changed():
+    # When nothing material changed, the change note collapses to one plain
+    # sentence — no wall of $0.00 / 0.00% / 0.00 pp lines (Stage 7.2 defect #6).
     model = {"scorecard": rr.scorecard({"nav": 100.0}),
              "prior": {"scorecard": {"nav": 100.0}}, "no_new_evidence": True}
     bullets = rr.what_changed(model)
-    assert any("No new research evidence since the prior report." in b
-               for b in bullets)
+    assert bullets == ["No meaningful portfolio or research change occurred "
+                       "since the previous report."]
 
 
 def test_stage7_launch_is_idempotent_and_gated(env):
@@ -1818,3 +1934,657 @@ def test_exec_test_creates_no_orders_or_ledger_change(env):
     r.run_report_only(label="morning", exec_test=True)
     after = _fingerprint(env["ledger"])
     assert before == after
+
+
+# --------------------------------------------------------------------------- #
+# Stage 7.2 — executive-brief quality (deterministic renderer-level tests).
+# --------------------------------------------------------------------------- #
+def _v2_model(**over):
+    """A live-shaped executive model for the Stage 7.2 quality tests."""
+    m = {
+        "report_title": "Alpha Agent Manual Executive Research Brief",
+        "cycle_label": "manual", "cycle_date": "2026-07-30",
+        "generated_at": "2026-07-30T18:40:00+00:00",
+        "subject": "TEST v2", "schedule_status": "Off",
+        "market_data_through": "2026-07-29",
+        "status_flags": list(rr.STATUS_FLAGS),
+        "scorecard": rr.scorecard({
+            "nav": 98125.23, "daily_pnl": -443.45, "daily_return_pct": -0.45,
+            "cumulative_pnl": -1874.77, "cumulative_return_pct": -1.87,
+            "drawdown_pct": -1.87, "spy_cumulative_pct": -2.40,
+            "cumulative_excess_pp": 0.53}),
+        "paper_book": {"nav": 98125.23},
+        "prior": {"scorecard": {"nav": 98125.23, "cumulative_return_pct": -1.87,
+                                "cumulative_excess_pp": 0.53},
+                  "disposition": "NEED_MORE_EVIDENCE"},
+        "recovery_readiness": {
+            "run_id": "stage7_f2d4dfc3895a3667",
+            "disposition": "NEED_MORE_EVIDENCE",
+            "champion_model": "fundamental_momentum_50_50_v1",
+            "campaign_experiments": 7, "campaign_keep_for_research": 0,
+            "campaign_decision_counts": {"REJECT_WEAK_EVIDENCE": 5,
+                                         "REJECT_INSTABILITY": 2}},
+        "stage5_could_not_run": 3,
+        "risk_and_shadow": {"shadows": [
+            {"overlay": "CURRENT_CONTROL", "cumulative_return": -0.0187,
+             "drawdown": -0.0187, "realized_vol": None, "cash": 0.047,
+             "spy_excess": 0.0053, "observations": 6},
+            {"overlay": "MARKET_REGIME_CASH_OVERLAY", "cumulative_return": -0.0187,
+             "drawdown": -0.0187, "realized_vol": None, "cash": 0.047,
+             "spy_excess": 0.0053, "observations": 6},
+            {"overlay": "PORTFOLIO_VOL_TARGET_20", "cumulative_return": -0.0078,
+             "drawdown": -0.0078, "realized_vol": None, "cash": 0.603,
+             "spy_excess": 0.0162, "observations": 6}]},
+        "historical_readiness_summary": [
+            {"label": "Price history", "status": "READY", "note": "x"},
+            {"label": "Point-in-time fundamentals", "status": "NOT READY",
+             "note": "x"},
+            {"label": "Earnings history", "status": "NOT READY", "note": "x"},
+            {"label": "Historical sector classifications", "status": "NOT READY",
+             "note": "x"}],
+        "news_rss": {"healthy": 7, "enabled": 11, "failed_feeds": []},
+        "source_agent_health": {"provider_ok": True, "ledgers_unchanged": True,
+                                "stage7_age_note": "1 day(s) old"},
+        "evidence": {"run_id": "runtime_x"},
+    }
+    m.update(over)
+    return m
+
+
+def _v2_body(model):
+    return rr.render_html(model).partition(rr.BODY_APPENDIX_SEPARATOR)[0]
+
+
+def _v2_text_body(model):
+    return rr.render_text(model).partition(rr.BODY_APPENDIX_SEPARATOR)[0]
+
+
+def test_v2_periods_not_mixed_in_one_metric_statement():
+    text = rr.render_text(_v2_model())
+    # Each dollar is paired with the percent from the SAME period.
+    assert "$443.45 (-0.45%) today" in text
+    assert "$1,874.77 (-1.87%) since launch" in text
+    # A today dollar never pairs with a since-inception percent (or vice versa).
+    assert "$443.45 (-1.87%)" not in text
+    assert "$1,874.77 (-0.45%)" not in text
+
+
+def test_v2_schedule_off_when_all_tasks_disabled():
+    assert rr.schedule_status({"a": "Disabled", "b": "Disabled",
+                               "c": "Disabled", "d": "Disabled"}) == "Off"
+    assert rr.schedule_status({"a": "Disabled", "b": "Enabled"}) == "On"
+    assert rr.schedule_status({"a": None}) == "Not verified"
+    assert rr.schedule_status({}) == "Not verified"
+    html = rr.render_html(_v2_model(schedule_status="Off"))
+    text = rr.render_text(_v2_model(schedule_status="Off"))
+    assert "AUTOMATIC SCHEDULE: OFF" in html
+    assert "RESEARCH SCHEDULE: ON" not in html
+    assert "Automatic research schedule: Off" in text
+
+
+def test_v2_body_has_no_machine_status_tokens():
+    body = _v2_body(_v2_model()) + _v2_text_body(_v2_model())
+    for tok in ("stage7_", "stage5_", "stage6_", "REJECT_", "KEEP_FOR_RESEARCH",
+                "NEED_MORE_EVIDENCE", "DATA_HOLD", "ALPHA_AGENT_STAGE",
+                "UNVERIFIABLE_COMPONENT"):
+        assert tok not in body, tok
+
+
+def test_v2_email_has_no_local_file_paths():
+    m = _v2_model()
+    html = rr.render_html(m)
+    text = rr.render_text(m)
+    for bad in ("C:\\", "D:\\", "/runs/", "\\runs\\", ".paper_trader",
+                "Stock_Prediction_app_data"):
+        assert bad not in html and bad not in text, bad
+
+
+def test_v2_research_counts_reconcile_exactly():
+    recon = rr.research_decision_reconciliation(
+        {"campaign_experiments": 7,
+         "campaign_decision_counts": {"REJECT_WEAK_EVIDENCE": 5,
+                                      "REJECT_INSTABILITY": 2}})
+    assert recon["evaluated"] == 7
+    assert (recon["rejected"] + recon["retained"] + recon["could_not_run"]
+            + recon["other"] == recon["accounted"] == recon["evaluated"])
+    assert recon["reconciles"] is True
+    assert recon["promoted"] == 0
+    # A 'could not run' campaign token is described in plain English, never leaked
+    # as a raw token, and is counted in its own bucket.
+    r2 = rr.research_decision_reconciliation(
+        {"campaign_experiments": 3,
+         "campaign_decision_counts": {"REJECT_WEAK_EVIDENCE": 1,
+                                      "DATA_HOLD": 2}})
+    assert r2["rejected"] == 1 and r2["could_not_run"] == 2
+    assert all("DATA_HOLD" not in c["phrase"] for c in r2["categories"])
+
+
+def test_v2_stage5_and_stage7_counts_not_conflated():
+    recon = rr.research_decision_reconciliation(
+        {"campaign_experiments": 7,
+         "campaign_decision_counts": {"REJECT_WEAK_EVIDENCE": 7}},
+        stage5_could_not_run=3)
+    assert recon["evaluated"] == 7            # Stage 7 recovery ideas evaluated
+    assert recon["stage5_could_not_run"] == 3  # Stage 5 data-holds, kept apart
+    body = _v2_body(_v2_model())
+    assert "7 recovery idea(s) were evaluated" in body
+    assert "3 study(ies) that could not run" in body
+    # The Stage 5 count is never added into the evaluated count.
+    assert "10 recovery" not in body
+
+
+def test_v2_verdict_appears_exactly_once():
+    html = rr.render_html(_v2_model())
+    text = rr.render_text(_v2_model())
+    assert html.count(rr.VERDICT_SENTENCE) == 1
+    assert text.count(rr.VERDICT_SENTENCE) == 1
+
+
+def test_v2_zero_changes_are_suppressed():
+    body = _v2_body(_v2_model())  # prior == current -> nothing material moved
+    assert ("No meaningful portfolio or research change occurred since the "
+            "previous report.") in body
+    assert "$0.00" not in body
+    assert "0.00%" not in body
+    assert "0.00 pp" not in body
+
+
+def test_v2_benchmark_differences_use_percentage_points():
+    m = _v2_model()
+    body = _v2_body(m)
+    assert "percentage points" in body                 # bottom-line prose
+    assert "+0.53 pp" in rr.render_html(m)              # shadow vs-SPY column
+    assert m["scorecard"]["formatted"]["cumulative_excess_pp"].endswith(" pp")
+
+
+def test_v2_cash_percentages_have_no_plus_sign():
+    text = rr.render_text(_v2_model())
+    assert "60.3%" in text
+    assert "+60.3%" not in text and "+4.7%" not in text
+    assert rr.fmt_cash_pct(0.603) == "60.3%"
+    assert not rr.fmt_cash_pct(0.603).startswith("+")
+
+
+def test_v2_realized_vol_becomes_observation_explanation():
+    m = _v2_model()
+    text = rr.render_text(m)
+    assert "realized volatility cannot be measured yet" in text
+    assert "Only 6 trading day(s) are available" in text
+    assert "Realized vol" not in text  # no bare 'Not available' vol column
+
+
+def test_v2_body_passes_forbidden_jargon_scan():
+    m = _v2_model()
+    body = (_v2_body(m) + _v2_text_body(m)).lower()
+    hits = [j for j in rr.FORBIDDEN_JARGON if j in body]
+    assert hits == [], hits
+
+
+def test_v2_valid_html_and_complete_text_alternative():
+    m = _v2_model()
+    html = rr.render_html(m)
+    text = rr.render_text(m)
+    assert html.startswith("<!doctype html>")
+    assert html.rstrip().endswith("</html>")
+    assert html.count("<body") == 1 and html.count("</body>") == 1
+    for h in ("1. BOTTOM LINE", "2. YOUR ACTION TODAY", "3. PORTFOLIO TODAY",
+              "4. RESEARCH PROGRESS", "5. RISK EXPERIMENTS",
+              "6. DATA AND SYSTEM ISSUES", rr.BODY_APPENDIX_SEPARATOR):
+        assert h in text, h
+    assert len(text.strip()) > 200
+
+
+def test_v2_no_browser_dialogs_in_email():
+    html = rr.render_html(_v2_model())
+    for d in ("alert(", "confirm(", "prompt("):
+        assert d not in html
+
+
+def test_v2_render_is_pure_no_operational_mutation(env):
+    before = _fingerprint(env["ledger"])
+    m = _v2_model()
+    rr.render_html(m)
+    rr.render_text(m)
+    rr.report_manifest(m, "h", "t")
+    assert _fingerprint(env["ledger"]) == before
+
+
+# --------------------------------------------------------------------------- #
+# Gmail SMTP (App Password) transport — WS1-WS5.
+#
+# Gmail SMTP is the PRIMARY, active email transport (the Gmail-API OAuth
+# transport is retired, disabled by config, and never attempted when SMTP is
+# selected). Delivery uses smtplib over STARTTLS with a dedicated Google App
+# Password stored ONLY as a Windows DPAPI blob. Every SMTP client here is a FAKE
+# — no real network, TLS handshake, authentication or email is ever performed,
+# and no real App Password is ever used.
+# --------------------------------------------------------------------------- #
+import smtplib as _smtplib_real   # noqa: E402
+import socket as _socket_real     # noqa: E402
+import ssl as _ssl_real           # noqa: E402
+
+# Deterministic, obviously-fake 16-char App Password. Never real; never sent to a
+# real server (all SMTP clients in these tests are fakes).
+_APP_PASSWORD = "ZZ16charFAKE0000"
+
+
+def _load_smtp_sender_module():
+    return _load_module(_SMTP_SENDER_PY, "aa_send_smtp_test")
+
+
+def _load_smtp_diag_module():
+    return _load_module(_SMTP_DIAG_PY, "aa_diag_smtp_test")
+
+
+def _smtp_job(tmp_path, *, subject="Alpha Agent SMTP Report",
+              text="plain body", html="<h1>html body</h1>", attach=False):
+    (tmp_path / "report.html").write_text(html, encoding="utf-8")
+    (tmp_path / "report.txt").write_text(text, encoding="utf-8")
+    job = {"recipient": "binisti@gmail.com", "subject": subject,
+           "html_path": str(tmp_path / "report.html"),
+           "text_path": str(tmp_path / "report.txt")}
+    if attach:
+        job["attach_markdown"] = [str(tmp_path / "report.txt")]
+    return job
+
+
+def _smtp_recorder(*, on_connect=None, on_starttls=None, on_login=None,
+                   on_send=None):
+    """Return (record, factory). The factory is a fake smtplib.SMTP that records
+    the call order and never touches the network."""
+    record = {"calls": [], "debuglevel": None, "constructed": 0}
+
+    class _FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            record["host"] = host
+            record["port"] = port
+            record["timeout"] = timeout
+            record["constructed"] += 1
+            if on_connect is not None:
+                raise on_connect
+
+        def set_debuglevel(self, level):
+            record["debuglevel"] = level
+
+        def ehlo(self, *a, **k):
+            record["calls"].append("ehlo")
+
+        def starttls(self, context=None):
+            record["calls"].append("starttls")
+            record["tls_context"] = context
+            if on_starttls is not None:
+                raise on_starttls
+
+        def login(self, user, password):
+            record["calls"].append("login")
+            record["login_user"] = user
+            record["login_password"] = password
+            if on_login is not None:
+                raise on_login
+
+        def send_message(self, message):
+            record["calls"].append("send")
+            record["sent_message"] = message
+            if on_send is not None:
+                raise on_send
+
+        def noop(self):
+            record["calls"].append("noop")
+
+        def quit(self):
+            record["calls"].append("quit")
+
+    return record, _FakeSMTP
+
+
+# WS5.6 — SMTP sender uses port 587 (module + wrapper + runtime defaults).
+def test_smtp_default_port_is_587():
+    mod = _load_smtp_sender_module()
+    assert mod._DEFAULT_SMTP_PORT == 587
+    assert mod._DEFAULT_SMTP_HOST == "smtp.gmail.com"
+    ps1 = _SMTP_SENDER_PS1.read_text(encoding="utf-8")
+    assert "$SmtpPort = 587" in ps1
+    cfg = rc.load_config(_REPO / "configs" / "alpha_agent" /
+                         "stage4_runtime.json")
+    assert cfg["email"]["smtp_port"] == 587
+    assert cfg["email"]["smtp_host"] == "smtp.gmail.com"
+    assert cfg["email"]["smtp_security"] == "starttls"
+
+
+# WS5.8 — builds a valid plain-text + HTML multipart/alternative message.
+def test_smtp_builds_multipart_alternative(tmp_path):
+    mod = _load_smtp_sender_module()
+    msg, mid, err = mod.build_message(
+        _smtp_job(tmp_path, text="plain here", html="<p>html here</p>"),
+        "binisti@gmail.com")
+    assert err is None
+    assert msg.get_content_type() == "multipart/alternative"
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    html = msg.get_body(preferencelist=("html",)).get_content()
+    assert "plain here" in plain and plain.strip()
+    assert "html here" in html and html.strip()
+
+
+# WS5.9 — UTF-8 subject and body survive intact.
+def test_smtp_utf8_subject_and_body(tmp_path):
+    mod = _load_smtp_sender_module()
+    subject = "Café — Über résumé ✓"
+    msg, mid, err = mod.build_message(
+        _smtp_job(tmp_path, subject=subject, text="café ✓", html="<p>über</p>"),
+        "binisti@gmail.com")
+    assert err is None
+    assert str(msg["Subject"]) == subject
+    assert isinstance(msg.as_bytes(), bytes)   # serialises without error
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    assert "café ✓" in plain
+
+
+# WS5.10 — an RFC 5322 Message-ID is generated and returned.
+def test_smtp_generates_and_returns_message_id(tmp_path):
+    mod = _load_smtp_sender_module()
+    msg, mid, err = mod.build_message(_smtp_job(tmp_path), "binisti@gmail.com")
+    assert err is None
+    assert mid and mid.startswith("<") and mid.endswith(">")
+    assert "@gmail.com>" in mid
+    assert msg["Message-ID"] == mid
+    assert msg["Date"] and msg["From"] == "binisti@gmail.com"
+
+
+# WS5.7 — STARTTLS happens BEFORE authentication (and before any send).
+def test_smtp_starttls_before_auth_and_send(tmp_path):
+    mod = _load_smtp_sender_module()
+    msg, mid, _ = mod.build_message(_smtp_job(tmp_path), "binisti@gmail.com")
+    record, factory = _smtp_recorder()
+    status, _diag = mod.deliver(
+        msg, account="binisti@gmail.com", app_password=_APP_PASSWORD,
+        host="smtp.gmail.com", port=587, timeout=5, smtp_factory=factory,
+        ssl_context=_ssl_real.create_default_context())
+    assert status == mod.EMAIL_SENT
+    calls = record["calls"]
+    assert "starttls" in calls and "login" in calls and "send" in calls
+    assert calls.index("starttls") < calls.index("login")
+    assert calls.index("starttls") < calls.index("send")
+    assert record["port"] == 587
+    assert record["debuglevel"] is None   # SMTP debug output never enabled
+
+
+# WS5.14 — a successful send maps to EMAIL_SENT (+ returned Message-ID).
+def test_smtp_success_maps_to_email_sent(monkeypatch, tmp_path):
+    mod = _load_smtp_sender_module()
+    record, factory = _smtp_recorder()
+    monkeypatch.setattr(mod.smtplib, "SMTP", factory)
+    monkeypatch.setattr(mod.sys, "stdin",
+                        io.StringIO(_APP_PASSWORD + "\n"))
+    job_path = tmp_path / "job.json"
+    job_path.write_text(json.dumps(_smtp_job(tmp_path)), encoding="utf-8")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = mod.main(["--job-path", str(job_path),
+                         "--account", "binisti@gmail.com",
+                         "--smtp-host", "smtp.gmail.com",
+                         "--smtp-port", "587", "--timeout-seconds", "5"])
+    out = buf.getvalue()
+    result = json.loads([ln for ln in out.splitlines()
+                         if ln.strip().startswith("{")][-1])
+    assert code == 0
+    assert result["status"] == "EMAIL_SENT"
+    assert result["transport"] == "gmail_smtp"
+    assert result["message_id"] and result["message_id"].startswith("<")
+
+
+# WS5.11 — an authentication rejection (SMTP 535) maps correctly.
+def test_smtp_auth_rejection_maps(tmp_path):
+    mod = _load_smtp_sender_module()
+    msg, _mid, _ = mod.build_message(_smtp_job(tmp_path), "binisti@gmail.com")
+    err = _smtplib_real.SMTPAuthenticationError(
+        535, b"5.7.8 Username and Password not accepted")
+    record, factory = _smtp_recorder(on_login=err)
+    status, _diag = mod.deliver(
+        msg, account="binisti@gmail.com", app_password=_APP_PASSWORD,
+        host="smtp.gmail.com", port=587, timeout=5, smtp_factory=factory,
+        ssl_context=_ssl_real.create_default_context())
+    assert status == mod.EMAIL_SMTP_AUTHENTICATION_REJECTED
+    assert "send" not in record["calls"]   # never sends after auth failure
+
+
+# WS5.12 — a STARTTLS failure maps correctly.
+def test_smtp_tls_failure_maps(tmp_path):
+    mod = _load_smtp_sender_module()
+    msg, _mid, _ = mod.build_message(_smtp_job(tmp_path), "binisti@gmail.com")
+    record, factory = _smtp_recorder(on_starttls=_ssl_real.SSLError("tls"))
+    status, _diag = mod.deliver(
+        msg, account="binisti@gmail.com", app_password=_APP_PASSWORD,
+        host="smtp.gmail.com", port=587, timeout=5, smtp_factory=factory,
+        ssl_context=_ssl_real.create_default_context())
+    assert status == mod.EMAIL_SMTP_TLS_FAILED
+    assert "login" not in record["calls"]   # never authenticates without TLS
+
+
+# WS5.13 — a connection / DNS failure maps correctly.
+def test_smtp_connection_failure_maps(tmp_path):
+    mod = _load_smtp_sender_module()
+    msg, _mid, _ = mod.build_message(_smtp_job(tmp_path), "binisti@gmail.com")
+    _record, factory = _smtp_recorder(
+        on_connect=_socket_real.gaierror("name resolution failed"))
+    status, _diag = mod.deliver(
+        msg, account="binisti@gmail.com", app_password=_APP_PASSWORD,
+        host="smtp.gmail.com", port=587, timeout=5, smtp_factory=factory,
+        ssl_context=_ssl_real.create_default_context())
+    assert status == mod.EMAIL_SMTP_CONNECTION_FAILED
+
+
+# A generic send failure maps to EMAIL_SEND_FAILED.
+def test_smtp_send_failure_maps(tmp_path):
+    mod = _load_smtp_sender_module()
+    msg, _mid, _ = mod.build_message(_smtp_job(tmp_path), "binisti@gmail.com")
+    record, factory = _smtp_recorder(
+        on_send=_smtplib_real.SMTPServerDisconnected("dropped"))
+    status, _diag = mod.deliver(
+        msg, account="binisti@gmail.com", app_password=_APP_PASSWORD,
+        host="smtp.gmail.com", port=587, timeout=5, smtp_factory=factory,
+        ssl_context=_ssl_real.create_default_context())
+    assert status == mod.EMAIL_SEND_FAILED
+    assert "login" in record["calls"]   # reached the send phase
+
+
+# Missing App Password on stdin maps to EMAIL_SMTP_CREDENTIAL_MISSING.
+def test_smtp_missing_credential_maps(monkeypatch, tmp_path):
+    mod = _load_smtp_sender_module()
+    monkeypatch.setattr(mod.sys, "stdin", io.StringIO("\n"))
+    job_path = tmp_path / "job.json"
+    job_path.write_text(json.dumps(_smtp_job(tmp_path)), encoding="utf-8")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = mod.main(["--job-path", str(job_path),
+                         "--account", "binisti@gmail.com"])
+    result = json.loads([ln for ln in buf.getvalue().splitlines()
+                         if ln.strip().startswith("{")][-1])
+    assert code == 1
+    assert result["status"] == "EMAIL_SMTP_CREDENTIAL_MISSING"
+
+
+# WS5.1/5.2 — the App Password is never a CLI flag and never read from the env.
+def test_smtp_password_never_cli_or_env():
+    src = _SMTP_SENDER_PY.read_text(encoding="utf-8")
+    compile(src, str(_SMTP_SENDER_PY), "exec")
+    assert "sys.stdin.readline" in src         # stdin only
+    assert "--app-password" not in src.lower()
+    assert "--password" not in src.lower()
+    assert "import os" not in src              # cannot read the environment
+    assert "os.environ" not in src
+    assert "getpass" not in src
+    assert "set_debuglevel" not in src         # AUTH exchange never printed
+    for ps1 in (_SMTP_SENDER_PS1, _SMTP_DIAG_PS1):
+        text = ps1.read_text(encoding="utf-8")
+        low = text.lower()
+        # the plaintext only ever crosses the process boundary via stdin
+        assert "standardinput.writeline" in low
+        assert "-apppassword" not in low       # never an argument
+        # no environment variable ever carries the plaintext
+        for envline in [ln for ln in text.splitlines() if "$env:" in ln.lower()]:
+            low_env = envline.lower()
+            assert "plain" not in low_env
+            assert "password" not in low_env
+
+
+# WS5.4 — the App Password never appears in emitted output on auth failure.
+def test_smtp_password_not_leaked_in_output(monkeypatch, tmp_path):
+    mod = _load_smtp_sender_module()
+    err = _smtplib_real.SMTPAuthenticationError(535, b"rejected")
+    _record, factory = _smtp_recorder(on_login=err)
+    monkeypatch.setattr(mod.smtplib, "SMTP", factory)
+    monkeypatch.setattr(mod.sys, "stdin", io.StringIO(_APP_PASSWORD + "\n"))
+    job_path = tmp_path / "job.json"
+    job_path.write_text(json.dumps(_smtp_job(tmp_path)), encoding="utf-8")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        mod.main(["--job-path", str(job_path), "--account", "binisti@gmail.com"])
+    out = buf.getvalue()
+    assert _APP_PASSWORD not in out
+    assert "EMAIL_SMTP_AUTHENTICATION_REJECTED" in out
+
+
+# WS5.3/5.5 — configure script: DPAPI-only storage, 16-char validation, secure
+# prompt, and it never writes/echoes the plaintext App Password.
+def test_smtp_configure_script_is_secure_and_validates():
+    src = _SMTP_CONFIGURE_PS1.read_text(encoding="utf-8")
+    assert "Read-Host" in src and "-AsSecureString" in src   # secure prompt
+    assert "ConvertFrom-SecureString" in src                 # DPAPI encrypt
+    assert "-ne 16" in src                                    # length check
+    assert "[A-Za-z0-9]{16}" in src                          # format check
+    assert "GMAIL_SMTP_CONFIGURED" in src
+    # Only the DPAPI-encrypted blob + the (non-secret) account are written.
+    for line in src.splitlines():
+        s = line.strip()
+        if s.startswith("Set-Content") or s.startswith("Out-File") \
+                or "Add-Content" in s:
+            assert "$Normalized" not in s, s
+            assert "$Raw" not in s, s
+            assert "$SecureInput" not in s, s
+    # The plaintext is never sent to the console, and no email is ever sent.
+    low = src.lower()
+    assert "write-host $normalized" not in low
+    assert "write-host $raw" not in low
+    assert "send_message" not in low
+    assert "smtplib" not in low
+
+
+# WS4 — the SMTP diagnostic authenticates without sending, and classifies.
+def test_smtp_diagnostic_probe_read_only(tmp_path):
+    mod = _load_smtp_diag_module()
+    record, factory = _smtp_recorder()
+    result = mod.probe(account="binisti@gmail.com", app_password=_APP_PASSWORD,
+                       host="smtp.gmail.com", port=587, timeout=5,
+                       smtp_factory=factory,
+                       ssl_context=_ssl_real.create_default_context())
+    assert result == mod.SMTP_AUTHENTICATION_OK
+    # A read-only probe never issues MAIL/RCPT/DATA (no send).
+    assert "send" not in record["calls"]
+    assert "noop" in record["calls"]
+
+
+def test_smtp_diagnostic_classifies_failures(tmp_path):
+    mod = _load_smtp_diag_module()
+    assert mod.probe(account="a@b.com", app_password="", host="h", port=587,
+                     timeout=5, smtp_factory=_smtp_recorder()[1]) \
+        == mod.SMTP_CREDENTIAL_MISSING
+    _r, f_auth = _smtp_recorder(
+        on_login=_smtplib_real.SMTPAuthenticationError(535, b"no"))
+    assert mod.probe(account="a@b.com", app_password=_APP_PASSWORD, host="h",
+                     port=587, timeout=5, smtp_factory=f_auth,
+                     ssl_context=_ssl_real.create_default_context()) \
+        == mod.SMTP_AUTHENTICATION_REJECTED
+    _r2, f_conn = _smtp_recorder(on_connect=_socket_real.gaierror("dns"))
+    assert mod.probe(account="a@b.com", app_password=_APP_PASSWORD, host="h",
+                     port=587, timeout=5, smtp_factory=f_conn) \
+        == mod.SMTP_CONNECTION_FAILED
+
+
+# WS5.15/5.16 — the runtime uses ONLY the SMTP transport when SMTP is selected;
+# OAuth is not invoked and both transports are never attempted in one cycle.
+def test_runtime_uses_smtp_only_not_oauth(monkeypatch, tmp_path):
+    cred = tmp_path / "creds"
+    cred.mkdir()
+    (cred / "gmail_smtp_app_password.dpapi").write_text("ENC", encoding="utf-8")
+    (cred / "gmail_smtp_account.txt").write_text("binisti@gmail.com",
+                                                 encoding="utf-8")
+    cfg = {"email": {"transport": "gmail_smtp", "credential_dir": str(cred),
+                     "app_credential_file": "gmail_smtp_app_password.dpapi",
+                     "smtp_host": "smtp.gmail.com", "smtp_port": 587}}
+    calls = []
+
+    class _Proc:
+        stdout = ('{"status":"EMAIL_SENT","message_id":"<x@gmail.com>",'
+                  '"transport":"gmail_smtp","diagnostic":"Gmail SMTP accepted '
+                  'the message."}')
+        stderr = ""
+
+    def _fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return _Proc()
+
+    monkeypatch.setattr(rt.subprocess, "run", _fake_run)
+    sender = rt.make_real_email_sender(cfg, repo_root=_REPO)
+    result = sender({"job_path": str(tmp_path / "job.json")})
+    assert result["status"] == "EMAIL_SENT"
+    assert result["transport"] == "gmail_smtp"
+    assert result["message_id"] == "<x@gmail.com>"
+    assert len(calls) == 1                              # exactly one transport
+    joined = " ".join(calls[0])
+    assert "send_alpha_agent_smtp.ps1" in joined        # SMTP wrapper
+    assert "send_alpha_agent_email.ps1" not in joined   # never the OAuth wrapper
+    assert rt.resolve_email_transport(cfg) == rt.EMAIL_TRANSPORT_SMTP
+
+
+# WS5.18 — a failed OAuth entry can never be auto-retried by the watchdog.
+def test_failed_oauth_and_smtp_auth_never_auto_retried():
+    assert rt.OAUTH_REAUTHORIZATION_REQUIRED not in rt.EMAIL_TRANSIENT_STATUSES
+    assert rt.OAUTH_REAUTHORIZATION_REQUIRED in rt.EMAIL_NONRETRYABLE_STATUSES
+    assert rt.EMAIL_SMTP_AUTHENTICATION_REJECTED in rt.EMAIL_NONRETRYABLE_STATUSES
+    assert rt.EMAIL_SMTP_TLS_FAILED in rt.EMAIL_NONRETRYABLE_STATUSES
+    # Only genuinely transient SMTP failures are eligible for a retry.
+    assert rt.EMAIL_SMTP_CONNECTION_FAILED in rt.EMAIL_TRANSIENT_STATUSES
+    assert rt.EMAIL_SEND_FAILED in rt.EMAIL_TRANSIENT_STATUSES
+
+
+# WS5.17 — the SMTP acceptance send uses a NEW idempotency identity so it never
+# collides with the failed OAuth v2 cycle, and it sends exactly once.
+def test_smtp_acceptance_uses_new_idempotency_identity(env):
+    d = "2026-07-29"
+    assert rc.report_cycle_id("exec_test_v2", d) != rc.report_cycle_id(
+        "exec_test", d)
+    sender = FakeSender(rc.EMAIL_SENT)
+    r = _runtime(env, sender=sender)
+    res = r.run_report_only(
+        exec_test=True, exec_test_key="exec_test_v2",
+        subject_override="TEST — Alpha Agent Executive Brief v2 — 2026-07-30")
+    assert len(sender.calls) == 1                       # exactly one delivery
+    assert res.cycle_id == rc.report_cycle_id("exec_test_v2", d)
+    assert res.email_status == rc.EMAIL_SENT
+
+
+# WS5.19 — building/using the SMTP transport mutates no operational ledger.
+def test_smtp_transport_no_operational_mutation(env):
+    before = _fingerprint(env["ledger"])
+    sender = FakeSender(rc.EMAIL_SENT)
+    _runtime(env, sender=sender).run_report_only(
+        exec_test=True, exec_test_key="exec_test_v2")
+    _ = rt.make_real_email_sender(env["cfg"], repo_root=_REPO)
+    assert _fingerprint(env["ledger"]) == before
+
+
+# WS5.20 — SMTP introduces no new scheduled task (still exactly the four).
+def test_smtp_adds_no_scheduled_task():
+    cfg = rc.load_config(_REPO / "configs" / "alpha_agent" /
+                         "stage4_runtime.json")
+    assert sorted(cfg["allowed_task_names"]) == sorted(rc.ALPHA_AGENT_TASK_NAMES)
+    assert len(cfg["allowed_task_names"]) == 4
+
+
+# Regression: a UTF-8 BOM that Windows stdin pipes can prepend must be stripped,
+# or the App Password is corrupted (previously raised UnicodeEncodeError at AUTH).
+def test_smtp_stdin_strips_utf8_bom(monkeypatch):
+    for mod in (_load_smtp_sender_module(), _load_smtp_diag_module()):
+        monkeypatch.setattr(mod.sys, "stdin",
+                            io.StringIO("\ufeff" + _APP_PASSWORD + "\n"))
+        assert mod._read_app_password_from_stdin() == _APP_PASSWORD

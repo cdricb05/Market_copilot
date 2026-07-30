@@ -83,19 +83,29 @@
   },
   "email": {
     "recipient": "binisti@gmail.com",
-    "delivery_provider": "gmail_api_oauth",
+    "transport": "gmail_smtp",
+    "delivery_provider": "gmail_smtp",
     "credential_dir": "C:\\Users\\binis\\.paper_trader\\alpha_agent_email",
-    "oauth_client_file": "google_oauth_client.json",
-    "refresh_token_file": "gmail_oauth_refresh_token.dpapi",
-    "account_file": "gmail_oauth_account.txt",
-    "gmail_api_send_endpoint": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-    "token_endpoint": "https://oauth2.googleapis.com/token",
-    "oauth_minimum_scope": "https://www.googleapis.com/auth/gmail.send",
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "smtp_security": "starttls",
+    "smtp_account_file": "gmail_smtp_account.txt",
+    "app_credential_file": "gmail_smtp_app_password.dpapi",
     "send_timeout_seconds": 120,
     "attach_markdown": true,
     "email_llm_tokens": 0,
     "credential_storage": "windows_dpapi_current_user_only",
-    "configuration_hint": "configure via scripts/configure_alpha_agent_email.ps1"
+    "configuration_hint": "configure via scripts/configure_alpha_agent_smtp.ps1",
+    "oauth_retired": true,
+    "oauth_reference_only": {
+      "note": "Retired Gmail API OAuth transport; disabled by config, retained for reference. Not attempted when transport is gmail_smtp.",
+      "oauth_client_file": "google_oauth_client.json",
+      "refresh_token_file": "gmail_oauth_refresh_token.dpapi",
+      "account_file": "gmail_oauth_account.txt",
+      "gmail_api_send_endpoint": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      "token_endpoint": "https://oauth2.googleapis.com/token",
+      "oauth_minimum_scope": "https://www.googleapis.com/auth/gmail.send"
+    }
   },
   "allowed_task_names": [
     "AlphaAgent-Collect",

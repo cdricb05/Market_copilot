@@ -36392,3 +36392,184 @@ class TestAlphaAgentObservatoryUI:
         assert "Forward Risk Shadows" in panel
         assert "aao-shadows" in panel
         assert "No shadow portfolio changes the active paper portfolio." in panel
+
+    def test_panel_shows_schedule_and_feed_status(self) -> None:
+        panel = self._panel()
+        # The canonical runtime-status element (schedule state, feed health,
+        # market-data-through) exists in the markup and is filled by the
+        # observatory JS — the markup never hardcodes a schedule ON.
+        assert "aao-runtime-status" in panel
+        assert "RESEARCH SCHEDULE: ON" not in panel
+
+
+# ---------------------------------------------------------------------------
+# Stage 7.2 — reporting-contract corrections (email / API / UI agreement).
+# ---------------------------------------------------------------------------
+class TestAlphaAgentObservatoryContractV2:
+    def _cfgp(self):
+        from pathlib import Path as _P
+        return (_P(__file__).resolve().parents[1] / "configs" / "alpha_agent"
+                / "stage7_alpha_recovery.json")
+
+    def test_scorecard_strings_identical_across_surfaces(self) -> None:
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        from paper_trader.alpha_agent import report_renderer as _rr
+        pb = {"nav": 98125.23, "daily_pnl": -443.45, "cumulative_pnl": -1874.77,
+              "daily_return_pct": -0.45, "cumulative_return_pct": -1.87,
+              "drawdown_pct": -1.87, "spy_cumulative_pct": -2.40,
+              "cumulative_excess_pp": 0.53}
+        payload = _eo.observatory_payload(config_path=str(self._cfgp()),
+                                          book_context=pb)
+        email_sc = _rr.scorecard(pb)
+        assert payload["scorecard"] == email_sc            # API == email source
+        html = _rr.render_html({"scorecard": email_sc, "schedule_status": "Off",
+                                "paper_book": pb})
+        assert email_sc["formatted"]["daily_pnl"] in html
+        assert email_sc["formatted"]["cumulative_excess_pp"] in html
+
+    def test_feed_health_counts_match_across_surfaces(self) -> None:
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        from paper_trader.alpha_agent import report_renderer as _rr
+        pb = {"news_rss": {"healthy": 7, "enabled": 11}}
+        payload = _eo.observatory_payload(config_path=str(self._cfgp()),
+                                          book_context=pb)
+        assert payload["news_rss_health"] == {"healthy": 7, "enabled": 11}
+        items = dict(_rr.audit_appendix_items(
+            {"news_rss": {"healthy": 7, "enabled": 11},
+             "source_agent_health": {"ledgers_unchanged": True}}))
+        assert "7 of 11 healthy" in items["Data quality"]
+
+    def test_critical_observatory_fields_non_null_when_evidence_exists(
+            self) -> None:
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        pb = {"champion_model": "fundamental_momentum_50_50_v1",
+              "book_name": "Alpha Paper Book #1", "nav": 98125.23,
+              "holdings_count": 25, "invested_pct": 95.3,
+              "nav_as_of_date": "2026-07-29"}
+        payload = _eo.observatory_payload(
+            config_path=str(self._cfgp()), book_context=pb, today="2026-07-30",
+            schedule_status="Off",
+            market_data_through=pb["nav_as_of_date"])
+        opb = payload["operational_paper_book"]
+        for k in ("champion_model", "book_name", "holdings_count",
+                  "invested_pct", "market_data_through"):
+            assert opb.get(k) is not None, k
+        assert payload["today"] == "2026-07-30"
+        assert payload["schedule_status"] == "Off"
+        assert payload["market_data_through"] == "2026-07-29"
+
+    def test_stage_labels_have_no_mojibake(self) -> None:
+        import json as _json
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        payload = _eo.observatory_payload(config_path=str(self._cfgp()),
+                                          book_context={})
+        blob = _json.dumps(payload, default=str, ensure_ascii=False)
+        assert "â" not in blob     # 'â' mojibake marker
+        assert "�" not in blob     # replacement character
+        for _k, b in (payload.get("stages") or {}).items():
+            assert "—" not in (b.get("label") or "")   # no em-dash
+
+    def test_stage6_date_window_populated_from_input(self, tmp_path) -> None:
+        import json as _json
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        root = tmp_path / "backfill"
+        rid = "stage6_x"
+        rd = root / "runs" / rid
+        rd.mkdir(parents=True)
+        (root / "latest.json").write_text(
+            _json.dumps({"run_id": rid, "records_written": 1000}),
+            encoding="utf-8")
+        # Manifest deliberately omits the window (the historical defect).
+        (rd / "run_manifest.json").write_text(
+            _json.dumps({"records_written": 1000}), encoding="utf-8")
+        (rd / "stage6_input.json").write_text(
+            _json.dumps({"date_start": "2015-01-02", "date_end": "2026-07-29"}),
+            encoding="utf-8")
+        block = _eo._stage6(root)
+        assert block["date_start"] == "2015-01-02"
+        assert block["date_end"] == "2026-07-29"
+
+    def test_book_context_reads_nested_operational_book(self, monkeypatch) -> None:
+        # Regression (Stage 7.2 live-wiring): load_operational_book() nests the
+        # book fields under "operational_book" / "canonical_state" — they are NOT
+        # top-level keys. Reading them at the top level silently produced null
+        # champion_model / book_name / holdings_count / invested_pct /
+        # market_data_through in the live observatory payload.
+        from paper_trader.api import app as _app
+        nested = {
+            "operational_book": {
+                "strategy_name": "fundamental_momentum_50_50_v1",
+                "book_label": "Alpha Paper Book #1", "nav": 98125.23,
+                "invested": 93494.92, "holdings_count": 25,
+                "nav_as_of_date": "2026-07-29"},
+            "canonical_state": {"valuation_date": "2026-07-29",
+                                "desk_mark_date": "2026-07-29"},
+        }
+        monkeypatch.setattr(_app._opbook, "load_operational_book",
+                            lambda *a, **k: nested)
+        ctx = _app._alpha_agent_book_context()
+        assert ctx["champion_model"] == "fundamental_momentum_50_50_v1"
+        assert ctx["book_name"] == "Alpha Paper Book #1"
+        assert ctx["holdings_count"] == 25
+        assert ctx["invested_pct"] == round(100.0 * 93494.92 / 98125.23, 2)
+        assert ctx["market_data_through"] == "2026-07-29"
+
+    def test_recovery_experiments_evaluated_from_package(self, tmp_path) -> None:
+        # The Stage 7 recovery count == immutable per-experiment result rows; it
+        # must surface non-null in both highlights and counter_breakdown.
+        import json as _json
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        root = tmp_path / "recovery"
+        rid = "stage7_x"
+        rd = root / "runs" / rid
+        rd.mkdir(parents=True)
+        (root / "latest.json").write_text(_json.dumps({"run_id": rid}),
+                                          encoding="utf-8")
+        (rd / "recovery_disposition.json").write_text(
+            _json.dumps({"disposition": "NEED_MORE_EVIDENCE"}), encoding="utf-8")
+        (rd / "alpha_experiment_results.jsonl").write_text(
+            "\n".join(_json.dumps({"experiment": i}) for i in range(7)),
+            encoding="utf-8")
+        block = _eo._stage7(root, None)
+        assert block["campaign_experiments"] == 7
+        assert block["recovery_disposition"] == "NEED_MORE_EVIDENCE"
+        cfg = dict(_eo.load_config(str(self._cfgp())))
+        cfg["stage_roots"] = dict(cfg["stage_roots"])
+        cfg["stage_roots"]["stage7"] = str(root)
+        cfg["recovery_root"] = str(root)
+        inv = _eo.build_evidence_inventory(cfg, book_context={},
+                                           today="2026-07-30")
+        assert inv["highlights"]["recovery_experiments_evaluated"] == 7
+        assert inv["counter_breakdown"][
+            "stage7_recovery_experiments_evaluated"] == 7
+
+    def test_stage3_5_feed_health_counts_health_column(self, tmp_path) -> None:
+        # Regression: the feed-health CSV column is "health" (HEALTHY /
+        # HEALTHY_NOT_MODIFIED / CIRCUIT_OPEN). Counting the wrong column, or
+        # missing the 304-not-modified healthy state, produced a false 0 that
+        # disagreed with the canonical runtime feed-health count.
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        root = tmp_path / "news_rss"
+        rid = "stage3_5_x"
+        rd = root / "runs" / rid
+        rd.mkdir(parents=True)
+        (root / "latest.json").write_text('{"run_id": "stage3_5_x"}',
+                                          encoding="utf-8")
+        (rd / "feed_health.csv").write_text(
+            "feed_id,health\na,HEALTHY\nb,HEALTHY_NOT_MODIFIED\nc,CIRCUIT_OPEN\n",
+            encoding="utf-8")
+        block = _eo._stage3_5(root)
+        assert block["feeds_total"] == 3
+        assert block["feeds_healthy"] == 2   # HEALTHY + HEALTHY_NOT_MODIFIED
+
+    def test_source_health_mirrors_canonical_feed_health(self) -> None:
+        # The top-level source_health contract is the ONE feed-health source
+        # shared with the email and UI; feeds_healthy/feeds_total must equal the
+        # canonical news_rss_health counts.
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        pb = {"news_rss": {"healthy": 7, "enabled": 11}}
+        payload = _eo.observatory_payload(config_path=str(self._cfgp()),
+                                          book_context=pb)
+        assert payload["source_health"] == {"feeds_healthy": 7,
+                                            "feeds_total": 11}
+        assert payload["news_rss_health"] == {"healthy": 7, "enabled": 11}

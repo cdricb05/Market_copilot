@@ -5568,17 +5568,44 @@ def _alpha_agent_book_context() -> dict:
     ctx: dict = {}
     try:
         payload = _opbook.load_operational_book()
-        nav = payload.get("nav")
-        invested = payload.get("invested")
+        # load_operational_book() nests the book fields under "operational_book"
+        # (ledger-replayed valuation) and the flat presentation contract under
+        # "canonical_state"; they are NOT top-level keys. Reading them at the top
+        # level silently yielded null champion_model / book_name / holdings_count
+        # / invested_pct / market_data_through (Stage 7.2 live-wiring fix).
+        ob = payload.get("operational_book") or {}
+        cs = payload.get("canonical_state") or {}
+        nav = ob.get("nav")
+        invested = ob.get("invested")
         invested_pct = (round(100.0 * float(invested) / float(nav), 2)
                         if (nav and invested) else None)
         ctx.update({
-            "champion_model": payload.get("strategy_name"),
-            "book_name": payload.get("book_label"),
+            "champion_model": ob.get("strategy_name"),
+            "book_name": ob.get("book_label"),
             "nav": nav,
-            "holdings_count": payload.get("holdings_count"),
+            "holdings_count": ob.get("holdings_count"),
             "invested_pct": invested_pct,
+            # Market-data-through date (the date the ledger-replayed NAV/marks
+            # are as of) so the observatory/email never leave it null when the
+            # source has it.
+            "market_data_through": (ob.get("nav_as_of_date")
+                                    or cs.get("valuation_date")
+                                    or cs.get("desk_mark_date")),
         })
+    except Exception:  # noqa: BLE001
+        pass
+    # Canonical news-feed health from the SAME runtime source the email uses so
+    # the API/UI and email counts agree (single-source contract, Stage 7.2).
+    try:
+        import json as _json2
+        from pathlib import Path as _P2
+        from paper_trader.alpha_agent import runtime as _rt2
+        rcfgp = (_P2(__file__).resolve().parents[1] / "configs"
+                 / "alpha_agent" / "stage4_runtime.json")
+        rcfg = _json2.loads(rcfgp.read_text(encoding="utf-8-sig"))
+        s35 = _rt2._stage35_latest(rcfg)
+        ctx["news_rss"] = {"healthy": s35.get("healthy_feeds"),
+                           "enabled": s35.get("enabled_feeds")}
     except Exception:  # noqa: BLE001
         pass
     # Read-only scorecard + forward-series enrichment from the operational
@@ -5617,9 +5644,28 @@ def research_alpha_agent_observatory() -> dict:
                 "champion": {}, "safety_badges": ["NO ORDERS", "PAPER ONLY",
                                                    "READ-ONLY EVIDENCE"]}
     book_context = _alpha_agent_book_context()
+    # Resolve the canonical automatic-research-schedule state from the SAME
+    # runtime source the email uses (the stage4 config's task names) so the API,
+    # UI and email agree; never hardcoded to ON. Best-effort, read-only.
+    schedule_status = None
+    today = None
+    try:
+        import json as _json3
+        from datetime import date as _date3
+        from pathlib import Path as _P3
+        from paper_trader.alpha_agent import runtime as _rt3
+        rcfgp = (_P3(__file__).resolve().parents[1] / "configs"
+                 / "alpha_agent" / "stage4_runtime.json")
+        rcfg = _json3.loads(rcfgp.read_text(encoding="utf-8-sig"))
+        schedule_status = _rt3.resolve_schedule_status(rcfg)
+        today = _date3.today().isoformat()
+    except Exception:  # noqa: BLE001 — schedule probing must never break the API
+        pass
     return _eo.observatory_payload(
         config_path=str(_alpha_agent_observatory_config_path()),
-        book_context=book_context)
+        book_context=book_context, today=today,
+        schedule_status=schedule_status,
+        market_data_through=book_context.get("market_data_through"))
 
 
 @app.get("/v1/evidence/rolling", status_code=status.HTTP_200_OK,

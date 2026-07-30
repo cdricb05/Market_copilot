@@ -3711,6 +3711,11 @@
             <span class="cc-badge">PAPER ONLY</span>
           </div>
 
+          <!-- Canonical runtime status: automatic-schedule state (never hardcoded
+               ON), feed health and market-data-through — one source shared with
+               the executive email. -->
+          <div id="aao-runtime-status" style="font-size:12px;margin:0 0 10px;color:var(--muted,#8b98b0);">&mdash;</div>
+
           <!-- KPI row -->
           <div id="aao-kpis" style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px;">
             <div class="af-kpi"><div class="af-kpi-v mono" id="aao-kpi-records">&mdash;</div><div class="af-kpi-l">Data collected (records)</div></div>
@@ -8428,26 +8433,47 @@ function renderAlphaAgentObservatory(d) {
     }
   }
 
-  // Forward risk shadows — read-only; exactly the three tracked overlays.
+  // Forward risk shadows — read-only; exactly the three tracked shadows. Plain
+  // names (no "overlay" jargon), unsigned cash level, and benchmark difference
+  // in PERCENTAGE POINTS (never a bare %) — consistent with the executive email.
   var shEl = document.getElementById('aao-shadows');
   if (shEl) {
     var fs = d.forward_shadows || {};
     var sh = fs.shadows || [];
-    var pretty = { 'CURRENT_CONTROL': 'Current book (control)', 'MARKET_REGIME_CASH_OVERLAY': 'Market-regime cash overlay', 'PORTFOLIO_VOL_TARGET_20': 'Volatility target 20%' };
+    var pretty = { 'CURRENT_CONTROL': 'Current book', 'MARKET_REGIME_CASH_OVERLAY': 'Cash-in-downturns shadow', 'PORTFOLIO_VOL_TARGET_20': 'Lower-risk shadow' };
     var fmtRet = function (v) { return (v == null) ? 'Not available' : ((v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'); };
+    var fmtCash = function (v) { return (v == null) ? 'Not available' : ((v * 100).toFixed(1) + '%'); };
+    var fmtPP = function (v) { return (v == null) ? 'Not available' : ((v >= 0 ? '+' : '') + (v * 100).toFixed(2) + ' pp'); };
     if (!sh.length) {
       shEl.innerHTML = '<div class="cc-na-note">Forward shadow tracking begins at the next eligible close (no completed observations yet).</div>';
     } else {
       shEl.innerHTML = '<table class="mini-table" style="width:100%;border-collapse:collapse;font-size:11px;">'
-        + '<thead><tr><th style="text-align:left;">Shadow</th><th style="text-align:right;">Return</th><th style="text-align:right;">Drawdown</th><th style="text-align:right;">Obs</th></tr></thead><tbody>'
+        + '<thead><tr><th style="text-align:left;">Shadow</th><th style="text-align:right;">Return</th><th style="text-align:right;">Cash</th><th style="text-align:right;">vs SPY</th><th style="text-align:right;">Days</th></tr></thead><tbody>'
         + sh.map(function (s) {
             return '<tr><td style="text-align:left;">' + escapeHtml(pretty[s.overlay] || s.overlay || '')
               + '</td><td class="mono" style="text-align:right;">' + escapeHtml(fmtRet(s.cumulative_return))
-              + '</td><td class="mono" style="text-align:right;">' + escapeHtml(fmtRet(s.drawdown))
+              + '</td><td class="mono" style="text-align:right;">' + escapeHtml(fmtCash(s.cash))
+              + '</td><td class="mono" style="text-align:right;">' + escapeHtml(fmtPP(s.spy_excess))
               + '</td><td class="mono" style="text-align:right;">' + _aaoNum(s.observations) + '</td></tr>';
           }).join('')
         + '</tbody></table>';
     }
+  }
+
+  // Canonical runtime status line — automatic-schedule state (never hardcoded
+  // ON), feed health and market-data-through, all from the API payload.
+  var rsEl = document.getElementById('aao-runtime-status');
+  if (rsEl) {
+    var sched = d.schedule_status || 'Not verified';
+    var fh = d.news_rss_health || {};
+    var fhTxt = (fh.healthy == null && fh.enabled == null)
+      ? 'not reported'
+      : (_aaoNum(fh.healthy) + ' of ' + _aaoNum(fh.enabled) + ' healthy');
+    var mkt = d.market_data_through || 'Not available';
+    rsEl.innerHTML = 'Automatic research schedule: <b>' + escapeHtml(String(sched))
+      + '</b> &middot; Trading automation: <b>Off</b> &middot; Broker execution: <b>Off</b>'
+      + ' &middot; News feeds: ' + escapeHtml(fhTxt)
+      + ' &middot; Market data through: ' + escapeHtml(String(mkt));
   }
 }
 window.renderAlphaAgentObservatory = renderAlphaAgentObservatory;

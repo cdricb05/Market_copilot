@@ -596,9 +596,12 @@ def test_report_model_and_render(built):
             "evidence": {}, "material_events": []}
     html = rr.render_html(full)
     text = rr.render_text(full)
-    assert "Historical Data" in html
-    assert built["result"]["run_id"] in html
-    assert "HISTORICAL DATA & EXPERIMENT READINESS" in text
+    # Stage 7.2: Stage 6 backfill internals no longer render in the executive
+    # email (they moved to the API/UI observatory). The compact brief still
+    # renders, stays dialog-free, and never leaks the raw run id into the email.
+    assert "1. Bottom line" in html
+    assert "HISTORICAL DATA & EXPERIMENT READINESS" not in text
+    assert built["result"]["run_id"] not in html
     assert "alert(" not in html and "confirm(" not in html
     manifest = rr.report_manifest(full, html, text)
     assert manifest["historical_readiness"]["run_id"] == built["result"]["run_id"]

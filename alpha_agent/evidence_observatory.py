@@ -108,15 +108,20 @@ REQUIRED_RUN_FILES = (
 STAGE_KEYS = ("stage1", "stage2", "stage3", "stage3_5", "stage4", "stage5",
               "stage6", "stage7")
 
+# Stage labels are deliberately PURE ASCII (hyphen separators, no em-dash). A
+# multi-byte em-dash re-encoded on a downstream surface is exactly what produced
+# the garbled "Stage 1 [garbled-dash] Research registry" seen before; ASCII
+# labels make that impossible on every surface (Stage 7.2 reporting-contract
+# fix; see the mojibake regression test).
 _STAGE_LABEL = {
-    "stage1": "Stage 1 — Research registry",
-    "stage2": "Stage 2 — Source ingestion",
-    "stage3": "Stage 3 — Grounded research director",
-    "stage3_5": "Stage 3.5 — Official RSS / news",
-    "stage4": "Stage 4 — Runtime & reports",
-    "stage5": "Stage 5 — Experiment & evidence engine",
-    "stage6": "Stage 6 — Historical backfill",
-    "stage7": "Stage 7 — Alpha recovery",
+    "stage1": "Stage 1 - Research registry",
+    "stage2": "Stage 2 - Source ingestion",
+    "stage3": "Stage 3 - Grounded research director",
+    "stage3_5": "Stage 3.5 - Official RSS / news",
+    "stage4": "Stage 4 - Runtime & reports",
+    "stage5": "Stage 5 - Experiment & evidence engine",
+    "stage6": "Stage 6 - Historical backfill",
+    "stage7": "Stage 7 - Alpha recovery",
 }
 
 
@@ -423,9 +428,15 @@ def _stage3_5(root: Path) -> dict:
         health = _read_csv(rd / "feed_health.csv")
         if health:
             feeds_total = len(health)
-            feeds_healthy = sum(1 for r in health
-                                if str(r.get("status", "")).upper()
-                                in ("HEALTHY", "OK", "PRESENT"))
+            # The feed-health package column is "health" with values HEALTHY /
+            # HEALTHY_NOT_MODIFIED (a 304-not-modified feed IS healthy) / and
+            # failure states like CIRCUIT_OPEN. Older packages used "status".
+            # Reading the wrong column previously yielded a false 0 healthy that
+            # disagreed with the canonical runtime count (Stage 7.2 fix).
+            def _feed_ok(r: dict) -> bool:
+                val = str(r.get("health") or r.get("status") or "").upper()
+                return val.startswith("HEALTHY") or val in ("OK", "PRESENT")
+            feeds_healthy = sum(1 for r in health if _feed_ok(r))
     return _base("PRESENT" if rid else "EMPTY", root, run_id=rid,
                  run_dir=str(rd) if rd else None,
                  as_of=(_mtime_iso(rd) if rd else None),
@@ -478,6 +489,13 @@ def _stage6(root: Path) -> dict:
         records = records or man.get("records_written")
         date_start = man.get("date_start")
         date_end = man.get("date_end")
+        # The manifest often omits the window; the immutable stage6_input.json
+        # carries the authoritative date_start/date_end. Never fabricated — this
+        # kills the null date_start/date_end defect (Stage 7.2).
+        if not date_start or not date_end:
+            si = _read_json(rd / "stage6_input.json") or {}
+            date_start = date_start or si.get("date_start")
+            date_end = date_end or si.get("date_end")
         gaps = len(_read_jsonl(rd / "unresolved_data_gaps.jsonl"))
         if not unlocked:
             unlocked = man.get("templates_unlocked") or []
@@ -500,14 +518,23 @@ def _stage7(root: Path, recovery_context: Optional[dict]) -> dict:
         return _base("NONE_YET", root, note="no recovery run yet")
     rid, rd, latest = _latest_run_dir(root)
     disp = None
+    evaluated = None
     if rd is not None:
         disp_doc = _read_json(rd / "recovery_disposition.json") or {}
         disp = disp_doc.get("disposition")
+        # The number of recovery ideas actually evaluated == the immutable
+        # per-experiment result rows (one row per evaluated experiment). Read
+        # from the package so the observatory never leaves the count null
+        # (Stage 7.2 live-wiring fix); never fabricated.
+        results = _read_jsonl(rd / "alpha_experiment_results.jsonl")
+        if results:
+            evaluated = len(results)
     return _base("PRESENT" if rid else "NONE_YET", root, run_id=rid,
                  run_dir=str(rd) if rd else None,
                  as_of=(latest.get("finished_at") or (_mtime_iso(rd) if rd
                         else None)),
-                 recovery_disposition=disp)
+                 recovery_disposition=disp,
+                 campaign_experiments=evaluated)
 
 
 _STAGE_READERS = {
@@ -542,15 +569,29 @@ def _stale(as_of: Optional[str], today: Optional[str], days: int) -> bool:
         return False
 
 
+def _default_schedule_status() -> str:
+    """Lazy-import the canonical unverified schedule label (avoids an import
+    cycle at module load)."""
+    try:
+        from . import report_renderer as _rr
+        return _rr.SCHEDULE_UNVERIFIED
+    except Exception:  # noqa: BLE001
+        return "Not verified"
+
+
 def build_evidence_inventory(cfg: dict, *,
                              recovery_context: Optional[dict] = None,
                              book_context: Optional[dict] = None,
-                             today: Optional[str] = None) -> dict:
+                             today: Optional[str] = None,
+                             schedule_status: Optional[str] = None,
+                             market_data_through: Optional[str] = None) -> dict:
     """Deterministic, read-only evidence-inventory model spanning Stage 1..7.
 
     ``recovery_context`` (optional) is a fresh Stage 7 recovery summary to embed
-    directly; otherwise the latest recovery package on disk is read. Never
-    writes; never mutates any stage root."""
+    directly; otherwise the latest recovery package on disk is read.
+    ``schedule_status`` is the resolved automatic-research-schedule state (one
+    canonical source shared with the email/UI); when omitted it is 'Not
+    verified', never a false 'On'. Never writes; never mutates any stage root."""
     freshness_days = int((cfg.get("freshness") or {}).get("stale_after_days", 7))
     stages: dict[str, dict] = {}
     for key in STAGE_KEYS:
@@ -582,30 +623,71 @@ def build_evidence_inventory(cfg: dict, *,
     s6 = stages.get("stage6", {})
     s5 = stages.get("stage5", {})
     s3 = stages.get("stage3", {})
+    s2 = stages.get("stage2", {})
     s7 = stages.get("stage7", {})
 
+    # Normalize the operational paper book so the critical fields are ALWAYS
+    # present keys (populated from the live book context when evidence exists,
+    # never fabricated) — this kills the null champion_model / book_name /
+    # holdings_count / invested_pct defects (Stage 7.2).
+    opb_in = dict(book_context or {})
+    market_through = (opb_in.get("market_data_through")
+                      or opb_in.get("nav_as_of_date")
+                      or opb_in.get("valuation_date") or market_data_through)
+    operational_paper_book = {
+        **opb_in,
+        "book_name": opb_in.get("book_name"),
+        "champion_model": opb_in.get("champion_model") or champion.get(
+            "champion_model") or champion.get("strategy_name"),
+        "nav": opb_in.get("nav") if opb_in.get("nav") is not None
+        else champion.get("nav"),
+        "holdings_count": opb_in.get("holdings_count"),
+        "invested_pct": opb_in.get("invested_pct"),
+        "market_data_through": market_through,
+    }
+
+    # Counters are kept STRICTLY separate and labelled by scope so unrelated
+    # totals are never merged under one heading (Stage 7.2 reporting-contract
+    # fix). Stage 2 normalized ingestion, Stage 6 historical backfill, Stage 5
+    # experiments completed and Stage 7 recovery ideas evaluated are distinct.
+    s7_evaluated = ((recovery_context or {}).get("campaign_experiments")
+                    if recovery_context else s7.get("campaign_experiments"))
     inv = {
         "schema_version": STAGE7_SCHEMA_VERSION,
         "engine_version": STAGE7_ENGINE_VERSION,
         "generated_for": "alpha_agent_evidence_observatory",
         "today": today,
+        "market_data_through": market_through,
+        "schedule_status": schedule_status or _default_schedule_status(),
         "stages": stages,
         "highlights": {
-            "data_collected_records": s6.get("records_written")
-            or s6.get("normalized_record_total"),
+            # Back-compat label -> the Stage 6 historical-backfill record count
+            # (the large survivorship-safe bar count), NOT a merge of scopes.
+            "data_collected_records": s6.get("records_written"),
             "analyses_completed": s3.get("events_analyzed"),
             "experiments_completed": s5.get("experiments_completed"),
             "weak_ideas_rejected": sum(
                 v for k, v in (s5.get("decisions") or {}).items()
                 if str(k).startswith("REJECT")),
+            # Stage 7 recovery ideas evaluated (distinct from Stage 5 experiments
+            # completed) — surfaced non-null when a recovery package exists.
+            "recovery_experiments_evaluated": s7_evaluated,
             "data_gaps": s6.get("remaining_data_gaps"),
             "templates_unlocked": s6.get("templates_unlocked") or [],
+        },
+        # Distinct, scope-labelled counters (never conflated).
+        "counter_breakdown": {
+            "stage2_normalized_records": s2.get("normalized_record_total"),
+            "stage6_backfill_records": s6.get("records_written"),
+            "stage5_experiments_completed": s5.get("experiments_completed"),
+            "stage5_data_holds": s5.get("data_holds"),
+            "stage7_recovery_experiments_evaluated": s7_evaluated,
         },
         "champion": champion,
         "recovery_disposition": (s7.get("recovery_disposition")
                                  or (recovery_context or {}).get(
                                      "recovery_disposition")),
-        "operational_paper_book": book_context or {},
+        "operational_paper_book": operational_paper_book,
         "safety_badges": [
             "NO MODEL PROMOTION", "NO ORDERS", "PAPER ONLY",
             "READ-ONLY EVIDENCE", "AUTOMATION OFF",
@@ -637,14 +719,35 @@ def source_freshness_rows(inventory: dict, *, today: Optional[str] = None
     return rows
 
 
+def canonical_feed_health(book_context: Optional[dict],
+                          stage3_5_block: Optional[dict] = None) -> dict:
+    """ONE source of feed-health counts for the email, API and UI. Prefers the
+    counts the runtime already computed for the email (carried on the book
+    context) so every surface agrees; falls back to the Stage 3.5 package read."""
+    bc = book_context or {}
+    nr = bc.get("news_rss") or {}
+    healthy = nr.get("healthy")
+    enabled = nr.get("enabled")
+    if healthy is None and enabled is None:
+        s = stage3_5_block or {}
+        healthy = s.get("feeds_healthy")
+        enabled = s.get("feeds_total")
+    return {"healthy": healthy, "enabled": enabled}
+
+
 def observatory_payload(cfg: Optional[dict] = None, *,
                         config_path: Optional[str | Path] = None,
                         recovery_context: Optional[dict] = None,
                         book_context: Optional[dict] = None,
-                        today: Optional[str] = None) -> dict:
+                        today: Optional[str] = None,
+                        schedule_status: Optional[str] = None,
+                        market_data_through: Optional[str] = None) -> dict:
     """Read-only payload for the API endpoint. Loads the Stage 7 config if only a
     path is given; returns a controlled empty-state payload (never raises) when
-    the config is missing so the endpoint can always return HTTP 200."""
+    the config is missing so the endpoint can always return HTTP 200.
+
+    ``schedule_status`` / ``market_data_through`` come from the SAME canonical
+    runtime source the email uses, so no surface hardcodes 'ON' or disagrees."""
     if cfg is None and config_path is not None:
         try:
             cfg = load_config(config_path)
@@ -652,23 +755,37 @@ def observatory_payload(cfg: Optional[dict] = None, *,
             return {"status": "UNAVAILABLE",
                     "reason": redact(str(exc))[:200],
                     "stages": {}, "champion": {},
+                    "schedule_status": schedule_status
+                    or _default_schedule_status(),
                     "safety_badges": ["NO ORDERS", "PAPER ONLY",
                                       "READ-ONLY EVIDENCE"]}
     if cfg is None:
         return {"status": "UNAVAILABLE", "reason": "no Stage 7 config",
                 "stages": {}, "champion": {},
+                "schedule_status": schedule_status or _default_schedule_status(),
                 "safety_badges": ["NO ORDERS", "PAPER ONLY",
                                   "READ-ONLY EVIDENCE"]}
     inv = build_evidence_inventory(cfg, recovery_context=recovery_context,
-                                   book_context=book_context, today=today)
+                                   book_context=book_context, today=today,
+                                   schedule_status=schedule_status,
+                                   market_data_through=market_data_through)
     inv["status"] = "OK"
 
-    # Canonical, reconciled presentation blocks (WS2/WS5/WS6). The scorecard is
-    # produced by the SAME deterministic formatter the email uses, so the API,
-    # UI and email render byte-identical values for identical inputs.
+    # Canonical, reconciled presentation blocks. The scorecard is produced by the
+    # SAME deterministic formatter the email uses, so the API, UI and email render
+    # byte-identical values for identical inputs. Feed-health and schedule state
+    # come from single canonical sources shared with the email.
     from . import report_renderer as _rr  # lazy: no import cycle, no cost.
     inv["status_flags"] = list(_rr.STATUS_FLAGS)
     inv["scorecard"] = _rr.scorecard(book_context or {})
+    _fh = canonical_feed_health(
+        book_context, (inv.get("stages") or {}).get("stage3_5"))
+    inv["news_rss_health"] = _fh
+    # Top-level source-health contract (feeds_healthy / feeds_total) from the ONE
+    # canonical feed-health source shared with the email and UI, so no surface
+    # disagrees and the count is never left null when the runtime has it.
+    inv["source_health"] = {"feeds_healthy": _fh.get("healthy"),
+                            "feeds_total": _fh.get("enabled")}
     try:
         from . import risk_overlay_research as _ro
         rec_root = cfg.get("recovery_root") or (cfg.get("stage_roots")

@@ -659,6 +659,8 @@ EmailSender = Callable[[dict], dict]
 # status TEXT column so a failure is no longer collapsed to a single
 # EMAIL_RETRYABLE_FAILURE token. Delivery is Gmail-API only; no mail-transport
 # status exists any longer.
+# Legacy Gmail-API OAuth delivery statuses (retained for the disabled-by-config
+# forensic/reference transport only).
 OAUTH_REAUTHORIZATION_REQUIRED = "OAUTH_REAUTHORIZATION_REQUIRED"
 OAUTH_TOKEN_REFRESH_REJECTED = "OAUTH_TOKEN_REFRESH_REJECTED"
 OAUTH_CLIENT_INVALID = "OAUTH_CLIENT_INVALID"
@@ -668,32 +670,52 @@ GMAIL_API_RETRYABLE_FAILURE = "GMAIL_API_RETRYABLE_FAILURE"
 EMAIL_JOB_INVALID = "EMAIL_JOB_INVALID"
 EMAIL_ATTACHMENT_INVALID = "EMAIL_ATTACHMENT_INVALID"
 
-# Transient failures worth an automatic watchdog retry: rate-limit, Gmail 5xx and
-# generic transport failures. Re-running the SAME request can succeed.
+# --------------------------------------------------------------------------- #
+# Gmail SMTP (App Password) — the PRIMARY and only active email transport.
+# Statuses produced by scripts/send_alpha_agent_smtp.py.
+# --------------------------------------------------------------------------- #
+EMAIL_TRANSPORT_SMTP = "gmail_smtp"
+EMAIL_TRANSPORT_OAUTH = "gmail_api_oauth"
+EMAIL_SMTP_CREDENTIAL_MISSING = "EMAIL_SMTP_CREDENTIAL_MISSING"
+EMAIL_SMTP_AUTHENTICATION_REJECTED = "EMAIL_SMTP_AUTHENTICATION_REJECTED"
+EMAIL_SMTP_TLS_FAILED = "EMAIL_SMTP_TLS_FAILED"
+EMAIL_SMTP_CONNECTION_FAILED = "EMAIL_SMTP_CONNECTION_FAILED"
+EMAIL_SEND_FAILED = "EMAIL_SEND_FAILED"
+
+# Transient failures worth an automatic watchdog retry: connection/DNS blips,
+# generic SMTP send errors, and the legacy rate-limit/5xx/transport failures.
+# Re-running the SAME request can succeed.
 EMAIL_TRANSIENT_STATUSES = frozenset({
+    EMAIL_SMTP_CONNECTION_FAILED, EMAIL_SEND_FAILED,
     GMAIL_API_RATE_LIMITED, GMAIL_API_RETRYABLE_FAILURE,
     rc.EMAIL_RETRYABLE_FAILURE})
 # Non-transient failures: surfaced + DEGRADED but NOT blindly auto-retried, since
-# retrying identically cannot fix a rejected refresh token (needs re-consent), a
-# denied permission, an invalid client or a malformed job. A fresh cycle re-run
-# may still re-deliver them. OAUTH_REAUTHORIZATION_REQUIRED lives here so the
-# watchdog does not loop on it.
+# retrying identically cannot fix a rejected App Password, a failed STARTTLS
+# negotiation, or (legacy) a rejected refresh token / denied permission / invalid
+# client / malformed job. A fresh cycle re-run may still re-deliver them. These
+# live here so the watchdog does not loop on them.
 EMAIL_NONRETRYABLE_STATUSES = frozenset({
+    EMAIL_SMTP_AUTHENTICATION_REJECTED, EMAIL_SMTP_TLS_FAILED,
     OAUTH_REAUTHORIZATION_REQUIRED, OAUTH_TOKEN_REFRESH_REJECTED,
     OAUTH_CLIENT_INVALID, GMAIL_API_PERMISSION_DENIED,
     EMAIL_JOB_INVALID, EMAIL_ATTACHMENT_INVALID, rc.EMAIL_PERMANENT_FAILURE})
 # Everything that counts as a delivery failure (drives DEGRADED + attention).
 EMAIL_FAILURE_STATUSES = EMAIL_TRANSIENT_STATUSES | EMAIL_NONRETRYABLE_STATUSES
+# A missing SMTP App Password is a "not configured" state (operator action
+# required), handled like the legacy credential-required status — not a delivery
+# failure that a watchdog should retry.
+EMAIL_CREDENTIAL_REQUIRED_STATUSES = frozenset({
+    rc.EMAIL_CREDENTIAL_REQUIRED_STATUS, EMAIL_SMTP_CREDENTIAL_MISSING})
 # Full recognised token vocabulary, longest-first so a token that is a substring
 # of another (none currently) can never shadow it during a fallback text scan.
 _ALL_EMAIL_STATUSES = tuple(sorted(
-    ({rc.EMAIL_SENT, rc.EMAIL_ALREADY_SENT,
-      rc.EMAIL_CREDENTIAL_REQUIRED_STATUS} | EMAIL_FAILURE_STATUSES),
+    ({rc.EMAIL_SENT, rc.EMAIL_ALREADY_SENT}
+     | EMAIL_CREDENTIAL_REQUIRED_STATUSES | EMAIL_FAILURE_STATUSES),
     key=len, reverse=True))
 
 
 def credential_present(cfg: dict) -> bool:
-    """True when the DPAPI OAuth refresh token has been configured."""
+    """True when the DPAPI OAuth refresh token has been configured (legacy)."""
     email_cfg = cfg.get("email") or {}
     cred_dir = email_cfg.get("credential_dir")
     if not cred_dir:
@@ -703,7 +725,83 @@ def credential_present(cfg: dict) -> bool:
     return token.exists()
 
 
+def smtp_credential_present(cfg: dict) -> bool:
+    """True when the DPAPI Gmail SMTP App Password has been configured."""
+    email_cfg = cfg.get("email") or {}
+    cred_dir = email_cfg.get("credential_dir")
+    if not cred_dir:
+        return False
+    pw = Path(cred_dir) / (email_cfg.get("app_credential_file")
+                           or "gmail_smtp_app_password.dpapi")
+    return pw.exists()
+
+
+def resolve_email_transport(cfg: dict) -> str:
+    """Resolve the active email transport. Defaults to Gmail SMTP; only the
+    explicit legacy value selects OAuth. There is NO automatic fallback."""
+    email_cfg = cfg.get("email") or {}
+    value = (email_cfg.get("transport") or cfg.get("email_transport")
+             or EMAIL_TRANSPORT_SMTP)
+    value = str(value).strip().lower()
+    if value in (EMAIL_TRANSPORT_OAUTH, "oauth", "gmail_oauth", "gmail_api"):
+        return EMAIL_TRANSPORT_OAUTH
+    return EMAIL_TRANSPORT_SMTP
+
+
 def make_real_email_sender(cfg: dict, *, repo_root: Path) -> EmailSender:
+    """Return the active transport's sender. Gmail SMTP is primary and only
+    active; OAuth is used ONLY when explicitly selected (no fallback between
+    transports and never both in one cycle)."""
+    if resolve_email_transport(cfg) == EMAIL_TRANSPORT_OAUTH:
+        return _make_oauth_email_sender(cfg, repo_root=repo_root)
+    return _make_smtp_email_sender(cfg, repo_root=repo_root)
+
+
+def _make_smtp_email_sender(cfg: dict, *, repo_root: Path) -> EmailSender:
+    email_cfg = cfg.get("email") or {}
+    script = repo_root / "scripts" / "send_alpha_agent_smtp.ps1"
+    cred_dir = str(email_cfg.get("credential_dir") or "")
+    smtp_host = str(email_cfg.get("smtp_host") or "smtp.gmail.com")
+    smtp_port = int(email_cfg.get("smtp_port", 587))
+    timeout = int(email_cfg.get("send_timeout_seconds", 120))
+
+    def _send(job: dict) -> dict:
+        if not smtp_credential_present(cfg):
+            return {"status": EMAIL_SMTP_CREDENTIAL_MISSING,
+                    "error": "gmail smtp app password not configured",
+                    "diagnostic": "Gmail SMTP App Password is not configured.",
+                    "message_id": None, "transport": EMAIL_TRANSPORT_SMTP}
+        cmd = ["powershell.exe", "-NoProfile", "-NonInteractive",
+               "-ExecutionPolicy", "Bypass", "-File", str(script),
+               "-JobPath", job["job_path"],
+               "-SmtpHost", smtp_host,
+               "-SmtpPort", str(smtp_port),
+               "-TimeoutSeconds", str(timeout)]
+        if cred_dir:
+            cmd += ["-CredentialDir", cred_dir]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=timeout + 60)
+        except Exception as exc:  # noqa: BLE001
+            return {"status": EMAIL_SMTP_CONNECTION_FAILED,
+                    "error": rc.redact("%s: %s" % (type(exc).__name__, exc)),
+                    "diagnostic": "The SMTP email wrapper could not be "
+                                  "launched.",
+                    "message_id": None, "transport": EMAIL_TRANSPORT_SMTP}
+        out = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        status, message_id, diagnostic = _parse_email_result(out)
+        error = None if status in rc.EMAIL_SUCCESS_STATUSES else rc.redact(
+            diagnostic or out.strip()[-400:])
+        return {"status": status, "error": error,
+                "diagnostic": diagnostic, "message_id": message_id,
+                "transport": EMAIL_TRANSPORT_SMTP}
+
+    return _send
+
+
+def _make_oauth_email_sender(cfg: dict, *, repo_root: Path) -> EmailSender:
+    """Legacy Gmail-API OAuth sender. Retained for forensic/reference use only;
+    reachable solely when the email transport is explicitly set to OAuth."""
     email_cfg = cfg.get("email") or {}
     script = repo_root / "scripts" / "send_alpha_agent_email.ps1"
     cred_dir = str(email_cfg.get("credential_dir") or "")
@@ -720,7 +818,7 @@ def make_real_email_sender(cfg: dict, *, repo_root: Path) -> EmailSender:
                     "error": "gmail oauth refresh token not configured",
                     "diagnostic": "Gmail OAuth refresh token is not "
                                   "configured.",
-                    "message_id": None}
+                    "message_id": None, "transport": EMAIL_TRANSPORT_OAUTH}
         cmd = ["powershell.exe", "-NoProfile", "-NonInteractive",
                "-ExecutionPolicy", "Bypass", "-File", str(script),
                "-JobPath", job["job_path"],
@@ -736,13 +834,14 @@ def make_real_email_sender(cfg: dict, *, repo_root: Path) -> EmailSender:
             return {"status": GMAIL_API_RETRYABLE_FAILURE,
                     "error": rc.redact("%s: %s" % (type(exc).__name__, exc)),
                     "diagnostic": "The email wrapper could not be launched.",
-                    "message_id": None}
+                    "message_id": None, "transport": EMAIL_TRANSPORT_OAUTH}
         out = (proc.stdout or "") + "\n" + (proc.stderr or "")
         status, message_id, diagnostic = _parse_email_result(out)
         error = None if status in rc.EMAIL_SUCCESS_STATUSES else rc.redact(
             diagnostic or out.strip()[-400:])
         return {"status": status, "error": error,
-                "diagnostic": diagnostic, "message_id": message_id}
+                "diagnostic": diagnostic, "message_id": message_id,
+                "transport": EMAIL_TRANSPORT_OAUTH}
 
     return _send
 
@@ -991,6 +1090,56 @@ def _hypotheses_text(run: dict, *, limit: int = 5) -> list[str]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Canonical automatic-research-schedule state (Stage 7.2). Strictly READ-ONLY:
+# probes the real Windows scheduled-task states via ``schtasks /query`` and NEVER
+# creates, enables or changes any task. Any failure resolves to "Not verified" —
+# never a false "On". This is the ONE source the email, API and UI share.
+# --------------------------------------------------------------------------- #
+def _parse_scheduled_task_state(text: str) -> Optional[str]:
+    """Extract Enabled/Disabled from ``schtasks /query /v /fo LIST`` output."""
+    for line in str(text or "").splitlines():
+        low = line.lower()
+        if "scheduled task state" in low and ":" in low:
+            val = low.split(":", 1)[1].strip()
+            if "disabled" in val:
+                return "Disabled"
+            if "enabled" in val:
+                return "Enabled"
+    return None
+
+
+def read_scheduled_task_states(task_names,
+                               *, runner: Optional[Callable] = None) -> dict:
+    """Best-effort READ-ONLY map ``{task_name: 'Enabled'|'Disabled'|None}``. Never
+    creates/enables/changes a task. ``runner`` (task_name -> raw schtasks text) is
+    injectable for deterministic tests; the default shells to ``schtasks /query``
+    with a short timeout and treats any error as ``None``."""
+    states: dict[str, Optional[str]] = {}
+    for name in (task_names or []):
+        try:
+            if runner is not None:
+                raw = runner(name)
+            else:
+                cp = subprocess.run(
+                    ["schtasks", "/query", "/tn", str(name), "/fo", "LIST",
+                     "/v"], capture_output=True, text=True, timeout=15)
+                raw = cp.stdout if cp.returncode == 0 else ""
+            states[name] = _parse_scheduled_task_state(raw)
+        except Exception:  # noqa: BLE001 — probing must never break a report
+            states[name] = None
+    return states
+
+
+def resolve_schedule_status(cfg: dict,
+                            *, runner: Optional[Callable] = None) -> str:
+    """Canonical automatic-research-schedule status ('Off'/'On'/'Not verified')
+    from the real states of the configured task names. Never hardcoded to On."""
+    names = cfg.get("allowed_task_names") or []
+    states = read_scheduled_task_states(names, runner=runner) if names else {}
+    return rr.schedule_status(states)
+
+
 def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
                        research: dict, portfolio: dict,
                        run_id: str, run_dir: str,
@@ -1003,8 +1152,14 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
                        prior: Optional[dict] = None,
                        attention: bool = False,
                        ledgers_unchanged: bool = True,
-                       no_new_evidence: bool = False) -> dict:
-    """Assemble the deterministic report model. Pure data; no side effects."""
+                       no_new_evidence: bool = False,
+                       schedule_status: Optional[str] = None,
+                       market_data_through: Optional[str] = None) -> dict:
+    """Assemble the deterministic report model. Pure data; no side effects.
+
+    ``schedule_status`` is the resolved automatic-research-schedule state (one of
+    'Off'/'On'/'Not verified'); when omitted it defaults to 'Not verified' so the
+    email never falsely claims the schedule is on."""
     s35 = _stage35_latest(cfg)
     s3 = _stage3_latest(cfg)
     counts = research.get("counts") or {}
@@ -1130,6 +1285,11 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
     hist_summary, hist_gap = _historical_readiness_summary(historical_model)
     research_decisions = _research_decisions_block(experiment_model,
                                                    recovery_model)
+    # Stage 5 studies that COULD NOT RUN for lack of data — reported strictly
+    # separately from the Stage 7 recovery ideas that were EVALUATED, never
+    # merged into the evaluated count (Stage 7.2 defect #3 / #6).
+    stage5_could_not_run = (experiment_model.get("data_gaps")
+                            if experiment_model else None)
 
     shadow_ready = bool(recovery_model and (
         recovery_model.get("shadow_challenger_allowed_now")
@@ -1162,6 +1322,10 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
         "provider_status": provider,
         "source_coverage_status": s35.get("status"),
         "status_flags": list(rr.STATUS_FLAGS),
+        "schedule_status": schedule_status or rr.SCHEDULE_UNVERIFIED,
+        "market_data_through": (market_data_through
+                                or portfolio.get("valuation_date")),
+        "stage5_could_not_run": stage5_could_not_run,
         "badges": badges,
         "executive_summary": exec_summary,
         "scorecard": sc,
@@ -1193,10 +1357,10 @@ def _label_title(label: str) -> str:
 
 def _build_badges(*, provider: str, degraded: bool, news_status: Optional[str],
                   llm_skipped: bool) -> list[dict]:
-    # The prominent status-flag row (RESEARCH SCHEDULE: ON / TRADING AUTOMATION:
-    # OFF / BROKER EXECUTION: OFF / PAPER ONLY) now carries the automation state,
-    # so no generic "AUTOMATION OFF" badge is shown here (WS6). Only the
-    # conditional badges remain.
+    # The safety-flag row (resolved AUTOMATIC SCHEDULE state / TRADING AUTOMATION:
+    # OFF / BROKER EXECUTION: OFF / PAPER ONLY) carries the automation state, so
+    # no generic "AUTOMATION OFF" badge is shown here. Only the conditional
+    # badges remain.
     badges = [
         {"text": "RESEARCH ONLY", "kind": "safe"},
         {"text": "NO LIVE ORDERS", "kind": "safe"},
@@ -1432,6 +1596,7 @@ class RuntimeResult:
     email_status: Optional[str] = None
     email_diagnostic: Optional[str] = None
     email_message_id: Optional[str] = None
+    email_transport: Optional[str] = None
     components: list = field(default_factory=list)
     detail: dict = field(default_factory=dict)
 
@@ -1443,6 +1608,7 @@ class RuntimeResult:
             "email_status": self.email_status,
             "email_diagnostic": self.email_diagnostic,
             "email_message_id": self.email_message_id,
+            "email_transport": self.email_transport,
             "components": self.components, "detail": self.detail,
         }
 
@@ -1828,7 +1994,8 @@ class Runtime:
             llm_skipped_reason=llm_skipped_reason,
             subject_override=subject_override, stage5_model=stage5_model,
             stage7_model=stage7_model, prior=prior_dict,
-            no_new_evidence=no_new_evidence)
+            no_new_evidence=no_new_evidence,
+            schedule_status=resolve_schedule_status(self.cfg))
         html_body = rr.render_html(model)
         text_body = rr.render_text(model)
         manifest = rr.report_manifest(model, html_body, text_body)
@@ -1870,13 +2037,18 @@ class Runtime:
                          ("no_new", "run_id", "provider", "classification")},
             "kpis": model["kpis"],
         }
+        transport = resolve_email_transport(self.cfg)
+        cred_present = (smtp_credential_present(self.cfg)
+                        if transport == EMAIL_TRANSPORT_SMTP
+                        else credential_present(self.cfg))
         email_manifest = {
             "cycle_id": cycle_id, "subject": model["subject"],
             "recipient": self.cfg.get("recipient_email"),
             "status": email_result["status"],
+            "transport": email_result.get("transport") or transport,
             "diagnostic": email_result.get("diagnostic"),
             "message_id": email_result.get("message_id"),
-            "credential_present": credential_present(self.cfg),
+            "credential_present": cred_present,
             "email_llm_tokens": 0,
         }
         report_md = _runtime_report_md(model, components, email_result)
@@ -1915,11 +2087,14 @@ class Runtime:
             run_dir=str(run_dir), email_status=email_result["status"],
             email_diagnostic=email_result.get("diagnostic"),
             email_message_id=email_result.get("message_id"),
+            email_transport=email_result.get("transport") or transport,
             components=components,
             detail={"ledgers_unchanged": ledgers_ok,
                     "report_html": str(report_paths["html"]),
                     "report_text": str(report_paths["text"]),
                     "email_status": email_result["status"],
+                    "email_transport": email_result.get("transport")
+                    or transport,
                     "email_diagnostic": email_result.get("diagnostic"),
                     "email_message_id": email_result.get("message_id"),
                     "llm_skipped_reason": llm_skipped_reason})
@@ -1928,7 +2103,7 @@ class Runtime:
                            *, degraded=False):
         if not ledgers_ok:
             return "LEDGER_MUTATION_DETECTED", rc.BLOCKED
-        if email_status == rc.EMAIL_CREDENTIAL_REQUIRED_STATUS:
+        if email_status in EMAIL_CREDENTIAL_REQUIRED_STATUSES:
             return "EMAIL_CREDENTIAL_REQUIRED", rc.EMAIL_CREDENTIAL_REQUIRED
         if email_status in EMAIL_FAILURE_STATUSES:
             # Preserve the specific failure token in the run status so the DB and
@@ -1945,13 +2120,17 @@ class Runtime:
     def run_report_only(self, *, label: str = rc.LABEL_MANUAL,
                         send_email: bool = False,
                         exec_test: bool = False,
+                        exec_test_key: str = "exec_test",
                         subject_override: Optional[str] = None
                         ) -> RuntimeResult:
         conn = self._open()
         cycle_date = self.clock.date()
         # An executive test email is its own idempotency key (one per date) and
         # forces exactly one delivery — never colliding with a scheduled report.
-        cycle_key = "exec_test" if exec_test else label
+        # ``exec_test_key`` distinguishes independent one-off test emails on the
+        # same date (e.g. a v2 executive-brief test vs an earlier test) so each
+        # still gets exactly one delivery without a duplicate-send collision.
+        cycle_key = exec_test_key if exec_test else label
         if exec_test:
             send_email = True
             subject_override = subject_override or (
@@ -1977,7 +2156,8 @@ class Runtime:
             llm_skipped_reason="report-only (no collection, no LLM)",
             subject_override=subject_override,
             stage7_model=stage7_model, prior=prior_dict,
-            no_new_evidence=cadence.get("action") == ro_recovery.CAD_REUSE)
+            no_new_evidence=cadence.get("action") == ro_recovery.CAD_REUSE,
+            schedule_status=resolve_schedule_status(self.cfg))
         html_body = rr.render_html(model)
         text_body = rr.render_text(model)
         manifest = rr.report_manifest(model, html_body, text_body)
@@ -2017,10 +2197,13 @@ class Runtime:
                              run_dir=str(run_dir), email_status=email_status,
                              email_diagnostic=email_result.get("diagnostic"),
                              email_message_id=email_result.get("message_id"),
+                             email_transport=email_result.get("transport"),
                              detail={"report_html": str(report_paths["html"]),
                                      "report_text": str(report_paths["text"]),
                                      "subject": model["subject"],
                                      "email_status": email_status,
+                                     "email_transport":
+                                     email_result.get("transport"),
                                      "email_message_id":
                                      email_result.get("message_id")})
 
@@ -2329,7 +2512,9 @@ class Runtime:
                            result.get("error"), str(dest), sent_at=sent_at)
         return {"status": status, "error": result.get("error"),
                 "diagnostic": result.get("diagnostic"),
-                "message_id": result.get("message_id")}
+                "message_id": result.get("message_id"),
+                "transport": result.get("transport")
+                or resolve_email_transport(self.cfg)}
 
     def _record_email(self, conn, cycle_id, run_id, subject, recipient, status,
                       error, outbox_path, sent_at=None):

@@ -702,17 +702,26 @@ def test_report_section_rendered():
                             "next_action": "Human review."}}
     html = rr.render_html(model)
     text = rr.render_text(model)
-    assert "Experiment &amp; Evidence" in html
-    assert "stage5_x" in html
-    assert "EXPERIMENT & EVIDENCE" in text
-    assert "KEEP_FOR_RESEARCH is not model promotion" in html
+    # Stage 7.2: Stage 5 experiment internals no longer render in the executive
+    # email (they moved to the API/UI observatory). The compact brief still
+    # renders its six executive sections and never leaks the raw run id or the
+    # KEEP_FOR_RESEARCH machine token into the email body.
+    assert "1. Bottom line" in html and "4. Research progress" in html
+    assert "EXPERIMENT & EVIDENCE" not in text
+    assert "stage5_x" not in html
+    assert "KEEP_FOR_RESEARCH" not in html
+    # The experiment model is still preserved in the immutable manifest.
+    manifest = rr.report_manifest(model, html, text)
+    assert manifest["experiment"]["run_id"] == "stage5_x"
 
 
 def test_report_section_when_not_run():
     model = {"cycle_label": "morning", "cycle_date": "2026-07-29",
              "experiment": None}
     html = rr.render_html(model)
-    assert "Stage 5 experiment engine not run" in html
+    # No crash and no leftover Stage 5 appendix text in the compact email.
+    assert "1. Bottom line" in html
+    assert "Stage 5 experiment engine not run" not in html
 
 
 # --------------------------------------------------------------------------- #
