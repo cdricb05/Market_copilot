@@ -323,6 +323,61 @@ def render_html(model: dict) -> str:
                      'decision.</p>')
     parts.append('</div>')
 
+    # 6c. Historical Data & Experiment Readiness (Stage 6).
+    hr = model.get("historical_readiness")
+    parts.append('<div class="section"><h2>Historical Data &amp; Experiment '
+                 'Readiness</h2>')
+    if not hr:
+        parts.append('<p class="muted">No Stage 6 historical backfill package '
+                     'yet.</p>')
+    else:
+        parts.append('<table class="kv">')
+        parts.append(_kv_row("Stage 6 run", hr.get("run_id") or "n/a"))
+        parts.append(_kv_row("Outcome", "%s (%s)" % (hr.get("terminal"),
+                                                     hr.get("status"))))
+        parts.append(_kv_row("Backfill window", "%s .. %s" % (
+            hr.get("date_start") or "?", hr.get("date_end") or "?")))
+        parts.append(_kv_row("Records acquired", fmt_int(
+            hr.get("records_written"))))
+        parts.append(_kv_row("Universe (selected / survivorship-free)",
+                             "%s / %s (dropped %s, bounded)" % (
+                                 fmt_int(hr.get("universe_size")),
+                                 fmt_int(hr.get("universe_full_size")),
+                                 fmt_int(hr.get("universe_dropped")))))
+        unlocked = hr.get("templates_unlocked") or []
+        parts.append(_kv_row("Templates unlocked",
+                             (", ".join(unlocked) if unlocked else "none"),
+                             "pos" if unlocked else "neutral"))
+        for fam in hr.get("families", []):
+            if not fam.get("record_count"):
+                continue
+            parts.append(_kv_row(
+                "Coverage: %s" % fam.get("family"),
+                "%s records, %s..%s, %s tickers%s" % (
+                    fmt_int(fam.get("record_count")), fam.get("date_min"),
+                    fam.get("date_max"), fmt_int(fam.get("tickers")),
+                    " · survivorship-safe" if fam.get("survivorship_safe")
+                    else "")))
+        rd = hr.get("reopened") or []
+        if rd:
+            parts.append(_kv_row("Stage 1 reopened", ", ".join(
+                "%s→%s" % (r.get("hypothesis_id"), r.get("disposition"))
+                for r in rd)[:400]))
+        gaps = hr.get("data_gaps") or []
+        parts.append(_kv_row("Remaining data gaps", "%s" % (
+            "; ".join("%s/%s" % (g.get("provider"), g.get("family"))
+                      for g in gaps) if gaps else "none"),
+            "warn" if gaps else "pos"))
+        parts.append(_kv_row("Supplier hypothesis",
+                             hr.get("supplier_hypothesis_status") or "DATA_HOLD"))
+        parts.append('</table>')
+        parts.append('<p class="muted">Stage 6 is acquisition + readiness only: '
+                     'point-in-time-safe, survivorship-aware; available_at is '
+                     'never fabricated and a period-end is never used as an '
+                     'availability date. It creates no order, signal or trade '
+                     'decision and changes no model or portfolio.</p>')
+    parts.append('</div>')
+
     # 7. Paper-book context.
     pb = model.get("paper_book", {})
     parts.append('<div class="section"><h2>Paper-book context</h2>'
@@ -521,6 +576,46 @@ def render_text(model: dict) -> str:
         lines.append("  (KEEP_FOR_RESEARCH is not promotion; human review "
                      "only; research-only.)")
     lines.append("")
+    hr = model.get("historical_readiness")
+    lines.append("HISTORICAL DATA & EXPERIMENT READINESS (STAGE 6)")
+    if not hr:
+        lines.append("  (no Stage 6 historical backfill package yet)")
+    else:
+        lines.append("  Run / outcome     : %s / %s (%s)" % (
+            hr.get("run_id") or "n/a", hr.get("terminal"), hr.get("status")))
+        lines.append("  Backfill window   : %s .. %s" % (
+            hr.get("date_start") or "?", hr.get("date_end") or "?"))
+        lines.append("  Records acquired  : %s" % fmt_int(
+            hr.get("records_written")))
+        lines.append("  Universe sel/free : %s / %s (dropped %s)" % (
+            fmt_int(hr.get("universe_size")),
+            fmt_int(hr.get("universe_full_size")),
+            fmt_int(hr.get("universe_dropped"))))
+        unlocked = hr.get("templates_unlocked") or []
+        lines.append("  Templates unlocked: %s" % (
+            ", ".join(unlocked) if unlocked else "none"))
+        for fam in hr.get("families", []):
+            if fam.get("record_count"):
+                lines.append("   - %s: %s recs %s..%s (%s tickers)%s" % (
+                    fam.get("family"), fmt_int(fam.get("record_count")),
+                    fam.get("date_min"), fam.get("date_max"),
+                    fmt_int(fam.get("tickers")),
+                    " survivorship-safe" if fam.get("survivorship_safe")
+                    else ""))
+        rd = hr.get("reopened") or []
+        if rd:
+            lines.append("  Stage 1 reopened  : %s" % ", ".join(
+                "%s->%s" % (r.get("hypothesis_id"), r.get("disposition"))
+                for r in rd))
+        gaps = hr.get("data_gaps") or []
+        lines.append("  Remaining gaps    : %s" % (
+            "; ".join("%s/%s" % (g.get("provider"), g.get("family"))
+                      for g in gaps) if gaps else "none"))
+        lines.append("  Supplier hypoth.  : %s" % (
+            hr.get("supplier_hypothesis_status") or "DATA_HOLD"))
+        lines.append("  (acquisition + readiness only; point-in-time-safe; "
+                     "available_at never fabricated; no order/signal/decision.)")
+    lines.append("")
     pb = model.get("paper_book", {})
     lines.append("PAPER-BOOK CONTEXT")
     lines.append("  Valuation date     : %s" % (pb.get("valuation_date") or "n/a"))
@@ -609,5 +704,6 @@ def report_manifest(model: dict, html_body: str, text_body: str) -> dict:
         "llm": model.get("llm"),
         "evidence": model.get("evidence"),
         "experiment": model.get("experiment"),
+        "historical_readiness": model.get("historical_readiness"),
         "email_llm_tokens": 0,
     }

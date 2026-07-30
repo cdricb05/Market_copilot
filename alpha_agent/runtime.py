@@ -39,6 +39,7 @@ from typing import Any, Callable, Optional
 
 from . import experiment_contracts as ec
 from . import experiment_factory as ef
+from . import historical_backfill as hb
 from . import report_renderer as rr
 from . import runtime_contracts as rc
 
@@ -804,6 +805,18 @@ def _stage5_report_model(cfg: dict,
     return ef.experiment_report_model(result)
 
 
+def _stage6_report_model(cfg: dict,
+                         fresh_result: Optional[dict] = None) -> Optional[dict]:
+    """Deterministic Historical Data & Experiment Readiness model — from a fresh
+    Stage 6 result if present, else the latest backfill package on disk, else
+    None. All numbers originate in deterministic Python (no LLM). Read-only: the
+    backfill itself is a bounded manual/resumable process, never run inside the
+    scheduled research cycle."""
+    if fresh_result:
+        return hb.backfill_report_model(fresh_result)
+    return hb.latest_report_model(cfg)
+
+
 def _load_stage3_run(cfg: dict, run_dir: Optional[str]) -> dict:
     if not run_dir:
         return {}
@@ -903,7 +916,8 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
                        degraded: bool = False,
                        llm_skipped_reason: Optional[str] = None,
                        subject_override: Optional[str] = None,
-                       stage5_model: Optional[dict] = None) -> dict:
+                       stage5_model: Optional[dict] = None,
+                       stage6_model: Optional[dict] = None) -> dict:
     """Assemble the deterministic report model. Pure data; no side effects."""
     s35 = _stage35_latest(cfg)
     s3 = _stage3_latest(cfg)
@@ -1037,6 +1051,8 @@ def build_report_model(cfg: dict, *, clock: Clock, label: str, cycle_date: str,
         "evidence": evidence,
         "experiment": (stage5_model if stage5_model is not None
                        else _stage5_report_model(cfg)),
+        "historical_readiness": (stage6_model if stage6_model is not None
+                                 else _stage6_report_model(cfg)),
     }
 
 

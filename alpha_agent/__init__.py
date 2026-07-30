@@ -28,11 +28,12 @@ promotion, order or Paper Trader mutation ever occurs.
 """
 from __future__ import annotations
 
-from . import (event_clustering, experiment_contracts, experiment_factory,
-               experiment_runner, feed_contracts, feed_registry, ingestion,
-               llm_budget, llm_contracts, llm_providers, report_renderer,
-               research_director, research_importers, research_registry,
-               runtime, runtime_contracts, source_contracts)
+from . import (backfill_contracts, event_clustering, experiment_contracts,
+               experiment_factory, experiment_runner, feed_contracts,
+               feed_registry, historical_backfill, ingestion, llm_budget,
+               llm_contracts, llm_providers, report_renderer, research_director,
+               research_importers, research_registry, runtime, runtime_contracts,
+               source_contracts)
 
 SCHEMA_VERSION = research_registry.SCHEMA_VERSION
 IMPORTER_VERSION = research_importers.IMPORTER_VERSION
@@ -103,6 +104,19 @@ STAGE5_TEMPLATES = experiment_contracts.SUPPORTED_TEMPLATES
 run_stage5_cycle = experiment_factory.run_stage5_cycle
 verify_stage5_cycle = experiment_factory.verify_cycle
 
+# Stage 6 — historical backfill & experiment-readiness engine.
+STAGE6_SCHEMA_VERSION = backfill_contracts.STAGE6_SCHEMA_VERSION
+STAGE6_ENGINE_VERSION = backfill_contracts.STAGE6_ENGINE_VERSION
+STAGE6_READY = backfill_contracts.READY
+STAGE6_VERIFIED = backfill_contracts.VERIFIED
+STAGE6_PARTIAL = backfill_contracts.PARTIAL
+STAGE6_DATA_HOLD = backfill_contracts.DATA_HOLD
+STAGE6_DRY_RUN = backfill_contracts.DRY_RUN
+STAGE6_NO_NEW_DATA = backfill_contracts.NO_NEW_DATA
+STAGE6_BLOCKED = backfill_contracts.BLOCKED
+run_historical_backfill = historical_backfill.run_backfill
+verify_historical_backfill = historical_backfill.verify_backfill
+
 __all__ = [
     "research_importers", "research_registry", "source_contracts", "ingestion",
     "llm_contracts", "llm_budget", "llm_providers", "research_director",
@@ -130,4 +144,9 @@ __all__ = [
     "STAGE5_VERIFIED", "STAGE5_NO_EXPERIMENTABLE_HYPOTHESES",
     "STAGE5_DATA_HOLD", "STAGE5_PARTIAL", "STAGE5_BLOCKED", "STAGE5_TEMPLATES",
     "run_stage5_cycle", "verify_stage5_cycle",
+    "backfill_contracts", "historical_backfill",
+    "STAGE6_SCHEMA_VERSION", "STAGE6_ENGINE_VERSION", "STAGE6_READY",
+    "STAGE6_VERIFIED", "STAGE6_PARTIAL", "STAGE6_DATA_HOLD", "STAGE6_DRY_RUN",
+    "STAGE6_NO_NEW_DATA", "STAGE6_BLOCKED", "run_historical_backfill",
+    "verify_historical_backfill",
 ]

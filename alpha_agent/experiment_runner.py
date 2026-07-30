@@ -348,10 +348,14 @@ def _cost_grid(port, turns, cost_grid, ppy, gross_ann):
 class ExperimentRunner:
     def __init__(self, cfg: dict, *, store: Optional[Any] = None):
         self.cfg = cfg
+        # max_files is configurable so a deep Stage 6 backfill (thousands of
+        # daily partition files) is not silently truncated at read time.
         self.store = store or NormalizedStore(
             cfg.get("stage2_ingestion_root", ""),
             max_symbols=int((cfg.get("bounds") or {}).get(
-                "max_symbols", 800)))
+                "max_symbols", 800)),
+            max_files=int((cfg.get("bounds") or {}).get(
+                "max_files", 4000)))
         self.cost_grid = list(cfg.get("cost_bps") or [10, 25, 50])
 
     def check_coverage(self, hyp: dict, template: str) -> dict:

@@ -1,0 +1,92 @@
+{
+  "stage": "6",
+  "config_version": "1.0.0",
+  "description": "Alpha Agent Stage 6 — historical backfill & experiment-readiness. Bounded, resumable, point-in-time-safe acquisition through EXISTING owned providers (Priority 1: Norgate local, survivorship-aware) to unlock the first REAL Stage 5 experiments, plus a deterministic Stage 1 reopening lane. ACQUISITION + READINESS only: never creates orders, fills, signals, trade decisions, model promotions, portfolio or Alpha Paper Book changes, Paper Trader DB writes, Daily Close triggers, prediction-service calls or PostgreSQL access; never installs a package; never executes LLM-authored code. available_at is preserved as observed and NEVER fabricated; a fiscal period-end is NEVER substituted for a public-availability date. Contains NO secret — no credential value appears anywhere.",
+  "safety": {
+    "acquisition_and_readiness_only": true,
+    "no_orders": true,
+    "no_fills": true,
+    "no_signals": true,
+    "no_trade_decisions": true,
+    "no_model_promotion": true,
+    "no_portfolio_mutation": true,
+    "no_paper_book_mutation": true,
+    "no_paper_trader_db_mutation": true,
+    "no_daily_close_trigger": true,
+    "no_prediction_service": true,
+    "no_postgres": true,
+    "no_llm_call": true,
+    "no_package_install": true,
+    "operational_ledger_read_only": true,
+    "point_in_time_available_at_never_fabricated": true,
+    "period_end_never_substituted_for_availability": true,
+    "no_current_constituent_substitution_for_history": true
+  },
+  "backfill_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\backfill",
+  "ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
+  "stage1_registry_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\registry",
+  "stage5_config": "configs\\alpha_agent\\stage5_experiment_factory.json",
+  "reopened_hypotheses_output": "D:\\Stock_Prediction_app_data\\alpha_agent\\backfill\\reopened_hypotheses.jsonl",
+  "operational_ledger_roots": [
+    "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
+    "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger",
+    "C:\\Users\\binis\\.paper_trader\\current_alpha_paper_book"
+  ],
+  "universe": {
+    "survivorship_watchlist": "S&P 500 Current & Past",
+    "current_watchlist": "S&P 500",
+    "index_name": "S&P 500"
+  },
+  "date_range": {
+    "start": "2015-01-01",
+    "end": "latest"
+  },
+  "batch": {
+    "ticker_batch_size": 50,
+    "max_universe_symbols": 800
+  },
+  "limits": {
+    "raw_object_max_bytes": 33554432
+  },
+  "providers": {
+    "norgate_local": {
+      "enabled": true,
+      "license_note": "Norgate Data - licensed local market data; local analytical use only; do not redistribute raw content.",
+      "families": ["prices", "universe_membership", "security_identity", "corporate_actions"]
+    },
+    "eodhd": {
+      "enabled": true,
+      "families": ["fundamentals", "earnings", "insider", "news"],
+      "gap_detail": "EODHD owned entitlement returns a current General/Highlights snapshot, not lookahead-free point-in-time quarterly history with per-period filing/availability dates; acquiring it as history would risk period-end lookahead and is therefore held, not approximated."
+    },
+    "sec_edgar": {
+      "enabled": true,
+      "families": ["filings", "insider"],
+      "gap_detail": "SEC EDGAR daily-index acquisition is bounded to a recent window in Stage 2; a full 2015+ Form-4/filing backfill is a larger bounded job scheduled separately and is reported here as a remaining gap, not approximated."
+    }
+  },
+  "readiness": {
+    "price_momentum": {
+      "min_years": 5.0,
+      "min_pit_members": 300,
+      "min_monthly_periods": 36
+    },
+    "fundamental_momentum": {
+      "min_years": 5.0,
+      "min_quarters": 16,
+      "min_securities": 200
+    },
+    "earnings_drift": {
+      "min_events": 200
+    },
+    "insider_event": {
+      "min_events": 200
+    },
+    "news_event": {
+      "min_events": 200
+    }
+  },
+  "reopen": {
+    "max_candidates": 3
+  }
+}

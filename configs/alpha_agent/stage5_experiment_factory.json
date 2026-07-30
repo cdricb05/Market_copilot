@@ -26,6 +26,7 @@
   "stage2_ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\ingestion",
   "stage3_director_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\director",
   "stage3_5_news_rss_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\news_rss",
+  "reopened_hypotheses_path": "D:\\Stock_Prediction_app_data\\alpha_agent\\backfill\\reopened_hypotheses.jsonl",
   "operational_ledger_roots": [
     "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
     "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger",
@@ -37,7 +38,8 @@
     "max_experiments": 6,
     "max_runtime_seconds": 1800,
     "max_workers": 2,
-    "max_symbols": 800
+    "max_symbols": 800,
+    "max_files": 12000
   },
   "templates_enabled": [
     "price_momentum_rank",

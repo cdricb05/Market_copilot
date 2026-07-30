@@ -240,6 +240,24 @@ def read_grounded_hypotheses(cfg: dict) -> list[dict]:
     return out
 
 
+def read_reopened_hypotheses(cfg: dict) -> list[dict]:
+    """Read Stage 6 reopened Stage 1 hypotheses (deterministic intake dicts) from
+    the configured handoff path, if any. These are canonical Stage 1 family
+    threads reopened by Stage 6 because newly backfilled data resolves their prior
+    data limitation — NOT fabricated new ideas. Returns [] when unset/absent."""
+    path = cfg.get("reopened_hypotheses_path")
+    if not path:
+        return []
+    out: list[dict] = []
+    for row in _read_jsonl(Path(path)):
+        if not isinstance(row, dict) or not row.get("hypothesis_id"):
+            continue
+        row.setdefault("grounding", _GROUNDED)
+        row.setdefault("queue_status", "READY_FOR_DETERMINISTIC_DESIGN_REVIEW")
+        out.append(row)
+    return out
+
+
 def _normalize_intake(proposal: dict, queue: dict) -> dict:
     reqs = list(proposal.get("required_fields") or [])
     reqs += list(proposal.get("data_adequacy_requirements") or [])
@@ -417,7 +435,7 @@ def run_stage5_cycle(cfg: dict, *, output_root: Optional[str] = None,
         conn.commit()
 
         raw_hyps = hypotheses if hypotheses is not None \
-            else read_grounded_hypotheses(cfg)
+            else (read_grounded_hypotheses(cfg) + read_reopened_hypotheses(cfg))
         grounded_count = len(raw_hyps)
 
         enabled = ec.enabled_templates(cfg)
