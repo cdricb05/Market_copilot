@@ -534,11 +534,20 @@ def research_decision_reconciliation(recovery: dict | None,
             rejected += c
         categories.append({"count": c, "token": token, "phrase": phrase})
     accounted = rejected + retained + could_not_run + other
-    evaluated = _num(rec.get("campaign_experiments"))
-    evaluated = int(evaluated) if evaluated is not None else accounted
+    # Canonical count (Stage 8 count-consistency fix): an EVALUATED recovery idea
+    # is any recorded decision, so the outcome categories partition the evaluated
+    # set exactly and 'evaluated' == 'accounted' ALWAYS reconciles. 'completed'
+    # is the narrower count of experiments that actually ran
+    # (campaign_experiments); it is surfaced separately and is NEVER used as the
+    # headline 'evaluated' number (the prior bug reported 'completed' as
+    # 'evaluated' while the breakdown summed the full partition).
+    completed = _num(rec.get("campaign_experiments"))
+    completed = int(completed) if completed is not None else accounted
+    evaluated = accounted
     s5 = _num(stage5_could_not_run)
     return {
         "evaluated": evaluated,
+        "completed": completed,
         "rejected": rejected,
         "retained": retained,
         "could_not_run": could_not_run,

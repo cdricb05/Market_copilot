@@ -36573,3 +36573,30 @@ class TestAlphaAgentObservatoryContractV2:
         assert payload["source_health"] == {"feeds_healthy": 7,
                                             "feeds_total": 11}
         assert payload["news_rss_health"] == {"healthy": 7, "enabled": 11}
+
+
+class TestAlphaAgentStage8AutonomyRoute:
+    """Stage 8: read-only autonomy status route + observatory autonomy block.
+    The route creates nothing, writes nothing and never mutates trading state."""
+
+    def test_autonomy_route_requires_api_key(self, client: TestClient) -> None:
+        resp = client.get("/v1/research/alpha-agent-autonomy")
+        assert resp.status_code in (401, 403)
+
+    def test_autonomy_route_returns_200_and_shape(
+            self, client: TestClient) -> None:
+        resp = client.get("/v1/research/alpha-agent-autonomy", headers=_AUTH)
+        assert resp.status_code == 200
+        d = resp.json()
+        assert d.get("status") in ("OK", "UNAVAILABLE")
+        if d.get("status") == "OK":
+            assert "queue" in d and "sources" in d and "telegram" in d
+            assert "NO ORDERS" in d.get("safety_badges", [])
+            # Telegram is disabled + read-only by default in the repo config.
+            assert d["telegram"].get("enabled") in (False, None)
+
+    def test_observatory_includes_autonomy_block(
+            self, client: TestClient) -> None:
+        resp = client.get("/v1/research/alpha-agent-observatory", headers=_AUTH)
+        assert resp.status_code == 200
+        assert "autonomy" in resp.json()

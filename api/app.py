@@ -5661,11 +5661,43 @@ def research_alpha_agent_observatory() -> dict:
         today = _date3.today().isoformat()
     except Exception:  # noqa: BLE001 — schedule probing must never break the API
         pass
-    return _eo.observatory_payload(
+    payload = _eo.observatory_payload(
         config_path=str(_alpha_agent_observatory_config_path()),
         book_context=book_context, today=today,
         schedule_status=schedule_status,
         market_data_through=book_context.get("market_data_through"))
+    # Stage 8: attach the read-only autonomy status (queue depth, source
+    # classifications, Telegram state). Best-effort; never breaks the endpoint.
+    try:
+        payload["autonomy"] = _eo.autonomy_snapshot(
+            config_path=str(_alpha_agent_stage8_config_path()))
+    except Exception:  # noqa: BLE001
+        payload["autonomy"] = {"status": "UNAVAILABLE"}
+    return payload
+
+
+def _alpha_agent_stage8_config_path():
+    from pathlib import Path as _P
+    return (_P(__file__).resolve().parents[1] / "configs" / "alpha_agent"
+            / "stage8_autonomy.json")
+
+
+@app.get("/v1/research/alpha-agent-autonomy", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_alpha_agent_autonomy() -> dict:
+    """Read-only Stage 8 autonomy status: agent mode, durable research-queue
+    depth + state/category breakdown, running/stale jobs, source acquisition +
+    entitlement classification tally, coverage-repair backlog, blocked jobs,
+    last autonomous-progress timestamp and Telegram control status. Creates
+    nothing, writes nothing, promotes nothing, changes no holding."""
+    try:
+        from paper_trader.alpha_agent import evidence_observatory as _eo
+        return _eo.autonomy_snapshot(
+            config_path=str(_alpha_agent_stage8_config_path()))
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "UNAVAILABLE", "reason": str(exc)[:200],
+                "safety_badges": ["NO ORDERS", "PAPER ONLY",
+                                  "READ-ONLY EVIDENCE"]}
 
 
 @app.get("/v1/evidence/rolling", status_code=status.HTTP_200_OK,

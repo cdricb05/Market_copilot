@@ -50,7 +50,7 @@
     "circuit_breaker_threshold": 5
   },
   "secret_redaction": {
-    "redacted_query_params": ["api_token", "api_key", "apikey", "token", "key", "apiKey"],
+    "redacted_query_params": ["api_token", "api_key", "apikey", "token", "key", "apiKey", "registrationkey", "userid", "UserID"],
     "redaction_placeholder": "REDACTED",
     "forbid_full_url_when_query_redacted": true
   },
@@ -92,6 +92,20 @@
       "entitlement_probe_families": ["eod", "dividends", "splits", "earnings", "fundamentals", "insider", "news"],
       "freshness_threshold_days": 6
     },
+    "eodhd_analyst": {
+      "enabled": true,
+      "priority": 11,
+      "kind": "entitled_provider",
+      "license_note": "EODHD - subscriber-entitled analyst estimate/revision/price-target SNAPSHOT; persisted as an immutable daily vintage for leakage-safe forward PIT collection; local analytical use per subscription terms; do not redistribute.",
+      "base_url": "https://eodhd.com/api",
+      "allowed_env_vars": ["EODHD_API_KEY"],
+      "min_interval_seconds": 0.25,
+      "sample_symbols": ["AAPL.US", "MSFT.US", "NVDA.US", "AMZN.US", "JPM.US", "XOM.US"],
+      "analyst_filter": "General,Highlights,AnalystRatings,Earnings",
+      "estimate_periods_cap": 8,
+      "vintage_subdir": "vintages/eodhd_analyst",
+      "freshness_threshold_days": 3
+    },
     "sec_edgar": {
       "enabled": true,
       "priority": 3,
@@ -105,7 +119,72 @@
       "max_filings_per_day": 6000,
       "store_filing_text": false,
       "ticker_map_path": "/files/company_tickers.json",
+      "collect_submissions": true,
+      "collect_companyfacts": true,
+      "collect_companyconcept": true,
+      "collect_form4_transactions": true,
+      "collect_form8k_earnings": true,
+      "form4_xml_cap": 8,
+      "form8k_doc_cap": 6,
+      "collect_full_index": true,
+      "probe_bulk_archives": true,
+      "bulk_manageable_bytes": 33554432,
+      "bulk_chunk_bytes": 1048576,
+      "bulk_archives": {
+        "companyfacts": "/Archives/edgar/daily-index/xbrl/companyfacts.zip",
+        "submissions": "/Archives/edgar/daily-index/bulkdata/submissions.zip"
+      },
+      "bulk_index_record_cap": 120,
+      "facts_sample_symbols": ["AAPL", "JPM", "XOM"],
+      "facts_symbol_limit": 3,
+      "submissions_recent_cap": 40,
+      "facts_per_concept_cap": 16,
+      "companyfacts_concepts": ["Revenues", "NetIncomeLoss", "Assets", "Liabilities", "StockholdersEquity", "EarningsPerShareDiluted", "OperatingIncomeLoss", "CashAndCashEquivalentsAtCarryingValue"],
+      "companyconcept_concept": "NetIncomeLoss",
+      "companyconcept_taxonomy": "us-gaap",
       "freshness_threshold_days": 6
+    },
+    "us_treasury": {
+      "enabled": true,
+      "priority": 8,
+      "kind": "public_official",
+      "license_note": "U.S. Treasury Fiscal Data - official U.S. government public data; public domain; cite fiscaldata.treasury.gov.",
+      "base_url": "https://api.fiscaldata.treasury.gov/services/api/fiscal_service",
+      "min_interval_seconds": 0.5,
+      "page_size": 120,
+      "max_pages": 1,
+      "endpoints": [
+        {"path": "/v2/accounting/od/avg_interest_rates", "macro_family": "treasury_rates", "date_field": "record_date", "value_field": "avg_interest_rate_amt", "series_fields": ["security_type_desc", "security_desc"]}
+      ],
+      "freshness_threshold_days": 45
+    },
+    "bls": {
+      "enabled": true,
+      "priority": 9,
+      "kind": "public_official",
+      "license_note": "U.S. Bureau of Labor Statistics Public Data API v2 - official U.S. government public data; public domain; cite BLS.",
+      "base_url": "https://api.bls.gov/publicAPI/v2",
+      "allowed_env_vars": ["BLS_API_KEY", "PAPER_TRADER_BLS_API_KEY"],
+      "min_interval_seconds": 0.5,
+      "series_allowlist": [
+        {"series_id": "CUUR0000SA0", "macro_family": "inflation", "title": "CPI-U All Items (NSA)"},
+        {"series_id": "LNS14000000", "macro_family": "labor", "title": "Unemployment Rate (SA)"},
+        {"series_id": "CES0000000001", "macro_family": "labor", "title": "Total Nonfarm Employment (SA)"}
+      ],
+      "freshness_threshold_days": 45
+    },
+    "bea": {
+      "enabled": true,
+      "priority": 10,
+      "kind": "public_api_keyed",
+      "license_note": "U.S. Bureau of Economic Analysis API - official U.S. government public data; requires a FREE registered UserID; cite BEA.",
+      "base_url": "https://apps.bea.gov/api/data",
+      "allowed_env_vars": ["BEA_API_KEY", "PAPER_TRADER_BEA_API_KEY"],
+      "min_interval_seconds": 0.6,
+      "tables": [
+        {"dataset": "NIPA", "table_name": "T10101", "frequency": "Q", "year": "ALL", "macro_family": "national_accounts"}
+      ],
+      "freshness_threshold_days": 45
     },
     "finra": {
       "enabled": true,

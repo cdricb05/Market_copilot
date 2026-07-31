@@ -3716,6 +3716,16 @@
                the executive email. -->
           <div id="aao-runtime-status" style="font-size:12px;margin:0 0 10px;color:var(--muted,#8b98b0);">&mdash;</div>
 
+          <!-- Stage 8 autonomy status (read-only): durable research queue,
+               source classifications, Telegram control. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Autonomy Status
+              <span class="cc-badge" style="font-size:9px;">NEVER IDLE</span>
+              <span class="cc-badge" style="font-size:9px;">READ-ONLY CONTROL</span>
+              <span class="cc-badge" style="font-size:9px;">NO ORDERS</span></div>
+            <div id="aao-autonomy" style="font-size:12px;">&mdash;</div>
+          </div>
+
           <!-- KPI row -->
           <div id="aao-kpis" style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px;">
             <div class="af-kpi"><div class="af-kpi-v mono" id="aao-kpi-records">&mdash;</div><div class="af-kpi-l">Data collected (records)</div></div>
@@ -8474,6 +8484,42 @@ function renderAlphaAgentObservatory(d) {
       + '</b> &middot; Trading automation: <b>Off</b> &middot; Broker execution: <b>Off</b>'
       + ' &middot; News feeds: ' + escapeHtml(fhTxt)
       + ' &middot; Market data through: ' + escapeHtml(String(mkt));
+  }
+
+  // Stage 8 autonomy: durable research-queue depth, source classification
+  // tally and Telegram control status. Read-only; never mutates anything.
+  var auEl = document.getElementById('aao-autonomy');
+  if (auEl) {
+    var au = d.autonomy || {};
+    if (!au || au.status === 'UNAVAILABLE') {
+      auEl.innerHTML = '<div class="cc-na-note">Autonomy status unavailable.</div>';
+    } else {
+      var q = au.queue || {};
+      var src = au.sources || {};
+      var tg = au.telegram || {};
+      var tally = src.classification_tally || {};
+      var qLine = (q.status === 'NOT_INITIALIZED')
+        ? 'Research queue: not initialised yet.'
+        : ('Research queue depth: <b>' + _aaoNum(q.depth) + '</b> &middot; running '
+           + _aaoNum(q.running) + ' &middot; blocked ' + _aaoNum(q.blocked_specific)
+           + ' &middot; failed ' + _aaoNum(q.failed_permanent)
+           + ' &middot; stale ' + _aaoNum(q.stale_running)
+           + ' &middot; last progress ' + escapeHtml(String(q.last_progress_at || '—')));
+      var srcLine = (src.status === 'NOT_PROBED_YET')
+        ? 'Sources: not probed yet.'
+        : ('Sources: <b>' + _aaoNum(src.source_count) + '</b> catalogued &middot; accessible now '
+           + _aaoNum(tally.ACCESSIBLE_NOW) + ' &middot; repair backlog '
+           + _aaoNum(tally.ACCESSIBLE_AFTER_REPAIR) + ' &middot; prospective '
+           + _aaoNum(tally.PROSPECTIVE_ONLY) + ' &middot; paid-not-owned '
+           + _aaoNum(tally.PAID_NOT_OWNED));
+      var tgLine = 'Telegram control: <b>' + (tg.enabled ? 'enabled' : 'disabled')
+        + '</b> &middot; credential ' + (tg.credential_configured ? 'configured' : 'not configured')
+        + ' &middot; allowed users ' + _aaoNum(tg.allowed_users_configured)
+        + ' &middot; read-only + bounded research only';
+      auEl.innerHTML = '<div class="mono" style="margin-bottom:3px;">' + qLine + '</div>'
+        + '<div class="mono" style="margin-bottom:3px;">' + srcLine + '</div>'
+        + '<div class="mono">' + tgLine + '</div>';
+    }
   }
 }
 window.renderAlphaAgentObservatory = renderAlphaAgentObservatory;

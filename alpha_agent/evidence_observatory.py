@@ -650,8 +650,19 @@ def build_evidence_inventory(cfg: dict, *,
     # totals are never merged under one heading (Stage 7.2 reporting-contract
     # fix). Stage 2 normalized ingestion, Stage 6 historical backfill, Stage 5
     # experiments completed and Stage 7 recovery ideas evaluated are distinct.
-    s7_evaluated = ((recovery_context or {}).get("campaign_experiments")
-                    if recovery_context else s7.get("campaign_experiments"))
+    # Canonical recovery counts (Stage 8 count-consistency fix). The number of
+    # recovery ideas EVALUATED is the sum of the campaign decision partition
+    # (every recorded decision is one evaluated idea) — the SAME definition the
+    # email's research_decision_reconciliation now uses, so the email, API, UI
+    # and persisted evidence all agree. 'completed' is the narrower count of
+    # experiments that actually ran (never conflated with 'evaluated').
+    _rec_src = (recovery_context or {}) if recovery_context else s7
+    _decision_counts = _rec_src.get("campaign_decision_counts") or {}
+    s7_completed = _rec_src.get("campaign_experiments")
+    if _decision_counts:
+        s7_evaluated = sum(int(v or 0) for v in _decision_counts.values())
+    else:
+        s7_evaluated = s7_completed
     inv = {
         "schema_version": STAGE7_SCHEMA_VERSION,
         "engine_version": STAGE7_ENGINE_VERSION,
@@ -672,6 +683,8 @@ def build_evidence_inventory(cfg: dict, *,
             # Stage 7 recovery ideas evaluated (distinct from Stage 5 experiments
             # completed) — surfaced non-null when a recovery package exists.
             "recovery_experiments_evaluated": s7_evaluated,
+            # Narrower, separately-labelled: experiments that actually ran.
+            "recovery_experiments_completed": s7_completed,
             "data_gaps": s6.get("remaining_data_gaps"),
             "templates_unlocked": s6.get("templates_unlocked") or [],
         },
@@ -682,6 +695,7 @@ def build_evidence_inventory(cfg: dict, *,
             "stage5_experiments_completed": s5.get("experiments_completed"),
             "stage5_data_holds": s5.get("data_holds"),
             "stage7_recovery_experiments_evaluated": s7_evaluated,
+            "stage7_recovery_experiments_completed": s7_completed,
         },
         "champion": champion,
         "recovery_disposition": (s7.get("recovery_disposition")
@@ -799,6 +813,91 @@ def observatory_payload(cfg: Optional[dict] = None, *,
                                   "reason": redact(str(exc))[:120],
                                   "shadows": []}
     return inv
+
+
+def autonomy_snapshot(stage8_config: Optional[dict] = None, *,
+                      config_path: Optional[str | Path] = None) -> dict:
+    """Read-only unified Stage 8 autonomy status for the API/UI (WS15): agent
+    mode, durable-queue depth + state breakdown, running/stale jobs, source
+    acquisition + entitlement classification tally, coverage-repair backlog,
+    blocked jobs, last autonomous progress timestamp and Telegram control status.
+    NEVER writes: it only opens stores that already exist and degrades to a
+    controlled dict on any error, so the endpoint always returns HTTP 200."""
+    cfg = stage8_config
+    if cfg is None and config_path is not None:
+        try:
+            cfg = json.loads(Path(config_path).read_text(encoding="utf-8-sig"))
+        except Exception:  # noqa: BLE001
+            cfg = {}
+    cfg = cfg or {}
+    out: dict = {
+        "status": "OK",
+        "mode": "AUTONOMOUS_RESEARCH",
+        "exhaustive_data_principle": True,
+        "never_idle_principle": True,
+        "safety_badges": ["NO ORDERS", "PAPER ONLY", "AUTOMATION OFF",
+                          "READ-ONLY EVIDENCE", "TELEGRAM READ-ONLY"],
+    }
+    # -- durable research queue (read-only; only if already initialised) ----- #
+    try:
+        from . import autonomous_research as ar
+        qdb = ((cfg.get("autonomy") or {}).get("queue_db"))
+        if qdb and Path(qdb).exists():
+            q = ar.ResearchQueue(qdb)
+            states = q.counts_by_state()
+            out["queue"] = {
+                "depth": q.depth(),
+                "runnable_depth": q.runnable_depth(),
+                "by_state": states,
+                "by_category": q.counts_by_category(),
+                "running": states.get(ar.STATE_RUNNING, 0),
+                "blocked_specific": states.get(ar.STATE_BLOCKED_SPECIFIC, 0),
+                "failed_permanent": states.get(ar.STATE_FAILED_PERMANENT, 0),
+                "stale_running": len(q.stale_running()),
+                "last_progress_at": q.last_progress_at(),
+            }
+        else:
+            out["queue"] = {"status": "NOT_INITIALIZED", "depth": 0}
+    except Exception as exc:  # noqa: BLE001
+        out["queue"] = {"status": "UNAVAILABLE", "reason": str(exc)[:120]}
+    # -- source registry snapshot (read-only file) --------------------------- #
+    try:
+        snap_path = (cfg.get("sources") or {}).get("registry_snapshot_path")
+        if snap_path and Path(snap_path).exists():
+            snap = json.loads(Path(snap_path).read_text(encoding="utf-8"))
+            out["sources"] = {
+                "source_count": snap.get("source_count"),
+                "classification_tally": snap.get("classification_tally"),
+                "generated_at": snap.get("generated_at"),
+                "accessible_now": (snap.get("classification_tally")
+                                   or {}).get("ACCESSIBLE_NOW"),
+                "coverage_repair_backlog": (snap.get("classification_tally")
+                                            or {}).get("ACCESSIBLE_AFTER_REPAIR"),
+                "prospective_collectors": (snap.get("classification_tally")
+                                           or {}).get("PROSPECTIVE_ONLY"),
+            }
+        else:
+            out["sources"] = {"status": "NOT_PROBED_YET"}
+    except Exception as exc:  # noqa: BLE001
+        out["sources"] = {"status": "UNAVAILABLE", "reason": str(exc)[:120]}
+    # -- Telegram control status (read-only) --------------------------------- #
+    try:
+        from . import telegram_control as tc
+        tcfg = tc.TelegramConfig(cfg)
+        tg_out = {
+            "enabled": tcfg.enabled,
+            "credential_configured": bool(tcfg.credential_dir),
+            "allowed_users_configured": len(tcfg.allowed_user_ids),
+            "allowed_chats_configured": len(tcfg.allowed_chat_ids),
+            "last_request": None,
+        }
+        state_db = (cfg.get("telegram") or {}).get("state_db")
+        if state_db and Path(state_db).exists():
+            tg_out["last_request"] = tc.TelegramStore(state_db).last_request()
+        out["telegram"] = tg_out
+    except Exception as exc:  # noqa: BLE001
+        out["telegram"] = {"status": "UNAVAILABLE", "reason": str(exc)[:120]}
+    return out
 
 
 def all_terminal_tokens() -> list[str]:

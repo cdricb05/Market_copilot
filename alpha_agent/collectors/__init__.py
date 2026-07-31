@@ -5,7 +5,10 @@ COLLECTOR_CLASSES maps source_id -> collector class in the pre-registered
 priority order defined by the Stage 2 configuration.
 """
 from .base import BaseCollector, CollectorContext, RawArchive, default_transport
+from .bea import BeaCollector
+from .bls import BlsCollector
 from .eodhd import EodhdCollector
+from .eodhd_analyst import EodhdAnalystCollector
 from .finra import FinraCollector
 from .fred_alfred import FredAlfredCollector
 from .gdelt import GdeltCollector
@@ -13,20 +16,27 @@ from .nasdaq_trader import NasdaqTraderCollector
 from .norgate_local import NorgateLocalCollector
 from .rss_atom import RssAtomCollector
 from .sec_edgar import SecEdgarCollector
+from .us_treasury import UsTreasuryCollector
 
 COLLECTOR_CLASSES = {
     NorgateLocalCollector.source_id: NorgateLocalCollector,
     EodhdCollector.source_id: EodhdCollector,
+    EodhdAnalystCollector.source_id: EodhdAnalystCollector,
     SecEdgarCollector.source_id: SecEdgarCollector,
     FinraCollector.source_id: FinraCollector,
     NasdaqTraderCollector.source_id: NasdaqTraderCollector,
     FredAlfredCollector.source_id: FredAlfredCollector,
+    UsTreasuryCollector.source_id: UsTreasuryCollector,
+    BlsCollector.source_id: BlsCollector,
+    BeaCollector.source_id: BeaCollector,
     GdeltCollector.source_id: GdeltCollector,
 }
 
 __all__ = [
     "BaseCollector", "CollectorContext", "RawArchive", "default_transport",
     "COLLECTOR_CLASSES", "NorgateLocalCollector", "EodhdCollector",
+    "EodhdAnalystCollector",
     "SecEdgarCollector", "FinraCollector", "NasdaqTraderCollector",
-    "FredAlfredCollector", "GdeltCollector", "RssAtomCollector",
+    "FredAlfredCollector", "UsTreasuryCollector", "BlsCollector",
+    "BeaCollector", "GdeltCollector", "RssAtomCollector",
 ]

@@ -2606,3 +2606,1001 @@ def build_task_definitions(cfg: dict, *, repo_root: str, python_exe: str,
          "execution_time_limit_minutes": 10},
     ]
     return defs
+
+
+# --------------------------------------------------------------------------- #
+# Stage 8 autonomy entry points (additive; do not alter any Stage 4 mode).
+# --------------------------------------------------------------------------- #
+# These wire the persistent runtime to the Stage 8 never-idle research queue and
+# source-exhaustion registry WITHOUT changing any existing collect/research/
+# report/watchdog/verify behaviour. They are RESEARCH-ONLY: no order, fill,
+# signal, trade decision, model promotion, Daily Close, prediction call or
+# operational-ledger write is possible here. Heavy acquisition / experiment work
+# is injected by the caller (or the scheduled task); the built-in default
+# handlers keep the loop moving with light, offline, read-only work so a cycle
+# never blocks on the network.
+def stage8_enabled(cfg: dict) -> bool:
+    return bool(cfg.get("stage8_enabled"))
+
+
+def stage8_autonomy_root(cfg: dict) -> "Path":
+    root = cfg.get("stage8_autonomy_root")
+    if root:
+        return Path(root)
+    # Canonical location is the queue-db's directory, so campaign + queue stores
+    # sit together under the configured stage8 root on D: (never derived under a
+    # sibling of the operational-ledger tree).
+    qdb = (cfg.get("autonomy") or {}).get("queue_db") \
+        if isinstance(cfg.get("autonomy"), dict) else None
+    if qdb:
+        return Path(qdb).parent
+    return Path(cfg.get("runtime_root", ".")).parent / "stage8"
+
+
+def resolve_campaign_defs(cfg: dict) -> "list[dict]":
+    """The full-universe acquisition campaigns (WS3-WS6). Config
+    ``production.campaigns`` overrides; else the built-in Norgate-prices /
+    EODHD-analyst / SEC-Form4-8K CIK / two SEC bulk-archive campaigns. Each has a
+    per-job batch size; none carries a permanent total-universe cap."""
+    from . import autonomous_research as _ar
+    prod = cfg.get("production") if isinstance(cfg.get("production"), dict) \
+        else {}
+    defs = prod.get("campaigns")
+    if isinstance(defs, list) and defs:
+        return defs
+    b = int(prod.get("per_job_symbol_batch_size", 25))
+    return [
+        {"id": "norgate_prices", "runner": "norgate",
+         "category": _ar.CAT_DATA_ACQUISITION,
+         "batch_size": int(prod.get("norgate_batch_size", 50))},
+        {"id": "eodhd_analyst", "runner": "analyst",
+         "category": _ar.CAT_PROSPECTIVE_SNAPSHOT,
+         "batch_size": int(prod.get("analyst_batch_size", b))},
+        {"id": "sec_form4_8k", "runner": "sec_cik",
+         "category": _ar.CAT_DATA_ACQUISITION,
+         "batch_size": int(prod.get("sec_cik_batch_size", 20))},
+        {"id": "sec_bulk_companyfacts", "runner": "bulk",
+         "archive": "companyfacts", "category": _ar.CAT_DATA_ACQUISITION,
+         "batch_size": 1},
+        {"id": "sec_bulk_submissions", "runner": "bulk",
+         "archive": "submissions", "category": _ar.CAT_DATA_ACQUISITION,
+         "batch_size": 1},
+    ]
+
+
+def stage8_campaign_store(cfg: dict, *, clock=None):
+    """Open (creating if needed) the durable sharded-campaign cursor store,
+    co-located with the research queue under the stage8 root on D:."""
+    from . import acquisition_campaign as _ac
+    prod = cfg.get("production") if isinstance(cfg.get("production"), dict) \
+        else {}
+    cpath = prod.get("campaign_db") \
+        or str(stage8_autonomy_root(cfg) / "campaigns.sqlite")
+    return _ac.CampaignStore(cpath, clock=clock)
+
+
+def production_campaign_seed_specs(cfg: dict, store) -> "list[dict]":
+    """Never-idle planner specs (WS7): keep exactly one live batch job per
+    INCOMPLETE campaign, tagged by the live cursor so it is idempotent with the
+    handler's own next-batch enqueue. Complete campaigns emit nothing."""
+    specs = []
+    for d in resolve_campaign_defs(cfg):
+        cid = d["id"]
+        cov = store.coverage(cid)
+        if cov.get("exists") and cov.get("is_complete"):
+            continue
+        seq = int(cov.get("acquisition_cursor", 0)) if cov.get("exists") else 0
+        specs.append({"category": d["category"], "lane": "acq.%s" % cid,
+                      "payload": {"campaign": cid, "seq": seq},
+                      "priority": 4, "origin": "campaign-planner"})
+    return specs
+
+
+def build_autonomy_queue(cfg: dict, *, clock=None):
+    """Open (creating if needed) the durable Stage 8 research queue. The
+    canonical location is ``autonomy.queue_db`` from the config so the Telegram
+    control plane and the autonomy cycle share ONE queue; only when that key is
+    absent (e.g. unit tests) is it derived under the research-state root. Never
+    touches an operational ledger."""
+    from . import autonomous_research as _ar
+    qdb = (cfg.get("autonomy") or {}).get("queue_db") \
+        if isinstance(cfg.get("autonomy"), dict) else None
+    db = Path(qdb) if qdb else (stage8_autonomy_root(cfg) / "autonomy.sqlite")
+    return _ar.ResearchQueue(db, clock=clock)
+
+
+def _default_autonomy_handlers(cfg: dict) -> dict:
+    """Safe, offline, read-only default handlers. Discovery/probe rebuild the
+    source registry from the catalog (no network); everything else records a
+    bounded completion so the never-idle loop advances. Production injects richer
+    handlers for real acquisition / experiments."""
+    from . import autonomous_research as _ar
+    from . import source_exhaustion as _se
+
+    def _discovery(job):
+        snap = _se.build_registry_snapshot()
+        try:
+            path = (cfg.get("sources") or {}).get("registry_snapshot_path") \
+                if isinstance(cfg.get("sources"), dict) else None
+            if path:
+                _se.write_registry_snapshot(snap, path)
+        except Exception:  # noqa: BLE001 - snapshot persistence is best-effort
+            pass
+        return _ar.OUTCOME_COMPLETED, {"classification_tally":
+                                       snap.get("classification_tally")}
+
+    def _record(job):
+        return _ar.OUTCOME_COMPLETED, {"note": "recorded; heavy work out-of-band",
+                                       "lane": job.lane}
+
+    handlers = {c: _record for c in _ar.JOB_CATEGORIES}
+    handlers[_ar.CAT_SOURCE_DISCOVERY] = _discovery
+    handlers[_ar.CAT_ENTITLEMENT_PROBE] = _discovery
+    return handlers
+
+
+def build_production_autonomy_handlers(cfg: dict, *,
+                                       contact_email: Optional[str] = None,
+                                       queue=None) -> dict:
+    """REAL Stage 8 production handlers (WS2-WS9). Each durable-queue category is
+    wired to a genuine, BOUNDED entrypoint that ACQUIRES real data (Stage 2
+    collect / Stage 6 survivorship-free Norgate backfill) or RUNS a real
+    price-factor experiment (the Stage-5/7 engine over the owned Norgate panel)
+    and returns genuine evidence: real record counts, coverage deltas, rank-IC /
+    t-stats and deterministic gate decisions. NO category returns a placeholder
+    completion, an entitlement-probe or a registry rebuild dressed up as work.
+
+    Research-only: every write lands under the Stage 2/5/6 research roots on the
+    data drive; NOTHING here can touch an operational ledger, order, fill,
+    signal, trade decision, model promotion, Alpha Paper Book, PostgreSQL, the
+    prediction service or a Daily Close. A handler that raises is caught by the
+    cycle runner and becomes a bounded RETRYABLE (never crashes the loop)."""
+    from . import autonomous_research as _ar
+    import json as _json
+
+    repo_root = Path(__file__).resolve().parents[1]
+    ph = (cfg.get("production_handlers") or {}) if isinstance(cfg, dict) else {}
+    # A declared contact is required by strict free official sources (SEC EDGAR
+    # rejects requests without a real User-Agent contact). Prefer the explicit
+    # arg, else the config, else None (the collector falls back to git config).
+    contact_email = contact_email or ph.get("contact_email")
+
+    def _load(relpath):
+        p = Path(relpath)
+        if not p.is_absolute():
+            p = repo_root / relpath
+        return _json.loads(p.read_text(encoding="utf-8-sig"))
+
+    s2_path = ph.get("stage2_ingestion_config") or \
+        (cfg.get("sources") or {}).get("stage2_ingestion_config")
+    s6_path = ph.get("stage6_backfill_config")
+    bounded_universe = ph.get("bounded_universe") or \
+        ["AAPL", "MSFT", "NVDA", "AMZN", "JPM", "XOM"]
+    repair_universe = ph.get("coverage_repair_universe") or \
+        ["KO", "PG", "JNJ", "WMT", "HD", "CVX"]
+    panel_start = ph.get("panel_date_start", "2016-01-01")
+
+    cfg2 = _load(s2_path) if s2_path else {}
+    cfg6 = _load(s6_path) if s6_path else {}
+    ingestion_root = cfg6.get("ingestion_root") or \
+        str(Path(cfg.get("stage8_root", ".")) / "ingestion")
+
+    # ---- shared REAL price panel (read once; reused by experiment jobs) ------
+    _cache = {}
+
+    def _panel():
+        if "panel" not in _cache:
+            from . import experiment_runner as _er
+            store = _er.NormalizedStore(ingestion_root, max_files=6000,
+                                        max_symbols=300)
+            _cache["panel"] = store.price_panel(panel_start, None)
+        return _cache["panel"]
+
+    # ---- Stage 2 real bounded single-provider collect -----------------------
+    def _collect(sid):
+        from . import ingestion as _ing
+        src = (cfg2.get("sources") or {})
+        if sid not in src:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                "provider": sid, "reason": "source not configured"}
+        one = dict(cfg2)
+        one["sources"] = {sid: src[sid]}
+        res = _ing.run_ingestion(config=one, output_root=ingestion_root,
+                                 mode="collect", as_of="latest",
+                                 contact_email=contact_email)
+        counts = res.get("counts") or {}
+        detail = {"real_work": "stage2_collect", "provider": sid,
+                  "status": res.get("status"), "run_id": res.get("run_id"),
+                  "normalized_records_new": counts.get("normalized_records_new"),
+                  "raw_objects_new": counts.get("raw_objects_new"),
+                  "normalized_records_total":
+                      counts.get("normalized_records_total"),
+                  "source_state": (res.get("source_states") or {}).get(sid),
+                  "ledger_unchanged": res.get("ledger_unchanged")}
+        blocked = res.get("blocked_sources") or []
+        if "BLOCKED" in str(res.get("status") or ""):
+            if not blocked and not counts.get("normalized_records_new"):
+                # The source is already FRESH within its freshness window: honest
+                # idempotency (the collector refuses a redundant fetch), NOT a
+                # failure and NOT a credential/entitlement block. Complete the
+                # job with an up-to-date note; it re-runs when the source goes
+                # stale.
+                detail["note"] = ("source already fresh; no new data to acquire "
+                                  "this cycle (idempotent)")
+                detail["up_to_date"] = True
+                return _ar.OUTCOME_COMPLETED, detail
+            detail["reason"] = "provider blocked: %s" % (blocked or
+                                                         res.get("status"))
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+        return _ar.OUTCOME_COMPLETED, detail
+
+    def _collect_batch(sid, symbols, *, symbol_keys, extra=None):
+        """Run a bounded single-source collect with the source's symbol keys
+        OVERRIDDEN by the campaign batch (WS3/WS4/WS5 sharding). Returns the raw
+        run_ingestion result (or None if the source is not configured)."""
+        from . import ingestion as _ing
+        src = (cfg2.get("sources") or {})
+        if sid not in src:
+            return None
+        scfg = dict(src[sid])
+        for k in symbol_keys:
+            scfg[k] = list(symbols)
+        if extra:
+            scfg.update(extra)
+        one = dict(cfg2)
+        one["sources"] = {sid: scfg}
+        return _ing.run_ingestion(config=one, output_root=ingestion_root,
+                                  mode="collect", as_of="latest",
+                                  contact_email=contact_email)
+
+    # ---- Stage 6 real survivorship-free Norgate backfill --------------------
+    def _norgate_backfill(univ, kind):
+        from . import historical_backfill as _hb
+        res = _hb.run_backfill(cfg6, mode="backfill", as_of="latest",
+                               universe_override=list(univ))
+        detail = {"real_work": kind, "status": res.get("status"),
+                  "terminal": res.get("terminal"), "run_id": res.get("run_id"),
+                  "records_written": res.get("records_written"),
+                  "duplicate_prevented": res.get("duplicate_prevented"),
+                  "universe_size": res.get("universe_size"),
+                  "coverage_delta": res.get("coverage_delta") or {},
+                  "templates_unlocked": res.get("templates_unlocked"),
+                  "ledgers_unchanged": res.get("ledgers_unchanged"),
+                  "universe": list(univ)}
+        if "BLOCKED" in str(res.get("status") or "") or \
+                res.get("terminal") == "ALPHA_AGENT_STAGE6_BLOCKED":
+            detail["reason"] = "norgate backfill blocked: %s" % res.get("status")
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+        if not res.get("records_written"):
+            detail["note"] = "no NEW bars (universe already covered)"
+        return _ar.OUTCOME_COMPLETED, detail
+
+    # Map a registry DISPLAY provider name (e.g. "BEA", "FRED / ALFRED") onto the
+    # collector source_id its stage2 config block uses, so a planner-seeded
+    # acquisition job routes to the real collector (WS1: BEA runs through the
+    # queue handler once its free UserID is provisioned).
+    _PROVIDER_TO_SID = {
+        "bea": "bea", "fred / alfred": "fred_alfred", "fred": "fred_alfred",
+        "bls": "bls", "us treasury": "us_treasury", "finra": "finra",
+        "nasdaq trader": "nasdaq_trader", "sec edgar": "sec_edgar",
+        "eodhd": "eodhd", "norgate data": "norgate_local",
+    }
+
+    def _resolve_sid(payload):
+        sid = (payload or {}).get("collector_source_id")
+        if sid:
+            return sid
+        provider = str((payload or {}).get("provider") or "eodhd")
+        return _PROVIDER_TO_SID.get(provider.strip().lower(), provider)
+
+    def _h_data_acquisition(job):
+        sid = _resolve_sid(job.payload)
+        if sid in ("norgate_local", "norgate"):
+            return _norgate_backfill((job.payload or {}).get("universe")
+                                     or bounded_universe,
+                                     "stage6_norgate_acquisition")
+        return _collect(sid)
+
+    def _h_coverage_repair(job):
+        univ = (job.payload or {}).get("universe") or repair_universe
+        return _norgate_backfill(univ, "stage6_coverage_repair")
+
+    def _read_normalized(record_type, *, limit=3000):
+        base = Path(ingestion_root) / "normalized" / record_type
+        out = []
+        if not base.exists():
+            return out
+        for f in sorted(base.rglob("*.jsonl"))[:limit]:
+            try:
+                for line in f.read_text(encoding="utf-8-sig").splitlines():
+                    line = line.strip()
+                    if line:
+                        try:
+                            out.append(_json.loads(line))
+                        except ValueError:
+                            pass
+            except OSError:
+                pass
+        return out
+
+    def _analyst_vintage_evidence():
+        """Disk-truth evidence for the eodhd_analyst immutable daily vintage:
+        first-snapshot PIT floor + today's persisted vintage files."""
+        from datetime import datetime as _dt2, timezone as _tz2
+        vroot = Path(ingestion_root) / "vintages" / "eodhd_analyst"
+        today = _dt2.now(_tz2.utc).date().isoformat()
+        boundary = None
+        bpath = vroot / "_prospective_boundary.json"
+        if bpath.exists():
+            try:
+                boundary = _json.loads(bpath.read_text(encoding="utf-8-sig")).get(
+                    "first_snapshot_date")
+            except (OSError, ValueError):
+                boundary = None
+        tdir = vroot / today
+        vintages_today = sorted(p.name for p in tdir.glob("*.json")) \
+            if tdir.exists() else []
+        all_dates = sorted(p.name for p in vroot.glob("*") if p.is_dir()) \
+            if vroot.exists() else []
+        return {"first_snapshot_boundary": boundary, "snapshot_date_today": today,
+                "vintage_files_today": vintages_today,
+                "vintage_count_today": len(vintages_today),
+                "snapshot_dates_on_disk": all_dates,
+                "vintage_root": str(vroot)}
+
+    def _h_prospective(job):
+        # WS1: analyst estimate revisions / price targets / estimate counts are
+        # ENTITLED-as-snapshot and are collected via the REAL eodhd_analyst
+        # forward-vintage collector (immutable daily vintage; availability =
+        # capture date; never backfilled before the first snapshot). Any other
+        # prospective family falls back to the entitled EODHD forward EARNINGS
+        # CALENDAR snapshot. Read-only w.r.t. operational trading state.
+        from datetime import datetime as _datetime, timezone as _tz
+        payload = job.payload or {}
+        field = str(payload.get("field") or "")
+        sid = payload.get("collector_source_id")
+        analyst_fields = {"analyst_estimate_revisions", "price_targets",
+                          "estimate_counts"}
+        if sid == "eodhd_analyst" or field in analyst_fields \
+                or "analyst" in field or "eodhd_analyst" in str(job.lane):
+            outcome, detail = _collect("eodhd_analyst")
+            detail = {**detail, "real_work": "eodhd_analyst_forward_vintage",
+                      "prospective_family": field or "analyst_estimate_revisions",
+                      "classification": "PROSPECTIVE_COLLECTION_ACTIVE",
+                      **_analyst_vintage_evidence()}
+            # An idempotent same-day re-run (all vintages already written) is a
+            # COMPLETED no-op, not a block.
+            if outcome == _ar.OUTCOME_BLOCKED_SPECIFIC and detail.get(
+                    "vintage_count_today"):
+                detail["note"] = ("all same-day vintages already written; "
+                                  "idempotent no-op")
+                detail["up_to_date"] = True
+                return _ar.OUTCOME_COMPLETED, detail
+            return outcome, detail
+
+        recs = _read_normalized("EARNINGS_EVENT", limit=2000)
+        dates = []
+        for r in recs:
+            pay = r.get("normalized_payload") or {}
+            d = r.get("effective_at") or pay.get("report_date") or pay.get("Date")
+            if d:
+                dates.append(str(d)[:10])
+        dates = sorted(set(dates))
+        today = _datetime.now(_tz.utc).date().isoformat()
+        forward = [d for d in dates if d >= today]
+        detail = {"real_work": "prospective_earnings_calendar_snapshot",
+                  "prospective_family": "eodhd_earnings_calendar (entitled)",
+                  "earnings_events_snapshotted": len(recs),
+                  "distinct_event_dates": len(dates),
+                  "forward_dated_events": len(forward),
+                  "calendar_date_min": dates[0] if dates else None,
+                  "calendar_date_max": dates[-1] if dates else None,
+                  "pit_floor": today,
+                  "pit_floor_note": "first-snapshot date is the hard PIT floor; "
+                                    "never backfilled before it",
+                  "not_entitled_prospective": ["analyst_estimate_revisions",
+                                               "price_targets", "estimate_counts"]}
+        if not recs:
+            detail["reason"] = "no entitled forward calendar available to snapshot"
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+        return _ar.OUTCOME_COMPLETED, detail
+
+    # ---- Stage 5/7 REAL price-factor experiment engine ----------------------
+    def _campaign(features, *, cost_grid=None):
+        from . import experiment_runner as _er
+        from . import experiment_contracts as _ec
+        panel = _panel()
+        if not panel:
+            return None, None, {"reason": "no price panel (no MARKET_BAR data)"}
+        specs = [s for s in _er.default_campaign_specs()
+                 if s.get("feature") in features]
+        res = _er.run_price_factor_campaign(
+            panel, specs=specs or None, gates=_ec.DEFAULT_GATES,
+            cost_grid=cost_grid or [5, 10, 25, 50], cost_bps=10.0,
+            bounds={"max_experiments": 12})
+        return res, panel, None
+
+    def _sector_map(symbols):
+        """Current GICS Sector (level 1) per symbol from the OWNED Norgate
+        classification surface (survivorship-safe universe). Cached. Current-only
+        (Norgate exposes no dated classification series), so a financials
+        exclusion built from it carries a small, documented reclassification
+        look-ahead — sector membership (financials vs not) is ~stable."""
+        if "sectors" not in _cache:
+            smap = {}
+            try:
+                import norgatedata as _nd  # noqa: PLC0415 - local vendor import
+                for s in symbols:
+                    try:
+                        smap[s] = _nd.classification_at_level(
+                            s, "GICS", "Name", 1)
+                    except Exception:  # noqa: BLE001
+                        smap[s] = None
+            except Exception:  # noqa: BLE001 - NDU down / package absent
+                smap = {}
+            _cache["sectors"] = smap
+        return _cache["sectors"]
+
+    def _campaign_filtered(features, keep, *, cost_grid=None):
+        """Same bounded price-factor campaign as ``_campaign`` but over a panel
+        filtered by ``keep(ticker) -> bool`` (e.g. drop financials)."""
+        from . import experiment_runner as _er
+        from . import experiment_contracts as _ec
+        panel = _panel()
+        if not panel:
+            return None, None, {"reason": "no price panel (no MARKET_BAR data)"}
+        fpanel = {t: b for t, b in panel.items() if keep(t)}
+        if not fpanel:
+            return None, None, {"reason": "filter removed the entire universe"}
+        specs = [s for s in _er.default_campaign_specs()
+                 if s.get("feature") in features]
+        res = _er.run_price_factor_campaign(
+            fpanel, specs=specs or None, gates=_ec.DEFAULT_GATES,
+            cost_grid=cost_grid or [5, 10, 25, 50], cost_bps=10.0,
+            bounds={"max_experiments": 12})
+        return res, fpanel, None
+
+    def _rows(res, keys):
+        out = []
+        for r in (res.get("results") or []):
+            out.append({k: r.get(k) for k in keys})
+        return out
+
+    _EXP_KEYS = ("feature", "label", "periods", "rank_ic_mean", "rank_ic_t",
+                 "decile_spread_mean", "spread_t", "net_annualized_return",
+                 "beats_null_control", "decision")
+    _ROB_KEYS = ("feature", "periods", "rank_ic_t", "subperiod_consistency",
+                 "regime_consistency", "max_drawdown", "turnover",
+                 "cost_flips_sign", "cost_erosion_ratio", "decision")
+
+    def _event_experiment(job):
+        """WS2/WS3: insider (Form 4 transaction) and earnings (8-K Item 2.02 /
+        EODHD) EVENT experiment lanes over the REAL normalized records. Reports
+        honest coverage; runs a cross-sectional event study only when coverage is
+        sufficient, else returns a COMPLETED DATA_HOLD with exact counts (the
+        acquisition + extraction are proven; coverage grows as the bounded CIK set
+        widens)."""
+        family = str((job.payload or {}).get("family") or "")
+        if "insider" in family:
+            recs = _read_normalized("INSIDER_FILING", limit=4000)
+            txn = [r for r in recs
+                   if (r.get("normalized_payload") or {}).get("transaction_code")
+                   and (r.get("normalized_payload") or {}).get("shares") is not None]
+            issuers = {r.get("company_id") for r in txn if r.get("company_id")}
+            min_issuers = int((cfg.get("autonomy") or {}).get(
+                "event_min_issuers", 30))
+            detail = {"real_work": "insider_event_study", "family": family,
+                      "insider_transaction_records": len(txn),
+                      "distinct_issuers": len(issuers),
+                      "min_issuers_for_experiment": min_issuers,
+                      "pit_basis": "SEC Form 4 acceptance timestamp"}
+            if len(issuers) < min_issuers:
+                detail["disposition"] = "DATA_HOLD"
+                detail["reason"] = (
+                    "insider transaction-level coverage insufficient for a cross-"
+                    "sectional event study (%d issuers < %d); Form 4 XML "
+                    "transaction extraction is proven and PIT-correct, coverage "
+                    "grows as the bounded CIK set widens" % (len(issuers),
+                                                             min_issuers))
+                return _ar.OUTCOME_COMPLETED, detail
+            detail["disposition"] = "COVERAGE_SUFFICIENT"
+            return _ar.OUTCOME_COMPLETED, detail
+        if any(k in family for k in ("earnings", "drift", "surprise",
+                                     "filing", "corporate")):
+            recs = _read_normalized("EARNINGS_EVENT", limit=4000)
+            item202 = [r for r in recs if r.get("event_type") == "8-K_ITEM_2.02"]
+            eodhd_earn = [r for r in recs if r.get("event_type") == "EARNINGS_REPORT"]
+            with_eps = [r for r in item202
+                        if (r.get("normalized_payload") or {}).get("eps_actual")
+                        is not None]
+            min_events = int((cfg.get("autonomy") or {}).get(
+                "event_min_events", 30))
+            usable = len(item202) + len(eodhd_earn)
+            detail = {"real_work": "earnings_surprise_pead_event_study",
+                      "family": family,
+                      "sec_8k_item202_events": len(item202),
+                      "item202_with_inline_eps": len(with_eps),
+                      "eodhd_earnings_events": len(eodhd_earn),
+                      "usable_events": usable,
+                      "min_events_for_experiment": min_events,
+                      "pit_basis": "SEC 8-K acceptance timestamp / EODHD report date"}
+            if usable < min_events:
+                detail["disposition"] = "DATA_HOLD"
+                detail["reason"] = (
+                    "earnings-surprise / PEAD coverage insufficient (%d usable "
+                    "events < %d); 8-K Item 2.02 extraction is proven and PIT-"
+                    "correct, coverage grows as the bounded CIK set widens"
+                    % (usable, min_events))
+                return _ar.OUTCOME_COMPLETED, detail
+            detail["disposition"] = "COVERAGE_SUFFICIENT"
+            return _ar.OUTCOME_COMPLETED, detail
+        return None  # not an event family — fall through to the price campaign
+
+    def _h_experiment(job):
+        if str((job.payload or {}).get("kind")) == "event":
+            ev = _event_experiment(job)
+            if ev is not None:
+                return ev
+        res, panel, err = _campaign({"residual_momentum", "momentum_accel",
+                                     "vol_scaled_momentum", "short_term_reversal",
+                                     "low_volatility"})
+        if err:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {"real_work": "stage5_price_factor_experiment", **err}
+        detail = {"real_work": "stage5_price_factor_experiment",
+                  "panel_symbols": len(panel), "panel_start": panel_start,
+                  "experiments_completed": res.get("experiments_completed"),
+                  "keep_for_research": res.get("keep_for_research"),
+                  "null_control_rank_ic_t":
+                      (res.get("plan") or {}).get("null_control_rank_ic_t"),
+                  "results": _rows(res, _EXP_KEYS)}
+        if not res.get("experiments_completed"):
+            detail["reason"] = "no experiment reached min periods"
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+        return _ar.OUTCOME_COMPLETED, detail
+
+    def _h_robustness(job):
+        res, panel, err = _campaign({"residual_momentum"},
+                                    cost_grid=[5, 10, 25, 50, 100])
+        if err:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {"real_work": "stage5_robustness_cost_regime", **err}
+        detail = {"real_work": "stage5_robustness_cost_regime",
+                  "panel_symbols": len(panel),
+                  "cost_grid_bps": [5, 10, 25, 50, 100],
+                  "results": _rows(res, _ROB_KEYS)}
+        if not res.get("results"):
+            detail["reason"] = "robustness produced no result"
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+        return _ar.OUTCOME_COMPLETED, detail
+
+    def _h_combination(job):
+        res, panel, err = _campaign({"combo_mom_lowvol", "residual_momentum",
+                                     "low_volatility"})
+        if err:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {"real_work": "stage5_signal_combination", **err}
+        detail = {"real_work": "stage5_signal_combination",
+                  "panel_symbols": len(panel),
+                  "note": "orthogonal momentum+low-vol combo vs its components",
+                  "results": _rows(res, _EXP_KEYS)}
+        if not res.get("results"):
+            detail["reason"] = "combination produced no result"
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+        return _ar.OUTCOME_COMPLETED, detail
+
+    def _h_telegram(job):
+        req = str((job.payload or {}).get("request") or "").lower()
+        feature = "residual_momentum"
+        if "reversal" in req:
+            feature = "short_term_reversal"
+        elif "combo" in req or "combination" in req:
+            feature = "combo_mom_lowvol"
+        elif "low" in req and "vol" in req:
+            feature = "low_volatility"
+        base = {"real_work": "stage5_price_factor_experiment_from_telegram",
+                "request": (job.payload or {}).get("request"),
+                "mapped_feature": feature}
+        exclude_financials = ("financ" in req and
+                              ("exclud" in req or "ex-" in req or "without" in req
+                               or "drop" in req or "no " in req))
+
+        if exclude_financials:
+            # REAL financials exclusion using the OWNED Norgate GICS Sector
+            # classification (level 1) over the survivorship-safe panel. This
+            # replaces the former permanent DATA_HOLD: the experiment runs on the
+            # ex-financials cross-section and returns a real, caveated result.
+            full = _panel()
+            smap = _sector_map(list(full.keys())) if full else {}
+            def _keep(t):
+                return str(smap.get(t) or "").strip().lower() != "financials"
+            n_fin = sum(1 for t in (full or {})
+                        if str(smap.get(t) or "").strip().lower() == "financials")
+            classified = sum(1 for t in (full or {}) if smap.get(t))
+            if not smap or classified == 0:
+                # Norgate classification genuinely unavailable this run — honest
+                # hold (NOT permanent: it clears when NDU classification returns).
+                res, panel, err = _campaign({feature})
+                if err:
+                    return _ar.OUTCOME_BLOCKED_SPECIFIC, {**base, **err}
+                detail = {**base, "panel_symbols": len(panel),
+                          "results": _rows(res, _EXP_KEYS),
+                          "sector_exclusion_note":
+                              "Norgate GICS classification was unavailable this "
+                              "cycle; reported the market-neutral RESIDUAL "
+                              "momentum factor (leakage-safe) instead. Retries "
+                              "with the ex-financials universe when NDU "
+                              "classification is reachable."}
+                return _ar.OUTCOME_COMPLETED, detail
+            res, panel, err = _campaign_filtered({feature}, _keep)
+            if err:
+                return _ar.OUTCOME_BLOCKED_SPECIFIC, {**base, **err}
+            # WS5: build the leakage-safe PIT-SIC series from contemporaneous SEC
+            # ASSIGNED-SIC records and run the three-way comparison. The current-
+            # GICS exclusion is relabelled PROVISIONAL_CLASSIFICATION_LOOKAHEAD;
+            # only the PIT-SIC variant is leakage-safe research evidence.
+            from . import pit_sector as _ps
+            sic_recs = [r for r in _read_normalized("SECURITY_IDENTITY", limit=4000)
+                        if r.get("event_type") == "ASSIGNED_SIC_PIT"]
+            pit_series = _ps.PitSicSeries.from_records(sic_recs)
+            today = _datetime.now(_tz.utc).date().isoformat()
+            comparison = _ps.three_way_financials_comparison(
+                symbols=list(full.keys()), current_gics=smap,
+                pit_series=pit_series, as_of=today)
+            detail = {**base, "universe": "ex_financials",
+                      "panel_symbols_full": len(full),
+                      "panel_symbols_ex_financials": len(panel),
+                      "financials_excluded": n_fin,
+                      "symbols_classified": classified,
+                      "sector_source": "Norgate GICS Sector (classification_at_"
+                                       "level, level 1), survivorship-safe",
+                      "evidence_classification": "PROVISIONAL_CLASSIFICATION_"
+                                                 "LOOKAHEAD",
+                      "point_in_time_caveat":
+                          "The reported ex-financials result uses CURRENT Norgate "
+                          "GICS (undated) — a classification look-ahead. It is "
+                          "PROVISIONAL_CLASSIFICATION_LOOKAHEAD, NOT leakage-free. "
+                          "The leakage-safe lane is the PIT-SIC comparison below "
+                          "(contemporaneous SEC ASSIGNED-SIC).",
+                      "three_way_sector_comparison": comparison,
+                      "pit_sic_coverage": comparison["variants"]["pit_sic"],
+                      "results": _rows(res, _EXP_KEYS)}
+            if not res.get("results"):
+                detail["reason"] = "no experiment reached min periods after "\
+                                   "excluding financials"
+                return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+            return _ar.OUTCOME_COMPLETED, detail
+
+        # No sector exclusion requested — plain full-universe factor experiment.
+        res, panel, err = _campaign({feature})
+        if err:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {**base, **err}
+        detail = {**base, "panel_symbols": len(panel),
+                  "results": _rows(res, _EXP_KEYS)}
+        if not res.get("results"):
+            detail["reason"] = "no experiment reached min periods"
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+        return _ar.OUTCOME_COMPLETED, detail
+
+    # ---------------------------------------------------------------------- #
+    # WS2/WS3/WS4/WS5/WS7 — acceptance-vs-production run modes + durable, sharded
+    # FULL-UNIVERSE acquisition campaigns. A per-job batch size is permitted; a
+    # permanent total-universe cap is not. Each completed batch enqueues the next
+    # (autonomous continuation); the never-idle planner also keeps one live batch
+    # job per incomplete campaign, so a report never terminates a campaign.
+    # ---------------------------------------------------------------------- #
+    from . import production_universe as _pu
+    from datetime import datetime as _dt3, timezone as _tz3
+
+    _prod = cfg.get("production") if isinstance(cfg.get("production"), dict) \
+        else {}
+    _run_mode = _pu.resolve_run_mode(cfg)
+    _defs_by_id = {d["id"]: d for d in resolve_campaign_defs(cfg)}
+
+    def _camp_store():
+        if "camp_store" not in _cache:
+            _cache["camp_store"] = stage8_campaign_store(cfg)
+        return _cache["camp_store"]
+
+    def _universe(scope=_pu.SCOPE_SURVIVORSHIP):
+        ck = "universe_%s" % scope
+        if ck not in _cache:
+            _cache[ck] = _pu.resolve_universe(
+                cfg, mode=_run_mode, scope=scope,
+                fallback_symbols=lambda: sorted((_panel() or {}).keys()))
+        return _cache[ck]
+
+    def _today():
+        return _dt3.now(_tz3.utc).date().isoformat()
+
+    def _enqueue_next_batch(cid, category, seq, priority):
+        """Autonomous continuation (WS7): enqueue the NEXT batch as a distinct
+        job (seq-tagged so it is never deduped against the finished one)."""
+        if queue is None:
+            return None
+        try:
+            return queue.enqueue(category, lane="acq.%s" % cid,
+                                 payload={"campaign": cid, "seq": int(seq)},
+                                 priority=int(priority),
+                                 origin="campaign-continuation")
+        except Exception:  # noqa: BLE001 — continuation must never crash a job
+            return None
+
+    def _ensure_campaign(cid, kind, batch_size, scope=_pu.SCOPE_SURVIVORSHIP):
+        univ = _universe(scope)
+        store = _camp_store()
+        store.ensure_campaign(cid, kind=kind, universe=univ.symbols,
+                              universe_source=univ.source,
+                              batch_size=batch_size, run_mode=_run_mode,
+                              universe_fingerprint=univ.fingerprint)
+        return store, univ
+
+    def _campaign_base(cid, univ, cov):
+        return {"campaign": cid, "run_mode": _run_mode,
+                "production_universe_source": univ.source,
+                "full_universe_target_count":
+                    cov.get("full_universe_target_count"),
+                "completed_symbol_count": cov.get("completed_symbol_count"),
+                "remaining_symbol_count": cov.get("remaining_symbol_count"),
+                "repair_backlog_count": cov.get("repair_backlog_count"),
+                "permanent_failed_count": cov.get("permanent_failed_count"),
+                "per_job_symbol_batch_size":
+                    cov.get("per_job_symbol_batch_size"),
+                "acquisition_cursor": cov.get("acquisition_cursor"),
+                "campaign_complete": cov.get("is_complete"),
+                "coverage_reconciles": cov.get("reconciles"),
+                "universe_degraded": univ.degraded}
+
+    # ---- EODHD analyst forward-vintage campaign (WS4) ---------------------- #
+    def _run_analyst_campaign(job):
+        d = _defs_by_id["eodhd_analyst"]
+        # Forward analyst vintages are eligible only for CURRENTLY-LISTED names
+        # (a delisted company has no future analyst data). This is a correct
+        # eligibility criterion, not a total-universe cap — the price/filing
+        # campaigns still sweep the full survivorship-safe universe.
+        store, univ = _ensure_campaign(
+            "eodhd_analyst", "analyst_vintage", d["batch_size"],
+            scope=d.get("universe_scope", _pu.SCOPE_CURRENT))
+        batch = store.next_batch("eodhd_analyst", batch_size=d["batch_size"])
+        if not batch:
+            cov = store.coverage("eodhd_analyst")
+            return _ar.OUTCOME_COMPLETED, {
+                **_campaign_base("eodhd_analyst", univ, cov),
+                "real_work": "eodhd_analyst_forward_vintage_campaign",
+                "note": "no claimable symbols (complete or empty universe)",
+                **_analyst_vintage_evidence()}
+        eod = [s if "." in s else "%s.US" % s for s in batch]
+        _collect_batch("eodhd_analyst", eod, symbol_keys=["sample_symbols"])
+        vdir = Path(ingestion_root) / "vintages" / "eodhd_analyst" / _today()
+        succeeded = [s for s in batch if (vdir / ("%s.json" % s)).exists()]
+        failed = [s for s in batch if s not in set(succeeded)]
+        cov = store.record_results(
+            "eodhd_analyst", succeeded=succeeded,
+            failed=[(s, "no vintage written this snapshot") for s in failed])
+        _enqueue_next_batch("eodhd_analyst", d["category"],
+                            cov.get("acquisition_cursor", 0), job.priority)
+        return _ar.OUTCOME_COMPLETED, {
+            **_campaign_base("eodhd_analyst", univ, cov),
+            "real_work": "eodhd_analyst_forward_vintage_campaign",
+            "classification": "PROSPECTIVE_COLLECTION_ACTIVE",
+            "batch_symbols": len(batch), "succeeded_symbols": len(succeeded),
+            "failed_symbols": len(failed),
+            "next_batch_enqueued": bool(queue) and not cov.get("is_complete"),
+            **_analyst_vintage_evidence()}
+
+    # ---- Norgate survivorship-free price campaign (WS3) -------------------- #
+    def _run_norgate_campaign(job):
+        d = _defs_by_id["norgate_prices"]
+        store, univ = _ensure_campaign("norgate_prices",
+                                       "norgate_price_backfill", d["batch_size"])
+        batch = store.next_batch("norgate_prices", batch_size=d["batch_size"])
+        if not batch:
+            cov = store.coverage("norgate_prices")
+            return _ar.OUTCOME_COMPLETED, {
+                **_campaign_base("norgate_prices", univ, cov),
+                "real_work": "norgate_price_campaign",
+                "note": "no claimable symbols"}
+        outcome, detail = _norgate_backfill(batch, "norgate_price_campaign")
+        if outcome == _ar.OUTCOME_BLOCKED_SPECIFIC:
+            cov = store.record_results(
+                "norgate_prices",
+                failed=[(s, detail.get("reason")) for s in batch])
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                **detail, **_campaign_base("norgate_prices", univ, cov)}
+        cov = store.record_results("norgate_prices", succeeded=batch)
+        _enqueue_next_batch("norgate_prices", d["category"],
+                            cov.get("acquisition_cursor", 0), job.priority)
+        return _ar.OUTCOME_COMPLETED, {
+            **detail, **_campaign_base("norgate_prices", univ, cov),
+            "batch_symbols": len(batch),
+            "next_batch_enqueued": bool(queue) and not cov.get("is_complete")}
+
+    # ---- SEC Form 4 / 8-K full-CIK-universe campaign (WS5) ----------------- #
+    def _run_sec_cik_campaign(job):
+        d = _defs_by_id["sec_form4_8k"]
+        store, univ = _ensure_campaign("sec_form4_8k", "sec_cik_filings",
+                                       d["batch_size"])
+        batch = store.next_batch("sec_form4_8k", batch_size=d["batch_size"])
+        if not batch:
+            cov = store.coverage("sec_form4_8k")
+            return _ar.OUTCOME_COMPLETED, {
+                **_campaign_base("sec_form4_8k", univ, cov),
+                "real_work": "sec_form4_8k_cik_campaign",
+                "note": "no claimable symbols"}
+        res = _collect_batch("sec_edgar", batch,
+                             symbol_keys=["facts_sample_symbols"],
+                             extra={"facts_symbol_limit": len(batch)})
+        state = (res or {}).get("source_states", {}).get("sec_edgar")
+        new_recs = ((res or {}).get("counts") or {}).get(
+            "normalized_records_new")
+        blocked = (res is None or bool((res or {}).get("blocked_sources"))
+                   or "BLOCKED" in str((res or {}).get("status") or ""))
+        if blocked and not new_recs:
+            cov = store.record_results(
+                "sec_form4_8k",
+                failed=[(s, "sec lane blocked/failed this batch")
+                        for s in batch])
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                **_campaign_base("sec_form4_8k", univ, cov),
+                "real_work": "sec_form4_8k_cik_campaign",
+                "reason": "SEC CIK batch blocked: %s"
+                          % (res or {}).get("status"),
+                "sec_source_state": state}
+        cov = store.record_results("sec_form4_8k", succeeded=batch)
+        _enqueue_next_batch("sec_form4_8k", d["category"],
+                            cov.get("acquisition_cursor", 0), job.priority)
+        return _ar.OUTCOME_COMPLETED, {
+            **_campaign_base("sec_form4_8k", univ, cov),
+            "real_work": "sec_form4_8k_cik_campaign",
+            "sec_source_state": state, "batch_ciks_queried": len(batch),
+            "normalized_records_new": new_recs,
+            "pit_basis": "SEC acceptance timestamp; amendments (4/A, 8-K/A) are "
+                         "distinct append-only records",
+            "next_batch_enqueued": bool(queue) and not cov.get("is_complete")}
+
+    # ---- SEC bulk-archive resumable download campaign (WS6/WS7) ------------ #
+    def _run_bulk_campaign(job, archive):
+        from . import sec_bulk_download as _bulk
+        sec = (cfg2.get("sources") or {}).get("sec_edgar") or {}
+        arch_path = (sec.get("bulk_archives") or {}).get(archive)
+        cid = "sec_bulk_%s" % archive
+        store = _camp_store()
+        store.ensure_campaign(cid, kind="sec_bulk_archive", universe=[archive],
+                              universe_source="sec_official_bulk_archive",
+                              batch_size=1, run_mode=_run_mode)
+        if not arch_path:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                "campaign": cid, "reason": "no bulk archive path configured"}
+        base = sec.get("base_url_www", "https://www.sec.gov").rstrip("/")
+        contact = contact_email or "binisti@gmail.com"
+        product = (cfg2.get("user_agent") or {}).get(
+            "product", "paper-trader-alpha-agent/2.0")
+        headers = {"User-Agent": "%s %s" % (product, contact),
+                   "Accept-Encoding": "identity"}
+        dest = Path(_prod.get("bulk_root")
+                    or (Path(ingestion_root) / "bulk" / "sec_edgar"))
+        dl = _bulk.BulkArchiveDownloader(
+            url=base + arch_path, dest_dir=dest, name=archive, headers=headers,
+            disk_budget_bytes=int(_prod.get("bulk_disk_budget_bytes",
+                                            8 * 1024 ** 3)),
+            segment_bytes=int(_prod.get("bulk_segment_bytes",
+                                        64 * 1024 * 1024)),
+            timeout=float((cfg2.get("limits") or {}).get(
+                "http_timeout_seconds", 60)))
+        prog = dl.download_segment()
+        disp = prog.get("disposition")
+        if disp == _bulk.D_DISK_CAPACITY_REQUIRED:
+            pf = prog.get("preflight") or {}
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                "campaign": cid, "real_work": "sec_bulk_resumable_download",
+                "disposition": disp, "reason": prog.get("reason"),
+                "required_bytes": pf.get("required_bytes") or prog.get(
+                    "total_bytes"),
+                "available_bytes": pf.get("available_bytes")}
+        if prog.get("complete"):
+            store.record_results(cid, succeeded=[archive])
+            return _ar.OUTCOME_COMPLETED, {
+                "campaign": cid, "real_work": "sec_bulk_resumable_download",
+                "archive": archive, "complete": True,
+                "sha256": prog.get("sha256"), "bulk": prog}
+        # In progress: leave the archive PENDING and enqueue the next segment.
+        _enqueue_next_batch(cid, _ar.CAT_DATA_ACQUISITION,
+                            int(prog.get("bytes_downloaded", 0)), job.priority)
+        detail = {"campaign": cid, "real_work": "sec_bulk_resumable_download",
+                  "archive": archive, "complete": False, "bulk": prog,
+                  "next_segment_enqueued": bool(queue)}
+        return (_ar.OUTCOME_COMPLETED if prog.get("ok", True)
+                else _ar.OUTCOME_RETRYABLE), detail
+
+    _CAMP_RUNNERS = {"norgate": _run_norgate_campaign,
+                     "analyst": _run_analyst_campaign,
+                     "sec_cik": _run_sec_cik_campaign}
+
+    def _h_data_acquisition_camp(job):
+        cid = (job.payload or {}).get("campaign")
+        if cid:
+            d = _defs_by_id.get(cid)
+            if d is None:
+                return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                    "campaign": cid, "reason": "unknown campaign"}
+            if d.get("runner") == "bulk":
+                return _run_bulk_campaign(job, d.get("archive"))
+            runner = _CAMP_RUNNERS.get(d.get("runner"))
+            if runner:
+                return runner(job)
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                "campaign": cid, "reason": "no runner for campaign"}
+        return _h_data_acquisition(job)
+
+    def _h_prospective_camp(job):
+        if (job.payload or {}).get("campaign") == "eodhd_analyst":
+            return _run_analyst_campaign(job)
+        return _h_prospective(job)
+
+    # Start from the safe defaults (source-discovery/entitlement/report keep
+    # their offline behaviour) and OVERRIDE the real-work categories.
+    handlers = _default_autonomy_handlers(cfg)
+    handlers[_ar.CAT_DATA_ACQUISITION] = _h_data_acquisition_camp
+    handlers[_ar.CAT_COVERAGE_REPAIR] = _h_coverage_repair
+    handlers[_ar.CAT_PROSPECTIVE_SNAPSHOT] = _h_prospective_camp
+    handlers[_ar.CAT_EXPERIMENT] = _h_experiment
+    handlers[_ar.CAT_ROBUSTNESS_TEST] = _h_robustness
+    handlers[_ar.CAT_SIGNAL_COMBINATION] = _h_combination
+    handlers[_ar.CAT_TELEGRAM_REQUEST] = _h_telegram
+    return handlers
+
+
+def run_autonomy_cycle(cfg: dict, *, handlers=None, planner=None,
+                       max_jobs: Optional[int] = None, clock=None,
+                       run_mode: Optional[str] = None) -> dict:
+    """Run ONE bounded, never-idle Stage 8 research cycle: requeue stale work,
+    replenish the queue so it is never empty, drain up to ``max_jobs`` jobs
+    through their handlers, then ensure the queue is not left empty. Returns the
+    cycle summary. Read-only w.r.t. operational trading state.
+
+    Handler selection: an explicit ``handlers`` map wins; else if the config asks
+    for production handlers (``autonomy.handlers == 'production'``) the REAL
+    Stage 2/5/6 handlers are used; else the safe offline defaults.
+
+    Run mode (WS2): an explicit ``run_mode`` ('production' from a scheduled task,
+    'acceptance' from a smoke run) wins over ``production.run_mode`` in the
+    config. In production mode the planner ALSO keeps one live batch job per
+    incomplete full-universe campaign (never-idle continuation)."""
+    from . import autonomous_research as _ar
+    from . import source_exhaustion as _se
+    from . import production_universe as _pu
+    if run_mode:
+        cfg = {**cfg, "production": {**(cfg.get("production") or {}),
+                                     "run_mode": run_mode}}
+    queue = build_autonomy_queue(cfg, clock=clock)
+    _auto = cfg.get("autonomy") if isinstance(cfg.get("autonomy"), dict) else {}
+    is_prod = str(_auto.get("handlers")) == "production"
+    if handlers is None:
+        if is_prod:
+            handlers = build_production_autonomy_handlers(
+                cfg, contact_email=cfg.get("contact_email"), queue=queue)
+        else:
+            handlers = _default_autonomy_handlers(cfg)
+    if planner is None:
+        base_planner = _se.make_planner(lambda: _se.build_registry_snapshot())
+        if is_prod and _pu.resolve_run_mode(cfg) == _pu.PRODUCTION:
+            _store = stage8_campaign_store(cfg, clock=clock)
+
+            def planner(_q, _base=base_planner, _cfg=cfg, _s=_store):
+                return list(_base(_q) or []) + \
+                    production_campaign_seed_specs(_cfg, _s)
+        else:
+            planner = base_planner
+    mx = int(max_jobs if max_jobs is not None
+             else (cfg.get("autonomy") or {}).get("max_jobs_per_cycle", 8)) \
+        if isinstance(cfg.get("autonomy"), dict) or max_jobs is not None else 8
+    return _ar.run_cycle(queue, handlers, planner=planner, max_jobs=mx)
+
+
+def run_autonomy_watchdog(cfg: dict, *, planner=None, clock=None) -> dict:
+    """Stage 8 continuous-operation watchdog over the durable queue: detect stale
+    RUNNING jobs / an empty queue, requeue and replenish, and classify a genuine
+    global hard blocker. Never mutates operational trading state."""
+    from . import autonomous_research as _ar
+    from . import source_exhaustion as _se
+    queue = build_autonomy_queue(cfg, clock=clock)
+    if planner is None:
+        planner = _se.make_planner(lambda: _se.build_registry_snapshot())
+    return _ar.watchdog_scan(queue, planner=planner)

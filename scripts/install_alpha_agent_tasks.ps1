@@ -11,6 +11,9 @@
         AlphaAgent-Morning-Report   daily 08:00 (research report + email)
         AlphaAgent-PostClose-Report Mon-Fri 18:30 (research report + email)
         AlphaAgent-Watchdog         hourly (deterministic health + recovery)
+        AlphaAgent-Telegram         at logon (Stage 8 secure control plane;
+                                    long polling; read-only + bounded research
+                                    only; ALWAYS registered DISABLED here)
 
     All tasks run as the current user with LogonType Interactive (only while
     logged in), RunLevel Limited, MultipleInstances IgnoreNew,
@@ -120,6 +123,7 @@ if ($ValidateOnly) {
         Write-Host ("  {0} :: {1} {2}" -f $d.Name, $PythonExe,
                     $d.Action.Arguments)
     }
+    Write-Host ("  {0} :: powershell.exe -File scripts\run_alpha_agent_telegram.ps1  (Stage 8; DISABLED)" -f "AlphaAgent-Telegram")
     Write-Host "ALPHA_AGENT_STAGE4_VALIDATED"
     exit 0
 }
@@ -134,6 +138,33 @@ foreach ($d in $defs) {
         Disable-ScheduledTask -TaskName $d.Name | Out-Null
         Info "Disabled  $($d.Name) (Gmail credential absent)"
     }
+}
+
+# ---- Stage 8: AlphaAgent-Telegram control task (idempotent; DISABLED) ------ #
+# The secure Telegram long-polling control plane. It is READ-ONLY plus bounded
+# research-request enqueue; it can never create an order/fill/trade decision,
+# promote a model or mutate holdings/cash. It is ALWAYS registered DISABLED here
+# and must be enabled by the user only after configuring the DPAPI bot token and
+# completing final validation.
+$TgRunner = Join-Path $Repo "scripts\run_alpha_agent_telegram.ps1"
+$TgTokenDir = Join-Path $env:USERPROFILE ".paper_trader\alpha_agent_telegram"
+$TgTokenFile = Join-Path $TgTokenDir "telegram_bot_token.dpapi"
+$TgAction = New-ScheduledTaskAction -Execute "powershell.exe" `
+    -Argument ("-NoProfile -ExecutionPolicy Bypass -File `"$TgRunner`"") `
+    -WorkingDirectory $Repo
+$TgTrigger = New-ScheduledTaskTrigger -AtLogOn
+# No execution-time limit (0 = unlimited): the control plane long-polls.
+$TgSettings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
+    -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
+    -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 2)
+Register-ScheduledTask -TaskName "AlphaAgent-Telegram" -Action $TgAction `
+    -Trigger $TgTrigger -Settings $TgSettings -Principal $principal `
+    -Description ("Alpha Agent Stage 8 secure Telegram control (long polling; " +
+                  "READ-ONLY + bounded research only; no orders/automation).") -Force | Out-Null
+Disable-ScheduledTask -TaskName "AlphaAgent-Telegram" | Out-Null
+Info "Registered AlphaAgent-Telegram (DISABLED)."
+if (-not (Test-Path $TgTokenFile)) {
+    Info "Telegram token absent - run scripts\configure_alpha_agent_telegram.ps1 before enabling."
 }
 
 # ---- immediate collect + optional test report ----------------------------- #

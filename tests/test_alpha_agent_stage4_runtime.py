@@ -2588,3 +2588,29 @@ def test_smtp_stdin_strips_utf8_bom(monkeypatch):
         monkeypatch.setattr(mod.sys, "stdin",
                             io.StringIO("\ufeff" + _APP_PASSWORD + "\n"))
         assert mod._read_app_password_from_stdin() == _APP_PASSWORD
+
+
+# --------------------------------------------------------------------------- #
+# Stage 8 compatibility: the autonomy additions are purely additive and never
+# alter any Stage 4 mode; SMTP delivery remains intact.
+# --------------------------------------------------------------------------- #
+def test_stage8_additions_do_not_break_stage4_config():
+    cfg = rc.load_config(_REPO / "configs" / "alpha_agent"
+                         / "stage4_runtime.json")
+    # Stage 8 flags were added additively.
+    assert cfg.get("stage8_enabled") is True
+    # The strict Stage-4 contract is untouched: SMTP transport + exactly the
+    # four cadence task names (the Telegram control task is NOT one of them).
+    assert cfg["email"]["transport"] == "gmail_smtp"
+    assert sorted(cfg["allowed_task_names"]) == sorted(
+        list(rc.ALPHA_AGENT_TASK_NAMES))
+
+
+def test_stage8_runtime_entrypoints_are_additive_and_research_only(tmp_path):
+    # New Stage 8 entry points exist and run a bounded, never-idle cycle without
+    # touching any Stage 4 mode or any operational ledger.
+    assert hasattr(rt, "run_autonomy_cycle") and hasattr(rt, "stage8_enabled")
+    summ = rt.run_autonomy_cycle(
+        {"stage8_autonomy_root": str(tmp_path / "s8"),
+         "autonomy": {"max_jobs_per_cycle": 3}})
+    assert summ["processed"] >= 1 and summ["depth"] >= 1

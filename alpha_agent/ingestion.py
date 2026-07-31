@@ -908,10 +908,19 @@ def run_ingestion(*, config: dict, output_root: str, mode: str,
                 "ledger_unchanged": ledger_unchanged}
     if status == BLOCKED:
         conn.close()
+        # Carry blocked_sources + source_states even on the terminal-BLOCKED
+        # path so a caller can distinguish a genuine credential/config/entitlement
+        # block (a source is in externally_blocked) from honest freshness
+        # idempotency (every source HEALTHY but 0 NEW records this cycle). Without
+        # this, a credential-blocked source is indistinguishable from an
+        # already-fresh one and could be falsely reported as up-to-date.
         return {"status": BLOCKED, "run_id": run_id, "run_dir": str(run_dir),
                 "reason": terminal, "ledger_unchanged": ledger_unchanged,
                 "counts": {"raw_objects_new": len(all_new_raw),
-                           "normalized_records_new": len(all_new_records)}}
+                           "normalized_records_new": len(all_new_records)},
+                "blocked_sources": externally_blocked + hard_failed,
+                "source_states": {s: r["health"]["overall_state"]
+                                  for s, r in source_results.items()}}
 
     latest_payload = {
         "stage": STAGE, "run_id": run_id,
