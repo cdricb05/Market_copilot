@@ -46,24 +46,71 @@ TELEGRAM_TOKEN_MISSING = "TELEGRAM_TOKEN_MISSING"
 TELEGRAM_AUTH_REJECTED = "TELEGRAM_AUTH_REJECTED"
 TELEGRAM_UNREACHABLE = "TELEGRAM_UNREACHABLE"
 
-# Supported explicit commands (WS12).
-COMMANDS = ("/help", "/status", "/data", "/coverage", "/queue", "/experiments",
-            "/blocked", "/book", "/performance", "/report", "/sources",
-            "/health", "/run")
-
 # Intent kinds — the ONLY two side-effect classes plus help.
 KIND_READ_ONLY = "READ_ONLY_QUERY"
 KIND_RESEARCH_JOB = "RESEARCH_JOB"
 KIND_HELP = "HELP"
 
+# --------------------------------------------------------------------------- #
+# The ONE command registry (Stage 8.1A). Both the /commands menu and the router
+# derive from this, so a command is advertised IFF it has a real handler. Each
+# entry is ``(command_display, one_line_help)``; ``<arg>`` in the display marks a
+# parameterised command. Grouped for the operator menu.
+# --------------------------------------------------------------------------- #
+COMMAND_MENU = (
+    ("GENERAL", (
+        ("/status", "agent + research-queue + sources summary"),
+        ("/health", "queue depth + watchdog health"),
+        ("/commands", "this command menu"),
+        ("/help", "alias of /commands"),
+    )),
+    ("PORTFOLIO", (
+        ("/today", "today's paper-book performance (alias /pnl)"),
+        ("/pnl", "paper-book P&L vs SPY"),
+        ("/performance", "full paper-book performance"),
+        ("/nav", "current NAV + market date"),
+        ("/book", "active paper book summary"),
+        ("/positions", "current positions + weights"),
+        ("/attribution", "today's P&L by holding"),
+    )),
+    ("RESEARCH", (
+        ("/queue", "research-queue state + next jobs"),
+        ("/jobs", "recent research jobs + ids"),
+        ("/job <id>", "one job's detail"),
+        ("/experiments", "experiments + evidence decisions"),
+        ("/candidates", "alpha candidate dispositions"),
+        ("/sources", "source entitlement classifications"),
+        ("/coverage", "data coverage + gaps"),
+        ("/blocked", "blocked jobs and why"),
+        ("/report", "latest research activity"),
+        ("/data", "data-acquisition job status"),
+    )),
+    ("ACTION", (
+        ("/run <request>", "queue a BOUNDED read-only research request"),
+    )),
+)
+
 # Command -> read-only evidence provider key (resolved by the injected
-# ``providers`` map). ``/run`` is handled separately as a research job.
+# ``providers`` map). ``/run`` is a research job; ``/help`` and ``/commands``
+# render the menu; ``/job`` is read-only but takes an argument.
 _COMMAND_PROVIDER = {
-    "/status": "status", "/data": "data", "/coverage": "coverage",
-    "/queue": "queue", "/experiments": "experiments", "/blocked": "blocked",
-    "/book": "book", "/performance": "performance", "/report": "report",
-    "/sources": "sources", "/health": "health",
+    "/status": "status", "/health": "health",
+    "/today": "performance", "/pnl": "performance", "/performance": "performance",
+    "/nav": "nav", "/book": "book", "/positions": "positions",
+    "/attribution": "attribution",
+    "/queue": "queue", "/jobs": "jobs", "/job": "job",
+    "/experiments": "experiments", "/candidates": "candidates",
+    "/sources": "sources", "/coverage": "coverage", "/blocked": "blocked",
+    "/report": "report", "/data": "data",
 }
+
+# Commands whose handler takes the free-text remainder as an argument.
+_ARG_COMMANDS = ("/job",)
+
+# The full set of implemented, advertised commands (single source of truth for
+# the "/commands lists only implemented commands" contract).
+COMMANDS = tuple(entry[0].split()[0] for _grp, cmds in COMMAND_MENU
+                 for entry in cmds)
 
 # Deterministic natural-language intent routing (keyword -> command). Checked in
 # order; the FIRST research verb wins so "run/test/compare an experiment" always
@@ -78,9 +125,25 @@ _DANGEROUS_TOKENS = (
     "eval(", "import os", "__import__", "sudo ", "powershell", "cmd.exe",
     "curl ", "wget ", "\n")
 _NL_READ_ROUTES = (
+    # Attribution FIRST — "what helped/hurt the portfolio today" mentions
+    # "portfolio", so it must win over the /book route further down.
+    (("helped", "hurt", "contribut", "detract", "what moved", "what drove",
+      "biggest winner", "biggest loser", "attribution"), "/attribution"),
+    # Performance/today — "how did the portfolio do today" also says
+    # "portfolio"; route it to P&L before the /book route.
+    (("how did", "do today", "how are we doing", "how's the book",
+      "hows the book", "performance", "pnl", "p/l", "p&l", "how did we do",
+      "made money", "lost money", "portfolio do"), "/performance"),
+    (("nav", "net asset value", "book value"), "/nav"),
+    (("position", "what do we hold", "what do we own",
+      "show my holdings list"), "/positions"),
+    (("best alpha", "alpha candidate", "candidate", "best signal",
+      "best factor", "most promising"), "/candidates"),
     (("experiment", "ran today", "what experiments"), "/experiments"),
-    (("queue", "work list", "what's queued", "whats queued"), "/queue"),
-    (("blocked", "why was", "rejected"), "/blocked"),
+    (("research agent", "working on", "agent working", "what's the agent",
+      "whats the agent", "queue", "work list", "what's queued",
+      "whats queued"), "/queue"),
+    (("blocked", "why was", "rejected", "stuck"), "/blocked"),
     # "what data sources are available?" is a SOURCE-REGISTRY question — it must
     # win over the coverage-gap route, so /sources is checked first and matches
     # "source(s)" / "data available" directly.
@@ -89,7 +152,6 @@ _NL_READ_ROUTES = (
       "what data do we", "what data are"), "/sources"),
     (("coverage", "not acquired", "missing data", "coverage gap"), "/coverage"),
     (("book", "holdings", "portfolio"), "/book"),
-    (("performance", "pnl", "p/l", "how are we doing"), "/performance"),
     (("report", "latest report", "send me"), "/report"),
     (("status", "what's up", "whats up", "summary"), "/status"),
     (("health", "system", "is everything ok"), "/health"),
@@ -396,35 +458,43 @@ def chunk_message(text: str, limit: int = _MAX_MESSAGE) -> "list[str]":
 # --------------------------------------------------------------------------- #
 # Intent routing (deterministic).
 # --------------------------------------------------------------------------- #
+def _intent(command, kind, *, research_text=None, arg=None, help_reason=None):
+    return {"command": command, "kind": kind, "research_text": research_text,
+            "arg": arg, "help_reason": help_reason}
+
+
 def resolve_intent(text: str) -> dict:
     """Deterministically map a message to an intent. Returns
-    ``{command, kind, research_text}``. Unknown text routes to HELP (never to an
-    arbitrary action)."""
+    ``{command, kind, research_text, arg, help_reason}``. Unknown text routes to
+    HELP (never to an arbitrary action)."""
     raw = (text or "").strip()
     low = raw.lower()
     if not raw:
-        return {"command": "/help", "kind": KIND_HELP, "research_text": None}
+        return _intent("/help", KIND_HELP, help_reason="menu")
 
     # Defense-in-depth: injection/command-shaped input is routed to HELP and is
     # never interpreted. (The router already has NO code path to a shell, SQL,
     # file or trade action; this simply avoids even classifying such text.)
     if any(tok in low for tok in _DANGEROUS_TOKENS):
-        return {"command": "/help", "kind": KIND_HELP, "research_text": None}
+        return _intent("/help", KIND_HELP, help_reason="rejected")
 
     # Explicit slash command.
     if raw.startswith("/"):
         cmd = raw.split()[0].split("@")[0].lower()
+        arg = raw[len(cmd):].strip()
+        if cmd in ("/help", "/commands"):
+            return _intent(cmd, KIND_HELP, help_reason="menu")
         if cmd == "/run":
-            arg = raw[len(cmd):].strip()
             if not arg:
-                return {"command": "/run", "kind": KIND_HELP,
-                        "research_text": None}
-            return {"command": "/run", "kind": KIND_RESEARCH_JOB,
-                    "research_text": arg}
+                return _intent("/run", KIND_HELP, help_reason="run_usage")
+            return _intent("/run", KIND_RESEARCH_JOB, research_text=arg)
+        if cmd == "/job":
+            # Read-only; the free-text remainder is the job id (may be empty —
+            # the provider then returns a usage hint, never an error).
+            return _intent("/job", KIND_READ_ONLY, arg=(arg or None))
         if cmd in _COMMAND_PROVIDER:
-            return {"command": cmd, "kind": KIND_READ_ONLY,
-                    "research_text": None}
-        return {"command": "/help", "kind": KIND_HELP, "research_text": None}
+            return _intent(cmd, KIND_READ_ONLY)
+        return _intent("/help", KIND_HELP, help_reason="unknown_command")
 
     # Natural language: a research verb + an experiment-ish object => job.
     if any(v in (" " + low) for v in _NL_RESEARCH_VERBS) and any(
@@ -432,36 +502,51 @@ def resolve_intent(text: str) -> dict:
                                "earnings", "reversal", "residual", "factor",
                                "surprise", "insider", "volatility", "accrual",
                                "champion", "signal", "combination")):
-        return {"command": "/run", "kind": KIND_RESEARCH_JOB,
-                "research_text": raw}
+        return _intent("/run", KIND_RESEARCH_JOB, research_text=raw)
 
     # Natural language read-only routes.
     for keys, cmd in _NL_READ_ROUTES:
         if any(k in low for k in keys):
-            return {"command": cmd, "kind": KIND_READ_ONLY,
-                    "research_text": None}
+            return _intent(cmd, KIND_READ_ONLY)
 
-    return {"command": "/help", "kind": KIND_HELP, "research_text": raw}
+    # Genuinely unrecognised free text: NOT the generic "unavailable" message —
+    # an honest "conversational LLM mode is not enabled; use /commands".
+    return _intent("/help", KIND_HELP, research_text=raw, help_reason="unknown_nl")
 
 
-HELP_TEXT = (
-    "Alpha Agent control (read-only + research requests only; no trading).\n"
-    "Commands:\n"
-    "/status - agent + schedule + queue summary\n"
-    "/data - data acquisition status\n"
-    "/coverage - data coverage + gaps\n"
-    "/sources - source entitlement classifications\n"
-    "/queue - current research queue\n"
-    "/experiments - experiments run + outcomes\n"
-    "/blocked - blocked jobs and why\n"
-    "/book - active paper book (read-only)\n"
-    "/performance - paper P/L (read-only)\n"
-    "/report - latest executive report status\n"
-    "/health - system + watchdog health\n"
-    "/run <request> - queue a BOUNDED research request\n"
-    "You can also ask in plain English, e.g. 'what experiments ran today?', "
-    "'which EODHD endpoints are available?', 'test residual momentum excluding "
-    "financials', 'show the current research queue'.")
+def _menu_text() -> str:
+    """The /commands + /help menu, derived from the ONE command registry so it
+    can only ever advertise commands that have a real handler."""
+    lines = ["Alpha Agent — Paper Trader command center",
+             "Read-only data + bounded research requests only. No trading, no "
+             "orders, no automation."]
+    for group, cmds in COMMAND_MENU:
+        lines.append("")
+        lines.append(group)
+        for disp, hlp in cmds:
+            lines.append("  %-16s %s" % (disp, hlp))
+    lines.append("")
+    lines.append("Plain English works too, e.g. 'what is my pnl?', 'show my "
+                 "positions', 'what helped the portfolio today?', 'what is the "
+                 "research agent working on?'.")
+    return "\n".join(lines)
+
+
+# Built once from the registry; both /commands and /help render it.
+HELP_TEXT = _menu_text()
+
+# Genuinely unrecognised free text (no LLM is wired yet) — actionable, specific.
+UNKNOWN_NL_TEXT = (
+    "I couldn't map that to a command. Conversational (LLM) mode is not enabled "
+    "on this control plane yet — I only answer the fixed read-only commands and "
+    "bounded /run research requests.\n"
+    "Send /commands to see everything I can do.")
+
+# /run with no request text.
+RUN_USAGE_TEXT = (
+    "Usage: /run <bounded research request>. Example: /run test residual "
+    "momentum excluding financials. The request runs as a bounded, read-only "
+    "experiment on the owned survivorship-free price panel; nothing is traded.")
 
 
 # --------------------------------------------------------------------------- #
@@ -486,9 +571,9 @@ class ControlRouter:
         intent = resolve_intent(text)
         cmd, kind = intent["command"], intent["kind"]
         if kind == KIND_HELP:
-            reply = HELP_TEXT
+            reply = self._help_reply(intent.get("help_reason"))
         elif kind == KIND_READ_ONLY:
-            reply = self._read_only(cmd)
+            reply = self._read_only(cmd, intent.get("arg"))
         elif kind == KIND_RESEARCH_JOB:
             reply = self._enqueue_research(intent["research_text"], update)
         else:
@@ -496,13 +581,24 @@ class ControlRouter:
         reply = redact(reply, self.secrets)
         return chunk_message(reply)
 
-    def _read_only(self, command: str) -> str:
+    @staticmethod
+    def _help_reply(reason: Optional[str]) -> str:
+        if reason == "unknown_nl":
+            return UNKNOWN_NL_TEXT
+        if reason == "run_usage":
+            return RUN_USAGE_TEXT
+        return HELP_TEXT
+
+    def _read_only(self, command: str, arg: Optional[str] = None) -> str:
         key = _COMMAND_PROVIDER.get(command)
         provider = self.providers.get(key)
         if provider is None:
-            return "That information is not available right now."
+            # Not the vague "unavailable" line: this command simply is not wired
+            # to a provider in this build — point the operator at the real menu.
+            return ("That command is not available in this build. Send "
+                    "/commands to see the supported read-only commands.")
         try:
-            out = provider()
+            out = provider(arg) if command in _ARG_COMMANDS else provider()
         except Exception as exc:  # noqa: BLE001 - a provider error is not fatal
             return "Could not read %s (%s)." % (key, type(exc).__name__)
         return out if isinstance(out, str) else json.dumps(out, default=str)
@@ -769,16 +865,35 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
             out[j.state] = out.get(j.state, 0) + 1
         return out
 
+    def _recent_jobs(limit: int = 12) -> list:
+        """Most-recent jobs (list_jobs orders by priority/created; re-sort by the
+        settled/created timestamp so the newest work shows first)."""
+        if queue is None:
+            return []
+        rows = queue.list_jobs(limit=200)
+        rows.sort(key=lambda j: (j.updated_at or j.created_at or ""),
+                  reverse=True)
+        return rows[:limit]
+
     def _queue_summary() -> str:
         if queue is None:
             return "Queue unavailable."
         c = queue.counts_by_state()
-        return ("Research queue: %d queued, %d running, %d retryable, %d "
-                "blocked, %d completed, %d rejected, %d failed." % (
-                    c.get("QUEUED", 0), c.get("RUNNING", 0),
-                    c.get("RETRYABLE", 0), c.get("BLOCKED_SPECIFIC", 0),
-                    c.get("COMPLETED", 0), c.get("REJECTED", 0),
-                    c.get("FAILED_PERMANENT", 0)))
+        lines = ["Research queue: %d queued, %d running, %d retryable, %d "
+                 "blocked, %d completed, %d rejected, %d failed." % (
+                     c.get("QUEUED", 0), c.get("RUNNING", 0),
+                     c.get("RETRYABLE", 0), c.get("BLOCKED_SPECIFIC", 0),
+                     c.get("COMPLETED", 0), c.get("REJECTED", 0),
+                     c.get("FAILED_PERMANENT", 0))]
+        nxt = queue.list_jobs(state="QUEUED", limit=5)
+        if nxt:
+            lines.append("Next queued:")
+            lines.extend("  - %s (%s)" % (j.lane, j.category) for j in nxt)
+        run = queue.list_jobs(state="RUNNING", limit=5)
+        if run:
+            lines.append("Running:")
+            lines.extend("  - %s (%s)" % (j.lane, j.category) for j in run)
+        return "\n".join(lines)
 
     def _blocked() -> str:
         if queue is None:
@@ -809,17 +924,55 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
                     tally.get("INVALID_CREDENTIAL", 0),
                     head, " ..." if len(now) > 8 else ""))
 
+    def _campaign_coverage() -> Optional[str]:
+        """Production-universe campaign coverage (target/completed/remaining/
+        repair) when the durable campaign store has been seeded. Read-only;
+        returns None when no campaign store exists yet."""
+        prod = cfg.get("production") if isinstance(cfg.get("production"), dict) \
+            else {}
+        campdb = prod.get("campaign_db")
+        if not campdb or not Path(campdb).is_file():
+            return None
+        try:
+            from . import acquisition_campaign as acq
+            store = acq.CampaignStore(campdb)
+            parts = []
+            for c in store.list_campaigns():
+                cid = c.get("campaign_id") if isinstance(c, dict) else c
+                cov = store.coverage(cid)
+                parts.append(
+                    "  %s: %s/%s done, %s remaining, %s repair" % (
+                        cid, cov.get("completed_symbol_count"),
+                        cov.get("full_universe_target_count"),
+                        cov.get("remaining_symbol_count"),
+                        cov.get("repair_backlog_count")))
+            return ("Production-universe campaigns:\n" + "\n".join(parts)
+                    ) if parts else None
+        except Exception:  # noqa: BLE001
+            return None
+
     def _coverage() -> str:
+        lines = []
+        camp = _campaign_coverage()
+        if camp:
+            lines.append(camp)
         snap = _load_snapshot()
         tally = snap.get("classification_tally") or {}
-        if not tally:
-            return "Coverage not computed yet."
-        return ("Coverage gaps: %d free sources awaiting a collector-lane "
-                "repair; %d prospective fields with no owned/free history (must "
-                "be collected forward from a PIT floor). Every gap has an exact "
-                "source + reason in the registry snapshot." % (
-                    tally.get("ACCESSIBLE_AFTER_REPAIR", 0),
-                    tally.get("PROSPECTIVE_ONLY", 0)))
+        if tally:
+            lines.append(
+                "Coverage gaps: %d free sources awaiting a collector-lane "
+                "repair; %d prospective fields with no owned/free history."
+                % (tally.get("ACCESSIBLE_AFTER_REPAIR", 0),
+                   tally.get("PROSPECTIVE_ONLY", 0)))
+        elif not camp:
+            return ("Coverage not computed yet. Expected source: the Stage 8 "
+                    "source-registry snapshot (run a source probe). No coverage "
+                    "figures are available until then.")
+        lines.append(
+            "PIT limitation: a prospective field has no backfill before its "
+            "first valid snapshot; every gap carries an exact source + reason "
+            "in the registry snapshot.")
+        return "\n".join(lines)
 
     def _data() -> str:
         st = _cat_states("DATA_ACQUISITION")
@@ -831,16 +984,140 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
     def _experiments() -> str:
         st = _cat_states("EXPERIMENT")
         tg = _cat_states("TELEGRAM_REQUEST")
-        if not st and not tg:
+        if not st and not tg and queue is None:
             return "No experiments recorded yet."
         parts = []
         if st:
             parts.append("Experiments: " + ", ".join(
                 "%d %s" % (v, k.lower()) for k, v in sorted(st.items())))
+        # Recent completed experiments with their real evidence metrics.
+        if queue is not None:
+            recent = [j for j in queue.list_jobs(category="EXPERIMENT", limit=60)
+                      if j.state == "COMPLETED" and (j.result or {}).get("results")]
+            recent.sort(key=lambda j: (j.finished_at or j.updated_at or ""),
+                        reverse=True)
+            shown, seen = [], set()
+            for j in recent:
+                for r in (j.result.get("results") or [])[:1]:
+                    label = r.get("label") or r.get("feature")
+                    if label in seen:
+                        continue
+                    seen.add(label)
+                    shown.append(
+                        "  %s: rank-IC t=%s, spread t=%s -> %s" % (
+                            label, _fmt_num(r.get("rank_ic_t")),
+                            _fmt_num(r.get("spread_t")), r.get("decision")))
+                if len(shown) >= 5:
+                    break
+            if shown:
+                parts.append("Recent evidence:")
+                parts.extend(shown)
         if tg:
             parts.append("Your requested experiments: " + ", ".join(
                 "%d %s" % (v, k.lower()) for k, v in sorted(tg.items())))
-        return "\n".join(parts)
+        return "\n".join(parts) if parts else "No experiments recorded yet."
+
+    def _jobs() -> str:
+        if queue is None:
+            return "Queue unavailable."
+        rows = _recent_jobs(12)
+        if not rows:
+            return "No research jobs recorded yet."
+        lines = ["Recent research jobs (newest first):"]
+        lines.extend("- %s [%s] %s (%s)" % (j.job_id, j.state, j.lane,
+                                            j.category) for j in rows)
+        lines.append("Use /job <id> for full detail.")
+        return "\n".join(lines)
+
+    def _job(arg: Optional[str] = None) -> str:
+        if queue is None:
+            return "Queue unavailable."
+        jid = (arg or "").strip()
+        if not jid:
+            return ("Usage: /job <job_id>. Send /jobs to list recent job ids.")
+        j = queue.get(jid)
+        if j is None:
+            return ("No job found with id '%s'. Send /jobs to list recent job "
+                    "ids." % jid)
+        lines = [
+            "Job %s" % j.job_id,
+            "Category: %s" % j.category,
+            "Lane: %s" % j.lane,
+            "State: %s" % j.state,
+            "Origin: %s" % j.origin,
+            "Attempts: %d/%d" % (j.attempts, j.max_attempts),
+        ]
+        if j.blocked_reason:
+            lines.append("Blocker: %s" % j.blocked_reason)
+        res = j.result or {}
+        if res:
+            rrows = res.get("results") or []
+            if rrows:
+                top = rrows[0]
+                lines.append("Result: %s -> %s (rank-IC t=%s)" % (
+                    top.get("label") or top.get("feature"),
+                    top.get("decision"), _fmt_num(top.get("rank_ic_t"))))
+            disp = res.get("disposition") or res.get("decision") \
+                or res.get("real_work") or res.get("note")
+            if disp:
+                lines.append("Disposition: %s" % disp)
+            for k in ("run_dir", "run_id", "artifact_path", "output_path",
+                      "evidence_path", "raw_path", "normalized_path"):
+                if res.get(k):
+                    lines.append("Artifact: %s" % res.get(k))
+                    break
+        return "\n".join(lines)
+
+    def _candidates() -> str:
+        if queue is None:
+            return "Queue unavailable."
+        keep, rejected, hold = [], set(), 0
+        rej_count = 0
+        for cat in ("EXPERIMENT", "ROBUSTNESS_TEST", "SIGNAL_COMBINATION"):
+            for j in queue.list_jobs(category=cat, limit=200):
+                res = j.result or {}
+                hold += int(res.get("data_holds") or 0)
+                for r in (res.get("results") or []):
+                    dec = str(r.get("decision") or "")
+                    label = r.get("label") or r.get("feature")
+                    if "KEEP" in dec:
+                        keep.append(label)
+                    elif "REJECT" in dec:
+                        rejected.add(label)
+                        rej_count += 1
+                    elif "HOLD" in dec or "DATA" in dec:
+                        hold += 1
+        keep_u = sorted(set(k for k in keep if k))
+        if not keep_u and not rejected and not hold:
+            return ("No evaluated alpha candidates yet. Completed experiments "
+                    "surface KEEP_FOR_RESEARCH / REJECT / DATA_HOLD dispositions "
+                    "here. Nothing is ever promoted to live trading.")
+        lines = ["Alpha candidate dispositions (research evidence only):"]
+        lines.append("KEEP_FOR_RESEARCH: %s" % (", ".join(keep_u) if keep_u
+                                                else "none"))
+        lines.append("REJECTED: %d evaluation(s)%s" % (
+            rej_count, (" — e.g. " + ", ".join(sorted(rejected)[:5]))
+            if rejected else ""))
+        lines.append("DATA_HOLD: %d" % hold)
+        lines.append("The paper research champion remains composite_sn. No "
+                     "model is promoted to live trading — research only.")
+        return "\n".join(lines)
+
+    def _report() -> str:
+        if queue is None:
+            return ("Research activity unavailable — the durable research queue "
+                    "is not reachable. Expected source: the Stage 8 autonomy "
+                    "queue database.")
+        c = queue.counts_by_state()
+        return "\n".join([
+            "RESEARCH ACTIVITY (read-only summary)",
+            "Last autonomous progress: %s" % (queue.last_progress_at() or "n/a"),
+            "Completed jobs: %d | queued: %d | blocked: %d" % (
+                c.get("COMPLETED", 0), c.get("QUEUED", 0),
+                c.get("BLOCKED_SPECIFIC", 0)),
+            "The formal executive report is delivered by the Alpha Agent email "
+            "cadence (Stage 7.1); this is the live research-activity summary.",
+        ])
 
     def _health() -> str:
         if queue is None:
@@ -856,7 +1133,272 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
 
     providers = {"queue": _queue_summary, "blocked": _blocked,
                  "status": _status, "sources": _sources, "coverage": _coverage,
-                 "data": _data, "experiments": _experiments, "health": _health}
+                 "data": _data, "experiments": _experiments, "health": _health,
+                 "jobs": _jobs, "job": _job, "candidates": _candidates,
+                 "report": _report}
+    return providers
+
+
+# --------------------------------------------------------------------------- #
+# Operational (Paper Trader) read-only providers — the ONE canonical source.
+#
+# Every provider READS the canonical operational-book aggregation
+# (api.operational_book.load_operational_book) and the canonical forward
+# attribution (api.forward_evidence.build_daily_attribution) — the same
+# functions that power the operational UI. Nothing here writes, creates an
+# order/fill/signal/decision, promotes a model or mutates holdings/cash. The
+# loaders are INJECTABLE so unit tests never touch a DB or a desk ledger.
+# --------------------------------------------------------------------------- #
+def _fmt_money(x) -> str:
+    v = _num_or_none(x)
+    return "n/a" if v is None else "$%s" % format(v, ",.2f")
+
+
+def _fmt_signed_money(x) -> str:
+    v = _num_or_none(x)
+    if v is None:
+        return "n/a"
+    return ("+$%s" % format(v, ",.2f")) if v >= 0 else ("-$%s" % format(abs(v), ",.2f"))
+
+
+def _fmt_pct(x, digits: int = 2) -> str:
+    """Format a PERCENT-unit value (1.22 -> '+1.22%')."""
+    v = _num_or_none(x)
+    return "n/a" if v is None else ("%+.*f%%" % (digits, v))
+
+
+def _fmt_pp(x, digits: int = 2) -> str:
+    """Format a percentage-point value ( -0.46 -> '-0.46 pp')."""
+    v = _num_or_none(x)
+    return "n/a" if v is None else ("%+.*f pp" % (digits, v))
+
+
+def _fmt_weight(x, digits: int = 1) -> str:
+    """Format a FRACTION weight (0.0466 -> '4.7%')."""
+    v = _num_or_none(x)
+    return "n/a" if v is None else ("%.*f%%" % (digits, v * 100.0))
+
+
+def _num_or_none(x):
+    if x is None or isinstance(x, bool):
+        return None
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _op_unavailable(label: str, expected: str, last_date, reason: str) -> str:
+    """The actionable missing-data diagnostic (never the vague generic line)."""
+    return ("%s DATA UNAVAILABLE\nExpected source: %s\nLast successful date: "
+            "%s\nReason: %s" % (label, expected, last_date or "unknown", reason))
+
+
+def _default_ops_loader() -> dict:
+    from paper_trader.api.operational_book import load_operational_book
+    return load_operational_book()
+
+
+def _default_attribution_loader() -> dict:
+    from paper_trader.api.forward_evidence import build_daily_attribution
+    return build_daily_attribution()
+
+
+_OPS_SOURCE = "api.operational_book.load_operational_book"
+_ATTR_SOURCE = "api.forward_evidence.build_daily_attribution"
+
+
+def build_operational_providers(*, ops_loader: Optional[Callable] = None,
+                                attribution_loader: Optional[Callable] = None
+                                ) -> dict:
+    """Read-only Paper Trader providers: performance / nav / book / positions /
+    attribution, all sourced from the canonical operational-book + forward
+    attribution functions. Degrade to an ACTIONABLE diagnostic, never a fabricated
+    value and never the vague 'unavailable' line."""
+
+    def _load(fn) -> "tuple[dict, Optional[str]]":
+        try:
+            r = fn()
+            return (r if isinstance(r, dict) else {}, None)
+        except Exception as exc:  # noqa: BLE001
+            return ({}, "%s: %s" % (type(exc).__name__, str(exc)[:140]))
+
+    def _ops():
+        return _load(ops_loader or _default_ops_loader)
+
+    def _attr():
+        return _load(attribution_loader or _default_attribution_loader)
+
+    def _performance() -> str:
+        book, err = _ops()
+        o = book.get("operational_book") or {}
+        if err or not o.get("initialized"):
+            return _op_unavailable(
+                "PERFORMANCE", _OPS_SOURCE, o.get("nav_as_of_date"),
+                err or "Alpha Paper Book #1 is not initialized yet.")
+        attr, aerr = _attr()
+        p = (attr.get("portfolio") or {}) if attr.get("available") else {}
+        lines = [
+            "PAPER BOOK PERFORMANCE",
+            "Book: %s" % (o.get("book_label") or OPERATIONAL_BOOK_FALLBACK),
+            "Strategy: %s" % (o.get("strategy_name") or "n/a"),
+            "Market date: %s" % (attr.get("market_date")
+                                 or o.get("nav_as_of_date")
+                                 or o.get("desk_mark_date") or "unknown"),
+            "NAV: %s" % _fmt_money(o.get("nav")),
+        ]
+        if attr.get("available"):
+            lines += [
+                "Today: %s (%s)" % (_fmt_signed_money(p.get("daily_pnl")),
+                                    _fmt_pct(p.get("daily_return_pct"))),
+                "Since baseline: %s (%s)" % (
+                    _fmt_signed_money(p.get("cumulative_pnl")),
+                    _fmt_pct(p.get("cumulative_return_pct"))),
+                "SPY today: %s" % _fmt_pct(p.get("spy_daily_return_pct")),
+                "SPY since baseline: %s" % _fmt_pct(
+                    p.get("spy_cumulative_return_pct")),
+                "Daily excess: %s" % _fmt_pp(p.get("daily_excess_return_pct")),
+                "Cumulative excess: %s" % _fmt_pp(
+                    p.get("cumulative_excess_return_pct")),
+                "Drawdown: %s" % _fmt_pct(p.get("drawdown_pct")),
+            ]
+        else:
+            lines.append(
+                "Daily P&L: unavailable — %s" % (
+                    aerr or attr.get("reason")
+                    or "a prior completed operational mark is required."))
+        return "\n".join(lines)
+
+    def _nav() -> str:
+        book, err = _ops()
+        o = book.get("operational_book") or {}
+        if err or not o.get("initialized"):
+            return _op_unavailable(
+                "NAV", _OPS_SOURCE, o.get("nav_as_of_date"),
+                err or "Alpha Paper Book #1 is not initialized yet.")
+        attr, _aerr = _attr()
+        p = (attr.get("portfolio") or {}) if attr.get("available") else {}
+        lines = [
+            "%s — NAV" % (o.get("book_label") or OPERATIONAL_BOOK_FALLBACK),
+            "Market date: %s" % (o.get("nav_as_of_date")
+                                 or o.get("desk_mark_date") or "unknown"),
+            "NAV: %s" % _fmt_money(o.get("nav")),
+        ]
+        if attr.get("available"):
+            lines.append("Today: %s (%s)" % (
+                _fmt_signed_money(p.get("daily_pnl")),
+                _fmt_pct(p.get("daily_return_pct"))))
+        return "\n".join(lines)
+
+    def _book() -> str:
+        book, err = _ops()
+        o = book.get("operational_book") or {}
+        if err or not o.get("initialized"):
+            return _op_unavailable(
+                "BOOK", _OPS_SOURCE, o.get("desk_mark_date"),
+                err or "Alpha Paper Book #1 is not initialized yet.")
+        ps = o.get("portfolio_summary") or {}
+        hd = o.get("holdings_detail") or []
+        lines = [
+            o.get("book_label") or OPERATIONAL_BOOK_FALLBACK,
+            "Strategy: %s" % (o.get("strategy_name") or "n/a"),
+            "Target: %s" % (o.get("target_name") or "n/a"),
+            "Holdings: %d (target %s)" % (o.get("holdings_count") or 0,
+                                          o.get("target_count") or "n/a"),
+            "Invested: %s | Cash: %s" % (_fmt_weight(ps.get("invested_weight")),
+                                         _fmt_weight(ps.get("cash_weight"))),
+            "Valuation date: %s" % (o.get("desk_mark_date") or "unknown"),
+            "NAV: %s" % _fmt_money(o.get("nav")),
+        ]
+        top = [r for r in hd if r.get("market_value") is not None][:8]
+        if top:
+            lines.append("Top positions:")
+            for i, r in enumerate(top, 1):
+                lines.append("  %2d. %-5s %s  %s" % (
+                    i, r.get("ticker"), _fmt_money(r.get("market_value")),
+                    _fmt_weight(r.get("current_weight"))))
+        return "\n".join(lines)
+
+    def _positions() -> str:
+        book, err = _ops()
+        o = book.get("operational_book") or {}
+        if err or not o.get("initialized"):
+            return _op_unavailable(
+                "POSITIONS", _OPS_SOURCE, o.get("desk_mark_date"),
+                err or "Alpha Paper Book #1 is not initialized yet.")
+        hd = o.get("holdings_detail") or []
+        if not hd:
+            return _op_unavailable(
+                "POSITIONS", _OPS_SOURCE + ".holdings_detail",
+                o.get("desk_mark_date"),
+                "No holdings resolved from the desk-ledger replay.")
+        lines = ["POSITIONS — %s (%d) as of %s" % (
+            o.get("book_label") or OPERATIONAL_BOOK_FALLBACK, len(hd),
+            o.get("desk_mark_date") or "unknown")]
+        for r in hd:
+            lines.append("%-5s %s @ %s  MV %s  %s  P/L %s" % (
+                r.get("ticker"), r.get("quantity"),
+                _fmt_money(r.get("latest_price")),
+                _fmt_money(r.get("market_value")),
+                _fmt_weight(r.get("current_weight")),
+                _fmt_signed_money(r.get("unrealized_pnl"))))
+        return "\n".join(lines)
+
+    def _attribution() -> str:
+        attr, aerr = _attr()
+        if not attr.get("available"):
+            return _op_unavailable(
+                "ATTRIBUTION", _ATTR_SOURCE, attr.get("market_date"),
+                aerr or attr.get("reason")
+                or "a prior completed operational mark is required.")
+        p = attr.get("portfolio") or {}
+        recon = attr.get("reconciliation") or {}
+        lines = [
+            "DAILY ATTRIBUTION — %s (prior %s)" % (
+                attr.get("market_date"), attr.get("prior_market_date")),
+            "Total daily P&L: %s (%s)" % (
+                _fmt_signed_money(p.get("daily_pnl")),
+                _fmt_pct(p.get("daily_return_pct"))),
+        ]
+        win = attr.get("winners") or []
+        los = attr.get("losers") or []
+        if win:
+            lines.append("Top contributors:")
+            lines.extend("  %-5s %s (%s)" % (
+                w.get("ticker"), _fmt_signed_money(w.get("pnl_contribution")),
+                _fmt_pct(w.get("daily_return_pct"))) for w in win)
+        if los:
+            lines.append("Top detractors:")
+            lines.extend("  %-5s %s (%s)" % (
+                l.get("ticker"), _fmt_signed_money(l.get("pnl_contribution")),
+                _fmt_pct(l.get("daily_return_pct"))) for l in los)
+        lines.append("Reconciliation: contributions %s vs NAV move %s "
+                     "(residual %s) %s" % (
+                         _fmt_signed_money(recon.get("position_contribution_sum")),
+                         _fmt_signed_money(recon.get("market_movement")),
+                         _fmt_signed_money(recon.get("residual")),
+                         "OK" if recon.get("reconciles") else "CHECK"))
+        return "\n".join(lines)
+
+    return {"performance": _performance, "nav": _nav, "book": _book,
+            "positions": _positions, "attribution": _attribution}
+
+
+# The operator-facing book name used when the payload could not be loaded.
+OPERATIONAL_BOOK_FALLBACK = "Alpha Paper Book #1"
+
+
+def build_command_center_providers(*, stage8_config: Optional[dict] = None,
+                                   queue=None,
+                                   ops_loader: Optional[Callable] = None,
+                                   attribution_loader: Optional[Callable] = None
+                                   ) -> dict:
+    """The full read-only command center: the Stage 8 research providers PLUS the
+    canonical Paper Trader operational providers. This is what the live poll loop
+    wires so /pnl, /book, /positions and /attribution return real data."""
+    providers = build_default_providers(stage8_config=stage8_config, queue=queue)
+    providers.update(build_operational_providers(
+        ops_loader=ops_loader, attribution_loader=attribution_loader))
     return providers
 
 
@@ -950,7 +1492,9 @@ def main(argv=None) -> int:
         return 1
     store = TelegramStore(state_db)
     queue = ar.ResearchQueue(queue_db)
-    providers = build_default_providers(stage8_config=raw, queue=queue)
+    # The full command center: Stage 8 research providers + the canonical Paper
+    # Trader operational providers (performance / book / positions / attribution).
+    providers = build_command_center_providers(stage8_config=raw, queue=queue)
     router = ControlRouter(providers=providers, queue=queue, secrets=[token])
     cycles = 0
     import time
