@@ -132,8 +132,83 @@ def _safety() -> dict:
 # Injectable seams (tests swap these to run fully offline / hermetic).
 # --------------------------------------------------------------------------- #
 _PERF_LOADER: Callable = desk.load_performance
-_MARKS_LOADER: Callable = desk.read_marks
+_MARKS_LOADER: Callable = desk.read_marks           # desk mark cache (fallback only)
 _OPS_LOADER: Callable = ob.load_operational_book
+
+
+# --------------------------------------------------------------------------- #
+# Phase 8.1B — CANONICAL PRIOR/CURRENT MARK SOURCE.
+#
+# Attribution's per-position prices MUST come from the immutable, append-only,
+# first-write-wins completed-close ledger (``forward_prediction_prices.json``,
+# owned by forward_prediction_skill). The desk mark store (``desk_marks.json``) is
+# a provider CACHE that is REPLACED WHOLE on every sync, so a later dividend
+# re-adjustment silently shifts an already-completed PRIOR close: the immutable
+# prior NAV row embeds the un-adjusted close while the re-fetched cache holds the
+# re-adjusted one. Reading the prior leg from the cache therefore breaks
+# reconciliation (the July-31 VLO 311.71 -> 310.51 x 12 = $14.40 residual). The
+# first-write-wins ledger records each completed close once and never restates it,
+# so it reproduces the recorded NAV at every date and reconciles by construction.
+#
+# The cache is used ONLY as an explicit, FLAGGED per-(ticker,date) fallback for
+# dates that predate the immutable ledger — never to silently substitute a
+# re-adjusted price for a recorded prior mark.
+# --------------------------------------------------------------------------- #
+MARK_SOURCE_LEDGER = "IMMUTABLE_COMPLETED_CLOSE_LEDGER"
+MARK_SOURCE_CACHE_FALLBACK = "DESK_MARK_CACHE_FALLBACK"
+
+
+def _default_mark_ledger_loader(desk_dir=None) -> dict:
+    """Lazily bound so fps is not imported at module load (avoids an import cycle
+    and keeps the cost off the hot path)."""
+    from paper_trader.api import forward_prediction_skill as _fps
+    return _fps.read_price_store(desk_dir)
+
+
+_MARK_LEDGER_LOADER: Callable = _default_mark_ledger_loader
+
+
+def _safe_series(fn: Callable) -> dict:
+    try:
+        return fn().get("series") or {}
+    except Exception:  # noqa: BLE001 — degrade to an empty series
+        return {}
+
+
+def resolve_mark_sources(desk_dir=None, *, marks_loader: Optional[Callable] = None,
+                         mark_ledger_loader: Optional[Callable] = None) -> tuple[dict, dict]:
+    """Return ``(ledger_series, cache_series)`` for attribution price resolution.
+
+    The immutable first-write-wins completed-close ledger is the PRIMARY,
+    authoritative source. When ``marks_loader`` is explicitly injected it IS the
+    authoritative ledger for that call (the offline/hermetic seam and backward
+    compatibility with the Phase 28A fixtures). The desk mark cache is only an
+    explicit, flagged fallback for (ticker, date) pairs the ledger predates."""
+    if marks_loader is not None:
+        return _safe_series(lambda: marks_loader(desk_dir)), {}
+    ledger = _safe_series(lambda: (mark_ledger_loader or _MARK_LEDGER_LOADER)(desk_dir))
+    cache = _safe_series(lambda: _MARKS_LOADER(desk_dir))
+    return ledger, cache
+
+
+def mark_at(ledger_series: dict, cache_series: dict, ticker: str,
+            as_of: Optional[str]) -> Optional[tuple]:
+    """Resolve the completed close for (ticker, as_of): the immutable ledger FIRST
+    (deterministic — a first-write-wins store has no duplicate dates), else the
+    flagged desk-cache fallback. Returns ``(mark_date, price, source)`` or None.
+
+    ``desk._series_price_at_or_before`` keeps the strictly-greatest date <= as_of,
+    so even a hypothetical duplicate date resolves to one canonical value
+    deterministically (never an unstable-ordering pick)."""
+    if not as_of:
+        return None
+    hit = desk._series_price_at_or_before(ledger_series.get(ticker) or [], as_of)
+    if hit is not None:
+        return (hit[0], hit[1], MARK_SOURCE_LEDGER)
+    hit = desk._series_price_at_or_before(cache_series.get(ticker) or [], as_of)
+    if hit is not None:
+        return (hit[0], hit[1], MARK_SOURCE_CACHE_FALLBACK)
+    return None
 
 
 def _perf_rows(desk_dir, perf_loader: Optional[Callable]) -> tuple[list[dict], dict]:
@@ -260,17 +335,49 @@ def _portfolio_block(rows: list[dict], i: int, starting_capital: Optional[float]
     }
 
 
+def _reconcile_diagnostic(*, reconciles: bool, residual: Optional[float],
+                          coverage_complete: bool, missing: list, mixed: list,
+                          fallbacks: list, d0: Optional[str], d1: Optional[str]) -> Optional[str]:
+    """A SPECIFIC, actionable reason whenever attribution does NOT reconcile — never
+    a silent reconciles=false (WS4/WS7). The failure modes are distinct and ranked."""
+    if reconciles:
+        return None
+    if not coverage_complete and missing:
+        return ("MARKS_MISSING: no completed close in the immutable ledger (or the cache "
+                "fallback) for %s on %s or %s, so those positions cannot be decomposed."
+                % (", ".join(sorted(missing)[:8]), d0, d1))
+    if mixed:
+        return ("MARK_SOURCE_INCONSISTENT: %s resolved its prior and current legs from "
+                "different mark vintages (immutable ledger vs desk-cache fallback); "
+                "adjusted and unadjusted closes must not be mixed within one contribution."
+                % ", ".join(sorted(mixed)[:8]))
+    if fallbacks:
+        return ("PRIOR_MARK_FROM_CACHE_FALLBACK: %s has no completed close in the immutable "
+                "ledger for %s/%s and fell back to the desk mark cache, whose value may have "
+                "been re-adjusted after the NAV was recorded — capture the completed closes "
+                "into the first-write-wins ledger to restore exact reconciliation."
+                % (", ".join(sorted(fallbacks)[:8]), d0, d1))
+    return ("MARK_LEDGER_DOES_NOT_REPRODUCE_NAV: residual %s exceeds tolerance even though "
+            "every position priced from the immutable ledger — the recorded NAV move and the "
+            "immutable completed closes disagree; investigate desk-mark / NAV-row integrity "
+            "before trusting this decomposition." % (None if residual is None else round(residual, 2)))
+
+
 def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
                             ops: Optional[dict] = None, today: Optional[str] = None,
                             perf_loader: Optional[Callable] = None,
                             marks_loader: Optional[Callable] = None,
+                            mark_ledger_loader: Optional[Callable] = None,
                             ops_loader: Optional[Callable] = None) -> dict:
     """Deterministic per-close attribution reconciled to the NAV move (Part A).
 
     Holding contribution = quantity x (completed close on the market date - completed
-    close on the prior market date), from the append-only desk mark store. Nothing is
-    invented: when the required prior marks do not exist the block reports the explicit
-    availability/coverage status instead of a fabricated decomposition."""
+    close on the prior market date), taken from the IMMUTABLE first-write-wins
+    completed-close ledger so an already-recorded prior close is never restated by a
+    later provider re-adjustment (see MARK_SOURCE_LEDGER). Nothing is invented: when
+    the required prior marks do not exist the block reports the explicit availability/
+    coverage status instead of a fabricated decomposition, and a residual that does not
+    reconcile always carries a specific diagnostic (never a silent reconciles=false)."""
     rows, summary = _perf_rows(desk_dir, perf_loader)
     base = {"phase": PHASE, "source": "operational_desk_marks",
             "calculation_method": (
@@ -301,15 +408,22 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
 
     holdings_ops = ops if ops is not None else _safe_ops(ops_loader, today)
     holds = _holdings(holdings_ops)
-    series = _mark_series(desk_dir, marks_loader)
+    ledger_series, cache_series = resolve_mark_sources(
+        desk_dir, marks_loader=marks_loader, mark_ledger_loader=mark_ledger_loader)
 
     positions: list[dict] = []
     missing: list[str] = []
+    fallback_tickers: list[str] = []
+    mixed_source_tickers: list[str] = []
     priced = 0
     for h in sorted(holds, key=lambda x: x["ticker"]):
         tk, qty = h["ticker"], h["quantity"]
-        p1 = _price_at(series, tk, d1)
-        p0 = _price_at(series, tk, d0)
+        m1 = mark_at(ledger_series, cache_series, tk, d1)
+        m0 = mark_at(ledger_series, cache_series, tk, d0)
+        p1 = m1[1] if m1 else None
+        p0 = m0[1] if m0 else None
+        src1 = m1[2] if m1 else None
+        src0 = m0[2] if m0 else None
         avg = h.get("average_cost")
         contrib = ret = pmv = cum_unrl = pp = None
         if qty is not None and p1 is not None and p0 is not None:
@@ -318,6 +432,12 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
             pmv = qty * p0
             pp = (contrib / nav0 * 100.0) if nav0 else None
             priced += 1
+            if MARK_SOURCE_CACHE_FALLBACK in (src0, src1):
+                fallback_tickers.append(tk)
+            if src0 != src1:
+                # A prior and current leg from different vintages (ledger vs cache)
+                # would mix adjusted/unadjusted closes — flagged, never silent.
+                mixed_source_tickers.append(tk)
         else:
             missing.append(tk)
         if qty is not None and p1 is not None and avg is not None:
@@ -325,6 +445,9 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
         positions.append({
             "ticker": tk, "sector": h["sector"], "quantity": qty,
             "prior_price": _r2(p0), "current_price": _r2(p1),
+            "prior_mark_date": (m0[0] if m0 else None),
+            "current_mark_date": (m1[0] if m1 else None),
+            "prior_mark_source": src0, "current_mark_source": src1,
             "prior_market_value": _r2(pmv),
             "pnl_contribution": _r2(contrib),
             "daily_return_pct": _r4(ret),
@@ -355,7 +478,26 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
     market_move = (portfolio["ending_nav"] - portfolio["beginning_nav"]
                    if (portfolio["ending_nav"] is not None
                        and portfolio["beginning_nav"] is not None) else None)
-    residual = (market_move - sum_contrib) if market_move is not None else None
+    # Phase 8.1B reconciliation contract (WS3):
+    #   position_contribution_sum + cash_contribution - execution_cost_charged_today
+    #     = ending_nav - beginning_nav
+    # NAV = cash + invested, so any cash change (from fills settling on the current
+    # date, net of their execution cost) plus the position market P&L must equal the
+    # NAV move. execution_cost_charged_today is the cost embedded in that cash change;
+    # cash_contribution is the cash change GROSS of it, so the contract subtracts the
+    # cost exactly once. With no flows (every ordinary daily mark) both terms are 0
+    # and the identity reduces to position_contribution_sum == NAV move.
+    cash0, cash1 = _f(prev.get("cash")), _f(last.get("cash"))
+    cost_today = _f(last.get("transaction_cost")) or 0.0
+    cash_contribution = (((cash1 - cash0) + cost_today)
+                         if (cash0 is not None and cash1 is not None) else 0.0)
+    residual = ((market_move - (sum_contrib + cash_contribution - cost_today))
+                if market_move is not None else None)
+    reconciles = bool(residual is not None and abs(residual) <= _ATTRIB_RECONCILE_TOL)
+    recon_diag = _reconcile_diagnostic(
+        reconciles=reconciles, residual=residual, coverage_complete=(priced == total),
+        missing=missing, mixed=mixed_source_tickers, fallbacks=fallback_tickers,
+        d0=d0, d1=d1)
 
     # sector aggregation (known contributions only)
     sec: dict[str, dict] = {}
@@ -398,13 +540,26 @@ def build_daily_attribution(*, market_date: Optional[str] = None, desk_dir=None,
         "winners": winners,
         "losers": losers,
         "coverage": coverage,
+        "mark_source": {
+            "primary": MARK_SOURCE_LEDGER,
+            "primary_description": ("immutable first-write-wins completed-close ledger "
+                                    "(forward_prediction_prices.json) — a recorded prior "
+                                    "close is never restated by a later re-adjustment"),
+            "fallback": MARK_SOURCE_CACHE_FALLBACK,
+            "cache_fallback_tickers": sorted(fallback_tickers),
+            "mixed_source_tickers": sorted(mixed_source_tickers),
+        },
         "reconciliation": {
             "position_contribution_sum": _r2(sum_contrib),
+            "cash_contribution": _r2(cash_contribution),
+            "execution_cost_charged_today": _r2(cost_today),
             "market_movement": _r2(market_move),
             "residual": _r2(residual),
             "tolerance": _ATTRIB_RECONCILE_TOL,
-            "reconciles": bool(residual is not None
-                              and abs(residual) <= _ATTRIB_RECONCILE_TOL),
+            "reconciles": reconciles,
+            "contract": ("position_contribution_sum + cash_contribution - "
+                         "execution_cost_charged_today = ending_nav - beginning_nav"),
+            "diagnostic": recon_diag,
         },
         "cost_note": ("The modeled 12.5 bps/side paper execution cost is embedded once at "
                       "fill and carried in the baseline NAV; it is never re-charged on a "
@@ -416,11 +571,15 @@ def build_attribution_history(*, desk_dir=None, ops: Optional[dict] = None,
                               today: Optional[str] = None, limit: int = 60,
                               perf_loader: Optional[Callable] = None,
                               marks_loader: Optional[Callable] = None,
+                              mark_ledger_loader: Optional[Callable] = None,
                               ops_loader: Optional[Callable] = None) -> dict:
-    """Compact per-close attribution across every eligible processed close (Part A/G)."""
+    """Compact per-close attribution across every eligible processed close (Part A/G).
+    Per-position prices come from the immutable first-write-wins completed-close ledger
+    (same source as build_daily_attribution) so each row reconciles to its NAV move."""
     rows, _summary = _perf_rows(desk_dir, perf_loader)
     holdings_ops = ops if ops is not None else _safe_ops(ops_loader, today)
-    series = _mark_series(desk_dir, marks_loader)
+    ledger_series, cache_series = resolve_mark_sources(
+        desk_dir, marks_loader=marks_loader, mark_ledger_loader=mark_ledger_loader)
     holds = _holdings(holdings_ops)
     sc = _starting_capital(holdings_ops)
     out: list[dict] = []
@@ -430,15 +589,17 @@ def build_attribution_history(*, desk_dir=None, ops: Optional[dict] = None,
         d0 = str(rows[i - 1].get("date") or "")[:10] or None
         contribs = []
         for h in holds:
-            p1 = _price_at(series, h["ticker"], d1)
-            p0 = _price_at(series, h["ticker"], d0)
-            if h["quantity"] is not None and p1 is not None and p0 is not None:
-                contribs.append((h["ticker"], h["quantity"] * (p1 - p0)))
+            m1 = mark_at(ledger_series, cache_series, h["ticker"], d1)
+            m0 = mark_at(ledger_series, cache_series, h["ticker"], d0)
+            if h["quantity"] is not None and m1 is not None and m0 is not None:
+                contribs.append((h["ticker"], h["quantity"] * (m1[1] - m0[1])))
         contribs.sort(key=lambda t: t[1], reverse=True)
         sum_c = sum(c for _, c in contribs)
         mv = (pb["ending_nav"] - pb["beginning_nav"]
               if (pb["ending_nav"] is not None and pb["beginning_nav"] is not None) else None)
-        resid = (mv - sum_c) if mv is not None else None
+        cash0, cash1 = _f(rows[i - 1].get("cash")), _f(rows[i].get("cash"))
+        cash_c = ((cash1 - cash0) if (cash0 is not None and cash1 is not None) else 0.0)
+        resid = (mv - sum_c - cash_c) if mv is not None else None
         out.append({
             "market_date": d1, "prior_market_date": d0,
             "daily_pnl": pb["daily_pnl"], "daily_return_pct": pb["daily_return_pct"],
@@ -1042,6 +1203,8 @@ __all__ = [
     "INSUFFICIENT_FORWARD_SAMPLE", "FORWARD_SAMPLE_SUFFICIENT",
     "ATTRIB_READY", "ATTRIB_NO_PRIOR", "ATTRIB_INSUFFICIENT",
     "ATTRIB_COVERAGE_INCOMPLETE", "ATTRIB_DATE_NOT_FOUND",
+    "MARK_SOURCE_LEDGER", "MARK_SOURCE_CACHE_FALLBACK",
+    "resolve_mark_sources", "mark_at",
     "build_daily_attribution", "build_attribution_history", "build_why_pnl_moved",
     "build_rolling_evidence", "build_active_vs_shadow", "load_forward_evidence",
     "load_daily_attribution", "load_attribution_history", "load_holding_contributions",

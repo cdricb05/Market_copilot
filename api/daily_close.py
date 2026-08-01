@@ -101,6 +101,7 @@ from typing import Any, Callable, Optional
 from paper_trader.api import alpha_book as ab
 from paper_trader.api import alpha_target as at
 from paper_trader.api import daily_action_gate as dag
+from paper_trader.api import forward_evidence as fe
 from paper_trader.api import forward_prediction_skill as fps
 from paper_trader.api import multi_horizon_engine as eng
 from paper_trader.api import operational_book as ob
@@ -1195,30 +1196,39 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
     market_movement = (nav1 - nav0) if (nav1 is not None and nav0 is not None) else None
 
     holdings = _holdings_map(ops)
-    series: dict = {}
-    try:
-        series = (desk.read_marks(desk_dir).get("series") or {})
-    except Exception:  # noqa: BLE001
-        series = {}
+    # Phase 8.1B — prior/current prices come from the IMMUTABLE first-write-wins
+    # completed-close ledger (never the re-adjustable desk mark cache), so an
+    # already-recorded prior close is not restated by a later dividend re-adjustment.
+    ledger_series, cache_series = fe.resolve_mark_sources(desk_dir)
 
     positions: list[dict] = []
     priced = 0
+    fallback_tickers: list[str] = []
+    mixed_source_tickers: list[str] = []
     for tk, h in sorted(holdings.items()):
         qty = h.get("quantity")
-        # ``_series_price_at_or_before`` returns (date, price) or None.
-        h1 = desk._series_price_at_or_before(series.get(tk) or [], d1) if d1 else None
-        h0 = desk._series_price_at_or_before(series.get(tk) or [], d0) if d0 else None
-        p1 = h1[1] if h1 else None
-        p0 = h0[1] if h0 else None
+        m1 = fe.mark_at(ledger_series, cache_series, tk, d1)
+        m0 = fe.mark_at(ledger_series, cache_series, tk, d0)
+        p1 = m1[1] if m1 else None
+        p0 = m0[1] if m0 else None
+        src1 = m1[2] if m1 else None
+        src0 = m0[2] if m0 else None
         contrib = None
         ret = None
         if qty is not None and p1 is not None and p0 is not None:
             contrib = qty * (p1 - p0)
             ret = (p1 / p0 - 1.0) if p0 else None
             priced += 1
+            if fe.MARK_SOURCE_CACHE_FALLBACK in (src0, src1):
+                fallback_tickers.append(tk)
+            if src0 != src1:
+                mixed_source_tickers.append(tk)
         positions.append({
             "ticker": tk, "sector": h.get("sector") or "Unknown",
             "quantity": qty, "price_prev": _r2(p0), "price_last": _r2(p1),
+            "prior_mark_date": (m0[0] if m0 else None),
+            "current_mark_date": (m1[0] if m1 else None),
+            "prior_mark_source": src0, "current_mark_source": src1,
             "price_return_pct": (round(ret * 100.0, 4) if ret is not None else None),
             "pnl_contribution": _r2(contrib),
             "weight": h.get("weight"),
@@ -1250,7 +1260,22 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
     if spy_cum1 is not None and spy_cum0 is not None:
         spy_daily = ((1.0 + spy_cum1 / 100.0) / (1.0 + spy_cum0 / 100.0) - 1.0) * 100.0
     port_daily = ((nav1 / nav0 - 1.0) * 100.0) if (nav0 and nav1 is not None) else None
-    residual = (market_movement - sum_contrib) if market_movement is not None else None
+    # Phase 8.1B reconciliation contract (mirrors forward_evidence): NAV = cash +
+    # invested, so position P&L + cash change (gross of today's execution cost)
+    # minus that cost equals the NAV move. Ordinary daily marks have no flows, so
+    # both terms are 0 and position_contribution_sum alone must equal the NAV move.
+    cash0, cash1 = _f(prev.get("cash")), _f(last.get("cash"))
+    cost_today = _f(last.get("transaction_cost")) or 0.0
+    cash_contribution = (((cash1 - cash0) + cost_today)
+                         if (cash0 is not None and cash1 is not None) else 0.0)
+    residual = ((market_movement - (sum_contrib + cash_contribution - cost_today))
+                if market_movement is not None else None)
+    reconciles = bool(residual is not None and abs(residual) <= _ATTRIB_RECONCILE_TOL)
+    recon_diag = fe._reconcile_diagnostic(
+        reconciles=reconciles, residual=residual,
+        coverage_complete=(priced == len(positions)),
+        missing=[p["ticker"] for p in positions if p["pnl_contribution"] is None],
+        mixed=mixed_source_tickers, fallbacks=fallback_tickers, d0=d0, d1=d1)
     return {
         "available": True,
         "attribution_date": d1,
@@ -1258,8 +1283,14 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
         "beginning_nav": _r2(nav0),
         "ending_nav": _r2(nav1),
         "market_movement_pnl": _r2(market_movement),
-        "execution_cost_charged_today": 0.0,
-        "cash_contribution": 0.0,
+        "execution_cost_charged_today": _r2(cost_today),
+        "cash_contribution": _r2(cash_contribution),
+        "mark_source": {
+            "primary": fe.MARK_SOURCE_LEDGER,
+            "cache_fallback_tickers": sorted(fallback_tickers),
+            "mixed_source_tickers": sorted(mixed_source_tickers),
+        },
+        "reconciliation_diagnostic": recon_diag,
         "gross_return_pct": (round(port_daily, 4) if port_daily is not None else None),
         "net_return_pct": (round(port_daily, 4) if port_daily is not None else None),
         "spy_return_pct": (round(spy_daily, 4) if spy_daily is not None else None),
@@ -1274,15 +1305,16 @@ def _attribution_block(*, perf: dict, ops: dict, desk_dir) -> dict:
         "losers": losers,
         "position_contribution_sum": _r2(sum_contrib),
         "reconciliation_residual": _r2(residual),
-        "reconciles": bool(residual is not None and abs(residual) <= _ATTRIB_RECONCILE_TOL),
+        "reconciles": reconciles,
         "cost_note": (
             "The modeled 12.5 bps/side paper execution cost is embedded once at fill and "
             "carried in the baseline NAV; it is never re-charged on a daily mark, so today's "
             "P&L is pure market movement."),
         "method_note": (
             "Position contribution = quantity x (completed close today - completed close prior "
-            "day) from the append-only desk mark store; sector contribution sums positions by "
-            "the owned GICS sector; nothing is estimated."),
+            "day) from the IMMUTABLE first-write-wins completed-close ledger (a recorded prior "
+            "close is never restated by a later re-adjustment); sector contribution sums "
+            "positions by the owned GICS sector; nothing is estimated."),
     }
 
 
