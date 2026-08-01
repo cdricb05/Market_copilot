@@ -1751,6 +1751,73 @@ class Runtime:
                 (run_id, component, severity, rc.redact(str(message)[:500]),
                  self.clock.iso()))
 
+    # ---- Stage 9 tournament (config-driven; production collect path) ----- #
+    def _stage8_config(self) -> Optional[dict]:
+        """Load the Stage 8 autonomy config referenced by this Stage 4 config's
+        ``stage_configs.stage8_autonomy`` pointer (repo-relative or absolute).
+        Cached; returns None if the pointer or file is unavailable."""
+        cached = getattr(self, "_stage8_cfg_cache", "_unset")
+        if cached != "_unset":
+            return cached
+        cfg8 = None
+        try:
+            rel = (self.cfg.get("stage_configs") or {}).get("stage8_autonomy")
+            if rel:
+                p = Path(rel)
+                if not p.is_absolute():
+                    p = Path(__file__).resolve().parents[1] / rel
+                if p.exists():
+                    cfg8 = json.loads(p.read_text(encoding="utf-8-sig"))
+        except Exception:  # noqa: BLE001 - absence is a clean 'disabled'
+            cfg8 = None
+        self._stage8_cfg_cache = cfg8
+        return cfg8
+
+    def _stage9_config_path(self) -> Optional[str]:
+        """Resolve the versioned Stage 9 tournament config path via the Stage 8
+        config's ``tournament.config`` pointer (or None)."""
+        cfg8 = self._stage8_config()
+        return resolve_stage9_config_path(cfg8) if cfg8 else None
+
+    def _run_tournament_step(self, cycle_date: str) -> dict:
+        """WS2/WS3: the config-driven Stage 9 tournament tick that runs INSIDE
+        the scheduled AlphaAgent-Collect cycle. Activation is purely from the
+        Stage 8 config's ``tournament.enabled`` flag - no caller passes
+        run_tournament=True. Entirely self-contained: any tournament failure is
+        captured and returned (never raised) so acquisition, queue processing,
+        reporting and unrelated experiments are never affected. Read-only w.r.t.
+        the operational portfolio - it writes ONLY Stage 8 research state on D:.
+        """
+        summary = {"tournament_attempted": False, "tournament_status": "DISABLED",
+                   "candidates_evaluated": 0, "experiments_generated": 0,
+                   "shadow_books_advanced": 0, "experiments_ingested": 0,
+                   "tournament_error": None}
+        try:
+            cfg8 = self._stage8_config()
+            if not cfg8 or not (cfg8.get("tournament") or {}).get("enabled"):
+                return summary
+            summary["tournament_attempted"] = True
+            # CandidateRegistry / ResearchQueue expect a callable -> ISO string;
+            # the runtime Clock exposes that as its bound ``.iso`` method.
+            out = run_tournament_tick(cfg8, evidence_date=cycle_date,
+                                      clock=self.clock.iso)
+            summary["tournament_status"] = out.get("status", "OK")
+            summary["candidates_evaluated"] = len(
+                [e for e in out.get("evaluated", []) if not e.get("skipped")])
+            summary["experiments_generated"] = out.get(
+                "generated_experiments", 0)
+            summary["shadow_books_advanced"] = out.get("shadow_books_advanced", 0)
+            summary["experiments_ingested"] = (
+                out.get("experiments_ingested") or {}).get("imported", 0)
+            summary["campaign_ran"] = out.get("campaign_ran", False)
+            summary["queue_depth"] = out.get("queue_depth")
+            summary["counts_by_state"] = out.get("counts_by_state")
+        except Exception as exc:  # noqa: BLE001 - never break collection
+            summary["tournament_status"] = "TOURNAMENT_ERROR"
+            summary["tournament_error"] = "%s: %s" % (
+                type(exc).__name__, rc.redact(str(exc))[:200])
+        return summary
+
     # ---- COLLECT --------------------------------------------------------- #
     def run_collect(self, *, mode: str = "incremental") -> RuntimeResult:
         conn = self._open()
@@ -1772,6 +1839,8 @@ class Runtime:
                                  cycle_id=cycle_id,
                                  detail={"reason": str(exc)})
         components: list[dict] = []
+        tournament_summary = {"tournament_attempted": False,
+                              "tournament_status": "NOT_RUN"}
         try:
             steps = [
                 ("verify_stage1", lambda: self.drivers.verify_stage1(),
@@ -1793,6 +1862,11 @@ class Runtime:
                 if not comp.get("ok"):
                     self._record_error(conn, run_id, comp.get("component"),
                                        "WARNING", comp.get("terminal"))
+            # Stage 9 (WS2): the config-driven tournament tick runs INSIDE the
+            # scheduled collect cycle, after collection and BEFORE the ledger
+            # fingerprint below - so the same operational-ledger guard proves it
+            # mutated nothing operational. Self-contained; never raises.
+            tournament_summary = self._run_tournament_step(cycle_date)
         finally:
             release_lock(lock, clock=self.clock, conn=conn)
 
@@ -1804,6 +1878,7 @@ class Runtime:
         summary = {
             "cycle_id": cycle_id, "run_id": run_id, "mode": mode,
             "cycle_date": cycle_date, "ledgers_unchanged": ledgers_ok,
+            "tournament": tournament_summary,
             "components": [{"component": c["component"], "status": c["status"],
                             "ok": c["ok"], "counts": c.get("counts")}
                            for c in components],
@@ -1824,7 +1899,9 @@ class Runtime:
                                          if not c.get("ok")))
         write_heartbeat(self.root, {"mode": rc.MODE_COLLECT, "status": status,
                                     "run_id": run_id, "cycle_date": cycle_date,
-                                    "ledgers_unchanged": ledgers_ok},
+                                    "ledgers_unchanged": ledgers_ok,
+                                    "tournament_status":
+                                    tournament_summary.get("tournament_status")},
                         clock=self.clock, conn=conn)
         conn.close()
         if not ledgers_ok:
@@ -1832,11 +1909,13 @@ class Runtime:
                                  status="LEDGER_MUTATION_DETECTED",
                                  mode=rc.MODE_COLLECT, run_id=run_id,
                                  cycle_id=cycle_id, run_dir=str(run_dir),
-                                 components=components)
+                                 components=components,
+                                 detail={"tournament": tournament_summary})
         return RuntimeResult(terminal=terminal, status=status,
                              mode=rc.MODE_COLLECT, run_id=run_id,
                              cycle_id=cycle_id, run_dir=str(run_dir),
-                             components=components)
+                             components=components,
+                             detail={"tournament": tournament_summary})
 
     # ---- RESEARCH -------------------------------------------------------- #
     def _research_cycles_today(self, conn, cycle_date, exclude_cycle) -> int:
@@ -1996,6 +2075,10 @@ class Runtime:
             stage7_model=stage7_model, prior=prior_dict,
             no_new_evidence=no_new_evidence,
             schedule_status=resolve_schedule_status(self.cfg))
+        # WS6: the ACTUAL morning/post-close report model receives ONLY material
+        # Stage 9 tournament changes; an unchanged standing surfaces nothing.
+        rr.attach_tournament_changes(model,
+                                     config_path=self._stage9_config_path())
         html_body = rr.render_html(model)
         text_body = rr.render_text(model)
         manifest = rr.report_manifest(model, html_body, text_body)
@@ -2158,6 +2241,9 @@ class Runtime:
             stage7_model=stage7_model, prior=prior_dict,
             no_new_evidence=cadence.get("action") == ro_recovery.CAD_REUSE,
             schedule_status=resolve_schedule_status(self.cfg))
+        # WS6: attach ONLY material Stage 9 tournament changes to the model.
+        rr.attach_tournament_changes(model,
+                                     config_path=self._stage9_config_path())
         html_body = rr.render_html(model)
         text_body = rr.render_text(model)
         manifest = rr.report_manifest(model, html_body, text_body)
@@ -3549,7 +3635,8 @@ def build_production_autonomy_handlers(cfg: dict, *,
 
 def run_autonomy_cycle(cfg: dict, *, handlers=None, planner=None,
                        max_jobs: Optional[int] = None, clock=None,
-                       run_mode: Optional[str] = None) -> dict:
+                       run_mode: Optional[str] = None,
+                       run_tournament: bool = False) -> dict:
     """Run ONE bounded, never-idle Stage 8 research cycle: requeue stale work,
     replenish the queue so it is never empty, drain up to ``max_jobs`` jobs
     through their handlers, then ensure the queue is not left empty. Returns the
@@ -3591,7 +3678,22 @@ def run_autonomy_cycle(cfg: dict, *, handlers=None, planner=None,
     mx = int(max_jobs if max_jobs is not None
              else (cfg.get("autonomy") or {}).get("max_jobs_per_cycle", 8)) \
         if isinstance(cfg.get("autonomy"), dict) or max_jobs is not None else 8
-    return _ar.run_cycle(queue, handlers, planner=planner, max_jobs=mx)
+    result = _ar.run_cycle(queue, handlers, planner=planner, max_jobs=mx)
+    # Stage 9 (WS2/WS11): the tournament tick is the highest-value research step
+    # of the production cycle. It shares THIS queue (never a second queue). It is
+    # driven by CONFIGURATION: it runs when ``tournament.enabled`` is true in the
+    # config (no caller needs to pass run_tournament=True). An explicit
+    # run_tournament=True can still force it; a config with the block absent (as
+    # in the offline Stage 8 unit tests) leaves it off. A failure is caught here
+    # and never breaks the never-idle loop.
+    if (run_tournament or (cfg.get("tournament") or {}).get("enabled")):
+        try:
+            result["tournament"] = run_tournament_tick(
+                cfg, queue=queue, clock=clock)
+        except Exception as exc:  # noqa: BLE001 - never break the cycle
+            result["tournament"] = {"status": "TOURNAMENT_ERROR",
+                                    "error": type(exc).__name__}
+    return result
 
 
 def run_autonomy_watchdog(cfg: dict, *, planner=None, clock=None) -> dict:
@@ -3604,3 +3706,136 @@ def run_autonomy_watchdog(cfg: dict, *, planner=None, clock=None) -> dict:
     if planner is None:
         planner = _se.make_planner(lambda: _se.build_registry_snapshot())
     return _ar.watchdog_scan(queue, planner=planner)
+
+
+# --------------------------------------------------------------------------- #
+# Stage 9 — Autonomous Alpha Tournament entry points (WS11). The persistent
+# candidate registry lives in a durable Stage 8 research store on D:; the tick
+# reuses the SHARED autonomy queue for experiment generation. Research-only:
+# nothing here can touch an operational ledger, order, fill, holding, cash,
+# model promotion or Daily Close.
+# --------------------------------------------------------------------------- #
+def resolve_stage9_config_path(cfg: dict) -> Optional[str]:
+    """Resolve the versioned Stage 9 tournament config path from the Stage 8
+    config's ``tournament.config`` pointer (repo-relative or absolute)."""
+    t = cfg.get("tournament") if isinstance(cfg.get("tournament"), dict) else {}
+    p = t.get("config")
+    if not p:
+        return None
+    pp = Path(p)
+    if not pp.is_absolute():
+        pp = Path(__file__).resolve().parents[1] / p
+    return str(pp) if pp.exists() else None
+
+
+def build_tournament_registry(cfg9: dict, *, clock=None):
+    """Open (creating if needed) the durable Stage 9 candidate registry."""
+    from . import tournament as _tt
+    return _tt.CandidateRegistry(cfg9["tournament_db"], clock=clock)
+
+
+def _collect_completed_tournament_jobs(queue, *, limit: int = 200) -> list:
+    """Read completed Stage 8 queue jobs that carry tournament experiment results
+    into the shape ``ingest_completed_experiments`` consumes. Bounded and
+    read-only; a queue error degrades to an empty list."""
+    from . import autonomous_research as _ar
+    out: list = []
+    try:
+        for job in queue.list_jobs(state=_ar.STATE_COMPLETED, limit=limit):
+            payload = getattr(job, "payload", None) or {}
+            if not payload.get("tournament"):
+                continue
+            result = getattr(job, "result", None) or {}
+            spec = payload.get("spec") or {}
+            row = result.get("row") or result.get("metrics") or result
+            out.append({"job_id": getattr(job, "job_id", None),
+                        "spec": spec, "feature": spec.get("feature"),
+                        "result": row})
+    except Exception:  # noqa: BLE001 - ingestion is best-effort, never fatal
+        return []
+    return out
+
+
+def _tournament_mark_provider(cfg: dict, cfg9: dict):
+    """Immutable completed-close mark provider for shadow-book advancement.
+
+    Returns ``None`` for every (candidate, date): the real owned completed-close
+    portfolio replay is wired only once a candidate is actually retained and a
+    shadow book exists. Until then there are zero active books, so this is never
+    invoked - a missing mark can only ever yield an honest coverage diagnostic,
+    never a fabricated observation."""
+    def _provider(_candidate_id: str, _date: str):
+        return None
+    return _provider
+
+
+def run_tournament_tick(cfg: dict, *, queue=None, registry=None,
+                        campaign_result=None, run_campaign: bool = True,
+                        cfg9: Optional[dict] = None,
+                        evidence_date: Optional[str] = None,
+                        max_candidates: Optional[int] = None,
+                        ingest_completed: bool = True,
+                        advance_shadows: bool = True, clock=None) -> dict:
+    """Run ONE bounded, resumable Stage 9 tournament tick.
+
+    Idempotently ingests completed Stage 8 experiment jobs, refreshes tournament
+    state, evaluates bounded candidates against the owned Stage 5 evidence,
+    recomputes the leaderboard, generates the next experiments into the shared
+    durable queue and advances shadow books - the steps of WS11. The heavy owned
+    price campaign runs AT MOST ONCE per evidence date (persisted in the registry
+    meta) so a 30-minute cycle never re-runs it needlessly. Read-only w.r.t.
+    operational trading state; a missing Stage 9 config yields
+    ``TOURNAMENT_DISABLED`` (never raises)."""
+    from . import tournament as _tt
+    if cfg9 is None:
+        p = resolve_stage9_config_path(cfg)
+        if not p:
+            return {"status": "TOURNAMENT_DISABLED",
+                    "reason": "no stage9 config resolved"}
+        cfg9 = _tt.load_config(p)
+    own_registry = registry is None
+    if registry is None:
+        registry = build_tournament_registry(cfg9, clock=clock)
+    if queue is None:
+        queue = build_autonomy_queue(cfg, clock=clock)
+    try:
+        # Campaign cadence (WS4): the heavy Stage 5 owned-price campaign runs at
+        # most once per evidence date. A same-day repeat cycle reuses no campaign
+        # (already-processed results are idempotently skipped) yet still advances
+        # shadow books and keeps the queue non-empty.
+        campaign_ran = False
+        if campaign_result is None and run_campaign:
+            already = (evidence_date is not None
+                       and registry.get_meta("last_campaign_date")
+                       == evidence_date)
+            if not already:
+                try:
+                    campaign_result = _tt.build_owned_price_campaign(cfg)
+                    campaign_ran = campaign_result is not None
+                    if campaign_ran and evidence_date is not None:
+                        registry.set_meta("last_campaign_date", evidence_date)
+                except Exception:  # noqa: BLE001 - degrade to no-new-evidence
+                    campaign_result = None
+        # On an evidence day, classify the full (fixed, bounded) catalogue
+        # against the fresh evidence in one atomic pass; on a cheap repeat cycle
+        # keep the small configured cap.
+        cfg_cap = (max_candidates if max_candidates is not None
+                   else (cfg.get("tournament") or {}).get(
+                       "max_candidates_per_cycle") or 4)
+        eval_cap = 200 if campaign_result else int(cfg_cap)
+
+        completed = (_collect_completed_tournament_jobs(queue)
+                     if ingest_completed else None)
+        mark_provider = (_tournament_mark_provider(cfg, cfg9)
+                         if advance_shadows else None)
+
+        result = _tt.run_tournament_cycle(
+            registry, cfg9, queue=queue, campaign_result=campaign_result,
+            evidence_date=evidence_date, max_candidates=eval_cap,
+            completed_experiments=completed, mark_provider=mark_provider)
+        result["campaign_ran"] = campaign_ran
+        result["queue_depth"] = queue.depth()
+        return result
+    finally:
+        if own_registry:
+            registry.close()

@@ -5673,6 +5673,14 @@ def research_alpha_agent_observatory() -> dict:
             config_path=str(_alpha_agent_stage8_config_path()))
     except Exception:  # noqa: BLE001
         payload["autonomy"] = {"status": "UNAVAILABLE"}
+    # Stage 9: attach the read-only tournament snapshot (candidate lifecycle
+    # counts, top leaderboard, shadow books). Best-effort; never breaks the API.
+    try:
+        from paper_trader.alpha_agent import tournament as _tt
+        payload["tournament"] = _tt.tournament_snapshot(
+            config_path=str(_alpha_agent_stage9_config_path()))
+    except Exception:  # noqa: BLE001
+        payload["tournament"] = {"status": "UNAVAILABLE"}
     return payload
 
 
@@ -5698,6 +5706,31 @@ def research_alpha_agent_autonomy() -> dict:
         return {"status": "UNAVAILABLE", "reason": str(exc)[:200],
                 "safety_badges": ["NO ORDERS", "PAPER ONLY",
                                   "READ-ONLY EVIDENCE"]}
+
+
+def _alpha_agent_stage9_config_path():
+    from pathlib import Path as _P
+    return (_P(__file__).resolve().parents[1] / "configs" / "alpha_agent"
+            / "stage9_tournament.json")
+
+
+@app.get("/v1/research/tournament", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_tournament() -> dict:
+    """Read-only Stage 9 Autonomous Alpha Tournament: the persistent candidate
+    registry's counts by lifecycle + family, the decomposable leaderboard,
+    active research shadow books, current blockers and recent meaningful
+    changes. There is NO automatic promotion and READY_FOR_MANUAL_REVIEW never
+    modifies the operating model. Creates nothing, writes nothing, promotes
+    nothing, changes no holding; degrades to a controlled UNAVAILABLE status."""
+    try:
+        from paper_trader.alpha_agent import tournament as _tt
+        return _tt.load_tournament(
+            config_path=str(_alpha_agent_stage9_config_path()))
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "UNAVAILABLE", "reason": str(exc)[:200],
+                "safety": ["NO ORDERS", "RESEARCH ONLY",
+                           "NO AUTOMATIC PROMOTION"]}
 
 
 @app.get("/v1/evidence/rolling", status_code=status.HTTP_200_OK,

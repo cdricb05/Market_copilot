@@ -38,6 +38,12 @@
     "never_idle": true,
     "handlers": "production"
   },
+  "tournament": {
+    "note": "Stage 9 Autonomous Alpha Tournament. The bounded tournament tick is the highest-value research step of the production cycle (run_autonomy_cycle(..., run_tournament=True)); it shares THIS durable queue and never creates a second framework. READ-ONLY w.r.t. the operating portfolio; no automatic promotion.",
+    "enabled": true,
+    "config": "configs/alpha_agent/stage9_tournament.json",
+    "max_candidates_per_cycle": 4
+  },
   "production_handlers": {
     "note": "Real Stage 2/5/6 handlers: each durable-queue category acquires real data or runs a real bounded experiment and returns genuine evidence (record counts, coverage deltas, rank-IC, gate decisions). Research-only; never writes an operational ledger.",
     "stage2_ingestion_config": "configs/alpha_agent/stage2_ingestion.json",

@@ -482,6 +482,58 @@ def what_changed(model: dict) -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# Stage 9 tournament changes (WS10): reports flag ONLY meaningful tournament
+# changes (a new retained candidate, a rejection, a newly-activated shadow book,
+# a forward-evidence milestone, a new blocker). An unchanged leaderboard emits
+# nothing, so a report never repeats a static tournament standing. The lines are
+# read from ``model['tournament_changes']`` so a caller with no tournament state
+# renders exactly as before (no new noise).
+# --------------------------------------------------------------------------- #
+_TOURNAMENT_NONMATERIAL = (
+    "No meaningful tournament change", "No tournament activity")
+
+
+def material_tournament_changes(lines) -> list:
+    """Filter a raw change feed down to material lines only."""
+    out = []
+    for ln in (lines or []):
+        s = str(ln).strip()
+        if not s or any(s.startswith(p) for p in _TOURNAMENT_NONMATERIAL):
+            continue
+        out.append(s)
+    return out
+
+
+def tournament_change_lines(model: dict) -> list:
+    """Material tournament changes for the report (empty unless the model carries
+    real retained/rejected/shadow-book changes)."""
+    return material_tournament_changes((model or {}).get("tournament_changes"))
+
+
+def _tournament_changes_default(config_path):
+    from . import tournament as _tt
+    p = config_path
+    if p is None:
+        from pathlib import Path as _P
+        p = str(_P(__file__).resolve().parents[1] / "configs" / "alpha_agent"
+                / "stage9_tournament.json")
+    return _tt.meaningful_tournament_changes(config_path=p)
+
+
+def attach_tournament_changes(model: dict, *, config_path=None,
+                              loader=None) -> dict:
+    """Populate ``model['tournament_changes']`` from the read-only tournament
+    change feed (best-effort; never raises). The production report path calls
+    this so the report surfaces only meaningful tournament changes."""
+    try:
+        fn = loader or (lambda: _tournament_changes_default(config_path))
+        model["tournament_changes"] = list(fn() or [])
+    except Exception:  # noqa: BLE001 - reporting must never break on research state
+        pass
+    return model
+
+
+# --------------------------------------------------------------------------- #
 # Canonical research-decision reconciliation (Stage 7.2 defect #3). Exactly one
 # summary, with counts that add up. Stage 7 recovery ideas that were EVALUATED
 # are kept strictly separate from Stage 5 studies that COULD NOT RUN for lack of
@@ -890,6 +942,13 @@ def render_html(model: dict) -> str:
     parts.append('<div class="section"><h2>4. Research progress</h2>')
     for ln in rp["lines"]:
         parts.append('<p>%s</p>' % e(ln))
+    tchanges = tournament_change_lines(m)
+    if tchanges:
+        parts.append('<p class="muted" style="margin-top:6px;">'
+                     '<b>Alpha tournament changes:</b></p><ul class="clean">')
+        for ln in tchanges:
+            parts.append('<li>%s</li>' % e(ln))
+        parts.append('</ul>')
     parts.append('</div>')
 
     # 5. RISK EXPERIMENTS — one three-row shadow table + plain interpretation.
@@ -982,6 +1041,11 @@ def render_text(model: dict) -> str:
     lines.append("4. RESEARCH PROGRESS")
     for ln in research_progress(m)["lines"]:
         lines.append("  " + ln)
+    tchanges = tournament_change_lines(m)
+    if tchanges:
+        lines.append("  Alpha tournament changes:")
+        for ln in tchanges:
+            lines.append("    - " + ln)
     lines.append("")
 
     lines.append("5. RISK EXPERIMENTS")

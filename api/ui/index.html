@@ -3726,6 +3726,18 @@
             <div id="aao-autonomy" style="font-size:12px;">&mdash;</div>
           </div>
 
+          <!-- Stage 9 Autonomous Alpha Tournament (read-only): persistent
+               candidate registry, decomposable leaderboard, shadow books. No
+               automatic promotion; not approved for live trading. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Alpha Tournament
+              <span class="cc-badge" style="font-size:9px;">RESEARCH ONLY</span>
+              <span class="cc-badge" style="font-size:9px;">NO AUTOMATIC PROMOTION</span>
+              <span class="cc-badge" style="font-size:9px;">NO ORDERS</span>
+              <span class="cc-badge" style="font-size:9px;">NOT APPROVED FOR LIVE TRADING</span></div>
+            <div id="aao-tournament" style="font-size:12px;">&mdash;</div>
+          </div>
+
           <!-- KPI row -->
           <div id="aao-kpis" style="display:flex;gap:10px;flex-wrap:wrap;margin:0 0 12px;">
             <div class="af-kpi"><div class="af-kpi-v mono" id="aao-kpi-records">&mdash;</div><div class="af-kpi-l">Data collected (records)</div></div>
@@ -8519,6 +8531,42 @@ function renderAlphaAgentObservatory(d) {
       auEl.innerHTML = '<div class="mono" style="margin-bottom:3px;">' + qLine + '</div>'
         + '<div class="mono" style="margin-bottom:3px;">' + srcLine + '</div>'
         + '<div class="mono">' + tgLine + '</div>';
+    }
+  }
+
+  // Stage 9 tournament: candidate lifecycle counts, top leaderboard, shadow
+  // books. Read-only; NO automatic promotion; not approved for live trading.
+  var tEl = document.getElementById('aao-tournament');
+  if (tEl) {
+    var t = d.tournament || {};
+    if (!t || t.status !== 'OK') {
+      tEl.innerHTML = '<div class="cc-na-note">Tournament registry not initialised yet '
+        + '(created on the first production tournament cycle).</div>';
+    } else {
+      var cs = t.counts_by_state || {};
+      var stateLine = 'Candidates by state: '
+        + Object.keys(cs).filter(function(k){ return cs[k]; }).map(function(k){
+            return '<b>' + escapeHtml(k) + '</b> ' + _aaoNum(cs[k]); }).join(' &middot; ');
+      var top = t.top_candidates || [];
+      var rows = top.slice(0, 5).map(function(r){
+        var sc = (r.combined_score == null) ? '&mdash;' : Number(r.combined_score).toFixed(3);
+        return '<tr><td class="mono">#' + (r.rank == null ? '&mdash;' : r.rank) + '</td>'
+          + '<td>' + escapeHtml(String(r.name || '')) + '</td>'
+          + '<td>' + escapeHtml(String(r.state || '')) + '</td>'
+          + '<td class="mono">' + sc + '</td>'
+          + '<td>' + escapeHtml(String(r.strongest_evidence || '')) + '</td></tr>'; }).join('');
+      var tbl = rows
+        ? ('<table class="kv" style="margin-top:4px;"><tr><th>#</th><th>Candidate</th>'
+           + '<th>State</th><th>Score</th><th>Strongest</th></tr>' + rows + '</table>')
+        : '<div class="cc-na-note">No ranked candidates yet (all data-held or untested).</div>';
+      var tblk = (t.blockers || []).slice(0, 4).map(escapeHtml).join(', ');
+      var lc = t.latest_change || {};
+      tEl.innerHTML = '<div class="mono" style="margin-bottom:3px;">' + stateLine + '</div>'
+        + '<div class="mono" style="margin-bottom:3px;">Shadow books active: <b>'
+        + _aaoNum(t.shadow_book_count) + '</b>'
+        + (lc.kind ? (' &middot; latest change ' + escapeHtml(String(lc.kind))) : '') + '</div>'
+        + tbl
+        + (tblk ? ('<div class="mono" style="margin-top:3px;">Blockers: ' + tblk + '</div>') : '');
     }
   }
 }

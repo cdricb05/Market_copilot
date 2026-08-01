@@ -85,6 +85,16 @@ COMMAND_MENU = (
         ("/report", "latest research activity"),
         ("/data", "data-acquisition job status"),
     )),
+    ("TOURNAMENT", (
+        ("/tournament", "alpha tournament status + lifecycle counts"),
+        ("/leaderboard", "top ranked candidates + decomposed scores"),
+        ("/candidate <id>", "one candidate's full evidence card"),
+        ("/why <id>", "plain-English retained, rejected or blocked reason"),
+        ("/compare <id1> <id2>", "side-by-side candidate comparison"),
+        ("/shadowbooks", "active research shadow books"),
+        ("/shadowbook <id>", "one shadow book's forward evidence"),
+        ("/families", "candidate + variant counts by factor family"),
+    )),
     ("ACTION", (
         ("/run <request>", "queue a BOUNDED read-only research request"),
     )),
@@ -102,10 +112,15 @@ _COMMAND_PROVIDER = {
     "/experiments": "experiments", "/candidates": "candidates",
     "/sources": "sources", "/coverage": "coverage", "/blocked": "blocked",
     "/report": "report", "/data": "data",
+    # Stage 9 tournament (all read-only).
+    "/tournament": "tournament", "/leaderboard": "leaderboard",
+    "/candidate": "candidate", "/why": "why", "/compare": "compare",
+    "/shadowbooks": "shadowbooks", "/shadowbook": "shadowbook",
+    "/families": "families",
 }
 
 # Commands whose handler takes the free-text remainder as an argument.
-_ARG_COMMANDS = ("/job",)
+_ARG_COMMANDS = ("/job", "/candidate", "/why", "/compare", "/shadowbook")
 
 # The full set of implemented, advertised commands (single source of truth for
 # the "/commands lists only implemented commands" contract).
@@ -137,6 +152,9 @@ _NL_READ_ROUTES = (
     (("nav", "net asset value", "book value"), "/nav"),
     (("position", "what do we hold", "what do we own",
       "show my holdings list"), "/positions"),
+    (("tournament", "leaderboard", "standings"), "/leaderboard"),
+    (("shadow book", "shadowbook", "shadow-book"), "/shadowbooks"),
+    (("factor family", "factor families", "by family", "families"), "/families"),
     (("best alpha", "alpha candidate", "candidate", "best signal",
       "best factor", "most promising"), "/candidates"),
     (("experiment", "ran today", "what experiments"), "/experiments"),
@@ -488,10 +506,10 @@ def resolve_intent(text: str) -> dict:
             if not arg:
                 return _intent("/run", KIND_HELP, help_reason="run_usage")
             return _intent("/run", KIND_RESEARCH_JOB, research_text=arg)
-        if cmd == "/job":
-            # Read-only; the free-text remainder is the job id (may be empty —
+        if cmd in _ARG_COMMANDS:
+            # Read-only; the free-text remainder is the argument (may be empty —
             # the provider then returns a usage hint, never an error).
-            return _intent("/job", KIND_READ_ONLY, arg=(arg or None))
+            return _intent(cmd, KIND_READ_ONLY, arg=(arg or None))
         if cmd in _COMMAND_PROVIDER:
             return _intent(cmd, KIND_READ_ONLY)
         return _intent("/help", KIND_HELP, help_reason="unknown_command")
@@ -1188,6 +1206,21 @@ def _num_or_none(x):
         return None
 
 
+def _fmt_score(x):
+    v = _num_or_none(x)
+    return "%.3f" % v if v is not None else "n/a"
+
+
+def _fmt2(x):
+    v = _num_or_none(x)
+    return "%.2f" % v if v is not None else "n/a"
+
+
+def _fmt3(x):
+    v = _num_or_none(x)
+    return "%.3f" % v if v is not None else "n/a"
+
+
 def _op_unavailable(label: str, expected: str, last_date, reason: str) -> str:
     """The actionable missing-data diagnostic (never the vague generic line)."""
     return ("%s DATA UNAVAILABLE\nExpected source: %s\nLast successful date: "
@@ -1388,17 +1421,271 @@ def build_operational_providers(*, ops_loader: Optional[Callable] = None,
 OPERATIONAL_BOOK_FALLBACK = "Alpha Paper Book #1"
 
 
+def _resolve_stage9_config_path(stage8_config) -> Optional[str]:
+    """Repo-relative/absolute Stage 9 config path from the Stage 8 config's
+    ``tournament.config`` pointer, or None."""
+    if not isinstance(stage8_config, dict):
+        return None
+    t = stage8_config.get("tournament") \
+        if isinstance(stage8_config.get("tournament"), dict) else {}
+    p = t.get("config")
+    if not p:
+        return None
+    pp = Path(p)
+    if not pp.is_absolute():
+        pp = Path(__file__).resolve().parents[1] / p
+    return str(pp) if pp.exists() else None
+
+
+def _default_tournament_payload(config_path):
+    from paper_trader.alpha_agent import tournament as _tt
+    return _tt.load_tournament(config_path=config_path)
+
+
+def _default_candidate_payload(config_path, cid):
+    from paper_trader.alpha_agent import tournament as _tt
+    return _tt.load_candidate(config_path=config_path, candidate_id=cid)
+
+
+def build_tournament_providers(*, config_path: Optional[str] = None,
+                               tournament_loader: Optional[Callable] = None,
+                               candidate_loader: Optional[Callable] = None
+                               ) -> dict:
+    """Read-only Stage 9 tournament providers: /tournament /leaderboard
+    /candidate /why /compare /shadowbooks /shadowbook /families. Every provider
+    reads the persistent candidate registry through the read-only tournament
+    payload functions; none can mutate a candidate, an experiment, a shadow book
+    or any trading state. An unknown id returns a precise diagnostic."""
+
+    def _payload() -> dict:
+        try:
+            fn = tournament_loader or (
+                lambda: _default_tournament_payload(config_path))
+            r = fn()
+            return r if isinstance(r, dict) else {"status": "UNAVAILABLE"}
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "UNAVAILABLE", "reason": type(exc).__name__}
+
+    def _cand(cid):
+        try:
+            fn = candidate_loader or (
+                lambda c: _default_candidate_payload(config_path, c))
+            return fn(cid)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _unavail(label, p):
+        return ("%s UNAVAILABLE\nReason: %s\nThe candidate registry is created on "
+                "the first production tournament cycle." % (
+                    label, p.get("reason") or "not initialized yet"))
+
+    def _tournament():
+        p = _payload()
+        if p.get("status") != "OK":
+            return _unavail("TOURNAMENT", p)
+        cs = p.get("counts_by_state") or {}
+        lines = ["ALPHA TOURNAMENT - READ-ONLY RESEARCH",
+                 "No automatic promotion; not approved for live trading.",
+                 "Candidates: %d ranked / %d total"
+                 % (p.get("ranked", 0), sum(cs.values())),
+                 "By state: " + ", ".join("%s %d" % (k, v)
+                                          for k, v in cs.items() if v)]
+        lines.append("Shadow books active: %d" % len(p.get("shadow_books") or []))
+        ch = p.get("recent_changes") or []
+        if ch:
+            lines.append("Latest change: %s" % ch[0].get("kind"))
+        blk = p.get("blockers") or []
+        if blk:
+            lines.append("Blockers: %s" % ", ".join(blk[:4]))
+        return "\n".join(lines)
+
+    def _leaderboard():
+        p = _payload()
+        if p.get("status") != "OK":
+            return _unavail("LEADERBOARD", p)
+        rows = [r for r in (p.get("leaderboard") or [])
+                if r.get("overall_rank")][:10]
+        if not rows:
+            return ("LEADERBOARD\nNo ranked candidates yet (all data-held or "
+                    "untested).")
+        lines = ["ALPHA TOURNAMENT LEADERBOARD (top %d)" % len(rows)]
+        for r in rows:
+            lines.append("#%s %-24s %-16s score %s | %s [+%s / -%s]" % (
+                r.get("overall_rank"), (r.get("name") or "")[:24],
+                r.get("lifecycle_state"), _fmt_score(r.get("combined_score")),
+                r.get("family"), r.get("strongest_evidence"),
+                r.get("largest_weakness")))
+        return "\n".join(lines)
+
+    def _candidate(arg=None):
+        if not arg:
+            return "Usage: /candidate <id or name>"
+        d = _cand(arg.strip())
+        if not d or not d.get("candidate"):
+            return ("No candidate matches '%s'. Try /leaderboard for ids."
+                    % arg.strip())
+        c = d["candidate"]
+        ev = d.get("evaluation") or {}
+        m = ev.get("metrics") or {}
+        lines = ["CANDIDATE - %s" % c.get("name"),
+                 "id: %s" % c.get("candidate_id"),
+                 "family: %s | state: %s" % (c.get("family"),
+                                             c.get("lifecycle_state")),
+                 "universe: %s" % c.get("universe"),
+                 "PIT status: %s" % c.get("pit_status"),
+                 "data dependencies: %s"
+                 % ", ".join(c.get("data_dependencies") or []),
+                 "combined score: %s" % _fmt_score(c.get("combined_score")),
+                 "blocker / next required: %s"
+                 % (c.get("blocker") or "run historical evaluation")]
+        if m:
+            lines.append(
+                "evidence: rank-IC %s (t %s), spread t %s, net@25bps %s, "
+                "maxDD%% %s" % (
+                    _fmt3(m.get("rank_ic")), _fmt2(m.get("rank_ic_t")),
+                    _fmt2(m.get("spread_t")), _fmt3(m.get("net25_spread")),
+                    _fmt2(m.get("max_drawdown_pct"))))
+            db = m.get("data_boundaries") or {}
+            lines.append(
+                "boundaries: periods %s, universe %s, PIT-valid %s, "
+                "survivorship-safe %s" % (
+                    db.get("scored_periods"), db.get("universe"),
+                    db.get("point_in_time_valid"), db.get("survivorship_safe")))
+        return "\n".join(lines)
+
+    def _why(arg=None):
+        if not arg:
+            return "Usage: /why <id or name>"
+        d = _cand(arg.strip())
+        if not d or not d.get("candidate"):
+            return "No candidate matches '%s'." % arg.strip()
+        c = d["candidate"]
+        gate = (d.get("evaluation") or {}).get("gate") or {}
+        state = c.get("lifecycle_state")
+        why = {
+            "DATA_HOLD": "Held: the owned data cannot evaluate this factor "
+            "honestly yet (%s). The data-acquisition lane keeps working on it."
+            % (c.get("blocker") or "insufficient data"),
+            "REJECTED": "Rejected on COMPLETE evidence: %s. A weak factor is "
+            "never kept merely because one metric looked good." % (
+                ", ".join(gate.get("failed_gates") or []) or c.get("blocker")),
+            "KEEP_FOR_RESEARCH": "Retained: it passed every historical gate on "
+            "complete evidence. Next it needs a shadow book with true-forward "
+            "observations before any manual review.",
+            "SHADOW_BOOK_ACTIVE": "Retained with an active research shadow book; "
+            "accruing true-forward observations toward the manual-review "
+            "threshold. Never auto-promoted.",
+            "READY_FOR_MANUAL_REVIEW": "Awaiting HUMAN manual review. Even here "
+            "it never changes the operating model automatically.",
+            "PROPOSED": "Proposed; awaiting its first historical evaluation.",
+            "TESTING": "Under historical evaluation this cycle.",
+            "ARCHIVED": "Archived.",
+        }.get(state, "State: %s" % state)
+        return "WHY - %s (%s)\n%s" % (c.get("name"), state, why)
+
+    def _compare(arg=None):
+        parts = (arg or "").split()
+        if len(parts) < 2:
+            return "Usage: /compare <id1> <id2>"
+        a = _cand(parts[0])
+        b = _cand(parts[1])
+        if not a or not a.get("candidate") or not b or not b.get("candidate"):
+            return "Both ids must match a candidate. Try /leaderboard."
+        ca, cb = a["candidate"], b["candidate"]
+        ma = (a.get("evaluation") or {}).get("metrics") or {}
+        mb = (b.get("evaluation") or {}).get("metrics") or {}
+
+        def _row(lbl, va, vb):
+            return "  %-14s %-15s %-15s" % (lbl, va, vb)
+
+        lines = ["COMPARE",
+                 _row("", (ca.get("name") or "")[:15], (cb.get("name") or "")[:15]),
+                 _row("state", ca.get("lifecycle_state"), cb.get("lifecycle_state")),
+                 _row("combined", _fmt_score(ca.get("combined_score")),
+                      _fmt_score(cb.get("combined_score"))),
+                 _row("rank-IC t", _fmt2(ma.get("rank_ic_t")),
+                      _fmt2(mb.get("rank_ic_t"))),
+                 _row("net@25bps", _fmt3(ma.get("net25_spread")),
+                      _fmt3(mb.get("net25_spread"))),
+                 _row("turnover", _fmt2(ma.get("turnover_per_rebalance")),
+                      _fmt2(mb.get("turnover_per_rebalance"))),
+                 _row("maxDD%", _fmt2(ma.get("max_drawdown_pct")),
+                      _fmt2(mb.get("max_drawdown_pct"))),
+                 _row("corr vs champ", _fmt2(ma.get("corr_vs_champion")),
+                      _fmt2(mb.get("corr_vs_champion")))]
+        sa = _num_or_none(ca.get("combined_score"))
+        sb = _num_or_none(cb.get("combined_score"))
+        if sa is not None or sb is not None:
+            lead = ca if (sa or -1) >= (sb or -1) else cb
+            lines.append("Higher combined score: %s" % lead.get("name"))
+        return "\n".join(lines)
+
+    def _shadowbooks():
+        p = _payload()
+        if p.get("status") != "OK":
+            return _unavail("SHADOW BOOKS", p)
+        sb = p.get("shadow_books") or []
+        if not sb:
+            return ("SHADOW BOOKS\nNone active. A shadow book opens for the "
+                    "strongest retained candidate.")
+        lines = ["RESEARCH SHADOW BOOKS - NOT THE OPERATING PORTFOLIO"]
+        for s in sb:
+            lines.append("  %s  candidate %s  since %s  [%s]" % (
+                s.get("shadow_book_id"), s.get("candidate_id"),
+                s.get("inception_date"), s.get("status")))
+        return "\n".join(lines)
+
+    def _shadowbook(arg=None):
+        if not arg:
+            return "Usage: /shadowbook <shadow_book_id or candidate id>"
+        p = _payload()
+        if p.get("status") != "OK":
+            return _unavail("SHADOW BOOK", p)
+        key = arg.strip()
+        for s in (p.get("shadow_books") or []):
+            if key in (s.get("shadow_book_id") or "") \
+                    or key in (s.get("candidate_id") or ""):
+                return ("RESEARCH SHADOW BOOK - NOT THE OPERATING PORTFOLIO\n"
+                        "id: %s\ncandidate: %s\ninception: %s\nstatus: %s\n"
+                        "Forward history is never backfilled before inception."
+                        % (s.get("shadow_book_id"), s.get("candidate_id"),
+                           s.get("inception_date"), s.get("status")))
+        return "No shadow book matches '%s'." % key
+
+    def _families():
+        p = _payload()
+        if p.get("status") != "OK":
+            return _unavail("FAMILIES", p)
+        cf = p.get("counts_by_family") or {}
+        vf = p.get("variants_by_family") or {}
+        if not cf:
+            return "FAMILIES\nNo candidates seeded yet."
+        lines = ["CANDIDATE FAMILIES"]
+        for fam in sorted(cf):
+            lines.append("  %-18s %d candidates | %d generated variants" % (
+                fam, cf.get(fam, 0), vf.get(fam, 0)))
+        return "\n".join(lines)
+
+    return {"tournament": _tournament, "leaderboard": _leaderboard,
+            "candidate": _candidate, "why": _why, "compare": _compare,
+            "shadowbooks": _shadowbooks, "shadowbook": _shadowbook,
+            "families": _families}
+
+
 def build_command_center_providers(*, stage8_config: Optional[dict] = None,
                                    queue=None,
                                    ops_loader: Optional[Callable] = None,
                                    attribution_loader: Optional[Callable] = None
                                    ) -> dict:
     """The full read-only command center: the Stage 8 research providers PLUS the
-    canonical Paper Trader operational providers. This is what the live poll loop
-    wires so /pnl, /book, /positions and /attribution return real data."""
+    canonical Paper Trader operational providers PLUS the Stage 9 tournament
+    providers. This is what the live poll loop wires so /pnl, /book, /positions,
+    /attribution and /tournament all return real data."""
     providers = build_default_providers(stage8_config=stage8_config, queue=queue)
     providers.update(build_operational_providers(
         ops_loader=ops_loader, attribution_loader=attribution_loader))
+    providers.update(build_tournament_providers(
+        config_path=_resolve_stage9_config_path(stage8_config)))
     return providers
 
 

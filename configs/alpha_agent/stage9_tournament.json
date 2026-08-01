@@ -1,0 +1,165 @@
+{
+  "stage": "9",
+  "config_version": "1.0.0",
+  "description": "Alpha Agent Stage 9 - persistent Autonomous Alpha Tournament. A disciplined candidate-selection system that continuously generates, evaluates, ranks, rejects, combines and forward-monitors alpha candidates on top of the Stage 5 experiment engine, the Stage 8 durable queue and the forward-prediction immutable snapshot store. RESEARCH ONLY. There is NO automatic PROMOTED state; READY_FOR_MANUAL_REVIEW never modifies the operating model. Never creates orders/fills/signals/trade-decisions/model-promotions/Alpha-Paper-Book changes/Daily-Close/PostgreSQL writes; never runs the prediction service. A candidate is NEVER ranked highly merely because one isolated metric or one test period looks good.",
+  "safety": {
+    "research_only": true,
+    "read_only_wrt_operating_portfolio": true,
+    "no_automatic_promotion": true,
+    "no_orders": true,
+    "no_fills": true,
+    "no_holdings_or_cash_mutation": true,
+    "no_model_promotion": true,
+    "no_daily_close_trigger": true,
+    "no_prediction_service": true,
+    "no_operational_ledger_write": true,
+    "telegram_read_only": true,
+    "shadow_books_read_only": true,
+    "forward_history_never_backfilled": true
+  },
+  "tournament_db": "D:\\Stock_Prediction_app_data\\alpha_agent\\stage8\\tournament.sqlite",
+  "shadow_book_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\stage8\\shadow_books",
+  "lifecycle_states": [
+    "PROPOSED",
+    "DATA_HOLD",
+    "TESTING",
+    "REJECTED",
+    "KEEP_FOR_RESEARCH",
+    "SHADOW_BOOK_ACTIVE",
+    "READY_FOR_MANUAL_REVIEW",
+    "ARCHIVED"
+  ],
+  "evaluation_contract_version": "stage9-eval-1.0.0",
+  "evidence_completeness": {
+    "note": "A candidate can only be REJECTED on complete-and-weak evidence. When coverage/observation/PIT minimums are unmet the candidate is DATA_HOLD (evidence cannot yet be evaluated honestly), never REJECTED.",
+    "min_universe_names_per_period": 20,
+    "min_scored_periods": 12,
+    "min_coverage_pct": 60.0,
+    "require_point_in_time_valid": true,
+    "require_survivorship_safe": true
+  },
+  "gates": {
+    "note": "KEEP_FOR_RESEARCH requires ALL of the following on COMPLETE evidence. Complete-but-failing => REJECTED with the specific failed gate. Thresholds are deliberately explicit and versioned; none are invented silently at runtime.",
+    "keep_min_rank_ic": 0.010,
+    "keep_min_rank_ic_t": 2.0,
+    "keep_min_positive_ic_hit_rate": 0.52,
+    "keep_min_spread_t": 2.0,
+    "keep_min_net25_spread": 0.0,
+    "keep_min_net50_spread": -0.0001,
+    "keep_min_subperiod_consistency": 0.60,
+    "keep_min_regime_consistency": 0.50,
+    "keep_max_drawdown_pct": -35.0,
+    "keep_max_turnover_per_rebalance": 2.0,
+    "keep_max_sector_concentration_pct": 40.0,
+    "keep_max_worst_period_return_pct": -25.0,
+    "forbid_known_lookahead": true
+  },
+  "manual_review_gate": {
+    "note": "READY_FOR_MANUAL_REVIEW is the strongest state and still NEVER changes the operating model. It requires historical evidence pass + robustness pass + demonstrable added value beyond the champion and retained candidates + a shadow book with enough true-forward observations + all caveats displayed.",
+    "require_historical_gates_pass": true,
+    "require_robustness_pass": true,
+    "require_adds_value_vs_champion": true,
+    "max_abs_corr_vs_champion": 0.90,
+    "max_abs_corr_vs_retained": 0.90,
+    "min_incremental_net25_spread": 0.0,
+    "min_forward_observations": 20,
+    "require_all_caveats_displayed": true
+  },
+  "scoring": {
+    "note": "Combined tournament score in [0,1], reproducible and decomposable into six sub-scores. A candidate with excellent gross return but poor cost-adjusted performance or instability CANNOT lead: cost and stability are weighted and a hard cost/stability penalty caps the combined score.",
+    "weights": {
+      "historical_evidence": 0.30,
+      "robustness": 0.20,
+      "cost": 0.15,
+      "stability": 0.15,
+      "diversification": 0.10,
+      "forward_evidence": 0.10
+    },
+    "historical_evidence": {
+      "rank_ic_t_full_credit": 4.0,
+      "spread_t_full_credit": 4.0,
+      "rank_ic_t_weight": 0.5,
+      "spread_t_weight": 0.5
+    },
+    "robustness": {
+      "subperiod_full_credit": 1.0,
+      "regime_full_credit": 1.0,
+      "bootstrap_full_credit": 0.99,
+      "subperiod_weight": 0.4,
+      "regime_weight": 0.35,
+      "bootstrap_weight": 0.25
+    },
+    "cost": {
+      "note": "cost sub-score falls as cost erodes gross; net25<=0 forces cost sub-score to 0 and caps combined score.",
+      "cost_erosion_zero_credit": 0.75,
+      "net25_nonpositive_caps_combined_at": 0.40
+    },
+    "stability": {
+      "drawdown_zero_credit_pct": -35.0,
+      "turnover_zero_credit": 2.0,
+      "hit_rate_full_credit": 0.60,
+      "drawdown_weight": 0.4,
+      "turnover_weight": 0.3,
+      "hit_rate_weight": 0.3,
+      "instability_caps_combined_at": 0.50
+    },
+    "diversification": {
+      "note": "diversification sub-score = 1 - max(|corr vs champion|, |corr vs retained|). High correlation is penalized so a redundant candidate cannot lead.",
+      "redundant_abs_corr": 0.90
+    },
+    "forward_evidence": {
+      "note": "0 until a shadow book exists; grows with true-forward observations toward maturity and rewards realized net outperformance.",
+      "maturity_observations": 63,
+      "outperformance_full_credit_pct_points": 3.0
+    }
+  },
+  "auto_experiments": {
+    "note": "The tournament autonomously enqueues the next highest-value experiments into the Stage 8 durable queue. Bounded per cycle, deterministically deduplicated by experiment specification hash. Each strategy addresses a real next question; endless re-optimization against one historical sample is forbidden.",
+    "max_new_experiments_per_cycle": 6,
+    "max_parameter_neighbors_per_candidate": 2,
+    "strategies": [
+      "parameter_neighbor",
+      "additional_horizon",
+      "alternative_rebalance_frequency",
+      "cost_sensitivity",
+      "sector_neutral_variant",
+      "ex_financials_universe_variant",
+      "regime_specific_variant",
+      "low_correlation_combination",
+      "address_weakest_gate"
+    ],
+    "horizons_trading_days": [21, 63, 126],
+    "rebalance_frequencies_trading_days": [21, 63],
+    "cost_grid_bps": [5, 25, 50, 75, 100]
+  },
+  "shadow_books": {
+    "note": "Read-only research shadow books for the strongest KEEP_FOR_RESEARCH candidates, built on the forward-prediction immutable first-write-wins snapshot store. Never mutate the operating portfolio; never backfill forward history before the shadow book's inception date.",
+    "min_combined_score_for_shadow": 0.55,
+    "max_active_shadow_books": 3,
+    "cost_bps_round_trip": 50,
+    "benchmark": "SPY",
+    "label": "RESEARCH SHADOW BOOK - NOT THE OPERATING PORTFOLIO"
+  },
+  "leaderboard": {
+    "primary_sort": "combined_score_desc",
+    "tie_breakers": ["robustness_score_desc", "cost_score_desc", "rank_ic_t_desc"],
+    "views": ["overall", "by_family", "retained", "rejected", "data_hold", "shadow_books"]
+  },
+  "cycle": {
+    "note": "Per-production-cycle bounded tournament tick integrated into the AlphaAgent-Collect autonomy cycle. Resumable after Windows/process restart; leaves useful future work queued while unresolved candidates remain.",
+    "max_candidates_evaluated_per_cycle": 4,
+    "leave_work_queued_while_unresolved": true
+  },
+  "reporting": {
+    "note": "Morning and post-close reports flag ONLY meaningful tournament changes; unchanged leaderboards are never re-sent.",
+    "meaningful_change_kinds": [
+      "NEW_RETAINED_CANDIDATE",
+      "CANDIDATE_REJECTED",
+      "IMPORTANT_RANK_CHANGE",
+      "SHADOW_BOOK_ACTIVATED",
+      "FORWARD_EVIDENCE_MILESTONE",
+      "NEW_BLOCKER"
+    ],
+    "important_rank_change_threshold": 2
+  }
+}
