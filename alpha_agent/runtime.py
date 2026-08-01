@@ -1818,6 +1818,64 @@ class Runtime:
                 type(exc).__name__, rc.redact(str(exc))[:200])
         return summary
 
+    def _run_autonomy_drain_step(self, cycle_date: str) -> dict:
+        """Stage 9.2: a BOUNDED, config-gated drain of the shared durable queue
+        that runs INSIDE the scheduled AlphaAgent-Collect cycle, AFTER the
+        tournament tick and BEFORE the ledger fingerprint - so the SAME
+        operational-ledger guard proves it mutated nothing operational.
+
+        It executes up to a configured number of already-queued research jobs -
+        chiefly the Stage-9 tournament follow-up (`tournament.address_weakest_
+        gate`) jobs the tick generates, which are highest priority in the queue -
+        through the REAL production handlers, closing the generate->execute->
+        persist->recalculate loop. Disabled unless
+        ``autonomy.collect_drain.enabled`` is true in the Stage 8 config (so
+        offline/acceptance configs never drain). Self-contained: any failure is
+        captured and returned, never raised; a claimed job is RUNNING and can
+        never be double-claimed by an overlapping cycle."""
+        from . import autonomous_research as _ar
+        summary = {"drain_attempted": False, "enabled": False, "jobs_claimed": 0}
+        try:
+            cfg8 = self._stage8_config()
+            drain_cfg = (((cfg8 or {}).get("autonomy") or {}).get("collect_drain")
+                         if cfg8 else None)
+            if not drain_cfg or not drain_cfg.get("enabled"):
+                summary["reason"] = "collect_drain disabled (config gate)"
+                return summary
+            summary["drain_attempted"] = True
+            summary["enabled"] = True
+            queue = build_autonomy_queue(cfg8, clock=self.clock.iso)
+            # SAFE-TIMEOUT: the per-handler cooperative wall-clock budget is a
+            # property of the HANDLER (injected into its bounded collects), NOT a
+            # thread the drain abandons. Absent = unbounded.
+            handlers = build_production_autonomy_handlers(
+                cfg8, contact_email=cfg8.get("contact_email"), queue=queue,
+                handler_time_budget_seconds=drain_cfg.get(
+                    "handler_time_budget_seconds"))
+            # WS3 scope allowlist. ``allowed_categories`` (present, possibly
+            # empty) takes precedence over the legacy ``categories`` key; an
+            # explicitly-empty allowlist executes nothing. Absent keys leave that
+            # dimension unrestricted (offline/acceptance drains keep old
+            # behaviour). The canonical production config restricts the drain to
+            # approved Stage-9 tournament-continuation work only.
+            allowed_cats = drain_cfg.get("allowed_categories")
+            if allowed_cats is None:
+                allowed_cats = drain_cfg.get("categories")
+            report = _ar.drain_jobs(
+                queue, handlers,
+                max_jobs=int(drain_cfg.get("max_jobs_per_cycle", 1)),
+                categories=allowed_cats,
+                origins=drain_cfg.get("allowed_origins"),
+                lane_prefixes=drain_cfg.get("allowed_lane_prefixes"),
+                budget_seconds=drain_cfg.get("budget_seconds"))
+            summary.update(report)
+            summary["drain_status"] = "OK"
+        except Exception as exc:  # noqa: BLE001 - never break collection
+            summary["drain_status"] = "DRAIN_ERROR"
+            summary["drain_error"] = "%s: %s" % (
+                type(exc).__name__, rc.redact(str(exc))[:200])
+        return summary
+
     # ---- COLLECT --------------------------------------------------------- #
     def run_collect(self, *, mode: str = "incremental") -> RuntimeResult:
         conn = self._open()
@@ -1841,6 +1899,7 @@ class Runtime:
         components: list[dict] = []
         tournament_summary = {"tournament_attempted": False,
                               "tournament_status": "NOT_RUN"}
+        drain_summary = {"drain_attempted": False, "enabled": False}
         try:
             steps = [
                 ("verify_stage1", lambda: self.drivers.verify_stage1(),
@@ -1867,6 +1926,11 @@ class Runtime:
             # fingerprint below - so the same operational-ledger guard proves it
             # mutated nothing operational. Self-contained; never raises.
             tournament_summary = self._run_tournament_step(cycle_date)
+            # Stage 9.2: the bounded queue drain runs AFTER the tournament tick
+            # (so the follow-up jobs the tick generates exist to be executed) and
+            # still INSIDE the operational-ledger guard below. Config-gated;
+            # self-contained; never raises.
+            drain_summary = self._run_autonomy_drain_step(cycle_date)
         finally:
             release_lock(lock, clock=self.clock, conn=conn)
 
@@ -1879,6 +1943,7 @@ class Runtime:
             "cycle_id": cycle_id, "run_id": run_id, "mode": mode,
             "cycle_date": cycle_date, "ledgers_unchanged": ledgers_ok,
             "tournament": tournament_summary,
+            "autonomy_drain": drain_summary,
             "components": [{"component": c["component"], "status": c["status"],
                             "ok": c["ok"], "counts": c.get("counts")}
                            for c in components],
@@ -1901,7 +1966,13 @@ class Runtime:
                                     "run_id": run_id, "cycle_date": cycle_date,
                                     "ledgers_unchanged": ledgers_ok,
                                     "tournament_status":
-                                    tournament_summary.get("tournament_status")},
+                                    tournament_summary.get("tournament_status"),
+                                    "drain_jobs_claimed":
+                                    drain_summary.get("jobs_claimed"),
+                                    "drain_jobs_completed":
+                                    drain_summary.get("jobs_completed"),
+                                    "drain_jobs_retryable":
+                                    drain_summary.get("jobs_retryable")},
                         clock=self.clock, conn=conn)
         conn.close()
         if not ledgers_ok:
@@ -1910,7 +1981,8 @@ class Runtime:
                                  mode=rc.MODE_COLLECT, run_id=run_id,
                                  cycle_id=cycle_id, run_dir=str(run_dir),
                                  components=components,
-                                 detail={"tournament": tournament_summary})
+                                 detail={"tournament": tournament_summary,
+                                         "autonomy_drain": drain_summary})
         return RuntimeResult(terminal=terminal, status=status,
                              mode=rc.MODE_COLLECT, run_id=run_id,
                              cycle_id=cycle_id, run_dir=str(run_dir),
@@ -2827,7 +2899,9 @@ def _default_autonomy_handlers(cfg: dict) -> dict:
 
 def build_production_autonomy_handlers(cfg: dict, *,
                                        contact_email: Optional[str] = None,
-                                       queue=None) -> dict:
+                                       queue=None,
+                                       handler_time_budget_seconds:
+                                       Optional[float] = None) -> dict:
     """REAL Stage 8 production handlers (WS2-WS9). Each durable-queue category is
     wired to a genuine, BOUNDED entrypoint that ACQUIRES real data (Stage 2
     collect / Stage 6 survivorship-free Norgate backfill) or RUNS a real
@@ -2871,6 +2945,25 @@ def build_production_autonomy_handlers(cfg: dict, *,
     ingestion_root = cfg6.get("ingestion_root") or \
         str(Path(cfg.get("stage8_root", ".")) / "ingestion")
 
+    # SAFE-TIMEOUT (Stage 9.2 release correction): inject a COOPERATIVE per-
+    # collect wall-clock budget into every bounded collect this handler set runs,
+    # WITHOUT mutating the shared cfg2 (limits is deep-copied). The SEC collector
+    # honours ``collect_time_budget_seconds`` by stopping between bounded network
+    # requests and marking the run ``deadline_reached`` -> the acquisition handler
+    # returns RETRYABLE (see ``_run_sec_cik_campaign``). Absent/<=0 = unbounded
+    # (offline/acceptance drains keep byte-identical behaviour). This is the
+    # handler's OWN inline bound; the drain never abandons a thread.
+    _htb = (float(handler_time_budget_seconds)
+            if handler_time_budget_seconds else 0.0)
+
+    def _with_time_budget(one: dict) -> dict:
+        if _htb <= 0:
+            return one
+        lim = dict(one.get("limits") or {})
+        lim["collect_time_budget_seconds"] = _htb
+        one["limits"] = lim
+        return one
+
     # ---- shared REAL price panel (read once; reused by experiment jobs) ------
     _cache = {}
 
@@ -2891,6 +2984,7 @@ def build_production_autonomy_handlers(cfg: dict, *,
                 "provider": sid, "reason": "source not configured"}
         one = dict(cfg2)
         one["sources"] = {sid: src[sid]}
+        one = _with_time_budget(one)
         res = _ing.run_ingestion(config=one, output_root=ingestion_root,
                                  mode="collect", as_of="latest",
                                  contact_email=contact_email)
@@ -2935,6 +3029,7 @@ def build_production_autonomy_handlers(cfg: dict, *,
             scfg.update(extra)
         one = dict(cfg2)
         one["sources"] = {sid: scfg}
+        one = _with_time_budget(one)
         return _ing.run_ingestion(config=one, output_root=ingestion_root,
                                   mode="collect", as_of="latest",
                                   contact_email=contact_email)
@@ -3518,6 +3613,24 @@ def build_production_autonomy_handlers(cfg: dict, *,
             "normalized_records_new")
         blocked = (res is None or bool((res or {}).get("blocked_sources"))
                    or "BLOCKED" in str((res or {}).get("status") or ""))
+        # SAFE-TIMEOUT: the collector hit its cooperative wall-clock budget
+        # (collect_time_budget_seconds) mid-batch. Do NOT record the batch as
+        # succeeded and do NOT enqueue the next batch - return RETRYABLE so the
+        # SAME batch resumes on a later cycle. Any records already collected are
+        # persisted idempotently (dedup by record_id), so resuming re-queries the
+        # unfinished CIKs without double-counting; the campaign cursor does not
+        # advance, so no continuation is orphaned. Bounded by max_attempts ->
+        # FAILED_PERMANENT if it keeps timing out. This is the handler returning
+        # RETRYABLE on its OWN bounded timeout (inline; nothing was abandoned).
+        if bool((res or {}).get("source_deadlines", {}).get("sec_edgar")):
+            return _ar.OUTCOME_RETRYABLE, {
+                **_campaign_base("sec_form4_8k", univ,
+                                 store.coverage("sec_form4_8k")),
+                "real_work": "sec_form4_8k_cik_campaign",
+                "reason": "SEC collect reached collect_time_budget_seconds "
+                          "(deadline); partial batch NOT recorded; will resume",
+                "deadline_reached": True, "batch_ciks_queried": len(batch),
+                "normalized_records_new": new_recs, "sec_source_state": state}
         if blocked and not new_recs:
             cov = store.record_results(
                 "sec_form4_8k",
@@ -3620,6 +3733,222 @@ def build_production_autonomy_handlers(cfg: dict, *,
             return _run_analyst_campaign(job)
         return _h_prospective(job)
 
+    # ---------------------------------------------------------------------- #
+    # Stage 9.2 - tournament weakest-gate DATA_VALIDATION follow-up handler.
+    # Executes the Stage-9-generated `tournament.address_weakest_gate` jobs: it
+    # MEASURES real owned coverage for the blocking data dependency, durably
+    # records the measurement against the candidate (advancing latest_evidence_
+    # date / experiment_ids WITHOUT touching lifecycle, so a candidate is never
+    # promoted here), and returns an HONEST outcome - COMPLETED with a coverage
+    # artifact when the dependency is measurable / acquirable-now, BLOCKED_
+    # SPECIFIC with an exact blocker + bounded implementation path when it needs
+    # a build, FAILED_PERMANENT only on a proven malformed spec. It never returns
+    # a fake success. When a dependency is acquirable now (SEC Form 4 / 8-K) it
+    # enqueues ONE idempotent bounded acquisition continuation so real coverage
+    # grows on later cycles. Read-only w.r.t. every operational trading store.
+    # ---------------------------------------------------------------------- #
+    def _open_tournament_registry():
+        from . import tournament as _tt2
+        p = resolve_stage9_config_path(cfg)
+        if not p:
+            return None, None
+        cfg9 = _tt2.load_config(p)
+        return _tt2.CandidateRegistry(cfg9["tournament_db"]), cfg9
+
+    def _wg_sec_coverage():
+        """REAL owned SEC Form 4 / 8-K coverage from normalized records."""
+        insider = _read_normalized("INSIDER_FILING", limit=6000)
+        txn = [r for r in insider
+               if (r.get("normalized_payload") or {}).get("transaction_code")
+               and (r.get("normalized_payload") or {}).get("shares") is not None]
+        codes = [str((r.get("normalized_payload") or {}).get("transaction_code")
+                     or "").upper() for r in txn]
+        issuers = {r.get("company_id") for r in txn if r.get("company_id")}
+        earn = _read_normalized("EARNINGS_EVENT", limit=6000)
+        item202 = [r for r in earn if r.get("event_type") == "8-K_ITEM_2.02"]
+        min_issuers = int((cfg.get("autonomy") or {}).get(
+            "event_min_issuers", 30))
+        cov = {"data_family": "sec_form4_8k",
+               "insider_transaction_records": len(txn),
+               "open_market_purchase_records": sum(1 for c in codes if c == "P"),
+               "distinct_issuers": len(issuers),
+               "required_distinct_issuers": min_issuers,
+               "sec_8k_item202_events": len(item202),
+               "pit_basis": "SEC acceptance timestamp; amendments (4/A, 8-K/A) "
+                            "are distinct append-only records; no look-ahead"}
+        return len(issuers) >= min_issuers, cov
+
+    def _wg_analyst_coverage():
+        """Prospective EODHD analyst-vintage progress (calendar-time gated)."""
+        ev = _analyst_vintage_evidence()
+        dates = ev.get("snapshot_dates_on_disk") or []
+        min_dates = int((cfg.get("autonomy") or {}).get(
+            "analyst_min_snapshot_dates", 20))
+        cov = {"data_family": "eodhd_analyst_vintages",
+               "first_snapshot_pit_floor": ev.get("first_snapshot_boundary"),
+               "distinct_vintage_dates_on_disk": len(dates),
+               "vintage_files_latest_snapshot": ev.get("vintage_count_today"),
+               "required_distinct_vintage_dates": min_dates,
+               "estimated_sessions_remaining": max(0, min_dates - len(dates)),
+               "pit_note": "first-snapshot date is a HARD PIT floor; never "
+                           "backfilled before it - only forward calendar time "
+                           "accrues new distinct vintages"}
+        return len(dates) >= min_dates, cov
+
+    def _wg_pit_gics_coverage():
+        """Leakage-safe PIT sector coverage from SEC ASSIGNED-SIC records."""
+        sic = [r for r in _read_normalized("SECURITY_IDENTITY", limit=6000)
+               if r.get("event_type") == "ASSIGNED_SIC_PIT"]
+        symbols = {(r.get("company_id")
+                    or (r.get("normalized_payload") or {}).get("ticker"))
+                   for r in sic}
+        symbols.discard(None)
+        min_symbols = int((cfg.get("autonomy") or {}).get(
+            "pit_gics_min_symbols", 50))
+        cov = {"data_family": "point_in_time_gics",
+               "assigned_sic_pit_records": len(sic),
+               "distinct_symbols_pit_classified": len(symbols),
+               "required_distinct_symbols": min_symbols,
+               "source": "contemporaneous SEC ASSIGNED-SIC filing headers "
+                         "(available_at = acceptance) - leakage-safe PIT",
+               "look_ahead_note": "current Norgate GICS is undated (a "
+                                  "classification look-ahead); only the SEC "
+                                  "ASSIGNED-SIC PIT series is leakage-free"}
+        return len(symbols) >= min_symbols, cov
+
+    def _wg_pit_fundamentals():
+        """PIT fundamentals: owned data is snapshot-only -> build required."""
+        cov = {"data_family": "point_in_time_fundamentals",
+               "owned_status": "SNAPSHOT_ONLY_NOT_PIT",
+               "finding": "owned EODHD fundamentals are a current snapshot with "
+                          "no as-reported vintage; no leakage-safe point-in-time "
+                          "series exists in owned data",
+               "requires_new_provider_purchase": False,
+               "requires_speculative_full_rebuild": False,
+               "bounded_implementation_path": [
+                   "use already-owned SEC companyfacts per-CIK JSON (free): "
+                   "each fact carries filed/period dates = the as-of vintage",
+                   "build a per-(CIK, concept, fiscal-period) series keyed by "
+                   "SEC acceptance/filed date (no restatement look-ahead)",
+                   "start with the smallest useful slice: only the fields the "
+                   "FUNDAMENTAL candidates need (gross profitability, accruals, "
+                   "asset growth) over the current S&P 500 CIK set",
+                   "only then wire a FUNDAMENTAL evaluation adapter that emits "
+                   "the canonical Stage 9 evidence contract"]}
+        return False, cov
+
+    # dependency -> (measure_fn, acquisition_campaign_or_None, acquirable_now)
+    _WG_DISPATCH = {
+        "sec_form4": (_wg_sec_coverage, "sec_form4_8k", True),
+        "sec_8k": (_wg_sec_coverage, "sec_form4_8k", True),
+        "sec_form4_8k": (_wg_sec_coverage, "sec_form4_8k", True),
+        "eodhd_analyst_vintages": (_wg_analyst_coverage, None, False),
+        "point_in_time_gics": (_wg_pit_gics_coverage, None, False),
+        "point_in_time_fundamentals": (_wg_pit_fundamentals, None, False),
+    }
+
+    def _h_weakest_gate(job):
+        from datetime import datetime as _dtw, timezone as _tzw
+        import hashlib as _hlw
+        payload = job.payload or {}
+        # Non-tournament DATA_VALIDATION keeps the safe default behaviour.
+        if not payload.get("tournament") or \
+                "address_weakest_gate" not in str(job.lane):
+            return _ar.OUTCOME_COMPLETED, {
+                "note": "recorded; heavy work out-of-band", "lane": job.lane}
+        cid = payload.get("candidate_id")
+        spec = payload.get("spec") or {}
+        dep = spec.get("data_dependency") or payload.get("data_dependency")
+        evidence_date = payload.get("evidence_date") or \
+            _dtw.now(_tzw.utc).date().isoformat()
+        base = {"real_work": "tournament_weakest_gate_validation",
+                "candidate_id": cid, "data_dependency": dep,
+                "prior_blocker": spec.get("blocker"),
+                "evidence_date": evidence_date, "no_automatic_promotion": True}
+        if not cid or not dep:
+            return _ar.OUTCOME_FAILED_PERMANENT, {
+                **base, "reason": "malformed follow-up spec: missing "
+                "candidate_id or data_dependency"}
+        measure = _WG_DISPATCH.get(dep)
+        if measure is None:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                **base, "reason": "no weakest-gate validator for dependency %r"
+                % dep}
+        try:
+            reg, _cfg9 = _open_tournament_registry()
+        except Exception as exc:  # noqa: BLE001 - transient registry open
+            return _ar.OUTCOME_RETRYABLE, {
+                **base, "reason": "tournament registry unavailable: %s"
+                % type(exc).__name__}
+        if reg is None:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                **base, "reason": "stage9 tournament config not resolved"}
+        try:
+            cand = reg.get(cid)
+            if cand is None:
+                return _ar.OUTCOME_FAILED_PERMANENT, {
+                    **base, "reason": "unknown candidate %s" % cid}
+            rhash = "wg_" + _hlw.sha256(
+                ("%s|%s|%s" % (cid, dep, evidence_date)).encode()).hexdigest()[:24]
+            if reg.is_processed(rhash):
+                cov0 = reg.latest_data_coverage(cid) or {}
+                return _ar.OUTCOME_COMPLETED, {
+                    **base, "idempotent": True,
+                    "note": "coverage already measured for this candidate on "
+                            "this evidence date (import-once)",
+                    "sufficient": cov0.get("sufficient"),
+                    "coverage": cov0.get("coverage")}
+            fn, acq_campaign, acquirable_now = measure
+            sufficient, coverage = fn()
+            build_required = dep == "point_in_time_fundamentals"
+            enqueued = None
+            if sufficient:
+                next_action = ("coverage now meets the observation threshold; a "
+                               "family evaluation adapter can attempt a full "
+                               "canonical evidence contract next")
+            elif acquirable_now and acq_campaign and queue is not None:
+                enqueued = queue.enqueue(
+                    _ar.CAT_DATA_ACQUISITION, lane="acq.%s" % acq_campaign,
+                    payload={"campaign": acq_campaign},
+                    priority=2, origin="stage9-weakest-gate")
+                next_action = ("insufficient owned coverage; enqueued a bounded "
+                               "%s acquisition continuation to grow coverage"
+                               % acq_campaign)
+            elif build_required:
+                next_action = ("build the smallest useful PIT-fundamentals slice "
+                               "from owned SEC companyfacts before a FUNDAMENTAL "
+                               "adapter can run")
+            else:
+                next_action = ("insufficient; only calendar-time accrual of the "
+                               "daily forward collection resolves this (hard PIT "
+                               "floor - never backfilled)")
+            reg.record_data_coverage(
+                cid, coverage=coverage, evidence_date=evidence_date,
+                data_dependency=dep, job_id=job.job_id, sufficient=sufficient,
+                next_action=next_action)
+            reg.mark_processed(result_hash=rhash, candidate_id=cid,
+                               source="weakest_gate_validation",
+                               job_id=job.job_id,
+                               feature=(cand.get("spec") or {}).get("feature"),
+                               evidence_date=evidence_date)
+            detail = {**base, "sufficient": sufficient, "coverage": coverage,
+                      "candidate_lifecycle_state": cand.get("lifecycle_state"),
+                      "candidate_still_data_hold":
+                          cand.get("lifecycle_state") == "DATA_HOLD",
+                      "next_action": next_action,
+                      "acquisition_continuation_job": enqueued}
+            if build_required and not sufficient:
+                detail["reason"] = ("point-in-time fundamentals require a build "
+                                    "from owned SEC companyfacts (no bounded "
+                                    "acquisition; no new provider purchase)")
+                return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+            return _ar.OUTCOME_COMPLETED, detail
+        finally:
+            try:
+                reg.close()
+            except Exception:  # noqa: BLE001
+                pass
+
     # Start from the safe defaults (source-discovery/entitlement/report keep
     # their offline behaviour) and OVERRIDE the real-work categories.
     handlers = _default_autonomy_handlers(cfg)
@@ -3630,6 +3959,7 @@ def build_production_autonomy_handlers(cfg: dict, *,
     handlers[_ar.CAT_ROBUSTNESS_TEST] = _h_robustness
     handlers[_ar.CAT_SIGNAL_COMBINATION] = _h_combination
     handlers[_ar.CAT_TELEGRAM_REQUEST] = _h_telegram
+    handlers[_ar.CAT_DATA_VALIDATION] = _h_weakest_gate
     return handlers
 
 
@@ -3745,8 +4075,15 @@ def _collect_completed_tournament_jobs(queue, *, limit: int = 200) -> list:
             payload = getattr(job, "payload", None) or {}
             if not payload.get("tournament"):
                 continue
-            result = getattr(job, "result", None) or {}
             spec = payload.get("spec") or {}
+            # Stage 9.2: weakest-gate DATA_VALIDATION follow-ups are COVERAGE
+            # measurements, not experiment results - they carry no experiment
+            # feature/metrics, so never hand them to the experiment ingester
+            # (doing so would flag EXPERIMENT_INGEST_MALFORMED every tick).
+            if payload.get("strategy") == "address_weakest_gate" \
+                    or not spec.get("feature"):
+                continue
+            result = getattr(job, "result", None) or {}
             row = result.get("row") or result.get("metrics") or result
             out.append({"job_id": getattr(job, "job_id", None),
                         "spec": spec, "feature": spec.get("feature"),

@@ -346,3 +346,45 @@ def test_sec_structured_lanes_gated_off_produce_no_facts():
     res = SecEdgarCollector(ctx).collect(AS_OF)
     assert not any(r["record_type"] == sc.RT_FUNDAMENTAL_FACT
                    for r in res["records"])
+
+
+_SEC_ROUTES = [
+    ("company_tickers.json", {"body": _body(_TICKERS)}),
+    ("daily-index", {"status": 404}),
+    ("submissions/CIK", {"body": _body(_SUBMISSIONS)}),
+    ("companyfacts/CIK", {"body": _body(_FACTS)}),
+    ("companyconcept/CIK", {"body": _body(_CONCEPT)}),
+    ("full-index", {"body": _MASTER_IDX}),
+]
+
+
+def test_sec_collect_no_time_budget_is_unbounded_baseline():
+    # SAFE-TIMEOUT (Stage 9.2 correction): absent collect_time_budget_seconds =
+    # UNBOUNDED (byte-identical to prior behaviour) - structured lanes run and
+    # the run is NOT marked deadline_reached.
+    res = SecEdgarCollector(_sec_ctx()).collect(AS_OF)
+    assert any(r["record_type"] == sc.RT_FUNDAMENTAL_FACT for r in res["records"])
+    assert not res["inventory"].get("deadline_reached")
+    assert res["cursor"].get("deadline_reached") is False
+
+
+def test_sec_collect_honours_cooperative_time_budget():
+    # A tiny cooperative budget makes the collector stop BETWEEN bounded network
+    # requests (checked on this thread - never preempting an in-flight request),
+    # mark the run deadline_reached, and skip the structured lanes. The
+    # acquisition handler maps this to RETRYABLE and resumes the same batch. This
+    # is the handler's OWN inline bound; nothing is abandoned and it is NOT a hard
+    # kill.
+    ctx = _ctx(_SEC_CFG, _SEC_ROUTES, identity=sc.IdentityResolver(),
+               extra_config={"limits": {
+                   "max_retries": 1, "backoff_base_seconds": 0.0,
+                   "backoff_multiplier": 1.0, "http_timeout_seconds": 5,
+                   "raw_object_max_bytes": 1 << 22,
+                   "circuit_breaker_threshold": 5,
+                   "collect_time_budget_seconds": 1e-9}})
+    res = SecEdgarCollector(ctx).collect(AS_OF)
+    assert res["inventory"].get("deadline_reached") is True
+    assert res["cursor"].get("deadline_reached") is True
+    # Structured-lane XBRL facts were NOT collected (lanes skipped after budget).
+    assert not any(r["record_type"] == sc.RT_FUNDAMENTAL_FACT
+                   for r in res["records"])

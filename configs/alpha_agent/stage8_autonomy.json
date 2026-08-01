@@ -36,7 +36,21 @@
     "retry_backoff_seconds": 300,
     "stale_running_seconds": 1800,
     "never_idle": true,
-    "handlers": "production"
+    "handlers": "production",
+    "event_min_issuers": 30,
+    "event_min_events": 30,
+    "analyst_min_snapshot_dates": 20,
+    "pit_gics_min_symbols": 50,
+    "collect_drain": {
+      "note": "Stage 9.2 (release-closure + SAFE-TIMEOUT correction) - bounded canonical-queue drain integrated into the scheduled AlphaAgent-Collect cycle. SCOPE: restricted to approved Stage-9 tournament-continuation work ONLY, via a three-dimension allowlist (allowed_origins AND allowed_lane_prefixes AND allowed_categories); ineligible/legacy jobs are never claimed, transitioned or counted, and an empty allowlist executes nothing. SEC CONTINUATION POLICY (Option 1 - PAUSED): the drain admits the weakest-gate-originated SEC batch (origin stage9-weakest-gate, lane acq.sec_form4_8k) and executes exactly ONE bounded 20-CIK batch per trigger; the SEC campaign's OWN self-continuation (origin campaign-continuation) is DELIBERATELY excluded from allowed_origins, so the batch chain does NOT auto-perpetuate - a future scoped stage will design controlled continuation with explicit issuer accounting and a stopping condition. AUDIT: attempts increments exactly once per real execution at CLAIM time, so an executed job shows attempts>=1. EXECUTION CONTAINMENT (SAFE TIMEOUT): every handler runs INLINE on the drain thread - there is NO worker/daemon thread and nothing is ever abandoned, so the queue lease is settled strictly AFTER the handler returns and a handler can never keep writing canonical state after its job is settled. The drain admits only internally-bounded handlers: DATA_VALIDATION (weakest-gate) is LOCAL owned-coverage measurement (no network); acq.sec_form4_8k has a finite batch (sec_cik_batch_size=20 CIKs) and finite per-request network timeouts (stage2 http_timeout_seconds=30 x max_retries), and honours handler_time_budget_seconds by stopping BETWEEN bounded network requests and returning RETRYABLE (partial batch not recorded; resumes next cycle; bounded by max_attempts). handler_time_budget_seconds is a COOPERATIVE, inline, handler-enforced bound and is NOT a hard process kill; budget_seconds likewise only prevents STARTING a new job once the per-cycle wall-clock is spent. The HARD, OS-enforced ceilings are the task ExecutionTimeLimit (PT20M) and MultipleInstancesPolicy=IgnoreNew (no overlapping cycle); the runtime collect lock refuses a second in-host collect; an OS kill mid-handler leaves the job RUNNING (never settled) for requeue_stale to recover. Absent/false = disabled (offline + acceptance/test configs never drain); true here = production default. Durable lease semantics: a claimed job is RUNNING and cannot be double-claimed; a restart resumes leased/retryable work.",
+      "enabled": true,
+      "max_jobs_per_cycle": 1,
+      "budget_seconds": 120,
+      "handler_time_budget_seconds": 90,
+      "allowed_origins": ["stage9-tournament", "stage9-weakest-gate"],
+      "allowed_lane_prefixes": ["tournament.", "acq.sec_form4_8k"],
+      "allowed_categories": ["DATA_VALIDATION", "DATA_ACQUISITION"]
+    }
   },
   "tournament": {
     "note": "Stage 9 Autonomous Alpha Tournament. The bounded tournament tick is the highest-value research step of the production cycle (run_autonomy_cycle(..., run_tournament=True)); it shares THIS durable queue and never creates a second framework. READ-ONLY w.r.t. the operating portfolio; no automatic promotion.",

@@ -1065,6 +1065,9 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
             "Origin: %s" % j.origin,
             "Attempts: %d/%d" % (j.attempts, j.max_attempts),
         ]
+        if j.started_at or j.finished_at:
+            lines.append("Last execution: started %s / finished %s" % (
+                j.started_at or "n/a", j.finished_at or "n/a"))
         if j.blocked_reason:
             lines.append("Blocker: %s" % j.blocked_reason)
         res = j.result or {}
@@ -1079,6 +1082,28 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
                 or res.get("real_work") or res.get("note")
             if disp:
                 lines.append("Disposition: %s" % disp)
+            # Stage 9.2 tournament weakest-gate follow-up detail (read-only).
+            if res.get("real_work") == "tournament_weakest_gate_validation":
+                if res.get("candidate_id"):
+                    lines.append("Candidate: %s (%s)" % (
+                        res.get("candidate_id"),
+                        res.get("candidate_lifecycle_state") or "DATA_HOLD"))
+                if res.get("data_dependency"):
+                    lines.append("Data dependency: %s | coverage sufficient: %s"
+                                 % (res.get("data_dependency"),
+                                    "yes" if res.get("sufficient") else "no"))
+                cov = res.get("coverage") or {}
+                shown = [(k, cov[k]) for k in (
+                    "distinct_issuers", "insider_transaction_records",
+                    "sec_8k_item202_events", "distinct_vintage_dates_on_disk",
+                    "distinct_symbols_pit_classified") if k in cov]
+                if shown:
+                    lines.append("Coverage: " + ", ".join(
+                        "%s=%s" % (k, v) for k, v in shown))
+                if res.get("next_action"):
+                    lines.append("Next action: %s" % res.get("next_action"))
+                lines.append("No model is promoted to live trading (research "
+                             "evidence only).")
             for k in ("run_dir", "run_id", "artifact_path", "output_path",
                       "evidence_path", "raw_path", "normalized_path"):
                 if res.get(k):

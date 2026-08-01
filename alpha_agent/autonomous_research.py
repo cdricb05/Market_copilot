@@ -39,6 +39,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -321,13 +322,37 @@ class ResearchQueue:
 
     # -- claim (atomic) ----------------------------------------------------- #
     def claim_next(self, *, categories: Optional[Iterable[str]] = None,
+                   origins: Optional[Iterable[str]] = None,
+                   lane_prefixes: Optional[Iterable[str]] = None,
                    now: Optional[str] = None) -> Optional[Job]:
         """Atomically claim the highest-priority claimable job whose backoff has
-        elapsed, transitioning it QUEUED/RETRYABLE -> RUNNING. Blocked and
-        terminal jobs are never claimed. Returns None when nothing is runnable
-        right now (which does NOT mean the queue is empty — see ``depth``)."""
+        elapsed, transitioning it QUEUED/RETRYABLE -> RUNNING and incrementing
+        ``attempts`` by EXACTLY ONE in the same committed transaction.
+
+        ``attempts`` is therefore the single, auditable count of real
+        executions: a job that is never claimed keeps ``attempts==0``; every
+        COMPLETED / BLOCKED_SPECIFIC / RETRYABLE / FAILED_PERMANENT job that
+        actually ran shows ``attempts>=1``. Because the increment is atomic with
+        the QUEUED/RETRYABLE->RUNNING transition under ``BEGIN IMMEDIATE``, two
+        overlapping workers can never claim - or increment - the same job twice.
+
+        An optional allowlist restricts *which* jobs are eligible: by
+        ``categories``, by ``origins`` and/or by ``lane_prefixes`` (prefix match
+        via GLOB, so ``_`` is a literal not a wildcard). The three dimensions are
+        ANDed, and an EXPLICITLY EMPTY collection on any dimension matches
+        nothing (an empty allowlist claims nothing). Ineligible jobs are never
+        transitioned, so unrelated queue work is left completely untouched.
+        Returns None when nothing eligible is runnable right now (which does NOT
+        mean the queue is empty — see ``depth``)."""
         now = now or self._clock()
-        cats = tuple(categories) if categories else None
+        cats = None if categories is None else tuple(categories)
+        orgs = None if origins is None else tuple(origins)
+        lpfx = None if lane_prefixes is None else tuple(lane_prefixes)
+        # An explicitly-empty allowlist dimension matches nothing (so an empty
+        # allowlist executes nothing) - claim and increment neither.
+        if (cats is not None and not cats) or (orgs is not None and not orgs) \
+                or (lpfx is not None and not lpfx):
+            return None
         with self._lock:
             conn = self._connect()
             try:
@@ -338,16 +363,31 @@ class ResearchQueue:
                 if cats:
                     sql += " AND category IN (%s)" % ",".join("?" * len(cats))
                     params.extend(cats)
+                if orgs:
+                    sql += " AND origin IN (%s)" % ",".join("?" * len(orgs))
+                    params.extend(orgs)
+                if lpfx:
+                    sql += " AND (%s)" % " OR ".join(["lane GLOB ?"] * len(lpfx))
+                    params.extend(p + "*" for p in lpfx)
                 sql += " ORDER BY priority DESC, created_at ASC, rowid ASC LIMIT 1"
                 row = conn.execute(sql, params).fetchone()
                 if row is None:
                     conn.execute("COMMIT")
                     return None
-                conn.execute(
-                    "UPDATE jobs SET state=?, started_at=?, updated_at=?"
-                    " WHERE job_id=?",
-                    (STATE_RUNNING, now, now, row["job_id"]))
-                self._event(conn, "CLAIM", row["job_id"], None)
+                new_attempts = int(row["attempts"]) + 1
+                cur = conn.execute(
+                    "UPDATE jobs SET state=?, attempts=?, started_at=?,"
+                    " updated_at=? WHERE job_id=? AND state IN"
+                    " ('QUEUED','RETRYABLE')",
+                    (STATE_RUNNING, new_attempts, now, now, row["job_id"]))
+                if cur.rowcount != 1:
+                    # Lost the race for this row under an overlapping writer
+                    # (should not occur inside BEGIN IMMEDIATE): claim nothing
+                    # and, critically, increment nothing.
+                    conn.execute("ROLLBACK")
+                    return None
+                self._event(conn, "CLAIM", row["job_id"],
+                            {"attempts": new_attempts})
                 conn.execute("COMMIT")
                 fresh = conn.execute("SELECT * FROM jobs WHERE job_id=?",
                                      (row["job_id"],)).fetchone()
@@ -407,9 +447,13 @@ class ResearchQueue:
 
     def mark_retryable(self, job_id: str, reason: str, *,
                        backoff_seconds: Optional[int] = None) -> str:
-        """Increment attempts and either schedule a bounded retry or, once the
-        attempt budget is exhausted, escalate to FAILED_PERMANENT. Returns the
-        resulting state."""
+        """Schedule a bounded retry, or escalate to FAILED_PERMANENT once the
+        execution budget is spent. ``attempts`` is NOT incremented here: it is
+        incremented exactly once per execution at CLAIM time (so applying an
+        outcome can never double-count an attempt). This reads the
+        already-incremented count and, when it has reached ``max_attempts``,
+        settles the job FAILED_PERMANENT; otherwise it schedules a backoff so a
+        later claim consumes the next attempt. Returns the resulting state."""
         backoff = self.retry_backoff_seconds if backoff_seconds is None \
             else int(backoff_seconds)
         now = self._clock()
@@ -420,12 +464,12 @@ class ResearchQueue:
                                    " WHERE job_id=?", (job_id,)).fetchone()
                 if row is None:
                     return STATE_FAILED_PERMANENT
-                attempts = int(row["attempts"]) + 1
+                attempts = int(row["attempts"])  # already counted at claim
                 if attempts >= int(row["max_attempts"]):
                     conn.execute(
-                        "UPDATE jobs SET state=?, attempts=?, blocked_reason=?,"
+                        "UPDATE jobs SET state=?, blocked_reason=?,"
                         " updated_at=?, finished_at=? WHERE job_id=?",
-                        (STATE_FAILED_PERMANENT, attempts,
+                        (STATE_FAILED_PERMANENT,
                          "retry budget exhausted: %s" % reason, now, now,
                          job_id))
                     self._event(conn, STATE_FAILED_PERMANENT, job_id,
@@ -433,9 +477,9 @@ class ResearchQueue:
                     return STATE_FAILED_PERMANENT
                 not_before = _iso_plus_seconds(now, backoff)
                 conn.execute(
-                    "UPDATE jobs SET state=?, attempts=?, blocked_reason=?,"
+                    "UPDATE jobs SET state=?, blocked_reason=?,"
                     " not_before=?, updated_at=? WHERE job_id=?",
-                    (STATE_RETRYABLE, attempts, reason, not_before, now,
+                    (STATE_RETRYABLE, reason, not_before, now,
                      job_id))
                 self._event(conn, STATE_RETRYABLE, job_id,
                             {"reason": reason, "attempts": attempts,
@@ -587,7 +631,12 @@ class ResearchQueue:
             with self._lock:
                 conn = self._connect()
                 try:
-                    attempts = job.attempts + 1
+                    # PRESERVE attempts: the crashed execution already counted
+                    # its attempt at CLAIM time. Requeueing neither erases nor
+                    # re-increments it (a later re-claim consumes the next
+                    # attempt), so a dead worker never inflates or loses the
+                    # audit count.
+                    attempts = job.attempts
                     if attempts >= job.max_attempts:
                         conn.execute(
                             "UPDATE jobs SET state=?, attempts=?,"
@@ -775,6 +824,132 @@ def run_cycle(queue: "ResearchQueue", handlers: HandlerMap, *,
 
 def _bump(d: dict, key: str) -> None:
     d[key] = int(d.get(key, 0)) + 1
+
+
+# --------------------------------------------------------------------------- #
+# Bounded queue DRAIN (Stage 9.2). A minimal primitive for INTEGRATING execution
+# into an already-running cycle (e.g. the scheduled AlphaAgent-Collect). Unlike
+# run_cycle it does NOT replenish/seed - it only claims and executes up to
+# ``max_jobs`` already-queued jobs, applying each durable outcome via the SAME
+# atomic claim/settle primitives. It is therefore a strict subset of run_cycle's
+# behaviour (no new framework), and inherits its safety: a claimed job is RUNNING
+# and can never be double-claimed by an overlapping cycle; a handler crash is a
+# bounded RETRYABLE that never stops the cycle; one blocked job never blocks the
+# rest; a restart resumes leased/retryable work through requeue_stale + re-claim.
+# --------------------------------------------------------------------------- #
+def drain_jobs(queue: "ResearchQueue", handlers: HandlerMap, *,
+               max_jobs: int = 1, categories: Optional[Iterable[str]] = None,
+               origins: Optional[Iterable[str]] = None,
+               lane_prefixes: Optional[Iterable[str]] = None,
+               budget_seconds: Optional[float] = None,
+               now: Optional[str] = None,
+               monotonic: Optional[Callable[[], float]] = None) -> dict:
+    """Claim and execute up to ``max_jobs`` claimable jobs, honouring the queue's
+    own priority ordering (claim_next orders by priority DESC, created_at ASC),
+    and return a deterministic report.
+
+    Scope (WS3): the drain is restricted to eligible jobs by ``categories``,
+    ``origins`` and ``lane_prefixes`` (prefix match). The three dimensions are
+    ANDed and pushed into ``claim_next`` so ineligible/unrelated jobs are NEVER
+    claimed, transitioned or counted. An explicitly-empty allowlist on any
+    dimension claims nothing (an empty allowlist executes nothing). ``None`` on a
+    dimension leaves it unrestricted.
+
+    Execution containment (WS1/WS2 - SAFE TIMEOUT). Each handler runs INLINE, on
+    THIS thread - there is NO worker/daemon thread and nothing is ever abandoned.
+    The queue lease is therefore settled (``apply_outcome``) strictly AFTER the
+    handler has returned control, so a handler can never still be executing after
+    its job is settled: the specific defect that a timed-out daemon thread kept
+    writing canonical state after the lease was released is eliminated BY
+    CONSTRUCTION. The drain only admits internally-bounded handlers (WS3
+    allowlist); each such handler self-bounds its own wall-clock work and returns
+    RETRYABLE on its own bounded timeout (e.g. the SEC acquisition handler stops
+    at ``collect_time_budget_seconds`` between bounded network requests and
+    returns RETRYABLE) - a cooperative bound the handler enforces inline, never a
+    thread we abandon. ``budget_seconds`` is a cooperative per-cycle wall-clock
+    bound checked BEFORE each claim (a NEW job is never STARTED once the budget is
+    spent; a job already running is never interrupted). Neither is a hard process
+    kill - the hard, OS-enforced ceilings are the AlphaAgent-Collect task
+    ``ExecutionTimeLimit`` (PT20M) and ``MultipleInstancesPolicy=IgnoreNew`` (no
+    overlapping cycle), plus the runtime collect lock. If the OS kills the
+    process mid-handler the job stays RUNNING (never settled) and is recovered by
+    ``requeue_stale`` on a later cycle. Never raises for a handler error.
+    """
+    now = now or queue._clock()  # noqa: SLF001 - deliberate shared clock
+    monotonic = monotonic or time.monotonic
+    cats = None if categories is None else tuple(categories)
+    orgs = None if origins is None else tuple(origins)
+    lpfx = None if lane_prefixes is None else tuple(lane_prefixes)
+    started = monotonic()
+    report = {
+        "enabled": True, "max_jobs": int(max_jobs),
+        "budget_seconds": budget_seconds,
+        "allowed_categories": list(cats) if cats is not None else None,
+        "allowed_origins": list(orgs) if orgs is not None else None,
+        "allowed_lane_prefixes": list(lpfx) if lpfx is not None else None,
+        "queue_depth_before": queue.depth(),
+        "jobs_claimed": 0, "jobs_completed": 0, "jobs_retryable": 0,
+        "jobs_blocked": 0, "jobs_failed": 0, "jobs_rejected": 0,
+        "handler_errors": 0, "budget_exhausted": False,
+        "job_ids": [], "handled": [],
+    }
+    _COUNTER = {STATE_COMPLETED: "jobs_completed",
+                STATE_RETRYABLE: "jobs_retryable",
+                STATE_BLOCKED_SPECIFIC: "jobs_blocked",
+                STATE_FAILED_PERMANENT: "jobs_failed",
+                STATE_REJECTED: "jobs_rejected"}
+    for _ in range(max(0, int(max_jobs))):
+        if budget_seconds is not None and \
+                (monotonic() - started) >= float(budget_seconds):
+            report["budget_exhausted"] = True
+            break
+        job = queue.claim_next(categories=cats, origins=orgs,
+                               lane_prefixes=lpfx, now=now)
+        if job is None:
+            break
+        report["jobs_claimed"] += 1
+        report["job_ids"].append(job.job_id)
+        handler = handlers.get(job.category)
+        if handler is None:
+            queue.block_specific(
+                job.job_id, "no handler registered for %s" % job.category)
+            report["jobs_blocked"] += 1
+            report["handled"].append(
+                {"job_id": job.job_id, "category": job.category,
+                 "lane": job.lane, "state": STATE_BLOCKED_SPECIFIC})
+            continue
+        # INLINE execution: the handler runs on this thread and MUST return
+        # before the lease below is settled. No thread is ever abandoned.
+        try:
+            ho = handler(job)
+            if ho is None:
+                outcome, detail = OUTCOME_RETRYABLE, {
+                    "reason": "handler produced no outcome"}
+            else:
+                outcome, detail = ho
+                if outcome not in HANDLER_OUTCOMES:
+                    outcome, detail = OUTCOME_RETRYABLE, {
+                        "reason": "handler returned unknown outcome %r"
+                        % outcome}
+        except Exception as exc:  # noqa: BLE001 - the cycle must never crash
+            report["handler_errors"] += 1
+            outcome, detail = OUTCOME_RETRYABLE, {
+                "reason": "handler raised: %s" % type(exc).__name__}
+        detail = detail if isinstance(detail, dict) else {"detail": detail}
+        result = detail if outcome in (OUTCOME_COMPLETED, OUTCOME_REJECTED) \
+            else None
+        state = queue.apply_outcome(job.job_id, outcome, result=result,
+                                    reason=str(detail.get("reason", "")))
+        key = _COUNTER.get(state)
+        if key:
+            report[key] += 1
+        report["handled"].append(
+            {"job_id": job.job_id, "category": job.category, "lane": job.lane,
+             "state": state, "real_work": detail.get("real_work"),
+             "candidate_id": detail.get("candidate_id"),
+             "disposition": detail.get("disposition")})
+    report["queue_depth_after"] = queue.depth()
+    return report
 
 
 # --------------------------------------------------------------------------- #

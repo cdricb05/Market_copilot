@@ -1029,6 +1029,28 @@ class SecEdgarCollector(BaseCollector):
         # WS2/WS3 candidate accumulators, populated by the submissions lane.
         self._form4_candidates: list[dict] = []
         self._earn8k_candidates: list[dict] = []
+        # SAFE-TIMEOUT (Stage 9.2 release correction): a COOPERATIVE per-collect
+        # wall-clock budget. ``collect_time_budget_seconds`` <= 0 / absent means
+        # UNBOUNDED (default; existing behaviour byte-identical). When set, the
+        # collector stops starting new bounded units of work (the next index day,
+        # the structured lanes) once the budget is spent and marks the run
+        # ``deadline_reached`` so the caller (the autonomy drain handler) can
+        # settle the job RETRYABLE and resume the same batch on a later cycle.
+        # This is checked BETWEEN bounded network requests on THIS thread - it
+        # never preempts an in-flight request (bounded by http_timeout_seconds x
+        # max_retries) and is NOT a hard timeout; it is an honest, inline,
+        # cooperative bound that lets the handler return without being abandoned.
+        _budget = float(self.ctx.limits.get("collect_time_budget_seconds", 0)
+                        or 0)
+        _start = self.ctx.clock()
+
+        def _over_budget() -> bool:
+            if _budget <= 0:
+                return False
+            if (self.ctx.clock() - _start) >= _budget:
+                self.inventory["deadline_reached"] = True
+                return True
+            return False
 
         map_result = self._fetch_ticker_map(headers, as_of)
         cik_to_tickers: dict[str, list[str]] = (map_result or {}).get("cik_to_tickers", {})
@@ -1064,6 +1086,8 @@ class SecEdgarCollector(BaseCollector):
         base = cfg.get("base_url_www", "https://www.sec.gov").rstrip("/")
         days_hit = 0
         for day in _business_days_back(as_of, window):
+            if _over_budget():
+                break
             d = _dt.date.fromisoformat(day)
             quarter = (d.month - 1) // 3 + 1
             url = "%s/Archives/edgar/daily-index/%d/QTR%d/master.%s.idx" % (
@@ -1133,29 +1157,35 @@ class SecEdgarCollector(BaseCollector):
         # PIT anchor for every form (incl. Form 4 + 8-K); companyfacts/
         # companyconcept supply TRUE point-in-time XBRL fundamentals (each fact
         # carries its filed date). Each lane is bounded and gated by config.
-        ciks = self._bounded_ciks(cik_to_tickers, as_of) if map_result else []
+        # Each structured lane is a distinct bounded unit of network work; once
+        # the cooperative budget is spent we start no further lane and mark the
+        # run deadline_reached (checked between lanes, on this thread).
+        ciks = self._bounded_ciks(cik_to_tickers, as_of) \
+            if (map_result and not _over_budget()) else []
         lanes = {}
-        if cfg.get("collect_submissions") and ciks:
+        if cfg.get("collect_submissions") and ciks and not _over_budget():
             lanes["submissions"] = self._collect_submissions(
                 headers, ciks, as_of, retrieved)
-        if cfg.get("collect_companyfacts") and ciks:
+        if cfg.get("collect_companyfacts") and ciks and not _over_budget():
             lanes["companyfacts"] = self._collect_companyfacts(
                 headers, ciks, as_of, retrieved)
-        if cfg.get("collect_companyconcept") and ciks:
+        if cfg.get("collect_companyconcept") and ciks and not _over_budget():
             lanes["companyconcept"] = self._collect_companyconcept(
                 headers, ciks, as_of, retrieved)
         # WS2/WS3: transaction-level Form 4 XML + 8-K Item 2.02 extraction, drawn
         # from the Form 4 / 8-K candidates the submissions lane accumulated.
-        if cfg.get("collect_form4_transactions") and self._form4_candidates:
+        if cfg.get("collect_form4_transactions") and self._form4_candidates \
+                and not _over_budget():
             lanes["form4_transactions"] = self._collect_form4_transactions(
                 headers, as_of, retrieved)
-        if cfg.get("collect_form8k_earnings") and self._earn8k_candidates:
+        if cfg.get("collect_form8k_earnings") and self._earn8k_candidates \
+                and not _over_budget():
             lanes["form8k_item202"] = self._collect_form8k_earnings(
                 headers, as_of, retrieved)
-        if cfg.get("collect_full_index"):
+        if cfg.get("collect_full_index") and not _over_budget():
             lanes["full_index_bulk"] = self._collect_full_index(
                 headers, as_of, retrieved)
-        if cfg.get("probe_bulk_archives"):
+        if cfg.get("probe_bulk_archives") and not _over_budget():
             lanes["bulk_archive_probe"] = self._probe_bulk_archives(
                 headers, as_of)
         if lanes:
@@ -1164,6 +1194,8 @@ class SecEdgarCollector(BaseCollector):
         self.cursor = {"last_collected_as_of": as_of,
                        "index_window_business_days": window,
                        "structured_lanes": lanes,
+                       "deadline_reached": bool(
+                           self.inventory.get("deadline_reached")),
                        "newest_filing_date": self.newest_source_event_time}
         if map_result and days_hit > 0 and not self.http_errors:
             state = SH_HEALTHY

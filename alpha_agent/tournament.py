@@ -274,6 +274,26 @@ CREATE TABLE IF NOT EXISTS meta (
     value               TEXT,
     updated_at          TEXT NOT NULL
 );
+
+-- Stage 9.2: weakest-gate DATA_VALIDATION coverage measurements. A completed
+-- tournament follow-up job records a durable coverage artifact here and advances
+-- the candidate's latest_evidence_date / experiment_ids WITHOUT changing its
+-- lifecycle_state, blocker, metrics or combined_score. Coverage is evidence of
+-- PROGRESS toward resolving a DATA_HOLD; it never promotes a candidate - only a
+-- full canonical statistical evidence contract (classify_evidence) can move a
+-- candidate out of DATA_HOLD.
+CREATE TABLE IF NOT EXISTS data_coverage (
+    coverage_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id        TEXT NOT NULL,
+    measured_at         TEXT NOT NULL,
+    evidence_date       TEXT,
+    job_id              TEXT,
+    data_dependency     TEXT,
+    sufficient          INTEGER NOT NULL DEFAULT 0,
+    next_action         TEXT,
+    coverage_json       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_coverage_candidate ON data_coverage(candidate_id);
 """
 
 _CANDIDATE_COLUMNS = (
@@ -479,6 +499,60 @@ class CandidateRegistry:
                 "scores": json.loads(r["scores_json"]),
                 "gate": json.loads(r["gate_json"]),
                 "pit": json.loads(r["pit_json"])}
+
+    # -- weakest-gate coverage evidence (Stage 9.2) ----------------------- #
+    def record_data_coverage(self, candidate_id: str, *, coverage: dict,
+                             evidence_date: Optional[str] = None,
+                             data_dependency: Optional[str] = None,
+                             job_id: Optional[str] = None,
+                             sufficient: bool = False,
+                             next_action: Optional[str] = None) -> int:
+        """Durably attach a weakest-gate DATA_VALIDATION coverage measurement to a
+        candidate as evidence of PROGRESS toward resolving its DATA_HOLD.
+
+        Advances ONLY ``latest_evidence_date`` and appends the executing job to
+        ``experiment_ids``; it never touches ``lifecycle_state``, ``blocker``,
+        ``metrics`` or ``combined_score`` - so a coverage measurement can never
+        promote a candidate or spuriously flip its lifecycle on a later tick
+        (only a full canonical statistical evidence contract, via
+        ``record_evaluation`` + ``classify_evidence``, can move a candidate out of
+        DATA_HOLD). Returns the coverage row id.
+        """
+        ts = self.now()
+        cur = self._conn.execute(
+            "INSERT INTO data_coverage (candidate_id, measured_at, evidence_date,"
+            " job_id, data_dependency, sufficient, next_action, coverage_json)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (candidate_id, ts, evidence_date, job_id, data_dependency,
+             1 if sufficient else 0, next_action, canonical_json(coverage)))
+        cand = self.get(candidate_id)
+        if cand is not None:
+            ids = list(cand.get("experiment_ids") or [])
+            if job_id and job_id not in ids:
+                ids.append(job_id)
+            self._conn.execute(
+                "UPDATE candidates SET latest_evidence_date=?, experiment_ids=?,"
+                " updated_at=? WHERE candidate_id=?",
+                (evidence_date or ts, canonical_json(ids), ts, candidate_id))
+        self._conn.commit()
+        self._record_change("DATA_COVERAGE_MEASURED", candidate_id, {
+            "evidence_date": evidence_date, "job_id": job_id,
+            "data_dependency": data_dependency, "sufficient": bool(sufficient),
+            "next_action": next_action, "coverage": coverage})
+        return int(cur.lastrowid)
+
+    def latest_data_coverage(self, candidate_id: str) -> Optional[dict]:
+        r = self._conn.execute(
+            "SELECT * FROM data_coverage WHERE candidate_id=? "
+            "ORDER BY coverage_id DESC LIMIT 1", (candidate_id,)).fetchone()
+        if not r:
+            return None
+        return {"coverage_id": r["coverage_id"], "candidate_id": r["candidate_id"],
+                "measured_at": r["measured_at"], "evidence_date": r["evidence_date"],
+                "job_id": r["job_id"], "data_dependency": r["data_dependency"],
+                "sufficient": bool(r["sufficient"]),
+                "next_action": r["next_action"],
+                "coverage": json.loads(r["coverage_json"])}
 
     # -- shadow books ----------------------------------------------------- #
     def create_shadow_book(self, candidate_id: str, shadow_book_id: str, *,

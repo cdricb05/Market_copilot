@@ -920,7 +920,10 @@ def run_ingestion(*, config: dict, output_root: str, mode: str,
                            "normalized_records_new": len(all_new_records)},
                 "blocked_sources": externally_blocked + hard_failed,
                 "source_states": {s: r["health"]["overall_state"]
-                                  for s, r in source_results.items()}}
+                                  for s, r in source_results.items()},
+                "source_deadlines": {
+                    s: bool((r.get("inventory") or {}).get("deadline_reached"))
+                    for s, r in source_results.items()}}
 
     latest_payload = {
         "stage": STAGE, "run_id": run_id,
@@ -951,7 +954,10 @@ def run_ingestion(*, config: dict, output_root: str, mode: str,
             "dq_failures": [c["check_name"] for c in dq_checks
                             if c["status"] == "FAIL"],
             "source_states": {s: r["health"]["overall_state"]
-                              for s, r in source_results.items()}}
+                              for s, r in source_results.items()},
+            "source_deadlines": {
+                s: bool((r.get("inventory") or {}).get("deadline_reached"))
+                for s, r in source_results.items()}}
 
 
 # --------------------------------------------------------------------------- #

@@ -129,10 +129,20 @@ class TestDurableQueue:
         assert q.get(blocked).state == ar.STATE_BLOCKED_SPECIFIC
 
     def test_retry_is_bounded_then_failed_permanent(self, tmp_path):
-        q = _q(tmp_path, clock=Clock(), max_attempts=2)
+        # Stage 9.2 contract: ``attempts`` is incremented once per EXECUTION at
+        # claim time, so the bounded retry budget is consumed by claim ->
+        # mark_retryable cycles (not by mark_retryable alone). max_attempts=2
+        # means two executions, the second escalating to FAILED_PERMANENT.
+        clk = Clock()
+        q = _q(tmp_path, clock=clk, max_attempts=2)
         jid = q.enqueue(ar.CAT_EXPERIMENT, lane="x", payload={})
+        clk.t += 1
+        assert q.claim_next().job_id == jid                 # attempts -> 1
         assert q.mark_retryable(jid, "boom") == ar.STATE_RETRYABLE
+        clk.t += 1000                                       # elapse backoff
+        assert q.claim_next() is not None                   # re-claim -> 2
         assert q.mark_retryable(jid, "boom") == ar.STATE_FAILED_PERMANENT
+        assert q.get(jid).attempts == 2                     # two executions
 
     def test_stale_running_is_safely_requeued(self, tmp_path):
         clk = Clock()
