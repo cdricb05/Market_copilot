@@ -1861,13 +1861,46 @@ class Runtime:
             allowed_cats = drain_cfg.get("allowed_categories")
             if allowed_cats is None:
                 allowed_cats = drain_cfg.get("categories")
+            max_jobs = int(drain_cfg.get("max_jobs_per_cycle", 1))
+            budget = drain_cfg.get("budget_seconds")
+            # PASS A - the approved Stage-9 tournament-continuation allowlist
+            # (unchanged): stage9-tournament / stage9-weakest-gate work. The
+            # proven claim_next is NOT modified.
             report = _ar.drain_jobs(
-                queue, handlers,
-                max_jobs=int(drain_cfg.get("max_jobs_per_cycle", 1)),
-                categories=allowed_cats,
+                queue, handlers, max_jobs=max_jobs, categories=allowed_cats,
                 origins=drain_cfg.get("allowed_origins"),
                 lane_prefixes=drain_cfg.get("allowed_lane_prefixes"),
-                budget_seconds=drain_cfg.get("budget_seconds"))
+                budget_seconds=budget)
+            # PASS B - Stage 9.3 CONTROLLED SEC campaign-continuation. Runs ONLY
+            # when pass A claimed nothing (so at most ONE job executes per cycle)
+            # and only for the EXACT scoped triple: origin campaign-continuation
+            # AND lane acq.sec_form4_8k AND category DATA_ACQUISITION. Because the
+            # three claim_next dimensions are ANDed, a campaign-continuation job
+            # on any OTHER lane/category is never claimed - "no other campaign-
+            # continuation lane may execute". The daily-batch cap and no-progress
+            # limit are enforced INSIDE the handler (see _run_sec_cik_campaign).
+            sec_cont = drain_cfg.get("sec_continuation") or {}
+            report["sec_continuation_enabled"] = bool(sec_cont.get("enabled"))
+            if sec_cont.get("enabled") and report.get("jobs_claimed", 0) == 0:
+                reportB = _ar.drain_jobs(
+                    queue, handlers, max_jobs=1,
+                    categories=sec_cont.get("allowed_categories"),
+                    origins=sec_cont.get("allowed_origins"),
+                    lane_prefixes=sec_cont.get("allowed_lane_prefixes"),
+                    budget_seconds=budget)
+                report["sec_continuation_pass"] = reportB
+                # Fold pass-B execution into the top-level counters so the
+                # heartbeat + live proof see the single SEC batch.
+                for k in ("jobs_claimed", "jobs_completed", "jobs_retryable",
+                          "jobs_blocked", "jobs_failed", "jobs_rejected",
+                          "handler_errors"):
+                    report[k] = int(report.get(k, 0)) + int(reportB.get(k, 0))
+                report["job_ids"] = list(report.get("job_ids") or []) + \
+                    list(reportB.get("job_ids") or [])
+                report["handled"] = list(report.get("handled") or []) + \
+                    list(reportB.get("handled") or [])
+                report["queue_depth_after"] = reportB.get(
+                    "queue_depth_after", report.get("queue_depth_after"))
             summary.update(report)
             summary["drain_status"] = "OK"
         except Exception as exc:  # noqa: BLE001 - never break collection
@@ -2897,6 +2930,33 @@ def _default_autonomy_handlers(cfg: dict) -> dict:
     return handlers
 
 
+def sec_continuation_stop_reason(*, is_complete: bool,
+                                 completed_batches_today: int,
+                                 consecutive_no_progress: int,
+                                 daily_cap: int, no_progress_max: int
+                                 ) -> Optional[str]:
+    """Stage 9.3 controlled-continuation PRE-RUN decision table (pure). Returns
+    the stop reason that forbids running another SEC batch right now, or None to
+    proceed. Order is deterministic: completeness, then the no-progress limit,
+    then the per-calendar-day completed-batch cap."""
+    if is_complete:
+        return "CAMPAIGN_COMPLETE"
+    if consecutive_no_progress >= no_progress_max:
+        return "NO_PROGRESS_LIMIT"
+    if completed_batches_today >= daily_cap:
+        return "DAILY_BATCH_CAP_REACHED"
+    return None
+
+
+def sec_continuation_should_chain(*, is_complete: bool,
+                                  completed_batches_today: int,
+                                  daily_cap: int) -> bool:
+    """Whether a PROGRESS batch may chain the next continuation: only while the
+    campaign is incomplete AND still under the per-day completed-batch cap. A
+    no-progress batch never chains (enforced separately by the caller)."""
+    return (not is_complete) and completed_batches_today < daily_cap
+
+
 def build_production_autonomy_handlers(cfg: dict, *,
                                        contact_email: Optional[str] = None,
                                        queue=None,
@@ -2963,6 +3023,18 @@ def build_production_autonomy_handlers(cfg: dict, *,
         lim["collect_time_budget_seconds"] = _htb
         one["limits"] = lim
         return one
+
+    # Stage 9.3 - CONTROLLED SEC Form 4 / 8-K continuation caps. Both bounds are
+    # DERIVED from the durable append-only batch log (restart-safe), enforced by
+    # the SEC campaign handler INLINE, and are cooperative (not a hard kill):
+    #   daily_completed_batch_cap        -> at most N completed batches/UTC day
+    #   max_consecutive_no_progress_...  -> stop after N consecutive stalled batches
+    _sec_cont_cfg = ((((cfg.get("autonomy") or {}).get("collect_drain") or {})
+                      .get("sec_continuation") or {})
+                     if isinstance(cfg, dict) else {})
+    _sec_daily_cap = int(_sec_cont_cfg.get("daily_completed_batch_cap", 6) or 6)
+    _sec_noprog_max = int(
+        _sec_cont_cfg.get("max_consecutive_no_progress_batches", 2) or 2)
 
     # ---- shared REAL price panel (read once; reused by experiment jobs) ------
     _cache = {}
@@ -3593,66 +3665,186 @@ def build_production_autonomy_handlers(cfg: dict, *,
             "batch_symbols": len(batch),
             "next_batch_enqueued": bool(queue) and not cov.get("is_complete")}
 
+    # ---- SEC owned-record counters (Part 3 readiness + batch metrics) ------ #
+    def _sec_owned_counts():
+        """Cumulative owned SEC Form 4 / 8-K counts from normalized records -
+        the shared basis for the weakest-gate readiness measure (Part 3) and the
+        per-batch metric snapshot (Part 2). Bounded read; no network; PIT-safe
+        (availability = SEC acceptance)."""
+        from collections import defaultdict as _dd
+
+        def _p(r):
+            return r.get("normalized_payload") or {}
+
+        def _fdate(r):
+            p = _p(r)
+            v = (p.get("filing_date") or p.get("acceptance_datetime")
+                 or r.get("available_at"))
+            return str(v)[:10] if v else None
+        insider = _read_normalized("INSIDER_FILING", limit=6000)
+        txn = [r for r in insider if _p(r).get("transaction_code")
+               and _p(r).get("shares") is not None]
+        codes = [str(_p(r).get("transaction_code") or "").upper() for r in txn]
+        issuers = {r.get("company_id") for r in txn if r.get("company_id")}
+        fdates = sorted({_fdate(r) for r in txn if _fdate(r)})
+        buyers = _dd(set)
+        for r in txn:
+            if str(_p(r).get("transaction_code") or "").upper() != "P":
+                continue
+            iss = r.get("company_id")
+            owner = (_p(r).get("owner_cik") or _p(r).get("owner_name")
+                     or _p(r).get("reporting_owner") or _p(r).get("owner"))
+            if iss:
+                buyers[iss].add(owner)
+        clustered = sum(1 for s in buyers.values() if len(s) >= 2)
+        earn = _read_normalized("EARNINGS_EVENT", limit=6000)
+        item202 = [r for r in earn if r.get("event_type") == "8-K_ITEM_2.02"]
+        return {
+            "insider_transaction_records": len(txn),
+            "open_market_purchases": sum(1 for c in codes if c == "P"),
+            "sales": sum(1 for c in codes if c == "S"),
+            "distinct_issuers": len(issuers),
+            "distinct_filing_dates": len(fdates),
+            "coverage_start": fdates[0] if fdates else None,
+            "coverage_end": fdates[-1] if fdates else None,
+            "clustered_purchase_events": clustered,
+            "sec_8k_item202_events": len(item202)}
+
+    def _sec_batch_metrics_snapshot():
+        try:
+            c = _sec_owned_counts()
+        except Exception:  # noqa: BLE001 - per-batch metrics are best-effort
+            return {}
+        return {"issuers_covered": c.get("distinct_issuers"),
+                "form4_filings": c.get("insider_transaction_records"),
+                "open_market_purchases": c.get("open_market_purchases"),
+                "sales": c.get("sales"),
+                "eightk_2_02_events": c.get("sec_8k_item202_events")}
+
     # ---- SEC Form 4 / 8-K full-CIK-universe campaign (WS5) ----------------- #
+    # Stage 9.3 CONTROLLED CONTINUATION. Before doing ANY SEC work the handler
+    # evaluates three durable, restart-safe stop conditions derived from the
+    # append-only batch log: campaign complete, the per-UTC-day completed-batch
+    # cap, and the consecutive-no-progress limit. When a stop condition holds it
+    # declines to run a batch and does NOT enqueue a continuation, so the chain
+    # halts cleanly (the weakest-gate handler can re-trigger it next day). A
+    # progress batch chains the next continuation ONLY while under the daily cap
+    # and incomplete; a no-progress (blocked) batch never chains ("do not enqueue
+    # another continuation when no progress was made"). Idempotent + resumable.
     def _run_sec_cik_campaign(job):
         d = _defs_by_id["sec_form4_8k"]
-        store, univ = _ensure_campaign("sec_form4_8k", "sec_cik_filings",
-                                       d["batch_size"])
-        batch = store.next_batch("sec_form4_8k", batch_size=d["batch_size"])
-        if not batch:
-            cov = store.coverage("sec_form4_8k")
+        cid = "sec_form4_8k"
+        store, univ = _ensure_campaign(cid, "sec_cik_filings", d["batch_size"])
+        run_date = _today()
+        origin = getattr(job, "origin", None)
+        cov0 = store.coverage(cid)
+        done_today = store.batches_on_date(cid, run_date)
+        no_prog = store.consecutive_no_progress(cid)
+        stop_reason = sec_continuation_stop_reason(
+            is_complete=bool(cov0.get("is_complete")),
+            completed_batches_today=done_today,
+            consecutive_no_progress=no_prog,
+            daily_cap=_sec_daily_cap, no_progress_max=_sec_noprog_max)
+        if stop_reason:
+            # Decline to run; DO NOT enqueue a continuation. The job COMPLETES
+            # (it correctly determined the campaign must not continue now) and
+            # records exactly why. No SEC network work is performed.
             return _ar.OUTCOME_COMPLETED, {
-                **_campaign_base("sec_form4_8k", univ, cov),
+                **_campaign_base(cid, univ, cov0),
                 "real_work": "sec_form4_8k_cik_campaign",
-                "note": "no claimable symbols"}
+                "batch_executed": False, "stopped": True,
+                "stop_reason": stop_reason, "origin": origin,
+                "completed_batches_today": done_today,
+                "daily_completed_batch_cap": _sec_daily_cap,
+                "consecutive_no_progress_batches": no_prog,
+                "max_consecutive_no_progress_batches": _sec_noprog_max,
+                "next_batch_enqueued": False, **_sec_batch_metrics_snapshot()}
+        batch = store.next_batch(cid, batch_size=d["batch_size"])
+        if not batch:
+            return _ar.OUTCOME_COMPLETED, {
+                **_campaign_base(cid, univ, cov0),
+                "real_work": "sec_form4_8k_cik_campaign",
+                "batch_executed": False, "note": "no claimable symbols",
+                "next_batch_enqueued": False}
         res = _collect_batch("sec_edgar", batch,
                              symbol_keys=["facts_sample_symbols"],
                              extra={"facts_symbol_limit": len(batch)})
         state = (res or {}).get("source_states", {}).get("sec_edgar")
-        new_recs = ((res or {}).get("counts") or {}).get(
-            "normalized_records_new")
+        counts = (res or {}).get("counts") or {}
+        new_recs = counts.get("normalized_records_new")
+        dedup = (counts.get("normalized_records_deduped")
+                 or counts.get("raw_objects_deduped") or 0)
         blocked = (res is None or bool((res or {}).get("blocked_sources"))
                    or "BLOCKED" in str((res or {}).get("status") or ""))
         # SAFE-TIMEOUT: the collector hit its cooperative wall-clock budget
         # (collect_time_budget_seconds) mid-batch. Do NOT record the batch as
-        # succeeded and do NOT enqueue the next batch - return RETRYABLE so the
-        # SAME batch resumes on a later cycle. Any records already collected are
-        # persisted idempotently (dedup by record_id), so resuming re-queries the
-        # unfinished CIKs without double-counting; the campaign cursor does not
-        # advance, so no continuation is orphaned. Bounded by max_attempts ->
-        # FAILED_PERMANENT if it keeps timing out. This is the handler returning
-        # RETRYABLE on its OWN bounded timeout (inline; nothing was abandoned).
+        # succeeded, do NOT append a batch-log row, do NOT enqueue the next batch
+        # - return RETRYABLE so the SAME batch resumes on a later cycle. Records
+        # already collected are persisted idempotently; the cursor does not
+        # advance, so no continuation is orphaned. Bounded by max_attempts.
         if bool((res or {}).get("source_deadlines", {}).get("sec_edgar")):
             return _ar.OUTCOME_RETRYABLE, {
-                **_campaign_base("sec_form4_8k", univ,
-                                 store.coverage("sec_form4_8k")),
+                **_campaign_base(cid, univ, store.coverage(cid)),
                 "real_work": "sec_form4_8k_cik_campaign",
                 "reason": "SEC collect reached collect_time_budget_seconds "
                           "(deadline); partial batch NOT recorded; will resume",
-                "deadline_reached": True, "batch_ciks_queried": len(batch),
-                "normalized_records_new": new_recs, "sec_source_state": state}
+                "deadline_reached": True, "batch_executed": False,
+                "batch_ciks_queried": len(batch),
+                "normalized_records_new": new_recs, "sec_source_state": state,
+                "next_batch_enqueued": False}
+        snap = _sec_batch_metrics_snapshot()
         if blocked and not new_recs:
             cov = store.record_results(
-                "sec_form4_8k",
-                failed=[(s, "sec lane blocked/failed this batch")
-                        for s in batch])
+                cid, failed=[(s, "sec lane blocked/failed this batch")
+                             for s in batch])
+            store.record_batch(
+                cid, run_date=run_date, progress=False, origin=origin,
+                stop_reason="SOURCE_BLOCKED",
+                metrics={"ciks_attempted": len(batch), "ciks_completed": 0,
+                         "records_added": 0,
+                         "remaining_backlog": cov.get("remaining_symbol_count"),
+                         **snap})
             return _ar.OUTCOME_BLOCKED_SPECIFIC, {
-                **_campaign_base("sec_form4_8k", univ, cov),
+                **_campaign_base(cid, univ, cov),
                 "real_work": "sec_form4_8k_cik_campaign",
-                "reason": "SEC CIK batch blocked: %s"
-                          % (res or {}).get("status"),
-                "sec_source_state": state}
-        cov = store.record_results("sec_form4_8k", succeeded=batch)
-        _enqueue_next_batch("sec_form4_8k", d["category"],
-                            cov.get("acquisition_cursor", 0), job.priority)
+                "reason": "SEC CIK batch blocked: %s" % (res or {}).get("status"),
+                "sec_source_state": state, "batch_executed": True,
+                "progress": False, "next_batch_enqueued": False,
+                "consecutive_no_progress_batches":
+                    store.consecutive_no_progress(cid), **snap}
+        # Progress batch: the cursor advances by the batch (backlog decreases).
+        cov = store.record_results(cid, succeeded=batch)
+        store.record_batch(
+            cid, run_date=run_date, progress=True, origin=origin,
+            metrics={"ciks_attempted": len(batch), "ciks_completed": len(batch),
+                     "records_added": int(new_recs or 0),
+                     "records_deduped": int(dedup or 0),
+                     "remaining_backlog": cov.get("remaining_symbol_count"),
+                     **snap})
+        done_after = store.batches_on_date(cid, run_date)
+        under_cap = done_after < _sec_daily_cap
+        do_enqueue = queue is not None and sec_continuation_should_chain(
+            is_complete=bool(cov.get("is_complete")),
+            completed_batches_today=done_after, daily_cap=_sec_daily_cap)
+        if do_enqueue:
+            _enqueue_next_batch(cid, d["category"],
+                                cov.get("acquisition_cursor", 0), job.priority)
+        chain_stop = (None if do_enqueue else
+                      ("CAMPAIGN_COMPLETE" if cov.get("is_complete")
+                       else "DAILY_BATCH_CAP_REACHED" if not under_cap
+                       else "NO_QUEUE"))
         return _ar.OUTCOME_COMPLETED, {
-            **_campaign_base("sec_form4_8k", univ, cov),
+            **_campaign_base(cid, univ, cov),
             "real_work": "sec_form4_8k_cik_campaign",
-            "sec_source_state": state, "batch_ciks_queried": len(batch),
-            "normalized_records_new": new_recs,
+            "sec_source_state": state, "batch_executed": True, "progress": True,
+            "batch_ciks_queried": len(batch), "normalized_records_new": new_recs,
+            "completed_batches_today": done_after,
+            "daily_completed_batch_cap": _sec_daily_cap,
+            "consecutive_no_progress_batches": 0,
+            "continuation_stop_reason": chain_stop,
             "pit_basis": "SEC acceptance timestamp; amendments (4/A, 8-K/A) are "
                          "distinct append-only records",
-            "next_batch_enqueued": bool(queue) and not cov.get("is_complete")}
+            "next_batch_enqueued": do_enqueue, **snap}
 
     # ---- SEC bulk-archive resumable download campaign (WS6/WS7) ------------ #
     def _run_bulk_campaign(job, archive):
@@ -3756,47 +3948,88 @@ def build_production_autonomy_handlers(cfg: dict, *,
         return _tt2.CandidateRegistry(cfg9["tournament_db"]), cfg9
 
     def _wg_sec_coverage():
-        """REAL owned SEC Form 4 / 8-K coverage from normalized records."""
-        insider = _read_normalized("INSIDER_FILING", limit=6000)
-        txn = [r for r in insider
-               if (r.get("normalized_payload") or {}).get("transaction_code")
-               and (r.get("normalized_payload") or {}).get("shares") is not None]
-        codes = [str((r.get("normalized_payload") or {}).get("transaction_code")
-                     or "").upper() for r in txn]
-        issuers = {r.get("company_id") for r in txn if r.get("company_id")}
-        earn = _read_normalized("EARNINGS_EVENT", limit=6000)
-        item202 = [r for r in earn if r.get("event_type") == "8-K_ITEM_2.02"]
-        min_issuers = int((cfg.get("autonomy") or {}).get(
-            "event_min_issuers", 30))
+        """REAL owned SEC Form 4 / 8-K event-coverage READINESS (Part 3). Reports
+        the exact per-candidate readiness fields for the three EVENT_INSIDER
+        candidates: net_insider_buys (open-market purchases), insider_cluster
+        (clustered purchases) and earnings_8k_drift (8-K Item 2.02). All counts
+        are cumulative owned records; availability = SEC acceptance (PIT-safe)."""
+        c = _sec_owned_counts()
+        au = cfg.get("autonomy") or {}
+        min_issuers = int(au.get("event_min_issuers", 30))
+        min_events = int(au.get("event_min_events", 30))
+        universe_target = None
+        try:
+            universe_target = _camp_store().coverage("sec_form4_8k").get(
+                "full_universe_target_count")
+        except Exception:  # noqa: BLE001 - universe % is best-effort
+            universe_target = None
+        uni_pct = (round(100.0 * c["distinct_issuers"] / universe_target, 4)
+                   if universe_target else None)
         cov = {"data_family": "sec_form4_8k",
-               "insider_transaction_records": len(txn),
-               "open_market_purchase_records": sum(1 for c in codes if c == "P"),
-               "distinct_issuers": len(issuers),
+               "coverage_start_date": c["coverage_start"],
+               "coverage_end_date": c["coverage_end"],
+               "distinct_issuers": c["distinct_issuers"],
+               "distinct_filing_dates": c["distinct_filing_dates"],
+               "form4_filing_count": c["insider_transaction_records"],
+               "open_market_purchase_count": c["open_market_purchases"],
+               "sale_count": c["sales"],
+               "clustered_purchase_event_count": c["clustered_purchase_events"],
+               "sec_8k_item202_event_count": c["sec_8k_item202_events"],
+               "universe_target_ciks": universe_target,
+               "universe_coverage_pct": uni_pct,
+               "scored_event_periods_available": c["distinct_filing_dates"],
                "required_distinct_issuers": min_issuers,
-               "sec_8k_item202_events": len(item202),
+               "required_distinct_events": min_events,
+               "remaining_issuer_gap": max(0, min_issuers - c["distinct_issuers"]),
+               "remaining_event_gap":
+                   max(0, min_events - c["sec_8k_item202_events"]),
+               # legacy keys retained for existing readers / tests
+               "insider_transaction_records": c["insider_transaction_records"],
+               "open_market_purchase_records": c["open_market_purchases"],
+               "sec_8k_item202_events": c["sec_8k_item202_events"],
                "pit_basis": "SEC acceptance timestamp; amendments (4/A, 8-K/A) "
                             "are distinct append-only records; no look-ahead"}
-        return len(issuers) >= min_issuers, cov
+        return c["distinct_issuers"] >= min_issuers, cov
 
     def _wg_analyst_coverage():
-        """Prospective EODHD analyst-vintage progress (calendar-time gated)."""
+        """Prospective EODHD analyst-vintage READINESS (Part 6; calendar-time
+        gated). Reports the owned vintage span, distinct dates, fields covered
+        and duplicate-suppression contract; only forward calendar time resolves
+        it (hard PIT floor)."""
         ev = _analyst_vintage_evidence()
         dates = ev.get("snapshot_dates_on_disk") or []
         min_dates = int((cfg.get("autonomy") or {}).get(
             "analyst_min_snapshot_dates", 20))
         cov = {"data_family": "eodhd_analyst_vintages",
                "first_snapshot_pit_floor": ev.get("first_snapshot_boundary"),
+               "first_owned_vintage_date": dates[0] if dates else None,
+               "latest_owned_vintage_date": dates[-1] if dates else None,
                "distinct_vintage_dates_on_disk": len(dates),
-               "vintage_files_latest_snapshot": ev.get("vintage_count_today"),
+               "tickers_covered_latest_snapshot": ev.get("vintage_count_today"),
+               "estimate_revision_fields_covered": [
+                   "eps_estimate_avg", "eps_estimate_low", "eps_estimate_high",
+                   "revenue_estimate_avg", "analyst_count", "eps_revisions_up",
+                   "eps_revisions_down", "wall_street_target_price"],
+               "duplicate_suppression": "first-write-wins immutable daily "
+                   "vintage (os.replace); a same-day re-run is a 0-new "
+                   "idempotent no-op",
                "required_distinct_vintage_dates": min_dates,
+               "vintage_files_latest_snapshot": ev.get("vintage_count_today"),
                "estimated_sessions_remaining": max(0, min_dates - len(dates)),
+               "estimated_market_sessions_remaining":
+                   max(0, min_dates - len(dates)),
+               "candidates": ["price_target_revision",
+                              "earnings_estimate_revisions", "earnings_surprise",
+                              "revision_breadth"],
                "pit_note": "first-snapshot date is a HARD PIT floor; never "
                            "backfilled before it - only forward calendar time "
                            "accrues new distinct vintages"}
         return len(dates) >= min_dates, cov
 
     def _wg_pit_gics_coverage():
-        """Leakage-safe PIT sector coverage from SEC ASSIGNED-SIC records."""
+        """Leakage-safe PIT sector coverage from SEC ASSIGNED-SIC records
+        (Part 4). Target candidate: sector_neutral_momentum."""
+        from . import pit_sector as _ps
         sic = [r for r in _read_normalized("SECURITY_IDENTITY", limit=6000)
                if r.get("event_type") == "ASSIGNED_SIC_PIT"]
         symbols = {(r.get("company_id")
@@ -3809,6 +4042,10 @@ def build_production_autonomy_handlers(cfg: dict, *,
                "assigned_sic_pit_records": len(sic),
                "distinct_symbols_pit_classified": len(symbols),
                "required_distinct_symbols": min_symbols,
+               "remaining_symbol_gap": max(0, min_symbols - len(symbols)),
+               "sector_mapping_version": _ps.MAPPING_VERSION,
+               "sector_mapping_version_hash": _ps.mapping_version_hash(),
+               "target_candidate": "sector_neutral_momentum",
                "source": "contemporaneous SEC ASSIGNED-SIC filing headers "
                          "(available_at = acceptance) - leakage-safe PIT",
                "look_ahead_note": "current Norgate GICS is undated (a "
@@ -3817,25 +4054,53 @@ def build_production_autonomy_handlers(cfg: dict, *,
         return len(symbols) >= min_symbols, cov
 
     def _wg_pit_fundamentals():
-        """PIT fundamentals: owned data is snapshot-only -> build required."""
+        """PIT fundamentals READINESS (Part 5): build the smallest owned SEC
+        companyfacts PIT slice and report HONEST coverage. Owned facts are a hard
+        floor - no fabrication, no current-snapshot substitution; insufficient
+        owned facts stay DATA_HOLD with an exact next action."""
+        from . import pit_fundamentals as _pf
+        store = _pf.PitFundamentalsStore()
+        store.add_records(_read_normalized("RT_FUNDAMENTAL_FACT", limit=6000))
+        summ = store.coverage_summary()
+        min_ciks = int((cfg.get("autonomy") or {}).get(
+            "pit_fundamentals_min_ciks", 50))
+        gp_ready = summ["per_candidate"]["gross_profitability"][
+            "ciks_with_all_required_concepts"]
+        sufficient = gp_ready >= min_ciks
+        if sufficient:
+            nxt = ("owned PIT fundamentals now cover %d CIKs with the full "
+                   "gross-profitability concept set; a FUNDAMENTAL evaluation "
+                   "adapter can attempt the canonical evidence contract"
+                   % gp_ready)
+        else:
+            nxt = ("owned SEC companyfacts are insufficient (%d XBRL facts / %d "
+                   "CIKs; %d ready for gross_profitability); a bounded FREE "
+                   "per-CIK SEC companyfacts acquisition must run before a "
+                   "FUNDAMENTAL adapter can evaluate - no provider purchase, no "
+                   "current-snapshot substitution"
+                   % (summ["facts_ingested"], summ["distinct_ciks"], gp_ready))
         cov = {"data_family": "point_in_time_fundamentals",
-               "owned_status": "SNAPSHOT_ONLY_NOT_PIT",
-               "finding": "owned EODHD fundamentals are a current snapshot with "
-                          "no as-reported vintage; no leakage-safe point-in-time "
-                          "series exists in owned data",
+               "owned_status": "OWNED_SEC_COMPANYFACTS_PIT_BUILD",
+               "required_ciks_with_full_concepts": min_ciks,
+               "ciks_ready_gross_profitability": gp_ready,
+               "remaining_cik_gap": max(0, min_ciks - gp_ready),
+               "priority_candidates": ["gross_profitability", "asset_growth",
+                                       "balance_sheet_quality"],
                "requires_new_provider_purchase": False,
                "requires_speculative_full_rebuild": False,
                "bounded_implementation_path": [
-                   "use already-owned SEC companyfacts per-CIK JSON (free): "
+                   "ingest already-owned SEC companyfacts XBRL facts (free): "
                    "each fact carries filed/period dates = the as-of vintage",
-                   "build a per-(CIK, concept, fiscal-period) series keyed by "
-                   "SEC acceptance/filed date (no restatement look-ahead)",
-                   "start with the smallest useful slice: only the fields the "
-                   "FUNDAMENTAL candidates need (gross profitability, accruals, "
-                   "asset growth) over the current S&P 500 CIK set",
+                   "assemble per-(CIK, concept, fiscal-period) PIT observations "
+                   "keyed by SEC filed date (restatements preserved; no "
+                   "future-restatement look-ahead) - alpha_agent.pit_fundamentals",
+                   "start with the smallest useful slice: only the concepts the "
+                   "FUNDAMENTAL candidates need (gross profitability, asset "
+                   "growth, balance-sheet quality)",
                    "only then wire a FUNDAMENTAL evaluation adapter that emits "
-                   "the canonical Stage 9 evidence contract"]}
-        return False, cov
+                   "the canonical Stage 9 evidence contract"],
+               "next_action": nxt, **summ}
+        return sufficient, cov
 
     # dependency -> (measure_fn, acquisition_campaign_or_None, acquirable_now)
     _WG_DISPATCH = {

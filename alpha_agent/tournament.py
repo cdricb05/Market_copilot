@@ -801,6 +801,19 @@ def _hold(blocker: str) -> dict:
             "blocker": blocker, "failed_gates": [], "complete": False}
 
 
+def coverage_gate_allows_evaluation(coverage_row: Optional[dict]) -> bool:
+    """Stage 9.3 family-evaluation GUARD (Part 7). A family evaluation adapter
+    may run the canonical Stage 9 evidence contract for a candidate ONLY when its
+    latest measured data coverage is sufficient. Raw coverage never itself
+    changes a lifecycle state; this only permits an evaluation to be ATTEMPTED,
+    whose gate result (via ``classify_evidence``) may then move DATA_HOLD ->
+    REJECTED / KEEP_FOR_RESEARCH. Missing or insufficient coverage -> False, so
+    the candidate stays DATA_HOLD."""
+    if not coverage_row:
+        return False
+    return bool(coverage_row.get("sufficient"))
+
+
 # --------------------------------------------------------------------------- #
 # Tournament scoring (WS6) - reproducible, decomposable into six sub-scores.
 # Cost and stability caps guarantee a strong-gross but poor-cost/unstable

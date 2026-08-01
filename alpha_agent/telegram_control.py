@@ -95,6 +95,12 @@ COMMAND_MENU = (
         ("/shadowbook <id>", "one shadow book's forward evidence"),
         ("/families", "candidate + variant counts by factor family"),
     )),
+    ("CAMPAIGNS", (
+        ("/campaigns", "acquisition campaign progress + backlog"),
+        ("/campaign <id>", "one campaign: cursor, batches, caps, stop reason"),
+        ("/dataholds", "candidates on DATA_HOLD + the blocking evidence"),
+        ("/datahold <id>", "one DATA_HOLD: coverage vs requirement + path"),
+    )),
     ("ACTION", (
         ("/run <request>", "queue a BOUNDED read-only research request"),
     )),
@@ -117,10 +123,14 @@ _COMMAND_PROVIDER = {
     "/candidate": "candidate", "/why": "why", "/compare": "compare",
     "/shadowbooks": "shadowbooks", "/shadowbook": "shadowbook",
     "/families": "families",
+    # Stage 9.3 controlled campaigns + data-hold readiness (all read-only).
+    "/campaigns": "campaigns", "/campaign": "campaign",
+    "/dataholds": "dataholds", "/datahold": "datahold",
 }
 
 # Commands whose handler takes the free-text remainder as an argument.
-_ARG_COMMANDS = ("/job", "/candidate", "/why", "/compare", "/shadowbook")
+_ARG_COMMANDS = ("/job", "/candidate", "/why", "/compare", "/shadowbook",
+                 "/campaign", "/datahold")
 
 # The full set of implemented, advertised commands (single source of truth for
 # the "/commands lists only implemented commands" contract).
@@ -1174,11 +1184,88 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
     def _status() -> str:
         return "\n".join([_queue_summary(), _sources(), _health()])
 
+    def _open_campaign_store():
+        prod = cfg.get("production") if isinstance(cfg.get("production"), dict) \
+            else {}
+        campdb = prod.get("campaign_db")
+        if not campdb or not Path(campdb).is_file():
+            return None
+        from . import acquisition_campaign as acq
+        return acq.CampaignStore(campdb)
+
+    def _sec_cont_caps():
+        cd = (((cfg.get("autonomy") or {}).get("collect_drain") or {})
+              .get("sec_continuation") or {})
+        return (int(cd.get("daily_completed_batch_cap", 6) or 6),
+                int(cd.get("max_consecutive_no_progress_batches", 2) or 2),
+                bool(cd.get("enabled")))
+
+    def _campaigns() -> str:
+        store = _open_campaign_store()
+        if store is None:
+            return ("No acquisition campaigns yet. Expected source: the Stage 8 "
+                    "campaign store (seeded by the first production batch).")
+        lines = ["ACQUISITION CAMPAIGNS (read-only)"]
+        for c in store.list_campaigns():
+            cid = c.get("campaign_id") if isinstance(c, dict) else c
+            cov = store.coverage(cid)
+            nb = store.batch_count(cid)
+            last = store.last_batch(cid) or {}
+            lines.append(
+                "%s: %s/%s done, %s remaining, %s repair | %d batches, last "
+                "progress=%s%s" % (
+                    cid, cov.get("completed_symbol_count"),
+                    cov.get("full_universe_target_count"),
+                    cov.get("remaining_symbol_count"),
+                    cov.get("repair_backlog_count"), nb,
+                    ("yes" if last.get("progress") else "no") if last else "n/a",
+                    (" stop=%s" % last.get("stop_reason"))
+                    if last.get("stop_reason") else ""))
+        return "\n".join(lines)
+
+    def _campaign(arg: str) -> str:
+        arg = (arg or "").strip()
+        if not arg:
+            return "Usage: /campaign <campaign_id>  (see /campaigns for ids)"
+        store = _open_campaign_store()
+        if store is None:
+            return "No campaign store available yet."
+        cov = store.coverage(arg)
+        if not cov.get("exists"):
+            return "Unknown campaign %r. See /campaigns for valid ids." % arg
+        from datetime import datetime as _d, timezone as _tz
+        today = _d.now(_tz.utc).date().isoformat()
+        cap, noprog_max, enabled = _sec_cont_caps()
+        done_today = store.batches_on_date(arg, today)
+        noprog = store.consecutive_no_progress(arg)
+        last = store.last_batch(arg) or {}
+        return "\n".join([
+            "CAMPAIGN %s (read-only)" % arg,
+            "State: %s | cursor %s/%s, remaining %s, repair %s, permanent %s" % (
+                "COMPLETE" if cov.get("is_complete") else "IN_PROGRESS",
+                cov.get("completed_symbol_count"),
+                cov.get("full_universe_target_count"),
+                cov.get("remaining_symbol_count"),
+                cov.get("repair_backlog_count"),
+                cov.get("permanent_failed_count")),
+            "Batches: %d total, %d today (cap %d), consecutive no-progress %d "
+            "(max %d)" % (store.batch_count(arg), done_today, cap, noprog,
+                          noprog_max),
+            "Last batch: progress=%s, records+%s, backlog=%s, stop=%s" % (
+                "yes" if last.get("progress") else "no",
+                last.get("records_added"), last.get("remaining_backlog"),
+                last.get("stop_reason") or "none"),
+            "Controlled continuation: %s (origin campaign-continuation admitted "
+            "only for lane acq.sec_form4_8k + DATA_ACQUISITION)."
+            % ("ENABLED" if enabled else "PAUSED"),
+        ])
+
     providers = {"queue": _queue_summary, "blocked": _blocked,
                  "status": _status, "sources": _sources, "coverage": _coverage,
                  "data": _data, "experiments": _experiments, "health": _health,
                  "jobs": _jobs, "job": _job, "candidates": _candidates,
-                 "report": _report}
+                 "report": _report, "campaigns": _campaigns,
+                 "campaign": _campaign}
     return providers
 
 
@@ -1691,10 +1778,72 @@ def build_tournament_providers(*, config_path: Optional[str] = None,
                 fam, cf.get(fam, 0), vf.get(fam, 0)))
         return "\n".join(lines)
 
+    # data_dependency -> (responsible campaign, estimated path to evaluation)
+    _DEP_PATH = {
+        "sec_form4": ("sec_form4_8k", "grow owned SEC Form 4 issuer coverage "
+                      "via the controlled sec_form4_8k continuation"),
+        "sec_8k": ("sec_form4_8k", "grow owned SEC 8-K Item 2.02 coverage via "
+                   "the controlled sec_form4_8k continuation"),
+        "sec_form4_8k": ("sec_form4_8k", "controlled SEC Form 4 / 8-K "
+                         "continuation"),
+        "eodhd_analyst_vintages": (None, "calendar-time accrual of the daily "
+                                   "EODHD analyst vintage (hard PIT floor; no "
+                                   "backfill)"),
+        "point_in_time_gics": (None, "grow the leakage-safe SEC ASSIGNED-SIC "
+                               "PIT sector series"),
+        "point_in_time_fundamentals": (None, "build the owned SEC companyfacts "
+                                       "PIT-fundamentals slice (free per-CIK; no "
+                                       "provider purchase)"),
+    }
+
+    def _dataholds():
+        p = _payload()
+        if p.get("status") != "OK":
+            return _unavail("DATA HOLDS", p)
+        rows = [r for r in (p.get("leaderboard") or [])
+                if r.get("lifecycle_state") == "DATA_HOLD"]
+        if not rows:
+            return "DATA HOLDS\nNo candidates are on DATA_HOLD."
+        lines = ["DATA_HOLD CANDIDATES (read-only) - %d" % len(rows),
+                 "Each stays DATA_HOLD until real owned coverage meets the "
+                 "configured requirement; nothing is forced."]
+        for r in rows:
+            lines.append("  %-26s %-16s %s" % (
+                (r.get("name") or "")[:26], r.get("family"),
+                r.get("blocker") or r.get("next_required_evidence") or ""))
+        lines.append("Use /datahold <id> for coverage vs requirement + path.")
+        return "\n".join(lines)
+
+    def _datahold(arg=None):
+        if not arg:
+            return "Usage: /datahold <id or name>  (see /dataholds)"
+        d = _cand(arg.strip())
+        if not d or not d.get("candidate"):
+            return "No candidate matches '%s'." % arg.strip()
+        c = d["candidate"]
+        if c.get("lifecycle_state") != "DATA_HOLD":
+            return "%s is %s, not DATA_HOLD." % (c.get("name"),
+                                                 c.get("lifecycle_state"))
+        deps = c.get("data_dependencies") or []
+        lines = ["DATA_HOLD - %s" % c.get("name"),
+                 "family: %s | pit: %s" % (c.get("family"), c.get("pit_status")),
+                 "missing evidence (blocker): %s" % (c.get("blocker") or "n/a"),
+                 "data dependencies: %s" % ", ".join(deps)]
+        for dep in deps:
+            camp, path = _DEP_PATH.get(dep, (None, "acquire owned coverage"))
+            lines.append("  - %s -> campaign: %s; path: %s" % (
+                dep, camp or "calendar-time / build", path))
+        cov = d.get("data_coverage") if isinstance(d.get("data_coverage"),
+                                                    dict) else {}
+        if cov.get("next_action"):
+            lines.append("next action: %s" % cov.get("next_action"))
+        return "\n".join(lines)
+
     return {"tournament": _tournament, "leaderboard": _leaderboard,
             "candidate": _candidate, "why": _why, "compare": _compare,
             "shadowbooks": _shadowbooks, "shadowbook": _shadowbook,
-            "families": _families}
+            "families": _families, "dataholds": _dataholds,
+            "datahold": _datahold}
 
 
 def build_command_center_providers(*, stage8_config: Optional[dict] = None,

@@ -14,6 +14,7 @@ Pure standard library. No network, no database, no operational writes.
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import date, datetime
 from typing import Optional
 
@@ -51,6 +52,13 @@ _SIC_RANGES = (
 
 FINANCIALS = "Financials"
 UNKNOWN = "Unknown"
+
+
+def mapping_version_hash() -> str:
+    """Deterministic 16-hex content hash of the versioned SIC->sector map, so a
+    coverage report can pin the exact mapping that produced a classification."""
+    payload = repr((MAPPING_VERSION, _SIC_RANGES, FINANCIALS, UNKNOWN))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _sic_int(sic) -> Optional[int]:

@@ -64,6 +64,31 @@ CREATE TABLE IF NOT EXISTS campaign_symbol (
 );
 CREATE INDEX IF NOT EXISTS ix_campsym_status
     ON campaign_symbol (campaign_id, status, position);
+CREATE TABLE IF NOT EXISTS campaign_batch (
+    batch_seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign_id TEXT NOT NULL,
+    origin TEXT,
+    run_date TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    stop_reason TEXT,
+    ciks_attempted INTEGER NOT NULL DEFAULT 0,
+    ciks_completed INTEGER NOT NULL DEFAULT 0,
+    records_added INTEGER NOT NULL DEFAULT 0,
+    records_deduped INTEGER NOT NULL DEFAULT 0,
+    issuers_covered INTEGER,
+    form4_filings INTEGER,
+    open_market_purchases INTEGER,
+    sales INTEGER,
+    eightk_2_02_events INTEGER,
+    remaining_backlog INTEGER,
+    detail_json TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_campbatch_date
+    ON campaign_batch (campaign_id, run_date);
+CREATE INDEX IF NOT EXISTS ix_campbatch_seq
+    ON campaign_batch (campaign_id, batch_seq);
 """
 
 
@@ -73,6 +98,13 @@ def _utc_now_iso() -> str:
 
 def _norm(sym: str) -> str:
     return str(sym).strip().upper()
+
+
+def _int_or_none(v) -> Optional[int]:
+    try:
+        return None if v is None else int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 class CampaignStore:
@@ -341,6 +373,122 @@ class CampaignStore:
                         "SELECT * FROM campaign ORDER BY campaign_id")]
         finally:
             conn.close()
+
+    # -- append-only batch history (Stage 9.3) ----------------------------- #
+    # The batch log is the durable, restart-safe source of truth for the
+    # controlled-continuation caps: the per-calendar-day completed-batch count
+    # and the trailing consecutive-no-progress run are DERIVED from it, so there
+    # is no mutable counter to corrupt on a crash or a duplicate run. One row is
+    # appended per fully-executed batch (a batch aborted mid-flight by the
+    # cooperative deadline records NO row - "partial batch not recorded").
+    _BATCH_COLS = (
+        "campaign_id", "origin", "run_date", "started_at", "finished_at",
+        "progress", "stop_reason", "ciks_attempted", "ciks_completed",
+        "records_added", "records_deduped", "issuers_covered", "form4_filings",
+        "open_market_purchases", "sales", "eightk_2_02_events",
+        "remaining_backlog", "detail_json")
+
+    def record_batch(self, campaign_id: str, *, run_date: str,
+                     progress: bool, origin: Optional[str] = None,
+                     stop_reason: Optional[str] = None,
+                     started_at: Optional[str] = None,
+                     metrics: Optional[dict] = None) -> dict:
+        """Append ONE immutable batch-history row. ``run_date`` is the UTC
+        calendar day the batch executed (the daily-cap key); ``progress`` is True
+        iff the batch advanced the cursor or added records. ``metrics`` supplies
+        the per-batch acquisition counts. Returns the persisted row as a dict."""
+        import json as _json
+        now = self._clock()
+        m = dict(metrics or {})
+        detail = m.pop("detail", None)
+        row = {
+            "campaign_id": campaign_id, "origin": origin,
+            "run_date": str(run_date), "started_at": started_at or now,
+            "finished_at": now, "progress": 1 if progress else 0,
+            "stop_reason": stop_reason,
+            "ciks_attempted": int(m.get("ciks_attempted", 0) or 0),
+            "ciks_completed": int(m.get("ciks_completed", 0) or 0),
+            "records_added": int(m.get("records_added", 0) or 0),
+            "records_deduped": int(m.get("records_deduped", 0) or 0),
+            "issuers_covered": _int_or_none(m.get("issuers_covered")),
+            "form4_filings": _int_or_none(m.get("form4_filings")),
+            "open_market_purchases": _int_or_none(m.get("open_market_purchases")),
+            "sales": _int_or_none(m.get("sales")),
+            "eightk_2_02_events": _int_or_none(m.get("eightk_2_02_events")),
+            "remaining_backlog": _int_or_none(m.get("remaining_backlog")),
+            "detail_json": _json.dumps(detail, sort_keys=True) if detail
+            else None}
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                cols = ",".join(self._BATCH_COLS)
+                conn.execute(
+                    "INSERT INTO campaign_batch(%s) VALUES(%s)"
+                    % (cols, ",".join("?" * len(self._BATCH_COLS))),
+                    tuple(row[c] for c in self._BATCH_COLS))
+                seq = conn.execute("SELECT last_insert_rowid() s").fetchone()["s"]
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            finally:
+                conn.close()
+        row["batch_seq"] = int(seq)
+        return row
+
+    def batches_on_date(self, campaign_id: str, run_date: str) -> int:
+        """Count of fully-executed batches recorded for ``run_date`` (the daily
+        cap counter). Every appended batch row counts - a deadline-aborted batch
+        never records a row, so it is correctly excluded."""
+        conn = self._connect()
+        try:
+            return int(conn.execute(
+                "SELECT COUNT(*) c FROM campaign_batch WHERE campaign_id=? AND"
+                " run_date=?", (campaign_id, str(run_date))).fetchone()["c"])
+        finally:
+            conn.close()
+
+    def consecutive_no_progress(self, campaign_id: str) -> int:
+        """Length of the trailing run of no-progress batches (most recent first).
+        A single progress batch anywhere resets it to 0."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT progress FROM campaign_batch WHERE campaign_id=?"
+                " ORDER BY batch_seq DESC", (campaign_id,)).fetchall()
+        finally:
+            conn.close()
+        n = 0
+        for r in rows:
+            if int(r["progress"]) == 0:
+                n += 1
+            else:
+                break
+        return n
+
+    def batch_count(self, campaign_id: str) -> int:
+        conn = self._connect()
+        try:
+            return int(conn.execute(
+                "SELECT COUNT(*) c FROM campaign_batch WHERE campaign_id=?",
+                (campaign_id,)).fetchone()["c"])
+        finally:
+            conn.close()
+
+    def batch_history(self, campaign_id: str, *, limit: int = 50) -> "list[dict]":
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM campaign_batch WHERE campaign_id=? ORDER BY"
+                " batch_seq DESC LIMIT ?", (campaign_id, int(limit))).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def last_batch(self, campaign_id: str) -> Optional[dict]:
+        h = self.batch_history(campaign_id, limit=1)
+        return h[0] if h else None
 
 
 def _dedupe_ordered(universe: Iterable[str]) -> "list[str]":

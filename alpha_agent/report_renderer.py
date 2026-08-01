@@ -534,6 +534,69 @@ def attach_tournament_changes(model: dict, *, config_path=None,
 
 
 # --------------------------------------------------------------------------- #
+# Stage 9.3 controlled-campaign change surfacing (Part 11). Morning / post-close
+# reports flag ONLY meaningful campaign progress: a coverage milestone, a
+# campaign completing, a no-progress stop or a new blocker. An unchanged campaign
+# emits NOTHING, so a repeated report never carries static campaign noise. The
+# comparison is a pure diff of two deterministic snapshots.
+# --------------------------------------------------------------------------- #
+def campaign_progress_snapshot(store, *, campaign_ids=None) -> dict:
+    """Deterministic per-campaign progress snapshot for report diffing. Reads a
+    ``CampaignStore`` read-only; never raises (returns {} on any error)."""
+    snap = {}
+    try:
+        ids = campaign_ids or [c.get("campaign_id") if isinstance(c, dict)
+                               else c for c in store.list_campaigns()]
+        for cid in ids:
+            cov = store.coverage(cid)
+            if not cov.get("exists"):
+                continue
+            last = {}
+            try:
+                last = store.last_batch(cid) or {}
+            except Exception:  # noqa: BLE001
+                last = {}
+            snap[cid] = {
+                "completed": cov.get("completed_symbol_count"),
+                "target": cov.get("full_universe_target_count"),
+                "remaining": cov.get("remaining_symbol_count"),
+                "is_complete": bool(cov.get("is_complete")),
+                "consecutive_no_progress":
+                    store.consecutive_no_progress(cid),
+                "last_stop_reason": last.get("stop_reason")}
+    except Exception:  # noqa: BLE001 - reporting must never break on research state
+        return {}
+    return snap
+
+
+def material_campaign_changes(prior: dict, current: dict, *,
+                              milestone_step: int = 100) -> list:
+    """Only MEANINGFUL campaign changes between two snapshots; [] when nothing
+    material moved (so an unchanged campaign is silent). Meaningful =
+    a completed-count milestone crossed, a campaign completing, a fresh
+    no-progress stop, or a new stop/blocker reason appearing."""
+    prior = prior or {}
+    out = []
+    for cid in sorted(current or {}):
+        cur = current[cid]
+        pri = prior.get(cid) or {}
+        if cur.get("is_complete") and not pri.get("is_complete"):
+            out.append("Campaign %s completed its universe." % cid)
+            continue
+        c_now = int(cur.get("completed") or 0)
+        c_was = int(pri.get("completed") or 0)
+        if milestone_step > 0 and (c_now // milestone_step) > (
+                c_was // milestone_step):
+            out.append("Campaign %s coverage milestone: %d of %s CIKs done."
+                       % (cid, c_now, cur.get("target")))
+        sr = cur.get("last_stop_reason")
+        if sr and sr != pri.get("last_stop_reason") and sr in (
+                "NO_PROGRESS_LIMIT", "SOURCE_BLOCKED", "DAILY_BATCH_CAP_REACHED"):
+            out.append("Campaign %s stopped: %s." % (cid, sr))
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # Canonical research-decision reconciliation (Stage 7.2 defect #3). Exactly one
 # summary, with counts that add up. Stage 7 recovery ideas that were EVALUATED
 # are kept strictly separate from Stage 5 studies that COULD NOT RUN for lack of
