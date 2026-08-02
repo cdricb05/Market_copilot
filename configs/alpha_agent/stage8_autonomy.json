@@ -48,9 +48,10 @@
       "max_jobs_per_cycle": 1,
       "budget_seconds": 120,
       "handler_time_budget_seconds": 90,
-      "allowed_origins": ["stage9-tournament", "stage9-weakest-gate", "stage10-identity"],
+      "allowed_origins": ["stage9-tournament", "stage9-weakest-gate", "stage10-identity", "stage10.1-identity"],
       "allowed_lane_prefixes": ["tournament.", "acq.sec_form4_8k", "acq.sec_companyfacts", "identity."],
       "allowed_categories": ["DATA_VALIDATION", "DATA_ACQUISITION", "EXPERIMENT"],
+      "stage10_1_note": "Stage 10.1 HISTORICAL CIK BRIDGE. PASS A's allowlist is broadened by EXACTLY the single new origin stage10.1-identity (the one-time full SEC bulk ingestion + complete Norgate universe resolution campaign); the lane prefix identity. and the categories DATA_ACQUISITION/DATA_VALIDATION are UNCHANGED (already admitted for Stage 10). The three claim_next dimensions remain ANDed, so this admits ONLY the AlphaAgent's own Stage 10.1 bridge jobs. The campaign is FINITE (one submissions archive + a bounded 1895-security universe measured once per epoch), so it can never permanently starve the tournament, and the companyfacts fairness promotion still runs PASS C ahead of PASS A when due. max_jobs_per_cycle stays 1.",
       "stage10_note": "Stage 10 HISTORICAL IDENTITY. PASS A's allowlist is broadened by EXACTLY the single new origin stage10-identity and the single new lane prefix identity. (nothing else); the categories are UNCHANGED (identity jobs use only DATA_ACQUISITION / DATA_VALIDATION, already admitted). Because the three claim_next dimensions are ANDed, this admits ONLY the AlphaAgent's own identity backlog jobs (origin=stage10-identity AND lane GLOB identity.* AND category in {DATA_ACQUISITION,DATA_VALIDATION}). The identity backlog is FINITE (bounded survivorship universe x fixed rebalance dates) and the post-drain maintenance is a THROTTLED low-priority (1) tail measured once per coverage-epoch, so identity can never permanently starve the tournament; and the companyfacts fairness promotion still runs PASS C ahead of PASS A when due (skipping PASS A entirely), so identity can never starve the companyfacts continuation. max_jobs_per_cycle stays 1.",
       "stage9_4_note": "Stage 9.4 release closure adds EXPERIMENT to PASS A's category allowlist ONLY. Combined with the UNCHANGED allowed_origins (stage9-tournament / stage9-weakest-gate) and allowed_lane_prefixes (tournament. / acq.sec_form4_8k), which are ANDed inside claim_next, this admits ONLY tournament-generated canonical experiments (origin=stage9-tournament AND lane GLOB tournament.* AND category=EXPERIMENT) - chiefly the bounded tournament.stage9_4_revalidation jobs the tick generates. A legacy EXPERIMENT job with any other origin or lane is still never claimable. max_jobs_per_cycle stays 1; claim_next orders priority DESC so a priority-3 experiment is claimed before a priority-2 weakest-gate validation. The revalidation handler runs INLINE on the owned Norgate panel (local, no network) and returns a single-feature Stage 5 row the next tick ingests exactly once.",
       "stage9_5_note": "Stage 9.5 adds the EXACT lane acq.sec_companyfacts to PASS A's allowed_lane_prefixes ONLY (still ANDed with allowed_origins stage9-weakest-gate + category DATA_ACQUISITION). This admits ONLY the companyfacts campaign BOOTSTRAP job (origin=stage9-weakest-gate AND lane=acq.sec_companyfacts AND category=DATA_ACQUISITION) that the weakest-gate / bootstrap seeder enqueues at a priority above the tournament experiments so the live companyfacts acquisition actually runs; the SELF-CONTINUATIONS (origin=campaign-continuation) are admitted separately and EXACTLY by companyfacts_continuation below (PASS C). No other campaign-continuation lane or category is claimable by either. Nothing operational is mutated.",
@@ -110,7 +111,30 @@
       "2022-03-31", "2022-06-30", "2022-09-30", "2022-12-31",
       "2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31",
       "2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"
-    ]
+    ],
+    "stage10_1": {
+      "note": "Stage 10.1 HISTORICAL CIK BRIDGE CLOSURE. Full free SEC issuer-history ingestion (stream the official submissions.zip bulk archive) + complete Norgate 'S&P 500 Current & Past' universe resolution through the deterministic Stage 10 matching contract, so every DELISTED name gets a real candidate pool (name/formerName + date overlap) instead of no SEC candidate. Operated by the AlphaAgent through the SAME shared research queue on lanes identity.sec_bulk_inventory / identity.sec_submissions_index / identity.sec_filing_evidence_index / identity.norgate_full_discovery / identity.cik_full_resolution / identity.mapping_coverage_measure / identity.readiness_recheck / identity.successor_scan under origin stage10.1-identity. All artifacts/stores under the research root (NEVER an operational-ledger root). The 60% per-rebalance mapping threshold and the measured, never-hand-flipped safety gate are UNCHANGED. submissions_member_step honours the recommended per-step SEC-member bound; submissions_time_budget_seconds bounds one job's wall-clock so the one-time backfill finishes efficiently while each checkpoint step stays bounded and restart-safe.",
+      "enabled": true,
+      "planner_enabled": true,
+      "issuer_index_db": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\sec_issuer_history.sqlite",
+      "bulk_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\sec_bulk",
+      "submissions_url": "https://www.sec.gov/Archives/edgar/daily-index/bulkdata/submissions.zip",
+      "companyfacts_url": "https://www.sec.gov/Archives/edgar/daily-index/xbrl/companyfacts.zip",
+      "company_tickers_url": "https://www.sec.gov/files/company_tickers.json",
+      "company_tickers_exchange_url": "https://www.sec.gov/files/company_tickers_exchange.json",
+      "user_agent_product": "paper-trader-alpha-agent/2.0",
+      "disk_budget_bytes": 4294967296,
+      "download_time_budget_seconds": 900,
+      "download_max_attempts": 12,
+      "index_max_attempts": 24,
+      "submissions_member_step": 2000,
+      "submissions_time_budget_seconds": 600,
+      "filing_evidence_limit": 20000,
+      "norgate_full_batch": 250,
+      "resolve_full_batch": 500,
+      "successor_batch": 200,
+      "priority": 6
+    }
   },
   "tournament": {
     "note": "Stage 9 Autonomous Alpha Tournament. The bounded tournament tick is the highest-value research step of the production cycle (run_autonomy_cycle(..., run_tournament=True)); it shares THIS durable queue and never creates a second framework. READ-ONLY w.r.t. the operating portfolio; no automatic promotion.",

@@ -2969,6 +2969,12 @@ def stage10_identity_cfg(cfg: dict) -> dict:
     return (cfg.get("stage10_identity") or {}) if isinstance(cfg, dict) else {}
 
 
+def stage10_1_cfg(cfg: dict) -> dict:
+    """Stage 10.1 HISTORICAL CIK BRIDGE bulk-source block (nested under
+    ``stage10_identity.stage10_1``)."""
+    return (stage10_identity_cfg(cfg).get("stage10_1") or {})
+
+
 def stage10_identity_root(cfg: dict) -> "Path":
     s10 = stage10_identity_cfg(cfg)
     db = s10.get("store_db")
@@ -2984,6 +2990,19 @@ def build_identity_store(cfg: dict, *, clock=None):
     db = s10.get("store_db") or str(stage10_identity_root(cfg) /
                                     "historical_identity.sqlite")
     return _hi.IdentityStore(db, clock=clock)
+
+
+def build_issuer_index(cfg: dict, *, clock=None):
+    """Open (creating if needed) the durable Stage 10.1 SEC issuer-history index
+    on D:, or return None when Stage 10.1 is disabled. Under the research root,
+    never an operational-ledger root."""
+    s101 = stage10_1_cfg(cfg)
+    if not s101.get("enabled"):
+        return None
+    from . import sec_issuer_index as _si
+    db = s101.get("issuer_index_db") or \
+        str(stage10_identity_root(cfg) / "sec_issuer_history.sqlite")
+    return _si.SecIssuerIndex(db, clock=clock)
 
 
 def build_identity_context(cfg: dict, *, queue=None, read_normalized=None,
@@ -3022,6 +3041,16 @@ def build_identity_context(cfg: dict, *, queue=None, read_normalized=None,
     rebalance = list(s10.get("rebalance_dates") or
                      (((cfg9.get("stage9_5") or {}).get("historical_universe")
                        or {}).get("rebalance_dates") or []))
+    # Stage 10.1 — the SEC issuer-history index + bulk-source acquisition wiring.
+    issuer_index = build_issuer_index(cfg, clock=clock)
+    stage101 = _resolve_stage101_runtime(cfg)
+    transport = None
+    if issuer_index is not None:
+        try:
+            from . import ingestion as _ing
+            transport = _ing.default_transport
+        except Exception:  # noqa: BLE001
+            transport = None
     return _ij.IdentityJobContext(
         store=store, accessor=_hi.NorgateIdentityAccessor(),
         artifact_root=artifact_root,
@@ -3033,7 +3062,38 @@ def build_identity_context(cfg: dict, *, queue=None, read_normalized=None,
         discover_batch=int(s10.get("discover_batch", 25)),
         resolve_batch=int(s10.get("resolve_batch", 50)),
         rebalance_dates=rebalance, cfg9=cfg9,
-        ticker_cik_index=ticker_cik_index, clock=clock)
+        ticker_cik_index=ticker_cik_index,
+        issuer_index=issuer_index, read_normalized=read_normalized,
+        transport=transport, stage101=stage101, clock=clock)
+
+
+def _resolve_stage101_runtime(cfg: dict) -> dict:
+    """The Stage 10.1 config block with resolved defaults (bulk root, SEC bulk /
+    current-ticker URLs, contact identity). Defaults keep it self-contained; the
+    contact email reuses the production-handlers identity so the SEC User-Agent is
+    always compliant."""
+    s101 = dict(stage10_1_cfg(cfg))
+    if not s101:
+        return {}
+    root = stage10_identity_root(cfg)
+    s101.setdefault("bulk_root", str(root / "sec_bulk"))
+    s101.setdefault("issuer_index_db", str(root / "sec_issuer_history.sqlite"))
+    s101.setdefault("submissions_url",
+                    "https://www.sec.gov/Archives/edgar/daily-index/bulkdata/"
+                    "submissions.zip")
+    s101.setdefault("companyfacts_url",
+                    "https://www.sec.gov/Archives/edgar/daily-index/xbrl/"
+                    "companyfacts.zip")
+    s101.setdefault("company_tickers_url",
+                    "https://www.sec.gov/files/company_tickers.json")
+    s101.setdefault("company_tickers_exchange_url",
+                    "https://www.sec.gov/files/company_tickers_exchange.json")
+    if not s101.get("contact_email"):
+        ph = (cfg.get("production_handlers") or {}) if isinstance(cfg, dict) \
+            else {}
+        s101["contact_email"] = ph.get("contact_email")
+    s101.setdefault("user_agent_product", "paper-trader-alpha-agent/2.0")
+    return s101
 
 
 def _default_autonomy_handlers(cfg: dict) -> dict:

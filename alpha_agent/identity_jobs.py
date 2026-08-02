@@ -60,6 +60,10 @@ from typing import Any, Callable, Optional
 from . import historical_identity as _hi
 
 ORIGIN = "stage10-identity"
+# Stage 10.1 — HISTORICAL CIK BRIDGE CLOSURE rides the SAME shared research queue
+# and the SAME ``identity.`` lane-prefix allowlist; it uses a distinct origin so
+# the one-time full-source-exhaustion bulk campaign is identifiable in the queue.
+ORIGIN_101 = "stage10.1-identity"
 
 LANE_DISCOVER = "identity.discover"
 LANE_DELISTED = "identity.delisted"
@@ -73,13 +77,27 @@ LANE_COMPANYFACTS_PLAN = "identity.companyfacts_plan"
 LANE_READINESS_EVAL = "identity.readiness_eval"
 LANE_EVENT_MAP = "identity.event_map"
 
+# Stage 10.1 lanes (full SEC bulk ingestion + complete Norgate universe bridge).
+LANE_SEC_BULK_INVENTORY = "identity.sec_bulk_inventory"
+LANE_SEC_SUBMISSIONS_INDEX = "identity.sec_submissions_index"
+LANE_SEC_FILING_EVIDENCE_INDEX = "identity.sec_filing_evidence_index"
+LANE_NORGATE_FULL_DISCOVERY = "identity.norgate_full_discovery"
+LANE_CIK_FULL_RESOLUTION = "identity.cik_full_resolution"
+LANE_MAPPING_COVERAGE_MEASURE = "identity.mapping_coverage_measure"
+LANE_READINESS_RECHECK = "identity.readiness_recheck"
+LANE_SUCCESSOR_SCAN = "identity.successor_scan"
+
 IDENTITY_LANE_PREFIX = "identity."
 
 _ACQUISITION_LANES = frozenset({
     LANE_DISCOVER, LANE_DELISTED, LANE_MEMBERSHIP, LANE_TICKER_HISTORY,
-    LANE_CIK_RESOLVE, LANE_COMPANYFACTS_PLAN, LANE_EVENT_MAP})
+    LANE_CIK_RESOLVE, LANE_COMPANYFACTS_PLAN, LANE_EVENT_MAP,
+    LANE_SEC_BULK_INVENTORY, LANE_SEC_SUBMISSIONS_INDEX,
+    LANE_SEC_FILING_EVIDENCE_INDEX, LANE_NORGATE_FULL_DISCOVERY,
+    LANE_CIK_FULL_RESOLUTION, LANE_SUCCESSOR_SCAN})
 _VALIDATION_LANES = frozenset({
-    LANE_CONFLICT_SCAN, LANE_REPAIR, LANE_COVERAGE, LANE_READINESS_EVAL})
+    LANE_CONFLICT_SCAN, LANE_REPAIR, LANE_COVERAGE, LANE_READINESS_EVAL,
+    LANE_MAPPING_COVERAGE_MEASURE, LANE_READINESS_RECHECK})
 
 DEFAULT_DISCOVER_BATCH = 25
 DEFAULT_RESOLVE_BATCH = 50
@@ -135,6 +153,11 @@ class IdentityJobContext:
     ticker_cik_index: Optional[dict] = None           # {ticker -> [cik,...]}
     submissions_by_cik: Optional[dict] = None         # {cik -> parsed subs}
     repair_rules: Optional[dict] = None               # {security_id -> {cik}}
+    # Stage 10.1 — the SEC issuer-history index + bulk-source acquisition wiring.
+    issuer_index: Any = None                          # sec_issuer_index.SecIssuerIndex
+    read_normalized: Optional[Callable] = None        # (record_type,*,limit)->iter
+    transport: Optional[Callable] = None              # ingestion.default_transport
+    stage101: dict = field(default_factory=dict)      # the stage10_1 config block
     clock: Optional[Callable[[], str]] = None
 
     def now(self) -> str:
@@ -157,7 +180,8 @@ def _known_symbols(ctx: IdentityJobContext) -> set:
     return {s["norgate_symbol"] for s in ctx.store.list_securities()}
 
 
-def _discover(ctx: IdentityJobContext, job, *, delisted_only: bool) -> tuple:
+def _discover(ctx: IdentityJobContext, job, *, delisted_only: bool,
+              batch_size: Optional[int] = None) -> tuple:
     OK, BLK, RETRY = _outcomes()
     ok, why = ctx.accessor.available()
     if not ok:
@@ -176,7 +200,8 @@ def _discover(ctx: IdentityJobContext, job, *, delisted_only: bool) -> tuple:
     if delisted_only:
         pool = [s for s in pool if s not in current
                 and _hi.parse_norgate_symbol(s)["is_delisted"]]
-    batch = pool[:max(1, int(ctx.discover_batch))]
+    bsz = int(batch_size if batch_size is not None else ctx.discover_batch)
+    batch = pool[:max(1, bsz)]
     created = changed = 0
     sample = []
     for sym in batch:
@@ -469,6 +494,501 @@ def _rehydrate(row: dict, *, name_history=None, ticker_history=None,
         membership_intervals=membership or [])
 
 
+# =========================================================================== #
+# Stage 10.1 — HISTORICAL CIK BRIDGE CLOSURE handlers. Full SEC bulk ingestion +
+# complete Norgate universe resolution. Each is bounded (member/security cap +
+# wall-clock budget), idempotent, restart-safe (durable cursors) and honest
+# (never fabricates a CIK; ambiguous stays ambiguous; DATA_HOLD preserved).
+# =========================================================================== #
+def _bulk_cfg(ctx: IdentityJobContext) -> dict:
+    return ctx.stage101 or {}
+
+
+def _ua_headers(cfg: dict) -> dict:
+    ua = "%s %s" % (cfg.get("user_agent_product",
+                            "paper-trader-alpha-agent/2.0"),
+                    cfg.get("contact_email") or "")
+    return {"User-Agent": ua.strip(), "Accept-Encoding": "identity"}
+
+
+def _submissions_paths(cfg: dict):
+    root = cfg.get("bulk_root")
+    if not root:
+        return None, None
+    return Path(root) / "submissions.zip", Path(root) / "submissions.manifest.json"
+
+
+def _submissions_hash(cfg: dict) -> Optional[str]:
+    _, manifest = _submissions_paths(cfg)
+    if manifest and manifest.exists():
+        try:
+            return json.loads(manifest.read_text(encoding="utf-8")).get("sha256")
+        except (OSError, ValueError):
+            return None
+    return None
+
+
+def _universe_target(ctx: IdentityJobContext) -> int:
+    try:
+        if ctx.accessor.available()[0]:
+            return len(ctx.accessor.watchlist_symbols(ctx.survivorship_watchlist))
+    except Exception:  # noqa: BLE001
+        return 0
+    return 0
+
+
+def _universe_fingerprint(ctx: IdentityJobContext) -> Optional[str]:
+    try:
+        syms = sorted(ctx.accessor.watchlist_symbols(ctx.survivorship_watchlist))
+        if not syms:
+            return None
+        return _hi.content_hash(syms)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _resolution_epoch(ctx: IdentityJobContext) -> str:
+    """A CHEAP, stable epoch key = (Norgate universe size, SEC issuer count). It
+    changes only when the universe or the SEC index genuinely grows, and avoids
+    hashing ~1M issuer rows on every coverage/readiness step."""
+    total = ctx.store.counts()["total_securities"]
+    iss = ctx.issuer_index.counts()["issuers"] if ctx.issuer_index is not None \
+        else 0
+    return "%d:%d" % (total, iss)
+
+
+def _sec_bulk_inventory(ctx: IdentityJobContext, job) -> tuple:
+    """Part 1 acquisition: inventory the SEC bulk sources and DOWNLOAD the
+    submissions archive with the existing restart-safe/atomic/SHA-256 downloader
+    (looped to completion inside a wall-clock budget; a transport interruption is
+    RETRYABLE and resumes from the durable byte checkpoint). No parsing here."""
+    import time as _time
+    from . import sec_bulk_download as _bulk
+    OK, BLK, RETRY = _outcomes()
+    cfg = _bulk_cfg(ctx)
+    final, manifest = _submissions_paths(cfg)
+    url = cfg.get("submissions_url")
+    if final is None or not url:
+        return BLK, {"real_work": "identity.sec_bulk_inventory",
+                     "blocker": "STAGE101_NOT_CONFIGURED",
+                     "reason": "bulk_root/submissions_url not configured",
+                     "disposition": "DATA_HOLD"}
+    if ctx.transport is None:
+        return BLK, {"real_work": "identity.sec_bulk_inventory",
+                     "blocker": "NO_HTTP_TRANSPORT",
+                     "reason": "no SEC HTTP transport injected", "disposition":
+                     "DATA_HOLD"}
+    dl = _bulk.BulkArchiveDownloader(
+        url=url, dest_dir=final.parent, name="submissions",
+        headers=_ua_headers(cfg),
+        disk_budget_bytes=int(cfg.get("disk_budget_bytes", 4 * 1024 ** 3)),
+        transport=ctx.transport)
+    budget = float(cfg.get("download_time_budget_seconds", 1800))
+    started = _time.monotonic()
+    last = {}
+    while True:
+        last = dl.download_segment()
+        if last.get("complete") or not last.get("ok"):
+            break
+        if (_time.monotonic() - started) >= budget:
+            break
+    inventory = {
+        "submissions": {"final_path": str(final), "exists": final.exists(),
+                        "bytes": (final.stat().st_size if final.exists()
+                                  else 0)},
+        "companyfacts_url": cfg.get("companyfacts_url"),
+        "company_tickers_url": cfg.get("company_tickers_url"),
+        "company_tickers_exchange_url":
+            cfg.get("company_tickers_exchange_url")}
+    detail = {"real_work": "identity.sec_bulk_inventory",
+              "inventory": inventory,
+              "download_disposition": last.get("disposition"),
+              "progress_pct": last.get("progress_pct"),
+              "archive_sha256": last.get("sha256"),
+              "archive_bytes": last.get("total_bytes"),
+              "complete": bool(last.get("complete")),
+              "disposition": "DATA_HOLD", "no_automatic_promotion": True}
+    detail["artifact"] = write_artifact(ctx.artifact_root, job.lane, detail,
+                                        clock=ctx.clock)
+    if last.get("complete"):
+        return OK, detail
+    # In progress or transport-interrupted: resume the SAME job next claim (the
+    # durable byte checkpoint is preserved) rather than mark it done.
+    detail["reason"] = last.get("reason", "download in progress; resuming")
+    return RETRY, detail
+
+
+def _sec_submissions_index(ctx: IdentityJobContext, job) -> tuple:
+    """Part 2: stream the downloaded submissions archive into the durable SEC
+    issuer-history index, resuming from the member cursor. Bounded per step +
+    wall-clock; idempotent; malformed / path-traversal members isolated."""
+    OK, BLK, RETRY = _outcomes()
+    cfg = _bulk_cfg(ctx)
+    if ctx.issuer_index is None:
+        return BLK, {"real_work": "identity.sec_submissions_index",
+                     "blocker": "NO_ISSUER_INDEX",
+                     "reason": "SEC issuer-history index not configured",
+                     "disposition": "DATA_HOLD"}
+    final, _ = _submissions_paths(cfg)
+    if final is None or not final.exists():
+        return BLK, {"real_work": "identity.sec_submissions_index",
+                     "blocker": "SEC_SUBMISSIONS_ARCHIVE_ABSENT",
+                     "reason": ("submissions.zip not present; run "
+                                "identity.sec_bulk_inventory first"),
+                     "disposition": "DATA_HOLD"}
+    ahash = _submissions_hash(cfg)
+    r = ctx.issuer_index.index_submissions_archive(
+        final, archive_hash=ahash,
+        member_step=int(cfg.get("submissions_member_step", 2000)),
+        time_budget_seconds=float(cfg.get("submissions_time_budget_seconds",
+                                          1500)))
+    detail = {"real_work": "identity.sec_submissions_index",
+              "archive_sha256": ahash,
+              "members_done": r.get("members_done"),
+              "total_members": r.get("total_members"),
+              "issuers_indexed": r.get("issuers_indexed"),
+              "created_this_call": r.get("created_this_call"),
+              "changed_this_call": r.get("changed_this_call"),
+              "skipped_members": r.get("skipped_members"),
+              "malformed_members": r.get("malformed_members"),
+              "complete": bool(r.get("complete")),
+              "elapsed_seconds": r.get("elapsed_seconds"),
+              "disposition": "DATA_HOLD", "no_automatic_promotion": True}
+    detail["artifact"] = write_artifact(ctx.artifact_root, job.lane, detail,
+                                        clock=ctx.clock)
+    return OK, detail
+
+
+def _sec_filing_evidence_index(ctx: IdentityJobContext, job) -> tuple:
+    """Part 2 (owned/free evidence): index the CURRENT company_tickers[_exchange]
+    maps (source-tagged, never mislabeled historical) and the owned normalized
+    FILING_EVENT / INSIDER_FILING / FUNDAMENTAL_FACT filing-derived DATED ticker
+    observations into the issuer index. Idempotent per source."""
+    OK, BLK, RETRY = _outcomes()
+    cfg = _bulk_cfg(ctx)
+    if ctx.issuer_index is None:
+        return BLK, {"real_work": "identity.sec_filing_evidence_index",
+                     "blocker": "NO_ISSUER_INDEX", "reason":
+                     "SEC issuer-history index not configured",
+                     "disposition": "DATA_HOLD"}
+    idx = ctx.issuer_index
+    out: dict = {"company_tickers": None, "company_tickers_exchange": None,
+                 "filing_evidence": {}}
+    if ctx.transport is not None:
+        for key, url in (("company_tickers", cfg.get("company_tickers_url")),
+                         ("company_tickers_exchange",
+                          cfg.get("company_tickers_exchange_url"))):
+            if not url:
+                continue
+            try:
+                resp = ctx.transport({"method": "GET", "url": url,
+                                      "headers": _ua_headers(cfg)}, 60.0)
+                if resp.get("status") == 200 and resp.get("body"):
+                    doc = json.loads(resp["body"].decode("utf-8", "replace"))
+                    out[key] = idx.index_company_tickers(doc, kind=key)
+                else:
+                    out[key] = {"http_status": resp.get("status")}
+            except Exception as exc:  # noqa: BLE001 - source failure isolated
+                out[key] = {"error": type(exc).__name__}
+    if callable(ctx.read_normalized):
+        total_obs = 0
+        for rt in ("FILING_EVENT", "INSIDER_FILING", "FUNDAMENTAL_FACT"):
+            try:
+                recs = ctx.read_normalized(
+                    rt, limit=int(cfg.get("filing_evidence_limit", 20000)))
+                r = idx.index_filing_evidence(recs, source="owned_%s" % rt)
+                out["filing_evidence"][rt] = r
+                total_obs += int(r.get("observations_added") or 0)
+            except Exception as exc:  # noqa: BLE001
+                out["filing_evidence"][rt] = {"error": type(exc).__name__}
+        out["filing_evidence"]["total_observations_added"] = total_obs
+    ctx.store.set_meta("stage101_filing_evidence_done",
+                       _submissions_hash(cfg) or "1")
+    detail = {"real_work": "identity.sec_filing_evidence_index", "result": out,
+              "index_counts": idx.counts(), "disposition": "DATA_HOLD",
+              "no_automatic_promotion": True}
+    detail["artifact"] = write_artifact(ctx.artifact_root, job.lane, detail,
+                                        clock=ctx.clock)
+    return OK, detail
+
+
+def _norgate_full_discovery(ctx: IdentityJobContext, job) -> tuple:
+    """Part 3: discover the next bounded batch of the COMPLETE Norgate 'S&P 500
+    Current & Past' universe (not a sample). Reuses the survivorship-safe
+    identity extraction; assetid is the identity; delisted names are preserved."""
+    cfg = _bulk_cfg(ctx)
+    batch = int(cfg.get("norgate_full_batch", 250))
+    return _discover(ctx, job, delisted_only=False, batch_size=batch)
+
+
+def _classify_unresolved(security: dict, result, meta: dict) -> str:
+    """Exact, evidence-based reason code for a non-RESOLVED security (Part 4).
+    Deterministic from the candidate pools + the contract result."""
+    from . import sec_issuer_index as _si
+    tc = set(meta.get("ticker_candidates") or [])
+    nc = set(meta.get("name_candidates") or [])
+    allc = tc | nc
+    if not security.get("norgate_assetid"):
+        return _si.REASON_MISSING_NORGATE_IDENTITY
+    if not allc:
+        return _si.REASON_NO_SEC_CANDIDATE
+    share_class = security.get("share_class") or "COMMON"
+    st = result.status
+    if st == _hi.STATUS_CONFLICT:
+        return _si.REASON_TICKER_REUSE_CONFLICT
+    if st == _hi.STATUS_AMBIGUOUS:
+        if share_class not in ("COMMON",):
+            return _si.REASON_SHARE_CLASS_AMBIGUITY
+        if len(nc) > 1 and (result.evidence or {}).get("tier") == 4:
+            return _si.REASON_NAME_COLLISION
+        if len(tc) > 1:
+            return _si.REASON_TICKER_REUSE_CONFLICT
+        return _si.REASON_MULTIPLE_CIK_CANDIDATES
+    if meta.get("overflow"):
+        return _si.REASON_NAME_COLLISION
+    if nc and not tc:
+        return _si.REASON_DATE_INTERVAL_MISMATCH
+    return _si.REASON_INSUFFICIENT_CORROBORATION
+
+
+def _cik_full_resolution(ctx: IdentityJobContext, job) -> tuple:
+    """Part 4: run the deterministic matching contract for the next bounded batch
+    of not-yet-RESOLVED securities, enriched by per-security candidate lookup from
+    the complete SEC issuer-history index. Pages by security_id (an epoch cursor)
+    so every security is attempted exactly once per (universe, index) epoch —
+    previously-unresolved securities are re-attempted with the fuller evidence.
+    Persists exact reason codes + candidate pools so repair never repeats the
+    search. Never fabricates a CIK."""
+    OK, BLK, RETRY = _outcomes()
+    cfg = _bulk_cfg(ctx)
+    if ctx.issuer_index is None:
+        return BLK, {"real_work": "identity.cik_full_resolution",
+                     "blocker": "NO_ISSUER_INDEX", "reason":
+                     "SEC issuer-history index not configured",
+                     "disposition": "DATA_HOLD"}
+    batch = int(cfg.get("resolve_full_batch", 500))
+    epoch = _resolution_epoch(ctx)
+    if ctx.store.get_meta("stage101_res_epoch") != epoch:
+        ctx.store.set_meta("stage101_res_epoch", epoch)
+        ctx.store.set_meta("stage101_res_cursor", "")
+    cursor = ctx.store.get_meta("stage101_res_cursor") or ""
+    all_secs = ctx.store.list_securities(limit=1000000)
+    resolved = unresolved = ambiguous = conflict = attempted = 0
+    reason_hist: dict = {}
+    last_id = cursor
+    exhausted = True
+    for s in all_secs:
+        sid = s["security_id"]
+        if sid <= cursor:
+            continue
+        if attempted >= batch:
+            exhausted = False
+            break
+        last_id = sid
+        mp = ctx.store.active_mapping(sid)
+        if mp and mp.get("status") == _hi.STATUS_RESOLVED:
+            continue   # keep prior RESOLVED; just advance the cursor past it
+        sec = ctx.store.get_security(sid)
+        tki, sub, meta = ctx.issuer_index.candidate_evidence_for(sec)
+        res = _hi.match_security_to_cik(
+            sec, owned_authoritative=ctx.owned_authoritative,
+            direct_norgate_sec=ctx.direct_norgate_sec, ticker_cik_index=tki,
+            submissions_by_cik=sub, repair_rules=ctx.repair_rules)
+        attempted += 1
+        if res.status != _hi.STATUS_RESOLVED:
+            code = _classify_unresolved(sec, res, meta)
+            reason_hist[code] = reason_hist.get(code, 0) + 1
+            allc = sorted(set(meta.get("ticker_candidates") or []) |
+                          set(meta.get("name_candidates") or []))
+            res.evidence["reason_code"] = code
+            res.evidence["required_evidence"] = {
+                "reason_code": code, "candidate_ciks": allc[:25],
+                "ticker_candidates": sorted(meta.get("ticker_candidates") or
+                                            [])[:25]}
+        ctx.store.record_mapping(res)
+        if res.status == _hi.STATUS_RESOLVED:
+            resolved += 1
+        elif res.status == _hi.STATUS_AMBIGUOUS:
+            ambiguous += 1
+        elif res.status == _hi.STATUS_CONFLICT:
+            conflict += 1
+        else:
+            unresolved += 1
+    ctx.store.set_meta("stage101_res_cursor", last_id)
+    if exhausted:
+        ctx.store.set_meta("stage101_resolution_complete", epoch)
+    counts = ctx.store.counts()
+    detail = {"real_work": "identity.cik_full_resolution", "attempted": attempted,
+              "resolved": resolved, "unresolved": unresolved,
+              "ambiguous": ambiguous, "conflict": conflict,
+              "reason_distribution": reason_hist, "epoch_complete": exhausted,
+              "total_resolved": counts["resolved"],
+              "unresolved_backlog": counts["unresolved_backlog"],
+              "disposition": "DATA_HOLD", "no_automatic_promotion": True}
+    detail["artifact"] = write_artifact(ctx.artifact_root, job.lane, detail,
+                                        clock=ctx.clock)
+    return OK, detail
+
+
+def _mapping_version_hash(ctx: IdentityJobContext) -> str:
+    """The canonical mapping-version hash binding the Norgate universe fingerprint,
+    the SEC archive hash, the issuer-index digest, the identity-store digest and
+    the matching-algorithm version + revision."""
+    parts = {
+        "algo": _hi.MAPPING_ALGORITHM_VERSION,
+        "identity_store_digest": ctx.store.digest(),
+        "issuer_index_fingerprint": (ctx.issuer_index.index_fingerprint()
+                                     if ctx.issuer_index is not None else None),
+        "norgate_universe_fingerprint": _universe_fingerprint(ctx),
+        "sec_archive_hash": _submissions_hash(_bulk_cfg(ctx)),
+    }
+    import hashlib as _hl
+    return _hl.sha256(_hi.canonical_json(parts).encode()).hexdigest()
+
+
+def _coverage_breakdown(ctx: IdentityJobContext) -> dict:
+    """Coverage by current/delisted, exchange, matching tier and unresolved reason
+    code — one bounded pass over the store."""
+    by_tier: dict = {}
+    by_exchange: dict = {}
+    cur_total = cur_res = del_total = del_res = 0
+    for s in ctx.store.list_securities(limit=1000000):
+        is_cur = bool(s["is_current"])
+        mp = ctx.store.active_mapping(s["security_id"])
+        resolved = bool(mp and mp.get("status") == _hi.STATUS_RESOLVED
+                        and mp.get("cik"))
+        if is_cur:
+            cur_total += 1
+            cur_res += 1 if resolved else 0
+        else:
+            del_total += 1
+            del_res += 1 if resolved else 0
+        ex = s.get("exchange") or "UNKNOWN"
+        slot = by_exchange.setdefault(ex, {"total": 0, "resolved": 0})
+        slot["total"] += 1
+        slot["resolved"] += 1 if resolved else 0
+        if resolved:
+            t = "tier_%s" % mp.get("tier")
+            by_tier[t] = by_tier.get(t, 0) + 1
+    by_reason: dict = {}
+    for row in ctx.store.unresolved(limit=1000000):
+        code = None
+        try:
+            code = (json.loads(row.get("required_evidence") or "{}") or {}
+                    ).get("reason_code")
+        except (ValueError, TypeError):
+            code = None
+        code = code or row.get("reason") or "UNKNOWN"
+        by_reason[code] = by_reason.get(code, 0) + 1
+    return {
+        "current_mapping_pct": round(100.0 * cur_res / cur_total, 4)
+        if cur_total else 0.0,
+        "delisted_mapping_pct": round(100.0 * del_res / del_total, 4)
+        if del_total else 0.0,
+        "current_total": cur_total, "current_resolved": cur_res,
+        "delisted_total": del_total, "delisted_resolved": del_res,
+        "by_tier": by_tier, "by_exchange": by_exchange,
+        "by_reason_code": by_reason}
+
+
+def _mapping_coverage_measure(ctx: IdentityJobContext, job) -> tuple:
+    """Part 7: measure + persist the full coverage snapshot across EVERY configured
+    rebalance date, compute the canonical mapping-version hash and the coverage
+    breakdowns (current/delisted, exchange, tier, reason code). Append-only."""
+    OK, BLK, RETRY = _outcomes()
+    snap = ctx.store.record_coverage_snapshot(
+        as_of=ctx.now()[:10], rebalance_dates=ctx.rebalance_dates,
+        index_name=ctx.index_name)
+    mvh = _mapping_version_hash(ctx)
+    ctx.store.set_meta("stage101_mapping_version_hash", mvh)
+    ctx.store.set_meta("stage101_coverage_complete", _resolution_epoch(ctx))
+    breakdown = _coverage_breakdown(ctx)
+    by_date = snap["by_date"]
+    covs = sorted(v["mapping_coverage_pct"] for v in by_date.values()) \
+        if by_date else []
+    detail = {"real_work": "identity.mapping_coverage_measure",
+              "total_securities": snap["total_securities"],
+              "current_securities": snap["current_securities"],
+              "delisted_securities": snap["delisted_securities"],
+              "resolved": snap["resolved"], "unresolved": snap["unresolved"],
+              "ambiguous": snap["ambiguous"], "conflict": snap["conflict"],
+              "mapped_ciks": snap["mapped_ciks"],
+              "mapping_version_hash": mvh, "by_date": by_date,
+              "coverage_min_pct": covs[0] if covs else 0.0,
+              "coverage_max_pct": covs[-1] if covs else 0.0,
+              "coverage_median_pct": (covs[len(covs) // 2] if covs else 0.0),
+              "breakdown": breakdown,
+              "disposition": "DATA_HOLD", "no_automatic_promotion": True}
+    detail["artifact"] = write_artifact(ctx.artifact_root, job.lane, detail,
+                                        clock=ctx.clock)
+    return OK, detail
+
+
+def _successor_scan(ctx: IdentityJobContext, job) -> tuple:
+    """Part 5: record predecessor/successor RELATIONSHIP evidence (a delisted name
+    that appears as another issuer's SEC formerName is a rename/succession signal)
+    as SUPPORTING EVIDENCE ONLY. Never maps a security and never rewrites a
+    predecessor's historical identity (status stays UNRESOLVED). Bounded."""
+    OK, BLK, RETRY = _outcomes()
+    if ctx.issuer_index is None:
+        return BLK, {"real_work": "identity.successor_scan",
+                     "blocker": "NO_ISSUER_INDEX", "reason":
+                     "SEC issuer-history index not configured",
+                     "disposition": "DATA_HOLD"}
+    cfg = _bulk_cfg(ctx)
+    batch = int(cfg.get("successor_batch", 200))
+    idx = ctx.issuer_index
+    scanned = recorded = 0
+    for row in ctx.store.unresolved(limit=batch):
+        sid = row["security_id"]
+        scanned += 1
+        sec = ctx.store.get_security(sid)
+        if not sec:
+            continue
+        nnm = _hi._norm_name(sec.get("issuer_name") or "")
+        if not nnm:
+            continue
+        for c in sorted(idx.candidates_by_name(nnm)):
+            iss = idx.issuer(c)
+            if not iss:
+                continue
+            former_hit = any(_hi._norm_name(f.get("name") or "") == nnm
+                             for f in iss.get("former_names") or [])
+            rel = "RENAME_OR_SUCCESSION" if former_hit else \
+                "NAME_MATCH_CANDIDATE"
+            if idx.record_successor_evidence(
+                    predecessor_security_id=sid, predecessor_cik=None,
+                    successor_cik=c, successor_security_id=None, relationship=rel,
+                    effective_date=sec.get("delisting_date"),
+                    evidence={"norm_name": nnm, "former_hit": former_hit,
+                              "successor_name": iss.get("name")},
+                    confidence=0.5 if former_hit else 0.3):
+                recorded += 1
+    ctx.store.set_meta("stage101_successor_complete", _resolution_epoch(ctx))
+    detail = {"real_work": "identity.successor_scan", "scanned": scanned,
+              "successor_evidence_recorded": recorded,
+              "successor_evidence_total":
+                  idx.counts()["successor_evidence_rows"],
+              "disposition": "DATA_HOLD", "no_automatic_promotion": True,
+              "note": ("successor relationships preserved as EVIDENCE ONLY; "
+                       "never auto-collapsed; predecessor identity unchanged")}
+    detail["artifact"] = write_artifact(ctx.artifact_root, job.lane, detail,
+                                        clock=ctx.clock)
+    return OK, detail
+
+
+def _readiness_recheck(ctx: IdentityJobContext, job) -> tuple:
+    """Part 8: re-evaluate historical readiness FROM THE MEASURED store + the
+    safety gate (reuses the Stage 10 readiness evaluator), then stamp the
+    resolution-epoch flag. Never flips the safety switch."""
+    outcome, detail = _readiness_eval(ctx, job)
+    from . import autonomous_research as _ar
+    if outcome == _ar.OUTCOME_COMPLETED:
+        ctx.store.set_meta("stage101_readiness_complete", _resolution_epoch(ctx))
+    detail["real_work"] = "identity.readiness_recheck"
+    return outcome, detail
+
+
 _LANE_HANDLERS = {
     LANE_DISCOVER: lambda ctx, job: _discover(ctx, job, delisted_only=False),
     LANE_DELISTED: lambda ctx, job: _discover(ctx, job, delisted_only=True),
@@ -481,6 +1001,15 @@ _LANE_HANDLERS = {
     LANE_COMPANYFACTS_PLAN: _companyfacts_plan,
     LANE_READINESS_EVAL: _readiness_eval,
     LANE_EVENT_MAP: _event_map,
+    # Stage 10.1
+    LANE_SEC_BULK_INVENTORY: _sec_bulk_inventory,
+    LANE_SEC_SUBMISSIONS_INDEX: _sec_submissions_index,
+    LANE_SEC_FILING_EVIDENCE_INDEX: _sec_filing_evidence_index,
+    LANE_NORGATE_FULL_DISCOVERY: _norgate_full_discovery,
+    LANE_CIK_FULL_RESOLUTION: _cik_full_resolution,
+    LANE_MAPPING_COVERAGE_MEASURE: _mapping_coverage_measure,
+    LANE_READINESS_RECHECK: _readiness_recheck,
+    LANE_SUCCESSOR_SCAN: _successor_scan,
 }
 
 
@@ -579,9 +1108,103 @@ def _has_live_identity_job(queue) -> bool:
     for st in (_ar.STATE_QUEUED, _ar.STATE_RUNNING, _ar.STATE_RETRYABLE):
         for j in queue.list_jobs(state=st, limit=1000):
             if str(j.lane).startswith(IDENTITY_LANE_PREFIX) and \
-                    j.origin == ORIGIN:
+                    j.origin in (ORIGIN, ORIGIN_101):
                 return True
     return False
+
+
+def _enqueue101(queue, ctx: IdentityJobContext, lane: str, category: str,
+                reason: str, payload: dict, *,
+                max_attempts: Optional[int] = None) -> dict:
+    """Enqueue exactly ONE Stage 10.1 job (distinct origin, same allowlisted
+    ``identity.`` prefix) and record the prioritization reason."""
+    p = dict(payload or {})
+    p["prioritization_reason"] = reason
+    p["planned_at"] = ctx.now()
+    p["stage"] = "10.1"
+    pr = int((ctx.stage101 or {}).get("priority", DEFAULT_PRIORITY))
+    job_id = queue.enqueue(category, lane=lane, payload=p, priority=pr,
+                           origin=ORIGIN_101, max_attempts=max_attempts)
+    ctx.store.set_meta("last_planned_reason", "%s | %s" % (lane, reason))
+    return {"job_id": job_id, "lane": lane, "category": category,
+            "reason": reason, "origin": ORIGIN_101, "payload": p}
+
+
+def _plan_stage101(queue, ctx: IdentityJobContext) -> Optional[dict]:
+    """Drive the one-time HISTORICAL CIK BRIDGE campaign in dependency order:
+    download -> index submissions -> index owned/free ticker evidence -> full
+    Norgate discovery -> full candidate-based resolution -> coverage -> readiness
+    -> successor scan. Returns a plan for the SINGLE highest-value next step, or
+    None when the whole bridge is measured for the current epoch (so the tournament
+    reclaims the slot). The AlphaAgent — not Claude — generates each next action."""
+    from . import autonomous_research as _ar
+    cfg = ctx.stage101 or {}
+    idx = ctx.issuer_index
+    # 1) Acquire the SEC submissions bulk archive (restart-safe download).
+    final, _ = _submissions_paths(cfg)
+    if final is None or not final.exists():
+        return _enqueue101(
+            queue, ctx, LANE_SEC_BULK_INVENTORY, _ar.CAT_DATA_ACQUISITION,
+            "SEC submissions bulk archive not yet acquired; download it "
+            "(restart-safe, atomic, SHA-256)", {"stage": "download"},
+            max_attempts=int(cfg.get("download_max_attempts", 12)))
+    # 2) Stream the archive into the durable SEC issuer-history index.
+    st = idx.archive_status("submissions") if idx is not None else {}
+    if not st.get("complete"):
+        return _enqueue101(
+            queue, ctx, LANE_SEC_SUBMISSIONS_INDEX, _ar.CAT_DATA_ACQUISITION,
+            "SEC issuer-history index incomplete: %s/%s members indexed"
+            % (st.get("members_done", 0), st.get("total_members", 0)),
+            {"members_done": st.get("members_done", 0),
+             "total_members": st.get("total_members", 0)},
+            max_attempts=int(cfg.get("index_max_attempts", 12)))
+    # 3) Index owned/free CURRENT ticker maps + filing-derived observations once
+    #    per submissions-archive version (the HANDLER sets the done flag on
+    #    success, so a failed job re-runs; a new archive re-runs).
+    icounts = idx.counts()
+    ahash = _submissions_hash(cfg) or "1"
+    if (ctx.store.get_meta("stage101_filing_evidence_done") or "") != ahash:
+        return _enqueue101(
+            queue, ctx, LANE_SEC_FILING_EVIDENCE_INDEX, _ar.CAT_DATA_ACQUISITION,
+            "index current company_tickers[_exchange] + owned filing-derived "
+            "ticker observations (%d issuers indexed)" % icounts["issuers"],
+            {"issuers": icounts["issuers"]})
+    # 4) Discover the COMPLETE Norgate survivorship universe.
+    counts = ctx.store.counts()
+    target = _universe_target(ctx)
+    total = counts["total_securities"]
+    if target and total < target:
+        return _enqueue101(
+            queue, ctx, LANE_NORGATE_FULL_DISCOVERY, _ar.CAT_DATA_ACQUISITION,
+            "full Norgate discovery: %d/%d survivorship-safe securities indexed"
+            % (total, target), {"cursor": total, "target": target})
+    # 5) Resolve every not-yet-RESOLVED security via the full issuer index.
+    epoch = _resolution_epoch(ctx)
+    if ctx.store.get_meta("stage101_resolution_complete") != epoch:
+        return _enqueue101(
+            queue, ctx, LANE_CIK_FULL_RESOLUTION, _ar.CAT_DATA_ACQUISITION,
+            "run the deterministic matching contract over every not-yet-resolved "
+            "security enriched by the complete SEC issuer-history index",
+            {"epoch": epoch, "total": total})
+    # 6-8) Measure coverage, re-evaluate readiness, record successor evidence —
+    #      each ONCE per resolution epoch. The HANDLER stamps the epoch flag on
+    #      success, so a failed step re-runs and none is silently skipped.
+    if ctx.store.get_meta("stage101_coverage_complete") != epoch:
+        return _enqueue101(
+            queue, ctx, LANE_MAPPING_COVERAGE_MEASURE, _ar.CAT_DATA_VALIDATION,
+            "measure mapping coverage on every configured rebalance date + "
+            "canonical mapping-version hash", {"epoch": epoch})
+    if ctx.store.get_meta("stage101_readiness_complete") != epoch:
+        return _enqueue101(
+            queue, ctx, LANE_READINESS_RECHECK, _ar.CAT_DATA_VALIDATION,
+            "re-evaluate per-rebalance historical readiness + safety gate from "
+            "measured canonical state", {"epoch": epoch})
+    if ctx.store.get_meta("stage101_successor_complete") != epoch:
+        return _enqueue101(
+            queue, ctx, LANE_SUCCESSOR_SCAN, _ar.CAT_DATA_ACQUISITION,
+            "record predecessor/successor relationship evidence (never "
+            "auto-collapsed)", {"epoch": epoch})
+    return None
 
 
 def plan_next_identity_job(queue, ctx: IdentityJobContext, *,
@@ -597,6 +1220,16 @@ def plan_next_identity_job(queue, ctx: IdentityJobContext, *,
     cfg = cfg or {}
     if _has_live_identity_job(queue):
         return None
+    # Stage 10.1 — the one-time HISTORICAL CIK BRIDGE campaign takes precedence
+    # while it is incomplete; when fully measured for the current epoch it yields
+    # (returns None) and the legacy Stage 10 maintenance / tournament reclaim the
+    # slot. Driven only when Stage 10.1 is enabled AND the issuer index exists.
+    s101 = ctx.stage101 or {}
+    if s101.get("enabled") and s101.get("planner_enabled", True) and \
+            ctx.issuer_index is not None:
+        plan = _plan_stage101(queue, ctx)
+        if plan is not None:
+            return plan
     counts = ctx.store.counts()
     # Universe target size (bounded, read-only) for the discovery gate.
     universe_target = 0
@@ -677,10 +1310,14 @@ def plan_next_identity_job(queue, ctx: IdentityJobContext, *,
 
 
 __all__ = [
-    "ORIGIN", "IDENTITY_LANE_PREFIX", "LANE_DISCOVER", "LANE_DELISTED",
-    "LANE_MEMBERSHIP", "LANE_TICKER_HISTORY", "LANE_CIK_RESOLVE",
+    "ORIGIN", "ORIGIN_101", "IDENTITY_LANE_PREFIX", "LANE_DISCOVER",
+    "LANE_DELISTED", "LANE_MEMBERSHIP", "LANE_TICKER_HISTORY", "LANE_CIK_RESOLVE",
     "LANE_CONFLICT_SCAN", "LANE_REPAIR", "LANE_COVERAGE",
     "LANE_COMPANYFACTS_PLAN", "LANE_READINESS_EVAL", "LANE_EVENT_MAP",
+    "LANE_SEC_BULK_INVENTORY", "LANE_SEC_SUBMISSIONS_INDEX",
+    "LANE_SEC_FILING_EVIDENCE_INDEX", "LANE_NORGATE_FULL_DISCOVERY",
+    "LANE_CIK_FULL_RESOLUTION", "LANE_MAPPING_COVERAGE_MEASURE",
+    "LANE_READINESS_RECHECK", "LANE_SUCCESSOR_SCAN",
     "IdentityJobContext", "dispatch_identity_job", "plan_next_identity_job",
     "map_event_issuer", "write_artifact", "DEFAULT_PRIORITY",
 ]
