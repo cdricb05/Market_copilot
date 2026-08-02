@@ -233,10 +233,11 @@
       "next_stage": "build an owned survivorship-safe historical security-to-CIK mapping (Norgate historical identifiers + membership history + SEC former-name metadata) with effective start/end dates, ticker-reuse and delisting distinction, a mapping-version hash and an explicit ambiguous/unmapped backlog"
     },
     "historical_universe": {
-      "note": "Owned survivorship-safe HISTORICAL ticker->CIK mapping status. OPTION B: none is owned yet (company_tickers.json resolves current entities only), so mapping_available is false and Stage 9.5B stays deferred. A current-only map is NEVER treated as a historical mapping. Flip mapping_available to true only when a genuine versioned historical mapping artifact exists.",
+      "note": "Owned survivorship-safe HISTORICAL ticker->CIK mapping status. Stage 10: mapping availability + per-rebalance readiness are now derived from the MEASURED identity store at identity_store_db (append-only coverage snapshots), NOT from the mapping_available flag below. The flag remains false and is NOT read as the primary source; it stays only as a hard OFF backstop. The measured historical mapping coverage over the FULL survivorship-safe universe (current + delisted) must reach min_historical_mapping_coverage_pct before the gate unlocks - aggregate current-CIK coverage can never satisfy that denominator, so the diagnostic stays honest until genuine historical coverage exists. Claude never flips the switch; the AlphaAgent's identity coverage/readiness jobs measure it.",
       "mapping_available": false,
       "mapping_source": null,
-      "mapping_version_hash": null
+      "mapping_version_hash": null,
+      "identity_store_db": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\historical_identity.sqlite"
     },
     "per_rebalance_readiness": {
       "note": "PER-DATE historical readiness thresholds (replaces aggregate-CIK-only readiness). A fundamental candidate is eligible ONLY when EVERY threshold passes on the survivorship-safe universe as it stood on each historical rebalance date AND a historical mapping is available. Current-universe aggregate counts alone never mark a candidate sufficient.",

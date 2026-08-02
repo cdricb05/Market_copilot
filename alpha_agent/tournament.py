@@ -1890,9 +1890,13 @@ def generate_stage9_5_fundamental_followups(registry: "CandidateRegistry",
     # the config flag both pass. Under OPTION B this is off, so ZERO jobs are
     # generated and every fundamental candidate stays DATA_HOLD - aggregate
     # current-CIK coverage can NEVER unlock a survivorship-biased historical
-    # backtest. Per-rebalance readiness is not measurable without a historical
-    # universe (readiness=None), so the gate is refused honestly.
-    gate = _fr.historical_fundamental_experiment_allowed(cfg, readiness=None)
+    # backtest. Stage 10: mapping availability + per-rebalance readiness are now
+    # derived from the MEASURED identity store (never the hand-set flag). Below
+    # the measured historical-coverage threshold the gate stays refused honestly;
+    # once the contract genuinely passes it unlocks AUTOMATICALLY here.
+    _id_store = _fr.open_identity_store(cfg)
+    gate = _fr.historical_fundamental_experiment_allowed(
+        cfg, readiness=None, store=_id_store)
     if not gate["allowed"]:
         return {"generated": [], "count": 0, "enabled": True,
                 "blocker": gate["diagnostic"],

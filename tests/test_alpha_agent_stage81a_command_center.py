@@ -146,7 +146,8 @@ class TestCommandMenu:
         # Every "/token" advertised in the menu must resolve to a real handler:
         # a read-only provider, /run, or the help/commands menu itself.
         _q0, providers = _cc_providers(tmp_path)
-        advertised = set(re.findall(r"/[a-z]+", tc.HELP_TEXT))
+        # Command tokens may contain hyphens (e.g. /historical-universe).
+        advertised = set(re.findall(r"/[a-z][a-z-]*", tc.HELP_TEXT))
         handled = set(tc._COMMAND_PROVIDER) | {"/help", "/commands", "/run"}
         assert advertised <= handled, advertised - handled
         # …and every read-only command has a wired provider in the live build.

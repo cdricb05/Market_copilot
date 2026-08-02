@@ -48,9 +48,10 @@
       "max_jobs_per_cycle": 1,
       "budget_seconds": 120,
       "handler_time_budget_seconds": 90,
-      "allowed_origins": ["stage9-tournament", "stage9-weakest-gate"],
-      "allowed_lane_prefixes": ["tournament.", "acq.sec_form4_8k", "acq.sec_companyfacts"],
+      "allowed_origins": ["stage9-tournament", "stage9-weakest-gate", "stage10-identity"],
+      "allowed_lane_prefixes": ["tournament.", "acq.sec_form4_8k", "acq.sec_companyfacts", "identity."],
       "allowed_categories": ["DATA_VALIDATION", "DATA_ACQUISITION", "EXPERIMENT"],
+      "stage10_note": "Stage 10 HISTORICAL IDENTITY. PASS A's allowlist is broadened by EXACTLY the single new origin stage10-identity and the single new lane prefix identity. (nothing else); the categories are UNCHANGED (identity jobs use only DATA_ACQUISITION / DATA_VALIDATION, already admitted). Because the three claim_next dimensions are ANDed, this admits ONLY the AlphaAgent's own identity backlog jobs (origin=stage10-identity AND lane GLOB identity.* AND category in {DATA_ACQUISITION,DATA_VALIDATION}). The identity backlog is FINITE (bounded survivorship universe x fixed rebalance dates) and the post-drain maintenance is a THROTTLED low-priority (1) tail measured once per coverage-epoch, so identity can never permanently starve the tournament; and the companyfacts fairness promotion still runs PASS C ahead of PASS A when due (skipping PASS A entirely), so identity can never starve the companyfacts continuation. max_jobs_per_cycle stays 1.",
       "stage9_4_note": "Stage 9.4 release closure adds EXPERIMENT to PASS A's category allowlist ONLY. Combined with the UNCHANGED allowed_origins (stage9-tournament / stage9-weakest-gate) and allowed_lane_prefixes (tournament. / acq.sec_form4_8k), which are ANDed inside claim_next, this admits ONLY tournament-generated canonical experiments (origin=stage9-tournament AND lane GLOB tournament.* AND category=EXPERIMENT) - chiefly the bounded tournament.stage9_4_revalidation jobs the tick generates. A legacy EXPERIMENT job with any other origin or lane is still never claimable. max_jobs_per_cycle stays 1; claim_next orders priority DESC so a priority-3 experiment is claimed before a priority-2 weakest-gate validation. The revalidation handler runs INLINE on the owned Norgate panel (local, no network) and returns a single-feature Stage 5 row the next tick ingests exactly once.",
       "stage9_5_note": "Stage 9.5 adds the EXACT lane acq.sec_companyfacts to PASS A's allowed_lane_prefixes ONLY (still ANDed with allowed_origins stage9-weakest-gate + category DATA_ACQUISITION). This admits ONLY the companyfacts campaign BOOTSTRAP job (origin=stage9-weakest-gate AND lane=acq.sec_companyfacts AND category=DATA_ACQUISITION) that the weakest-gate / bootstrap seeder enqueues at a priority above the tournament experiments so the live companyfacts acquisition actually runs; the SELF-CONTINUATIONS (origin=campaign-continuation) are admitted separately and EXACTLY by companyfacts_continuation below (PASS C). No other campaign-continuation lane or category is claimable by either. Nothing operational is mutated.",
       "sec_continuation": {
@@ -84,6 +85,32 @@
         ]
       }
     }
+  },
+  "stage10_identity": {
+    "note": "Stage 10 HISTORICAL IDENTITY LAYER. The survivorship-safe, effective-dated security identity + security->CIK mapping infrastructure the AlphaAgent operates through the SAME research queue + fair scheduler to close HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY. Claude builds the reusable capability (extraction, store, matching contract, universe service, coverage, jobs, planner, readiness integration); the AlphaAgent prioritizes/creates/claims/executes the jobs and re-evaluates readiness. The canonical identity store + immutable artifacts live under the Stage 8 research root on D: (NEVER an operational-ledger root). RESEARCH-ONLY: never an order/fill/signal/trade-decision/model-promotion/paper-book/Daily-Close; never runs prediction or PostgreSQL. The safety diagnostic stays until the MEASURED historical mapping coverage over the full survivorship-safe universe (current + delisted) passes the configured threshold - aggregate current-CIK coverage can never unlock it. Claude never flips the safety switch.",
+    "enabled": true,
+    "planner_enabled": true,
+    "store_db": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\historical_identity.sqlite",
+    "artifact_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\artifacts",
+    "index_name": "S&P 500",
+    "survivorship_watchlist": "S&P 500 Current & Past",
+    "current_watchlist": "S&P 500",
+    "membership_start": "1990-01-01",
+    "discover_batch": 25,
+    "resolve_batch": 50,
+    "priority": 6,
+    "rebalance_dates": [
+      "2015-03-31", "2015-06-30", "2015-09-30", "2015-12-31",
+      "2016-03-31", "2016-06-30", "2016-09-30", "2016-12-31",
+      "2017-03-31", "2017-06-30", "2017-09-30", "2017-12-31",
+      "2018-03-31", "2018-06-30", "2018-09-30", "2018-12-31",
+      "2019-03-31", "2019-06-30", "2019-09-30", "2019-12-31",
+      "2020-03-31", "2020-06-30", "2020-09-30", "2020-12-31",
+      "2021-03-31", "2021-06-30", "2021-09-30", "2021-12-31",
+      "2022-03-31", "2022-06-30", "2022-09-30", "2022-12-31",
+      "2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31",
+      "2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"
+    ]
   },
   "tournament": {
     "note": "Stage 9 Autonomous Alpha Tournament. The bounded tournament tick is the highest-value research step of the production cycle (run_autonomy_cycle(..., run_tournament=True)); it shares THIS durable queue and never creates a second framework. READ-ONLY w.r.t. the operating portfolio; no automatic promotion.",

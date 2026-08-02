@@ -1873,6 +1873,31 @@ class Runtime:
                     summary["companyfacts_bootstrap_job"] = cf_seed
             except Exception:  # noqa: BLE001 - seeding never breaks the drain
                 pass
+            # Stage 10 — the AlphaAgent generates its OWN next identity/mapping
+            # job: it inspects canonical identity coverage and enqueues the single
+            # highest-value next action (at most one live identity job), so the
+            # historical mapping backlog is operated through the SAME queue and
+            # fair scheduler. Bounded, idempotent, restart-safe; the finite
+            # backlog + throttled low-priority maintenance mean it can never
+            # permanently starve the tournament, and the companyfacts fairness
+            # promotion still skips PASS A so identity can never starve
+            # companyfacts. Never raises.
+            try:
+                s10 = stage10_identity_cfg(cfg8)
+                if s10.get("enabled") and s10.get("planner_enabled", True):
+                    from . import identity_jobs as _ij
+                    # The planner needs only store counts + Norgate availability;
+                    # owned SEC ticker->CIK evidence is built by the resolve
+                    # handler's own context at execution time.
+                    id_ctx = build_identity_context(
+                        cfg8, queue=queue, read_normalized=None,
+                        clock=self.clock.iso)
+                    id_plan = _ij.plan_next_identity_job(
+                        queue, id_ctx, cfg=s10)
+                    if id_plan:
+                        summary["identity_planned_job"] = id_plan
+            except Exception:  # noqa: BLE001 - planning never breaks the drain
+                pass
             # Stage 9.5 DETERMINISTIC FAIRNESS. The bounded pass ordering (PASS A
             # tournament-continuation allowlist; PASS B SEC Form4/8-K continuation
             # iff A idle; PASS C SEC companyfacts continuation iff A and B idle) is
@@ -2934,6 +2959,83 @@ def build_autonomy_queue(cfg: dict, *, clock=None):
     return _ar.ResearchQueue(db, clock=clock)
 
 
+# --------------------------------------------------------------------------- #
+# Stage 10 — historical identity layer wiring. The canonical identity store +
+# artifact root live under the Stage 8 research root on D: (NEVER under an
+# operational-ledger root), co-located with the queue / campaign / fairness
+# stores. The AlphaAgent operates the identity backlog through the SAME queue.
+# --------------------------------------------------------------------------- #
+def stage10_identity_cfg(cfg: dict) -> dict:
+    return (cfg.get("stage10_identity") or {}) if isinstance(cfg, dict) else {}
+
+
+def stage10_identity_root(cfg: dict) -> "Path":
+    s10 = stage10_identity_cfg(cfg)
+    db = s10.get("store_db")
+    if db:
+        return Path(db).parent
+    return stage8_autonomy_root(cfg) / "identity"
+
+
+def build_identity_store(cfg: dict, *, clock=None):
+    """Open (creating if needed) the durable canonical identity store on D:."""
+    from . import historical_identity as _hi
+    s10 = stage10_identity_cfg(cfg)
+    db = s10.get("store_db") or str(stage10_identity_root(cfg) /
+                                    "historical_identity.sqlite")
+    return _hi.IdentityStore(db, clock=clock)
+
+
+def build_identity_context(cfg: dict, *, queue=None, read_normalized=None,
+                           clock=None):
+    """Assemble the Stage 10 identity job context: the canonical store, the owned
+    Norgate identity accessor and whatever OWNED SEC ticker->CIK evidence is
+    cheaply available (from owned normalized RT_FUNDAMENTAL_FACT records — the
+    current-only map; delisted names honestly stay UNRESOLVED). Read-only w.r.t.
+    every operational store."""
+    from . import historical_identity as _hi
+    from . import identity_jobs as _ij
+    s10 = stage10_identity_cfg(cfg)
+    store = build_identity_store(cfg, clock=clock)
+    artifact_root = s10.get("artifact_root") or \
+        str(stage10_identity_root(cfg) / "artifacts")
+    # Owned current ticker->CIK evidence from owned companyfacts records.
+    ticker_cik_index = None
+    if callable(read_normalized):
+        idx: dict = {}
+        for r in read_normalized("FUNDAMENTAL_FACT", limit=6000):
+            p = r.get("normalized_payload") or {}
+            cik = _hi.norm_cik(p.get("cik") or r.get("company_id"))
+            tkr = (r.get("ticker") or p.get("ticker") or "")
+            if cik and tkr:
+                idx.setdefault(str(tkr).strip().upper(), set()).add(cik)
+        ticker_cik_index = {k: sorted(v) for k, v in idx.items()} or None
+    # Stage 9 config supplies the readiness thresholds + rebalance dates.
+    cfg9 = {}
+    try:
+        _p9 = resolve_stage9_config_path(cfg)
+        if _p9:
+            from . import tournament as _tt
+            cfg9 = _tt.load_config(_p9) or {}
+    except Exception:  # noqa: BLE001
+        cfg9 = {}
+    rebalance = list(s10.get("rebalance_dates") or
+                     (((cfg9.get("stage9_5") or {}).get("historical_universe")
+                       or {}).get("rebalance_dates") or []))
+    return _ij.IdentityJobContext(
+        store=store, accessor=_hi.NorgateIdentityAccessor(),
+        artifact_root=artifact_root,
+        index_name=s10.get("index_name", "S&P 500"),
+        survivorship_watchlist=s10.get("survivorship_watchlist",
+                                       "S&P 500 Current & Past"),
+        current_watchlist=s10.get("current_watchlist", "S&P 500"),
+        membership_start=s10.get("membership_start", "1990-01-01"),
+        discover_batch=int(s10.get("discover_batch", 25)),
+        resolve_batch=int(s10.get("resolve_batch", 50)),
+        rebalance_dates=rebalance, cfg9=cfg9,
+        ticker_cik_index=ticker_cik_index, clock=clock)
+
+
 def _default_autonomy_handlers(cfg: dict) -> dict:
     """Safe, offline, read-only default handlers. Discovery/probe rebuild the
     source registry from the catalog (no network); everything else records a
@@ -3570,7 +3672,19 @@ def build_production_autonomy_handlers(cfg: dict, *,
             _cfg9 = _tt95.load_config(_p9) if _p9 else {}
         except Exception:  # noqa: BLE001 - config resolution is best-effort
             _cfg9 = {}
-        _hg = _fr.historical_fundamental_experiment_allowed(_cfg9, readiness=None)
+        # Stage 10: consult the MEASURED identity store (never the hand-set config
+        # flag). With no measured survivorship-safe historical mapping coverage
+        # the gate stays refused and the single diagnostic stands — identical
+        # outcome to OPTION B today, but now driven by measured coverage that
+        # would unlock AUTOMATICALLY once the historical contract genuinely passes.
+        _id_store = None
+        try:
+            if stage10_identity_cfg(cfg).get("enabled"):
+                _id_store = build_identity_store(cfg)
+        except Exception:  # noqa: BLE001 - store access never fatal
+            _id_store = None
+        _hg = _fr.historical_fundamental_experiment_allowed(
+            _cfg9, readiness=None, store=_id_store, signal=feature)
         if not _hg["allowed"]:
             return _ar.OUTCOME_BLOCKED_SPECIFIC, {
                 "real_work": "stage9_5_fundamental_experiment",
@@ -4682,6 +4796,36 @@ def build_production_autonomy_handlers(cfg: dict, *,
     handlers[_ar.CAT_SIGNAL_COMBINATION] = _h_combination
     handlers[_ar.CAT_TELEGRAM_REQUEST] = _h_telegram
     handlers[_ar.CAT_DATA_VALIDATION] = _h_weakest_gate
+
+    # Stage 10 — route ONLY the exact new identity.* lanes to the identity
+    # handlers using the SAME queue. Every other DATA_ACQUISITION / DATA_VALIDATION
+    # job keeps its existing production handler untouched. The identity context
+    # (store + owned Norgate accessor + owned current ticker->CIK evidence) is
+    # built lazily and reused across the cycle. Research-only; no operational
+    # mutation.
+    _s10 = stage10_identity_cfg(cfg)
+    if _s10.get("enabled"):
+        from . import identity_jobs as _ij
+        _idcache: dict = {}
+
+        def _identity_ctx():
+            if "ctx" not in _idcache:
+                _idcache["ctx"] = build_identity_context(
+                    cfg, queue=queue, read_normalized=_read_normalized)
+            return _idcache["ctx"]
+
+        def _route_identity(base):
+            def _routed(job, _b=base):
+                if str(getattr(job, "lane", "")).startswith(
+                        _ij.IDENTITY_LANE_PREFIX):
+                    return _ij.dispatch_identity_job(job, _identity_ctx())
+                return _b(job)
+            return _routed
+
+        handlers[_ar.CAT_DATA_ACQUISITION] = _route_identity(
+            handlers[_ar.CAT_DATA_ACQUISITION])
+        handlers[_ar.CAT_DATA_VALIDATION] = _route_identity(
+            handlers[_ar.CAT_DATA_VALIDATION])
     return handlers
 
 

@@ -101,6 +101,11 @@ COMMAND_MENU = (
         ("/dataholds", "candidates on DATA_HOLD + the blocking evidence"),
         ("/datahold <id>", "one DATA_HOLD: coverage vs requirement + path"),
     )),
+    ("IDENTITY", (
+        ("/identity [id]", "historical identity coverage, or one security by id or ticker"),
+        ("/mapping [unresolved|conflicts|coverage]", "security to CIK mapping status and subviews"),
+        ("/historical-universe <date>", "eligible historical securities on a date"),
+    )),
     ("ACTION", (
         ("/run <request>", "queue a BOUNDED read-only research request"),
     )),
@@ -126,11 +131,15 @@ _COMMAND_PROVIDER = {
     # Stage 9.3 controlled campaigns + data-hold readiness (all read-only).
     "/campaigns": "campaigns", "/campaign": "campaign",
     "/dataholds": "dataholds", "/datahold": "datahold",
+    # Stage 10 historical identity (all read-only).
+    "/identity": "identity", "/mapping": "mapping",
+    "/historical-universe": "historical_universe",
 }
 
 # Commands whose handler takes the free-text remainder as an argument.
 _ARG_COMMANDS = ("/job", "/candidate", "/why", "/compare", "/shadowbook",
-                 "/campaign", "/datahold")
+                 "/campaign", "/datahold", "/identity", "/mapping",
+                 "/historical-universe")
 
 # The full set of implemented, advertised commands (single source of truth for
 # the "/commands lists only implemented commands" contract).
@@ -1906,6 +1915,147 @@ def build_tournament_providers(*, config_path: Optional[str] = None,
             "datahold": _datahold}
 
 
+def build_identity_providers(*, stage8_config: Optional[dict] = None,
+                             store_loader: Optional[Callable] = None) -> dict:
+    """Stage 10 READ-ONLY historical-identity providers: /identity, /mapping (+
+    unresolved / conflicts / coverage subcommands) and /historical-universe
+    <date>. All purely read the canonical identity store; NOTHING mutates any
+    state. Unchanged repetitive reports are suppressed (a per-command digest cache
+    returns a compact 'unchanged' line). ``store_loader`` is injectable for tests;
+    the default opens the store declared in stage10_identity.store_db."""
+    _s10 = ((stage8_config or {}).get("stage10_identity") or {}) \
+        if isinstance(stage8_config, dict) else {}
+    _last: dict = {}
+
+    def _open():
+        if store_loader is not None:
+            return store_loader()
+        db = _s10.get("store_db")
+        if not db or not Path(db).exists():
+            return None
+        try:
+            from . import historical_identity as _hi
+            return _hi.IdentityStore(db)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _dedupe(cmd: str, text: str, headline: str) -> str:
+        import hashlib as _h
+        dig = _h.sha256(text.encode("utf-8")).hexdigest()
+        if _last.get(cmd) == dig:
+            return "↺ unchanged since last check — %s" % headline
+        _last[cmd] = dig
+        return text
+
+    def _fmt_counts(c: dict) -> str:
+        return ("securities %d (current %d / delisted %d) | mapping: resolved %d, "
+                "unresolved %d, ambiguous %d, conflict %d | CIKs %d | backlog %d"
+                % (c["total_securities"], c["current_securities"],
+                   c["delisted_securities"], c["resolved"], c["unresolved"],
+                   c["ambiguous"], c["conflict"], c["mapped_ciks"],
+                   c["unresolved_backlog"]))
+
+    def _identity(arg=None) -> str:
+        store = _open()
+        if store is None:
+            return ("Historical identity layer not initialized yet (no store). "
+                    "The AlphaAgent's identity.discover jobs populate it.")
+        if arg and str(arg).strip():
+            key = str(arg).strip()
+            sec = store.get_security(key)
+            if sec is None:
+                # try by ticker (current)
+                for s in store.list_securities(limit=100000):
+                    if s["ticker"] == key.upper():
+                        sec = store.get_security(s["security_id"])
+                        break
+            if sec is None:
+                return "No security found for '%s'." % key
+            mp = sec.get("active_mapping") or {}
+            lines = ["Identity %s (%s)" % (sec["security_id"], sec["ticker"]),
+                     "  name: %s | share_class: %s | exchange: %s"
+                     % (sec.get("issuer_name"), sec.get("share_class"),
+                        sec.get("exchange")),
+                     "  life: %s -> %s | delisted: %s | current: %s"
+                     % (sec.get("security_start_date"),
+                        sec.get("security_end_date"), sec.get("delisting_date"),
+                        bool(sec.get("is_current"))),
+                     "  ticker history: %d | name history: %d | membership: %d"
+                     % (len(sec.get("ticker_history") or []),
+                        len(sec.get("name_history") or []),
+                        len(sec.get("membership_intervals") or [])),
+                     "  CIK mapping: %s (%s, tier %s, conf %s)"
+                     % (mp.get("cik"), mp.get("status"), mp.get("tier"),
+                        mp.get("confidence"))]
+            return "\n".join(lines)
+        c = store.counts()
+        snap = store.latest_coverage_snapshot()
+        ver = store.get_meta("active_mapping_version")
+        nxt = store.get_meta("last_planned_reason")
+        txt = ("HISTORICAL IDENTITY\n  %s\n  mapping version: %s\n  latest "
+               "coverage snapshot: %s\n  next autonomous action: %s"
+               % (_fmt_counts(c), ver,
+                  (snap or {}).get("as_of", "none yet"), nxt or "n/a"))
+        return _dedupe("/identity", txt, _fmt_counts(c))
+
+    def _mapping(arg=None) -> str:
+        store = _open()
+        if store is None:
+            return "Historical identity layer not initialized yet (no store)."
+        sub = (str(arg).strip().lower() if arg else "")
+        if sub.startswith("unresolved"):
+            rows = store.unresolved(limit=25)
+            if not rows:
+                return "No unresolved identities."
+            body = "\n".join("  %s (%s): %s" % (r["security_id"], r["symbol"],
+                                                r["reason"]) for r in rows)
+            return "UNRESOLVED IDENTITY BACKLOG (%d shown)\n%s" % (len(rows), body)
+        if sub.startswith("conflict"):
+            rows = store.conflicts(limit=25)
+            if not rows:
+                return "No mapping conflicts."
+            body = "\n".join("  %s: %s" % (r["security_id"], r["detail_json"])
+                             for r in rows)
+            return "MAPPING CONFLICTS (%d shown)\n%s" % (len(rows), body)
+        if sub.startswith("coverage"):
+            snap = store.latest_coverage_snapshot()
+            if not snap:
+                return "No coverage snapshot yet (run identity.coverage)."
+            bd = snap.get("by_date") or {}
+            body = "\n".join(
+                "  %s: %s/%s names mapped (%.1f%%)"
+                % (d, v.get("mapped_names"), v.get("universe_names"),
+                   v.get("mapping_coverage_pct", 0.0))
+                for d, v in sorted(bd.items())) or "  (no rebalance dates)"
+            return ("MAPPING COVERAGE BY REBALANCE DATE (as of %s)\n%s"
+                    % (snap.get("as_of"), body))
+        c = store.counts()
+        txt = "SECURITY->CIK MAPPING\n  %s" % _fmt_counts(c)
+        return _dedupe("/mapping", txt, _fmt_counts(c))
+
+    def _historical_universe(arg=None) -> str:
+        store = _open()
+        if store is None:
+            return "Historical identity layer not initialized yet (no store)."
+        date = (str(arg).strip() if arg else "")
+        if not date or len(date) < 8:
+            return "Usage: /historical-universe <YYYY-MM-DD>"
+        univ = store.historical_universe_on(date)
+        if not univ:
+            return ("No eligible historical securities on %s (membership not yet "
+                    "indexed, or date precedes owned membership)." % date)
+        mapped = sum(1 for u in univ if u.get("mapping_status") == "RESOLVED")
+        sample = ", ".join("%s(%s)" % (u["ticker"],
+                                       u.get("mapping_status", "?")[:3])
+                           for u in univ[:20])
+        return ("HISTORICAL UNIVERSE ON %s\n  eligible securities: %d | mapped "
+                "to CIK: %d\n  %s%s" % (date, len(univ), mapped, sample,
+                                        " ..." if len(univ) > 20 else ""))
+
+    return {"identity": _identity, "mapping": _mapping,
+            "historical_universe": _historical_universe}
+
+
 def build_command_center_providers(*, stage8_config: Optional[dict] = None,
                                    queue=None,
                                    ops_loader: Optional[Callable] = None,
@@ -1920,6 +2070,7 @@ def build_command_center_providers(*, stage8_config: Optional[dict] = None,
         ops_loader=ops_loader, attribution_loader=attribution_loader))
     providers.update(build_tournament_providers(
         config_path=_resolve_stage9_config_path(stage8_config)))
+    providers.update(build_identity_providers(stage8_config=stage8_config))
     return providers
 
 
