@@ -50,7 +50,8 @@
       "handler_time_budget_seconds": 90,
       "allowed_origins": ["stage9-tournament", "stage9-weakest-gate"],
       "allowed_lane_prefixes": ["tournament.", "acq.sec_form4_8k"],
-      "allowed_categories": ["DATA_VALIDATION", "DATA_ACQUISITION"],
+      "allowed_categories": ["DATA_VALIDATION", "DATA_ACQUISITION", "EXPERIMENT"],
+      "stage9_4_note": "Stage 9.4 release closure adds EXPERIMENT to PASS A's category allowlist ONLY. Combined with the UNCHANGED allowed_origins (stage9-tournament / stage9-weakest-gate) and allowed_lane_prefixes (tournament. / acq.sec_form4_8k), which are ANDed inside claim_next, this admits ONLY tournament-generated canonical experiments (origin=stage9-tournament AND lane GLOB tournament.* AND category=EXPERIMENT) - chiefly the bounded tournament.stage9_4_revalidation jobs the tick generates. A legacy EXPERIMENT job with any other origin or lane is still never claimable. max_jobs_per_cycle stays 1; claim_next orders priority DESC so a priority-3 experiment is claimed before a priority-2 weakest-gate validation. The revalidation handler runs INLINE on the owned Norgate panel (local, no network) and returns a single-feature Stage 5 row the next tick ingests exactly once.",
       "sec_continuation": {
         "note": "Stage 9.3 controlled SEC Form 4 / 8-K campaign-continuation. Admitted ONLY for the exact scoped triple below; the daily_completed_batch_cap and max_consecutive_no_progress_batches are enforced inline by _run_sec_cik_campaign from the durable campaign_batch log. Set enabled=false to revert to the Stage-9.2 Option-1 paused policy.",
         "enabled": true,

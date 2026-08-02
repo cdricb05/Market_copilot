@@ -37,6 +37,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
+from . import orthogonality as _orth
+
 
 # --------------------------------------------------------------------------- #
 # Lifecycle states (WS2). There is deliberately NO PROMOTED state.
@@ -103,6 +105,18 @@ BLOCK_UNIVERSE = "DATA_HOLD_INSUFFICIENT_UNIVERSE"
 BLOCK_PIT = "DATA_HOLD_POINT_IN_TIME_UNAVAILABLE"
 BLOCK_LOOKAHEAD = "DATA_HOLD_LOOKAHEAD_CONTAMINATION"
 BLOCK_NO_DATA_FAMILY = "DATA_HOLD_DATA_FAMILY_NOT_ACCESSIBLE"
+# Stage 9.4: specific blockers for pre-registered price factors whose formula
+# needs data the owned close panel does not carry (never approximated).
+BLOCK_REQUIRES_VOLUME = "DATA_HOLD_REQUIRES_VOLUME_TURNOVER_DATA"
+BLOCK_REQUIRES_INTRADAY = "DATA_HOLD_REQUIRES_INTRADAY_OPEN_DATA"
+BLOCK_REQUIRES_EVENT_CAL = "DATA_HOLD_REQUIRES_EVENT_CALENDAR_DATA"
+# Keyed by the spec ``data_requirement`` values in price_factor_catalogue.
+_PRICE_REQ_BLOCKER = {
+    "owned_volume_turnover": BLOCK_REQUIRES_VOLUME,
+    "intraday_open": BLOCK_REQUIRES_INTRADAY,
+    "point_in_time_gics": BLOCK_PIT,
+    "event_calendar": BLOCK_REQUIRES_EVENT_CAL,
+}
 
 REJECT_WEAK_RANK_IC = "REJECT_WEAK_RANK_IC"
 REJECT_WEAK_RANK_IC_T = "REJECT_STATISTICALLY_WEAK_RANK_IC_T"
@@ -834,6 +848,19 @@ def score_candidate(metrics: dict, cfg: dict, *,
                                     sc.get("diversification", {}))
     fwd = _score_forward(forward or {}, sc.get("forward_evidence", {}))
 
+    # Stage 9.4 Track B: INDEPENDENT_INFORMATION sub-score. It rewards a candidate
+    # that is orthogonal to the champion/retained set and carries partial rank-IC
+    # / incremental net return beyond them; a candidate that merely duplicates the
+    # champion is driven toward zero. It NEVER weakens a gate - it is only folded
+    # into the combined score when a config weight is present (default absent -> 0
+    # -> the six-subscore combined score is unchanged for existing candidates).
+    indep = _orth.independent_information_score(
+        corr_champion=corr_champion, corr_retained=corr_retained,
+        partial_rank_ic=_f(metrics.get("partial_rank_ic")),
+        incremental_net_return=_f(metrics.get("incremental_net_return")),
+        cfg=sc.get("independent_information", {}))
+    indep_score = _f(indep.get("independent_information_score")) or 0.0
+
     combined = (
         hist * _f(w.get("historical_evidence") or 0.0)
         + robust * _f(w.get("robustness") or 0.0)
@@ -841,6 +868,7 @@ def score_candidate(metrics: dict, cfg: dict, *,
         + stab * _f(w.get("stability") or 0.0)
         + divers * _f(w.get("diversification") or 0.0)
         + fwd * _f(w.get("forward_evidence") or 0.0)
+        + indep_score * _f(w.get("independent_information") or 0.0)
     )
     combined = _clamp01(combined)
 
@@ -866,6 +894,8 @@ def score_candidate(metrics: dict, cfg: dict, *,
         "stability_score": round(stab, 6),
         "diversification_score": round(divers, 6),
         "forward_evidence_score": round(fwd, 6),
+        "independent_information_score": round(indep_score, 6),
+        "independent_information": indep,
         "caps_applied": caps,
     }
 
@@ -943,7 +973,8 @@ def null_scores() -> dict:
     return {"combined_score": None, "historical_evidence_score": None,
             "robustness_score": None, "cost_score": None,
             "stability_score": None, "diversification_score": None,
-            "forward_evidence_score": None, "caps_applied": []}
+            "forward_evidence_score": None,
+            "independent_information_score": None, "caps_applied": []}
 
 
 # --------------------------------------------------------------------------- #
@@ -1126,6 +1157,14 @@ def seed_families(registry: "CandidateRegistry",
     return out
 
 
+def seed_stage9_4_catalogue(registry: "CandidateRegistry") -> list[str]:
+    """Idempotently register the Stage 9.4 pre-registered price-factor catalogue
+    (Track A). Deterministic and deduplicated against the existing catalogue by
+    (family, spec_hash); re-seeding never duplicates or resets a candidate."""
+    from . import price_factor_catalogue as _cat
+    return seed_families(registry, _cat.catalogue_specs())
+
+
 # --------------------------------------------------------------------------- #
 # Evaluation adapter (WS4) - map a Stage 5 score_experiment result row into the
 # canonical evaluation contract used by the gates and the scorer. Reuses the
@@ -1134,7 +1173,9 @@ def seed_families(registry: "CandidateRegistry",
 def build_owned_price_campaign(stage8_cfg: dict, *,
                                cost_grid: Optional[list] = None,
                                champion_returns: Optional[list] = None,
-                               spy_series: Optional[list] = None) -> dict:
+                               spy_series: Optional[list] = None,
+                               new_factors: bool = False,
+                               stage9_4_cfg: Optional[dict] = None) -> dict:
     """Run the bounded owned-price Stage 5 campaign ONCE and return its result.
 
     Reuses the EXACT panel the Stage 8 production experiment handler uses
@@ -1159,9 +1200,51 @@ def build_owned_price_campaign(stage8_cfg: dict, *,
         str(Path(stage8_cfg.get("stage8_root", ".")) / "ingestion")
     store = _er.NormalizedStore(ingestion_root, max_files=6000, max_symbols=300)
     panel = store.price_panel(panel_start, None)
-    return _er.run_price_factor_campaign(
+    result = _er.run_price_factor_campaign(
         panel, cost_grid=cost_grid or [5, 25, 50, 75, 100],
         champion_returns=champion_returns, spy_series=spy_series)
+    if new_factors:
+        # Stage 9.4: the AGENT's tick also evaluates the pre-registered NEW
+        # price-factor catalogue on the SAME owned Norgate panel and enriches
+        # each result with orthogonality / regime / walk-forward / selection-bias
+        # evidence, so the canonical tournament classifies it in this same pass.
+        result = _merge_stage9_4_new_factors(
+            result, panel, champion_returns=champion_returns,
+            stage9_4_cfg=stage9_4_cfg or {})
+    return result
+
+
+def _merge_stage9_4_new_factors(result: dict, panel: dict, *,
+                                champion_returns=None,
+                                stage9_4_cfg: Optional[dict] = None) -> dict:
+    """Compute the Stage 9.4 pre-registered NEW price factors on the owned panel
+    and merge their enriched Stage 5 rows into the campaign result (so the
+    existing tick scores them with no change to its evaluation logic). Failure
+    isolated: a computation error never breaks the base campaign."""
+    try:
+        from . import price_factors as _pf
+        from . import price_factor_catalogue as _cat
+        from . import stage9_4 as _s94
+    except Exception:  # pragma: no cover - defensive import guard
+        return result
+    try:
+        # Only the features the pre-registered catalogue actually enables.
+        wanted = sorted({c["spec"]["feature"] for c in _cat.computable_specs()})
+        nf = _pf.run_new_price_factor_campaign(
+            panel, features=wanted, champion_returns=champion_returns)
+        fam_size = int((stage9_4_cfg or {}).get("search_family_size_default", 2))
+        enriched = []
+        for row in nf.get("results", []):
+            if row.get("rank_ic_t") is not None:
+                row = _s94.enrich_price_factor_row(
+                    row, family_size=fam_size, champion_returns=champion_returns,
+                    cfg=stage9_4_cfg or {})
+            enriched.append(row)
+        result.setdefault("results", []).extend(enriched)
+        result["stage9_4_new_factor_features"] = wanted
+    except Exception as exc:  # noqa: BLE001 - isolate; base campaign stands
+        result["stage9_4_new_factor_error"] = type(exc).__name__
+    return result
 
 
 def _cost_net_at(row: dict, cost_bps: int) -> Optional[float]:
@@ -1177,7 +1260,7 @@ def row_to_contract_metrics(row: dict, *, survivorship_safe: bool = True) -> dic
     champ_comp = _f(row.get("champion_complementarity"))
     corr_champ = None if champ_comp is None else round(1.0 - champ_comp, 6)
     dd = _f(row.get("max_drawdown"))
-    return {
+    metrics = {
         "rank_ic": _f(row.get("rank_ic_mean")),
         "rank_ic_t": _f(row.get("rank_ic_t")),
         "positive_ic_hit_rate": _f(row.get("rank_ic_positive_ratio")),
@@ -1214,6 +1297,20 @@ def row_to_contract_metrics(row: dict, *, survivorship_safe: bool = True) -> dic
                                 not bool(row.get("leakage_warning")),
                             "survivorship_safe": bool(survivorship_safe)},
     }
+    # Stage 9.4 (additive, never a gate input): pass through orthogonality /
+    # regime / walk-forward / bootstrap / selection-bias evidence when the row
+    # was enriched. The scorer reads partial_rank_ic / incremental_net_return for
+    # the INDEPENDENT_INFORMATION sub-score; the nested dicts are surfaced only.
+    for k in ("partial_rank_ic", "incremental_net_return",
+              "independent_information_score", "stage9_4_regime",
+              "stage9_4_bootstrap", "stage9_4_walk_forward",
+              "stage9_4_deflated_sharpe", "stage9_4_selection",
+              "stage9_4_independent_information"):
+        if k in row:
+            metrics[k] = row[k]
+    if row.get("corr_vs_champion") is not None:
+        metrics["corr_vs_champion"] = row["corr_vs_champion"]
+    return metrics
 
 
 def _index_campaign(campaign_result: Optional[dict]) -> tuple[dict, set]:
@@ -1703,6 +1800,69 @@ def generate_next_experiments(registry: "CandidateRegistry", cfg: dict, *,
             "queue_used": queue is not None}
 
 
+def generate_stage9_4_followups(registry: "CandidateRegistry", cfg: dict, *,
+                                queue=None) -> dict:
+    """Stage 9.4 release closure: the AGENT autonomously enqueues a BOUNDED,
+    pre-registered price-factor REVALIDATION experiment onto the SHARED durable
+    queue so the generate -> claim -> execute -> persist -> ingest loop closes
+    through the production CAT_EXPERIMENT handler even when no candidate is
+    retained.
+
+    It is a genuine canonical queue experiment (category EXPERIMENT, origin
+    ``stage9-tournament``, lane ``tournament.stage9_4_revalidation``) - never a
+    second queue, handler or worker. Deterministic, spec-deduplicated and capped
+    at ``stage9_4.followups.max_per_cycle`` NEW jobs per cycle; it targets only
+    computable OWNED-price catalogue candidates that already carry COMPLETE
+    evidence (state REJECTED), re-running the candidate's OWN registered horizon
+    (a reproduction, not a parameter search). Config-gated (disabled by default in
+    offline/acceptance configs). Never lowers a gate, never forces a KEEP, never
+    mutates any operational trading state. When disabled or nothing is eligible it
+    returns an empty, honest result."""
+    from . import autonomous_research as _ar
+    from . import price_factors as _pf
+    s94 = (cfg.get("stage9_4") or {}) if isinstance(cfg, dict) else {}
+    fu = s94.get("followups") or {}
+    if not fu.get("enabled"):
+        return {"generated": [], "count": 0, "enabled": False}
+    max_fu = max(0, int(_f(fu.get("max_per_cycle")) or 1))
+    computable = set(_pf.COMPUTABLE_FEATURES)
+    generated: list[dict] = []
+    # Deterministic order: the distinct computable features, each mapped to the
+    # canonical registry candidate ingestion will associate the result with.
+    for feature in sorted(computable):
+        if len(generated) >= max_fu:
+            break
+        cand = _candidate_for_feature(registry, feature)
+        if cand is None or cand.get("lifecycle_state") != REJECTED:
+            continue
+        spec0 = cand.get("spec") or {}
+        vspec = {"feature": feature,
+                 "horizon_days": int(_f(spec0.get("horizon_days")) or 21),
+                 "rebalance": spec0.get("rebalance", "monthly"),
+                 "template": "campaign_price_factor",
+                 "study_kind": "stage9_4_revalidation",
+                 "revalidation_of": cand["candidate_id"]}
+        sh = registry.try_register_generated(
+            strategy="stage9_4_revalidation", spec=vspec,
+            candidate_id=cand["candidate_id"])
+        if sh is None:
+            continue  # already generated this exact revalidation (dedup)
+        job_id = None
+        if queue is not None:
+            job_id = queue.enqueue(
+                _ar.CAT_EXPERIMENT, lane="tournament.stage9_4_revalidation",
+                payload={"tournament": True,
+                         "candidate_id": cand["candidate_id"],
+                         "strategy": "stage9_4_revalidation",
+                         "feature": feature, "spec": vspec},
+                priority=3, origin="stage9-tournament")
+        generated.append({"strategy": "stage9_4_revalidation",
+                          "candidate_id": cand["candidate_id"],
+                          "feature": feature, "spec_hash": sh,
+                          "job_id": job_id})
+    return {"generated": generated, "count": len(generated), "enabled": True}
+
+
 def _variant_plans(cand: dict, feature: Optional[str], base_hz: int,
                    horizons, rebals, cost_grid, max_neighbors) -> list[tuple]:
     """Deterministic ordered (strategy, spec) plans for one candidate."""
@@ -1857,6 +2017,15 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
     """
     if seed:
         seed_families(registry)
+        # Stage 9.4: the AGENT autonomously seeds the pre-registered price-factor
+        # catalogue (Track A) when the operator has enabled it in config. Idempotent
+        # and deduplicated; a disabled flag leaves the catalogue unseeded.
+        if (cfg.get("stage9_4") or {}).get("seed_price_catalogue"):
+            try:
+                seed_stage9_4_catalogue(registry)
+            except Exception as exc:  # noqa: BLE001 - never break the tick
+                registry.record_change("STAGE94_SEED_ERROR", None,
+                                       {"error": type(exc).__name__})
     ingested = ({"imported": 0, "skipped": 0, "malformed": 0}
                 if completed_experiments is None
                 else ingest_completed_experiments(
@@ -1886,6 +2055,15 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
 
     leaderboard = build_leaderboard(registry, cfg)
     generated = generate_next_experiments(registry, cfg, queue=queue)
+    # Stage 9.4 release closure: bounded, config-gated canonical experiment
+    # generation so the queued generate->execute->ingest loop closes even with no
+    # retained candidate. Failure-isolated; never breaks the tick.
+    try:
+        followups = generate_stage9_4_followups(registry, cfg, queue=queue)
+    except Exception as exc:  # noqa: BLE001 - never break the tick
+        registry.record_change("STAGE94_FOLLOWUP_ERROR", None,
+                               {"error": type(exc).__name__})
+        followups = {"generated": [], "count": 0, "enabled": False}
     shadows = (maybe_activate_shadow_books(
         registry, cfg, inception_provider=inception_provider,
         evidence_date=evidence_date) if activate_shadows else [])
@@ -1902,6 +2080,7 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
         + counts_state.get(DATA_HOLD, 0)
     registry.record_change("TOURNAMENT_CYCLE", None, {
         "evaluated": len(evaluated), "generated": generated["count"],
+        "stage9_4_followups": followups.get("count", 0),
         "shadow_books_activated": len(shadows),
         "shadow_books_advanced": len(advanced),
         "experiments_ingested": ingested.get("imported", 0),
@@ -1911,6 +2090,8 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
         "experiments_ingested": ingested,
         "leaderboard_size": leaderboard["ranked"],
         "generated_experiments": generated["count"],
+        "stage9_4_followups": followups,
+        "stage9_4_followups_generated": followups.get("count", 0),
         "shadow_books_activated": shadows,
         "shadow_book_advances": shadow_advances,
         "shadow_books_advanced": len(advanced),
@@ -1931,8 +2112,16 @@ def _evaluate_one(registry: "CandidateRegistry", cfg: dict, cand: dict,
     prev_state = cand["lifecycle_state"]
     rhash: Optional[str] = None  # set only on a completed owned-price result
 
+    # Stage 9.4: pre-registered price factors whose formula needs data absent
+    # from the owned close panel resolve to a SPECIFIC, honest DATA_HOLD.
+    data_req = spec.get("data_requirement")
+    if data_req in _PRICE_REQ_BLOCKER:
+        blocker = _PRICE_REQ_BLOCKER[data_req]
+        metrics = _data_hold_metrics(blocker)
+        gate = {"target_state": DATA_HOLD, "evidence_status": EVIDENCE_INCOMPLETE,
+                "blocker": blocker, "failed_gates": [], "complete": False}
     # Non-price families whose owned data cannot be evaluated honestly yet.
-    if requires in ("fundamentals", "analyst", "event"):
+    elif requires in ("fundamentals", "analyst", "event"):
         blocker = _DATA_FAMILY_BLOCKER.get(cand.get("pit_status"),
                                            BLOCK_NO_DATA_FAMILY)
         metrics = _data_hold_metrics(blocker)
@@ -1998,6 +2187,22 @@ def _evaluate_one(registry: "CandidateRegistry", cfg: dict, cand: dict,
         registry.record_change("CANDIDATE_REJECTED", cid,
                                {"name": cand["name"], "family": cand["family"],
                                 "reason": gate.get("blocker")})
+    # Stage 9.4 Track H: record the full lifecycle evidence artifact for a
+    # pre-registered catalogue candidate (hypothesis, family, search-family size,
+    # raw + selection-adjusted stats, orthogonality/regime/walk-forward evidence,
+    # failed gates, next required evidence). Never changes the decision.
+    if (spec.get("catalogue") or metrics.get("stage9_4_selection")):
+        try:
+            from . import stage9_4 as _s94
+            artifact = _s94.build_decision_record(
+                cand, metrics, scores, gate,
+                hypothesis=spec.get("formula", ""),
+                family=spec.get("factor_family", ""),
+                search_family_size=int(spec.get("search_family_size", 1) or 1))
+            registry.record_change("STAGE94_DECISION", cid, artifact)
+        except Exception as exc:  # noqa: BLE001 - artifact is best-effort
+            registry.record_change("STAGE94_DECISION_ERROR", cid,
+                                   {"error": type(exc).__name__})
     return {"candidate_id": cid, "from": prev_state, "to": new_state,
             "blocker": gate.get("blocker"),
             "combined_score": scores.get("combined_score")}
@@ -2191,8 +2396,9 @@ __all__ = [
     # completed-experiment ingestion (WS4)
     "ingest_completed_experiments", "result_hash_for",
     # generation / leaderboard / tick
-    "generate_next_experiments", "variants_by_family", "build_leaderboard",
-    "run_tournament_cycle",
+    "generate_next_experiments", "generate_stage9_4_followups",
+    "variants_by_family", "build_leaderboard", "run_tournament_cycle",
+    "seed_stage9_4_catalogue",
     # read-only payloads
     "load_tournament", "load_candidate", "tournament_snapshot",
     "meaningful_tournament_changes",

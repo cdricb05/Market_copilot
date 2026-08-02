@@ -158,8 +158,67 @@
       "IMPORTANT_RANK_CHANGE",
       "SHADOW_BOOK_ACTIVATED",
       "FORWARD_EVIDENCE_MILESTONE",
-      "NEW_BLOCKER"
+      "NEW_BLOCKER",
+      "STAGE94_DECISION"
     ],
     "important_rank_change_threshold": 2
+  },
+  "stage9_4": {
+    "note": "Stage 9.4 orthogonal-discovery capabilities the AGENT drives autonomously from its canonical collect tick. When seed_price_catalogue is true the tick idempotently seeds the pre-registered price-factor catalogue; when evaluate_price_catalogue is true the owned-price campaign also computes the NEW factors and enriches each with orthogonality / regime / walk-forward / bootstrap / selection-bias evidence before classify_evidence decides DATA_HOLD/REJECTED/KEEP. No gate is lowered; the INDEPENDENT_INFORMATION sub-score is reported in the decomposition and folded into the combined score only via scoring.weights.independent_information (default absent = 0, operator-tunable).",
+    "version": "1.0.1",
+    "seed_price_catalogue": true,
+    "evaluate_price_catalogue": true,
+    "search_family_size_default": 2,
+    "followups": {
+      "note": "Stage 9.4 release closure: the AGENT autonomously enqueues a BOUNDED, pre-registered price-factor REVALIDATION experiment (a genuine canonical CAT_EXPERIMENT job on the shared durable queue, origin stage9-tournament, lane tournament.stage9_4_revalidation) each cycle, so the generate->claim->execute->persist->ingest loop closes through the production handler even with zero retained candidates. Deterministic, spec-deduplicated and capped: at most max_per_cycle NEW jobs, targeting ONLY computable owned-price catalogue candidates already on COMPLETE evidence (REJECTED), re-running the candidate's OWN registered horizon (a reproduction, not a parameter search). No gate is lowered; no KEEP is forced; nothing operational is mutated. Disabled by default in offline/acceptance configs.",
+      "enabled": true,
+      "max_per_cycle": 1
+    },
+    "label_horizon": 1,
+    "regimes": {
+      "warmup_periods": 6,
+      "min_periods_for_regime_claim": 12,
+      "regime_specific_min_ic_t": 2.0,
+      "robust_min_ic_mean": 0.0
+    },
+    "bootstrap_block_size": 4,
+    "bootstrap_resamples": 500,
+    "bootstrap_seed": 12345,
+    "walk_forward_folds": 4,
+    "embargo_periods": 1,
+    "purge_periods": 1,
+    "independent_information": {
+      "weight_orthogonality": 0.55,
+      "weight_partial_ic": 0.30,
+      "weight_incremental": 0.15,
+      "partial_ic_full_credit": 0.03,
+      "incremental_net_full_credit": 0.03,
+      "redundant_abs_corr": 0.90
+    },
+    "companyfacts_campaign": {
+      "note": "Stage 9.4 release closure DECISION = OPTION B (DEFER HONESTLY). The SEC companyfacts parser (alpha_agent.sec_companyfacts) and the PIT-fundamentals / fundamental-signal modules are retained as INACTIVE, reusable capabilities only. There is NO live companyfacts acquisition wired into the canonical collect tick (no owned companyfacts exist; owned coverage is NOT fabricated). Stage 9.4 is therefore PRICE-FACTOR DISCOVERY plus PIT-FUNDAMENTALS SCAFFOLDING: all fundamental candidates stay DATA_HOLD and the readiness gate (_wg_pit_fundamentals) reports honest owned coverage. The NEXT explicit stage is a live, bounded companyfacts acquisition campaign (Option A) reusing this same controlled-campaign framework. enabled=false keeps the campaign deferred; set true only when a live per-CIK SEC companyfacts fetch is actually wired.",
+      "enabled": false,
+      "deferred": true,
+      "campaign_id": "sec_companyfacts",
+      "batch_size": 25,
+      "daily_completed_batch_cap": 6,
+      "max_consecutive_no_progress_batches": 2,
+      "first_concepts": [
+        "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "CostOfRevenue", "CostOfGoodsAndServicesSold", "GrossProfit", "Assets",
+        "Liabilities", "StockholdersEquity", "NetIncomeLoss",
+        "OperatingIncomeLoss", "CashAndCashEquivalentsAtCarryingValue"
+      ]
+    },
+    "fundamental_mvp": {
+      "signals": ["gross_profitability", "asset_growth", "balance_sheet_quality"],
+      "min_ciks": 50,
+      "min_scored_periods": 12
+    },
+    "final_holdout": {
+      "note": "A single reserved final out-of-sample window that can be consumed at most once - never re-mined across cycles.",
+      "key": "final_holdout_v1",
+      "description": "reserved final holdout - single-use selection-bias guard"
+    }
   }
 }

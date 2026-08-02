@@ -203,10 +203,13 @@ def test_02_enabled_runs_via_collect(tmp_path, monkeypatch):
     assert tt["tournament_attempted"] is True
     assert tt["tournament_status"] == "OK"
     assert tt["candidates_evaluated"] > 0
-    # the registry was created and seeded by the scheduled cycle.
+    # the registry was created and seeded by the scheduled cycle. The count now
+    # includes the Stage 9.4 pre-registered price-factor catalogue, which the
+    # production config enables the tick to seed autonomously.
+    from alpha_agent import price_factor_catalogue as _cat
     reg = T.CandidateRegistry(tmp_path / "tournament.sqlite")
-    assert sum(reg.counts_by_state().values()) == len(
-        T.default_candidate_specs())
+    assert sum(reg.counts_by_state().values()) == (
+        len(T.default_candidate_specs()) + len(_cat.catalogue_specs()))
     reg.close()
 
 
@@ -270,7 +273,9 @@ def test_06_registry_survives_restart(tmp_path, monkeypatch):
     # a second process reopens the SAME registry and sees the same state.
     reg2 = T.CandidateRegistry(tmp_path / "tournament.sqlite")
     assert reg2.counts_by_state() == counts
-    assert sum(counts.values()) == len(T.default_candidate_specs())
+    from alpha_agent import price_factor_catalogue as _cat
+    assert sum(counts.values()) == (
+        len(T.default_candidate_specs()) + len(_cat.catalogue_specs()))
     reg2.close()
 
 

@@ -3389,11 +3389,60 @@ def build_production_autonomy_handlers(cfg: dict, *,
             return _ar.OUTCOME_COMPLETED, detail
         return None  # not an event family — fall through to the price campaign
 
+    def _stage9_4_price_experiment(job, spec, feature):
+        """Stage 9.4 release closure: evaluate ONE pre-registered NEW price factor
+        on the SAME owned Norgate panel and return an ingestible single-feature
+        Stage 5 row (the canonical CAT_EXPERIMENT path for a tournament
+        revalidation). Read-only; never promotes, never mutates operational
+        state."""
+        from . import price_factors as _pf94
+        panel = _panel()
+        if not panel:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                "real_work": "stage9_4_price_factor_experiment",
+                "feature": feature, "reason": "no price panel (no MARKET_BAR data)"}
+        hz = int((spec or {}).get("horizon_days") or 21)
+        rb = (spec or {}).get("rebalance") or "monthly"
+        try:
+            nf = _pf94.run_new_price_factor_campaign(
+                panel, features=[feature], horizon_days=hz, rebalance=rb)
+        except Exception as exc:  # noqa: BLE001 - isolate a single bad factor
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                "real_work": "stage9_4_price_factor_experiment", "feature": feature,
+                "reason": "compute_error:%s" % type(exc).__name__}
+        rows = [r for r in nf.get("results", []) if r.get("feature") == feature]
+        row = rows[0] if rows else {}
+        # Persist a COMPACT row: drop the transient heavy per-period series /
+        # market features - the ingester only needs the scalar metrics + rank_ic_t.
+        compact = {k: v for k, v in row.items()
+                   if k not in ("_periods_series", "market_features")}
+        detail = {"real_work": "stage9_4_price_factor_experiment",
+                  "feature": feature, "horizon_days": hz, "rebalance": rb,
+                  "candidate_id": (job.payload or {}).get("candidate_id"),
+                  "revalidation_of": (spec or {}).get("revalidation_of"),
+                  "panel_symbols": len(panel), "panel_start": panel_start,
+                  "row": compact, "decision": row.get("decision"),
+                  "no_automatic_promotion": True}
+        if compact.get("rank_ic_t") is None:
+            detail["reason"] = ("insufficient owned history for %s at horizon %d"
+                                % (feature, hz))
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
+        return _ar.OUTCOME_COMPLETED, detail
+
     def _h_experiment(job):
-        if str((job.payload or {}).get("kind")) == "event":
+        payload = job.payload or {}
+        if str(payload.get("kind")) == "event":
             ev = _event_experiment(job)
             if ev is not None:
                 return ev
+        # Stage 9.4: a pre-registered NEW price-factor revalidation the tournament
+        # generated is evaluated by THIS production handler (not a legacy feature).
+        _spec = payload.get("spec") or {}
+        _feat = _spec.get("feature") or payload.get("feature")
+        if payload.get("tournament") and _feat:
+            from . import price_factors as _pf94
+            if _feat in _pf94.COMPUTABLE_FEATURES:
+                return _stage9_4_price_experiment(job, _spec, _feat)
         res, panel, err = _campaign({"residual_momentum", "momentum_accel",
                                      "vol_scaled_momentum", "short_term_reversal",
                                      "low_volatility"})
@@ -4100,6 +4149,22 @@ def build_production_autonomy_handlers(cfg: dict, *,
                    "only then wire a FUNDAMENTAL evaluation adapter that emits "
                    "the canonical Stage 9 evidence contract"],
                "next_action": nxt, **summ}
+        # Stage 9.4 Track F: per-signal MVP readiness via the fundamental-signal
+        # family evaluation adapter (deterministic fallback, explicit missing).
+        # The canonical evidence contract is only attempted once a signal's
+        # company/period coverage passes; owned facts stay a hard floor.
+        try:
+            from . import fundamental_signals as _fsig
+            cov["fundamental_mvp_readiness"] = {
+                sig: _fsig.coverage_ready(store, sig, scored_periods=0,
+                                          min_ciks=min_ciks, min_periods=12)
+                for sig in _fsig.SIGNALS}
+            cov["companyfacts_campaign_id"] = "sec_companyfacts"
+            cov["stage9_4_materialization"] = (
+                "alpha_agent.sec_companyfacts.materialize -> "
+                "pit_fundamentals -> fundamental_signals")
+        except Exception:  # noqa: BLE001 - readiness enrichment is best-effort
+            pass
         return sufficient, cov
 
     # dependency -> (measure_fn, acquisition_campaign_or_None, acquirable_now)
@@ -4412,7 +4477,11 @@ def run_tournament_tick(cfg: dict, *, queue=None, registry=None,
                        == evidence_date)
             if not already:
                 try:
-                    campaign_result = _tt.build_owned_price_campaign(cfg)
+                    _s94 = (cfg9.get("stage9_4") or {}) if isinstance(cfg9, dict) \
+                        else {}
+                    campaign_result = _tt.build_owned_price_campaign(
+                        cfg, new_factors=bool(_s94.get("evaluate_price_catalogue")),
+                        stage9_4_cfg=_s94)
                     campaign_ran = campaign_result is not None
                     if campaign_ran and evidence_date is not None:
                         registry.set_meta("last_campaign_date", evidence_date)
