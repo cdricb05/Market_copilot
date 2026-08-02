@@ -131,8 +131,35 @@ class CampaignStore:
         conn = self._connect()
         try:
             conn.executescript(_SCHEMA_SQL)
+            self._migrate_revision_columns(conn)
         finally:
             conn.close()
+
+    # -- append-only revision / supersession migration (Stage 9.5 Blocker 6) --- #
+    # Scope changes (e.g. survivorship -> current universe) are handled by an
+    # AUDITED, APPEND-ONLY supersession: the prior campaign is flagged SUPERSEDED
+    # (its symbol + batch history is never deleted and stays queryable) and a new
+    # linked revision becomes ACTIVE. These columns are added idempotently so an
+    # existing live campaign DB is migrated in place without rewriting any row.
+    _REVISION_COLUMNS = (
+        ("base_campaign_id", "TEXT"),
+        ("revision", "INTEGER NOT NULL DEFAULT 1"),
+        ("status", "TEXT NOT NULL DEFAULT 'ACTIVE'"),
+        ("superseded_by", "TEXT"),
+        ("supersedes", "TEXT"),
+        ("superseded_at", "TEXT"),
+    )
+
+    def _migrate_revision_columns(self, conn: sqlite3.Connection) -> None:
+        have = {r["name"] for r in conn.execute("PRAGMA table_info(campaign)")}
+        for name, decl in self._REVISION_COLUMNS:
+            if name not in have:
+                conn.execute("ALTER TABLE campaign ADD COLUMN %s %s"
+                             % (name, decl))
+        # Backfill: a pre-existing campaign is its own revision-1 base (never a
+        # row rewrite of symbol/batch state - only the new metadata columns).
+        conn.execute("UPDATE campaign SET base_campaign_id=campaign_id "
+                     "WHERE base_campaign_id IS NULL")
 
     # -- campaign lifecycle ------------------------------------------------- #
     def ensure_campaign(self, campaign_id: str, *, kind: str,
@@ -158,11 +185,13 @@ class CampaignStore:
                     conn.execute(
                         "INSERT INTO campaign(campaign_id,kind,run_mode,"
                         "universe_source,universe_fingerprint,batch_size,"
-                        "max_symbol_attempts,created_at,updated_at) VALUES"
-                        "(?,?,?,?,?,?,?,?,?)",
+                        "max_symbol_attempts,created_at,updated_at,"
+                        "base_campaign_id,revision,status) VALUES"
+                        "(?,?,?,?,?,?,?,?,?,?,?,?)",
                         (campaign_id, kind, run_mode, universe_source,
                          universe_fingerprint, int(batch_size),
-                         int(max_symbol_attempts), now, now))
+                         int(max_symbol_attempts), now, now,
+                         campaign_id, 1, "ACTIVE"))
                 else:
                     conn.execute(
                         "UPDATE campaign SET run_mode=?, universe_source=?,"
@@ -309,6 +338,12 @@ class CampaignStore:
                 "kind": meta["kind"], "run_mode": meta["run_mode"],
                 "universe_source": meta["universe_source"],
                 "universe_fingerprint": meta["universe_fingerprint"],
+                "base_campaign_id": (meta["base_campaign_id"]
+                                     if meta["base_campaign_id"]
+                                     else campaign_id),
+                "revision": _int_or_none(meta["revision"]) or 1,
+                "status": meta["status"] or "ACTIVE",
+                "superseded_by": meta["superseded_by"],
                 "per_job_symbol_batch_size": int(meta["batch_size"]),
                 "full_universe_target_count": int(total),
                 "completed_symbol_count": int(completed),
@@ -373,6 +408,134 @@ class CampaignStore:
                         "SELECT * FROM campaign ORDER BY campaign_id")]
         finally:
             conn.close()
+
+    # -- append-only revision / supersession (Stage 9.5 Blocker 6) ----------- #
+    def active_revision(self, base_id: str) -> Optional[str]:
+        """The campaign_id of the ACTIVE revision for ``base_id`` (deterministic:
+        the highest-revision row still flagged ACTIVE). Restart-safe - selection
+        is a pure query over durable rows. Falls back to a legacy same-id campaign
+        when the revision columns were never populated."""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT campaign_id FROM campaign WHERE base_campaign_id=? AND"
+                " status='ACTIVE' ORDER BY revision DESC LIMIT 1",
+                (base_id,)).fetchone()
+            if row:
+                return row["campaign_id"]
+            row = conn.execute("SELECT campaign_id FROM campaign WHERE"
+                               " campaign_id=?", (base_id,)).fetchone()
+            return row["campaign_id"] if row else None
+        finally:
+            conn.close()
+
+    def campaign_revisions(self, base_id: str) -> "list[dict]":
+        """The full APPEND-ONLY revision history for ``base_id`` (active +
+        superseded), oldest revision first. Every prior revision remains queryable
+        - supersession never deletes symbol or batch rows."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT campaign_id, revision, status, universe_source,"
+                " universe_fingerprint, superseded_by, supersedes, superseded_at"
+                " FROM campaign WHERE base_campaign_id=? OR campaign_id=?"
+                " ORDER BY revision ASC, campaign_id ASC",
+                (base_id, base_id)).fetchall()
+            seen = set()
+            out = []
+            for r in rows:
+                if r["campaign_id"] in seen:
+                    continue
+                seen.add(r["campaign_id"])
+                out.append({"campaign_id": r["campaign_id"],
+                            "revision": _int_or_none(r["revision"]) or 1,
+                            "status": r["status"] or "ACTIVE",
+                            "universe_source": r["universe_source"],
+                            "universe_fingerprint": r["universe_fingerprint"],
+                            "superseded_by": r["superseded_by"],
+                            "supersedes": r["supersedes"],
+                            "superseded_at": r["superseded_at"]})
+            return out
+        finally:
+            conn.close()
+
+    def ensure_campaign_revision(self, base_id: str, *, kind: str,
+                                 universe: Iterable[str], universe_source: str,
+                                 batch_size: int = 25,
+                                 run_mode: str = "production",
+                                 universe_fingerprint: Optional[str] = None,
+                                 max_symbol_attempts:
+                                 int = _DEFAULT_MAX_SYMBOL_ATTEMPTS) -> dict:
+        """Scope-aware, APPEND-ONLY campaign resolution (Blocker 6).
+
+        * No campaign yet -> create revision 1 (campaign_id == base_id).
+        * Active revision with the SAME universe fingerprint (or an unknown/None
+          fingerprint) -> reconcile append-only on the active revision (the normal
+          growth path; never resets a COMPLETED symbol).
+        * Active revision with a DIFFERENT fingerprint (a genuine scope change) ->
+          SUPERSEDE it (flag it SUPERSEDED, never delete its rows) and create a
+          new linked revision as the ACTIVE campaign over the new universe.
+
+        Returns ``{campaign_id (active), base_campaign_id, revision, superseded,
+        created, reconciled}``. This REPLACES manual deletion of mis-seeded
+        campaign rows: prior state is always preserved and queryable."""
+        active = self.active_revision(base_id)
+        if active is None:
+            res = self.ensure_campaign(
+                base_id, kind=kind, universe=universe,
+                universe_source=universe_source, batch_size=batch_size,
+                run_mode=run_mode, universe_fingerprint=universe_fingerprint,
+                max_symbol_attempts=max_symbol_attempts)
+            return {"campaign_id": base_id, "base_campaign_id": base_id,
+                    "revision": 1, "superseded": None, "created": True,
+                    "reconciled": False, "added_symbols": res["added_symbols"]}
+        conn = self._connect()
+        try:
+            meta = self._meta(conn, active)
+        finally:
+            conn.close()
+        cur_fp = meta["universe_fingerprint"] if meta is not None else None
+        cur_rev = (_int_or_none(meta["revision"]) or 1) if meta is not None else 1
+        if universe_fingerprint is None or cur_fp is None \
+                or universe_fingerprint == cur_fp:
+            res = self.ensure_campaign(
+                active, kind=kind, universe=universe,
+                universe_source=universe_source, batch_size=batch_size,
+                run_mode=run_mode, universe_fingerprint=universe_fingerprint,
+                max_symbol_attempts=max_symbol_attempts)
+            return {"campaign_id": active, "base_campaign_id": base_id,
+                    "revision": cur_rev, "superseded": None, "created": False,
+                    "reconciled": True, "added_symbols": res["added_symbols"]}
+        # Genuine scope change -> append-only supersession.
+        new_rev = cur_rev + 1
+        new_id = "%s#r%d" % (base_id, new_rev)
+        self.ensure_campaign(
+            new_id, kind=kind, universe=universe,
+            universe_source=universe_source, batch_size=batch_size,
+            run_mode=run_mode, universe_fingerprint=universe_fingerprint,
+            max_symbol_attempts=max_symbol_attempts)
+        now = self._clock()
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "UPDATE campaign SET status='SUPERSEDED', superseded_by=?,"
+                    " superseded_at=?, updated_at=? WHERE campaign_id=?",
+                    (new_id, now, now, active))
+                conn.execute(
+                    "UPDATE campaign SET base_campaign_id=?, revision=?,"
+                    " status='ACTIVE', supersedes=?, updated_at=? WHERE"
+                    " campaign_id=?", (base_id, new_rev, active, now, new_id))
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            finally:
+                conn.close()
+        return {"campaign_id": new_id, "base_campaign_id": base_id,
+                "revision": new_rev, "superseded": active, "created": True,
+                "reconciled": False}
 
     # -- append-only batch history (Stage 9.3) ----------------------------- #
     # The batch log is the durable, restart-safe source of truth for the

@@ -196,9 +196,10 @@
       "redundant_abs_corr": 0.90
     },
     "companyfacts_campaign": {
-      "note": "Stage 9.4 release closure DECISION = OPTION B (DEFER HONESTLY). The SEC companyfacts parser (alpha_agent.sec_companyfacts) and the PIT-fundamentals / fundamental-signal modules are retained as INACTIVE, reusable capabilities only. There is NO live companyfacts acquisition wired into the canonical collect tick (no owned companyfacts exist; owned coverage is NOT fabricated). Stage 9.4 is therefore PRICE-FACTOR DISCOVERY plus PIT-FUNDAMENTALS SCAFFOLDING: all fundamental candidates stay DATA_HOLD and the readiness gate (_wg_pit_fundamentals) reports honest owned coverage. The NEXT explicit stage is a live, bounded companyfacts acquisition campaign (Option A) reusing this same controlled-campaign framework. enabled=false keeps the campaign deferred; set true only when a live per-CIK SEC companyfacts fetch is actually wired.",
+      "note": "Stage 9.4 release closure DECISION = OPTION B (DEFER HONESTLY). SUPERSEDED BY stage9_5 (Option A now ACTIVE): the live, bounded per-CIK SEC companyfacts acquisition + fundamental activation is wired under the stage9_5 block and configs/alpha_agent/stage8_autonomy.json autonomy.collect_drain.companyfacts_continuation. This Stage 9.4 block is retained only as the historical deferral record; the live acquisition path is governed entirely by stage9_5. Leaving enabled=false here is intentional (this block no longer gates anything - stage9_5.enabled + companyfacts_continuation.enabled do).",
       "enabled": false,
       "deferred": true,
+      "superseded_by": "stage9_5",
       "campaign_id": "sec_companyfacts",
       "batch_size": 25,
       "daily_completed_batch_cap": 6,
@@ -219,6 +220,60 @@
       "note": "A single reserved final out-of-sample window that can be consumed at most once - never re-mined across cycles.",
       "key": "final_holdout_v1",
       "description": "reserved final holdout - single-use selection-bias guard"
+    }
+  },
+  "stage9_5": {
+    "note": "Stage 9.5 RELEASE CLOSURE explicitly SPLITS the stage: 9.5A = current-universe SEC companyfacts ACQUISITION (release-ready, keeps collecting); 9.5B = survivorship-safe HISTORICAL fundamental EVALUATION (BLOCKED until an owned historical ticker->CIK mapping + per-rebalance readiness both pass). The AlphaAgent autonomously drives a BOUNDED, restart-safe SEC companyfacts DATA_ACQUISITION campaign (reusing the proven sec_edgar collector's companyfacts lane, the content-addressed immutable RawArchive, the durable CampaignStore cursor and the existing collect-cycle drain) and materializes leakage-safe per-(CIK,concept,fiscal-period) PIT observations (availability = SEC filed date; restatements preserved; no future-restatement look-ahead). The current company_tickers.json map is CURRENT-ONLY, so the current constituents are NOT a valid historical backtest universe; until an owned survivorship-safe historical mapping exists the collected facts are ACQUISITION / forward-evidence ONLY and NO historical fundamental experiment is generated (release-model OPTION B). No gate is lowered; coverage alone never promotes a candidate; a fundamental candidate stays DATA_HOLD (an honest all-DATA_HOLD outcome is acceptable). Nothing operational is mutated; no automatic promotion or champion replacement.",
+    "version": "1.1.0",
+    "enabled": true,
+    "release_model": {
+      "stage_9_5a_acquisition": "current-universe SEC companyfacts acquisition - RELEASE-READY (may continue collecting the current SEC universe independently)",
+      "stage_9_5b_historical_evaluation": "survivorship-safe historical fundamental evaluation - BLOCKED until historical ticker->CIK mapping + per-rebalance readiness both pass",
+      "decision": "OPTION_B_DEFER_HISTORICAL_EVALUATION",
+      "next_stage": "build an owned survivorship-safe historical security-to-CIK mapping (Norgate historical identifiers + membership history + SEC former-name metadata) with effective start/end dates, ticker-reuse and delisting distinction, a mapping-version hash and an explicit ambiguous/unmapped backlog"
+    },
+    "historical_universe": {
+      "note": "Owned survivorship-safe HISTORICAL ticker->CIK mapping status. OPTION B: none is owned yet (company_tickers.json resolves current entities only), so mapping_available is false and Stage 9.5B stays deferred. A current-only map is NEVER treated as a historical mapping. Flip mapping_available to true only when a genuine versioned historical mapping artifact exists.",
+      "mapping_available": false,
+      "mapping_source": null,
+      "mapping_version_hash": null
+    },
+    "per_rebalance_readiness": {
+      "note": "PER-DATE historical readiness thresholds (replaces aggregate-CIK-only readiness). A fundamental candidate is eligible ONLY when EVERY threshold passes on the survivorship-safe universe as it stood on each historical rebalance date AND a historical mapping is available. Current-universe aggregate counts alone never mark a candidate sufficient.",
+      "min_eligible_names_per_rebalance": 20,
+      "min_coverage_pct": 60.0,
+      "min_scored_periods": 12,
+      "min_subperiod_coverage": 0.60,
+      "min_historical_mapping_coverage_pct": 60.0
+    },
+    "companyfacts_campaign": {
+      "note": "The dedicated live companyfacts campaign. Acquisition bounds (batch size, daily cap, no-progress stop) are enforced INLINE by the runtime companyfacts handler from the durable append-only campaign_batch log and are configured in configs/alpha_agent/stage8_autonomy.json (autonomy.collect_drain.companyfacts_continuation). This block records the concept scope and the fundamental readiness thresholds the tournament side uses.",
+      "campaign_id": "sec_companyfacts",
+      "origin": "campaign-continuation",
+      "category": "DATA_ACQUISITION",
+      "lane": "acq.sec_companyfacts",
+      "first_concepts": [
+        "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "CostOfRevenue", "CostOfGoodsAndServicesSold", "GrossProfit", "Assets",
+        "Liabilities", "StockholdersEquity", "NetIncomeLoss",
+        "OperatingIncomeLoss", "CashAndCashEquivalentsAtCarryingValue"
+      ]
+    },
+    "fundamental_experiments": {
+      "note": "Stage 9.5B historical fundamental EXPERIMENT generation. The production handler is implemented, but under OPTION B it is GATED OFF by the SAFETY SWITCH: historical_evaluation_enabled=false AND no survivorship-safe historical ticker->CIK mapping, so fundamental_readiness.historical_fundamental_experiment_allowed returns false and generate_stage9_5_fundamental_followups produces ZERO jobs with the single diagnostic HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY. Candidates stay DATA_HOLD; no transition on current-survivor historical results; no shadow book; no promotion. When (a) a versioned historical mapping is available and (b) per-rebalance readiness passes, set historical_evaluation_enabled=true to let the AGENT enqueue a bounded, spec-deduplicated CAT_EXPERIMENT (origin stage9-tournament, lane tournament.stage9_5_fundamental) that evaluates a genuine cross-sectional Stage 9 evidence contract (rank-IC, TRUE decile spread, cost/turnover, forward-only purged validation, block bootstrap, orthogonality) imported exactly once. No gate is ever lowered.",
+      "enabled": true,
+      "historical_evaluation_enabled": false,
+      "require_survivorship_safe_mapping": true,
+      "not_ready_diagnostic": "HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY",
+      "max_per_cycle": 1,
+      "horizon_days": 63,
+      "rebalance": "quarterly"
+    },
+    "fundamental_mvp": {
+      "signals": ["gross_profitability", "asset_growth", "balance_sheet_quality"],
+      "min_ciks": 50,
+      "min_scored_periods": 12,
+      "min_coverage_pct": 60.0
     }
   }
 }

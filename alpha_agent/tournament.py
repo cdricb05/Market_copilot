@@ -1863,6 +1863,88 @@ def generate_stage9_4_followups(registry: "CandidateRegistry", cfg: dict, *,
     return {"generated": generated, "count": len(generated), "enabled": True}
 
 
+def generate_stage9_5_fundamental_followups(registry: "CandidateRegistry",
+                                            cfg: dict, *, queue=None) -> dict:
+    """Stage 9.5: the AGENT autonomously enqueues a BOUNDED, pre-registered PIT
+    FUNDAMENTAL experiment onto the shared durable queue - but ONLY for a
+    fundamental candidate whose owned PIT companyfacts coverage has been MEASURED
+    sufficient (the weakest-gate recorded ``sufficient=True`` on the candidate).
+
+    It is a genuine canonical queue experiment (category EXPERIMENT, origin
+    ``stage9-tournament``, lane ``tournament.stage9_5_fundamental``) that the
+    production handler evaluates against a real cross-sectional Stage 9 evidence
+    contract over owned PIT fundamentals + owned survivorship-safe prices, imported
+    exactly once. Deterministic, spec-deduplicated and capped at
+    ``stage9_5.fundamental_experiments.max_per_cycle``. Coverage-gated: while owned
+    coverage is insufficient (the honest live state) NOTHING is generated and the
+    candidate stays DATA_HOLD - coverage alone never promotes it. Config-gated;
+    never lowers a gate, never forces a KEEP, never mutates operational state."""
+    from . import autonomous_research as _ar
+    from . import fundamental_readiness as _fr
+    s95 = (cfg.get("stage9_5") or {}) if isinstance(cfg, dict) else {}
+    fx = s95.get("fundamental_experiments") or {}
+    if not s95.get("enabled") or not fx.get("enabled"):
+        return {"generated": [], "count": 0, "enabled": False}
+    # Stage 9.5B SAFETY SWITCH (Blocker 7): a HISTORICAL fundamental experiment is
+    # generated ONLY when a survivorship-safe historical ticker->CIK mapping AND
+    # the config flag both pass. Under OPTION B this is off, so ZERO jobs are
+    # generated and every fundamental candidate stays DATA_HOLD - aggregate
+    # current-CIK coverage can NEVER unlock a survivorship-biased historical
+    # backtest. Per-rebalance readiness is not measurable without a historical
+    # universe (readiness=None), so the gate is refused honestly.
+    gate = _fr.historical_fundamental_experiment_allowed(cfg, readiness=None)
+    if not gate["allowed"]:
+        return {"generated": [], "count": 0, "enabled": True,
+                "blocker": gate["diagnostic"],
+                "historical_evaluation_enabled": gate[
+                    "historical_evaluation_enabled"],
+                "historical_mapping_available": gate["mapping_available"],
+                "reason": gate["reason"]}
+    signals = ((s95.get("fundamental_mvp") or {}).get("signals")
+               or ["gross_profitability", "asset_growth",
+                   "balance_sheet_quality"])
+    max_fu = max(0, int(_f(fx.get("max_per_cycle")) or 1))
+    hz = int(_f(fx.get("horizon_days")) or 63)
+    rb = fx.get("rebalance", "quarterly")
+    generated: list[dict] = []
+    for feature in sorted(signals):
+        if len(generated) >= max_fu:
+            break
+        cand = _candidate_for_feature(registry, feature)
+        if cand is None:
+            continue
+        # Only when owned PIT coverage has been MEASURED sufficient (the weakest-
+        # gate persisted this). This is the readiness gate - coverage alone still
+        # never promotes; the experiment merely BECOMES eligible to run.
+        cov = registry.latest_data_coverage(cand["candidate_id"]) or {}
+        if not cov.get("sufficient"):
+            continue
+        if cand.get("lifecycle_state") not in (DATA_HOLD, PROPOSED, TESTING):
+            continue
+        vspec = {"feature": feature, "horizon_days": hz, "rebalance": rb,
+                 "template": "fundamental_momentum_rank",
+                 "study_kind": "stage9_5_fundamental",
+                 "fundamental_of": cand["candidate_id"]}
+        sh = registry.try_register_generated(
+            strategy="stage9_5_fundamental", spec=vspec,
+            candidate_id=cand["candidate_id"])
+        if sh is None:
+            continue  # already generated this exact fundamental experiment
+        job_id = None
+        if queue is not None:
+            job_id = queue.enqueue(
+                _ar.CAT_EXPERIMENT, lane="tournament.stage9_5_fundamental",
+                payload={"tournament": True,
+                         "candidate_id": cand["candidate_id"],
+                         "strategy": "stage9_5_fundamental",
+                         "feature": feature, "spec": vspec},
+                priority=3, origin="stage9-tournament")
+        generated.append({"strategy": "stage9_5_fundamental",
+                          "candidate_id": cand["candidate_id"],
+                          "feature": feature, "spec_hash": sh, "job_id": job_id})
+    return {"generated": generated, "count": len(generated), "enabled": True}
+
+
 def _variant_plans(cand: dict, feature: Optional[str], base_hz: int,
                    horizons, rebals, cost_grid, max_neighbors) -> list[tuple]:
     """Deterministic ordered (strategy, spec) plans for one candidate."""
@@ -2064,6 +2146,16 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
         registry.record_change("STAGE94_FOLLOWUP_ERROR", None,
                                {"error": type(exc).__name__})
         followups = {"generated": [], "count": 0, "enabled": False}
+    # Stage 9.5 release: bounded, config-gated, coverage-GATED canonical PIT
+    # fundamental experiment generation. Emits nothing until owned coverage is
+    # measured sufficient (honest all-DATA_HOLD while coverage is thin).
+    try:
+        fund_followups = generate_stage9_5_fundamental_followups(
+            registry, cfg, queue=queue)
+    except Exception as exc:  # noqa: BLE001 - never break the tick
+        registry.record_change("STAGE95_FOLLOWUP_ERROR", None,
+                               {"error": type(exc).__name__})
+        fund_followups = {"generated": [], "count": 0, "enabled": False}
     shadows = (maybe_activate_shadow_books(
         registry, cfg, inception_provider=inception_provider,
         evidence_date=evidence_date) if activate_shadows else [])
@@ -2081,6 +2173,7 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
     registry.record_change("TOURNAMENT_CYCLE", None, {
         "evaluated": len(evaluated), "generated": generated["count"],
         "stage9_4_followups": followups.get("count", 0),
+        "stage9_5_fundamental_followups": fund_followups.get("count", 0),
         "shadow_books_activated": len(shadows),
         "shadow_books_advanced": len(advanced),
         "experiments_ingested": ingested.get("imported", 0),
@@ -2092,13 +2185,16 @@ def run_tournament_cycle(registry: "CandidateRegistry", cfg: dict, *,
         "generated_experiments": generated["count"],
         "stage9_4_followups": followups,
         "stage9_4_followups_generated": followups.get("count", 0),
+        "stage9_5_fundamental_followups": fund_followups,
+        "stage9_5_fundamental_followups_generated": fund_followups.get("count", 0),
         "shadow_books_activated": shadows,
         "shadow_book_advances": shadow_advances,
         "shadow_books_advanced": len(advanced),
         "counts_by_state": counts_state, "counts_by_family": counts_family,
         "variants_by_family": variants_by_family(registry),
         "unresolved_candidates": unresolved,
-        "leave_work_queued": unresolved > 0 or generated["count"] > 0,
+        "leave_work_queued": (unresolved > 0 or generated["count"] > 0
+                              or fund_followups.get("count", 0) > 0),
     }
 
 
@@ -2397,6 +2493,7 @@ __all__ = [
     "ingest_completed_experiments", "result_hash_for",
     # generation / leaderboard / tick
     "generate_next_experiments", "generate_stage9_4_followups",
+    "generate_stage9_5_fundamental_followups",
     "variants_by_family", "build_leaderboard", "run_tournament_cycle",
     "seed_stage9_4_catalogue",
     # read-only payloads

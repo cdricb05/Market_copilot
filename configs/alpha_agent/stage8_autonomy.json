@@ -49,9 +49,10 @@
       "budget_seconds": 120,
       "handler_time_budget_seconds": 90,
       "allowed_origins": ["stage9-tournament", "stage9-weakest-gate"],
-      "allowed_lane_prefixes": ["tournament.", "acq.sec_form4_8k"],
+      "allowed_lane_prefixes": ["tournament.", "acq.sec_form4_8k", "acq.sec_companyfacts"],
       "allowed_categories": ["DATA_VALIDATION", "DATA_ACQUISITION", "EXPERIMENT"],
       "stage9_4_note": "Stage 9.4 release closure adds EXPERIMENT to PASS A's category allowlist ONLY. Combined with the UNCHANGED allowed_origins (stage9-tournament / stage9-weakest-gate) and allowed_lane_prefixes (tournament. / acq.sec_form4_8k), which are ANDed inside claim_next, this admits ONLY tournament-generated canonical experiments (origin=stage9-tournament AND lane GLOB tournament.* AND category=EXPERIMENT) - chiefly the bounded tournament.stage9_4_revalidation jobs the tick generates. A legacy EXPERIMENT job with any other origin or lane is still never claimable. max_jobs_per_cycle stays 1; claim_next orders priority DESC so a priority-3 experiment is claimed before a priority-2 weakest-gate validation. The revalidation handler runs INLINE on the owned Norgate panel (local, no network) and returns a single-feature Stage 5 row the next tick ingests exactly once.",
+      "stage9_5_note": "Stage 9.5 adds the EXACT lane acq.sec_companyfacts to PASS A's allowed_lane_prefixes ONLY (still ANDed with allowed_origins stage9-weakest-gate + category DATA_ACQUISITION). This admits ONLY the companyfacts campaign BOOTSTRAP job (origin=stage9-weakest-gate AND lane=acq.sec_companyfacts AND category=DATA_ACQUISITION) that the weakest-gate / bootstrap seeder enqueues at a priority above the tournament experiments so the live companyfacts acquisition actually runs; the SELF-CONTINUATIONS (origin=campaign-continuation) are admitted separately and EXACTLY by companyfacts_continuation below (PASS C). No other campaign-continuation lane or category is claimable by either. Nothing operational is mutated.",
       "sec_continuation": {
         "note": "Stage 9.3 controlled SEC Form 4 / 8-K campaign-continuation. Admitted ONLY for the exact scoped triple below; the daily_completed_batch_cap and max_consecutive_no_progress_batches are enforced inline by _run_sec_cik_campaign from the durable campaign_batch log. Set enabled=false to revert to the Stage-9.2 Option-1 paused policy.",
         "enabled": true,
@@ -60,6 +61,27 @@
         "allowed_categories": ["DATA_ACQUISITION"],
         "daily_completed_batch_cap": 6,
         "max_consecutive_no_progress_batches": 2
+      },
+      "companyfacts_continuation": {
+        "note": "Stage 9.5 CONTROLLED SEC companyfacts campaign-continuation (PASS C). Runs ONLY when pass A and pass B both claimed nothing (so at most ONE job still executes per cycle) and admits EXACTLY the scoped triple origin=campaign-continuation AND lane=acq.sec_companyfacts AND category=DATA_ACQUISITION. Because the three claim_next dimensions are ANDed, no other campaign-continuation lane/category is claimable here. batch_size (default 5) and max_batch_size (hard 10) bound the per-batch CIK count; daily_completed_batch_cap (<=4 completed batches/UTC day) and max_consecutive_no_progress_batches (stop after 2 stalled batches) are DERIVED from the durable append-only campaign_batch log (restart-safe) and enforced INLINE by _run_companyfacts_campaign - it declines to run and does NOT chain when complete/capped/stalled; a progress batch chains the next continuation only while incomplete and under the daily cap; a no-progress batch never chains. bootstrap_priority (5) is the priority the seeder / weakest-gate use for the FIRST (origin=stage9-weakest-gate) job so the live acquisition runs ahead of the tournament experiments. first_concepts overrides the collector companyfacts_concepts with the exact Stage 9.5 concept scope. The companyfacts lane fetches ONLY per-CIK XBRL companyfacts (collect_companyfacts) - the daily-index / form4 / 8-K / submissions lanes are switched off for this campaign so each batch stays bounded to the CIK companyfacts documents. Set enabled=false to keep Stage 9.5 acquisition deferred.",
+        "enabled": true,
+        "allowed_origins": ["campaign-continuation"],
+        "allowed_lane_prefixes": ["acq.sec_companyfacts"],
+        "allowed_categories": ["DATA_ACQUISITION"],
+        "batch_size": 5,
+        "max_batch_size": 10,
+        "daily_completed_batch_cap": 4,
+        "max_consecutive_no_progress_batches": 2,
+        "bootstrap_priority": 5,
+        "fairness_note": "Stage 9.5 DETERMINISTIC FAIRNESS. PASS C is claimable only when PASS A and PASS B are idle, but the Stage 9.4 tournament revalidation loop registers one PASS-A job every cycle, so without a fairness rule PASS C could wait an unbounded number of cycles. run_fair_drain (alpha_agent/drain_fairness.py) counts, in a durable restart-safe sqlite under the Stage 8 autonomy root (scheduler_fairness.sqlite - NOT an operational-ledger file, so the ledger digest is unaffected), the completed collect cycles since the companyfacts continuation last executed. Once that idle count reaches fairness_max_idle_cycles it PROMOTES PASS C ahead of PASS A for ONE cycle (still exactly one job, max_jobs_per_cycle stays 1, the exact origin/lane/category scope is unchanged) - but ONLY if an eligible continuation is queued AND the campaign is not stopped, so the daily_completed_batch_cap and max_consecutive_no_progress_batches ALWAYS win over fairness. Executing the continuation resets the counter, so the promotion fires at most once per (fairness_max_idle_cycles + 1) cycles and the tournament experiments are never permanently starved. Set fairness_enabled=false to revert to the pure pass-A-first order.",
+        "fairness_enabled": true,
+        "fairness_max_idle_cycles": 2,
+        "first_concepts": [
+          "Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+          "CostOfRevenue", "CostOfGoodsAndServicesSold", "GrossProfit", "Assets",
+          "Liabilities", "StockholdersEquity", "NetIncomeLoss",
+          "OperatingIncomeLoss", "CashAndCashEquivalentsAtCarryingValue"
+        ]
       }
     }
   },
@@ -101,6 +123,7 @@
       {"id": "norgate_prices", "runner": "norgate", "category": "DATA_ACQUISITION", "batch_size": 50},
       {"id": "eodhd_analyst", "runner": "analyst", "collector": "eodhd_analyst", "category": "PROSPECTIVE_SNAPSHOT", "batch_size": 25, "universe_scope": "current"},
       {"id": "sec_form4_8k", "runner": "sec_cik", "collector": "sec_edgar", "category": "DATA_ACQUISITION", "batch_size": 20},
+      {"id": "sec_companyfacts", "runner": "companyfacts", "collector": "sec_edgar", "category": "DATA_ACQUISITION", "batch_size": 5, "max_batch_size": 10, "universe_scope": "current", "note": "Stage 9.5 dedicated live per-CIK SEC companyfacts (XBRL) acquisition; drives ONLY the sec_edgar collect_companyfacts lane with the Stage 9.5 concept scope; own cursor + own daily/no-progress caps (autonomy.collect_drain.companyfacts_continuation). universe_scope=current: the free SEC company_tickers.json maps ONLY current entities to CIKs, so the acquisition universe is the current S&P 500 constituents (each fact still carries its own SEC filed date = PIT availability; the survivorship-safe delisted tickers have no current CIK map and are honestly not acquirable via this free lane)."},
       {"id": "sec_bulk_companyfacts", "runner": "bulk", "archive": "companyfacts", "category": "DATA_ACQUISITION", "batch_size": 1},
       {"id": "sec_bulk_submissions", "runner": "bulk", "archive": "submissions", "category": "DATA_ACQUISITION", "batch_size": 1}
     ]

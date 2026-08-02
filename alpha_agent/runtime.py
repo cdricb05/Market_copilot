@@ -1857,50 +1857,84 @@ class Runtime:
             # explicitly-empty allowlist executes nothing. Absent keys leave that
             # dimension unrestricted (offline/acceptance drains keep old
             # behaviour). The canonical production config restricts the drain to
-            # approved Stage-9 tournament-continuation work only.
-            allowed_cats = drain_cfg.get("allowed_categories")
-            if allowed_cats is None:
-                allowed_cats = drain_cfg.get("categories")
-            max_jobs = int(drain_cfg.get("max_jobs_per_cycle", 1))
+            # approved Stage-9 tournament-continuation work only. The precedence
+            # itself is applied inside ``drain_fairness.run_fair_drain``.
             budget = drain_cfg.get("budget_seconds")
-            # PASS A - the approved Stage-9 tournament-continuation allowlist
-            # (unchanged): stage9-tournament / stage9-weakest-gate work. The
-            # proven claim_next is NOT modified.
-            report = _ar.drain_jobs(
-                queue, handlers, max_jobs=max_jobs, categories=allowed_cats,
-                origins=drain_cfg.get("allowed_origins"),
-                lane_prefixes=drain_cfg.get("allowed_lane_prefixes"),
-                budget_seconds=budget)
-            # PASS B - Stage 9.3 CONTROLLED SEC campaign-continuation. Runs ONLY
-            # when pass A claimed nothing (so at most ONE job executes per cycle)
-            # and only for the EXACT scoped triple: origin campaign-continuation
-            # AND lane acq.sec_form4_8k AND category DATA_ACQUISITION. Because the
-            # three claim_next dimensions are ANDed, a campaign-continuation job
-            # on any OTHER lane/category is never claimed - "no other campaign-
-            # continuation lane may execute". The daily-batch cap and no-progress
-            # limit are enforced INSIDE the handler (see _run_sec_cik_campaign).
-            sec_cont = drain_cfg.get("sec_continuation") or {}
-            report["sec_continuation_enabled"] = bool(sec_cont.get("enabled"))
-            if sec_cont.get("enabled") and report.get("jobs_claimed", 0) == 0:
-                reportB = _ar.drain_jobs(
-                    queue, handlers, max_jobs=1,
-                    categories=sec_cont.get("allowed_categories"),
-                    origins=sec_cont.get("allowed_origins"),
-                    lane_prefixes=sec_cont.get("allowed_lane_prefixes"),
-                    budget_seconds=budget)
-                report["sec_continuation_pass"] = reportB
-                # Fold pass-B execution into the top-level counters so the
-                # heartbeat + live proof see the single SEC batch.
-                for k in ("jobs_claimed", "jobs_completed", "jobs_retryable",
-                          "jobs_blocked", "jobs_failed", "jobs_rejected",
-                          "handler_errors"):
-                    report[k] = int(report.get(k, 0)) + int(reportB.get(k, 0))
-                report["job_ids"] = list(report.get("job_ids") or []) + \
-                    list(reportB.get("job_ids") or [])
-                report["handled"] = list(report.get("handled") or []) + \
-                    list(reportB.get("handled") or [])
-                report["queue_depth_after"] = reportB.get(
-                    "queue_depth_after", report.get("queue_depth_after"))
+            # Stage 9.5: ensure the LIVE companyfacts campaign has a claimable
+            # bootstrap job (bounded, idempotent, respects the campaign's own stop
+            # conditions) BEFORE the passes claim, so the acquisition actually
+            # runs; PASS A admits it (origin stage9-weakest-gate, lane
+            # acq.sec_companyfacts) ahead of the tournament experiments. Never
+            # raises.
+            try:
+                cf_seed = ensure_companyfacts_bootstrap(
+                    queue, cfg8, clock=self.clock.iso)
+                if cf_seed:
+                    summary["companyfacts_bootstrap_job"] = cf_seed
+            except Exception:  # noqa: BLE001 - seeding never breaks the drain
+                pass
+            # Stage 9.5 DETERMINISTIC FAIRNESS. The bounded pass ordering (PASS A
+            # tournament-continuation allowlist; PASS B SEC Form4/8-K continuation
+            # iff A idle; PASS C SEC companyfacts continuation iff A and B idle) is
+            # executed by the SINGLE source of truth ``run_fair_drain`` so the
+            # durable fairness guarantee is applied by exactly the code the tests
+            # exercise. max_jobs_per_cycle stays 1 and the exact companyfacts
+            # origin/lane/category scope is unchanged. When the companyfacts
+            # continuation has been idle for at least ``fairness_max_idle_cycles``
+            # completed cycles, run_fair_drain PROMOTES PASS C ahead of PASS A for
+            # ONE cycle (still exactly one job) - but ONLY if an eligible
+            # continuation is queued AND the campaign is NOT stopped; the campaign's
+            # own daily-batch cap + consecutive-no-progress limit ALWAYS win over
+            # fairness. The durable idle counter lives in its own sqlite under the
+            # Stage 8 autonomy root (never an operational-ledger file), so it is
+            # restart-safe and never changes the operational-ledger fingerprint.
+            from . import drain_fairness as _df
+            cf_cont = drain_cfg.get("companyfacts_continuation") or {}
+            fair_store = None
+            cf_store = None
+            cf_cid = "sec_companyfacts"
+            campaign_stopped = False
+            if cf_cont.get("enabled"):
+                try:
+                    fair_store = _df.FairnessStore(
+                        stage8_autonomy_root(cfg8) / "scheduler_fairness.sqlite",
+                        clock=self.clock.iso)
+                    cf_store = stage8_campaign_store(cfg8, clock=self.clock.iso)
+                    _cov = cf_store.coverage(cf_cid)
+                    if _cov.get("exists"):
+                        from datetime import datetime as _dt, timezone as _tz
+                        _run_date = _dt.now(_tz.utc).date().isoformat()
+                        _stop = sec_continuation_stop_reason(
+                            is_complete=bool(_cov.get("is_complete")),
+                            completed_batches_today=cf_store.batches_on_date(
+                                cf_cid, _run_date),
+                            consecutive_no_progress=cf_store
+                            .consecutive_no_progress(cf_cid),
+                            daily_cap=int(
+                                cf_cont.get("daily_completed_batch_cap", 4)
+                                or 4),
+                            no_progress_max=int(
+                                cf_cont.get(
+                                    "max_consecutive_no_progress_batches", 2)
+                                or 2))
+                        campaign_stopped = _stop is not None
+                except Exception:  # noqa: BLE001 - fairness never breaks the drain
+                    fair_store = None
+
+            def _cf_cursor_after():
+                try:
+                    if cf_store is None:
+                        return None
+                    c = cf_store.coverage(cf_cid)
+                    return (int(c.get("acquisition_cursor", 0))
+                            if c.get("exists") else None)
+                except Exception:  # noqa: BLE001 - bookkeeping only, never fatal
+                    return None
+
+            report = _df.run_fair_drain(
+                queue, handlers, drain_cfg=drain_cfg, fair_store=fair_store,
+                campaign_stopped=campaign_stopped,
+                cursor_after=_cf_cursor_after, budget_seconds=budget)
             summary.update(report)
             summary["drain_status"] = "OK"
         except Exception as exc:  # noqa: BLE001 - never break collection
@@ -2957,6 +2991,61 @@ def sec_continuation_should_chain(*, is_complete: bool,
     return (not is_complete) and completed_batches_today < daily_cap
 
 
+def ensure_companyfacts_bootstrap(queue, cfg: dict, *, clock=None
+                                  ) -> Optional[str]:
+    """Stage 9.5: guarantee the LIVE companyfacts campaign actually runs.
+
+    When ``autonomy.collect_drain.companyfacts_continuation`` is enabled and the
+    campaign can still make progress (not complete / not daily-capped / not
+    stalled - all DERIVED from the durable append-only campaign_batch log) AND no
+    companyfacts acquisition job is already live on the queue, enqueue exactly ONE
+    bounded bootstrap job (category DATA_ACQUISITION, lane acq.sec_companyfacts,
+    origin stage9-weakest-gate so PASS A of the bounded collect drain admits it,
+    priority = bootstrap_priority so the live acquisition runs ahead of the
+    tournament experiments). Idempotent (skips when a live companyfacts job
+    exists), bounded (respects the campaign stop conditions) and restart-safe.
+    Returns the job id or None. Read-only w.r.t. every operational trading
+    store."""
+    from . import autonomous_research as _ar
+    from datetime import datetime as _d, timezone as _tz
+    try:
+        cf = ((((cfg.get("autonomy") or {}).get("collect_drain") or {})
+               .get("companyfacts_continuation") or {})
+              if isinstance(cfg, dict) else {})
+        if not cf.get("enabled") or queue is None:
+            return None
+        lane = "acq.sec_companyfacts"
+        # Idempotent: any live companyfacts acquisition job already present?
+        for st in (_ar.STATE_QUEUED, _ar.STATE_RUNNING, _ar.STATE_RETRYABLE,
+                   _ar.STATE_BLOCKED_SPECIFIC):
+            for j in queue.list_jobs(state=st, limit=500):
+                if str(getattr(j, "lane", "")) == lane:
+                    return None
+        # Respect the campaign's OWN bounded stop conditions.
+        store = stage8_campaign_store(cfg, clock=clock)
+        cid = "sec_companyfacts"
+        cov = store.coverage(cid)
+        if cov.get("exists"):
+            run_date = _d.now(_tz.utc).date().isoformat()
+            stop = sec_continuation_stop_reason(
+                is_complete=bool(cov.get("is_complete")),
+                completed_batches_today=store.batches_on_date(cid, run_date),
+                consecutive_no_progress=store.consecutive_no_progress(cid),
+                daily_cap=int(cf.get("daily_completed_batch_cap", 4) or 4),
+                no_progress_max=int(
+                    cf.get("max_consecutive_no_progress_batches", 2) or 2))
+            if stop is not None:
+                return None
+        seq = int(cov.get("acquisition_cursor", 0)) if cov.get("exists") else 0
+        return queue.enqueue(
+            _ar.CAT_DATA_ACQUISITION, lane=lane,
+            payload={"campaign": cid, "seq": seq, "bootstrap": True},
+            priority=int(cf.get("bootstrap_priority", 5) or 5),
+            origin="stage9-weakest-gate")
+    except Exception:  # noqa: BLE001 - seeding is best-effort, never fatal
+        return None
+
+
 def build_production_autonomy_handlers(cfg: dict, *,
                                        contact_email: Optional[str] = None,
                                        queue=None,
@@ -3035,6 +3124,21 @@ def build_production_autonomy_handlers(cfg: dict, *,
     _sec_daily_cap = int(_sec_cont_cfg.get("daily_completed_batch_cap", 6) or 6)
     _sec_noprog_max = int(
         _sec_cont_cfg.get("max_consecutive_no_progress_batches", 2) or 2)
+
+    # Stage 9.5 - CONTROLLED SEC companyfacts continuation caps (own campaign,
+    # independent of the Form 4 / 8-K campaign). DERIVED from that campaign's own
+    # durable append-only batch log; enforced INLINE by _run_companyfacts_campaign.
+    _cf_cont_cfg = ((((cfg.get("autonomy") or {}).get("collect_drain") or {})
+                     .get("companyfacts_continuation") or {})
+                    if isinstance(cfg, dict) else {})
+    _cf_enabled = bool(_cf_cont_cfg.get("enabled"))
+    _cf_daily_cap = int(_cf_cont_cfg.get("daily_completed_batch_cap", 4) or 4)
+    _cf_noprog_max = int(
+        _cf_cont_cfg.get("max_consecutive_no_progress_batches", 2) or 2)
+    _cf_max_batch = max(1, int(_cf_cont_cfg.get("max_batch_size", 10) or 10))
+    _cf_batch = max(1, min(int(_cf_cont_cfg.get("batch_size", 5) or 5),
+                           _cf_max_batch))
+    _cf_concepts = list(_cf_cont_cfg.get("first_concepts") or [])
 
     # ---- shared REAL price panel (read once; reused by experiment jobs) ------
     _cache = {}
@@ -3429,6 +3533,100 @@ def build_production_autonomy_handlers(cfg: dict, *,
             return _ar.OUTCOME_BLOCKED_SPECIFIC, detail
         return _ar.OUTCOME_COMPLETED, detail
 
+    def _cik_ticker_map(records):
+        """cik (unpadded, as the PIT store keys it) -> ticker, from owned
+        RT_FUNDAMENTAL_FACT records."""
+        out = {}
+        for r in records:
+            p = r.get("normalized_payload") or {}
+            cik = str(p.get("cik") or r.get("company_id") or "").strip()
+            tkr = r.get("ticker") or p.get("ticker")
+            if cik and tkr:
+                out.setdefault(cik, tkr)
+        return out
+
+    def _stage9_5_fundamental_experiment(job, spec, feature):
+        """Stage 9.5: evaluate ONE pre-registered PIT FUNDAMENTAL signal on the
+        owned point-in-time companyfacts store + the owned survivorship-safe price
+        panel, returning an ingestible Stage 5 row (the canonical CAT_EXPERIMENT
+        path for a fundamental candidate). Only reaches a COMPLETED (ingestible)
+        result once owned coverage passes the readiness gate; below it the job is
+        BLOCKED_SPECIFIC so the candidate stays an honest DATA_HOLD (never a fake
+        evidence row). Read-only; never promotes, never mutates operational
+        state."""
+        from . import fundamental_signals as _fsig
+        from . import fundamental_evidence as _fev
+        from . import fundamental_readiness as _fr
+        from . import sec_companyfacts as _cf
+        # Stage 9.5B SAFETY SWITCH (Blocker 7): refuse to evaluate a HISTORICAL
+        # fundamental experiment until a survivorship-safe historical ticker->CIK
+        # mapping AND the config flag both pass. Under OPTION B this returns
+        # BLOCKED_SPECIFIC with the single diagnostic, so a candidate never
+        # transitions on current-survivor historical results (even if a job was
+        # somehow enqueued).
+        try:
+            from . import tournament as _tt95
+            _p9 = resolve_stage9_config_path(cfg)
+            _cfg9 = _tt95.load_config(_p9) if _p9 else {}
+        except Exception:  # noqa: BLE001 - config resolution is best-effort
+            _cfg9 = {}
+        _hg = _fr.historical_fundamental_experiment_allowed(_cfg9, readiness=None)
+        if not _hg["allowed"]:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                "real_work": "stage9_5_fundamental_experiment",
+                "feature": feature, "no_automatic_promotion": True,
+                "disposition": "DATA_HOLD",
+                "historical_fundamental_universe_ready": False,
+                "diagnostic": _hg["diagnostic"],
+                "historical_evaluation_enabled": _hg[
+                    "historical_evaluation_enabled"],
+                "historical_mapping_available": _hg["mapping_available"],
+                "reason": ("Stage 9.5B historical fundamental evaluation is "
+                           "deferred (OPTION B): %s; candidate stays DATA_HOLD - "
+                           "no transition on current-survivor results"
+                           % (_hg["reason"] or _hg["diagnostic"]))}
+        recs = _read_normalized("FUNDAMENTAL_FACT", limit=6000)
+        store = _cf.owned_pit_store(recs)
+        min_ciks = int((cfg.get("autonomy") or {}).get(
+            "pit_fundamentals_min_ciks", 50))
+        min_periods = 12
+        ready_ciks = len(store.ciks_with_candidate(feature))
+        base = {"real_work": "stage9_5_fundamental_experiment",
+                "feature": feature, "no_automatic_promotion": True,
+                "ciks_with_all_required_concepts": ready_ciks,
+                "required_ciks": min_ciks,
+                "missing_concepts": store.missing_concepts(feature)}
+        if ready_ciks < min_ciks:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                **base, "disposition": "DATA_HOLD",
+                "reason": ("owned PIT companyfacts insufficient for %s (%d CIKs "
+                           "with full concept set < %d); the live sec_companyfacts "
+                           "campaign grows coverage - candidate stays DATA_HOLD"
+                           % (feature, ready_ciks, min_ciks))}
+        panel = _panel()
+        if not panel:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                **base, "reason": "no price panel (no MARKET_BAR data)"}
+        hz = int((spec or {}).get("horizon_days") or 63)
+        c2t = _cik_ticker_map(recs)
+        try:
+            row = _fev.evaluate_fundamental_evidence(
+                store, panel, feature, cik_to_ticker=c2t, horizon_days=hz)
+        except Exception as exc:  # noqa: BLE001 - isolate one bad signal
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                **base, "reason": "compute_error:%s" % type(exc).__name__}
+        periods = int(row.get("periods") or 0)
+        if row.get("rank_ic_t") is None or periods < min_periods:
+            return _ar.OUTCOME_BLOCKED_SPECIFIC, {
+                **base, "disposition": "DATA_HOLD", "periods": periods,
+                "reason": ("owned PIT + price coverage yields only %d scored "
+                           "periods (< %d); candidate stays DATA_HOLD"
+                           % (periods, min_periods))}
+        return _ar.OUTCOME_COMPLETED, {
+            **base, "horizon_days": hz, "panel_symbols": len(panel),
+            "row": row, "decision": row.get("decision"),
+            "pit_basis": row.get("pit_basis")}
+
     def _h_experiment(job):
         payload = job.payload or {}
         if str(payload.get("kind")) == "event":
@@ -3443,6 +3641,10 @@ def build_production_autonomy_handlers(cfg: dict, *,
             from . import price_factors as _pf94
             if _feat in _pf94.COMPUTABLE_FEATURES:
                 return _stage9_4_price_experiment(job, _spec, _feat)
+            # Stage 9.5: a pre-registered PIT FUNDAMENTAL experiment.
+            from . import fundamental_signals as _fsig95
+            if _feat in _fsig95.SIGNALS:
+                return _stage9_5_fundamental_experiment(job, _spec, _feat)
         res, panel, err = _campaign({"residual_momentum", "momentum_accel",
                                      "vol_scaled_momentum", "short_term_reversal",
                                      "low_volatility"})
@@ -3633,6 +3835,20 @@ def build_production_autonomy_handlers(cfg: dict, *,
                               batch_size=batch_size, run_mode=_run_mode,
                               universe_fingerprint=univ.fingerprint)
         return store, univ
+
+    def _ensure_campaign_revision(base_id, kind, batch_size,
+                                  scope=_pu.SCOPE_CURRENT):
+        """Stage 9.5 Blocker 6: scope-aware, APPEND-ONLY campaign resolution. A
+        genuine universe-scope change SUPERSEDES the prior campaign (never deletes
+        its rows) and activates a new linked revision; the normal same-scope path
+        reconciles the ACTIVE revision. Returns ``(store, univ, active_cid)``."""
+        univ = _universe(scope)
+        store = _camp_store()
+        rev = store.ensure_campaign_revision(
+            base_id, kind=kind, universe=univ.symbols,
+            universe_source=univ.source, batch_size=batch_size,
+            run_mode=_run_mode, universe_fingerprint=univ.fingerprint)
+        return store, univ, rev["campaign_id"]
 
     def _campaign_base(cid, univ, cov):
         return {"campaign": cid, "run_mode": _run_mode,
@@ -3895,6 +4111,166 @@ def build_production_autonomy_handlers(cfg: dict, *,
                          "distinct append-only records",
             "next_batch_enqueued": do_enqueue, **snap}
 
+    # ---- Stage 9.5 SEC companyfacts (XBRL fundamentals) campaign ----------- #
+    # A dedicated, bounded, restart-safe LIVE companyfacts acquisition campaign.
+    # It drives ONLY the proven sec_edgar collect_companyfacts lane (immutable
+    # content-addressed RawArchive + RT_FUNDAMENTAL_FACT PIT facts) over the
+    # production universe, with its OWN durable cursor and its OWN daily /
+    # no-progress caps (companyfacts_continuation), independent of the Form 4 /
+    # 8-K campaign. Same controlled-continuation contract as _run_sec_cik_campaign:
+    # decline + do-not-chain when complete / daily-capped / stalled; a progress
+    # batch chains ONE bounded continuation; a no-progress batch never chains. PIT
+    # observations are materialized deterministically from the durable normalized
+    # facts (a replay reproduces the same store); availability = SEC filed date.
+    def _companyfacts_pit_store():
+        from . import sec_companyfacts as _cf
+        return _cf.owned_pit_store(_read_normalized("FUNDAMENTAL_FACT",
+                                                    limit=6000))
+
+    def _run_companyfacts_campaign(job):
+        from . import sec_companyfacts as _cf
+        base_id = "sec_companyfacts"
+        d = _defs_by_id.get(base_id) or {"batch_size": _cf_batch,
+                                         "category": _ar.CAT_DATA_ACQUISITION}
+        bsize = _cf.clamp_batch_size(d.get("batch_size", _cf_batch),
+                                     hard_max=_cf_max_batch, default=_cf_batch)
+        # companyfacts resolve ONLY for current entities (SEC company_tickers.json
+        # is current-only); the survivorship-safe delisted tickers have no current
+        # CIK map, so the acquisition universe is the CURRENT constituents. Each
+        # fact still carries its own SEC filed date = PIT availability. A genuine
+        # scope change is handled by APPEND-ONLY supersession (Blocker 6) - never
+        # a manual delete of mis-seeded campaign rows - and the runner always
+        # operates on the resolved ACTIVE revision.
+        _scope = d.get("universe_scope") or _pu.SCOPE_CURRENT
+        store, univ, cid = _ensure_campaign_revision(
+            base_id, "sec_companyfacts_xbrl", bsize, scope=_scope)
+        run_date = _today()
+        origin = getattr(job, "origin", None)
+        cov0 = store.coverage(cid)
+        done_today = store.batches_on_date(cid, run_date)
+        no_prog = store.consecutive_no_progress(cid)
+        stop_reason = sec_continuation_stop_reason(
+            is_complete=bool(cov0.get("is_complete")),
+            completed_batches_today=done_today,
+            consecutive_no_progress=no_prog,
+            daily_cap=_cf_daily_cap, no_progress_max=_cf_noprog_max)
+        if stop_reason:
+            return _ar.OUTCOME_COMPLETED, {
+                **_campaign_base(cid, univ, cov0),
+                "real_work": "sec_companyfacts_pit_campaign",
+                "batch_executed": False, "stopped": True,
+                "stop_reason": stop_reason, "origin": origin,
+                "completed_batches_today": done_today,
+                "daily_completed_batch_cap": _cf_daily_cap,
+                "consecutive_no_progress_batches": no_prog,
+                "max_consecutive_no_progress_batches": _cf_noprog_max,
+                "next_batch_enqueued": False}
+        batch = store.next_batch(cid, batch_size=bsize)
+        if not batch:
+            return _ar.OUTCOME_COMPLETED, {
+                **_campaign_base(cid, univ, cov0),
+                "real_work": "sec_companyfacts_pit_campaign",
+                "batch_executed": False, "note": "no claimable symbols",
+                "next_batch_enqueued": False}
+        before = _companyfacts_pit_store()
+        facts_before = before.observation_count()
+        ciks_before = len(before.covered_ciks())
+        concepts = _cf_concepts or list(_cf.FIRST_CONCEPTS)
+        res = _collect_batch("sec_edgar", batch,
+                             symbol_keys=["facts_sample_symbols"],
+                             extra={**_cf.companyfacts_batch_flags(concepts),
+                                    "facts_symbol_limit": len(batch)})
+        state = (res or {}).get("source_states", {}).get("sec_edgar")
+        blocked = (res is None or bool((res or {}).get("blocked_sources"))
+                   or "BLOCKED" in str((res or {}).get("status") or ""))
+        # SAFE-TIMEOUT: deadline mid-batch -> RETRYABLE, partial NOT recorded.
+        if bool((res or {}).get("source_deadlines", {}).get("sec_edgar")):
+            return _ar.OUTCOME_RETRYABLE, {
+                **_campaign_base(cid, univ, store.coverage(cid)),
+                "real_work": "sec_companyfacts_pit_campaign",
+                "reason": "SEC companyfacts collect reached "
+                          "collect_time_budget_seconds (deadline); partial batch "
+                          "NOT recorded; will resume",
+                "deadline_reached": True, "batch_executed": False,
+                "batch_symbols_queried": len(batch), "sec_source_state": state,
+                "next_batch_enqueued": False}
+        after = _companyfacts_pit_store()
+        facts_after = after.observation_count()
+        ciks_after = len(after.covered_ciks())
+        summ = after.coverage_summary()
+        records_added = max(0, facts_after - facts_before)
+        progressed = (facts_after > facts_before) or (ciks_after > ciks_before)
+        cf_detail = {
+            "companyfacts_ciks_covered": ciks_after,
+            "companyfacts_ciks_added": max(0, ciks_after - ciks_before),
+            "pit_observations": facts_after,
+            "pit_observations_added": records_added,
+            "concepts_present": summ.get("concepts_present"),
+            "concept_scope": sorted(concepts),
+            "pit_observation_digest": _cf.pit_observation_digest(after),
+            "availability_start": summ.get("availability_start"),
+            "availability_end": summ.get("availability_end")}
+        if not progressed:
+            cov = store.record_results(
+                cid, failed=[(s, "companyfacts: no new owned XBRL facts")
+                             for s in batch])
+            store.record_batch(
+                cid, run_date=run_date, progress=False, origin=origin,
+                stop_reason=(_cf.NO_OWNED_COMPANYFACTS if blocked
+                             else "NO_NEW_FACTS"),
+                metrics={"ciks_attempted": len(batch), "ciks_completed": 0,
+                         "records_added": 0, "issuers_covered": ciks_after,
+                         "remaining_backlog": cov.get("remaining_symbol_count"),
+                         "detail": {"concepts": summ.get("concepts_present")}})
+            outcome = (_ar.OUTCOME_BLOCKED_SPECIFIC if blocked
+                       else _ar.OUTCOME_COMPLETED)
+            return outcome, {
+                **_campaign_base(cid, univ, cov),
+                "real_work": "sec_companyfacts_pit_campaign",
+                "sec_source_state": state, "batch_executed": True,
+                "progress": False,
+                "reason": ("SEC companyfacts lane blocked: %s"
+                           % (res or {}).get("status")) if blocked
+                          else "no NEW owned companyfacts facts this batch",
+                "consecutive_no_progress_batches":
+                    store.consecutive_no_progress(cid),
+                "next_batch_enqueued": False, **cf_detail}
+        cov = store.record_results(cid, succeeded=batch)
+        store.record_batch(
+            cid, run_date=run_date, progress=True, origin=origin,
+            metrics={"ciks_attempted": len(batch), "ciks_completed": len(batch),
+                     "records_added": records_added, "issuers_covered": ciks_after,
+                     "remaining_backlog": cov.get("remaining_symbol_count"),
+                     "detail": {"concepts": summ.get("concepts_present"),
+                                "availability_end": summ.get("availability_end")}})
+        done_after = store.batches_on_date(cid, run_date)
+        do_enqueue = queue is not None and sec_continuation_should_chain(
+            is_complete=bool(cov.get("is_complete")),
+            completed_batches_today=done_after, daily_cap=_cf_daily_cap)
+        if do_enqueue:
+            # Continuation references the BASE id (resolved to the ACTIVE revision
+            # on the next run) so it survives an append-only scope supersession.
+            _enqueue_next_batch(base_id,
+                                d.get("category", _ar.CAT_DATA_ACQUISITION),
+                                cov.get("acquisition_cursor", 0), job.priority)
+        chain_stop = (None if do_enqueue else
+                      ("CAMPAIGN_COMPLETE" if cov.get("is_complete")
+                       else "DAILY_BATCH_CAP_REACHED"
+                       if done_after >= _cf_daily_cap else "NO_QUEUE"))
+        return _ar.OUTCOME_COMPLETED, {
+            **_campaign_base(cid, univ, cov),
+            "real_work": "sec_companyfacts_pit_campaign",
+            "sec_source_state": state, "batch_executed": True, "progress": True,
+            "batch_symbols_queried": len(batch),
+            "completed_batches_today": done_after,
+            "daily_completed_batch_cap": _cf_daily_cap,
+            "consecutive_no_progress_batches": 0,
+            "continuation_stop_reason": chain_stop,
+            "pit_basis": "SEC filed date = availability; restatements preserved "
+                         "as distinct observations; no future-restatement "
+                         "look-ahead",
+            "next_batch_enqueued": do_enqueue, **cf_detail}
+
     # ---- SEC bulk-archive resumable download campaign (WS6/WS7) ------------ #
     def _run_bulk_campaign(job, archive):
         from . import sec_bulk_download as _bulk
@@ -3951,7 +4327,8 @@ def build_production_autonomy_handlers(cfg: dict, *,
 
     _CAMP_RUNNERS = {"norgate": _run_norgate_campaign,
                      "analyst": _run_analyst_campaign,
-                     "sec_cik": _run_sec_cik_campaign}
+                     "sec_cik": _run_sec_cik_campaign,
+                     "companyfacts": _run_companyfacts_campaign}
 
     def _h_data_acquisition_camp(job):
         cid = (job.payload or {}).get("campaign")
@@ -4109,7 +4486,7 @@ def build_production_autonomy_handlers(cfg: dict, *,
         owned facts stay DATA_HOLD with an exact next action."""
         from . import pit_fundamentals as _pf
         store = _pf.PitFundamentalsStore()
-        store.add_records(_read_normalized("RT_FUNDAMENTAL_FACT", limit=6000))
+        store.add_records(_read_normalized("FUNDAMENTAL_FACT", limit=6000))
         summ = store.coverage_summary()
         min_ciks = int((cfg.get("autonomy") or {}).get(
             "pit_fundamentals_min_ciks", 50))
@@ -4230,7 +4607,16 @@ def build_production_autonomy_handlers(cfg: dict, *,
                     "coverage": cov0.get("coverage")}
             fn, acq_campaign, acquirable_now = measure
             sufficient, coverage = fn()
-            build_required = dep == "point_in_time_fundamentals"
+            # Stage 9.5: when the LIVE companyfacts campaign is active the PIT
+            # fundamentals dependency is no longer "build_required" - the bounded
+            # sec_companyfacts acquisition (bootstrapped by the drain seeder,
+            # ensure_companyfacts_bootstrap) grows owned coverage each cycle, so
+            # the weakest-gate MEASURES coverage and COMPLETES (the fundamental
+            # candidate stays an honest DATA_HOLD). It does NOT enqueue here - the
+            # seeder is the single companyfacts bootstrap, avoiding duplicate
+            # acquisition jobs.
+            build_required = (dep == "point_in_time_fundamentals"
+                              and not _cf_enabled)
             enqueued = None
             if sufficient:
                 next_action = ("coverage now meets the observation threshold; a "
@@ -4244,6 +4630,12 @@ def build_production_autonomy_handlers(cfg: dict, *,
                 next_action = ("insufficient owned coverage; enqueued a bounded "
                                "%s acquisition continuation to grow coverage"
                                % acq_campaign)
+            elif dep == "point_in_time_fundamentals" and _cf_enabled:
+                next_action = ("owned PIT companyfacts coverage insufficient; the "
+                               "bounded LIVE sec_companyfacts acquisition campaign "
+                               "is active and grows owned coverage each cycle - "
+                               "the canonical fundamental EXPERIMENT runs once the "
+                               "readiness gate passes (no gate lowered)")
             elif build_required:
                 next_action = ("build the smallest useful PIT-fundamentals slice "
                                "from owned SEC companyfacts before a FUNDAMENTAL "

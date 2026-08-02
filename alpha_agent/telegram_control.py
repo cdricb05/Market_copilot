@@ -1200,6 +1200,60 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
                 int(cd.get("max_consecutive_no_progress_batches", 2) or 2),
                 bool(cd.get("enabled")))
 
+    def _companyfacts_cont_caps():
+        cd = (((cfg.get("autonomy") or {}).get("collect_drain") or {})
+              .get("companyfacts_continuation") or {})
+        return (int(cd.get("daily_completed_batch_cap", 4) or 4),
+                int(cd.get("max_consecutive_no_progress_batches", 2) or 2),
+                bool(cd.get("enabled")))
+
+    def _companyfacts_detail(store, cid) -> str:
+        """Stage 9.5 companyfacts-specific read-only detail (concepts present,
+        XBRL facts added, availability, issuers, append-only revision history)
+        from the durable batch log."""
+        import json as _j
+        cov = store.coverage(cid)
+        base = cov.get("base_campaign_id") or cid
+        last = store.last_batch(cid) or {}
+        try:
+            detail = _j.loads(last.get("detail_json") or "{}")
+        except (ValueError, TypeError):
+            detail = {}
+        concepts = detail.get("concepts") or []
+        lines = [
+            "Companyfacts (Stage 9.5A PIT XBRL acquisition): issuers covered %s, "
+            "PIT facts +%s last batch" % (last.get("issuers_covered"),
+                                          last.get("records_added")),
+            "Concepts present: %s" % (", ".join(str(c) for c in concepts)
+                                      if concepts else "none yet"),
+            "Availability through: %s | last stop: %s"
+            % (detail.get("availability_end") or "n/a",
+               last.get("stop_reason") or "none"),
+        ]
+        # Append-only revision history (Blocker 6): active + superseded revisions.
+        try:
+            revs = store.campaign_revisions(base)
+        except Exception:  # noqa: BLE001 - reporting is best-effort
+            revs = []
+        if revs:
+            active = [r for r in revs if (r.get("status") or "ACTIVE") == "ACTIVE"]
+            superseded = [r for r in revs if r.get("status") == "SUPERSEDED"]
+            lines.append(
+                "Revisions: active=%s (r%s)%s"
+                % (active[0]["campaign_id"] if active else "n/a",
+                   active[0]["revision"] if active else "?",
+                   (" | superseded: " + ", ".join(
+                       "%s(r%s)->%s" % (r["campaign_id"], r["revision"],
+                                        r.get("superseded_by"))
+                       for r in superseded)) if superseded else
+                   " | superseded: none"))
+        lines.append(
+            "Stage 9.5B historical fundamental evaluation: BLOCKED "
+            "(HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY) - no survivorship-safe "
+            "historical ticker->CIK mapping; collected facts are acquisition / "
+            "forward-evidence only.")
+        return "\n".join(lines)
+
     def _campaigns() -> str:
         store = _open_campaign_store()
         if store is None:
@@ -1235,11 +1289,14 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
             return "Unknown campaign %r. See /campaigns for valid ids." % arg
         from datetime import datetime as _d, timezone as _tz
         today = _d.now(_tz.utc).date().isoformat()
-        cap, noprog_max, enabled = _sec_cont_caps()
+        is_cf = arg == "sec_companyfacts"
+        cap, noprog_max, enabled = (_companyfacts_cont_caps() if is_cf
+                                    else _sec_cont_caps())
+        cont_lane = ("acq.sec_companyfacts" if is_cf else "acq.sec_form4_8k")
         done_today = store.batches_on_date(arg, today)
         noprog = store.consecutive_no_progress(arg)
         last = store.last_batch(arg) or {}
-        return "\n".join([
+        lines = [
             "CAMPAIGN %s (read-only)" % arg,
             "State: %s | cursor %s/%s, remaining %s, repair %s, permanent %s" % (
                 "COMPLETE" if cov.get("is_complete") else "IN_PROGRESS",
@@ -1256,9 +1313,12 @@ def build_default_providers(*, stage8_config: Optional[dict] = None,
                 last.get("records_added"), last.get("remaining_backlog"),
                 last.get("stop_reason") or "none"),
             "Controlled continuation: %s (origin campaign-continuation admitted "
-            "only for lane acq.sec_form4_8k + DATA_ACQUISITION)."
-            % ("ENABLED" if enabled else "PAUSED"),
-        ])
+            "only for lane %s + DATA_ACQUISITION)."
+            % ("ENABLED" if enabled else "PAUSED", cont_lane),
+        ]
+        if is_cf:
+            lines.append(_companyfacts_detail(store, arg))
+        return "\n".join(lines)
 
     providers = {"queue": _queue_summary, "blocked": _blocked,
                  "status": _status, "sources": _sources, "coverage": _coverage,

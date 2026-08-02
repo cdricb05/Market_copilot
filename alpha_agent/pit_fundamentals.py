@@ -28,9 +28,14 @@ with it and reports honest DATA_HOLD until enough owned facts exist.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Iterable, Optional
 
 MAPPING_VERSION = "pit-fundamentals-1.0.0"
+
+# A ``FY-FP`` fiscal identity, e.g. ``2025-FY`` or ``2025-Q2`` - the comparable
+# prior period is deterministically ``(FY-1)-FP`` (never an adjacent quarter).
+_FY_FP_RE = re.compile(r"^(\d{4})-(Q[1-4]|FY|H1|H2)$")
 
 # Canonical concept -> ordered list of us-gaap tags to try (first hit wins). The
 # fallbacks are deterministic and documented so a coverage report can name the
@@ -190,6 +195,97 @@ class PitFundamentalsStore:
             return None
         return max(eligible, key=lambda o: (o.available_at,
                                             1 if o.is_amendment else 0))
+
+    def _period_end_available(self, cik: str, concept: str, fiscal_key: str,
+                              as_of: str) -> Optional[str]:
+        """The reported period_end of (cik, concept, fiscal_key) IF at least one
+        observation was FILED on or before ``as_of`` (else None). Leakage-safe."""
+        obs = self._obs.get((str(cik), concept, str(fiscal_key)))
+        if not obs:
+            return None
+        avail = [o for o in obs if o.available_at <= str(as_of)]
+        if not avail:
+            return None
+        return max((o.period_end or "") for o in avail) or None
+
+    def latest_fiscal_key(self, cik: str, as_of: str, *,
+                          concept: str = "assets") -> Optional[str]:
+        """The fiscal_key of the MOST RECENT fiscal period (by reported
+        period_end) for ``cik`` that has an observation of ``concept`` FILED on or
+        before ``as_of``. This is the leakage-safe 'current' formation period - it
+        never uses a period whose only filing post-dates the formation date. None
+        if the concept was never available for this CIK by then."""
+        best_fk = None
+        best_pe = None
+        for (c, cc, fk) in self._obs:
+            if c != str(cik) or cc != concept:
+                continue
+            pe = self._period_end_available(cik, concept, fk, as_of)
+            if pe is None:
+                continue
+            if best_pe is None or pe > best_pe:
+                best_pe, best_fk = pe, fk
+        return best_fk
+
+    def prior_fiscal_key(self, cik: str, as_of: str, current_fiscal_key: str, *,
+                         concept: str = "assets", tolerance_days: int = 45
+                         ) -> Optional[str]:
+        """The COMPARABLE prior-period fiscal_key for a LIKE-FOR-LIKE comparison
+        (FY vs prior-year FY, Q2 vs prior-year Q2), using only observations FILED
+        on or before ``as_of``. Comparability is enforced deterministically so an
+        adjacent, non-comparable quarter is NEVER substituted:
+
+          * when ``current_fiscal_key`` is a ``FY-FP`` identity (e.g. ``2025-Q2``)
+            the comparable prior key is EXACTLY ``(FY-1)-FP`` - it must exist and
+            be available (filed <= as_of); there is no adjacent-quarter fallback;
+          * otherwise (a bare ``period_end`` key - an annual filer without fy/fp)
+            the prior ``period_end`` must fall within a TIGHT window around exactly
+            one year earlier (``tolerance_days``, default 45), which admits a
+            slightly-shifted FY period_end but rejects an adjacent quarter ~91 days
+            away.
+
+        Returns None when no comparable prior period is available (no fallback to
+        a non-comparable period - a missing prior comparable yields no signal)."""
+        import datetime as _d
+        m = _FY_FP_RE.match(str(current_fiscal_key))
+        if m:
+            fy, fp = int(m.group(1)), m.group(2)
+            prior_key = "%d-%s" % (fy - 1, fp)
+            # Same fiscal period one year earlier; must be available by as_of.
+            if self._period_end_available(cik, concept, prior_key,
+                                          as_of) is not None:
+                return prior_key
+            return None
+        cur_pe = self._period_end_available(cik, concept, current_fiscal_key,
+                                            as_of)
+        if not cur_pe:
+            return None
+        try:
+            target = (_d.date.fromisoformat(cur_pe[:10])
+                      - _d.timedelta(days=365))
+        except ValueError:
+            return None
+        best_fk = None
+        best_gap = None
+        for (c, cc, fk) in self._obs:
+            if c != str(cik) or cc != concept or fk == current_fiscal_key:
+                continue
+            # A comparable prior for a bare period_end key must itself be a bare
+            # period_end key (never a FY-FP quarterly identity), else the tight
+            # window could still admit a same-year quarter with a nearby end date.
+            if _FY_FP_RE.match(str(fk)):
+                continue
+            pe = self._period_end_available(cik, concept, fk, as_of)
+            if pe is None:
+                continue
+            try:
+                gap = abs((_d.date.fromisoformat(pe[:10]) - target).days)
+            except ValueError:
+                continue
+            if best_gap is None or gap < best_gap:
+                best_gap, best_fk = gap, fk
+        return best_fk if (best_gap is not None
+                           and best_gap <= int(tolerance_days)) else None
 
     def observation_count(self) -> int:
         return sum(len(v) for v in self._obs.values())

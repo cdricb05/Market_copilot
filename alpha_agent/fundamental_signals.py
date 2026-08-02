@@ -4,8 +4,9 @@ alpha_agent.fundamental_signals - Stage 9.4 Track F: the fundamental MVP signals
 Three initial, economically-motivated fundamental factors computed ONLY from
 owned point-in-time SEC observations (``pit_fundamentals.PitFundamentalsStore``):
 
-  1. gross_profitability = (Revenue - Cost of Revenue) / Assets, with a
-     deterministic Gross Profit / Assets fallback (Novy-Marx);
+  1. gross_profitability = Gross Profit / Assets (Novy-Marx), PREFERRED, with a
+     deterministic (Revenue - Cost of Revenue) / Assets fallback used ONLY when
+     Gross Profit is unavailable;
   2. asset_growth       = annual percentage change in Assets (Cooper-Gulen-Schill);
   3. balance_sheet_quality = equity / assets and leverage = liabilities / assets.
 
@@ -44,22 +45,30 @@ def _val(store: pfd.PitFundamentalsStore, cik: str, concept: str,
 
 
 def gross_profitability(store, *, cik: str, fiscal_key: str, as_of: str) -> dict:
-    """(Revenue - Cost of Revenue) / Assets, else Gross Profit / Assets. Returns
-    ``{value, basis, missing}`` with an explicit missing list (never imputed)."""
+    """Gross Profit / Assets (Novy-Marx), PREFERRED; deterministic fallback to
+    (Revenue - Cost of Revenue) / Assets ONLY when Gross Profit is unavailable.
+
+    Every input is read for the SAME fiscal period ``fiscal_key`` as-of ``as_of``,
+    so the numerator and denominator never combine different fiscal periods.
+    Returns ``{value, basis, missing}`` with an explicit missing list (never
+    imputed); ``basis`` records which path produced the value (``gross_profit`` |
+    ``revenue_minus_cost_fallback``) so it can be persisted in every observation
+    and experiment artifact."""
     assets = _val(store, cik, "assets", fiscal_key, as_of)
     if assets is None or assets <= 0:
         return {"value": None, "basis": None, "missing": ["assets"]}
+    # 1. Preferred: Gross Profit / Assets.
+    gp = _val(store, cik, "gross_profit", fiscal_key, as_of)
+    if gp is not None:
+        return {"value": gp / assets, "basis": "gross_profit", "missing": []}
+    # 2. Fallback ONLY when Gross Profit is unavailable.
     rev = _val(store, cik, "revenue", fiscal_key, as_of)
     cost = _val(store, cik, "cost_of_revenue", fiscal_key, as_of)
     if rev is not None and cost is not None:
-        return {"value": (rev - cost) / assets, "basis": "revenue_minus_cost",
-                "missing": []}
-    gp = _val(store, cik, "gross_profit", fiscal_key, as_of)
-    if gp is not None:
-        return {"value": gp / assets, "basis": "gross_profit_fallback",
-                "missing": []}
-    miss = [c for c, v in (("revenue", rev), ("cost_of_revenue", cost),
-                           ("gross_profit", gp)) if v is None]
+        return {"value": (rev - cost) / assets,
+                "basis": "revenue_minus_cost_fallback", "missing": []}
+    miss = [c for c, v in (("gross_profit", gp), ("revenue", rev),
+                           ("cost_of_revenue", cost)) if v is None]
     return {"value": None, "basis": None, "missing": miss}
 
 

@@ -2,14 +2,17 @@
 alpha_agent.sec_companyfacts - Stage 9.4 Track E: bounded, restart-safe SEC XBRL
 companyfacts acquisition + point-in-time materialization.
 
-STAGE 9.4 RELEASE-CLOSURE STATUS = DEFERRED (OPTION B). This module is a
-retained, INACTIVE reusable capability: the parser + campaign scaffolding below
-are unit-tested and ready, but NO live per-CIK companyfacts fetch is wired into
-the canonical collect tick and there are no owned companyfacts, so PIT
-fundamentals acquisition is NOT operational. All fundamental candidates stay
-DATA_HOLD and the readiness gate reports honest owned coverage. Wiring a live,
-bounded acquisition campaign (Option A) is the next explicit stage; owned
-coverage is never fabricated.
+STAGE 9.5 STATUS = ACTIVE (OPTION A). This module's parser + PIT helpers are now
+wired into a LIVE, bounded, restart-safe SEC companyfacts DATA_ACQUISITION
+campaign driven by the AlphaAgent's canonical collect drain. The live per-CIK
+fetch + immutable raw archival are performed by the PROVEN sec_edgar collector's
+companyfacts lane (``collect_companyfacts``) and the content-addressed RawArchive
+- this module supplies the deterministic parse, the Stage 9.5 concept scope
+(``companyfacts_batch_flags``), the durable PIT (re)build (``owned_pit_store``),
+the replay-stable observation digest (``pit_observation_digest``) and the honest
+owned-coverage report (``coverage_report``). No parallel network fetch and no
+parallel raw store are added; owned coverage is never fabricated and fundamental
+candidates stay DATA_HOLD until genuine owned coverage passes the Stage 9 gates.
 
 Parses the SEC ``companyfacts`` JSON (the free, owned EDGAR XBRL frames) into
 leakage-safe point-in-time fact observations and feeds them to
@@ -253,6 +256,124 @@ def run_batch(store, *, fetch_fn: Callable[[str], Optional[dict]], run_date: str
             "pit_coverage": pit.coverage_summary()}
 
 
+# --------------------------------------------------------------------------- #
+# Stage 9.5 - LIVE companyfacts acquisition helpers (reuse the proven sec_edgar
+# collector's companyfacts lane + the content-addressed immutable RawArchive; do
+# NOT add a parallel network fetch or a parallel raw store).
+# --------------------------------------------------------------------------- #
+
+# The default us-gaap concepts a focused companyfacts batch requests (the
+# Stage 9.5 first-concept scope). Wider than the base sec_edgar collector default
+# so the gross-profitability / asset-growth / balance-sheet-quality signals have
+# their full input set (CostOfRevenue / GrossProfit are added here).
+DEFAULT_CONCEPT_SCOPE: tuple[str, ...] = FIRST_CONCEPTS
+
+
+def companyfacts_batch_flags(concepts: Optional[Iterable[str]] = None, *,
+                             per_concept_cap: int = 24) -> dict:
+    """Return the sec_edgar source-config OVERRIDES that focus one collect batch
+    on ONLY the per-CIK XBRL companyfacts lane with the Stage 9.5 concept scope.
+
+    Every other bounded lane (daily-index, submissions, companyconcept, Form 4
+    transactions, 8-K Item 2.02, full-index, bulk-archive probe) is switched OFF,
+    so a companyfacts batch stays bounded to the CIK companyfacts documents and
+    the campaign's progress is measured on genuine XBRL facts only. Deterministic;
+    no network here - the runtime injects these into ``_collect_batch``."""
+    scope = sorted(set(concepts) if concepts is not None
+                   else DEFAULT_CONCEPT_SCOPE)
+    return {
+        "collect_companyfacts": True,
+        "collect_submissions": False,
+        "collect_companyconcept": False,
+        "collect_form4_transactions": False,
+        "collect_form8k_earnings": False,
+        "collect_full_index": False,
+        "probe_bulk_archives": False,
+        "filing_window_business_days": 0,
+        "companyfacts_concepts": scope,
+        "facts_per_concept_cap": int(per_concept_cap),
+    }
+
+
+def clamp_batch_size(requested, *, hard_max: int = 10, default: int = 5) -> int:
+    """The effective per-batch CIK count: at least 1, at most ``hard_max`` (the
+    configurable hard maximum), defaulting to ``default`` when unset. The hard
+    ceiling can never be exceeded regardless of the requested/default value."""
+    try:
+        n = int(requested) if requested is not None else int(default)
+    except (TypeError, ValueError):
+        n = int(default)
+    return max(1, min(n, max(1, int(hard_max))))
+
+
+def owned_pit_store(records: Iterable[dict]) -> "pfd.PitFundamentalsStore":
+    """Deterministically (re)build a point-in-time fundamentals store from owned
+    normalized ``RT_FUNDAMENTAL_FACT`` / ``XBRL_FACT`` records (the immutable
+    Stage 2 normalized JSONL is the durable source of truth; parsing is
+    deterministic, so a replay reproduces the SAME PIT store). Leakage-safe:
+    availability = SEC filed date; restatements preserved as distinct
+    observations."""
+    st = pfd.PitFundamentalsStore()
+    st.add_records(records)
+    return st
+
+
+def pit_observation_digest(store: "pfd.PitFundamentalsStore") -> str:
+    """A deterministic SHA-256 over EVERY materialized PIT observation (sorted).
+    Two runs that materialize the same owned facts produce the same digest, so a
+    replay is provably identical and a real acquisition is provably new."""
+    import hashlib
+    import json as _json
+    obs = []
+    for key in sorted(store._obs):  # (cik, concept, fiscal_key)
+        for o in store._obs[key]:
+            obs.append((o.cik, o.concept, o.tag, o.unit,
+                        None if o.value is None else round(float(o.value), 6),
+                        o.period_end, o.fiscal_key, o.available_at, o.form,
+                        bool(o.is_amendment)))
+    obs.sort(key=lambda t: tuple("" if x is None else str(x) for x in t))
+    payload = _json.dumps(obs, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def coverage_report(records: Iterable[dict], *,
+                    signals: Optional[Iterable[str]] = None,
+                    universe_size: Optional[int] = None) -> dict:
+    """A single, HONEST owned-companyfacts coverage report over the durable
+    normalized facts. Composes the PIT store coverage with the fundamental-signal
+    per-candidate readiness. No fabrication: everything is derived from owned
+    facts (availability = SEC filed date)."""
+    from . import fundamental_signals as _fsig
+    store = owned_pit_store(records)
+    summ = store.coverage_summary()
+    sigs = list(signals) if signals is not None else list(_fsig.SIGNALS)
+    per_signal = {}
+    for sig in sigs:
+        ciks = len(store.ciks_with_candidate(sig))
+        per_signal[sig] = {
+            "ciks_with_all_required_concepts": ciks,
+            "required_concepts": pfd.CANDIDATE_CONCEPTS.get(sig, []),
+            "missing_concepts": store.missing_concepts(sig),
+            "expected_sign": _fsig.EXPECTED_SIGN.get(sig)}
+    out = {"pit_observations": summ["pit_observations"],
+           "distinct_ciks": summ["distinct_ciks"],
+           "concepts_present": summ["concepts_present"],
+           "availability_start": summ["availability_start"],
+           "availability_end": summ["availability_end"],
+           "facts_missing_filed_date": summ["facts_missing_filed_date"],
+           "unmapped_us_gaap_tags": summ["unmapped_us_gaap_tags"],
+           "mapping_version": summ["mapping_version"],
+           "mapping_version_hash": summ["mapping_version_hash"],
+           "pit_observation_digest": pit_observation_digest(store),
+           "per_signal": per_signal}
+    if universe_size:
+        out["universe_size"] = int(universe_size)
+        out["cik_coverage_pct"] = round(
+            100.0 * summ["distinct_ciks"] / int(universe_size), 4) \
+            if universe_size else None
+    return out
+
+
 def owned_companyfacts_fetch(root: str) -> Callable[[str], Optional[dict]]:
     """A fetch_fn that reads an OWNED companyfacts JSON from disk (no network):
     ``<root>/CIK##########.json`` or ``<root>/companyfacts/CIK##########.json``.
@@ -277,7 +398,9 @@ def owned_companyfacts_fetch(root: str) -> Callable[[str], Optional[dict]]:
 
 
 __all__ = ["COMPANYFACTS_CAMPAIGN_ID", "COMPANYFACTS_KIND", "COMPANYFACTS_LANE",
-           "FIRST_CONCEPTS", "TARGET_TAGS", "NO_OWNED_COMPANYFACTS",
-           "normalize_unit", "parse_companyfacts", "to_pit_records",
-           "materialize", "ensure_campaign", "run_batch",
-           "owned_companyfacts_fetch"]
+           "FIRST_CONCEPTS", "DEFAULT_CONCEPT_SCOPE", "TARGET_TAGS",
+           "NO_OWNED_COMPANYFACTS", "normalize_unit", "parse_companyfacts",
+           "to_pit_records", "materialize", "ensure_campaign", "run_batch",
+           "owned_companyfacts_fetch", "companyfacts_batch_flags",
+           "clamp_batch_size", "owned_pit_store", "pit_observation_digest",
+           "coverage_report"]
