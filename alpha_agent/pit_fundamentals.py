@@ -130,6 +130,13 @@ class PitFundamentalsStore:
     def __init__(self):
         # (cik, concept, fiscal_key) -> list[PitObservation] (multiple = restated)
         self._obs: "dict[tuple, list[PitObservation]]" = {}
+        # (cik, concept) -> set[fiscal_key]. A pure performance index over the
+        # SAME observations so ``latest_fiscal_key`` / ``prior_fiscal_key`` iterate
+        # only the fiscal keys for one (cik, concept) instead of scanning EVERY key
+        # in ``self._obs`` (O(all facts) -> O(periods for this cik/concept)); the
+        # selected fiscal keys and every leakage-safe as-of resolution are byte-for-
+        # byte identical to the exhaustive scan. Deterministic, never lowers a gate.
+        self._fks_by_cik_concept: "dict[tuple, set]" = {}
         self._unmapped_tags: "dict[str, int]" = {}
         self._missing_filed = 0
         self._ingested = 0
@@ -166,6 +173,8 @@ class PitFundamentalsStore:
             is_amendment=str(form or "").endswith("/A"))
         key = (obs.cik, concept, fiscal_key)
         self._obs.setdefault(key, []).append(obs)
+        self._fks_by_cik_concept.setdefault(
+            (str(obs.cik), concept), set()).add(fiscal_key)
         return True
 
     def add_records(self, records: Iterable[dict]) -> int:
@@ -217,9 +226,7 @@ class PitFundamentalsStore:
         if the concept was never available for this CIK by then."""
         best_fk = None
         best_pe = None
-        for (c, cc, fk) in self._obs:
-            if c != str(cik) or cc != concept:
-                continue
+        for fk in self._fks_by_cik_concept.get((str(cik), concept), ()):
             pe = self._period_end_available(cik, concept, fk, as_of)
             if pe is None:
                 continue
@@ -267,8 +274,8 @@ class PitFundamentalsStore:
             return None
         best_fk = None
         best_gap = None
-        for (c, cc, fk) in self._obs:
-            if c != str(cik) or cc != concept or fk == current_fiscal_key:
+        for fk in self._fks_by_cik_concept.get((str(cik), concept), ()):
+            if fk == current_fiscal_key:
                 continue
             # A comparable prior for a bare period_end key must itself be a bare
             # period_end key (never a FY-FP quarterly identity), else the tight

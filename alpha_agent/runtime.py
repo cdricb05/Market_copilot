@@ -1917,6 +1917,24 @@ class Runtime:
                         summary["fundamental_planned_job"] = fund_plan
             except Exception:  # noqa: BLE001 - planning never breaks the drain
                 pass
+            # Stage 10.3 — the AlphaAgent generates its OWN next MARKET_BAR repair
+            # job: it drives the diagnose -> panel_validate -> price-readiness ->
+            # combined-gate campaign over the SAME queue, at most one live
+            # market_bar job. Bounded, idempotent, restart-safe; a lower priority
+            # than the identity / companyfacts / fundamentals work means it can
+            # never permanently starve the tournament. Never raises.
+            try:
+                s103 = stage10_3_cfg(cfg8)
+                if s103.get("enabled") and s103.get("planner_enabled", True):
+                    from . import market_bar_jobs as _mbj
+                    mb_ctx = build_market_bar_context(
+                        cfg8, queue=queue, clock=self.clock.iso)
+                    mb_plan = _mbj.plan_next_market_bar_job(
+                        queue, mb_ctx, cfg=mb_ctx.stage103)
+                    if mb_plan:
+                        summary["market_bar_planned_job"] = mb_plan
+            except Exception:  # noqa: BLE001 - planning never breaks the drain
+                pass
             # Stage 9.5 DETERMINISTIC FAIRNESS. The bounded pass ordering (PASS A
             # tournament-continuation allowlist; PASS B SEC Form4/8-K continuation
             # iff A idle; PASS C SEC companyfacts continuation iff A and B idle) is
@@ -3159,6 +3177,85 @@ def build_companyfacts_index(cfg: dict, *, clock=None):
     return _cfi.SecCompanyFactsIndex(s102["companyfacts_index_db"], clock=clock)
 
 
+# --------------------------------------------------------------------------- #
+# Stage 10.3 — survivorship-safe historical MARKET_BAR panel repair wiring. The
+# canonical assetid-anchored panel reads the OWNED normalized MARKET_BAR tree on D:
+# (never an operational-ledger root). The AlphaAgent operates the campaign through
+# the SAME queue; nothing is acquired here — the owned history already exists.
+# --------------------------------------------------------------------------- #
+def stage10_3_cfg(cfg: dict) -> dict:
+    return (cfg.get("stage10_3") or {}) if isinstance(cfg, dict) else {}
+
+
+def _resolve_stage103_runtime(cfg: dict) -> dict:
+    """The Stage 10.3 config block with resolved defaults (owned ingestion root,
+    price sources, artifact root, horizon). Self-contained; co-located with the
+    Stage 10 identity artifacts on D:."""
+    s103 = dict(stage10_3_cfg(cfg))
+    if not s103:
+        return {}
+    root = stage10_identity_root(cfg)
+    ph = (cfg.get("production_handlers") or {}) if isinstance(cfg, dict) else {}
+    s103.setdefault("ingestion_root", _stage6_ingestion_root(cfg))
+    s103.setdefault("artifact_root", str(root / "artifacts"))
+    s103.setdefault("sources", ["norgate_local"])
+    s103.setdefault("horizon_days", 63)
+    if not s103.get("contact_email"):
+        s103["contact_email"] = ph.get("contact_email")
+    return s103
+
+
+def _stage6_ingestion_root(cfg: dict) -> str:
+    """Resolve the owned normalized ingestion root the price panel reads — the SAME
+    root the production price-panel handler uses (Stage 6 backfill config's
+    ``ingestion_root``, else the Stage 8 autonomy root / ingestion)."""
+    ph = (cfg.get("production_handlers") or {}) if isinstance(cfg, dict) else {}
+    s6_path = ph.get("stage6_backfill_config")
+    if s6_path:
+        try:
+            p = Path(s6_path)
+            if not p.is_absolute():
+                p = Path(__file__).resolve().parents[1] / s6_path
+            s6 = json.loads(p.read_text(encoding="utf-8-sig"))
+            if s6.get("ingestion_root"):
+                return str(s6["ingestion_root"])
+        except Exception:  # noqa: BLE001 - fall through to the autonomy default
+            pass
+    return str(stage8_autonomy_root(cfg) / "ingestion")
+
+
+def build_market_bar_context(cfg: dict, *, queue=None, clock=None):
+    """Assemble the Stage 10.3 market-bar job context: the canonical identity store
+    (survivorship-safe universe + resolved CIK->assetid), the owned normalized
+    ingestion root, the Stage 9 readiness config + rebalance dates, the candidate
+    signals and the price sources. Read-only w.r.t. every operational store."""
+    from . import market_bar_jobs as _mbj
+    s10 = stage10_identity_cfg(cfg)
+    s103 = _resolve_stage103_runtime(cfg)
+    store = build_identity_store(cfg, clock=clock)
+    cfg9 = {}
+    try:
+        _p9 = resolve_stage9_config_path(cfg)
+        if _p9:
+            from . import tournament as _tt
+            cfg9 = _tt.load_config(_p9) or {}
+    except Exception:  # noqa: BLE001
+        cfg9 = {}
+    rebalance = list(s10.get("rebalance_dates") or
+                     (((cfg9.get("stage9_5") or {}).get("historical_universe")
+                       or {}).get("rebalance_dates") or []))
+    signals = tuple(((cfg9.get("stage9_5") or {}).get("fundamental_mvp") or {}
+                     ).get("signals") or _mbj.DEFAULT_SIGNALS)
+    return _mbj.MarketBarJobContext(
+        store=store, ingestion_root=s103.get("ingestion_root"),
+        artifact_root=s103.get("artifact_root") or str(
+            stage10_identity_root(cfg) / "artifacts"),
+        rebalance_dates=rebalance, cfg9=cfg9, stage103=s103,
+        index_name=s10.get("index_name", "S&P 500"), signals=signals,
+        sources=tuple(s103.get("sources") or ("norgate_local",)),
+        horizon_days=int(s103.get("horizon_days", 63)), clock=clock)
+
+
 def build_fundamental_context(cfg: dict, *, queue=None, read_normalized=None,
                               clock=None):
     """Assemble the Stage 10.2 fundamental job context: the canonical identity
@@ -3904,10 +4001,33 @@ def build_production_autonomy_handlers(cfg: dict, *,
                            "activated/ready: %s; candidate stays DATA_HOLD - "
                            "no transition on current-survivor results"
                            % (_hg["reason"] or _hg["diagnostic"]))}
+        # Stage 10.3: when the historical PIT path is active, evaluate on the
+        # CANONICAL survivorship-safe panel — the full owned MARKET_BAR history keyed
+        # on the STABLE Norgate assetid (never the truncated earliest-6000-files /
+        # 300-symbol ticker reader that starved the evaluator to 11 periods) — with
+        # the cross-section key = assetid and cik_to_key = {cik: assetid}. Built once
+        # per driver and reused. Falls back to the legacy panel if unavailable.
+        _repaired_panel = None
         if _hist_store is not None:
             store = _hist_store
             recs = None
             c2t = _historical_c2t(_id_store)
+            _s103 = stage10_3_cfg(cfg)
+            if _s103.get("enabled") and _id_store is not None:
+                try:
+                    if "repaired_panel" not in _cache:
+                        from . import historical_price_panel as _hpp
+                        _rp, _c2a = _hpp.build_repaired_panel(
+                            ingestion_root, _id_store,
+                            sources=tuple(_s103.get("sources")
+                                          or ("norgate_local",)))
+                        _cache["repaired_panel"] = _rp
+                        _cache["repaired_c2a"] = _c2a
+                    if _cache.get("repaired_panel"):
+                        _repaired_panel = _cache["repaired_panel"]
+                        c2t = _cache["repaired_c2a"]
+                except Exception:  # noqa: BLE001 - fall back to legacy panel
+                    _repaired_panel = None
         else:
             recs = _read_normalized("FUNDAMENTAL_FACT", limit=6000)
             store = _cf.owned_pit_store(recs)
@@ -3928,10 +4048,13 @@ def build_production_autonomy_handlers(cfg: dict, *,
                            "with full concept set < %d); the live sec_companyfacts "
                            "campaign grows coverage - candidate stays DATA_HOLD"
                            % (feature, ready_ciks, min_ciks))}
-        panel = _panel()
+        panel = _repaired_panel if _repaired_panel is not None else _panel()
         if not panel:
             return _ar.OUTCOME_BLOCKED_SPECIFIC, {
                 **base, "reason": "no price panel (no MARKET_BAR data)"}
+        base["panel_source"] = ("stage10_3_canonical_assetid_panel"
+                                if _repaired_panel is not None
+                                else "legacy_normalized_store")
         hz = int((spec or {}).get("horizon_days") or 63)
         try:
             row = _fev.evaluate_fundamental_evidence(
@@ -5064,6 +5187,32 @@ def build_production_autonomy_handlers(cfg: dict, *,
         handlers[_ar.CAT_DATA_ACQUISITION] = _route_fundamentals(
             handlers[_ar.CAT_DATA_ACQUISITION])
         handlers[_ar.CAT_DATA_VALIDATION] = _route_fundamentals(
+            handlers[_ar.CAT_DATA_VALIDATION])
+
+    # Stage 10.3 — route ONLY the exact new market_bar.* lanes to the market-bar
+    # handlers using the SAME queue. Every other DATA_VALIDATION job keeps its
+    # existing (already identity/fundamentals-wrapped) handler untouched. The
+    # market-bar context is built lazily and reused across the cycle. Research-only;
+    # no operational mutation.
+    _s103 = stage10_3_cfg(cfg)
+    if _s103.get("enabled"):
+        from . import market_bar_jobs as _mbj
+        _mbcache: dict = {}
+
+        def _market_bar_ctx():
+            if "ctx" not in _mbcache:
+                _mbcache["ctx"] = build_market_bar_context(cfg, queue=queue)
+            return _mbcache["ctx"]
+
+        def _route_market_bar(base):
+            def _routed(job, _b=base):
+                if str(getattr(job, "lane", "")).startswith(
+                        _mbj.MARKET_BAR_LANE_PREFIX):
+                    return _mbj.dispatch_market_bar_job(job, _market_bar_ctx())
+                return _b(job)
+            return _routed
+
+        handlers[_ar.CAT_DATA_VALIDATION] = _route_market_bar(
             handlers[_ar.CAT_DATA_VALIDATION])
     return handlers
 

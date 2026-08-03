@@ -1934,6 +1934,24 @@ def generate_stage9_5_fundamental_followups(registry: "CandidateRegistry",
                     pit_store=ps)
                 map_avail = map_avail or bool(g["mapping_available"])
                 eligible[sig] = bool(g["allowed"])
+        # Stage 10.3: a fundamental experiment is generated ONLY when the measured
+        # per-rebalance PRICE readiness (>=12 REAL evaluator scored periods on the
+        # repaired survivorship-safe assetid panel over the full owned MARKET_BAR
+        # history) is ALSO sufficient for the signal. Until a price-readiness
+        # snapshot has been measured the price gate is not applied (backward
+        # compatible: the fundamental readiness alone governs); once measured it can
+        # only ever CLOSE a signal the fundamental readiness left open — it never
+        # opens one, and no threshold is lowered.
+        try:
+            _praw = _id_store.get_meta("stage103_price_readiness_snapshot")
+            _price_snap = json.loads(_praw) if _praw else {}
+        except Exception:  # noqa: BLE001 - snapshot read never fatal
+            _price_snap = {}
+        if _price_snap:
+            for sig in signals:
+                if eligible.get(sig) and not bool(
+                        (_price_snap.get(sig) or {}).get("sufficient")):
+                    eligible[sig] = False
         if not any(eligible.values()):
             # Honest blocker (no extra heavy PIT rebuild): every configured
             # signal's measured survivorship-safe historical PIT readiness is
@@ -1957,6 +1975,19 @@ def generate_stage9_5_fundamental_followups(registry: "CandidateRegistry",
                         "historical_evaluation_enabled"],
                     "historical_mapping_available": gate["mapping_available"],
                     "reason": gate["reason"]}
+    # Stage 10.3: the owned-price coverage epoch (present only once the market_bar
+    # readiness campaign has measured the repaired panel). Folding it into the spec
+    # makes a REPAIRED / extended owned price panel produce a FRESH experiment
+    # (new spec -> generate -> claim -> run on the repaired panel), so the evaluator
+    # re-runs on the deeper history instead of being deduplicated against the stale
+    # 11-period attempt. Absent (legacy / pre-repair) the key is omitted so existing
+    # specs stay byte-identical.
+    _panel_epoch = None
+    if _id_store is not None:
+        try:
+            _panel_epoch = _id_store.get_meta("stage103_panel_epoch")
+        except Exception:  # noqa: BLE001 - epoch read never fatal
+            _panel_epoch = None
     generated: list[dict] = []
     for feature in sorted(signals):
         if len(generated) >= max_fu:
@@ -1980,6 +2011,8 @@ def generate_stage9_5_fundamental_followups(registry: "CandidateRegistry",
                  "template": "fundamental_momentum_rank",
                  "study_kind": "stage9_5_fundamental",
                  "fundamental_of": cand["candidate_id"]}
+        if _panel_epoch:
+            vspec["price_panel_epoch"] = _panel_epoch
         sh = registry.try_register_generated(
             strategy="stage9_5_fundamental", spec=vspec,
             candidate_id=cand["candidate_id"])
