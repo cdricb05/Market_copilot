@@ -318,6 +318,25 @@ def owned_pit_store(records: Iterable[dict]) -> "pfd.PitFundamentalsStore":
     return st
 
 
+def historical_pit_store_from_index(index, ciks: Iterable[str], *,
+                                    concepts: Optional[Iterable[str]] = None
+                                    ) -> "pfd.PitFundamentalsStore":
+    """Stage 10.2: (re)build a leakage-safe point-in-time fundamentals store for
+    the RESOLVED historical CIKs directly from the durable bulk companyfacts index
+    (``sec_companyfacts_index.SecCompanyFactsIndex``) — NOT a parallel factor
+    database: the SAME ``PitFundamentalsStore`` + concept model + as-of contract,
+    just fed from the owned bulk index instead of per-CIK network fetches.
+    Availability = SEC filed date; restatements/amendments preserved as distinct
+    observations; missing stays missing (never zero). Deterministic: the same
+    index + CIK set reproduce the same store."""
+    st = pfd.PitFundamentalsStore()
+    if index is None:
+        return st
+    payloads = index.pit_payloads_for_ciks(ciks, concepts=concepts)
+    st.add_records(to_pit_records(payloads))
+    return st
+
+
 def pit_observation_digest(store: "pfd.PitFundamentalsStore") -> str:
     """A deterministic SHA-256 over EVERY materialized PIT observation (sorted).
     Two runs that materialize the same owned facts produce the same digest, so a
@@ -403,4 +422,4 @@ __all__ = ["COMPANYFACTS_CAMPAIGN_ID", "COMPANYFACTS_KIND", "COMPANYFACTS_LANE",
            "to_pit_records", "materialize", "ensure_campaign", "run_batch",
            "owned_companyfacts_fetch", "companyfacts_batch_flags",
            "clamp_batch_size", "owned_pit_store", "pit_observation_digest",
-           "coverage_report"]
+           "coverage_report", "historical_pit_store_from_index"]

@@ -43,6 +43,38 @@ from . import pit_fundamentals as _pfd
 HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY = \
     "HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY"
 
+# Stage 10.2 — the explicit, safe ACTIVATION MODE that replaces the old fixed
+# Boolean-only behaviour of the historical fundamental experiment switch. The
+# default (and the backward-compatible reading of a missing/false legacy Boolean)
+# is DISABLED = the gate can never open, regardless of measured state. MEASURED_
+# AUTO = the gate opens AUTOMATICALLY and ONLY when the canonical identity mapping
+# coverage AND the per-rebalance PIT readiness contracts BOTH pass on measured
+# state — no human or Claude ever hand-marks readiness available.
+ACTIVATION_DISABLED = "disabled"
+ACTIVATION_MEASURED_AUTO = "measured_auto"
+_VALID_ACTIVATION_MODES = (ACTIVATION_DISABLED, ACTIVATION_MEASURED_AUTO)
+
+
+def activation_mode(fx: dict) -> str:
+    """Resolve the historical-evaluation ACTIVATION MODE from the
+    ``stage9_5.fundamental_experiments`` block. Precedence:
+      * an explicit valid ``activation_mode`` wins;
+      * else the DEPRECATED ``historical_evaluation_enabled`` Boolean is honoured
+        for backward compatibility — ``True`` maps to ``measured_auto`` (its old
+        meaning: "allow once measured-ready"), ``False``/missing maps to
+        ``disabled``;
+      * anything unrecognised is ``disabled``.
+    No configuration can SILENTLY enable historical evaluation: the safe default
+    is always ``disabled`` and even ``measured_auto`` only PERMITS opening — the
+    measured mapping + PIT readiness contracts must still pass."""
+    fx = fx or {}
+    m = str(fx.get("activation_mode") or "").strip().lower()
+    if m in _VALID_ACTIVATION_MODES:
+        return m
+    if fx.get("historical_evaluation_enabled") is True:
+        return ACTIVATION_MEASURED_AUTO
+    return ACTIVATION_DISABLED
+
 # Per-rebalance readiness thresholds (Blocker 2). All must pass for eligibility.
 _DEFAULT_THRESHOLDS = {
     "min_eligible_names_per_rebalance": 20,
@@ -335,52 +367,122 @@ def _default_rebalance_dates(cfg: dict) -> list:
     return out
 
 
+def _companyfacts_index_db(cfg: dict) -> Optional[str]:
+    s95 = (cfg.get("stage9_5") or {}) if isinstance(cfg, dict) else {}
+    hu = s95.get("historical_universe") or {}
+    return hu.get("companyfacts_index_db")
+
+
+def _resolved_ciks_from_store(store, *, limit: int = 200000) -> list:
+    """Every canonical CIK with an ACTIVE RESOLVED mapping in the identity store
+    (the survivorship-safe historical universe — current + delisted). Read-only."""
+    out = []
+    try:
+        for s in store.list_securities(limit=limit):
+            mp = store.active_mapping(s["security_id"])
+            if mp and mp.get("status") == "RESOLVED" and mp.get("cik"):
+                out.append(mp["cik"])
+    except Exception:  # noqa: BLE001 - measurement never fatal
+        return []
+    return sorted(set(out))
+
+
+def open_companyfacts_pit_store(cfg: dict, *, store=None):
+    """Stage 10.2: build the leakage-safe historical PIT companyfacts store for
+    the RESOLVED historical universe directly from the durable bulk companyfacts
+    index declared at ``stage9_5.historical_universe.companyfacts_index_db`` — the
+    measured PIT fact coverage that feeds ``per_rebalance_readiness``. Returns None
+    (readiness fact coverage stays 0 -> gate stays CLOSED) whenever the index is
+    not configured, does not exist yet, has no facts, or no CIK is resolved — so
+    the gate can never open until genuine owned historical PIT depth exists. Lazy
+    imports so this module never pulls the index/PIT layer at import; fully
+    read-only, no network, no state writes."""
+    db = _companyfacts_index_db(cfg)
+    if not db:
+        return None
+    from pathlib import Path as _P
+    try:
+        if not _P(db).exists():
+            return None
+        from . import sec_companyfacts_index as _cfi
+        from . import sec_companyfacts as _cf
+        idx = _cfi.SecCompanyFactsIndex(db)
+        if int(idx.counts().get("facts", 0)) <= 0:
+            return None
+        st = store if store is not None else open_identity_store(cfg)
+        ciks = _resolved_ciks_from_store(st) if st is not None else []
+        if not ciks:
+            return None
+        return _cf.historical_pit_store_from_index(idx, ciks)
+    except Exception:  # noqa: BLE001 - PIT build never fatal; closed on failure
+        return None
+
+
 def historical_fundamental_experiment_allowed(cfg: dict,
                                               readiness: Optional[dict] = None,
                                               *, store=None,
-                                              signal: str = "gross_profitability"
-                                              ) -> dict:
+                                              signal: str = "gross_profitability",
+                                              pit_store=None) -> dict:
     """SAFETY SWITCH (Blocker 7). A Stage 9.5B historical fundamental experiment
     may be generated/executed ONLY when ALL of:
-      * ``stage9_5.fundamental_experiments.historical_evaluation_enabled`` is true;
-      * an owned survivorship-safe historical ticker->CIK mapping is available;
-      * the per-rebalance readiness has been MEASURED sufficient.
+      * the ACTIVATION MODE PERMITS it (``activation_mode == 'measured_auto'``;
+        ``disabled`` — the safe default and the reading of a missing/false legacy
+        Boolean — can NEVER open);
+      * an owned survivorship-safe historical ticker->CIK mapping is MEASURED
+        available;
+      * the per-rebalance PIT readiness has been MEASURED sufficient.
     Otherwise ``allowed`` is False and the single diagnostic
     ``HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY`` is returned - zero jobs, all
     candidates stay DATA_HOLD, no transition on current-survivor results.
 
-    Stage 10: when a measured identity ``store`` is supplied, mapping
-    availability AND readiness are derived from the MEASURED store coverage
-    (never the hand-set config flag) — the honest, automatic unlock path. When
-    ``store`` is None the legacy config-flag behaviour is preserved exactly
-    (backward compatible). Either way the diagnostic stays until every configured
-    requirement genuinely passes; the switch is never flipped by Claude."""
+    Stage 10.2: when a measured identity ``store`` is supplied, mapping
+    availability AND readiness are derived from the MEASURED store coverage +
+    the measured historical PIT store built from the owned bulk companyfacts index
+    (``open_companyfacts_pit_store``), never a hand-set flag — the honest,
+    automatic unlock path. When ``store`` is None the legacy config-flag behaviour
+    is preserved exactly (backward compatible). Either way the diagnostic stays
+    until every configured requirement genuinely passes; the switch is never
+    flipped by Claude."""
     s95 = (cfg.get("stage9_5") or {}) if isinstance(cfg, dict) else {}
     fx = s95.get("fundamental_experiments") or {}
-    enabled = bool(fx.get("historical_evaluation_enabled"))
+    mode = activation_mode(fx)
+    activation_permits = (mode == ACTIVATION_MEASURED_AUTO)
     if store is not None:
         mapping = historical_mapping_status_from_store(store, cfg)
         if readiness is None:
-            readiness = measured_readiness_from_store(store, signal, cfg)
+            ps = pit_store if pit_store is not None else \
+                open_companyfacts_pit_store(cfg, store=store)
+            readiness = measured_readiness_from_store(store, signal, cfg,
+                                                      pit_store=ps)
     else:
         mapping = historical_mapping_status(cfg)
     ready_ok = bool(readiness.get("sufficient")) if readiness else False
-    allowed = bool(enabled and mapping["available"] and ready_ok)
+    allowed = bool(activation_permits and mapping["available"] and ready_ok)
     reason = None
     if not allowed:
-        if not enabled:
-            reason = ("stage9_5.fundamental_experiments."
-                      "historical_evaluation_enabled is false (OPTION B defer)")
+        if not activation_permits:
+            reason = ("stage9_5.fundamental_experiments.activation_mode is "
+                      "'%s' (historical fundamental evaluation not activated; set "
+                      "it to 'measured_auto' to permit the measured auto-unlock)"
+                      % mode)
         elif not mapping["available"]:
             reason = mapping["reason"]
         elif not ready_ok:
-            reason = ("per-rebalance readiness not yet sufficient on the "
-                      "survivorship-safe historical universe")
+            reason = ("per-rebalance PIT readiness not yet sufficient on the "
+                      "survivorship-safe historical universe%s"
+                      % ("" if readiness is None else
+                         (": %s" % readiness.get("blocker"))))
     return {
         "allowed": allowed,
-        "historical_evaluation_enabled": enabled,
+        "activation_mode": mode,
+        "activation_permits": activation_permits,
+        # Retained (deprecated) for backward-compatible consumers/reporting.
+        "historical_evaluation_enabled": bool(
+            fx.get("historical_evaluation_enabled")),
         "mapping_available": mapping["available"],
         "readiness_sufficient": ready_ok,
+        "readiness_blocker": (readiness or {}).get("blocker") if readiness
+        else None,
         "diagnostic": None if allowed
         else HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY,
         "reason": reason,
@@ -412,7 +514,9 @@ def evaluate_candidate_readiness(store, signal: str, cfg: dict, *,
 
 
 __all__ = ["HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY",
+           "ACTIVATION_DISABLED", "ACTIVATION_MEASURED_AUTO", "activation_mode",
            "historical_mapping_status", "historical_mapping_status_from_store",
            "measured_readiness_from_store", "per_rebalance_readiness",
+           "open_companyfacts_pit_store",
            "historical_fundamental_experiment_allowed",
            "evaluate_candidate_readiness", "readiness_thresholds"]

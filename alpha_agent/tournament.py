@@ -1885,31 +1885,78 @@ def generate_stage9_5_fundamental_followups(registry: "CandidateRegistry",
     fx = s95.get("fundamental_experiments") or {}
     if not s95.get("enabled") or not fx.get("enabled"):
         return {"generated": [], "count": 0, "enabled": False}
-    # Stage 9.5B SAFETY SWITCH (Blocker 7): a HISTORICAL fundamental experiment is
-    # generated ONLY when a survivorship-safe historical ticker->CIK mapping AND
-    # the config flag both pass. Under OPTION B this is off, so ZERO jobs are
-    # generated and every fundamental candidate stays DATA_HOLD - aggregate
-    # current-CIK coverage can NEVER unlock a survivorship-biased historical
-    # backtest. Stage 10: mapping availability + per-rebalance readiness are now
-    # derived from the MEASURED identity store (never the hand-set flag). Below
-    # the measured historical-coverage threshold the gate stays refused honestly;
-    # once the contract genuinely passes it unlocks AUTOMATICALLY here.
-    _id_store = _fr.open_identity_store(cfg)
-    gate = _fr.historical_fundamental_experiment_allowed(
-        cfg, readiness=None, store=_id_store)
-    if not gate["allowed"]:
-        return {"generated": [], "count": 0, "enabled": True,
-                "blocker": gate["diagnostic"],
-                "historical_evaluation_enabled": gate[
-                    "historical_evaluation_enabled"],
-                "historical_mapping_available": gate["mapping_available"],
-                "reason": gate["reason"]}
     signals = ((s95.get("fundamental_mvp") or {}).get("signals")
                or ["gross_profitability", "asset_growth",
                    "balance_sheet_quality"])
     max_fu = max(0, int(_f(fx.get("max_per_cycle")) or 1))
     hz = int(_f(fx.get("horizon_days")) or 63)
     rb = fx.get("rebalance", "quarterly")
+    # Stage 9.5B SAFETY SWITCH (Blocker 7) / Stage 10.2 MEASURED-AUTO unlock. A
+    # HISTORICAL fundamental experiment is generated ONLY when a survivorship-safe
+    # historical ticker->CIK mapping AND the measured per-rebalance PIT readiness
+    # both pass - never a hand-set flag; below the measured coverage threshold the
+    # gate stays refused honestly, and once the contract genuinely passes it
+    # unlocks AUTOMATICALLY here. Eligibility is measured PER SIGNAL: a single
+    # signal whose owned historical PIT coverage is below threshold (e.g.
+    # gross_profitability) can NEVER veto the signals that genuinely pass (e.g.
+    # asset_growth), and no threshold is ever lowered. When a measured identity
+    # store exists the per-signal readiness is read from the durable snapshot the
+    # fundamentals.coverage_measure job persisted (cheap; no PIT rebuild in the
+    # tick), else computed live off the owned companyfacts PIT store built from
+    # the resolved historical universe. When no measured identity store is
+    # configured the exact legacy config-flag behaviour is preserved.
+    _id_store = _fr.open_identity_store(cfg)
+    eligible: dict = {}
+    if _id_store is not None:
+        activation_permits = (_fr.activation_mode(fx)
+                              == _fr.ACTIVATION_MEASURED_AUTO)
+        map_avail = False
+        snap = {}
+        try:
+            raw = _id_store.get_meta("stage102_readiness_snapshot")
+            snap = json.loads(raw) if raw else {}
+        except Exception:  # noqa: BLE001 - snapshot read never fatal
+            snap = {}
+        if snap:
+            for sig in signals:
+                d = snap.get(sig) or {}
+                map_avail = map_avail or bool(d.get("mapping_available"))
+                eligible[sig] = bool(activation_permits
+                                     and d.get("mapping_available")
+                                     and d.get("sufficient"))
+        else:
+            # No durable snapshot yet: compute the per-signal gate live off the
+            # owned companyfacts PIT store (built once and reused).
+            ps = _fr.open_companyfacts_pit_store(cfg, store=_id_store)
+            for sig in signals:
+                g = _fr.historical_fundamental_experiment_allowed(
+                    cfg, readiness=None, store=_id_store, signal=sig,
+                    pit_store=ps)
+                map_avail = map_avail or bool(g["mapping_available"])
+                eligible[sig] = bool(g["allowed"])
+        if not any(eligible.values()):
+            # Honest blocker (no extra heavy PIT rebuild): every configured
+            # signal's measured survivorship-safe historical PIT readiness is
+            # below threshold, so ZERO jobs are generated and the switch stays
+            # closed - never flipped by a below-threshold signal.
+            return {"generated": [], "count": 0, "enabled": True,
+                    "blocker": _fr.HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY,
+                    "historical_evaluation_enabled": bool(
+                        fx.get("historical_evaluation_enabled")),
+                    "historical_mapping_available": map_avail,
+                    "reason": ("measured per-rebalance PIT readiness not yet "
+                               "sufficient for any configured signal on the "
+                               "survivorship-safe historical universe")}
+    else:
+        gate = _fr.historical_fundamental_experiment_allowed(
+            cfg, readiness=None, store=None)
+        if not gate["allowed"]:
+            return {"generated": [], "count": 0, "enabled": True,
+                    "blocker": gate["diagnostic"],
+                    "historical_evaluation_enabled": gate[
+                        "historical_evaluation_enabled"],
+                    "historical_mapping_available": gate["mapping_available"],
+                    "reason": gate["reason"]}
     generated: list[dict] = []
     for feature in sorted(signals):
         if len(generated) >= max_fu:
@@ -1917,14 +1964,18 @@ def generate_stage9_5_fundamental_followups(registry: "CandidateRegistry",
         cand = _candidate_for_feature(registry, feature)
         if cand is None:
             continue
-        # Only when owned PIT coverage has been MEASURED sufficient (the weakest-
-        # gate persisted this). This is the readiness gate - coverage alone still
-        # never promotes; the experiment merely BECOMES eligible to run.
-        cov = registry.latest_data_coverage(cand["candidate_id"]) or {}
-        if not cov.get("sufficient"):
-            continue
         if cand.get("lifecycle_state") not in (DATA_HOLD, PROPOSED, TESTING):
             continue
+        if _id_store is not None:
+            # Measured per-signal survivorship-safe historical PIT readiness IS
+            # the eligibility (coverage alone still never promotes lifecycle).
+            if not eligible.get(feature):
+                continue
+        else:
+            # Legacy/test path: the weakest-gate-persisted owned coverage.
+            cov = registry.latest_data_coverage(cand["candidate_id"]) or {}
+            if not cov.get("sufficient"):
+                continue
         vspec = {"feature": feature, "horizon_days": hz, "rebalance": rb,
                  "template": "fundamental_momentum_rank",
                  "study_kind": "stage9_5_fundamental",

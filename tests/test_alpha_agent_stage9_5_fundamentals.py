@@ -59,6 +59,20 @@ STAGE8_CFG = json.loads((REPO / "configs/alpha_agent/stage8_autonomy.json")
                         .read_text(encoding="utf-8-sig"))
 
 
+def _not_ready_cfg(tmp_path):
+    """A deep copy of the released config whose Stage 10 measured stores point at
+    FRESH empty tmp paths, so the survivorship-safe historical universe is
+    genuinely NOT ready (empty identity store + no companyfacts index). This keeps
+    the 'safety switch stays closed until the measured contracts pass' assertions
+    DETERMINISTIC and independent of any real Stage 10.2 index that a production
+    run may later build under the shared research root."""
+    cfg = json.loads(json.dumps(STAGE9_CFG))
+    hu = cfg["stage9_5"]["historical_universe"]
+    hu["identity_store_db"] = str(Path(tmp_path) / "empty_identity.sqlite")
+    hu["companyfacts_index_db"] = str(Path(tmp_path) / "empty_companyfacts.sqlite")
+    return cfg
+
+
 # --------------------------------------------------------------------------- #
 # Fixtures / builders
 # --------------------------------------------------------------------------- #
@@ -460,8 +474,11 @@ def _fund_candidate(reg, feature="gross_profitability"):
 
 def test_rc23_insufficient_coverage_stays_data_hold(tmp_path):
     reg = _registry(tmp_path)
-    # no coverage recorded sufficient -> generator emits nothing
-    out = tt.generate_stage9_5_fundamental_followups(reg, STAGE9_CFG, queue=None)
+    # NOT-READY measured universe (empty identity store + no companyfacts index)
+    # -> the generator emits nothing. Isolated from any live Stage 10.2 index a
+    # production run may build under the shared research root.
+    out = tt.generate_stage9_5_fundamental_followups(
+        reg, _not_ready_cfg(tmp_path), queue=None)
     assert out["count"] == 0
     reg.close()
 
@@ -666,7 +683,8 @@ def test_rcc02_historical_experiment_disabled_without_mapping(tmp_path):
     reg = tt.CandidateRegistry(str(tmp_path / "t.sqlite"))
     tt.seed_families(reg)
     q = ar.ResearchQueue(str(tmp_path / "q.sqlite"))
-    res = tt.generate_stage9_5_fundamental_followups(reg, STAGE9_CFG, queue=q)
+    res = tt.generate_stage9_5_fundamental_followups(
+        reg, _not_ready_cfg(tmp_path), queue=q)
     assert res["count"] == 0
     assert res["blocker"] == fr.HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY
     assert [j for j in q.list_jobs(limit=50)
@@ -688,7 +706,8 @@ def test_rcc03_aggregate_current_cik_cannot_unlock(tmp_path):
     assert (reg.latest_data_coverage(cand["candidate_id"]) or {}).get(
         "sufficient") is True
     q = ar.ResearchQueue(str(tmp_path / "q.sqlite"))
-    res = tt.generate_stage9_5_fundamental_followups(reg, STAGE9_CFG, queue=q)
+    res = tt.generate_stage9_5_fundamental_followups(
+        reg, _not_ready_cfg(tmp_path), queue=q)
     st = reg.get(cand["candidate_id"])["lifecycle_state"]
     reg.close()
     # Aggregate current-CIK coverage does NOT unlock a survivorship-biased
@@ -846,7 +865,8 @@ def test_rcc11_no_candidate_leaves_data_hold_prematurely(tmp_path):
         cand["candidate_id"], coverage={"x": 1}, evidence_date="2026-08-01",
         data_dependency="point_in_time_fundamentals", job_id="j",
         sufficient=True, next_action="n/a")
-    tt.generate_stage9_5_fundamental_followups(reg, STAGE9_CFG, queue=None)
+    tt.generate_stage9_5_fundamental_followups(
+        reg, _not_ready_cfg(tmp_path), queue=None)
     st1 = reg.get(cand["candidate_id"])["lifecycle_state"]
     reg.close()
     assert st1 == st0

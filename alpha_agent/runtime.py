@@ -1898,6 +1898,25 @@ class Runtime:
                         summary["identity_planned_job"] = id_plan
             except Exception:  # noqa: BLE001 - planning never breaks the drain
                 pass
+            # Stage 10.2 — the AlphaAgent generates its OWN next fundamental job:
+            # it drives the downstream companyfacts-bulk -> PIT -> readiness ->
+            # measured-activation campaign through the SAME queue, at most one live
+            # fundamental job. Bounded, idempotent, restart-safe; the finite
+            # backlog + a lower priority than the identity/companyfacts work mean it
+            # can never permanently starve the tournament. Never raises.
+            try:
+                s102 = stage10_2_cfg(cfg8)
+                if s102.get("enabled") and s102.get("planner_enabled", True):
+                    from . import fundamental_jobs as _fj
+                    fund_ctx = build_fundamental_context(
+                        cfg8, queue=queue, read_normalized=None,
+                        clock=self.clock.iso)
+                    fund_plan = _fj.plan_next_fundamental_job(
+                        queue, fund_ctx, cfg=fund_ctx.stage102)
+                    if fund_plan:
+                        summary["fundamental_planned_job"] = fund_plan
+            except Exception:  # noqa: BLE001 - planning never breaks the drain
+                pass
             # Stage 9.5 DETERMINISTIC FAIRNESS. The bounded pass ordering (PASS A
             # tournament-continuation allowlist; PASS B SEC Form4/8-K continuation
             # iff A idle; PASS C SEC companyfacts continuation iff A and B idle) is
@@ -3096,6 +3115,95 @@ def _resolve_stage101_runtime(cfg: dict) -> dict:
     return s101
 
 
+# --------------------------------------------------------------------------- #
+# Stage 10.2 — historical PIT fundamentals wiring. The durable companyfacts fact
+# index lives under the SAME Stage 8 research root on D: (co-located with the
+# identity store + issuer index), NEVER under an operational-ledger root. The
+# AlphaAgent operates the downstream campaign through the SAME queue.
+# --------------------------------------------------------------------------- #
+def stage10_2_cfg(cfg: dict) -> dict:
+    return (cfg.get("stage10_2") or {}) if isinstance(cfg, dict) else {}
+
+
+def _resolve_stage102_runtime(cfg: dict) -> dict:
+    """The Stage 10.2 config block with resolved defaults (bulk root, companyfacts
+    bulk URL, fact-index path, contact identity, budgets). Defaults keep it self-
+    contained and co-located with the Stage 10 identity artifacts on D:."""
+    s102 = dict(stage10_2_cfg(cfg))
+    if not s102:
+        return {}
+    root = stage10_identity_root(cfg)
+    s102.setdefault("bulk_root", str(root / "sec_bulk"))
+    s102.setdefault("companyfacts_index_db",
+                    str(root / "sec_companyfacts_index.sqlite"))
+    s102.setdefault("companyfacts_url",
+                    "https://www.sec.gov/Archives/edgar/daily-index/xbrl/"
+                    "companyfacts.zip")
+    s102.setdefault("artifact_root", str(root / "artifacts"))
+    if not s102.get("contact_email"):
+        ph = (cfg.get("production_handlers") or {}) if isinstance(cfg, dict) \
+            else {}
+        s102["contact_email"] = ph.get("contact_email")
+    s102.setdefault("user_agent_product", "paper-trader-alpha-agent/2.0")
+    return s102
+
+
+def build_companyfacts_index(cfg: dict, *, clock=None):
+    """Open (creating if needed) the durable Stage 10.2 SEC companyfacts fact
+    index on D:, or return None when Stage 10.2 is disabled. Under the research
+    root, never an operational-ledger root."""
+    s102 = _resolve_stage102_runtime(cfg)
+    if not s102 or not s102.get("enabled"):
+        return None
+    from . import sec_companyfacts_index as _cfi
+    return _cfi.SecCompanyFactsIndex(s102["companyfacts_index_db"], clock=clock)
+
+
+def build_fundamental_context(cfg: dict, *, queue=None, read_normalized=None,
+                              clock=None):
+    """Assemble the Stage 10.2 fundamental job context: the canonical identity
+    store (resolved historical CIKs + survivorship-safe universe), the durable
+    companyfacts fact index, the durable campaign store, the Stage 9 readiness
+    config + rebalance dates and the SEC HTTP transport. Read-only w.r.t. every
+    operational store."""
+    from . import fundamental_jobs as _fj
+    s10 = stage10_identity_cfg(cfg)
+    s102 = _resolve_stage102_runtime(cfg)
+    store = build_identity_store(cfg, clock=clock)
+    index = build_companyfacts_index(cfg, clock=clock)
+    try:
+        campaign_store = stage8_campaign_store(cfg, clock=clock)
+    except Exception:  # noqa: BLE001 - campaign store optional for planning
+        campaign_store = None
+    cfg9 = {}
+    try:
+        _p9 = resolve_stage9_config_path(cfg)
+        if _p9:
+            from . import tournament as _tt
+            cfg9 = _tt.load_config(_p9) or {}
+    except Exception:  # noqa: BLE001
+        cfg9 = {}
+    rebalance = list(s10.get("rebalance_dates") or
+                     (((cfg9.get("stage9_5") or {}).get("historical_universe")
+                       or {}).get("rebalance_dates") or []))
+    transport = None
+    if index is not None:
+        try:
+            from . import ingestion as _ing
+            transport = _ing.default_transport
+        except Exception:  # noqa: BLE001
+            transport = None
+    signals = tuple(((cfg9.get("stage9_5") or {}).get("fundamental_mvp") or {}
+                     ).get("signals") or _fj.DEFAULT_SIGNALS)
+    return _fj.FundamentalJobContext(
+        store=store, companyfacts_index=index, campaign_store=campaign_store,
+        artifact_root=s102.get("artifact_root") or str(
+            stage10_identity_root(cfg) / "artifacts"),
+        rebalance_dates=rebalance, cfg9=cfg9, stage102=s102,
+        index_name=s10.get("index_name", "S&P 500"), signals=signals,
+        transport=transport, read_normalized=read_normalized, clock=clock)
+
+
 def _default_autonomy_handlers(cfg: dict) -> dict:
     """Safe, offline, read-only default handlers. Discovery/probe rebuild the
     source registry from the catalog (no network); everything else records a
@@ -3707,6 +3815,28 @@ def build_production_autonomy_handlers(cfg: dict, *,
                 out.setdefault(cik, tkr)
         return out
 
+    def _historical_c2t(id_store):
+        """Stage 10.2: cik (unpadded, as the PIT store keys it) -> effective
+        ticker for EVERY ACTIVE RESOLVED security in the identity store — the
+        survivorship-safe historical universe (current + delisted). Read-only."""
+        out: dict = {}
+        if id_store is None:
+            return out
+        try:
+            from . import historical_identity as _hi102
+            for s in id_store.list_securities(limit=1000000):
+                mp = id_store.active_mapping(s["security_id"])
+                if not (mp and mp.get("status") == _hi102.STATUS_RESOLVED
+                        and mp.get("cik")):
+                    continue
+                cik = _hi102.norm_cik(mp["cik"])  # zero-padded, matches index PIT
+                tkr = s.get("ticker")
+                if cik and tkr:
+                    out.setdefault(cik, tkr)
+        except Exception:  # noqa: BLE001 - c2t build never fatal
+            return out
+        return out
+
     def _stage9_5_fundamental_experiment(job, spec, feature):
         """Stage 9.5: evaluate ONE pre-registered PIT FUNDAMENTAL signal on the
         owned point-in-time companyfacts store + the owned survivorship-safe price
@@ -3743,8 +3873,22 @@ def build_production_autonomy_handlers(cfg: dict, *,
                 _id_store = build_identity_store(cfg)
         except Exception:  # noqa: BLE001 - store access never fatal
             _id_store = None
+        # Stage 10.2: build the leakage-safe HISTORICAL PIT store from the owned
+        # bulk companyfacts index for the survivorship-safe resolved universe
+        # (current + delisted) so the gate AND the evaluation run on genuine
+        # historical PIT depth — not the thin current-universe facts. Absent it
+        # (index not built / no facts), the gate stays closed and the candidate
+        # stays an honest DATA_HOLD.
+        _hist_store = None
+        try:
+            if stage10_2_cfg(cfg).get("enabled") and _id_store is not None:
+                _hist_store = _fr.open_companyfacts_pit_store(
+                    _cfg9, store=_id_store)
+        except Exception:  # noqa: BLE001 - never fatal; gate stays closed
+            _hist_store = None
         _hg = _fr.historical_fundamental_experiment_allowed(
-            _cfg9, readiness=None, store=_id_store, signal=feature)
+            _cfg9, readiness=None, store=_id_store, signal=feature,
+            pit_store=_hist_store)
         if not _hg["allowed"]:
             return _ar.OUTCOME_BLOCKED_SPECIFIC, {
                 "real_work": "stage9_5_fundamental_experiment",
@@ -3752,15 +3896,22 @@ def build_production_autonomy_handlers(cfg: dict, *,
                 "disposition": "DATA_HOLD",
                 "historical_fundamental_universe_ready": False,
                 "diagnostic": _hg["diagnostic"],
+                "activation_mode": _hg.get("activation_mode"),
                 "historical_evaluation_enabled": _hg[
                     "historical_evaluation_enabled"],
                 "historical_mapping_available": _hg["mapping_available"],
-                "reason": ("Stage 9.5B historical fundamental evaluation is "
-                           "deferred (OPTION B): %s; candidate stays DATA_HOLD - "
+                "reason": ("Stage 9.5B historical fundamental evaluation not "
+                           "activated/ready: %s; candidate stays DATA_HOLD - "
                            "no transition on current-survivor results"
                            % (_hg["reason"] or _hg["diagnostic"]))}
-        recs = _read_normalized("FUNDAMENTAL_FACT", limit=6000)
-        store = _cf.owned_pit_store(recs)
+        if _hist_store is not None:
+            store = _hist_store
+            recs = None
+            c2t = _historical_c2t(_id_store)
+        else:
+            recs = _read_normalized("FUNDAMENTAL_FACT", limit=6000)
+            store = _cf.owned_pit_store(recs)
+            c2t = _cik_ticker_map(recs)
         min_ciks = int((cfg.get("autonomy") or {}).get(
             "pit_fundamentals_min_ciks", 50))
         min_periods = 12
@@ -3782,7 +3933,6 @@ def build_production_autonomy_handlers(cfg: dict, *,
             return _ar.OUTCOME_BLOCKED_SPECIFIC, {
                 **base, "reason": "no price panel (no MARKET_BAR data)"}
         hz = int((spec or {}).get("horizon_days") or 63)
-        c2t = _cik_ticker_map(recs)
         try:
             row = _fev.evaluate_fundamental_evidence(
                 store, panel, feature, cik_to_ticker=c2t, horizon_days=hz)
@@ -4885,6 +5035,35 @@ def build_production_autonomy_handlers(cfg: dict, *,
         handlers[_ar.CAT_DATA_ACQUISITION] = _route_identity(
             handlers[_ar.CAT_DATA_ACQUISITION])
         handlers[_ar.CAT_DATA_VALIDATION] = _route_identity(
+            handlers[_ar.CAT_DATA_VALIDATION])
+
+    # Stage 10.2 — route ONLY the exact new fundamentals.* lanes to the
+    # fundamental handlers using the SAME queue. Every other DATA_ACQUISITION /
+    # DATA_VALIDATION job keeps its existing (already identity-wrapped) production
+    # handler untouched. The fundamental context is built lazily and reused across
+    # the cycle. Research-only; no operational mutation.
+    _s102 = stage10_2_cfg(cfg)
+    if _s102.get("enabled"):
+        from . import fundamental_jobs as _fj
+        _fjcache: dict = {}
+
+        def _fundamental_ctx():
+            if "ctx" not in _fjcache:
+                _fjcache["ctx"] = build_fundamental_context(
+                    cfg, queue=queue, read_normalized=_read_normalized)
+            return _fjcache["ctx"]
+
+        def _route_fundamentals(base):
+            def _routed(job, _b=base):
+                if str(getattr(job, "lane", "")).startswith(
+                        _fj.FUNDAMENTAL_LANE_PREFIX):
+                    return _fj.dispatch_fundamental_job(job, _fundamental_ctx())
+                return _b(job)
+            return _routed
+
+        handlers[_ar.CAT_DATA_ACQUISITION] = _route_fundamentals(
+            handlers[_ar.CAT_DATA_ACQUISITION])
+        handlers[_ar.CAT_DATA_VALIDATION] = _route_fundamentals(
             handlers[_ar.CAT_DATA_VALIDATION])
     return handlers
 

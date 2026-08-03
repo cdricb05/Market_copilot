@@ -237,7 +237,9 @@
       "mapping_available": false,
       "mapping_source": null,
       "mapping_version_hash": null,
-      "identity_store_db": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\historical_identity.sqlite"
+      "identity_store_db": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\historical_identity.sqlite",
+      "companyfacts_index_db": "D:\\Stock_Prediction_app_data\\alpha_agent\\identity\\sec_companyfacts_index.sqlite",
+      "companyfacts_index_note": "Stage 10.2: the durable bulk SEC companyfacts fact index the measured per-rebalance PIT readiness is built from (fundamental_readiness.open_companyfacts_pit_store). Present here only so the tournament-side readiness/gate can locate the owned index; it is populated by the AlphaAgent's Stage 10.2 campaign, never hand-edited."
     },
     "per_rebalance_readiness": {
       "note": "PER-DATE historical readiness thresholds (replaces aggregate-CIK-only readiness). A fundamental candidate is eligible ONLY when EVERY threshold passes on the survivorship-safe universe as it stood on each historical rebalance date AND a historical mapping is available. Current-universe aggregate counts alone never mark a candidate sufficient.",
@@ -261,8 +263,9 @@
       ]
     },
     "fundamental_experiments": {
-      "note": "Stage 9.5B historical fundamental EXPERIMENT generation. The production handler is implemented, but under OPTION B it is GATED OFF by the SAFETY SWITCH: historical_evaluation_enabled=false AND no survivorship-safe historical ticker->CIK mapping, so fundamental_readiness.historical_fundamental_experiment_allowed returns false and generate_stage9_5_fundamental_followups produces ZERO jobs with the single diagnostic HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY. Candidates stay DATA_HOLD; no transition on current-survivor historical results; no shadow book; no promotion. When (a) a versioned historical mapping is available and (b) per-rebalance readiness passes, set historical_evaluation_enabled=true to let the AGENT enqueue a bounded, spec-deduplicated CAT_EXPERIMENT (origin stage9-tournament, lane tournament.stage9_5_fundamental) that evaluates a genuine cross-sectional Stage 9 evidence contract (rank-IC, TRUE decile spread, cost/turnover, forward-only purged validation, block bootstrap, orthogonality) imported exactly once. No gate is ever lowered.",
+      "note": "Stage 9.5B / 10.2 historical fundamental EXPERIMENT generation. The production handler is implemented and gated by the SAFETY SWITCH. Stage 10.2 REPLACES the old fixed Boolean-only switch with an explicit activation_mode: 'disabled' (the safe default and the reading of a missing/false historical_evaluation_enabled Boolean) can NEVER open; 'measured_auto' opens the gate AUTOMATICALLY and ONLY when the MEASURED identity mapping coverage AND the MEASURED per-rebalance PIT readiness (built from the owned bulk companyfacts index) BOTH pass on the survivorship-safe historical universe. In measured_auto mode the deprecated historical_evaluation_enabled Boolean stays false and is NEVER read as the primary source or hand-flipped - the AlphaAgent's measured Stage 10.2 coverage/readiness jobs open it. When open, generate_stage9_5_fundamental_followups enqueues a bounded, spec-deduplicated CAT_EXPERIMENT (origin stage9-tournament, lane tournament.stage9_5_fundamental) that evaluates a genuine cross-sectional Stage 9 evidence contract (rank-IC, TRUE decile spread, cost/turnover, forward-only purged validation, block bootstrap, orthogonality) imported exactly once. No gate is ever lowered; an honest all-DATA_HOLD outcome is acceptable.",
       "enabled": true,
+      "activation_mode": "measured_auto",
       "historical_evaluation_enabled": false,
       "require_survivorship_safe_mapping": true,
       "not_ready_diagnostic": "HISTORICAL_FUNDAMENTAL_UNIVERSE_NOT_READY",

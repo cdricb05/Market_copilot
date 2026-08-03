@@ -35,6 +35,18 @@ REPO = Path(__file__).resolve().parents[1]
 STAGE9_CFG = json.loads((REPO / "configs/alpha_agent/stage9_tournament.json")
                         .read_text(encoding="utf-8-sig"))
 
+
+def _not_ready_cfg(tmp_path):
+    """Deep copy of the released config with the Stage 10 measured stores pointed
+    at FRESH empty tmp paths, so the historical universe is genuinely NOT ready
+    and the safety-switch assertion stays deterministic regardless of any real
+    Stage 10.2 index a production run may build under the research root."""
+    cfg = json.loads(json.dumps(STAGE9_CFG))
+    hu = cfg["stage9_5"]["historical_universe"]
+    hu["identity_store_db"] = str(Path(tmp_path) / "empty_identity.sqlite")
+    hu["companyfacts_index_db"] = str(Path(tmp_path) / "empty_companyfacts.sqlite")
+    return cfg
+
 _CLOCK = lambda: "2026-08-01T00:00:00+00:00"          # noqa: E731 - test clock
 _TOURN_LANE = "tournament.stage9_4_revalidation"
 _CF_LANE = "acq.sec_companyfacts"
@@ -330,7 +342,8 @@ def test_prop9_10_safety_switch_and_candidate_state_unchanged(tmp_path):
     tt.seed_families(reg)
     cand = tt._candidate_for_feature(reg, "gross_profitability")
     q = ar.ResearchQueue(str(tmp_path / "q.sqlite"))
-    res = tt.generate_stage9_5_fundamental_followups(reg, STAGE9_CFG, queue=q)
+    res = tt.generate_stage9_5_fundamental_followups(
+        reg, _not_ready_cfg(tmp_path), queue=q)
     st = reg.get(cand["candidate_id"])["lifecycle_state"]
     reg.close()
     assert res["count"] == 0
