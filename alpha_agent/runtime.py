@@ -2245,6 +2245,99 @@ class Runtime:
                 "terminal": terminal if ledgers_ok else "LEDGER_MUTATION_DETECTED",
                 "no_automatic_promotion": True}
 
+    def run_stage12_pre2015_campaign(self, *, budget_seconds: float = 1800.0,
+                                     max_lanes: Optional[int] = None) -> dict:
+        """Run the Stage 12 FINAL pre-2015 (2009-2014) independent-time confirmation
+        campaign THROUGH the canonical ResearchQueue -- one live job at a time
+        (origin=stage12-autopsy, lane stage12.pre2015.*, category DATA_VALIDATION)
+        under the SAME collect lock with the operational-ledger before/after
+        fingerprint. The two canonical lanes (inventory + materialize) drive the
+        Stage 6 backfill cursor into the ISOLATED pre-2015 tree; the study finalises
+        in-process (not subject to the per-job handler budget). Bounded + resumable;
+        RESEARCH-ONLY; never mutates an operational ledger; no automatic promotion.
+        """
+        import time as _time
+        from . import autonomous_research as _ar
+        from . import stage12_pre2015 as _p15
+        cfg8 = self._stage8_config() or {}
+        s12 = stage12_cfg(cfg8)
+        p15 = (s12.get("pre2015") or {}) if isinstance(s12, dict) else {}
+        conn = self._open()
+        cycle_id = rc.activity_cycle_id(rc.MODE_COLLECT, self.clock.iso())
+        run_id = rc.runtime_run_id(cycle_id, rc.MODE_COLLECT) + "-stage12pre2015"
+        ledgers_before = fingerprint_ledgers(self.cfg)
+        if not p15.get("enabled"):
+            conn.close()
+            return {"terminal": "STAGE12_PRE2015_DISABLED", "ledgers_unchanged": True,
+                    "planned": [], "drained": []}
+        try:
+            lock = acquire_lock(self.root, "collect", run_id, clock=self.clock,
+                                conn=conn, stale_seconds=self.stale_seconds)
+        except LockHeld as exc:
+            conn.close()
+            return {"terminal": rc.BLOCKED, "status": "STAGE12_PRE2015_REFUSED",
+                    "reason": str(exc), "ledgers_unchanged": True}
+        cats = [_ar.CAT_DATA_VALIDATION]
+        origins = [_p15.ORIGIN_12]
+        lane_prefixes = [_p15.PRE2015_LANE_PREFIX]
+        planned: list = []
+        drained: list = []
+        command_center: dict = {}
+        terminal = "STAGE12_PRE2015_CAMPAIGN_RESUMABLE"
+        try:
+            queue = build_autonomy_queue(cfg8, clock=self.clock.iso)
+            ctx = _p15.build_pre2015_context(cfg8, queue=queue, clock=self.clock.iso)
+            handlers = {_ar.CAT_DATA_VALIDATION:
+                        lambda job: _p15.dispatch_pre2015_job(job, ctx)}
+            try:
+                queue.requeue_stale()
+            except Exception:  # noqa: BLE001
+                pass
+            start = _time.monotonic()
+            lanes_done = 0
+            while max_lanes is None or lanes_done < max_lanes:
+                if _time.monotonic() - start > budget_seconds:
+                    break
+                plan = _p15.plan_next_pre2015_job(queue, ctx, cfg=p15)
+                if plan:
+                    planned.append(plan)
+                # Materialisation can be a long single handler; give it the whole
+                # remaining budget (the Stage 6 cursor makes it resumable anyway).
+                remaining = max(1.0, budget_seconds - (_time.monotonic() - start))
+                rep = _ar.drain_jobs(queue, handlers, max_jobs=1, categories=cats,
+                                     origins=origins, lane_prefixes=lane_prefixes,
+                                     budget_seconds=remaining)
+                drained.append({"jobs_claimed": rep.get("jobs_claimed"),
+                                "jobs_completed": rep.get("jobs_completed"),
+                                "jobs_retryable": rep.get("jobs_retryable")})
+                if not plan and not rep.get("jobs_claimed"):
+                    break
+                if rep.get("jobs_claimed"):
+                    lanes_done += 1
+            epoch = _p15.lane_epoch(ctx)
+            flags = _p15._read_json(ctx.state_dir / "lane_flags.json", {}) or {}
+            lanes_complete = all(flags.get(ln) == epoch for ln in _p15.LANE_ORDER)
+            if lanes_complete and (_time.monotonic() - start) <= budget_seconds:
+                try:
+                    command_center = _p15.run_pre2015_finalization(ctx)
+                except Exception:  # noqa: BLE001
+                    command_center = _p15._read_json(
+                        ctx.state_dir / "command_center.json", {}) or {}
+            else:
+                command_center = _p15._read_json(
+                    ctx.state_dir / "command_center.json", {}) or {}
+            terminal = command_center.get("terminal_recommendation") or terminal
+        finally:
+            release_lock(lock, clock=self.clock, conn=conn)
+        ledgers_after = fingerprint_ledgers(self.cfg)
+        ledgers_ok = ledgers_before == ledgers_after
+        conn.close()
+        return {"run_id": run_id, "lanes_planned": len(planned), "planned": planned,
+                "drained": drained, "ledgers_unchanged": ledgers_ok,
+                "campaign_status": command_center.get("status"),
+                "terminal": terminal if ledgers_ok else "LEDGER_MUTATION_DETECTED",
+                "no_automatic_promotion": True}
+
     # ---- RESEARCH -------------------------------------------------------- #
     def _research_cycles_today(self, conn, cycle_date, exclude_cycle) -> int:
         row = conn.execute(

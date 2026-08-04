@@ -200,6 +200,20 @@
     "materialize_enabled": false,
     "materialize_cap_increment": 300,
     "materialize_note": "When enabled, one bounded increment raises the Stage 6 max_universe_symbols cap by materialize_cap_increment and runs the idempotent, resumable Norgate backfill (writes only under the D: ingestion tree; never an operational ledger; never a norgatedata upgrade). Disabled by default so a scheduled collect never triggers a multi-minute fetch; the operator enables it for a bounded materialization run.",
+    "pre2015": {
+      "note": "Stage 12 FINAL owned-data depth pass: 2009-2014 INDEPENDENT-TIME confirmation of the three strongest frozen event hypotheses (event_revenue_acceleration, event_asset_growth_inflection, event_profitability_inflection) on the companyfacts filing history of today's covered issuers. Lanes stage12.pre2015.* under origin stage12-autopsy on category DATA_VALIDATION, one live job at a time, under the collect lock with the operational-ledger before/after fingerprint (runtime.run_stage12_pre2015_campaign). The inventory + materialize lanes drive the EXISTING Stage 6 backfill cursor into a DEDICATED pre-2015 ingestion tree (configs/alpha_agent/stage6_pre2015_backfill.json, date_range 2009-01-01..2014-12-31) so the released 2015+ MARKET_BAR tree, Stage 11 caches and released Stage 12 artifacts are byte-untouched; the study finalises in-process (frozen 3-hypothesis registry at configs/alpha_agent/stage12_pre2015_hypotheses.json, dev 2009-2012 / holdout 2013-2014, UNCHANGED gates). planner_enabled + materialize_enabled default false so a scheduled collect never runs a heavy unattended fetch; the operator enables them for one bounded materialization+study run and reverts.",
+      "enabled": true,
+      "planner_enabled": false,
+      "priority": 1,
+      "materialize_enabled": false,
+      "materialize_cap_increment": 1200,
+      "pre2015_backfill_config": "configs/alpha_agent/stage6_pre2015_backfill.json",
+      "registry": "configs/alpha_agent/stage12_pre2015_hypotheses.json",
+      "study_window": ["2009-01-01", "2014-12-31"],
+      "development_interval": ["2009-01-01", "2012-12-31"],
+      "final_holdout": ["2013-01-01", "2014-12-31"],
+      "no_automatic_promotion": true
+    },
     "no_automatic_promotion": true,
     "safety_badges": ["RESEARCH ONLY", "SHADOW ONLY", "NO LIVE BROKER ORDERS", "AUTOMATION OFF", "MANUAL REVIEW", "NO AUTO-PROMOTION"]
   },

@@ -1,0 +1,187 @@
+{
+ "builder_keys": [
+  "event_revenue_acceleration",
+  "event_asset_growth_inflection",
+  "event_profitability_inflection"
+ ],
+ "economic_families": [
+  "fundamental_change_event"
+ ],
+ "evaluation_contract": {
+  "combined_sample_rule": "the combined 2009-2026 result is SECONDARY CONTEXT ONLY and can NEVER qualify a strategy by itself",
+  "contract_version": "stage12-pre2015-independent-time-v1",
+  "development_interval": [
+   "2009-01-01",
+   "2012-12-31"
+  ],
+  "event_entry": "first trading session STRICTLY AFTER the SEC filed date (>=1 full trading-session lag)",
+  "final_holdout": [
+   "2013-01-01",
+   "2014-12-31"
+  ],
+  "forward_horizons_days": [
+   5,
+   20,
+   63
+  ],
+  "gates_unchanged": true,
+  "holdout": "2013-2014, sign-confirm only, once-usable",
+  "neutralization": "historically valid market/sector only; unavailable historical industry -> DATA_HOLD (never current-metadata substitution)",
+  "no_post_2014_formation_cohort": true,
+  "overlap_adjustment": "Newey-West effective-N + clustered-t; an event candidate must ALSO clear the rank_ic_t gate on the clustered t",
+  "primary_cross_sectional_unit": "monthly event cohort",
+  "primary_qualifying_evidence": "standalone 2009-2014 result (dev interval), with the 2013-2014 holdout confirming the direction",
+  "restatement_isolation": "values read as_of=filed; later amendments excluded by the availability boundary",
+  "selection_before_evidence": "all three formulas and directions were selected (from the released registry) BEFORE any 2009-2014 evidence was examined",
+  "study_window": [
+   "2009-01-01",
+   "2014-12-31"
+  ],
+  "survivorship_caveat": "the companyfacts event universe is today's covered issuers, so the 2009-2014 sample is survivorship-tilted; this is a genuine NEW-TIME test, reported honestly."
+ },
+ "hypotheses": [
+  {
+   "builder_key": "event_revenue_acceleration",
+   "caveat": null,
+   "citation": null,
+   "confirmatory_or_exploratory": "confirmatory",
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "revenue"
+   ],
+   "design": {
+    "holdout": "final 30% of rebalance dates, sign-confirm only, once-usable ledger",
+    "train": "in-sample rebalance dates (first 70%)",
+    "validation": "purged walk-forward folds with 1-period embargo/purge"
+   },
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "min_scored_periods>=12",
+    "min_universe_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "subperiod_consistency>=0.60",
+    "regime_consistency>=0.50",
+    "max_drawdown>=-35pct",
+    "turnover<=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "deflated_sharpe",
+    "holdout_sign_confirms",
+    "parameter_neighborhood_sign_stable"
+   ],
+   "economic_family": "fundamental_change_event",
+   "economic_rationale": "Under-reaction to accelerating revenue growth; the market prices the change in growth slowly across quarters.",
+   "event_or_rebalance_timing": "SEC filing (filed date)",
+   "expected_direction": 1,
+   "formula": "sign(dRevenueGrowth_yoy) ranked cross-sectionally at filing date",
+   "holding_horizon_days": 63,
+   "id": "evt_revenue_acceleration",
+   "neutralization": "sector",
+   "pre2015_role": "independent_time_confirmation",
+   "primary_metric": "rank_ic_t",
+   "status": "confirmatory",
+   "turnover_expectation": "low",
+   "universe": "owned survivorship-safe S&P500 current+past (identity-resolved, price-covered)"
+  },
+  {
+   "builder_key": "event_asset_growth_inflection",
+   "caveat": null,
+   "citation": "Cooper, Gulen & Schill (2008)",
+   "confirmatory_or_exploratory": "confirmatory",
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "assets"
+   ],
+   "design": {
+    "holdout": "final 30% of rebalance dates, sign-confirm only, once-usable ledger",
+    "train": "in-sample rebalance dates (first 70%)",
+    "validation": "purged walk-forward folds with 1-period embargo/purge"
+   },
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "min_scored_periods>=12",
+    "min_universe_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "subperiod_consistency>=0.60",
+    "regime_consistency>=0.50",
+    "max_drawdown>=-35pct",
+    "turnover<=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "deflated_sharpe",
+    "holdout_sign_confirms",
+    "parameter_neighborhood_sign_stable"
+   ],
+   "economic_family": "fundamental_change_event",
+   "economic_rationale": "High asset growth predicts low returns (investment/asset-growth anomaly); the inflection is the signal.",
+   "event_or_rebalance_timing": "SEC filing (filed date)",
+   "expected_direction": -1,
+   "formula": "-d(asset_growth_yoy) at filing date, cross-sectional rank",
+   "holding_horizon_days": 63,
+   "id": "evt_asset_growth_inflection",
+   "neutralization": "sector",
+   "pre2015_role": "independent_time_confirmation",
+   "primary_metric": "rank_ic_t",
+   "status": "confirmatory",
+   "turnover_expectation": "low",
+   "universe": "owned survivorship-safe S&P500 current+past (identity-resolved, price-covered)"
+  },
+  {
+   "builder_key": "event_profitability_inflection",
+   "caveat": null,
+   "citation": null,
+   "confirmatory_or_exploratory": "confirmatory",
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "net_income",
+    "assets"
+   ],
+   "design": {
+    "holdout": "final 30% of rebalance dates, sign-confirm only, once-usable ledger",
+    "train": "in-sample rebalance dates (first 70%)",
+    "validation": "purged walk-forward folds with 1-period embargo/purge"
+   },
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "min_scored_periods>=12",
+    "min_universe_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "subperiod_consistency>=0.60",
+    "regime_consistency>=0.50",
+    "max_drawdown>=-35pct",
+    "turnover<=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "deflated_sharpe",
+    "holdout_sign_confirms",
+    "parameter_neighborhood_sign_stable"
+   ],
+   "economic_family": "fundamental_change_event",
+   "economic_rationale": "Turn to profitability (rising net_income/assets) is a quality improvement under-priced at the filing.",
+   "event_or_rebalance_timing": "SEC filing (filed date)",
+   "expected_direction": 1,
+   "formula": "d(net_income/assets) at filing date, cross-sectional rank",
+   "holding_horizon_days": 63,
+   "id": "evt_profitability_inflection",
+   "neutralization": "sector",
+   "pre2015_role": "independent_time_confirmation",
+   "primary_metric": "rank_ic_t",
+   "status": "confirmatory",
+   "turnover_expectation": "low",
+   "universe": "owned survivorship-safe S&P500 current+past (identity-resolved, price-covered)"
+  }
+ ],
+ "n_hypotheses": 3,
+ "registry_version": "58b2557106f5a839",
+ "schema_version": "stage12.pre2015.hypotheses.v1",
+ "selected_before_evidence": true
+}

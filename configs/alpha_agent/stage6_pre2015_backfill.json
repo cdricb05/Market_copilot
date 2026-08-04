@@ -1,0 +1,79 @@
+{
+  "stage": "6",
+  "config_version": "1.0.0",
+  "description": "Alpha Agent Stage 6 historical backfill — ISOLATED pre-2015 (2009-2014) price window for the Stage 12 independent-time confirmatory study. Writes ONLY under a dedicated pre-2015 ingestion tree so the released 2015+ MARKET_BAR tree, Stage 11 caches and released Stage 12 artifacts are byte-untouched. date_range is strictly clipped to 2009-01-01..2014-12-31 (zero post-2014 bars). ACQUISITION + READINESS only via Norgate local; never creates orders, fills, signals, trade decisions, model promotions, portfolio/paper-book/Paper-Trader DB changes, Daily Close triggers or prediction-service calls; never installs a package; never upgrades norgatedata; operational ledgers are read-only; available_at is preserved as observed and never fabricated; a fiscal period-end is never substituted for a public-availability date. Contains NO secret.",
+  "safety": {
+    "acquisition_and_readiness_only": true,
+    "no_orders": true,
+    "no_fills": true,
+    "no_signals": true,
+    "no_trade_decisions": true,
+    "no_model_promotion": true,
+    "no_portfolio_mutation": true,
+    "no_paper_book_mutation": true,
+    "no_paper_trader_db_mutation": true,
+    "no_daily_close_trigger": true,
+    "no_prediction_service": true,
+    "no_postgres": true,
+    "no_llm_call": true,
+    "no_package_install": true,
+    "operational_ledger_read_only": true,
+    "point_in_time_available_at_never_fabricated": true,
+    "period_end_never_substituted_for_availability": true,
+    "no_current_constituent_substitution_for_history": true,
+    "isolated_pre2015_tree_released_2015plus_untouched": true
+  },
+  "backfill_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\pre2015\\backfill",
+  "ingestion_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\pre2015\\ingestion",
+  "stage1_registry_root": "D:\\Stock_Prediction_app_data\\alpha_agent\\pre2015\\registry",
+  "stage5_config": "configs\\alpha_agent\\stage5_experiment_factory.json",
+  "reopened_hypotheses_output": "D:\\Stock_Prediction_app_data\\alpha_agent\\pre2015\\backfill\\reopened_hypotheses.jsonl",
+  "operational_ledger_roots": [
+    "C:\\Users\\binis\\.paper_trader\\paper_trading_desk",
+    "C:\\Users\\binis\\.paper_trader\\multi_horizon_alpha_ledger",
+    "C:\\Users\\binis\\.paper_trader\\current_alpha_paper_book"
+  ],
+  "universe": {
+    "survivorship_watchlist": "S&P 500 Current & Past",
+    "current_watchlist": "S&P 500",
+    "index_name": "S&P 500"
+  },
+  "date_range": {
+    "start": "2009-01-01",
+    "end": "2014-12-31"
+  },
+  "batch": {
+    "ticker_batch_size": 50,
+    "max_universe_symbols": 800
+  },
+  "limits": {
+    "raw_object_max_bytes": 33554432
+  },
+  "providers": {
+    "norgate_local": {
+      "enabled": true,
+      "license_note": "Norgate Data - licensed local market data; local analytical use only; do not redistribute raw content.",
+      "families": ["prices", "universe_membership", "security_identity", "corporate_actions"]
+    },
+    "eodhd": {
+      "enabled": false,
+      "families": ["fundamentals", "earnings", "insider", "news"],
+      "gap_detail": "Disabled for the pre-2015 price-only isolation pass."
+    },
+    "sec_edgar": {
+      "enabled": false,
+      "families": ["filings", "insider"],
+      "gap_detail": "Disabled for the pre-2015 price-only isolation pass; SEC companyfacts events are read from the shared read-only index."
+    }
+  },
+  "readiness": {
+    "price_momentum": {
+      "min_years": 5.0,
+      "min_pit_members": 300,
+      "min_monthly_periods": 36
+    }
+  },
+  "reopen": {
+    "max_candidates": 0
+  }
+}
