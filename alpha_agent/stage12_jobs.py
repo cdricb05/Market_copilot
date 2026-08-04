@@ -127,6 +127,124 @@ def _write_json(path: Path, doc) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# WORKSTREAM A -- breadth-safe Stage 12 OHLCV panel/cache epoch.
+#
+# ROOT CAUSE the Stage 11 cache key ``stage11_jobs._panel_epoch`` is the owned
+# MARKET_BAR date span bucketed to MONTH granularity (+ sources). It intentionally
+# does NOT churn on the per-cycle re-materialization of existing dates -- but it
+# also does NOT change when NEW assetids are materialized INSIDE the same month
+# span, so a freshly-materialized security silently fails to enter the cached
+# panel (and therefore the event study) until the month span itself rolls over.
+#
+# This pure function derives a Stage-12-only epoch that advances whenever owned
+# BREADTH changes, from stable inputs only (never the per-cycle file COUNT, which
+# would churn every collect and defeat cache reuse):
+#   * owned date minimum / maximum (day-level, cheap from partition paths),
+#   * materialized assetid COUNT + a stable hash of the full materialized SET,
+#   * the source set,
+#   * the identity mapping version,
+#   * the Norgate survivorship-universe fingerprint.
+# It is filename-safe (``b`` + 16 hex) and NEVER collides with the Stage 11 month
+# epoch, so Stage 11's own cache file and artifacts are left untouched.
+# --------------------------------------------------------------------------- #
+def compute_breadth_panel_epoch(*, date_min: Optional[str], date_max: Optional[str],
+                                materialized_assetids, sources,
+                                identity_mapping_version: Optional[str] = None,
+                                norgate_universe_fingerprint: Optional[str] = None
+                                ) -> str:
+    """Deterministic breadth-sensitive OHLCV panel/cache epoch. Same inputs ->
+    same epoch; adding a single materialized assetid (or extending the owned date
+    span) yields a DIFFERENT epoch even when the calendar month is unchanged."""
+    aids = sorted({str(a) for a in (materialized_assetids or [])})
+    aid_hash = hashlib.sha256("\n".join(aids).encode("utf-8")).hexdigest()[:16]
+    comp = {
+        "date_min": date_min,
+        "date_max": date_max,
+        "materialized_count": len(aids),
+        "materialized_hash": aid_hash,
+        "sources": sorted({str(s) for s in (sources or [])}),
+        "identity_mapping_version": identity_mapping_version,
+        "norgate_universe_fingerprint": norgate_universe_fingerprint,
+    }
+    h = hashlib.sha256(json.dumps(comp, sort_keys=True, default=str)
+                       .encode("utf-8")).hexdigest()[:16]
+    return "b" + h
+
+
+# --------------------------------------------------------------------------- #
+# WORKSTREAM D -- frozen confirmatory partition contract.
+#
+# The Stage 12 event hypotheses were already inspected on the ORIGINAL owned panel,
+# so a stronger t-statistic on the BREADTH-EXPANDED panel is not, by itself, proof
+# of independent confirmation -- most of that sample is the same securities and the
+# same dates. Every expanded-panel event is labelled against the prior evaluation:
+#   * NEW_CROSS_SECTION_EVIDENCE -- a newly-materialized issuer (assetid absent from
+#     the prior panel): genuinely-new cross-section.
+#   * NEW_TIME_EVIDENCE          -- a prior issuer in a cohort absent from the prior
+#     evaluation: genuinely-new time.
+#   * ORIGINAL_SAMPLE           -- prior issuer AND prior cohort (already inspected).
+#   * COMBINED_EXPANDED_SAMPLE  -- the union (power/operational reading ONLY).
+# A strategy can qualify as genuinely-new evidence ONLY when supported by
+# NEW_CROSS_SECTION and/or NEW_TIME under this frozen contract; the preserved gates
+# (preregistered direction, execution lag, horizon, cost assumptions, spread_t>=2.0,
+# rank-IC gates, FDR controls, once-usable holdout, immutable registry) are NEVER
+# changed in response to a prior Stage 12 result.
+# --------------------------------------------------------------------------- #
+PARTITION_ORIGINAL = "ORIGINAL_SAMPLE"
+PARTITION_NEW_XSEC = "NEW_CROSS_SECTION_EVIDENCE"
+PARTITION_NEW_TIME = "NEW_TIME_EVIDENCE"
+PARTITION_COMBINED = "COMBINED_EXPANDED_SAMPLE"
+_PARTITION_LABELS = [PARTITION_ORIGINAL, PARTITION_NEW_XSEC, PARTITION_NEW_TIME]
+
+
+def classify_event_partition(assetid, cohort, *, prior_assetids, prior_cohorts) -> str:
+    """Single most-binding confirmatory label for one expanded-panel event. A new
+    issuer dominates (NEW_CROSS_SECTION) regardless of cohort; else a prior issuer
+    in a new cohort is NEW_TIME; else it is ORIGINAL_SAMPLE."""
+    if str(assetid) not in prior_assetids:
+        return PARTITION_NEW_XSEC
+    if str(cohort) not in prior_cohorts:
+        return PARTITION_NEW_TIME
+    return PARTITION_ORIGINAL
+
+
+def partition_event_counts(events, *, prior_assetids, prior_cohorts) -> Dict[str, int]:
+    """Count expanded-panel events by confirmatory partition. ``events`` is any
+    iterable of mappings with ``assetid`` + ``cohort`` (month) keys. The COMBINED
+    count is the union total -- NOT independent confirmation on its own."""
+    pa = {str(a) for a in (prior_assetids or [])}
+    pc = {str(c) for c in (prior_cohorts or [])}
+    counts = {lbl: 0 for lbl in _PARTITION_LABELS}
+    for ev in events:
+        lbl = classify_event_partition(ev.get("assetid"), ev.get("cohort"),
+                                       prior_assetids=pa, prior_cohorts=pc)
+        counts[lbl] += 1
+    counts[PARTITION_COMBINED] = sum(counts[lbl] for lbl in _PARTITION_LABELS)
+    return counts
+
+
+def confirmatory_protocol(registry_version: Optional[str] = None) -> Dict[str, Any]:
+    """The FROZEN confirmatory protocol descriptor (Workstream D). Documents the
+    partition definitions, the genuinely-new qualification rule, and the preserved
+    (never-lowered) evidence gates. Pure/deterministic."""
+    return {
+        "frozen": True,
+        "registry_version": registry_version,
+        "partitions": list(_PARTITION_LABELS) + [PARTITION_COMBINED],
+        "qualification_rule": (
+            "A strategy qualifies as genuinely-new evidence ONLY when supported by "
+            "NEW_CROSS_SECTION_EVIDENCE and/or NEW_TIME_EVIDENCE under this frozen "
+            "contract. A stronger COMBINED_EXPANDED_SAMPLE t-statistic that is "
+            "driven primarily by the ORIGINAL_SAMPLE is NOT independent confirmation."),
+        "preserved_unchanged": [
+            "preregistered_direction", "execution_lag", "horizon_days",
+            "cost_assumptions", "spread_t>=2.0", "rank_ic_gates", "fdr_controls",
+            "once_usable_holdout", "immutable_registry_version"],
+        "no_automatic_promotion": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Stage 12 context (lazy heavy panel build).
 # --------------------------------------------------------------------------- #
 class Stage12Context:
@@ -139,6 +257,7 @@ class Stage12Context:
         self._tournament = None
         self._cov_sig = None
         self._cf_index = None
+        self._universe_fp = None
         self._registry = _registry.build_registry()
         self._resolve_roots()
 
@@ -223,6 +342,59 @@ class Stage12Context:
             sort_keys=True, default=str).encode()).hexdigest()[:8]
         return "%s:%s:%s" % (panel, reg, h)
 
+    # -- breadth-safe panel epoch (WORKSTREAM A) -----------------------------
+    def _materialized_assetids_cached(self) -> List[str]:
+        """Sorted materialized assetid list from the refreshed ``assetids.json``
+        (cheap). ``_current_materialized_assetids`` keeps it authoritative on the
+        full-inventory and materialize lanes, so it reflects a fresh Norgate
+        materialization before the breadth epoch is next computed."""
+        aids = _read_json(self.stage11_state_dir / "assetids.json", {}) or {}
+        return [str(a) for a in (aids.get("assetids") or [])]
+
+    def _universe_fingerprint(self) -> Optional[str]:
+        """Stable hash of the Norgate survivorship universe (memoised; degrades to
+        None if the universe cannot be resolved, e.g. Norgate absent)."""
+        if self._universe_fp is not None:
+            return self._universe_fp or None
+        fp = ""
+        try:
+            syms = _inv.resolve_universe_symbols(self.cfg)
+            if syms:
+                fp = hashlib.sha256("\n".join(sorted(str(s) for s in syms))
+                                    .encode("utf-8")).hexdigest()[:16]
+        except Exception:
+            fp = ""
+        self._universe_fp = fp
+        return fp or None
+
+    def _breadth_panel_epoch(self) -> str:
+        """The breadth-sensitive OHLCV cache key for Stage 12 (WORKSTREAM A). Uses
+        cheap day-level date min/max from the owned partition paths + the
+        materialized assetid set + mapping version + universe fingerprint."""
+        try:
+            from . import historical_price_panel as _hpp
+        except Exception:  # pragma: no cover
+            import historical_price_panel as _hpp  # type: ignore
+        ing = self.base.ingestion_root
+        srcs = tuple(getattr(self.base, "sources", None) or ("norgate_local",))
+        cov = {}
+        try:
+            cov = _hpp.panel_coverage_signature(ing, sources=srcs)
+        except Exception:
+            cov = {}
+        mapping_version = None
+        try:
+            st = self.base.store
+            mapping_version = (st.get_meta("stage101_mapping_version_hash")
+                               or st.get_meta("stage102_mapped_epoch"))
+        except Exception:
+            mapping_version = None
+        return compute_breadth_panel_epoch(
+            date_min=cov.get("date_min"), date_max=cov.get("date_max"),
+            materialized_assetids=self._materialized_assetids_cached(), sources=srcs,
+            identity_mapping_version=mapping_version,
+            norgate_universe_fingerprint=self._universe_fingerprint())
+
     # -- heavy panel context -------------------------------------------------
     def loaded(self) -> dict:
         if self._loaded is None:
@@ -230,7 +402,11 @@ class Stage12Context:
                 from . import stage11_jobs as _s11
             except Exception:  # pragma: no cover
                 import stage11_jobs as _s11  # type: ignore
-            self._loaded = _s11._load_context(self.base)
+            # WORKSTREAM A: build/load the OHLCV panel under the breadth-safe epoch
+            # so newly-materialized names enter the event study; Stage 11's own
+            # month-bucketed cache and artifacts are untouched.
+            self._loaded = _s11._load_context(
+                self.base, panel_epoch=self._breadth_panel_epoch())
         return self._loaded
 
     @property
@@ -441,10 +617,20 @@ def _h_materialize(sctx: Stage12Context) -> dict:
                 "materialize_remaining": bool((avail_total or 0) > 0),
                 "no_automatic_promotion": True}
     summary = _inv.materialize_bounded(bcfg, cap_increment=increment)
+    # WORKSTREAM A: refresh the authoritative materialized-assetid cache from the
+    # owned MARKET_BAR tree so the BREADTH-safe panel epoch advances and the fuller
+    # panel is rebuilt (exactly once) for the new breadth identity. Without this the
+    # freshly-materialized names would not enter the event study.
+    assetids_after = None
+    try:
+        assetids_after = len(_current_materialized_assetids(sctx))
+    except Exception:
+        assetids_after = None
     return {"stage": "12", "workstream": "norgate_materialize", "mode": "materialized",
             "available_in_window_before": avail_window,
             "available_not_materialized": avail_total,
             "materialize_remaining": bool((avail_total or 0) > 0),
+            "materialized_assetids_after": assetids_after,
             "no_automatic_promotion": True, **summary}
 
 

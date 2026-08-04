@@ -836,3 +836,166 @@ def test_materialize_lane_measure_only_when_disabled(tmp_path):
     assert out["mode"] == "measure_only"
     assert "materialize_enabled is false" in out["reason"]
     assert out["materialize_remaining"] is True
+
+
+# --- WORKSTREAM A: breadth-safe panel/cache epoch -------------------------- #
+def _write_bar_tree(root: Path, assetids, dates, *, source="norgate_local", tag=None):
+    """Minimal owned normalized MARKET_BAR tree: one run file per date under
+    ``normalized/MARKET_BAR/YYYY/MM/DD`` with one JSON line per assetid. ``tag``
+    gives each write a DISTINCT run file so successive materializations accumulate
+    (matching the real append-only tree) instead of overwriting."""
+    base = Path(root) / "normalized" / "MARKET_BAR"
+    fname = "%s_%s.jsonl" % (source, tag) if tag else (source + ".jsonl")
+    for k, d in enumerate(dates):
+        y, m, dd = d.split("-")
+        part = base / y / m / dd
+        part.mkdir(parents=True, exist_ok=True)
+        lines = []
+        for i, a in enumerate(assetids):
+            lines.append(json.dumps({
+                "source_id": source, "security_id": str(a), "effective_at": d,
+                "normalized_payload": {"Close": 100.0 + i + k, "Volume": 1000 + k}}))
+        (part / fname).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_breadth_epoch_changes_when_assetid_added():
+    # same dates + one ADDITIONAL materialized assetid -> DIFFERENT epoch, even
+    # though the calendar month span is identical (the exact month-epoch defect).
+    common = dict(date_min="2020-01-02", date_max="2020-01-31",
+                  sources=("norgate_local",), identity_mapping_version="mvh1",
+                  norgate_universe_fingerprint="uni1")
+    e_small = JB.compute_breadth_panel_epoch(materialized_assetids={"1", "2"}, **common)
+    e_big = JB.compute_breadth_panel_epoch(materialized_assetids={"1", "2", "3"}, **common)
+    assert e_small != e_big
+    assert e_small.startswith("b") and e_big.startswith("b")
+
+
+def test_breadth_epoch_stable_when_breadth_unchanged():
+    # identical inputs -> identical epoch; assetid ORDER is irrelevant; the epoch
+    # never depends on a per-cycle file count (structurally: no such input exists).
+    common = dict(date_min="2020-01-02", date_max="2020-01-31",
+                  sources=("norgate_local",), identity_mapping_version="mvh1",
+                  norgate_universe_fingerprint="uni1")
+    a = JB.compute_breadth_panel_epoch(materialized_assetids=["1", "2", "3"], **common)
+    b = JB.compute_breadth_panel_epoch(materialized_assetids=["3", "1", "2"], **common)
+    assert a == b
+    # extending the owned date span advances the epoch (genuine coverage growth)
+    c = JB.compute_breadth_panel_epoch(
+        materialized_assetids=["1", "2", "3"], date_min="2020-01-02",
+        date_max="2020-02-15", sources=("norgate_local",),
+        identity_mapping_version="mvh1", norgate_universe_fingerprint="uni1")
+    assert c != a
+
+
+def test_ohlcv_cache_stale_cannot_hide_newly_materialized_securities(tmp_path):
+    from alpha_agent import signal_library as SL
+    ing = tmp_path / "ing"
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    dates = ["2020-01-02", "2020-01-03"]
+    _write_bar_tree(ing, ["1", "2"], dates)
+    e1 = JB.compute_breadth_panel_epoch(
+        date_min="2020-01-02", date_max="2020-01-03",
+        materialized_assetids={"1", "2"}, sources=("norgate_local",))
+    p1 = SL.load_or_build_ohlcv_panel(str(ing), str(cache), e1, sources=("norgate_local",))
+    assert set(p1.keys()) == {"1", "2"}
+    # a THIRD security is materialized into the SAME month span
+    _write_bar_tree(ing, ["3"], dates, tag="add3")
+    # the OLD epoch's cache is stale: it still returns only the original names
+    # (this is exactly why a month-only epoch silently hides new breadth) ...
+    p_stale = SL.load_or_build_ohlcv_panel(str(ing), str(cache), e1, sources=("norgate_local",))
+    assert set(p_stale.keys()) == {"1", "2"}
+    # ... but the breadth-advanced epoch rebuilds and surfaces the new name.
+    e2 = JB.compute_breadth_panel_epoch(
+        date_min="2020-01-02", date_max="2020-01-03",
+        materialized_assetids={"1", "2", "3"}, sources=("norgate_local",))
+    assert e2 != e1
+    p2 = SL.load_or_build_ohlcv_panel(str(ing), str(cache), e2, sources=("norgate_local",))
+    assert set(p2.keys()) == {"1", "2", "3"}
+
+
+def test_ohlcv_cache_interrupted_write_is_not_consumed(tmp_path):
+    from alpha_agent import signal_library as SL
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    epoch = "bDEADBEEFCAFEBABE"
+    # a partial/interrupted write leaves only the .tmp sibling -> must be ignored.
+    (cache / ("ohlcv_%s.jsonl.tmp" % epoch)).write_text('{"a":"1"', encoding="utf-8")
+    assert SL.load_cached_ohlcv_panel(str(cache), epoch) is None
+    # a completed atomic cache IS consumed.
+    SL.cache_ohlcv_panel({"1": {"d": ["2020-01-02"], "c": [100.0],
+                                "v": [10], "dv": [1000]}}, str(cache), epoch)
+    got = SL.load_cached_ohlcv_panel(str(cache), epoch)
+    assert got is not None and set(got.keys()) == {"1"}
+
+
+def test_ohlcv_cache_rebuilds_once_then_reused(tmp_path):
+    from alpha_agent import signal_library as SL
+    ing = tmp_path / "ing"
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    _write_bar_tree(ing, ["1", "2"], ["2020-01-02", "2020-01-03"])
+    epoch = JB.compute_breadth_panel_epoch(
+        date_min="2020-01-02", date_max="2020-01-03",
+        materialized_assetids={"1", "2"}, sources=("norgate_local",))
+    first = SL.load_or_build_ohlcv_panel(str(ing), str(cache), epoch, sources=("norgate_local",))
+    assert set(first.keys()) == {"1", "2"}
+    # delete the source tree: a genuine cache HIT must still return the panel
+    # (proves reuse without rebuild for an unchanged breadth identity).
+    for p in (ing / "normalized" / "MARKET_BAR").rglob("*.jsonl"):
+        p.unlink()
+    reused = SL.load_or_build_ohlcv_panel(str(ing), str(cache), epoch, sources=("norgate_local",))
+    assert set(reused.keys()) == {"1", "2"}
+    # a NEW epoch with the tree gone rebuilds (from the now-empty tree) -> empty,
+    # confirming the new-identity path does not read another epoch's cache file.
+    other = SL.load_or_build_ohlcv_panel(str(ing), str(cache), epoch + "x", sources=("norgate_local",))
+    assert other == {}
+
+
+# --- WORKSTREAM D: frozen confirmatory partition contract ------------------ #
+def test_event_partition_new_issuer_dominates_and_time_vs_original():
+    prior_a = {"1", "2"}
+    prior_c = {"2020-01", "2020-02"}
+    # new issuer -> NEW_CROSS_SECTION regardless of cohort (even a prior cohort)
+    assert JB.classify_event_partition("9", "2020-01", prior_assetids=prior_a,
+                                       prior_cohorts=prior_c) == JB.PARTITION_NEW_XSEC
+    assert JB.classify_event_partition("9", "2099-12", prior_assetids=prior_a,
+                                       prior_cohorts=prior_c) == JB.PARTITION_NEW_XSEC
+    # prior issuer, NEW cohort -> NEW_TIME
+    assert JB.classify_event_partition("1", "2099-12", prior_assetids=prior_a,
+                                       prior_cohorts=prior_c) == JB.PARTITION_NEW_TIME
+    # prior issuer + prior cohort -> ORIGINAL (already inspected)
+    assert JB.classify_event_partition("1", "2020-01", prior_assetids=prior_a,
+                                       prior_cohorts=prior_c) == JB.PARTITION_ORIGINAL
+
+
+def test_partition_event_counts_union_equals_combined():
+    prior_a = {"1", "2"}
+    prior_c = {"2020-01"}
+    events = [
+        {"assetid": "1", "cohort": "2020-01"},   # ORIGINAL
+        {"assetid": "1", "cohort": "2021-06"},   # NEW_TIME
+        {"assetid": "7", "cohort": "2020-01"},   # NEW_CROSS_SECTION
+        {"assetid": "8", "cohort": "2021-06"},   # NEW_CROSS_SECTION
+    ]
+    c = JB.partition_event_counts(events, prior_assetids=prior_a, prior_cohorts=prior_c)
+    assert c[JB.PARTITION_ORIGINAL] == 1
+    assert c[JB.PARTITION_NEW_TIME] == 1
+    assert c[JB.PARTITION_NEW_XSEC] == 2
+    assert c[JB.PARTITION_COMBINED] == 4  # union total, NOT independent confirmation
+
+
+def test_same_sample_only_cannot_qualify_as_new_evidence():
+    # an all-ORIGINAL event set yields ZERO new-evidence support -> a stronger
+    # combined stat here can never be genuinely-new confirmation.
+    prior_a = {"1", "2", "3"}
+    prior_c = {"2020-01", "2020-02"}
+    events = [{"assetid": a, "cohort": c} for a in prior_a for c in prior_c]
+    counts = JB.partition_event_counts(events, prior_assetids=prior_a, prior_cohorts=prior_c)
+    assert counts[JB.PARTITION_NEW_XSEC] == 0
+    assert counts[JB.PARTITION_NEW_TIME] == 0
+    assert counts[JB.PARTITION_ORIGINAL] == counts[JB.PARTITION_COMBINED]
+    proto = JB.confirmatory_protocol(registry_version="v2test")
+    assert proto["frozen"] is True
+    assert "spread_t>=2.0" in proto["preserved_unchanged"]
+    assert proto["registry_version"] == "v2test"

@@ -193,12 +193,16 @@ def _write_json(path: Path, doc) -> None:
 # --------------------------------------------------------------------------- #
 # Shared panel-context loader (cached OHLCV panel + PIT + identity + sector).
 # --------------------------------------------------------------------------- #
-def _load_context(ctx: Stage11JobContext) -> dict:
+def _load_context(ctx: Stage11JobContext, *,
+                  panel_epoch: Optional[str] = None) -> dict:
     from . import fundamental_evidence as _fev
     from . import historical_price_panel as _hpp
     from . import signal_library as _sl
     from . import stage11_research as _sr
-    epoch = _panel_epoch(ctx)
+    # ``panel_epoch`` overrides the month-bucketed Stage 11 epoch ONLY for callers
+    # (Stage 12) that need a breadth-sensitive OHLCV cache key; passing None keeps
+    # the Stage 11 behaviour (and cache file / artifacts) byte-for-byte identical.
+    epoch = panel_epoch or _panel_epoch(ctx)
     ohlcv = _sl.load_or_build_ohlcv_panel(ctx.ingestion_root, ctx.cache_dir,
                                           epoch, sources=ctx.sources)
     c2a = _hpp.build_cik_to_assetid(ctx.store)
