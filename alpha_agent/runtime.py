@@ -1935,6 +1935,22 @@ class Runtime:
                         summary["market_bar_planned_job"] = mb_plan
             except Exception:  # noqa: BLE001 - planning never breaks the drain
                 pass
+            # Stage 11 MULTI-FACTOR planner. Lowest campaign priority (2 < the
+            # Stage 10.x campaigns) with at most one live stage11 job, so the
+            # identity / fundamentals / market_bar / tournament work always keeps
+            # precedence and this finite research pipeline can never starve them.
+            try:
+                s11 = stage11_cfg(cfg8)
+                if s11.get("enabled") and s11.get("planner_enabled", True):
+                    from . import stage11_jobs as _s11j
+                    s11_ctx = build_stage11_context(
+                        cfg8, queue=queue, clock=self.clock.iso)
+                    s11_plan = _s11j.plan_next_stage11_job(
+                        queue, s11_ctx, cfg=s11_ctx.stage11)
+                    if s11_plan:
+                        summary["stage11_planned_job"] = s11_plan
+            except Exception:  # noqa: BLE001 - planning never breaks the drain
+                pass
             # Stage 9.5 DETERMINISTIC FAIRNESS. The bounded pass ordering (PASS A
             # tournament-continuation allowlist; PASS B SEC Form4/8-K continuation
             # iff A idle; PASS C SEC companyfacts continuation iff A and B idle) is
@@ -3254,6 +3270,98 @@ def build_market_bar_context(cfg: dict, *, queue=None, clock=None):
         index_name=s10.get("index_name", "S&P 500"), signals=signals,
         sources=tuple(s103.get("sources") or ("norgate_local",)),
         horizon_days=int(s103.get("horizon_days", 63)), clock=clock)
+
+
+# --------------------------------------------------------------------------- #
+# Stage 11 — autonomous multi-factor alpha discovery. Same identity store,
+# same owned ingestion root, same durable queue + fair scheduler; a dedicated
+# Stage 11 research + SHADOW-ONLY portfolio root under the Stage 10 identity tree.
+# --------------------------------------------------------------------------- #
+def stage11_cfg(cfg: dict) -> dict:
+    return (cfg.get("stage11") or {}) if isinstance(cfg, dict) else {}
+
+
+def _resolve_stage11_runtime(cfg: dict) -> dict:
+    """The Stage 11 config block with resolved defaults (owned ingestion root,
+    price sources, horizon, and the dedicated Stage 11 research / shadow / cache
+    roots co-located with the Stage 10 identity artifacts on D:)."""
+    s11 = dict(stage11_cfg(cfg))
+    if not s11:
+        return {}
+    root = stage10_identity_root(cfg)
+    ph = (cfg.get("production_handlers") or {}) if isinstance(cfg, dict) else {}
+    s11.setdefault("ingestion_root", _stage6_ingestion_root(cfg))
+    s11.setdefault("artifact_root", str(root / "artifacts"))
+    s11.setdefault("stage11_root", str(root / "stage11"))
+    s11.setdefault("shadow_root", str(root / "stage11" / "shadow"))
+    s11.setdefault("cache_dir", str(root / "stage11" / "cache"))
+    s11.setdefault("sources", ["norgate_local"])
+    s11.setdefault("horizon_days", 63)
+    s11.setdefault("backfill_config_path", ph.get("stage6_backfill_config"))
+    return s11
+
+
+def build_stage11_context(cfg: dict, *, queue=None, clock=None):
+    """Assemble the Stage 11 multi-factor job context: the canonical identity
+    store, the owned normalized ingestion root, the Stage 9 gate config + panel-
+    derived rebalance dates, the dedicated Stage 11 research / shadow / cache roots
+    and (best-effort) a leakage-safe PIT sector series. Read-only w.r.t. every
+    operational store."""
+    from . import stage11_jobs as _s11
+    s10 = stage10_identity_cfg(cfg)
+    s11 = _resolve_stage11_runtime(cfg)
+    store = build_identity_store(cfg, clock=clock)
+    cfg9 = {}
+    try:
+        _p9 = resolve_stage9_config_path(cfg)
+        if _p9:
+            from . import tournament as _tt
+            cfg9 = _tt.load_config(_p9) or {}
+    except Exception:  # noqa: BLE001
+        cfg9 = {}
+    rebalance = list(s10.get("rebalance_dates") or
+                     (((cfg9.get("stage9_5") or {}).get("historical_universe")
+                       or {}).get("rebalance_dates") or []))
+    sector_series = _build_stage11_sector_series(cfg, s11)
+    return _s11.Stage11JobContext(
+        store=store, ingestion_root=s11.get("ingestion_root"),
+        artifact_root=s11.get("artifact_root"),
+        stage11_root=s11.get("stage11_root"),
+        shadow_root=s11.get("shadow_root"), cache_dir=s11.get("cache_dir"),
+        rebalance_dates=rebalance, cfg9=cfg9, stage11=s11,
+        backfill_config_path=s11.get("backfill_config_path"),
+        index_name=s10.get("index_name", "S&P 500"),
+        sources=tuple(s11.get("sources") or ("norgate_local",)),
+        horizon_days=int(s11.get("horizon_days", 63)),
+        sector_series=sector_series, clock=clock)
+
+
+def _build_stage11_sector_series(cfg: dict, s11: dict):
+    """Best-effort leakage-safe PIT SIC sector series from owned normalized
+    ASSIGNED_SIC / security-identity records; None (sector variants stay DATA_HOLD)
+    when no owned contemporaneous SIC records exist."""
+    try:
+        from . import pit_sector as _ps
+        root = Path(s11.get("ingestion_root") or "") / "normalized"
+        recs = []
+        for rt in ("SECURITY_IDENTITY", "ASSIGNED_SIC_PIT"):
+            base = root / rt
+            if not base.exists():
+                continue
+            for f in sorted(base.rglob("*.jsonl"))[:4000]:
+                try:
+                    for line in f.read_text(encoding="utf-8-sig").splitlines():
+                        line = line.strip()
+                        if line and "sic" in line.lower():
+                            recs.append(json.loads(line))
+                except (OSError, ValueError):
+                    continue
+        if not recs:
+            return None
+        series = _ps.PitSicSeries.from_records(recs)
+        return series if series.covered_keys() else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def build_fundamental_context(cfg: dict, *, queue=None, read_normalized=None,
@@ -5214,6 +5322,30 @@ def build_production_autonomy_handlers(cfg: dict, *,
 
         handlers[_ar.CAT_DATA_VALIDATION] = _route_market_bar(
             handlers[_ar.CAT_DATA_VALIDATION])
+
+    # Stage 11 multi-factor lane routing (stage11.* -> dispatch_stage11_job).
+    _s11 = stage11_cfg(cfg)
+    if _s11.get("enabled"):
+        from . import stage11_jobs as _s11j
+        _s11cache: dict = {}
+
+        def _stage11_ctx():
+            if "ctx" not in _s11cache:
+                _s11cache["ctx"] = build_stage11_context(cfg, queue=queue)
+            return _s11cache["ctx"]
+
+        def _route_stage11(base):
+            def _routed(job, _b=base):
+                if str(getattr(job, "lane", "")).startswith(
+                        _s11j.STAGE11_LANE_PREFIX):
+                    return _s11j.dispatch_stage11_job(job, _stage11_ctx())
+                return _b(job)
+            return _routed
+
+        handlers[_ar.CAT_DATA_VALIDATION] = _route_stage11(
+            handlers[_ar.CAT_DATA_VALIDATION])
+        handlers[_ar.CAT_DATA_ACQUISITION] = _route_stage11(
+            handlers[_ar.CAT_DATA_ACQUISITION])
     return handlers
 
 

@@ -5733,6 +5733,53 @@ def research_tournament() -> dict:
                            "NO AUTOMATIC PROMOTION"]}
 
 
+_STAGE11_SAFETY = ["SHADOW ONLY", "NO ORDERS", "ORDERS DISABLED",
+                   "AUTOMATION OFF", "MANUAL REVIEW", "RESEARCH USE ONLY"]
+
+
+def _alpha_agent_stage11_config_path():
+    from pathlib import Path as _P
+    return (_P(__file__).resolve().parents[1] / "configs" / "alpha_agent"
+            / "stage8_autonomy.json")
+
+
+@app.get("/v1/research/stage11/command-center", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_stage11_command_center() -> dict:
+    """Read-only Stage 11 Multi-Factor Research Command Center: campaign status,
+    owned data breadth, the candidate funnel (generated / supported / DATA_HOLD /
+    screened / survivors / deep / qualified), multiple-testing summary, best
+    current evidence, ensemble discovery, the SHADOW-ONLY portfolio status and the
+    exact next AlphaAgent action. Creates nothing, writes nothing, promotes
+    nothing, changes no holding; degrades to a controlled status. No UI action can
+    create an order; all endpoints are read-only."""
+    try:
+        from paper_trader.alpha_agent import stage11_jobs as _s11
+        return _s11.load_stage11_snapshot(
+            str(_alpha_agent_stage11_config_path()))
+    except Exception as exc:  # noqa: BLE001
+        return {"stage": "11", "status": "UNAVAILABLE",
+                "reason": str(exc)[:200], "safety_badges": _STAGE11_SAFETY}
+
+
+@app.get("/v1/research/stage11/shadow-portfolio",
+         status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_stage11_shadow_portfolio() -> dict:
+    """Read-only Stage 11 SHADOW-ONLY portfolio: the current shadow decision
+    (an active research target book, or the explicit NO_DEFENSIBLE_ALPHA status),
+    holdings, weights, exposures and evidence snapshot. Technically separate from
+    the operational paper-trading portfolio; never an order / broker / execution.
+    Read-only."""
+    try:
+        from paper_trader.alpha_agent import stage11_jobs as _s11
+        return _s11.load_stage11_shadow(
+            str(_alpha_agent_stage11_config_path()))
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "UNAVAILABLE", "reason": str(exc)[:200],
+                "safety_labels": _STAGE11_SAFETY}
+
+
 @app.get("/v1/evidence/rolling", status_code=status.HTTP_200_OK,
          dependencies=[Depends(_verify_api_key)])
 def evidence_rolling() -> dict:

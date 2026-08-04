@@ -294,15 +294,62 @@ class TestFrozenCloseMarkPrecedence:
         are.build_accounting_reconciliation(live_S, _cfg())
         assert _hash_dir(sdir) == before
 
-    # The live operational closes are all preserved in the immutable store, so
-    # every live accounting row is frozen-quality and reconciles to the penny.
-    def test_live_rows_reconcile_from_frozen_close_marks(self, live_S):
-        out = are.build_accounting_reconciliation(live_S, _cfg())
+    # When EVERY completed close is preserved in the immutable frozen store, the
+    # reducer prices every accounting row from frozen close marks (never the
+    # revisable desk_marks cache) and reconciles to the penny. This is a property
+    # of the reducer given a COMPLETE immutable store, proven here deterministically
+    # over a multi-date / multi-name book.
+    #
+    # ISOLATION NOTE: this invariant is deliberately NOT asserted against the live
+    # operational store. A fresh Daily Close appends its performance row and revises
+    # its desk_marks cache immediately, but the immutable TRUE_FORWARD price store is
+    # populated only by that close's forward-prediction capture, which is skipped
+    # (SNAPSHOTS_UNAVAILABLE) when the model inputs have not been advanced to the
+    # closed session — and Phase 28B never captures a processed date retroactively.
+    # So the trailing live close can legitimately lack a frozen mark and price from
+    # the honestly-labelled fallback (see load_sources / capture_snapshots). "Every
+    # live row is frozen-quality" is therefore NOT a property of unbounded live
+    # state; the live reconcile-to-penny and read-only guarantees are covered by the
+    # remaining live_S tests. Making this test hermetic keeps the invariant precise.
+    def test_all_rows_reconcile_from_frozen_close_marks(self):
+        holdings = {"AAA": 10, "FANG": 20, "MSTR": 5}
+        # exact immutable close marks for every (ticker, date)
+        frozen = {
+            "AAA":  [["2026-01-02", 50.0], ["2026-01-05", 51.0], ["2026-01-06", 52.0]],
+            "FANG": [["2026-01-02", 190.0], ["2026-01-05", 191.0], ["2026-01-06", 189.0]],
+            "MSTR": [["2026-01-02", 300.0], ["2026-01-05", 305.0], ["2026-01-06", 310.0]],
+        }
+        # the mutable desk_marks cache carries a large later REVISION on a prior
+        # date; frozen precedence must ignore it, so the row stays frozen-quality.
+        marks = {t: [list(e) for e in rows] for t, rows in frozen.items()}
+        marks["FANG"][0][1] = 999.0
+        invested = [sum(holdings[t] * frozen[t][i][1] for t in holdings) for i in range(3)]
+        navs = [100.0 + inv for inv in invested]           # cash = 100
+        rets = [None,
+                round((navs[1] / navs[0] - 1.0) * 100.0, 6),
+                round((navs[2] / navs[1] - 1.0) * 100.0, 6)]
+        dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+        S = {
+            "perf": {"summary": {}},
+            "perf_rows": [
+                {"date": dates[i], "nav": navs[i], "cash": 100.0, "invested": invested[i],
+                 "holdings": dict(holdings), "daily_return_pct": rets[i],
+                 "transaction_cost": 0.0}
+                for i in range(3)],
+            "price_series": frozen,
+            "marks_series": marks,
+        }
+        out = are.build_accounting_reconciliation(S, _cfg())
         rec = out["reconciliation"]
         assert rec["all_rows_reconcile"] is True
         assert rec["rows_from_historical_fallback"] == 0
+        assert rec["rows_from_frozen_close_marks"] == 3
         assert rec["all_rows_from_frozen_close_marks"] is True
         assert rec["max_abs_nav_residual_usd"] <= 0.01
+        for r in out["rows"]:
+            assert r["mark_evidence"] == self.FROZEN
+            assert r["priced_from_historical_fallback"] == 0
+            assert r["fully_reproducible_from_frozen_close"] is True
 
 
 # =========================================================================== #

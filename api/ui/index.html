@@ -3200,6 +3200,7 @@
           <a id="ra-nav-alpha-factory" data-rasub="alpha-factory" onclick="navigateToRoute('research-audit/alpha-factory')" title="Alpha Factory: registry, leaderboard, correlation matrix and family taxonomy of many candidate alphas">Alpha Factory</a>
           <a id="ra-nav-price-alpha" data-rasub="price-alpha" onclick="navigateToRoute('research-audit/price-alpha')" title="Price Alpha Lab: the five trailing-price families activated on the owned point-in-time price panel, multi-horizon validated, ranked and correlation-checked vs the champion">Price Alpha Lab</a>
           <a id="ra-nav-alpha-agent" data-rasub="alpha-agent" onclick="navigateToRoute('research-audit/alpha-agent')" title="Alpha Agent Evidence Observatory: the autonomous alpha agent's Stage 1-7 evidence — data collected, analyses, experiments, weak ideas rejected, data gaps, current champion status and recovery disposition. Read-only, paper-only, no promotion, no orders.">Alpha Agent Observatory</a>
+          <a id="ra-nav-stage11" data-rasub="stage11" onclick="navigateToRoute('research-audit/stage11')" title="Stage 11 Multi-Factor Research: signal factory, two-stage funnel, multiple-testing/FDR, orthogonal ensembles and the SHADOW-ONLY portfolio. Read-only, research use only, no orders, no automatic promotion.">Stage 11 Multi-Factor</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -3689,6 +3690,21 @@
              strictly READ-ONLY view of the autonomous alpha agent's Stage 1-7 evidence. Creates no
              order, signal or trade decision, promotes no model, mutates no ledger/portfolio/target,
              calls no prediction service and writes nothing. PAPER ONLY. -->
+        <div class="card" id="s11-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Stage 11 Multi-Factor Research Command Center <span class="cc-badge" id="s11-status" title="Read-only Stage 11 campaign status.">&mdash;</span></span>
+            <button class="btn-sm" id="s11-refresh" onclick="loadStage11()" title="Reload the read-only Stage 11 research command center.">&#8635; Refresh</button>
+          </div>
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">SHADOW ONLY</span>
+            <span class="cc-badge danger">NO ORDERS</span>
+            <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge">RESEARCH USE ONLY</span>
+          </div>
+          <div id="s11-body" style="font-size:12px;">Select this section to load the read-only Stage 11 research command center.</div>
+        </div>
         <div class="card" id="aao-panel" style="margin-bottom:14px; display:none;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span>Alpha Agent Evidence Observatory <span class="cc-badge" id="aao-status" title="Read-only Stage 1-7 evidence status.">&mdash;</span></span>
@@ -7987,6 +8003,75 @@ async function loadCurrentAlphaTournament() {
   } catch (e) { if (badge) badge.textContent = 'Unavailable'; }
 }
 window.loadCurrentAlphaTournament = loadCurrentAlphaTournament;
+
+// Stage 11 Multi-Factor Research Command Center (read-only).
+function _s11Esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+function _s11Num(x, d) {
+  if (x === null || x === undefined || x === '') return '&mdash;';
+  var n = Number(x);
+  return isNaN(n) ? _s11Esc(x) : n.toFixed(d === undefined ? 3 : d);
+}
+function _renderStage11(j) {
+  var body = document.getElementById('s11-body');
+  var badge = document.getElementById('s11-status');
+  if (badge) badge.textContent = _s11Esc(j.status || j.reason || '—');
+  if (!body) return;
+  var db = j.data_breadth || {};
+  var cf = j.candidate_funnel || {};
+  var mt = j.multiple_testing || {};
+  var be = j.best_current_evidence;
+  var en = j.ensembles || {};
+  var sh = j.shadow || {};
+  var rc = (db.unavailable_reason_counts || {});
+  var h = '';
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin-bottom:12px;">';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Owned Data Breadth</div>' +
+       '<div>Norgate universe: <b>' + _s11Num(db.owned_norgate_universe, 0) + '</b></div>' +
+       '<div>Materialized assetids: <b>' + _s11Num(db.materialized_assetids, 0) + '</b></div>' +
+       '<div>CIKs w/ owned price: <b>' + _s11Num(db.cik_with_owned_price_series, 0) + '</b></div>' +
+       '<div>Target gap: ' + _s11Num(db.target_gap, 0) + '</div></div>';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Candidate Funnel</div>' +
+       '<div>Primitives: <b>' + _s11Num(cf.primitive_count, 0) + '</b> in ' + _s11Num(cf.families, 0) + ' families</div>' +
+       '<div>Generated: ' + _s11Num(cf.generated, 0) + ' &middot; Supported: ' + _s11Num(cf.supported, 0) + ' &middot; DATA_HOLD: ' + _s11Num(cf.data_hold, 0) + '</div>' +
+       '<div>Screened: ' + _s11Num(cf.screened, 0) + ' &rarr; Survivors: <b>' + _s11Num(cf.survivors, 0) + '</b> &middot; Rejected: ' + _s11Num(cf.rejected, 0) + '</div>' +
+       '<div>Deep: ' + _s11Num(cf.deep_evaluated, 0) + ' &middot; Qualified singles: <b>' + _s11Num(cf.qualified_singles, 0) + '</b></div></div>';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Multiple Testing</div>' +
+       '<div>Method: ' + _s11Esc(mt.method || '&mdash;') + '</div>' +
+       '<div>Family size: <b>' + _s11Num(mt.family_size, 0) + '</b></div>' +
+       '<div>FDR survivors: <b>' + _s11Num(mt.fdr_survivors, 0) + '</b></div></div>';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Ensembles</div>' +
+       '<div>Orthogonal selected: ' + _s11Num(en.selected, 0) + '</div>' +
+       '<div>Evaluated: ' + _s11Num(en.evaluated, 0) + ' &middot; Qualified: <b>' + _s11Num(en.qualified, 0) + '</b></div></div>';
+  h += '</div>';
+  if (be) {
+    h += '<div style="margin-bottom:10px;"><b>Best current evidence:</b> ' + _s11Esc(be.name) +
+         ' (' + _s11Esc(be.family) + ') &mdash; periods ' + _s11Num(be.periods, 0) +
+         ', rank-IC t ' + _s11Num(be.rank_ic_t) + ', spread t ' + _s11Num(be.spread_t) +
+         ', net25 ' + _s11Num(be.net25, 4) + ', turnover ' + _s11Num(be.turnover) + '</div>';
+  }
+  h += '<div style="margin-bottom:8px;padding:8px;border:1px solid var(--cc-border-soft);border-radius:6px;">' +
+       '<b>Shadow portfolio:</b> <span class="cc-badge ' + (sh.status === 'SHADOW_ACTIVE' ? 'safe' : 'manual') + '">' +
+       _s11Esc(sh.status || '&mdash;') + '</span> ' + _s11Esc(sh.message || '') + '</div>';
+  h += '<div>Reason-classified unavailable securities: resolved-no-price ' +
+       _s11Num(rc.resolved_identity_no_owned_price_series, 0) + ', identity-unresolved ' +
+       _s11Num(rc.identity_unresolved, 0) + ', assetid-missing ' + _s11Num(rc.assetid_missing, 0) + '</div>';
+  h += '<div style="margin-top:8px;color:var(--label);">Next AlphaAgent action: ' + _s11Esc(j.next_action || '&mdash;') + '</div>';
+  body.innerHTML = h;
+}
+async function loadStage11() {
+  var badge = document.getElementById('s11-status');
+  if (badge) badge.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/stage11/command-center');
+    if (!r.ok) { if (badge) badge.textContent = 'Unavailable'; return; }
+    _renderStage11(await r.json());
+  } catch (e) { if (badge) badge.textContent = 'Unavailable'; }
+}
+window.loadStage11 = loadStage11;
 
 function _ctrBookCard(title, b, tone) {
   b = b || {};
@@ -21777,9 +21862,10 @@ var _RA_SECTIONS = {
   'alpha-factory':    { panels: ['af-panel'], champion: false },
   'price-alpha':      { panels: ['paf-panel'], champion: false },
   'alpha-agent':      { panels: ['aao-panel'], champion: false },
+  'stage11':          { panels: ['s11-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -21829,6 +21915,7 @@ function _raLoadSection(sub) {
     'alpha-factory': ['loadAlphaFactory'],
     'price-alpha': ['loadPriceAlpha'],
     'alpha-agent': ['loadAlphaAgentObservatory'],
+    'stage11': ['loadStage11'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {
