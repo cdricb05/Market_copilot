@@ -24668,28 +24668,27 @@ function renderDailyClosePerf(d) {
       fpcEl.style.display = '';
     } else { fpcEl.style.display = 'none'; }
   }
-  // ---- Phase 28B.2: operational close vs forward evidence — an explicit split
-  //      state. BLOCKED / PARTIAL / IN-PROGRESS evidence on a processed close is
-  //      shown prominently; complete evidence needs no banner. ----
-  var evs = d.forward_evidence_status, evEl = document.getElementById('dc-evidence-banner');
+  // ---- Phase 28C: operational close vs forward research evidence — a SEPARATE
+  //      result row. Rendered from the backend forward_evidence view (severity +
+  //      headline + detail): a gap on a SUCCESSFUL close is AMBER (never the
+  //      operational red), a complete capture shows no banner, in-progress is info.
+  //      A token-gated recovery button appears ONLY when the backend classifies
+  //      recovery as safe (recovery_available); otherwise the documented-gap
+  //      message stands and a completed close is NEVER suggested for re-run. ----
+  var fe = d.forward_evidence || null, evEl = document.getElementById('dc-evidence-banner');
   if (evEl) {
-    var evMissing = fpc ? (fpc.snapshots_unavailable || 0) : 0;
-    var evTotal = fpc ? (fpc.snapshots_expected || 6) : 6;
-    if (evs === 'FORWARD_EVIDENCE_BLOCKED') {
-      evEl.textContent = 'Operational close complete — FORWARD EVIDENCE CAPTURE FAILED (' +
-        evMissing + ' of ' + evTotal + ' TRUE_FORWARD snapshots missing, including the mandatory active book). ' +
-        'NAV, P&L and the recorded decision above remain valid. Inspect the evidence recovery status before the next close.';
-      evEl.style.borderColor = 'var(--neg,#dc2626)'; evEl.style.color = 'var(--neg,#dc2626)';
-      evEl.style.display = '';
-    } else if (evs === 'FORWARD_EVIDENCE_PARTIAL') {
-      evEl.textContent = 'Operational close complete — forward evidence PARTIAL: the mandatory active-book snapshot is persisted, but ' +
-        evMissing + ' research shadow book(s) were unavailable (explicit per-book reasons in Research & Audit).';
-      evEl.style.borderColor = 'var(--warn,#d97706)'; evEl.style.color = 'var(--warn,#d97706)';
-      evEl.style.display = '';
-    } else if (evs === 'FORWARD_EVIDENCE_CAPTURE_IN_PROGRESS') {
-      evEl.textContent = 'A daily close is still running for this date — forward evidence capture is IN PROGRESS. ' +
-        'Do not run the close again; this status resolves when the close finishes.';
-      evEl.style.borderColor = 'var(--info,#3b82f6)'; evEl.style.color = 'var(--info,#3b82f6)';
+    if (fe && fe.severity && fe.severity !== 'green') {
+      var _evPal = { amber: 'var(--warn,#d97706)', info: 'var(--info,#3b82f6)' };
+      var _evCol = _evPal[fe.severity] || _evPal.info;
+      var _evTxt = (fe.headline || '') + (fe.detail ? ' ' + fe.detail : '');
+      var _recBtn = '';
+      if (fe.recovery_available && fe.market_date) {
+        _recBtn = ' <button class="cc-btn" style="margin-left:8px;font-weight:700;border:1px solid ' +
+          _evCol + ';" onclick="recoverForwardEvidence(this, \'' + escapeHtml(fe.market_date) +
+          '\')">Recover Forward Evidence</button>';
+      }
+      evEl.innerHTML = escapeHtml(_evTxt) + _recBtn;
+      evEl.style.borderColor = _evCol; evEl.style.color = _evCol;
       evEl.style.display = '';
     } else { evEl.style.display = 'none'; }
   }
@@ -24793,13 +24792,18 @@ function _dcShowRunOutcome(r) {
     return;
   }
   var op = r.close_status ? String(r.close_status).replace(/_/g, ' ') : (r.status || 'UNKNOWN');
-  var evs = r.forward_evidence_status;
-  if (evs === 'FORWARD_EVIDENCE_BLOCKED') {
-    toast('Operational close: ' + op + ' — FORWARD EVIDENCE CAPTURE FAILED (see the banner in Daily Performance).', 'err');
-  } else if (evs === 'FORWARD_EVIDENCE_PARTIAL') {
-    toast('Operational close: ' + op + ' — forward evidence PARTIAL (shadow books unavailable; detail in Research & Audit).', 'warning');
-  } else if (evs) {
-    toast('Operational close: ' + op + ' · Forward evidence: ' + String(evs).replace(/_/g, ' ') + '.', 'ok');
+  // Phase 28C — the operational close and forward evidence are reported SEPARATELY.
+  // An evidence gap on a SUCCESSFUL close is AMBER, never a red "failed", and a
+  // completed close is never suggested for re-run.
+  var fe = r.forward_evidence || {};
+  var sev = fe.severity;
+  if (sev === 'amber') {
+    toast('Operational close: ' + op + ' — ' + (fe.headline || 'a forward-research evidence gap was documented.') +
+      ' NAV, P&L and the recorded decision are valid.', 'warning');
+  } else if (sev === 'green') {
+    toast('Operational close: ' + op + ' · Forward research evidence captured.', 'ok');
+  } else if (sev === 'info') {
+    toast('Operational close: ' + op + '.', 'ok');
   } else {
     toast('Daily close finished: ' + op + '.', 'ok');
   }
@@ -24847,9 +24851,42 @@ async function runDailyClose(btn) {
     _dcRunInFlight = false;
     _dcShowRunOutcome(r);
     try { loadOperationalBook(); } catch (e) {}   // refresh every operator surface
+    // Phase 28C (Workstream H) — repopulate the read-only Daily Alpha Run cockpit
+    // from authoritative backend state so its fields are never left blank after a close.
+    try { if (typeof loadDailyAlphaStatus === 'function') loadDailyAlphaStatus(); } catch (e) {}
   }
 }
 window.runDailyClose = runDailyClose;
+
+// Phase 28C (Workstream F) — manual, explicitly token-gated, EVIDENCE-ONLY recovery.
+// Shown only when the backend classifies recovery as safe (recovery_available). It
+// NEVER reruns the close and NEVER touches NAV, P&L, holdings, cash, fills, orders or
+// the recorded decision; when recovery is impossible the backend preserves the gap.
+async function recoverForwardEvidence(btn, marketDate) {
+  if (!marketDate) return;
+  var orig = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Recovering…'; }
+  var r = null;
+  try {
+    var resp = await call('POST', '/v1/evidence/prediction-skill/recover-missed-close',
+      { market_date: marketDate, confirmation: 'CONFIRM_RECOVER_FROZEN_FORWARD_EVIDENCE' });
+    r = await resp.json();
+    var st = (r && r.status) ? r.status : 'UNKNOWN';
+    if (st === 'RECOVERED_FROM_FROZEN_ARTIFACTS') {
+      toast('Forward evidence recovered for ' + marketDate + ' from the frozen artifacts — NAV, P&L and the decision are unchanged.', 'ok');
+    } else if (st === 'RECOVERY_REJECTED_NOT_RECOVERABLE') {
+      toast('Forward evidence for ' + marketDate + ' is not recoverable from frozen artifacts — a documented gap was preserved. NAV, P&L and the decision remain valid.', 'warning');
+    } else {
+      toast('Forward-evidence recovery: ' + String(st).replace(/_/g, ' ') + '.', 'warning');
+    }
+  } catch (e) {
+    toast('Forward-evidence recovery request failed — reload the Daily Close status before acting.', 'err');
+  } finally {
+    if (btn) { btn.disabled = false; if (orig) btn.textContent = orig; }
+    try { loadOperationalBook(); } catch (e) {}     // one authoritative refresh
+  }
+}
+window.recoverForwardEvidence = recoverForwardEvidence;
 
 function _obSet(id, text) {
   var el = document.getElementById(id);

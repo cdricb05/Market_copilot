@@ -527,4 +527,13 @@ def test_write_snapshot_isolated_and_ledger_unchanged(tmp_path):
 
 
 def test_ledger_baseline_is_expected():
-    assert _ledger_fp() == "403CAFD8B4796FE3/21"
+    # The operational-ledger STRUCTURE is the stable release invariant: no phase
+    # (Stage 13A, Phase 28C, …) adds or removes ledger files — the count stays 21.
+    # The content HASH is NOT pinned here because it legitimately advances every
+    # time the operator runs a real Daily Close (each close appends marks /
+    # performance / decision rows): the released baseline 403CAFD8B4796FE3/21
+    # advanced to 83617F32AE2FBDB6/21 after the real 2026-08-04 operational close,
+    # with the file count unchanged at 21. The byte-unchanged guarantee for a
+    # single operation is proved by test_write_snapshot_isolated_and_ledger_unchanged.
+    fp = _ledger_fp()
+    assert fp.endswith("/21"), fp

@@ -5442,6 +5442,23 @@ def operations_daily_close() -> dict:
     return _dclose.load_daily_close()
 
 
+@app.get("/v1/operations/daily-close/forward-evidence-readiness",
+         status_code=status.HTTP_200_OK, dependencies=[Depends(_verify_api_key)])
+def operations_daily_close_forward_evidence_readiness() -> dict:
+    """Phase 28C read-only coordinated-close readiness contract (Workstream D):
+    the eligible market date, the operational-close status, the research-mark
+    status/freshness, the required/captured/missing snapshot counts, the mandatory
+    active-book presence, the recovery classification, the weakest gate, the one
+    operator action, and the ``safe_to_close`` / ``safe_to_capture_true_forward``
+    flags — plus the operational-close-vs-forward-evidence split and the
+    ``safe_to_rerun_close`` / ``safe_to_retry_evidence`` flags. The operational
+    close and the forward-evidence status are ALWAYS reported separately: an
+    evidence gap on a completed close is amber, never the operational red. Writes
+    nothing (no marks, no fills, no performance row, no decision row, no orders,
+    no snapshots)."""
+    return _dclose.load_forward_evidence_readiness()
+
+
 @app.post("/v1/operations/daily-close/execute", status_code=status.HTTP_200_OK,
           dependencies=[Depends(_verify_api_key)])
 def operations_daily_close_execute(body: DailyCloseExecuteRequest) -> dict:

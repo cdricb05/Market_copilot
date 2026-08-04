@@ -165,6 +165,37 @@ EVIDENCE_PENDING_CLOSE = "FORWARD_EVIDENCE_PENDING_CLOSE"
 EVIDENCE_INACTIVE_OFFLINE = "FORWARD_EVIDENCE_INACTIVE_OFFLINE"
 
 # --------------------------------------------------------------------------- #
+# Phase 28C — the coordinated close contract. Operational-close success and
+# forward-research-evidence status are ALWAYS reported separately: a valid
+# operational close whose forward evidence is incomplete is AMBER (an evidence
+# gap), NEVER the operational red reserved for a close that did not complete.
+# --------------------------------------------------------------------------- #
+# Recovery classifications (Workstream C) — exactly one per evidence gap.
+EVIDENCE_RECOVERY_AVAILABLE = "SAFE_TRUE_FORWARD_RECOVERY_AVAILABLE"
+EVIDENCE_LATE_NOT_TRUE_FORWARD = "LATE_RECOVERY_NOT_TRUE_FORWARD"
+EVIDENCE_GAP_MUST_REMAIN = "EVIDENCE_GAP_MUST_REMAIN"
+EVIDENCE_ALREADY_CAPTURED = "ALREADY_CAPTURED"
+EVIDENCE_RECOVERY_NA = "NOT_APPLICABLE"
+
+# Overall coordinated-close states (Workstream D). Operational and evidence never
+# conflated: an evidence gap is a distinct terminal, never OPERATIONAL_CLOSE_FAILED.
+OVERALL_AWAITING = "AWAITING_ELIGIBLE_CLOSE"
+OVERALL_PREPARATION_REQUIRED = "PREPARATION_REQUIRED"
+OVERALL_CLOSE_FAILED = "OPERATIONAL_CLOSE_FAILED"
+OVERALL_EVIDENCE_COMPLETE = "OPERATIONAL_CLOSE_COMPLETE_EVIDENCE_COMPLETE"
+OVERALL_EVIDENCE_RECOVERABLE = "OPERATIONAL_CLOSE_COMPLETE_RECOVERY_AVAILABLE"
+OVERALL_EVIDENCE_GAP = "OPERATIONAL_CLOSE_COMPLETE_EVIDENCE_GAP"
+OVERALL_EVIDENCE_IN_PROGRESS = "OPERATIONAL_CLOSE_COMPLETE_EVIDENCE_IN_PROGRESS"
+
+# Evidence severities — deliberately NOT the operational red (SEV_RED). An evidence
+# gap on a successful close is amber; a complete capture is green; pending is info.
+# (The _CLOSE_PROCESSED_STATUSES / _CLOSE_RERUNNABLE_STATUSES tuples are defined
+# just below the canonical close-status constants they reference.)
+EV_SEV_OK = "green"
+EV_SEV_AMBER = "amber"
+EV_SEV_INFO = "info"
+
+# --------------------------------------------------------------------------- #
 # Post-close data-readiness safety cutoff (US/Eastern). Regular NYSE close is
 # 16:00 ET; owned EOD data is only reliably published well after the close, so
 # the expected session does not become "today" until this cutoff has passed.
@@ -198,6 +229,16 @@ ALL_CLOSE_STATUSES = (INITIAL_BASELINE_DUE, INITIAL_BASELINE_RECORDED,
                       CLOSE_DUE, CLOSE_COMPLETE_HOLD, REBALANCE_PROPOSAL_READY,
                       PAPER_ORDERS_SUBMITTED, DATA_BLOCKED, ALREADY_PROCESSED,
                       AWAITING_ELIGIBLE_CLOSE)
+
+# Phase 28C — close statuses that represent a durable, successful operational close
+# (a re-run is NEVER safe: it would be a no-op ALREADY_PROCESSED and must not be
+# suggested). And statuses where re-running the close is legitimately safe (nothing
+# durable was recorded yet — due, retryable after a data block, or awaiting data).
+_CLOSE_PROCESSED_STATUSES = (CLOSE_COMPLETE_HOLD, REBALANCE_PROPOSAL_READY,
+                             PAPER_ORDERS_SUBMITTED, INITIAL_BASELINE_RECORDED,
+                             ALREADY_PROCESSED)
+_CLOSE_RERUNNABLE_STATUSES = (CLOSE_DUE, INITIAL_BASELINE_DUE, DATA_BLOCKED,
+                              WAITING_FOR_MARKET_DATA, AWAITING_MARKET_CLOSE)
 
 # --------------------------------------------------------------------------- #
 # Canonical daily decision-journal results (persisted per closed date).
@@ -557,6 +598,227 @@ def _forward_evidence_status(fpc: Optional[dict], *, close_processed: bool,
     if ev:
         return ev
     return fps.EVIDENCE_BLOCKED
+
+
+def _evidence_view(*, close_status: str, fpc: Optional[dict],
+                   evidence_status: Optional[str], model_recalc: Optional[dict],
+                   evidence_date: Optional[str], desk_dir) -> dict:
+    """Phase 28C — the ONE forward-evidence view: severity + recovery
+    classification + the structured readiness contract, ALWAYS separate from the
+    operational close. A forward-evidence gap on a SUCCESSFUL operational close is
+    AMBER (never operational-red); the operational NAV, P&L and decision stand.
+
+    Read-only: it consults ``fps.load_recovery_status`` (frozen-artifact bundle
+    inspection — never a recompute) and classifies the gap without fabricating,
+    backdating or relabelling any TRUE_FORWARD evidence."""
+    close_processed = close_status in _CLOSE_PROCESSED_STATUSES
+    rerunnable = close_status in _CLOSE_RERUNNABLE_STATUSES
+    fpc = fpc or {}
+    mr = model_recalc or {}
+    ed = str(evidence_date or "")[:10] or None
+
+    expected = int(fpc.get("snapshots_expected") or len(fps.SUPPORTED_BOOKS))
+    created = int(fpc.get("snapshots_created") or 0)
+    present = int(fpc.get("snapshots_already_present") or 0)
+    captured = created + present
+    all_book_ids = [b[1] for b in fps.SUPPORTED_BOOKS]
+
+    # Authoritative present/missing/recoverability from the read-only recovery
+    # inspector (frozen close-artifact bundle only — never a recomputation). When
+    # it cannot run (offline / no desk_dir) fall back to the capture-summary counts.
+    rec_status = None
+    recoverable_books: list = []
+    rec_ran = False
+    present_books: list = []
+    if ed and desk_dir is not None:
+        try:
+            rec = fps.load_recovery_status(market_date=ed, desk_dir=desk_dir)
+            present_books = list(rec.get("snapshots_present") or [])
+            recoverable_books = list(rec.get("recoverable_books") or [])
+            rec_status = rec.get("recovery_status")
+            rec_ran = True
+        except Exception:  # noqa: BLE001 — degrade to the capture-summary counts
+            pass
+    if rec_ran:
+        missing_ids = [b for b in all_book_ids if b not in set(present_books)]
+        active_present = fps.MANDATORY_BOOK_ID in set(present_books)
+    else:
+        active_present = bool(fpc.get("mandatory_active_snapshot_persisted"))
+        ur = fpc.get("unavailable_reasons") or {}
+        keys = [b for b in all_book_ids if b in ur]
+        missing_ids = keys if keys else all_book_ids[:max(0, expected - captured)]
+    missing_count = len(missing_ids)
+
+    # Month-boundary detection: the frozen monthly momentum input is a whole
+    # calendar month behind the closed session, so ``market_as_of_date`` cannot
+    # advance and a point-in-time-honest snapshot cannot be built until the
+    # research-side monthly input emitter produces the new month (the frozen
+    # mom_6_1 contract is NEVER approximated inside the close). Detected from the
+    # atomic model-refresh status OR the model/closed month comparison.
+    model_calc_date = mr.get("model_calc_date") or fpc.get("model_calc_date")
+    mcd = str(model_calc_date or "")[:10] or None
+    month_behind = bool(mcd and ed and mcd[:7] < ed[:7])
+    month_boundary = (str(mr.get("model_input_refresh_status") or "") == at.R_MONTH_BOUNDARY
+                      or bool(fpc.get("model_month_behind")) or month_behind)
+    model_current_for_close = bool(mcd and ed and mcd == ed)
+
+    complete = close_processed and active_present and missing_count == 0
+    recovery_available = bool(rec_status == fps.REC_RECOVERABLE and recoverable_books)
+
+    if not close_processed:
+        severity, classification, gap_kind = EV_SEV_INFO, EVIDENCE_RECOVERY_NA, None
+        headline = "Forward evidence is captured by a completed daily close."
+        detail = ("No forward-evidence gap exists until an operational close is "
+                  "recorded for this date.")
+        operator_action = None
+        overall = (OVERALL_CLOSE_FAILED if close_status == DATA_BLOCKED
+                   else OVERALL_PREPARATION_REQUIRED if rerunnable
+                   else OVERALL_AWAITING)
+        evidence_state = "PENDING_CLOSE"
+    elif evidence_status == EVIDENCE_IN_PROGRESS:
+        severity, classification, gap_kind = EV_SEV_INFO, EVIDENCE_RECOVERY_NA, None
+        headline = "A daily close is still running — forward evidence capture is in progress."
+        detail = ("This resolves when the close finishes; do not run the close again.")
+        operator_action = None
+        overall = OVERALL_EVIDENCE_IN_PROGRESS
+        evidence_state = "PREPARING"
+    elif complete:
+        severity, classification, gap_kind = EV_SEV_OK, EVIDENCE_ALREADY_CAPTURED, None
+        headline = "Daily close complete. Forward research evidence captured."
+        detail = ("All %d TRUE_FORWARD snapshots (including the mandatory active book) "
+                  "are persisted for %s." % (expected, ed))
+        operator_action = None
+        overall = OVERALL_EVIDENCE_COMPLETE
+        evidence_state = "OPERATIONAL_CLOSE_COMPLETE_EVIDENCE_COMPLETE"
+    elif recovery_available:
+        severity, classification = EV_SEV_AMBER, EVIDENCE_RECOVERY_AVAILABLE
+        gap_kind = "FROZEN_ARTIFACTS_PRESENT"
+        headline = "Daily close complete. Research evidence requires recovery."
+        detail = ("%d of %d TRUE_FORWARD snapshots are missing but were preserved in the "
+                  "frozen close-artifact bundle for %s and can be recovered VERBATIM "
+                  "(no recomputation)." % (missing_count, expected, ed))
+        operator_action = ("Run the token-gated forward-evidence recovery for %s "
+                           "(evidence-only; never touches NAV, P&L, holdings, cash or the "
+                           "recorded decision)." % ed)
+        overall = OVERALL_EVIDENCE_RECOVERABLE
+        evidence_state = "RECOVERY_AVAILABLE"
+    elif active_present:
+        # The mandatory active-book snapshot IS persisted; only research shadow
+        # book(s) are unavailable — an explicit PARTIAL, less severe than a full gap.
+        severity, classification = EV_SEV_AMBER, EVIDENCE_GAP_MUST_REMAIN
+        gap_kind = "SHADOW_BOOKS_UNAVAILABLE"
+        headline = ("Daily close complete. Forward evidence PARTIAL — the mandatory "
+                    "active-book snapshot is persisted.")
+        detail = ("%d research shadow book(s) were unavailable for %s (explicit per-book "
+                  "reasons in the forward-evidence detail). The mandatory active Top-25 "
+                  "snapshot is captured; NAV, P&L and the recorded decision remain valid."
+                  % (missing_count, ed))
+        operator_action = ("Inspect the forward-evidence detail; the shadow gap is "
+                           "documented and never backfilled as TRUE_FORWARD.")
+        overall = OVERALL_EVIDENCE_GAP
+        evidence_state = "EVIDENCE_GAP_RECORDED"
+    elif month_boundary:
+        severity, classification = EV_SEV_AMBER, EVIDENCE_GAP_MUST_REMAIN
+        gap_kind = "RESEARCH_MONTHLY_INPUT_REQUIRED"
+        headline = ("Daily close complete. A research evidence gap was documented "
+                    "(new research month).")
+        detail = ("The frozen monthly momentum input still reflects %s, an earlier month "
+                  "than the closed session %s. A point-in-time-honest TRUE_FORWARD snapshot "
+                  "cannot be built until the research-side monthly input emitter produces "
+                  "the new month — the frozen mom_6_1 contract is never approximated. "
+                  "Portfolio NAV, P&L and the recorded decision remain valid."
+                  % (mcd or "an earlier month", ed))
+        operator_action = ("Run the research-side monthly input emitter for the new month "
+                           "(RUN_RESEARCH_MONTHLY_INPUT_EMITTER). No operational action is "
+                           "required to keep the book correct.")
+        overall = OVERALL_EVIDENCE_GAP
+        evidence_state = "EVIDENCE_GAP_RECORDED"
+    else:
+        severity, classification = EV_SEV_AMBER, EVIDENCE_GAP_MUST_REMAIN
+        gap_kind = "NO_FROZEN_ARTIFACTS"
+        headline = "Daily close complete. A research evidence gap was documented."
+        detail = ("%d of %d TRUE_FORWARD snapshots for %s were not captured, and no frozen "
+                  "artifact bundle exists to recover them without recomputation (forbidden). "
+                  "Portfolio NAV, P&L and the recorded decision remain valid."
+                  % (missing_count, expected, ed))
+        operator_action = ("Inspect the forward-evidence recovery status; a documented "
+                           "FORWARD_CAPTURE_MISSED incident preserves the gap honestly — no "
+                           "snapshot is fabricated.")
+        overall = OVERALL_EVIDENCE_GAP
+        evidence_state = "EVIDENCE_GAP_RECORDED"
+
+    if model_current_for_close:
+        mark_fresh = "FRESH"
+    elif month_boundary:
+        mark_fresh = "STALE_NEW_MONTH"
+    elif mcd:
+        mark_fresh = "BEHIND"
+    else:
+        mark_fresh = "UNKNOWN"
+
+    weakest = ("NONE" if complete else
+               "OPERATIONAL_CLOSE" if not close_processed else
+               "RESEARCH_MONTHLY_INPUT" if month_boundary else
+               "FROZEN_ARTIFACT_RECOVERY" if recovery_available else
+               "SNAPSHOT_CAPTURE")
+
+    readiness = {
+        "eligible_market_date": ed,
+        "operational_close_status": close_status,
+        "research_mark_status": mr.get("model_input_refresh_status"),
+        "research_mark_date": mcd,
+        "research_mark_freshness": mark_fresh,
+        "required_snapshot_count": expected,
+        "captured_snapshot_count": captured,
+        "missing_snapshot_count": missing_count,
+        "active_book_snapshot_present": active_present,
+        "missing_book_ids": missing_ids,
+        "capture_recoverable": recovery_available,
+        "recovery_classification": classification,
+        "weakest_gate": weakest,
+        "operator_action": operator_action,
+        "safe_to_close": rerunnable,
+        "safe_to_capture_true_forward": model_current_for_close,
+        "state": evidence_state,
+    }
+    forward_evidence = {
+        "status": evidence_status,
+        "severity": severity,
+        "headline": headline,
+        "detail": detail,
+        "required": expected,
+        "captured": captured,
+        "missing": missing_count,
+        "active_book_present": active_present,
+        "recovery_classification": classification,
+        "recovery_available": recovery_available,
+        "missing_book_ids": missing_ids,
+        "operator_action": operator_action,
+        "gap_kind": gap_kind,
+        "market_date": ed,
+        "recovery_confirmation_token": fps.RECOVERY_CONFIRM_TOKEN,
+    }
+    return {
+        "forward_evidence": forward_evidence,
+        "evidence_readiness": readiness,
+        "overall_status": overall,
+        "evidence_severity": severity,
+        "safe_to_retry_evidence": recovery_available,
+        "safe_to_rerun_close": (False if close_processed else rerunnable),
+    }
+
+
+def _apply_evidence_message(base: str, ev: dict) -> str:
+    """Fold the amber evidence headline + action into the operator message so a
+    split state is never silent. A complete (green) or pending (info) capture
+    stays quiet — its detail lives in the ``forward_evidence`` block."""
+    fe = (ev or {}).get("forward_evidence") or {}
+    if fe.get("severity") != EV_SEV_AMBER:
+        return base
+    note = " " + (fe.get("headline") or "")
+    if fe.get("operator_action"):
+        note += " " + fe["operator_action"]
+    return base + note
 
 
 # --------------------------------------------------------------------------- #
@@ -1633,6 +1895,18 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
                      "explicit token-gated confirmation — never by the daily close."),
         }
     ctx = context or {}
+    # Phase 28C — the ONE forward-evidence view, ALWAYS separate from the operational
+    # close severity. A forward-evidence gap on a successful close is amber, never
+    # the operational red; the operational NAV, P&L and decision stand on their own.
+    _fpc = ctx.get("forward_prediction_capture")
+    _evidence_date = ((_fpc or {}).get("market_date") or last_processed_date or latest_eligible)
+    ev = _evidence_view(
+        close_status=close_status, fpc=_fpc,
+        evidence_status=ctx.get("forward_evidence_status"),
+        model_recalc=ctx.get("model_recalculation"),
+        evidence_date=_evidence_date, desk_dir=ctx.get("_desk_dir"))
+    op_complete = close_status in _CLOSE_PROCESSED_STATUSES
+    operator_message = _apply_evidence_message(message or pres["next_action"], ev)
     out = {
         "status": payload_status,
         "phase": PHASE,
@@ -1641,7 +1915,7 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         "close_status": close_status,
         "close_status_label": pres["label"],
         "headline": headline_override or pres["headline"],
-        "explanation": message or pres["next_action"],
+        "explanation": operator_message,
         "severity": pres["severity"],
         "daily_cycle_label": pres["cycle_label"],
         "current_task": pres["current_task"],
@@ -1722,6 +1996,27 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         # -- Phase 28B.2: the forward-evidence state, ALWAYS separate from the
         #    operational close status (a valid close may be evidence-incomplete).
         "forward_evidence_status": ctx.get("forward_evidence_status"),
+        # -- Phase 28C: the coordinated close contract (Workstream I). Operational
+        #    close and forward research evidence are reported as SEPARATE result
+        #    rows and NEVER conflated. safe_to_rerun_close is False once an
+        #    operational close is recorded; an evidence gap is amber, not red.
+        "operational_close": {
+            "status": close_status,
+            "severity": pres["severity"],
+            "complete": op_complete,
+            "market_date": (_evidence_date if op_complete else last_processed_date),
+            "nav": (pnl or {}).get("nav"),
+            "daily_pnl": (pnl or {}).get("daily_pnl"),
+            "daily_pnl_available": bool((pnl or {}).get("daily_pnl_available")),
+            "decision": recorded_decision,
+            "performed_write": bool(performed_write),
+        },
+        "forward_evidence": ev["forward_evidence"],
+        "evidence_readiness": ev["evidence_readiness"],
+        "overall_status": ev["overall_status"],
+        "operator_message": operator_message,
+        "safe_to_retry_evidence": ev["safe_to_retry_evidence"],
+        "safe_to_rerun_close": ev["safe_to_rerun_close"],
         **_safety(performed_write),
     }
     return out
@@ -1882,6 +2177,7 @@ def load_daily_close(
                "close_dates": close_dates, "model_recalculation": model_recalc,
                "attribution": attribution, "forward_performance": forward,
                "forward_prediction_capture": fpc,
+               "_desk_dir": desk_dir,
                "forward_evidence_status": _forward_evidence_status(
                    fpc,
                    close_processed=bool(fpc_md and fpc_md == last_processed),
@@ -1895,6 +2191,26 @@ def load_daily_close(
         performed_write=False, evaluation_date=(today or date.today().isoformat()),
         context=context,
         headline_override=_headline_for(close_status, latest_eligible, pnl))
+
+
+def load_forward_evidence_readiness(**kwargs) -> dict:
+    """Phase 28C — the read-only coordinated-close readiness contract (Workstream
+    D): the operational-close status, the forward-evidence view, the structured
+    readiness model and the safe_to_* flags, extracted from the canonical
+    read-only daily-close status. Writes nothing; accepts the same seams as
+    ``load_daily_close`` (used by the UI to show research readiness BEFORE the
+    operator confirms a close)."""
+    full = load_daily_close(**kwargs)
+    keys = ("close_status", "close_status_label", "operational_close",
+            "forward_evidence", "evidence_readiness", "overall_status",
+            "operator_message", "safe_to_retry_evidence", "safe_to_rerun_close",
+            "forward_evidence_status", "latest_eligible_market_date",
+            "last_processed_market_date")
+    out = {"phase": PHASE, "generated_at": _now_iso()}
+    for k in keys:
+        out[k] = full.get(k)
+    out.update(_safety(False))
+    return out
 
 
 def _headline_for(close_status: str, market_date: Optional[str],
@@ -2072,7 +2388,8 @@ def _run_daily_close_locked(
                        decision_history=_decision_history(sdir, book_id)),
                    "forward_prediction_capture": _read_prediction_capture_status(
                        market_date=latest_eligible, desk_dir=desk_dir,
-                       warnings=warnings)}
+                       warnings=warnings),
+                   "_desk_dir": desk_dir}
         # Phase 28B.2 — a processed date with missing snapshots is an explicit
         # evidence anomaly (never retroactively captured, never silent).
         context["forward_evidence_status"] = _forward_evidence_status(
@@ -2083,10 +2400,9 @@ def _run_daily_close_locked(
         if healed:
             msg += (" The price-sensitive model inputs were advanced to %s to complete the "
                     "atomic cycle." % latest_eligible)
-        if context["forward_evidence_status"] == fps.EVIDENCE_BLOCKED:
-            msg += (" FORWARD EVIDENCE IS MISSING for this processed close — an "
-                    "already-processed date is never retroactively captured; inspect "
-                    "the evidence recovery status.")
+        # Phase 28C — any forward-evidence gap on this already-processed (valid) close
+        # is folded into the message by _assemble as an amber note, never as a red
+        # "capture failed"; the operational review and mark remain valid.
         return _assemble(
             close_status=ALREADY_PROCESSED, book=book_now, gate=gate, pnl=pnl,
             history=_perf_history(perf, starting_capital=book_now["starting_capital"]),
@@ -2321,7 +2637,8 @@ def _run_daily_close_locked(
                    perf=perf, starting_capital=book2["starting_capital"],
                    decision_history=_decision_history(sdir, book_id)),
                "forward_prediction_capture": prediction_capture,
-               "forward_evidence_status": evidence_status}
+               "forward_evidence_status": evidence_status,
+               "_desk_dir": desk_dir}
     return _assemble(
         close_status=close_status, book=book2, gate=gate, pnl=pnl,
         history=_perf_history(perf, starting_capital=book2["starting_capital"]),
@@ -2330,10 +2647,10 @@ def _run_daily_close_locked(
         decision_history=_decision_history(sdir, book_id), warnings=warnings,
         performed_write=True, evaluation_date=evaluation_date, context=context,
         headline_override=_headline_for(close_status, closed_date, pnl),
-        message=_evidence_message_suffix(
-            _completed_message(close_status, closed_date, pcount, pnl,
-                               model_recalc=model_recalc),
-            evidence_status, prediction_capture))
+        # Phase 28C — the amber evidence note is folded in by _assemble via the
+        # forward-evidence view; the operational message never says "capture failed".
+        message=_completed_message(close_status, closed_date, pcount, pnl,
+                                   model_recalc=model_recalc))
 
 
 # --------------------------------------------------------------------------- #
@@ -2385,28 +2702,6 @@ def _no_write_state(close_status: str, book: dict, ops: dict, g_loader: Callable
         message=message)
 
 
-def _evidence_message_suffix(message: str, evidence_status: Optional[str],
-                             fpc: Optional[dict]) -> str:
-    """Part H — a fresh close whose forward-evidence capture failed or was
-    partial must SAY SO in the operator message; a split state is never silent.
-    A complete capture stays quiet (the payload block carries the detail)."""
-    if evidence_status == fps.EVIDENCE_BLOCKED:
-        created = (fpc or {}).get("snapshots_created") or 0
-        expected = (fpc or {}).get("snapshots_expected") or len(fps.SUPPORTED_BOOKS)
-        return (message + " OPERATIONAL CLOSE COMPLETE — FORWARD EVIDENCE CAPTURE "
-                "FAILED (%d of %d TRUE_FORWARD snapshots persisted; the mandatory "
-                "active-book snapshot is missing). The valuation, P&L and decision "
-                "above remain valid; inspect the forward evidence detail and the "
-                "recovery status before the next close." % (created, expected))
-    if evidence_status == fps.EVIDENCE_PARTIAL:
-        unavailable = (fpc or {}).get("snapshots_unavailable") or 0
-        return (message + " Forward evidence capture PARTIAL — the mandatory active "
-                "snapshot is persisted but %d research shadow book(s) were "
-                "unavailable (explicit per-book reasons in the forward evidence "
-                "detail)." % unavailable)
-    return message
-
-
 def _completed_message(close_status: str, closed_date: str, pcount: int,
                        pnl: Optional[dict] = None,
                        model_recalc: Optional[dict] = None) -> str:
@@ -2448,8 +2743,16 @@ __all__ = [
     "DECISION_HOLD", "DECISION_REBALANCE", "DECISION_DATA_BLOCKED",
     "DECISION_ORDERS_PENDING", "DECISION_BASELINE",
     "resolve_daily_close_status", "load_daily_close", "run_daily_close",
+    "load_forward_evidence_readiness",
     "CLOSE_PROGRESS_FILE", "CLOSE_IN_PROGRESS", "CLOSE_STAGES",
     "EVIDENCE_IN_PROGRESS", "EVIDENCE_PENDING_CLOSE", "EVIDENCE_INACTIVE_OFFLINE",
+    # Phase 28C — coordinated-close contract (Workstreams C/D/I).
+    "EVIDENCE_RECOVERY_AVAILABLE", "EVIDENCE_LATE_NOT_TRUE_FORWARD",
+    "EVIDENCE_GAP_MUST_REMAIN", "EVIDENCE_ALREADY_CAPTURED", "EVIDENCE_RECOVERY_NA",
+    "OVERALL_AWAITING", "OVERALL_PREPARATION_REQUIRED", "OVERALL_CLOSE_FAILED",
+    "OVERALL_EVIDENCE_COMPLETE", "OVERALL_EVIDENCE_RECOVERABLE",
+    "OVERALL_EVIDENCE_GAP", "OVERALL_EVIDENCE_IN_PROGRESS",
+    "EV_SEV_OK", "EV_SEV_AMBER", "EV_SEV_INFO",
     "load_close_progress",
     "_latest_eligible_market_date", "_resolve_clock",
 ]

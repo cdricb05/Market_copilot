@@ -743,16 +743,28 @@ def capture_snapshots(*, market_date: str, desk_dir=None,
         out["unavailable_reasons"] = {
             b[1]: "MODEL_INPUTS_UNAVAILABLE (%s)" % ((cur or {}).get("status") or "no build")
             for b in SUPPORTED_BOOKS}
+        out["capture_block_reason"] = "MODEL_INPUTS_UNAVAILABLE"
+        out["model_calc_date"] = model_md
         return out
     if model_md != md:
         # The price-sensitive model inputs do not reflect this completed session:
         # a snapshot stamped with this date would NOT be point-in-time-honest.
+        # Phase 28C: when the model month is a whole month behind the closed
+        # session, the frozen monthly momentum input must be rebuilt research-side
+        # (RUN_RESEARCH_MONTHLY_INPUT_EMITTER) — it is never approximated here.
+        month_behind = bool(model_md and md and model_md[:7] < md[:7])
         out["status"] = "SNAPSHOTS_UNAVAILABLE"
         out["snapshots_unavailable"] = len(SUPPORTED_BOOKS)
         out["unavailable_reasons"] = {
             b[1]: "MODEL_DATE_MISMATCH: model inputs reflect %s, not the closed "
                   "session %s — no snapshot is fabricated." % (model_md, md)
             for b in SUPPORTED_BOOKS}
+        out["capture_block_reason"] = ("MODEL_MONTH_BEHIND" if month_behind
+                                       else "MODEL_DATE_MISMATCH")
+        out["model_calc_date"] = model_md
+        out["closed_market_date"] = md
+        out["model_month_behind"] = month_behind
+        out["research_monthly_input_required"] = month_behind
         return out
 
     _progress_call(progress, "CAPTURE_FORWARD_BOOKS")

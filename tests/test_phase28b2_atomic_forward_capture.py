@@ -243,7 +243,16 @@ class TestFailureSemantics:
         fpc = out["forward_prediction_capture"]
         assert fpc["snapshots_created"] == 0
         assert fpc["evidence_status"] == fps.EVIDENCE_BLOCKED
-        assert "FORWARD EVIDENCE CAPTURE FAILED" in out["explanation"]
+        # Phase 28C — the split state is explicit and honest but NEVER the
+        # operational-red "capture failed": the operational close is green, the
+        # evidence gap is amber and documented, and a completed close is never
+        # suggested for re-run.
+        assert "FORWARD EVIDENCE CAPTURE FAILED" not in out["explanation"]
+        assert out["operational_close"]["severity"] != "red"
+        assert out["forward_evidence"]["severity"] == "amber"
+        assert out["overall_status"] == dc.OVERALL_EVIDENCE_GAP
+        assert out["safe_to_rerun_close"] is False
+        assert "evidence gap was documented" in out["explanation"]
 
     def test_mandatory_failure_is_explicit(self, tmp_path):  # (12)
         out = _run_close(tmp_path, capture_fn=_drop_books_seam(
@@ -282,7 +291,11 @@ class TestFailureSemantics:
         assert fpc["evidence_status"] == fps.EVIDENCE_BLOCKED
         assert out["forward_evidence_status"] == fps.EVIDENCE_BLOCKED
         assert any("Forward prediction capture failed" in w for w in out["warnings"])
-        assert "FORWARD EVIDENCE CAPTURE FAILED" in out["explanation"]
+        # Phase 28C — a capture exception is surfaced (warning + amber evidence gap),
+        # never the operational-red "capture failed" wording on a valid close.
+        assert "FORWARD EVIDENCE CAPTURE FAILED" not in out["explanation"]
+        assert out["forward_evidence"]["severity"] == "amber"
+        assert "evidence gap was documented" in out["explanation"]
 
     def test_missing_books_have_exact_reasons(self, tmp_path):  # (16)
         out = _run_close(tmp_path, capture_fn=_drop_books_seam(
@@ -314,7 +327,11 @@ class TestIdempotency:
         assert fpc["status"] == "SNAPSHOTS_NOT_CAPTURED"     # presence check only
         assert fpc["read_only_presence_check"] is True
         assert out2["forward_evidence_status"] == fps.EVIDENCE_BLOCKED
-        assert "FORWARD EVIDENCE IS MISSING" in out2["explanation"]
+        # Phase 28C — an already-processed date with a gap is amber/documented, never
+        # a red alarm, and a completed close is never suggested for re-run.
+        assert "FORWARD EVIDENCE IS MISSING" not in out2["explanation"]
+        assert out2["forward_evidence"]["severity"] == "amber"
+        assert out2["safe_to_rerun_close"] is False
         assert not (desk._desk_dir(tmp_path) / fps.SNAPSHOT_LEDGER_FILE).exists()
 
     def test_outcome_maturation_is_idempotent(self, tmp_path):  # (20)
@@ -690,13 +707,18 @@ class TestUiStatic:
         assert "do not click Run Daily Close again" in ui_html
 
     def test_operational_and_evidence_outcomes_distinct(self, ui_html):  # (46)
-        assert "forward_evidence_status" in ui_html
+        # Phase 28C — the evidence banner renders from the backend split block.
+        assert "d.forward_evidence" in ui_html
         assert 'id="dc-evidence-banner"' in ui_html
         assert "Operational close: " in ui_html
 
-    def test_zero_of_six_failure_is_prominent(self, ui_html):  # (47)
-        assert "FORWARD EVIDENCE CAPTURE FAILED" in ui_html
-        assert "FORWARD_EVIDENCE_BLOCKED" in ui_html
+    def test_zero_of_six_gap_is_amber_not_red(self, ui_html):  # (47) Phase 28C
+        # The evidence gap is still prominent, but rendered from the backend
+        # forward_evidence view as AMBER — never the operational-red "capture failed".
+        assert "FORWARD EVIDENCE CAPTURE FAILED" not in ui_html
+        assert "recoverForwardEvidence" in ui_html
+        assert "recovery_available" in ui_html
+        assert "fe.severity !== 'green'" in ui_html
 
     def test_no_native_dialogs(self, ui_html):  # (48)
         for pat in ("alert(", "confirm(", "prompt("):

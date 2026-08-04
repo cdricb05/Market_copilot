@@ -342,8 +342,28 @@ class TestUiSingleSourceOfTruth:
         # operator surface through the SAME coalesced loader — the 8th reuse site.
         # Phase 27F: the WAITING_FOR_MARKET_DATA "Refresh Status" action re-checks
         # readiness through the SAME coalesced loader — the 9th reuse site.
+        # Phase 28C: the manual, token-gated forward-evidence recovery
+        # (recoverForwardEvidence) makes ONE authoritative refresh through the SAME
+        # coalesced loader when it finishes — the 10th and final reuse site. The
+        # coordinated post-close Daily Alpha Run refresh is asserted separately
+        # (test_post_close_refresh_reloads_book_and_daily_alpha_run) below.
         js = _scripts(html)
-        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 9
+        assert js.count("try { loadOperationalBook(); } catch (e) {}") == 10
+
+    def test_post_close_refresh_reloads_book_and_daily_alpha_run(self, html):
+        # Phase 28C (Workstream H): after a daily close, the post-close path
+        # (runDailyClose) reloads BOTH the operational book — via the ONE coalesced
+        # loader — AND the read-only Daily Alpha Run cockpit, so no operator field is
+        # left blank once the close completes. This is a single coordinated refresh,
+        # NOT a second fetch path and NOT an accidental duplicate inside the handler.
+        js = _scripts(html)
+        close_fn = js[js.index("async function runDailyClose"):js.index("window.runDailyClose")]
+        assert "try { loadOperationalBook(); } catch (e) {}" in close_fn
+        assert "loadDailyAlphaStatus()" in close_fn
+        # exactly one invocation of each inside the handler (guards against an
+        # accidental duplicate refresh sneaking into the post-close path)
+        assert close_fn.count("loadOperationalBook()") == 1
+        assert close_fn.count("loadDailyAlphaStatus()") == 1
 
     def test_concurrent_loads_coalesce(self, html):
         js = _scripts(html)
