@@ -3202,6 +3202,7 @@
           <a id="ra-nav-alpha-agent" data-rasub="alpha-agent" onclick="navigateToRoute('research-audit/alpha-agent')" title="Alpha Agent Evidence Observatory: the autonomous alpha agent's Stage 1-7 evidence — data collected, analyses, experiments, weak ideas rejected, data gaps, current champion status and recovery disposition. Read-only, paper-only, no promotion, no orders.">Alpha Agent Observatory</a>
           <a id="ra-nav-stage11" data-rasub="stage11" onclick="navigateToRoute('research-audit/stage11')" title="Stage 11 Multi-Factor Research: signal factory, two-stage funnel, multiple-testing/FDR, orthogonal ensembles and the SHADOW-ONLY portfolio. Read-only, research use only, no orders, no automatic promotion.">Stage 11 Multi-Factor</a>
           <a id="ra-nav-stage12" data-rasub="stage12" onclick="navigateToRoute('research-audit/stage12')" title="Stage 12 Alpha Failure Autopsy &amp; Event-Driven Discovery: Stage 11 failure taxonomy, effective-hypothesis-count, owned-data power inventory, sample-power, a frozen pre-registered hypothesis registry, and the focused tournament. Read-only, research only, no live broker orders, no auto-promotion.">Stage 12 Autopsy</a>
+          <a id="ra-nav-stage13a" data-rasub="stage13a" onclick="navigateToRoute('research-audit/stage13a')" title="Stage 13A Analyst-Revision Data Purchase-Evaluation Framework: provider-neutral normalized contract, point-in-time integrity, frozen 6-hypothesis registry, adequacy gate, power/confidence model, cost and purchase gate, and vendor comparison. Research only, no purchase executed, manual approval required, no auto-promotion.">Stage 13A Revisions</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -3724,6 +3725,24 @@
             <span class="cc-badge">NO AUTO-PROMOTION</span>
           </div>
           <div id="s12-body" style="font-size:12px;">Select this section to load the read-only Stage 12 research command center.</div>
+        </div>
+
+        <!-- Stage 13A: analyst-revision data purchase-evaluation framework. Read-only;
+             builds nothing, buys nothing, contacts no provider. RESEARCH ONLY. -->
+        <div class="card" id="s13a-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Stage 13A Analyst-Revision Data Purchase-Evaluation <span class="cc-badge" id="s13a-status" title="Read-only Stage 13A framework status.">&mdash;</span></span>
+            <button class="btn-sm" id="s13a-refresh" onclick="loadStage13a()" title="Reload the read-only Stage 13A purchase-evaluation command center.">&#8635; Refresh</button>
+          </div>
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge">RESEARCH ONLY</span>
+            <span class="cc-badge safe">NO PURCHASE EXECUTED</span>
+            <span class="cc-badge manual">MANUAL APPROVAL REQUIRED</span>
+            <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge">NO AUTO-PROMOTION</span>
+          </div>
+          <div id="s13a-body" style="font-size:12px;">Select this section to load the read-only Stage 13A purchase-evaluation command center.</div>
         </div>
         <div class="card" id="aao-panel" style="margin-bottom:14px; display:none;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -8173,6 +8192,97 @@ async function loadStage12() {
   } catch (e) { if (badge) badge.textContent = 'Unavailable'; }
 }
 window.loadStage12 = loadStage12;
+
+// Stage 13A Analyst-Revision Data Purchase-Evaluation Framework (read-only). Builds
+// nothing, buys nothing, contacts no provider. Renders the command center + vendor
+// matrix + evaluator self-test.
+function _s13aKV(k, v) {
+  return '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;">'
+    + '<span style="color:var(--label);">' + escapeHtml(k) + '</span><b class="mono">' + escapeHtml(v) + '</b></div>';
+}
+function _s13aFmt(v) { return (v === null || v === undefined) ? 'UNKNOWN' : String(v); }
+function _renderStage13a(d, vendors, selftest) {
+  var badge = document.getElementById('s13a-status');
+  var term = d.purchase_terminal || '—';
+  if (badge) { badge.textContent = String(term).replace(/_/g, ' '); badge.className = 'cc-badge manual'; }
+  var cc = d.contract_completeness || {};
+  var reg = d.frozen_registry || {};
+  var pc = d.prior_confidence_range || [], mc = d.measured_confidence_range;
+  var mrp = (d.max_rational_price || {});
+  var out = '';
+  out += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;">';
+  // Decision card
+  out += '<div style="border:1px solid var(--border,#2a3550);border-left:3px solid #e0a020;border-radius:8px;padding:8px 10px;">'
+    + '<div style="font-weight:700;margin-bottom:4px;">Purchase decision</div>'
+    + _s13aKV('Terminal', String(term).replace(/_/g, ' '))
+    + _s13aKV('Trial status', _s13aFmt(d.trial_status))
+    + _s13aKV('Weakest gate', _s13aFmt(d.weakest_gate))
+    + _s13aKV('Max rational one-time $', _s13aFmt(mrp.max_rational_one_time_price_usd))
+    + '<div style="margin-top:4px;"><span class="cc-badge safe">NO PURCHASE EXECUTED</span></div></div>';
+  // Confidence card
+  out += '<div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 10px;">'
+    + '<div style="font-weight:700;margin-bottom:4px;">Confidence</div>'
+    + _s13aKV('Prior range', (pc.length ? (pc[0] + ' – ' + pc[1]) : '—') + ' (assumption)')
+    + _s13aKV('Measured range', mc ? (mc[0] + ' – ' + mc[1]) : 'not measured')
+    + _s13aKV('Basis', _s13aFmt(d.confidence_basis))
+    + _s13aKV('Effective sample', _s13aFmt(d.effective_sample)) + '</div>';
+  // Contract card
+  out += '<div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 10px;">'
+    + '<div style="font-weight:700;margin-bottom:4px;">Normalized contract</div>'
+    + _s13aKV('Schemas', _s13aFmt(cc.n_schemas))
+    + _s13aKV('PIT invariants', _s13aFmt(cc.n_pit_invariants))
+    + _s13aKV('Adapters', (cc.adapters || []).join(', '))
+    + _s13aKV('Importer', (cc.importer_formats || []).join('/')) + '</div>';
+  // Registry card
+  out += '<div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 10px;">'
+    + '<div style="font-weight:700;margin-bottom:4px;">Frozen registry</div>'
+    + _s13aKV('Version', _s13aFmt(reg.registry_version))
+    + _s13aKV('Hypotheses', _s13aFmt(reg.n_hypotheses))
+    + '<div style="font-size:11px;color:var(--label);margin-top:3px;">' + escapeHtml((reg.hypothesis_ids || []).join(', ')) + '</div></div>';
+  out += '</div>';
+  // Vendor matrix
+  if (vendors && vendors.matrix) {
+    out += '<div style="margin-top:12px;font-weight:700;">Vendor comparison <span class="cc-badge">UNKNOWN preserved</span></div>';
+    out += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px;"><tr style="text-align:left;color:var(--label);border-bottom:1px solid var(--border,#2a3550);">'
+      + '<th style="padding:3px 6px;">Provider</th><th style="padding:3px 6px;">Underlying</th><th style="padding:3px 6px;">API</th><th style="padding:3px 6px;">Bulk</th><th style="padding:3px 6px;">Inactive/Delisted</th><th style="padding:3px 6px;">History</th><th style="padding:3px 6px;">Terminal</th></tr>';
+    (vendors.providers || []).forEach(function (p) {
+      var r = vendors.matrix[p] || {};
+      out += '<tr style="border-bottom:1px solid var(--border,#22304a);"><td style="padding:3px 6px;" class="mono">' + escapeHtml(p) + '</td>'
+        + '<td style="padding:3px 6px;">' + escapeHtml(_s13aFmt(r.underlying_source)) + '</td>'
+        + '<td style="padding:3px 6px;">' + escapeHtml(_s13aFmt(r.api)) + '</td>'
+        + '<td style="padding:3px 6px;">' + escapeHtml(_s13aFmt(r.bulk)) + '</td>'
+        + '<td style="padding:3px 6px;">' + escapeHtml(_s13aFmt(r.inactive_delisted_coverage)) + '</td>'
+        + '<td style="padding:3px 6px;">' + escapeHtml(_s13aFmt(r.history)) + '</td>'
+        + '<td style="padding:3px 6px;">' + escapeHtml(String(_s13aFmt(r.purchase_terminal)).replace(/_/g, ' ')) + '</td></tr>';
+    });
+    out += '</table></div>';
+    if (vendors.note) out += '<div style="font-size:11px;color:var(--label);margin-top:3px;">' + escapeHtml(vendors.note) + '</div>';
+  }
+  // Evaluator self-test
+  if (selftest && selftest.results) {
+    var okCount = 0, tot = 0;
+    Object.keys(selftest.results).forEach(function (k) { tot++; if (selftest.results[k].ok) okCount++; });
+    out += '<div style="margin-top:12px;font-weight:700;">Evaluator self-test '
+      + '<span class="cc-badge ' + (selftest.all_expected ? 'safe' : 'warn') + '">' + okCount + '/' + tot + ' as expected</span> '
+      + '<span class="cc-badge">FDR family size ' + _s13aFmt(selftest.fdr_family_size) + '</span></div>';
+  }
+  var body = document.getElementById('s13a-body');
+  if (body) body.innerHTML = out;
+}
+async function loadStage13a() {
+  var badge = document.getElementById('s13a-status');
+  if (badge) badge.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/analyst-revisions/command-center');
+    if (!r.ok) { if (badge) badge.textContent = 'Unavailable'; return; }
+    var d = await r.json();
+    var vendors = null, selftest = null;
+    try { var rv = await call('GET', '/v1/research/analyst-revisions/vendor-comparison'); if (rv.ok) vendors = await rv.json(); } catch (e) {}
+    try { var rs = await call('GET', '/v1/research/analyst-revisions/self-test'); if (rs.ok) selftest = await rs.json(); } catch (e) {}
+    _renderStage13a(d, vendors, selftest);
+  } catch (e) { if (badge) badge.textContent = 'Unavailable'; }
+}
+window.loadStage13a = loadStage13a;
 
 function _ctrBookCard(title, b, tone) {
   b = b || {};
@@ -21965,9 +22075,10 @@ var _RA_SECTIONS = {
   'alpha-agent':      { panels: ['aao-panel'], champion: false },
   'stage11':          { panels: ['s11-panel'], champion: false },
   'stage12':          { panels: ['s12-panel'], champion: false },
+  'stage13a':         { panels: ['s13a-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -22019,6 +22130,7 @@ function _raLoadSection(sub) {
     'alpha-agent': ['loadAlphaAgentObservatory'],
     'stage11': ['loadStage11'],
     'stage12': ['loadStage12'],
+    'stage13a': ['loadStage13a'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {

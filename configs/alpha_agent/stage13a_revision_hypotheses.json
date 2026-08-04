@@ -1,0 +1,292 @@
+{
+ "economic_families": [
+  "dispersion",
+  "eps_revision",
+  "joint_confirmation",
+  "revenue_revision",
+  "revision_acceleration",
+  "revision_breadth"
+ ],
+ "evaluation_contract": {
+  "contract_version": "stage13a-analyst-revision-v1",
+  "cost_treatment": "25 bps per side applied to the long-short spread",
+  "event_time_unit": "monthly revision cohort (issuer observation per cohort)",
+  "execution_lag": "first full trading session STRICTLY AFTER the revision is available (>=1 session lag; never the availability-day close)",
+  "forward_horizons_days": [
+   5,
+   20,
+   63
+  ],
+  "gates_unchanged_from_stage12": true,
+  "holdout_rule": "final 30% of cohorts, sign-confirm only, once-usable",
+  "multiple_testing": "Benjamini-Hochberg FDR over EXACTLY the six pre-registered hypotheses (family_size=6)",
+  "neutralization": "market + sector (historically valid only; unavailable historical industry -> DATA_HOLD, never current substitution)",
+  "no_strategy_built_this_phase": true,
+  "observation_timestamp_rule": "provider source_availability_timestamp; a signal may use ONLY information available at that stamp",
+  "primary_horizon_days": 63,
+  "selection_before_evidence": "all six formulas + directions frozen BEFORE any real trial data is inspected",
+  "turnover_treatment": "measured; capped at 2.0x per rebalance"
+ },
+ "family_size": 6,
+ "hypotheses": [
+  {
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "CONSENSUS_SNAPSHOT.mean(EPS)"
+   ],
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "inactive_delisted_coverage>=0.30",
+    "min_scored_cohorts>=12",
+    "min_breadth_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "turnover<=2.0",
+    "overlap_adjusted_clustered_t>=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "holdout_sign_confirms",
+    "no_reconstructed_snapshots"
+   ],
+   "economic_family": "eps_revision",
+   "economic_rationale": "Analysts under-react to their own information: a positive change in the consensus EPS estimate predicts positive drift (estimate-revision anomaly).",
+   "execution_lag": "first full trading session STRICTLY AFTER the revision is available (>=1 session lag; never the availability-day close)",
+   "expected_direction": 1,
+   "formula": "d(consensus_mean_EPS) scaled by |prior_consensus| (or price), cross-sectional rank at the availability stamp",
+   "forward_horizons_days": [
+    5,
+    20,
+    63
+   ],
+   "holding_horizon_days": 63,
+   "holdout_rule": "final 30% of cohorts, sign-confirm only, once-usable",
+   "id": "rev_eps_consensus_revision_magnitude",
+   "min_breadth_names": 20,
+   "min_cohorts": 12,
+   "multiple_testing_family": "analyst_revision_v1_family_of_6",
+   "neutralization": "market_sector_historically_valid",
+   "observation_timestamp_rule": "provider source_availability_timestamp; a signal may use ONLY information available at that stamp",
+   "status": "pre_registered",
+   "turnover_treatment": "medium"
+  },
+  {
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "CONSENSUS_SNAPSHOT.mean(REVENUE)"
+   ],
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "inactive_delisted_coverage>=0.30",
+    "min_scored_cohorts>=12",
+    "min_breadth_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "turnover<=2.0",
+    "overlap_adjusted_clustered_t>=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "holdout_sign_confirms",
+    "no_reconstructed_snapshots"
+   ],
+   "economic_family": "revenue_revision",
+   "economic_rationale": "Revenue estimate revisions carry information orthogonal to EPS (top-line vs margin); rising revenue consensus predicts positive drift.",
+   "execution_lag": "first full trading session STRICTLY AFTER the revision is available (>=1 session lag; never the availability-day close)",
+   "expected_direction": 1,
+   "formula": "d(consensus_mean_REVENUE) scaled by prior_consensus, cross-sectional rank",
+   "forward_horizons_days": [
+    5,
+    20,
+    63
+   ],
+   "holding_horizon_days": 63,
+   "holdout_rule": "final 30% of cohorts, sign-confirm only, once-usable",
+   "id": "rev_revenue_consensus_revision_magnitude",
+   "min_breadth_names": 20,
+   "min_cohorts": 12,
+   "multiple_testing_family": "analyst_revision_v1_family_of_6",
+   "neutralization": "market_sector_historically_valid",
+   "observation_timestamp_rule": "provider source_availability_timestamp; a signal may use ONLY information available at that stamp",
+   "status": "pre_registered",
+   "turnover_treatment": "medium"
+  },
+  {
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "CONSENSUS_SNAPSHOT.upward_revision_count",
+    "CONSENSUS_SNAPSHOT.downward_revision_count"
+   ],
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "inactive_delisted_coverage>=0.30",
+    "min_scored_cohorts>=12",
+    "min_breadth_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "turnover<=2.0",
+    "overlap_adjusted_clustered_t>=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "holdout_sign_confirms",
+    "no_reconstructed_snapshots"
+   ],
+   "economic_family": "revision_breadth",
+   "economic_rationale": "Revision BREADTH (how many analysts move up vs down) is a cleaner, less noisy signal than the magnitude of any single revision.",
+   "execution_lag": "first full trading session STRICTLY AFTER the revision is available (>=1 session lag; never the availability-day close)",
+   "expected_direction": 1,
+   "formula": "(upward_revision_count - downward_revision_count) / analyst_count, rank",
+   "forward_horizons_days": [
+    5,
+    20,
+    63
+   ],
+   "holding_horizon_days": 63,
+   "holdout_rule": "final 30% of cohorts, sign-confirm only, once-usable",
+   "id": "rev_up_minus_down_breadth",
+   "min_breadth_names": 20,
+   "min_cohorts": 12,
+   "multiple_testing_family": "analyst_revision_v1_family_of_6",
+   "neutralization": "market_sector_historically_valid",
+   "observation_timestamp_rule": "provider source_availability_timestamp; a signal may use ONLY information available at that stamp",
+   "status": "pre_registered",
+   "turnover_treatment": "medium"
+  },
+  {
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "CONSENSUS_SNAPSHOT.mean(EPS)",
+    "CONSENSUS_SNAPSHOT.mean(REVENUE)"
+   ],
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "inactive_delisted_coverage>=0.30",
+    "min_scored_cohorts>=12",
+    "min_breadth_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "turnover<=2.0",
+    "overlap_adjusted_clustered_t>=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "holdout_sign_confirms",
+    "no_reconstructed_snapshots"
+   ],
+   "economic_family": "joint_confirmation",
+   "economic_rationale": "EPS and revenue revisions AGREEING (both up or both down) is a higher-conviction signal than either leg alone (two independent legs confirming).",
+   "execution_lag": "first full trading session STRICTLY AFTER the revision is available (>=1 session lag; never the availability-day close)",
+   "expected_direction": 1,
+   "formula": "sign-agreeing rank(d_EPS_consensus) + rank(d_REVENUE_consensus); gated on same sign",
+   "forward_horizons_days": [
+    5,
+    20,
+    63
+   ],
+   "holding_horizon_days": 63,
+   "holdout_rule": "final 30% of cohorts, sign-confirm only, once-usable",
+   "id": "rev_joint_eps_revenue_confirmation",
+   "min_breadth_names": 20,
+   "min_cohorts": 12,
+   "multiple_testing_family": "analyst_revision_v1_family_of_6",
+   "neutralization": "market_sector_historically_valid",
+   "observation_timestamp_rule": "provider source_availability_timestamp; a signal may use ONLY information available at that stamp",
+   "status": "pre_registered",
+   "turnover_treatment": "medium"
+  },
+  {
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "CONSENSUS_SNAPSHOT.mean(EPS) (>=3 successive cohorts)"
+   ],
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "inactive_delisted_coverage>=0.30",
+    "min_scored_cohorts>=12",
+    "min_breadth_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "turnover<=2.0",
+    "overlap_adjusted_clustered_t>=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "holdout_sign_confirms",
+    "no_reconstructed_snapshots"
+   ],
+   "economic_family": "revision_acceleration",
+   "economic_rationale": "The CHANGE in the revision trend (acceleration) leads the level: consensus that is revising up faster than last period predicts stronger drift.",
+   "execution_lag": "first full trading session STRICTLY AFTER the revision is available (>=1 session lag; never the availability-day close)",
+   "expected_direction": 1,
+   "formula": "d2(consensus_mean_EPS) = this-period revision minus prior-period revision, rank",
+   "forward_horizons_days": [
+    5,
+    20,
+    63
+   ],
+   "holding_horizon_days": 63,
+   "holdout_rule": "final 30% of cohorts, sign-confirm only, once-usable",
+   "id": "rev_revision_acceleration",
+   "min_breadth_names": 20,
+   "min_cohorts": 12,
+   "multiple_testing_family": "analyst_revision_v1_family_of_6",
+   "neutralization": "market_sector_historically_valid",
+   "observation_timestamp_rule": "provider source_availability_timestamp; a signal may use ONLY information available at that stamp",
+   "status": "pre_registered",
+   "turnover_treatment": "medium"
+  },
+  {
+   "cost_assumption_bps": 25,
+   "data_requirement": [
+    "CONSENSUS_SNAPSHOT.standard_deviation",
+    "CONSENSUS_SNAPSHOT.mean"
+   ],
+   "disqualifying_gates": [
+    "point_in_time_valid",
+    "survivorship_safe",
+    "inactive_delisted_coverage>=0.30",
+    "min_scored_cohorts>=12",
+    "min_breadth_names>=20",
+    "rank_ic_t>=2.0",
+    "spread_t>=2.0",
+    "positive_ic_hit_rate>=0.52",
+    "net25_spread>0",
+    "turnover<=2.0",
+    "overlap_adjusted_clustered_t>=2.0",
+    "family_aware_multiple_testing_bh_fdr",
+    "holdout_sign_confirms",
+    "no_reconstructed_snapshots"
+   ],
+   "economic_family": "dispersion",
+   "economic_rationale": "RISING dispersion (disagreement) signals rising uncertainty and predicts LOWER future returns (disagreement/uncertainty anomaly).",
+   "execution_lag": "first full trading session STRICTLY AFTER the revision is available (>=1 session lag; never the availability-day close)",
+   "expected_direction": -1,
+   "formula": "-d(standard_deviation / |mean|) of the consensus, cross-sectional rank",
+   "forward_horizons_days": [
+    5,
+    20,
+    63
+   ],
+   "holding_horizon_days": 63,
+   "holdout_rule": "final 30% of cohorts, sign-confirm only, once-usable",
+   "id": "rev_analyst_dispersion_change",
+   "min_breadth_names": 20,
+   "min_cohorts": 12,
+   "multiple_testing_family": "analyst_revision_v1_family_of_6",
+   "neutralization": "market_sector_historically_valid",
+   "observation_timestamp_rule": "provider source_availability_timestamp; a signal may use ONLY information available at that stamp",
+   "status": "pre_registered",
+   "turnover_treatment": "medium"
+  }
+ ],
+ "n_hypotheses": 6,
+ "registry_version": "c875baa8f824d1d0",
+ "schema_version": "stage13a.analyst_revisions.hypotheses.v1",
+ "selected_before_evidence": true
+}

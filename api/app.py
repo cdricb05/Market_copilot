@@ -5820,6 +5820,67 @@ def research_stage12_shadow_decision() -> dict:
                 "safety_labels": _STAGE12_SAFETY}
 
 
+_STAGE13A_SAFETY = ["RESEARCH ONLY", "NO PURCHASE EXECUTED", "MANUAL APPROVAL REQUIRED",
+                    "NO LIVE BROKER ORDERS", "AUTOMATION OFF", "NO AUTO-PROMOTION"]
+
+
+def _alpha_agent_stage13a_config_path():
+    from pathlib import Path as _P
+    return (_P(__file__).resolve().parents[1] / "configs" / "alpha_agent"
+            / "stage13a_analyst_revisions.json")
+
+
+@app.get("/v1/research/analyst-revisions/command-center", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_analyst_revisions_command_center() -> dict:
+    """Read-only Stage 13A Analyst-Revision Purchase-Evaluation command center:
+    provider/trial status, the normalized-contract completeness, data adequacy
+    (prior or measured), point-in-time integrity, history / issuer breadth /
+    inactive-delisted coverage, effective sample, the prior + measured confidence
+    ranges, quoted cost, the maximum rational price under explicit assumptions, the
+    weakest gate and the purchase terminal. Builds nothing, buys nothing, promotes
+    nothing and contacts no provider. Returns TRIAL_NOT_STARTED until a real local
+    trial extract is supplied by hand. Degrades to a controlled UNAVAILABLE status."""
+    try:
+        from paper_trader.alpha_agent import analyst_revisions as _ar
+        return _ar.load_snapshot(str(_alpha_agent_stage13a_config_path()))
+    except Exception as exc:  # noqa: BLE001
+        return {"stage": "13A", "status": "UNAVAILABLE", "reason": str(exc)[:200],
+                "safety_badges": _STAGE13A_SAFETY}
+
+
+@app.get("/v1/research/analyst-revisions/vendor-comparison", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_analyst_revisions_vendor_comparison() -> dict:
+    """Read-only Stage 13A vendor-comparison matrix (Intrinio/Zacks, Nasdaq/Zacks,
+    an unspecified third). Every unmeasured cell is UNKNOWN; Intrinio and Nasdaq are
+    NOT assumed to provide independent underlying data (both Zacks-sourced). No
+    vendor is favoured. Contacts no provider; degrades to a controlled status."""
+    try:
+        from paper_trader.alpha_agent import analyst_revisions as _ar
+        return _ar.vendor_comparison()
+    except Exception as exc:  # noqa: BLE001
+        return {"stage": "13A", "status": "UNAVAILABLE", "reason": str(exc)[:200],
+                "safety_badges": _STAGE13A_SAFETY}
+
+
+@app.get("/v1/research/analyst-revisions/self-test", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_analyst_revisions_self_test() -> dict:
+    """Read-only Stage 13A evaluator proof: runs the ten deterministic synthetic
+    fixtures and shows that the positive fixture is DETECTED and every adversarial
+    fixture (null / wrong-direction / cost-destroyed / concentration / leakage /
+    active-only / duplicate-ticker / reconstructed-snapshot) is REJECTED with the
+    correct reason, with BH-FDR applied over exactly six hypotheses. Promotes
+    nothing; degrades to a controlled status."""
+    try:
+        from paper_trader.alpha_agent import analyst_revisions as _ar
+        return _ar.run_fixture_self_test()
+    except Exception as exc:  # noqa: BLE001
+        return {"stage": "13A", "status": "UNAVAILABLE", "reason": str(exc)[:200],
+                "safety_badges": _STAGE13A_SAFETY}
+
+
 @app.get("/v1/evidence/rolling", status_code=status.HTTP_200_OK,
          dependencies=[Depends(_verify_api_key)])
 def evidence_rolling() -> dict:
