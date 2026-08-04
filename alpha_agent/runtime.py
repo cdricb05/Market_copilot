@@ -1951,6 +1951,22 @@ class Runtime:
                         summary["stage11_planned_job"] = s11_plan
             except Exception:  # noqa: BLE001 - planning never breaks the drain
                 pass
+            # Stage 12 EVIDENCE-COMPLETION planner. Lowest campaign priority (1),
+            # at most one live stage12 job (origin=stage12-autopsy, lane stage12.*,
+            # category DATA_VALIDATION), so it never starves any other campaign.
+            # Enqueues the single next Stage 12 lane; heavy lanes are cursor-chunked
+            # and bounded. Gated on stage12.enabled AND stage12.planner_enabled.
+            try:
+                s12 = stage12_cfg(cfg8)
+                if s12.get("enabled") and s12.get("planner_enabled", False):
+                    from . import stage12_jobs as _s12j
+                    s12_ctx = _s12j.build_stage12_context(
+                        cfg8, queue=queue, clock=self.clock.iso)
+                    s12_plan = _s12j.plan_next_stage12_job(queue, s12_ctx, cfg=s12)
+                    if s12_plan:
+                        summary["stage12_planned_job"] = s12_plan
+            except Exception:  # noqa: BLE001 - planning never breaks the drain
+                pass
             # Stage 9.5 DETERMINISTIC FAIRNESS. The bounded pass ordering (PASS A
             # tournament-continuation allowlist; PASS B SEC Form4/8-K continuation
             # iff A idle; PASS C SEC companyfacts continuation iff A and B idle) is
@@ -2133,6 +2149,101 @@ class Runtime:
                              cycle_id=cycle_id, run_dir=str(run_dir),
                              components=components,
                              detail={"tournament": tournament_summary})
+
+    # ---- STAGE 12 CANONICAL-QUEUE CAMPAIGN ------------------------------- #
+    def run_stage12_campaign(self, *, budget_seconds: float = 1800.0,
+                             max_lanes: Optional[int] = None) -> dict:
+        """BLOCKER 4: run the Stage 12 evidence-completion campaign THROUGH the
+        canonical ResearchQueue -- one live job at a time (origin=stage12-autopsy,
+        lane stage12.*, category DATA_VALIDATION) with real claim/attempt/retry/
+        stale-recovery semantics, under the SAME collect lock and the operational-
+        ledger before/after fingerprint. Bounded + resumable: stops cleanly on the
+        wall-clock budget or when every lane is complete for the current epoch.
+        RESEARCH-ONLY; never mutates an operational ledger; no automatic promotion.
+        """
+        import time as _time
+        from . import autonomous_research as _ar
+        from . import stage12_jobs as _s12j
+        cfg8 = self._stage8_config() or {}
+        s12 = stage12_cfg(cfg8)
+        conn = self._open()
+        cycle_id = rc.activity_cycle_id(rc.MODE_COLLECT, self.clock.iso())
+        run_id = rc.runtime_run_id(cycle_id, rc.MODE_COLLECT) + "-stage12"
+        ledgers_before = fingerprint_ledgers(self.cfg)
+        if not s12.get("enabled"):
+            conn.close()
+            return {"terminal": "STAGE12_DISABLED", "ledgers_unchanged": True,
+                    "planned": [], "drained": []}
+        try:
+            lock = acquire_lock(self.root, "collect", run_id, clock=self.clock,
+                                conn=conn, stale_seconds=self.stale_seconds)
+        except LockHeld as exc:
+            conn.close()
+            return {"terminal": rc.BLOCKED, "status": "STAGE12_REFUSED",
+                    "reason": str(exc), "ledgers_unchanged": True}
+        dc = ((cfg8.get("autonomy") or {}).get("collect_drain") or {})
+        # This dedicated campaign drives ONLY Stage 12 jobs: scope the drain to the
+        # exact (origin, lane-prefix, category) triple so no other campaign's queued
+        # work is ever claimed, transitioned or counted here.
+        cats = [_ar.CAT_DATA_VALIDATION]
+        origins = [_s12j.ORIGIN_12]
+        lane_prefixes = [_s12j.STAGE12_LANE_PREFIX]
+        handler_budget = float(dc.get("handler_time_budget_seconds") or 90)
+        planned: list = []
+        drained: list = []
+        terminal = "STAGE12_CAMPAIGN_RESUMABLE"
+        command_center: dict = {}
+        try:
+            queue = build_autonomy_queue(cfg8, clock=self.clock.iso)
+            sctx = _s12j.build_stage12_context(cfg8, queue=queue,
+                                               clock=self.clock.iso)
+            # The canonical dispatcher (same one the collect route uses) as the
+            # DATA_VALIDATION handler, scoped by the allowlist to stage12 only.
+            handlers = {_ar.CAT_DATA_VALIDATION:
+                        lambda job: _s12j.dispatch_stage12_job(job, sctx)}
+            try:
+                queue.requeue_stale()          # stale RUNNING recovery
+            except Exception:  # noqa: BLE001
+                pass
+            start = _time.monotonic()
+            lanes_done = 0
+            while max_lanes is None or lanes_done < max_lanes:
+                if _time.monotonic() - start > budget_seconds:
+                    break
+                # Plan enqueues the next lane iff no Stage 12 job is already live;
+                # then drain executes the single live Stage 12 job (the one just
+                # planned OR a pre-existing one recovered from a prior run).
+                plan = _s12j.plan_next_stage12_job(queue, sctx, cfg=s12)
+                if plan:
+                    planned.append(plan)
+                rep = _ar.drain_jobs(queue, handlers, max_jobs=1, categories=cats,
+                                     origins=origins, lane_prefixes=lane_prefixes,
+                                     budget_seconds=handler_budget)
+                drained.append({"jobs_claimed": rep.get("jobs_claimed"),
+                                "jobs_completed": rep.get("jobs_completed"),
+                                "jobs_retryable": rep.get("jobs_retryable"),
+                                "handled": rep.get("handled")})
+                if not plan and not rep.get("jobs_claimed"):
+                    break  # no lane left to plan AND nothing left to drain -> done
+                if rep.get("jobs_claimed"):
+                    lanes_done += 1
+            try:
+                command_center = _s12j.build_command_center(sctx)
+                terminal = command_center.get("terminal_recommendation") or terminal
+            except Exception:  # noqa: BLE001
+                command_center = {}
+        finally:
+            release_lock(lock, clock=self.clock, conn=conn)
+        ledgers_after = fingerprint_ledgers(self.cfg)
+        ledgers_ok = ledgers_before == ledgers_after
+        conn.close()
+        epoch = command_center.get("epoch")
+        return {"run_id": run_id, "epoch": epoch,
+                "lanes_planned": len(planned), "planned": planned,
+                "drained": drained, "ledgers_unchanged": ledgers_ok,
+                "campaign_status": command_center.get("status"),
+                "terminal": terminal if ledgers_ok else "LEDGER_MUTATION_DETECTED",
+                "no_automatic_promotion": True}
 
     # ---- RESEARCH -------------------------------------------------------- #
     def _research_cycles_today(self, conn, cycle_date, exclude_cycle) -> int:
@@ -3279,6 +3390,10 @@ def build_market_bar_context(cfg: dict, *, queue=None, clock=None):
 # --------------------------------------------------------------------------- #
 def stage11_cfg(cfg: dict) -> dict:
     return (cfg.get("stage11") or {}) if isinstance(cfg, dict) else {}
+
+
+def stage12_cfg(cfg: dict) -> dict:
+    return (cfg.get("stage12") or {}) if isinstance(cfg, dict) else {}
 
 
 def _resolve_stage11_runtime(cfg: dict) -> dict:
@@ -5346,6 +5461,28 @@ def build_production_autonomy_handlers(cfg: dict, *,
             handlers[_ar.CAT_DATA_VALIDATION])
         handlers[_ar.CAT_DATA_ACQUISITION] = _route_stage11(
             handlers[_ar.CAT_DATA_ACQUISITION])
+
+    # Stage 12 evidence-completion lane routing (stage12.* -> dispatch_stage12_job).
+    _s12 = stage12_cfg(cfg)
+    if _s12.get("enabled"):
+        from . import stage12_jobs as _s12j
+        _s12cache: dict = {}
+
+        def _stage12_ctx():
+            if "ctx" not in _s12cache:
+                _s12cache["ctx"] = _s12j.build_stage12_context(cfg, queue=queue)
+            return _s12cache["ctx"]
+
+        def _route_stage12(base):
+            def _routed(job, _b=base):
+                if str(getattr(job, "lane", "")).startswith(
+                        _s12j.STAGE12_LANE_PREFIX):
+                    return _s12j.dispatch_stage12_job(job, _stage12_ctx())
+                return _b(job)
+            return _routed
+
+        handlers[_ar.CAT_DATA_VALIDATION] = _route_stage12(
+            handlers[_ar.CAT_DATA_VALIDATION])
     return handlers
 
 

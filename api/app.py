@@ -5780,6 +5780,46 @@ def research_stage11_shadow_portfolio() -> dict:
                 "safety_labels": _STAGE11_SAFETY}
 
 
+_STAGE12_SAFETY = ["RESEARCH ONLY", "SHADOW ONLY", "NO LIVE BROKER ORDERS",
+                   "AUTOMATION OFF", "MANUAL REVIEW", "NO AUTO-PROMOTION"]
+
+
+@app.get("/v1/research/stage12/command-center", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_stage12_command_center() -> dict:
+    """Read-only Stage 12 Research Command Center: the Stage 11 failure taxonomy
+    (weakest-gate distribution + effective-hypothesis-count + multiple-testing
+    burden), owned-data breadth, the sample-power diagnosis, the frozen
+    pre-registered hypothesis registry, the focused-tournament funnel, the
+    multiple-testing result, the best genuinely-new candidate, same-sample
+    confirmations, holdout status, ML eligibility, the SHADOW-ONLY decision and the
+    remaining evidence gaps. Creates nothing, writes nothing, promotes nothing,
+    changes no holding; degrades to a controlled status. Read-only."""
+    try:
+        from paper_trader.alpha_agent import stage12_jobs as _s12
+        return _s12.load_stage12_snapshot(
+            str(_alpha_agent_stage11_config_path()))
+    except Exception as exc:  # noqa: BLE001
+        return {"stage": "12", "status": "UNAVAILABLE",
+                "reason": str(exc)[:200], "safety_badges": _STAGE12_SAFETY}
+
+
+@app.get("/v1/research/stage12/shadow-decision", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_stage12_shadow_decision() -> dict:
+    """Read-only Stage 12 SHADOW-ONLY decision: the explicit NO_DEFENSIBLE_ALPHA /
+    SHADOW_ELIGIBLE_PENDING_MANUAL_REVIEW status, the count of genuinely-new
+    qualified candidates versus same-sample confirmations, and the shadow floor.
+    Never an order / broker / execution; no automatic promotion. Read-only."""
+    try:
+        from paper_trader.alpha_agent import stage12_jobs as _s12
+        return _s12.load_stage12_shadow(
+            str(_alpha_agent_stage11_config_path()))
+    except Exception as exc:  # noqa: BLE001
+        return {"stage": "12", "status": "UNAVAILABLE", "reason": str(exc)[:200],
+                "safety_labels": _STAGE12_SAFETY}
+
+
 @app.get("/v1/evidence/rolling", status_code=status.HTTP_200_OK,
          dependencies=[Depends(_verify_api_key)])
 def evidence_rolling() -> dict:

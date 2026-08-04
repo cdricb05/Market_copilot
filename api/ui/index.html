@@ -3201,6 +3201,7 @@
           <a id="ra-nav-price-alpha" data-rasub="price-alpha" onclick="navigateToRoute('research-audit/price-alpha')" title="Price Alpha Lab: the five trailing-price families activated on the owned point-in-time price panel, multi-horizon validated, ranked and correlation-checked vs the champion">Price Alpha Lab</a>
           <a id="ra-nav-alpha-agent" data-rasub="alpha-agent" onclick="navigateToRoute('research-audit/alpha-agent')" title="Alpha Agent Evidence Observatory: the autonomous alpha agent's Stage 1-7 evidence — data collected, analyses, experiments, weak ideas rejected, data gaps, current champion status and recovery disposition. Read-only, paper-only, no promotion, no orders.">Alpha Agent Observatory</a>
           <a id="ra-nav-stage11" data-rasub="stage11" onclick="navigateToRoute('research-audit/stage11')" title="Stage 11 Multi-Factor Research: signal factory, two-stage funnel, multiple-testing/FDR, orthogonal ensembles and the SHADOW-ONLY portfolio. Read-only, research use only, no orders, no automatic promotion.">Stage 11 Multi-Factor</a>
+          <a id="ra-nav-stage12" data-rasub="stage12" onclick="navigateToRoute('research-audit/stage12')" title="Stage 12 Alpha Failure Autopsy &amp; Event-Driven Discovery: Stage 11 failure taxonomy, effective-hypothesis-count, owned-data power inventory, sample-power, a frozen pre-registered hypothesis registry, and the focused tournament. Read-only, research only, no live broker orders, no auto-promotion.">Stage 12 Autopsy</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -3704,6 +3705,25 @@
             <span class="cc-badge">RESEARCH USE ONLY</span>
           </div>
           <div id="s11-body" style="font-size:12px;">Select this section to load the read-only Stage 11 research command center.</div>
+        </div>
+
+        <!-- Stage 12: alpha failure autopsy + owned-data power + event-driven discovery.
+             Read-only; reuses the owned survivorship-safe panel; calls no prediction
+             service and writes nothing operational. RESEARCH ONLY. -->
+        <div class="card" id="s12-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Stage 12 Alpha Failure Autopsy &amp; Event-Driven Discovery <span class="cc-badge" id="s12-status" title="Read-only Stage 12 campaign status.">&mdash;</span></span>
+            <button class="btn-sm" id="s12-refresh" onclick="loadStage12()" title="Reload the read-only Stage 12 research command center.">&#8635; Refresh</button>
+          </div>
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge">RESEARCH ONLY</span>
+            <span class="cc-badge safe">SHADOW ONLY</span>
+            <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge">NO AUTO-PROMOTION</span>
+          </div>
+          <div id="s12-body" style="font-size:12px;">Select this section to load the read-only Stage 12 research command center.</div>
         </div>
         <div class="card" id="aao-panel" style="margin-bottom:14px; display:none;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -8072,6 +8092,87 @@ async function loadStage11() {
   } catch (e) { if (badge) badge.textContent = 'Unavailable'; }
 }
 window.loadStage11 = loadStage11;
+
+// Stage 12 Alpha Failure Autopsy + Event-Driven Discovery Command Center (read-only).
+function _s12Esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+function _s12Num(x, d) {
+  if (x === null || x === undefined || x === '') return '&mdash;';
+  var n = Number(x);
+  return isNaN(n) ? _s12Esc(x) : n.toFixed(d === undefined ? 3 : d);
+}
+function _renderStage12(j) {
+  var body = document.getElementById('s12-body');
+  var badge = document.getElementById('s12-status');
+  if (badge) badge.textContent = _s12Esc(j.status || j.reason || '—');
+  if (!body) return;
+  var tax = j.stage11_failure_taxonomy || {};
+  var eff = tax.effective_hypothesis_count || {};
+  var burden = tax.multiple_testing_burden || {};
+  var ob = j.owned_data_breadth || {};
+  var ir = ob.identity_resolution || {};
+  var pw = j.sample_power || {};
+  var pr = j.pre_registered_hypotheses || {};
+  var fn = j.tournament_funnel || {};
+  var mt = j.multiple_testing || {};
+  var sh = j.shadow_decision || {};
+  var h = '';
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-bottom:12px;">';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Stage 11 Failure Autopsy</div>' +
+       '<div>Effective hypotheses: <b>' + _s12Num(eff.effective_family_size, 2) + '</b> of ' + _s12Num(eff.nominal_family_size, 0) + '</div>' +
+       '<div>Min BH q @ tested: ' + _s12Num(burden.min_bh_qvalue_at_tested, 4) + '</div>' +
+       '<div>Min BH q @ effective: ' + _s12Num(burden.min_bh_qvalue_at_effective, 4) + '</div>' +
+       '<div style="color:var(--label);margin-top:4px;">' + _s12Esc((tax.verdict || '').slice(0, 90)) + '</div></div>';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Owned-Data Power</div>' +
+       '<div>Price span: ' + _s12Esc((ob.price_span || {}).date_start) + ' &rarr; ' + _s12Esc((ob.price_span || {}).date_end) + '</div>' +
+       '<div>CIKs w/ owned price: <b>' + _s12Num(ir.cik_with_owned_price_series, 0) + '</b> (' + _s12Num(ir.coverage_pct_of_universe, 1) + '% of universe)</div>' +
+       '<div>Event families supported: ' + _s12Num(ob.event_families_supported, 0) + ' / ' + _s12Num(ob.event_families_total, 0) + '</div></div>';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Sample Power</div>' +
+       '<div>Nominal periods: <b>' + _s12Num(pw.n_periods_nominal, 0) + '</b></div>' +
+       '<div>Newey-West eff. N: ' + _s12Num((pw.newey_west_effective_n || {}).effective_n, 1) + '</div>' +
+       '<div>Max confirmatory family: <b>' + _s12Num(pw.max_confirmatory_family_size, 0) + '</b></div></div>';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Pre-Registered Family</div>' +
+       '<div>Hypotheses: <b>' + _s12Num(pr.n_hypotheses, 0) + '</b> in ' + _s12Num(pr.n_economic_families, 0) + ' families</div>' +
+       '<div>Confirmatory: ' + _s12Num(pr.n_confirmatory, 0) + ' &middot; Exploratory: ' + _s12Num(pr.n_exploratory, 0) + '</div>' +
+       '<div>Registry: ' + _s12Esc(pr.registry_version || '&mdash;') + '</div></div>';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">Focused Tournament</div>' +
+       '<div>Measured: ' + _s12Num(fn.measured, 0) + ' &middot; DATA_HOLD: ' + _s12Num(fn.data_hold, 0) + '</div>' +
+       '<div>Tested in family: <b>' + _s12Num(fn.tested_in_family, 0) + '</b> &middot; FDR survivors: ' + _s12Num(mt.fdr_survivors, 0) + '</div>' +
+       '<div>Qualified NEW alpha: <b>' + _s12Num(fn.qualified_new_alpha, 0) + '</b> &middot; Same-sample confirms: ' + _s12Num(fn.same_sample_confirmations, 0) + '</div></div>';
+  h += '<div class="card" style="padding:10px;"><div style="font-weight:700;margin-bottom:4px;">ML Eligibility</div>' +
+       '<div><span class="cc-badge ' + (j.ml_eligibility === 'ML_JUSTIFIED' ? 'safe' : 'muted') + '">' + _s12Esc(j.ml_eligibility || '&mdash;') + '</span></div>' +
+       '<div style="margin-top:4px;">Holdout: ' + _s12Esc(j.holdout_status || '&mdash;') + '</div></div>';
+  h += '</div>';
+  var bn = j.best_new_alpha_candidate;
+  if (bn) {
+    h += '<div style="margin-bottom:10px;"><b>Best genuinely-new candidate:</b> ' + _s12Esc(bn.name) +
+         ' (' + _s12Esc(bn.family) + ') &mdash; rank-IC t ' + _s12Num(bn.rank_ic_t) + ', net25 ' + _s12Num(bn.net25, 4) + '</div>';
+  }
+  h += '<div style="margin-bottom:8px;padding:8px;border:1px solid var(--cc-border-soft);border-radius:6px;">' +
+       '<b>Shadow decision:</b> <span class="cc-badge ' + (sh.status === 'NO_DEFENSIBLE_ALPHA' ? 'manual' : 'safe') + '">' +
+       _s12Esc(sh.status || '&mdash;') + '</span> ' + _s12Esc(sh.message || '') + '</div>';
+  var gaps = j.remaining_evidence_gaps || [];
+  if (gaps.length) {
+    h += '<div style="margin-bottom:6px;"><b>Remaining evidence gaps:</b><ul style="margin:4px 0 0 18px;">';
+    for (var i = 0; i < gaps.length; i++) h += '<li>' + _s12Esc(gaps[i]) + '</li>';
+    h += '</ul></div>';
+  }
+  h += '<div style="margin-top:8px;color:var(--label);">Terminal recommendation: <b>' + _s12Esc(j.terminal_recommendation || '&mdash;') + '</b></div>';
+  body.innerHTML = h;
+}
+async function loadStage12() {
+  var badge = document.getElementById('s12-status');
+  if (badge) badge.textContent = 'Loading…';
+  try {
+    var r = await call('GET', '/v1/research/stage12/command-center');
+    if (!r.ok) { if (badge) badge.textContent = 'Unavailable'; return; }
+    _renderStage12(await r.json());
+  } catch (e) { if (badge) badge.textContent = 'Unavailable'; }
+}
+window.loadStage12 = loadStage12;
 
 function _ctrBookCard(title, b, tone) {
   b = b || {};
@@ -21863,9 +21964,10 @@ var _RA_SECTIONS = {
   'price-alpha':      { panels: ['paf-panel'], champion: false },
   'alpha-agent':      { panels: ['aao-panel'], champion: false },
   'stage11':          { panels: ['s11-panel'], champion: false },
+  'stage12':          { panels: ['s12-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -21916,6 +22018,7 @@ function _raLoadSection(sub) {
     'price-alpha': ['loadPriceAlpha'],
     'alpha-agent': ['loadAlphaAgentObservatory'],
     'stage11': ['loadStage11'],
+    'stage12': ['loadStage12'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {
