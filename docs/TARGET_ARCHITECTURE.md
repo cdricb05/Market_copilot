@@ -45,7 +45,7 @@ defect to be migrated, not a new owner to be blessed.
 | Latest completed price date | `engine/market_session` | `func.max(PriceSnapshot.market_date)` sites, `daily_close._latest_eligible_market_date` |
 | Market data (prices) | `market_data_service` (unify `engine/market_data` + owned-EOD transport) | World A Yahoo vs World B EODHD split |
 | Feature production | `feature_service` (extract from `multi_horizon_engine` inputs) | scattered CSV input builders |
-| Universe scoring / rankings | `universe_scoring` (`multi_horizon_engine.compute_scores`) | ≥8 z-score/rank reimplementations |
+| Universe scoring / rankings | `api/universe_scoring` (**LANDED, Slice 4**; composition & read owner over the `multi_horizon_engine.compute_scores` kernel) | ≥8 z-score/rank reimplementations (legacy copies retire with the DB screener, Slice 11) |
 | Research cycle orchestration | `api/daily_research_cycle` (**LANDED, Slice 3**; composes session/freshness + `alpha_target.run_refresh` + `multi_horizon_engine` scoring + `forward_prediction_skill` evidence + `daily_action_gate` bridge) | Daily Alpha Run vs alpha-target vs close-embedded refresh; hidden month-boundary prerequisite |
 | Model registry / champion governance | `model_registry` (unify `alpha_registry` + tournament) | 2 challenger registries (phase20/21), dead phase18 wire |
 | Portfolio state (NAV, cash, holdings) | `portfolio_state` (`portfolio_valuation` as the mark authority) | 2 NAV authorities, `book_nav`, `cached_total_value`, `_collect_positions` |
@@ -161,9 +161,20 @@ responsibilities, candidate existing modules, and migration approach.
 - **Outputs:** per-ticker scores/ranks (sector-neutral).
 - **Owned state:** none (recomputed).
 - **Forbidden:** portfolio construction, caps.
-- **Candidates:** `multi_horizon_engine.compute_scores/build_current`.
-- **Migration:** provide one shared `zscore`/`rank` primitive; delete the ≥8
-  copies incrementally.
+- **Candidates:** `api/universe_scoring` (**LANDED, Slice 4**) over the
+  `multi_horizon_engine.compute_scores/build_current` kernel.
+- **Status (Slice 4, LANDED):** `api/universe_scoring.py` is the ONE operational
+  scoring/ranking composition & read owner. The kernel keeps all model mathematics
+  (`compute_scores`/`_percentiles`/`compute_combined`/`build_books`, unchanged); the
+  owner adds identity, the content-level `input_contract_hash`, count reconciliation,
+  universe identity, exclusions and a cross-consumer consistency validator, exposed at
+  `GET /v1/research/universe-scoring` (compat: `current-alpha-scores`). It deep-copies
+  the kernel cache (never mutated), performs no scoring math, no provider/prediction
+  call and no write, and never promotes/recalibrates a model.
+- **Migration:** the DRC scoring adapter and `multi_horizon_platform.load_current_scores`
+  delegate to the owner; `alpha_target`/`forward_prediction_skill` re-export its primary
+  identity. Remaining: the ≥8 legacy `zscore`/`rank` copies and `engine/scoring.py`
+  retire with the DB screener (Slice 11).
 
 ### Research Cycle
 - **Responsibility:** orchestrate one persistent daily research pass (session →

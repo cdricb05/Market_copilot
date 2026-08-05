@@ -69,7 +69,7 @@
     },
     {
       "concept": "universe_scoring_rankings",
-      "authoritative_owner": "api/multi_horizon_engine.py",
+      "authoritative_owner": "api/universe_scoring.py (Slice 4 canonical composition & read owner) over api/multi_horizon_engine.py (pure scoring kernel)",
       "current_writers": [
         "api/multi_horizon_engine.py",
         "engine/scoring.py",
@@ -77,7 +77,8 @@
         "api/alpha_factory.py",
         "api/price_alpha_factory.py"
       ],
-      "status": "PARTIAL"
+      "status": "OWNED",
+      "notes": "Slice 4 (Phase 29E): api/universe_scoring.py is the ONE operational scoring/ranking composition & read owner; api/multi_horizon_engine.py remains the sole pure scoring kernel (no operational api module duplicates its combined-score math). engine/scoring.py + engine/market_screener.py are the legacy DB screener path (retire with Slice 11); api/alpha_factory.py + api/price_alpha_factory.py are research-only discovery factories."
     },
     {
       "concept": "target_portfolio",
@@ -356,6 +357,11 @@
     {
       "prefix": "/v1/research/current-alpha-books",
       "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/universe-scoring",
+      "owner": "api/universe_scoring.py",
       "system": "research_multi_horizon"
     },
     {
@@ -1992,6 +1998,32 @@
       "migration_priority": 3,
       "risk": "low",
       "notes": "CSV S&P 500 universe loader; the live universe comes from owned panels. Retire with the DB screener if dead."
+    },
+    {
+      "path": "api/universe_scoring.py",
+      "system": "research_multi_horizon",
+      "responsibility": "Slice 4 (Phase 29E) canonical universe-scoring composition & read owner: composes the pure api/multi_horizon_engine kernel into ONE frozen scoring/ranking read contract (identity, content-level input-contract hash, reconciled counts, deterministic rankings, TOP25/TOP50, exclusions, universe identity, consistency validator). No second scoring engine.",
+      "classification": "KEEP",
+      "target_owner": "universe_scoring",
+      "duplicate_with": [],
+      "direct_reads": [
+        "api/multi_horizon_engine.build_current (deep-copied; cache never mutated)"
+      ],
+      "direct_writes": [
+        "read-only (no writes)"
+      ],
+      "endpoints": [
+        "/v1/research/universe-scoring"
+      ],
+      "ui_consumers": [
+        "loadUniverseScoring"
+      ],
+      "tests": [
+        "tests/test_slice4_universe_scoring.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Canonical operational scoring/ranking composition owner (Slice 4). Read-only; no provider/prediction/DB/ledger/order/signal/decision/fill path; automatic model promotion disabled; champion never replaced. The compatibility surface /v1/research/current-alpha-scores delegates here."
     }
   ]
 }

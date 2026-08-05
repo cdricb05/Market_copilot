@@ -4623,6 +4623,54 @@
         </div>
         <!-- Daily Research Cycle END -->
 
+        <!-- Canonical Universe Scoring (Slice 4 / Phase 29E) START — the ONE canonical
+             operational scoring/ranking READ surface. EXACTLY ONE loader
+             (loadUniverseScoring) renders ONLY backend-provided fields from
+             GET /v1/research/universe-scoring. The UI performs NO scoring, ranking,
+             exclusion, universe-classification or date arithmetic; the backend
+             (api.universe_scoring over the api.multi_horizon_engine kernel) owns all
+             of it. Read-only; no orders; no automation; champion never replaced. -->
+        <div class="card" id="us-panel" style="margin-bottom:14px;border:1px solid var(--info,#3b82f6);">
+          <div class="card-title">
+            <span style="font-size:14px;font-weight:800;letter-spacing:.5px;">CANONICAL UNIVERSE SCORING</span>
+            <span style="font-size:10px;color:var(--text-accent);font-weight:600;">one scoring lineage — read-only — Slice 4</span>
+            <span id="us-status" class="cc-badge" style="margin-left:8px;">—</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px;">
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">READ ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO ORDERS</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO LIVE PROMOTION</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;font-size:11px;margin-bottom:10px;">
+            <div style="color:var(--text-accent);">Ranking date: <span id="us-ranking-date" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Strategy: <span id="us-strategy" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Primary model: <span id="us-primary-model" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Primary book: <span id="us-primary-book" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Universe: <span id="us-universe" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Input-contract hash: <span id="us-ich" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Fundamental as-of: <span id="us-fund" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Momentum month: <span id="us-mom" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Scored / eligible / excluded: <span id="us-counts" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Combined eligible / coverage: <span id="us-coverage" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Consistency: <span id="us-consistency" class="mono" style="color:var(--text-primary);">—</span></div>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">TOP 25 (canonical order)</div>
+              <div id="us-top25" class="mono" style="color:var(--text-primary);">—</div>
+            </div>
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">TOP 50 (canonical order)</div>
+              <div id="us-top50" class="mono" style="color:var(--text-primary);">—</div>
+            </div>
+          </div>
+          <div style="color:var(--text-accent);font-size:11px;margin-bottom:4px;">Exclusions: <span id="us-exclusions" class="mono" style="color:var(--text-primary);">—</span></div>
+          <ul id="us-warnings" style="margin:6px 0 0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+        </div>
+        <!-- Canonical Universe Scoring END -->
+
         <!-- Daily Alpha Run (Phase 13-G/H) START — champion-mark research DETAIL,
              subordinate to the canonical Daily Research Cycle above. ONE explicit
              user-triggered action (RUN DAILY ALPHA REFRESH) launches the read-only
@@ -23959,13 +24007,15 @@ function loadOperationalBook() {
     try { loadDataFreshness(); } catch (e) {}      // Slice 1: the ONE freshness/session strip
     try { loadWorkflowState(); } catch (e) {}      // Slice 2: the ONE workflow/operator state
     try { loadDailyResearchCycle(); } catch (e) {} // Slice 3: the ONE research-cycle status
+    try { loadUniverseScoring(); } catch (e) {}    // Slice 4: the ONE canonical scoring read
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
     try { loadDailyActionGate(); } catch (e) {}
     try { loadDailyClose(); } catch (e) {}
     try { loadDataFreshness(); } catch (e) {}
     try { loadWorkflowState(); } catch (e) {}
-    try { loadDailyResearchCycle(); } catch (e) {} return null; });
+    try { loadDailyResearchCycle(); } catch (e) {}
+    try { loadUniverseScoring(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
@@ -24127,6 +24177,65 @@ function runDailyResearchCycle(btn) {
     });
 }
 window.runDailyResearchCycle = runDailyResearchCycle;
+
+// --- Canonical Universe Scoring (Slice 4 / Phase 29E) ----------------------- //
+// EXACTLY ONE canonical universe-scoring loader (loadUniverseScoring). It renders
+// backend-provided fields ONLY from GET /v1/research/universe-scoring. The UI does
+// NO scoring, ranking, exclusion, universe classification or date arithmetic — the
+// canonical owner (api.universe_scoring over the api.multi_horizon_engine kernel)
+// owns every score, rank, exclusion and date. Read-only; no writes; no ordering of
+// ranks on the client (the backend order is displayed verbatim).
+function loadUniverseScoring() {
+  function _usSet(id, v) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = (v === undefined || v === null || v === '') ? '—' : v;
+  }
+  return _mhzGet('/v1/research/universe-scoring').then(function (d) {
+    var badge = document.getElementById('us-status');
+    var ready = d && d.status === 'UNIVERSE_SCORING_READY';
+    if (badge) {
+      badge.textContent = (d && d.status) || 'UNAVAILABLE';
+      badge.className = 'cc-badge ' + (ready ? 'safe' : 'danger');
+    }
+    _usSet('us-ranking-date', d && d.ranking_date);
+    _usSet('us-strategy', d && ((d.strategy_id || '') + ' / ' + (d.strategy_version || '')));
+    _usSet('us-primary-model', d && d.primary_model_id);
+    _usSet('us-primary-book', d && d.primary_book_id);
+    _usSet('us-universe', d && (d.universe_label || d.universe_id));
+    _usSet('us-ich', d && d.input_contract_hash);
+    _usSet('us-fund', d && d.fundamental_as_of_date);
+    _usSet('us-mom', d && d.momentum_month);
+    _usSet('us-counts', d && ((d.scored_count) + ' / ' + (d.fundamental_eligible_count) + ' / ' + (d.excluded_count)));
+    _usSet('us-coverage', d && ((d.combined_eligible_count) + ' / ' + (d.coverage_ratio)));
+    var cons = document.getElementById('us-consistency');
+    if (cons) {
+      cons.textContent = (d && d.consistency_status) || '—';
+      cons.className = 'mono';
+    }
+    var t25 = (d && d.top25) || [];
+    var t50 = (d && d.top50) || [];
+    _usSet('us-top25', t25.length ? t25.map(function (r) { return r.ticker; }).join('  ') : '—');
+    _usSet('us-top50', t50.length ? t50.map(function (r) { return r.ticker; }).join('  ') : '—');
+    var excl = (d && d.exclusion_summary) || {};
+    var keys = Object.keys(excl);
+    _usSet('us-exclusions', keys.length
+      ? keys.map(function (k) { return k + ': ' + excl[k]; }).join('  |  ')
+      : ((d && d.excluded_count) === 0 ? 'none' : '—'));
+    var wl = document.getElementById('us-warnings');
+    if (wl) {
+      wl.innerHTML = '';
+      ((d && d.warnings) || []).forEach(function (w) {
+        var li = document.createElement('li'); li.textContent = w; wl.appendChild(li);
+      });
+    }
+    return d;
+  }).catch(function () {
+    var badge = document.getElementById('us-status');
+    if (badge) { badge.textContent = 'UNAVAILABLE'; badge.className = 'cc-badge danger'; }
+    return null;
+  });
+}
+window.loadUniverseScoring = loadUniverseScoring;
 
 // ---- Slice 2 (Phase 29C.1): CANONICAL DOM OWNERSHIP (Workstream C / E / H) -----
 // renderWorkflowState is the EXCLUSIVE owner of the PRIMARY operator interpretation

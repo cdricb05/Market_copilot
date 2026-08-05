@@ -232,6 +232,43 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
 - **Completion gate:** audit `universe_scoring_rankings` writers reduced to the
   engine + the shared primitive.
 - **Principle:** 1, 8. **Milestone:** 1.
+- **Status — LANDED (Phase 29E).** Canonical owner `api/universe_scoring.py` — the
+  ONE operational scoring/ranking **composition & read owner** over the unchanged pure
+  kernel `api/multi_horizon_engine.py` (`build_current`). It is NOT a second scoring
+  engine: it calls the kernel exactly once, **deep-copies** the mtime-cached result
+  before reading (cache never mutated; a consumer mutation cannot contaminate a later
+  result), and normalises it into ONE frozen read contract — strategy / model /
+  universe identity, a deterministic *content-level* `input_contract_hash` (over the
+  owned input fingerprints + the frozen model / construction / weights / eligibility
+  contract; NEVER over `evaluated_at`, object identity, absolute path or file mtime),
+  reconciled counts (`scored = fundamental_eligible + excluded` and
+  `scored = combined_eligible + combined_excluded`), the full deterministic combined
+  ranking (score-desc / ticker-asc tie-break inherited from the kernel), TOP25 / TOP50
+  (the deterministic sector-capped equal-weight books — TOP25 is **not** asserted as a
+  strict subset of TOP50 because the per-sector cap is looser at 50; the actual
+  relationship is exposed as `top25_subset_of_top50`), exclusions with retained
+  reasons, an explicit universe identity (**not** labelled strict S&P 500; unknown
+  membership explicit) and a deterministic cross-consumer consistency validator
+  (`CONSISTENT` / `INCONSISTENT` / `UNKNOWN`, every violation naming both owners and
+  both values). New surface: `GET /v1/research/universe-scoring` (authenticated,
+  GET-only, read-only) rendered by ONE UI loader `loadUniverseScoring()` that computes
+  no score / rank / exclusion / universe / date. **Consumers migrated:**
+  `daily_research_cycle` scoring adapter delegates to the canonical owner (records the
+  canonical input-contract hash; the run-level date-based idempotency hash is
+  unchanged); `multi_horizon_platform.load_current_scores` is a **compatibility
+  wrapper** over the owner (all legacy per-security fields preserved) behind the
+  retained `GET /v1/research/current-alpha-scores`; the operational primary
+  model/book identity re-exports from the owner in `alpha_target` and
+  `forward_prediction_skill` (one source of truth). No operational `api/*.py` module
+  defines the kernel's combined-score mathematics (`compute_scores` / `_percentiles` /
+  `compute_combined`) — the Phase-13 `current_alpha_book` book **construction** is a
+  separate frozen lineage, not combined-score duplication. Static guard
+  `check_universe_scoring_ownership` enforces the kernel + owner, delegation, no second
+  scoring engine, no duplicate operational scoring, the DRC delegation, the compat
+  wrapper, the GET-only canonical route, ONE UI loader with no UI computation, and
+  disabled automatic promotion; inventory drift = 0. No model promotion / recalibration;
+  the champion (`composite_sn`) is never replaced. **Not begun:** Slice 5 (portfolio
+  state), Milestone 2 (opportunity-cost engine); cadence remains disabled.
 
 ## Slice 5 — Canonical portfolio state (one NAV)
 

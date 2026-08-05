@@ -285,6 +285,63 @@
   Milestone 2 (opportunity-cost engine) are described here but not begun; cadence
   remains disabled.
 
+### D-14 — Canonical universe scoring (Slice 4) — CONFIRMED (LANDED)
+- **Decision:** the pure model mathematics stay in ONE kernel
+  (`api/multi_horizon_engine.py`), and ONE composition & read owner
+  (`api/universe_scoring.py`) holds the authoritative *operational* interpretation of
+  the current universe scoring & ranking. The owner is NOT a second scoring engine: it
+  calls the kernel exactly once, deep-copies the mtime-cached result before reading it,
+  and normalises it into one frozen read contract exposed at
+  `GET /v1/research/universe-scoring` (authenticated, GET-only, read-only) and one UI
+  loader `loadUniverseScoring()`.
+- **Kernel vs owner (scope):** `multi_horizon_engine` owns `compute_scores` /
+  `_percentiles` / `compute_combined` / `build_books` (unchanged — no weight is
+  re-optimised, no formula changed). `universe_scoring` owns identity, the content-level
+  `input_contract_hash`, count reconciliation, universe identity, exclusions and the
+  consistency validator. No operational `api/*.py` module duplicates the kernel's
+  combined-score mathematics; the Phase-13 `current_alpha_book` book construction is a
+  separate frozen champion lineage (documented, to reconcile in a later slice), not a
+  combined-score duplicate.
+- **Cache safety (Workstream D):** the kernel `build_current` returns a mtime-cached
+  dict by reference; the owner deep-copies before any read, so the cache is never
+  mutated, repeated calls are equivalent, and a consumer mutation cannot contaminate a
+  later canonical result (proven by tests).
+- **Content-level input-contract hash (Workstream C):** derived from the owned input
+  content fingerprints (sha1 of file bytes) + the frozen strategy / model / construction
+  / weights / eligibility contract + the resolved point-in-time dates. NEVER over
+  `evaluated_at` / `built_at` / object identity / absolute path alone / file mtime
+  alone. Identical content ⇒ identical hash; changed input content or a changed
+  model/construction contract ⇒ a different hash.
+- **Ranking / exclusions / universe (Workstream E/F):** deterministic score-desc /
+  ticker-asc ranking (inherited from the kernel), one rank per eligible name, no
+  duplicate tickers, exact TOP25/TOP50 sector-capped equal-weight books (TOP25 ⊄ TOP50
+  in general — the per-sector cap is looser at 50 — exposed as
+  `top25_subset_of_top50`, never asserted as a false invariant), exclusions recorded
+  with reasons and reconciled counts, and an explicit universe identity that is NOT
+  labelled strict S&P 500 and keeps unknown membership explicit.
+- **Consumers (Workstream G/I):** the Daily Research Cycle scoring adapter delegates to
+  the owner (records the canonical input-contract hash; the run-level date-based
+  idempotency hash is unchanged); `multi_horizon_platform.load_current_scores` is a
+  compatibility wrapper over the owner behind the retained
+  `GET /v1/research/current-alpha-scores` (legacy fields preserved); the primary
+  model/book identity re-exports from the owner in `alpha_target` and
+  `forward_prediction_skill`.
+- **Consistency (Workstream J):** a deterministic validator returns
+  `CONSISTENT` / `INCONSISTENT` / `UNKNOWN` and names every violation with the concept,
+  both owners and both values; it never silently chooses a conflicting value.
+- **No promotion (Workstream L, R-3 upheld):** `AUTOMATIC_PROMOTION_ALLOWED = False`;
+  the champion (`composite_sn`) is never replaced; no recalibration / parameter search /
+  experiment lives in the scoring read path.
+- **Evidence:** the canonical endpoint is authenticated, GET-only, read-only,
+  provider-free and prediction-free and never runs the Daily Research Cycle / Daily
+  Close / reassessment; the static guard `check_universe_scoring_ownership` confirms the
+  kernel + owner, delegation, no second scoring engine, no duplicate operational
+  scoring, the DRC delegation, the compat wrapper, the GET-only route, ONE UI loader
+  with no UI score/rank/exclusion/date computation and disabled promotion; audit
+  inventory drift = 0.
+- **Consequence:** Slice 5 (portfolio state) and Milestone 2 (opportunity-cost engine)
+  are described but not begun; cadence remains disabled.
+
 ### D-10 — No big-bang rewrite of the monoliths — CONFIRMED
 - **Decision:** `api/app.py` (20.5k) and `api/ui/index.html` (26.7k) are reduced
   incrementally (domain routers, extracted view logic) as owning contexts

@@ -429,8 +429,11 @@ def test_71_slice3_landed_and_bounded_from_slice4():
     assert "Slice 4 still owns consolidation" in s3flat
     assert "Not begun:" in s3flat and "Slice 4 (canonical scoring)" in s3flat
 
-    # 4. Slice 4 is NOT documented as LANDED or implemented.
-    assert "LANDED" not in roadmap[s4:s5]
+    # 4. Slice 4 (canonical universe scoring) has now LANDED, and Slice 3 remains a
+    #    historical snapshot that (correctly) records it did not itself consolidate
+    #    scoring. The boundary has advanced: Slice 5 (portfolio state) is NOT landed.
+    assert "LANDED (Phase 29E)" in roadmap[s4:s5]
+    assert "LANDED" not in roadmap[s5:s6]
 
     # 5. The Milestone-2 holding opportunity-cost engine is NOT claimed complete: the
     #    Slice-3 status explicitly disclaims it, lists it under "Not begun", and the

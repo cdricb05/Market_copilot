@@ -52,6 +52,7 @@ from typing import Any, Callable, Optional
 from paper_trader.api import multi_horizon_engine as eng
 from paper_trader.api import multi_horizon_ledger as ledger
 from paper_trader.api import multi_horizon_registry as mreg
+from paper_trader.api import universe_scoring as us
 from paper_trader.api import portfolio_manager as _pm_mod
 from paper_trader.api import portfolio_valuation
 from paper_trader.api import paper_trading_desk as desk
@@ -62,8 +63,11 @@ from paper_trader.api.daily_operating_run import latest_completed_market_date
 
 PHASE = "27A.2"
 
-PRIMARY_MODEL_ID = "fundamental_momentum_50_50_v1"
-PRIMARY_BOOK_ID = "fundamental_momentum_50_50_top25"
+# Slice 4: the operational primary model / book identity has ONE owner
+# (api.universe_scoring); re-exported here so target readiness uses the canonical
+# primary book and ranking identity rather than a private duplicate literal.
+PRIMARY_MODEL_ID = us.PRIMARY_MODEL_ID
+PRIMARY_BOOK_ID = us.PRIMARY_BOOK_ID
 REQUIRED_TARGET_COUNT = 25
 
 REFRESH_CONFIRM_TOKEN = "CONFIRM_ALPHA_TARGET_REFRESH"

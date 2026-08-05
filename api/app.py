@@ -217,6 +217,7 @@ from paper_trader.api.price_alpha_factory import (
     BUILD_CONFIRM_TOKEN as _PRICE_ALPHA_FACTORY_CONFIRM_TOKEN,
 )
 from paper_trader.api import multi_horizon_platform as _mhz
+from paper_trader.api import universe_scoring as _uscore
 from paper_trader.api import portfolio_manager as _pm
 from paper_trader.api import paper_trading_desk as _desk
 from paper_trader.api import alpha_book as _abook
@@ -4898,13 +4899,32 @@ def research_alpha_operating_state() -> dict:
     return _mhz.load_operating_state()
 
 
+@app.get("/v1/research/universe-scoring", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def research_universe_scoring() -> dict:
+    """Slice 4 (Phase 29E) CANONICAL universe-scoring read contract. Read-only and
+    authenticated. The one authoritative operational scoring/ranking payload: strategy /
+    model / universe identity, ranking date, content-level input-contract hash, source
+    dates, reconciled counts, coverage, the full deterministic combined ranking, TOP25 /
+    TOP50, exclusions and point-in-time provenance. It composes the pure
+    api.multi_horizon_engine kernel through api.universe_scoring (no second scoring
+    engine); it performs NO write, NO provider call, NO prediction call, never runs the
+    Daily Research Cycle / Daily Close / portfolio reassessment, and creates no order /
+    signal / decision / fill. Degrades to an explicit *_UNAVAILABLE status when owned
+    inputs are missing. Automatic model promotion is disabled; the champion is never
+    replaced."""
+    return _uscore.build_universe_scoring()
+
+
 @app.get("/v1/research/current-alpha-scores", status_code=status.HTTP_200_OK,
          dependencies=[Depends(_verify_api_key)])
 def research_current_alpha_scores() -> dict:
-    """Read-only current per-security model legs (raw / oriented / normalized / percentile / rank /
+    """Slice 4 COMPATIBILITY surface over the canonical universe-scoring owner. Read-only
+    current per-security model legs (raw / oriented / normalized / percentile / rank /
     eligible / exclusion-reason / data-quality flags) for composite_sn and mom_6_1, the fixed 50/50
-    combined over the common eligible universe, and the explicit blocked-model notice. composite_sn and
-    mom_6_1 are reproduced exactly - no formula is re-optimized."""
+    combined over the common eligible universe, and the explicit blocked-model notice. The strategy /
+    universe identity, ranking date and content-level input-contract hash now come from
+    api.universe_scoring; composite_sn and mom_6_1 are reproduced exactly - no formula is re-optimized."""
     return _mhz.load_current_scores()
 
 

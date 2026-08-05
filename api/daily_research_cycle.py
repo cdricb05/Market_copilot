@@ -17,8 +17,9 @@ NOT reimplement their business logic (Principle 1 / 2 / 8):
     safe automatic in-repo emitter; the cycle BLOCKS at the month boundary rather
     than approximating the frozen monthly contract — this is the root cause of the
     documented "August evidence gap").
-  * universe scoring / rankings        → ``api.multi_horizon_engine.build_current``
-    (pure owned-CSV scoring; TOP25 / TOP50; frozen champion version).
+  * universe scoring / rankings        → ``api.universe_scoring.build_universe_scoring``
+    (Slice 4 canonical composition owner over the pure ``api.multi_horizon_engine``
+    kernel; frozen strategy version; TOP25 / TOP50; content-level input-contract hash).
   * operational target                 → ``api.alpha_target.load_readiness`` — the
     target is PREPARED / LOADED, never silently confirmed (manual review preserved).
   * immutable forward evidence         → ``api.forward_prediction_skill`` — the ONE
@@ -570,8 +571,12 @@ def _default_daily_refresh_fn(*, confirm, downloader, completed_through):
 
 
 def _default_scoring_fn():
-    from paper_trader.api import multi_horizon_engine as eng
-    return eng.build_current()
+    # Slice 4: the Daily Research Cycle no longer interprets the raw scoring kernel
+    # output directly - it delegates to the canonical composition owner, which calls
+    # api.multi_horizon_engine.build_current exactly once, deep-copies it, and
+    # normalises it into the frozen universe-scoring contract.
+    from paper_trader.api import universe_scoring as us
+    return us.build_universe_scoring()
 
 
 def _default_target_loader():
@@ -601,51 +606,50 @@ def _default_refresh_confirm_token() -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Scoring adapter (Workstream G). Invokes the existing engine ONLY; records the
-# frozen version, exclusions, coverage, TOP25 / TOP50. No second scoring engine.
+# Scoring adapter (Workstream G / I). The cycle delegates to the canonical
+# universe-scoring composition owner (Slice 4) - it no longer interprets the raw
+# scoring kernel output. ``built`` may be the canonical contract (the default
+# path) or a raw kernel result (injected fakes); ``universe_scoring.normalize_built``
+# handles both idempotently. Records the frozen strategy version, exclusions,
+# coverage, TOP25 / TOP50 and the CANONICAL content-level input-contract hash. No
+# second scoring engine.
 # --------------------------------------------------------------------------- #
 def _extract_scoring(built: dict) -> dict:
-    if not isinstance(built, dict) or built.get("status") != "MHZ_READY":
-        return {"available": False, "status": (built or {}).get("status"),
+    from paper_trader.api import universe_scoring as us
+    contract = us.normalize_built(built if isinstance(built, dict) else {})
+    if contract.get("status") != us.STATUS_READY:
+        return {"available": False,
+                "status": (built or {}).get("status") or contract.get("status"),
                 "reason": "Scoring engine inputs unavailable."}
-    books = ((built.get("books") or {}).get("books") or {})
-    scores = built.get("scores") or {}
-    combined = built.get("combined") or {}
-    counts = scores.get("counts") or {}
 
-    def _top(book_id):
-        b = books.get(book_id) or {}
+    def _top(rows):
         return [{"ticker": c.get("ticker"), "rank": c.get("rank"),
                  "weight": c.get("weight"), "sector": c.get("sector")}
-                for c in (b.get("constituents") or [])]
+                for c in (rows or [])]
 
-    top25 = _top("fundamental_momentum_50_50_top25")
-    top50 = _top("fundamental_momentum_50_50_top50")
-    comp = scores.get("composite_sn") or {}
-    scored_count = len(comp)
-    excluded = {tk: sd.get("exclusion_reason") for tk, sd in comp.items()
-                if isinstance(sd, dict) and not sd.get("eligible")}
-    universe_size = scored_count
-    common = combined.get("n_common")
-    coverage = (round(common / universe_size, 4)
-                if universe_size and common is not None else None)
+    top25 = _top(contract.get("top25"))
+    top50 = _top(contract.get("top50"))
     return {
         "available": True,
         "strategy_id": STRATEGY_ID, "strategy_version": STRATEGY_VERSION,
         "universe_id": UNIVERSE_ID,
-        "ranking_date": built.get("market_as_of_date"),
-        "momentum_month": built.get("momentum_month"),
-        "fundamental_as_of_date": built.get("fundamental_as_of_date"),
-        "universe_size": universe_size,
-        "scored_count": scored_count,
-        "common_eligible_count": common,
-        "excluded_count": len(excluded),
-        "exclusions": excluded,
-        "coverage_ratio": coverage,
+        "scoring_owner": "api.universe_scoring.build_universe_scoring",
+        "ranking_date": contract.get("ranking_date"),
+        "momentum_month": contract.get("momentum_month"),
+        "fundamental_as_of_date": contract.get("fundamental_as_of_date"),
+        "universe_size": contract.get("scored_count"),
+        "scored_count": contract.get("scored_count"),
+        "common_eligible_count": contract.get("combined_eligible_count"),
+        "excluded_count": contract.get("excluded_count"),
+        "exclusions": contract.get("exclusions") or {},
+        "coverage_ratio": contract.get("coverage_ratio"),
         "top25": top25, "top50": top50,
         "top25_count": len(top25), "top50_count": len(top50),
-        "primary_book_id": (built.get("books") or {}).get("primary_book_id"),
-        "output_hash": _hash({"ranking_date": built.get("market_as_of_date"),
+        "primary_book_id": contract.get("primary_book_id"),
+        # The CANONICAL content-level scoring input-contract hash (Workstream C);
+        # distinct from the run-level date-based input_contract_hash on the facts.
+        "input_contract_hash": contract.get("input_contract_hash"),
+        "output_hash": _hash({"ranking_date": contract.get("ranking_date"),
                               "top25": [c["ticker"] for c in top25],
                               "top50": [c["ticker"] for c in top50]}),
     }
@@ -795,7 +799,8 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
                 "data_freshness.load_data_freshness (engine.market_session)",
                 "alpha_target.run_refresh (daily price/score input)",
                 "external monthly momentum emitter (BLOCKED — not shipped)",
-                "multi_horizon_engine.build_current (universe scoring)",
+                "universe_scoring.build_universe_scoring (canonical universe scoring "
+                "over multi_horizon_engine.build_current — Slice 4)",
                 "alpha_target.load_readiness (operational target — never auto-confirmed)",
                 "forward_prediction_skill.capture_for_daily_close (immutable evidence)",
                 "daily_action_gate.load_daily_action_gate (assessment bridge)",
@@ -1313,7 +1318,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
             scoring = _extract_scoring(built or {})
             if not scoring.get("available"):
                 step_results.append(_step(STEP_SCORE_UNIVERSE, S_FAILED,
-                    owner="api.multi_horizon_engine.build_current",
+                    owner="api.universe_scoring.build_universe_scoring",
                     error_code="SCORING_INPUTS_UNAVAILABLE",
                     error_detail=str(scoring.get("status"))[:160]))
                 _clear_lock(drc_dir)
@@ -1321,11 +1326,12 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                                 failed_step=STEP_SCORE_UNIVERSE,
                                 blockers=[{"code": "SCORING_INPUTS_UNAVAILABLE"}])
             step_results.append(_step(STEP_SCORE_UNIVERSE, S_OK,
-                owner="api.multi_horizon_engine.build_current",
+                owner="api.universe_scoring.build_universe_scoring",
                 as_of_date=scoring.get("ranking_date"),
                 records_read=scoring.get("universe_size"),
                 output_hash=scoring.get("output_hash"),
-                reason="Full eligible universe scored; TOP25/TOP50 produced."))
+                reason="Full eligible universe scored via the canonical universe-"
+                       "scoring owner; TOP25/TOP50 produced."))
 
         # STEP: prepare (never confirm) the operational target.
         if _reuse_or(STEP_PREPARE_TARGET) and prior.get("target"):

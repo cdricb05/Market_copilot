@@ -134,13 +134,28 @@ def load_operating_state(*, panel_path=None, inputs_dir=None, ledger_dir=None, f
 
 
 # --------------------------------------------------------------------------- #
-# GET /v1/research/current-alpha-scores
+# GET /v1/research/current-alpha-scores (Slice 4 COMPATIBILITY SURFACE)
 # --------------------------------------------------------------------------- #
 def load_current_scores(*, panel_path=None, inputs_dir=None, fast_spec_path=None, top=60) -> dict:
-    cur = eng.build_current(panel_path=panel_path, inputs_dir=inputs_dir)
-    if cur.get("status") != eng.STATUS_READY:
+    """Slice 4 compatibility wrapper: the canonical universe-scoring composition
+    owner (``api.universe_scoring``) now supplies the strategy / model / universe
+    identity, ranking date, counts and the content-level input-contract hash; the
+    established per-security research-detail fields (combined_universe /
+    composite_sn_top / mom_6_1_top) are preserved unchanged for existing clients.
+    The kernel is the SAME mtime-cached object the canonical owner reads (no second
+    build); this surface performs no independent scoring math.
+    """
+    from paper_trader.api import universe_scoring as us
+    contract = us.build_universe_scoring(panel_path=panel_path, inputs_dir=inputs_dir)
+    if contract.get("status") != us.STATUS_READY:
         return {"phase": mreg.PHASE, "status": eng.STATUS_INPUTS_UNAVAILABLE,
-                "warnings": cur.get("warnings", []), "loaded_at": _iso_now(), **_safety(fast_spec_path)}
+                "compatibility_surface": True,
+                "canonical_owner": us.CANONICAL_OWNER,
+                "canonical_status": contract.get("status"),
+                "warnings": contract.get("warnings", []), "loaded_at": _iso_now(),
+                **_safety(fast_spec_path)}
+    # Established research-detail legs read from the same cached kernel object.
+    cur = eng.build_current(panel_path=panel_path, inputs_dir=inputs_dir)
     scores = cur["scores"]
     combined = cur["combined"]["combined"]
 
@@ -151,9 +166,20 @@ def load_current_scores(*, panel_path=None, inputs_dir=None, fast_spec_path=None
 
     comb_rows = sorted(combined.values(), key=lambda c: (c.get("rank") or 1e9))
     return {"phase": mreg.PHASE, "status": "MHZ_SCORES_READY",
-            "market_as_of_date": cur["market_as_of_date"],
-            "fundamental_as_of_date": cur["fundamental_as_of_date"],
-            "fundamental_month": cur["fundamental_month"], "momentum_month": cur["momentum_month"],
+            "compatibility_surface": True,
+            "canonical_owner": us.CANONICAL_OWNER,
+            "canonical_contract": us.CONTRACT_ID,
+            "market_as_of_date": contract["ranking_date"],
+            "ranking_date": contract["ranking_date"],
+            "fundamental_as_of_date": contract["fundamental_as_of_date"],
+            "fundamental_month": contract["fundamental_month"],
+            "momentum_month": contract["momentum_month"],
+            "strategy_id": contract["strategy_id"],
+            "strategy_version": contract["strategy_version"],
+            "primary_model_id": contract["primary_model_id"],
+            "primary_book_id": contract["primary_book_id"],
+            "universe_id": contract["universe_id"],
+            "input_contract_hash": contract["input_contract_hash"],
             "counts": scores["counts"], "n_common_universe": cur["combined"]["n_common"],
             "combined_universe": comb_rows,
             "composite_sn_top": _top(scores["composite_sn"], "raw_signal", top),

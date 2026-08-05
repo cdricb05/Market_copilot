@@ -56,6 +56,7 @@ from typing import Any, Callable, Optional
 from paper_trader.api import multi_horizon_engine as eng
 from paper_trader.api import multi_horizon_registry as mreg
 from paper_trader.api import paper_trading_desk as desk
+from paper_trader.api import universe_scoring as us
 
 PHASE = "28B"
 SCHEMA_VERSION = 1
@@ -112,8 +113,11 @@ _CLOSE_JOURNAL_FILE = "daily_close_journal.json"
 # --------------------------------------------------------------------------- #
 # Supported model/book universe (the active strategy + the frozen challengers).
 # --------------------------------------------------------------------------- #
-ACTIVE_MODEL_ID = "fundamental_momentum_50_50_v1"
-ACTIVE_BOOK_ID = "fundamental_momentum_50_50_top25"
+# Slice 4: the active operational model / book identity is owned by
+# api.universe_scoring (one source of truth for the frozen scoring identity that
+# the immutable TRUE_FORWARD snapshot evidence is anchored to).
+ACTIVE_MODEL_ID = us.PRIMARY_MODEL_ID
+ACTIVE_BOOK_ID = us.PRIMARY_BOOK_ID
 
 ROLE_ACTIVE = "ACTIVE"
 ROLE_SHADOW = "SHADOW"

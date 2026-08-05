@@ -187,6 +187,48 @@ UI_DRC_REGION_END = "window.runDailyResearchCycle"
 UI_DRC_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", "build_execution_plan",
                     "evaluate_alignment")
 
+# --- Slice 4 (Phase 29E) canonical universe-scoring ownership ------------------ #
+# ONE composition & read owner (api.universe_scoring) normalises the pure scoring
+# KERNEL (api.multi_horizon_engine) into the canonical operational scoring/ranking
+# contract. No operational module hosts a SECOND scoring engine; the DRC delegates
+# scoring here; the current-alpha-scores platform surface is a compatibility wrapper
+# over this owner; the UI has EXACTLY ONE canonical scoring loader and performs no
+# scoring/ranking/exclusion/universe-classification/date arithmetic.
+US_OWNER = "api/universe_scoring.py"
+US_KERNEL = "api/multi_horizon_engine.py"
+US_ROUTE = "/v1/research/universe-scoring"
+US_COMPAT_ROUTE = "/v1/research/current-alpha-scores"
+US_BUILD_DEF = "def build_universe_scoring("
+# The owner MUST delegate to the kernel and NOT redefine the scoring mathematics.
+US_MUST_DELEGATE = ("multi_horizon_engine", "build_current")
+# The composition OWNER must not redefine ANY scoring/construction primitive.
+US_FORBIDDEN_MODEL_DEFS = ("def compute_scores(", "def _percentiles(",
+                           "def compute_combined(", "def build_books(",
+                           "def _select_book(")
+# The COMBINED-SCORE MATHEMATICS that no OTHER operational api module may define
+# (book CONSTRUCTION helpers - build_books / _select_book - are a documented
+# same-family reuse in multi_horizon_history and a separate frozen lineage in
+# current_alpha_book, NOT combined-score-math duplication).
+US_COMBINED_SCORE_DEFS = ("def compute_scores(", "def _percentiles(",
+                          "def compute_combined(")
+# The owner must NEVER create an order / signal / decision / fill, promote a model,
+# or call a provider / prediction service.
+US_FORBIDDEN_CALLS = ("place_order(", "submit_order(", "create_order(", "run_fill_cycle(",
+                      "Signal(", "TradeDecision(", "run_daily_close(",
+                      "requests.get(", "requests.post(", "urlopen(", "httpx.",
+                      "predict(", "promote_model(", "replace_champion(")
+# The DRC must delegate scoring to this owner (Slice 4) and the platform surface
+# must be a compatibility wrapper over it.
+DRC_SCORING_DELEGATE_TOKEN = "universe_scoring"
+PLATFORM_SCORES_OWNER = "api/multi_horizon_platform.py"
+PLATFORM_SCORES_FN = "def load_current_scores("
+# UI: EXACTLY one canonical scoring loader; the scoring UI region computes nothing.
+UI_US_LOADER = "function loadUniverseScoring"
+UI_US_FETCH = "/v1/research/universe-scoring"
+UI_US_REGION_END = "window.loadUniverseScoring"
+UI_US_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".sort(",
+                   "compute_", "_percentiles", "zscore", "* 0.5")
+
 
 # Canonical business concepts and the regex that identifies a *writer/producer*
 # of that concept (a function definition that computes it). Multiple modules
@@ -742,6 +784,95 @@ def check_daily_research_cycle_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_universe_scoring_ownership(files: list[Path]) -> dict:
+    """Slice 4 semantic ownership guard.
+
+    Confirms (a) the pure scoring KERNEL (``api.multi_horizon_engine``) and the
+    canonical composition & read owner (``api.universe_scoring``) both exist, (b) the
+    composition owner delegates to the kernel and hosts NO second scoring engine
+    (no ``compute_scores`` / ``_percentiles`` / ``compute_combined`` / ``build_books`` /
+    ``_select_book`` definition) and no order/signal/decision/fill/provider/prediction/
+    promotion call, (c) NO OTHER operational ``api/*.py`` module defines the kernel's
+    combined-score mathematics, (d) the Daily Research Cycle delegates scoring to the
+    canonical owner, (e) the ``current-alpha-scores`` platform surface is a
+    compatibility wrapper over the owner, (f) the canonical GET-only read route and the
+    compatibility route are declared, and (g) the UI has EXACTLY ONE canonical scoring
+    loader and computes no score/rank/exclusion/universe/date in its region.
+    """
+    owner_src = _read(US_OWNER)
+    owner_present = (REPO_ROOT / US_OWNER).exists()
+    kernel_present = (REPO_ROOT / US_KERNEL).exists()
+
+    delegates = {tok: (tok in owner_src) for tok in US_MUST_DELEGATE}
+    missing_delegation = sorted(k for k, v in delegates.items() if not v)
+    second_engine_in_owner = sorted(t for t in US_FORBIDDEN_MODEL_DEFS if t in owner_src)
+    forbidden_calls = sorted(t for t in US_FORBIDDEN_CALLS if t in owner_src)
+
+    # (c) No OTHER operational api/*.py module defines the kernel scoring math.
+    duplicate_scoring_modules: list[dict] = []
+    for fp in files:
+        rel = _rel(fp)
+        parts = rel.split("/")
+        if len(parts) != 2 or parts[0] != "api":
+            continue
+        if rel == US_KERNEL:
+            # the kernel owns the combined-score math.
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        for tok in US_COMBINED_SCORE_DEFS:
+            if tok in text:
+                duplicate_scoring_modules.append({"path": rel, "symbol": tok})
+    duplicate_scoring_modules = sorted(duplicate_scoring_modules,
+                                       key=lambda d: (d["path"], d["symbol"]))
+
+    # (d) DRC delegates scoring here; (e) platform surface is a compat wrapper.
+    drc_src = _read(DRC_OWNER)
+    drc_delegates_scoring = DRC_SCORING_DELEGATE_TOKEN in drc_src
+    platform_src = _read(PLATFORM_SCORES_OWNER)
+    platform_has_scores_fn = PLATFORM_SCORES_FN in platform_src
+    platform_delegates = DRC_SCORING_DELEGATE_TOKEN in platform_src
+
+    # (f) routes
+    routes = check_routes()["routes"]
+    canonical_present = any(r["path"] == US_ROUTE for r in routes)
+    compat_present = any(r["path"] == US_COMPAT_ROUTE for r in routes)
+    canonical_methods = sorted({r["method"] for r in routes if r["path"] == US_ROUTE})
+
+    # (g) UI: exactly one canonical loader; region computes nothing.
+    ui = _read(UI_FILE)
+    loader_count = ui.count(UI_US_LOADER)
+    fetch_count = ui.count(UI_US_FETCH)
+    region_hits: list[str] = []
+    start = ui.find(UI_US_LOADER)
+    end = ui.find(UI_US_REGION_END)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_US_FORBIDDEN:
+            if pat in region:
+                region_hits.append(pat)
+
+    return {
+        "owner": US_OWNER,
+        "kernel": US_KERNEL,
+        "owner_present": owner_present,
+        "kernel_present": kernel_present,
+        "delegates": delegates,
+        "missing_delegation": missing_delegation,
+        "second_scoring_engine_in_owner": second_engine_in_owner,
+        "forbidden_execution_calls": forbidden_calls,
+        "duplicate_operational_scoring_modules": duplicate_scoring_modules,
+        "drc_delegates_scoring": bool(drc_delegates_scoring),
+        "platform_compat_wrapper": bool(platform_has_scores_fn and platform_delegates),
+        "canonical_route_present": canonical_present,
+        "canonical_route_methods": canonical_methods,
+        "compat_route_present": compat_present,
+        "ui_scoring_loader_count": loader_count,
+        "ui_scoring_fetch_count": fetch_count,
+        "ui_scoring_computation": sorted(set(region_hits)),
+        "automatic_model_promotion_allowed": False,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -813,6 +944,7 @@ def run_audit() -> dict:
         "market_session_ownership": check_market_session_ownership(files),
         "workflow_state_ownership": check_workflow_state_ownership(files),
         "daily_research_cycle_ownership": check_daily_research_cycle_ownership(files),
+        "universe_scoring_ownership": check_universe_scoring_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -926,6 +1058,25 @@ def _print_console(rep: dict) -> None:
     print(f"Daily Close delegates evidence to canonical owner: "
           f"{dr['daily_close_delegates_evidence']}")
 
+    hdr("UNIVERSE-SCORING OWNERSHIP (Slice 4)")
+    us = rep["universe_scoring_ownership"]
+    print(f"owner present: {us['owner_present']} ({us['owner']})  "
+          f"kernel present: {us['kernel_present']} ({us['kernel']})")
+    print(f"delegation missing (must be empty): {us['missing_delegation']}")
+    print(f"second scoring engine in owner (must be empty): {us['second_scoring_engine_in_owner']}")
+    print(f"forbidden execution/provider/prediction calls (must be empty): "
+          f"{us['forbidden_execution_calls']}")
+    print(f"duplicate operational scoring modules (must be empty): "
+          f"{us['duplicate_operational_scoring_modules']}")
+    print(f"DRC delegates scoring to owner: {us['drc_delegates_scoring']}  "
+          f"platform compat wrapper: {us['platform_compat_wrapper']}")
+    print(f"canonical route present: {us['canonical_route_present']} {us['canonical_route_methods']}  "
+          f"compat route present: {us['compat_route_present']}")
+    print(f"UI canonical scoring loaders (must be 1): {us['ui_scoring_loader_count']}  "
+          f"UI scoring computation (must be empty): {us['ui_scoring_computation']}")
+    print(f"automatic model promotion allowed (must be False): "
+          f"{us['automatic_model_promotion_allowed']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -980,7 +1131,20 @@ def main(argv=None) -> int:
     if args.strict:
         wf = rep["workflow_state_ownership"]
         dr = rep["daily_research_cycle_ownership"]
+        us = rep["universe_scoring_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
+                         + (0 if us["owner_present"] else 1)
+                         + (0 if us["kernel_present"] else 1)
+                         + len(us["missing_delegation"])
+                         + len(us["second_scoring_engine_in_owner"])
+                         + len(us["forbidden_execution_calls"])
+                         + len(us["duplicate_operational_scoring_modules"])
+                         + (0 if us["drc_delegates_scoring"] else 1)
+                         + (0 if us["platform_compat_wrapper"] else 1)
+                         + (0 if us["canonical_route_present"] else 1)
+                         + (0 if us["compat_route_present"] else 1)
+                         + (0 if us["ui_scoring_loader_count"] == 1 else 1)
+                         + len(us["ui_scoring_computation"])
                          + len(rep["research_execution_terms"])
                          + len(wf["ui_unauthorized_canonical_writers"])
                          + len(wf["ui_unguarded_setters"])
