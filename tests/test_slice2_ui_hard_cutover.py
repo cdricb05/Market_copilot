@@ -399,17 +399,16 @@ def test_55_inventory_drift_zero():
     assert d["in_inventory_not_on_disk"] == []
 
 
-def test_56_slice3_remains_not_implemented():
-    # Slice-3 actions are described/routed only — execution_available is False.
+def test_56_slice3_research_cycle_executable_reassessment_deferred():
+    # Slice 3 IMPLEMENTS the Daily Research Cycle action (now executable). Portfolio
+    # reassessment (the Milestone-2 opportunity-cost engine) remains not-yet-implemented.
     r = _regression()
-    codes = {q["action_code"] for q in r["queued_actions"]}
-    assert ws.ACTION_RUN_RESEARCH_CYCLE in codes
-    assert ws.ACTION_RUN_PORTFOLIO_REASSESSMENT in codes
-    for q in r["queued_actions"]:
-        if q["action_code"] in (ws.ACTION_RUN_RESEARCH_CYCLE,
-                                 ws.ACTION_RUN_PORTFOLIO_REASSESSMENT):
-            assert q["execution_available"] is False
-            assert q["slice3_pending"] is True
+    q_by_code = {q["action_code"]: q for q in r["queued_actions"]}
+    assert ws.ACTION_RUN_RESEARCH_CYCLE in q_by_code
+    assert ws.ACTION_RUN_PORTFOLIO_REASSESSMENT in q_by_code
+    assert q_by_code[ws.ACTION_RUN_RESEARCH_CYCLE]["execution_available"] is True
+    rea = q_by_code[ws.ACTION_RUN_PORTFOLIO_REASSESSMENT]
+    assert rea["execution_available"] is False and rea["slice3_pending"] is True
 
 
 def test_57_roadmap_forbids_big_bang_rewrite():

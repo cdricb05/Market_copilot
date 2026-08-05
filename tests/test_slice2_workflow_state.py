@@ -41,6 +41,11 @@ _OP = {"operational_book": {
                        "latest_completed_market_date": "2026-08-04"}}}
 _INPUTS = {"market_as_of_date": "2026-07-31", "momentum_month": "2026-07",
            "fundamental_as_of_date": "2026-05-22"}
+# Slice 3: a REFRESHABLE daily-only staleness (monthly momentum current for the
+# eligible month) → the Daily Research Cycle is REQUIRED and executable (not blocked
+# by the month boundary — that BLOCKED case is covered in the Slice-3 suite).
+_STALE_DAILY = {"market_as_of_date": "2026-08-03", "momentum_month": "2026-08",
+                "fundamental_as_of_date": "2026-05-22"}
 _DAILY = {"status": "NO_DAILY_REFRESH_YET", "latest_valid_mark_date": "2026-07-20"}
 _DESK = {"series": {"SPY": [["2026-07-31", 747.03], ["2026-08-03", 757.67],
                             ["2026-08-04", 771.33]]}, "latest_completed_date": "2026-08-04"}
@@ -169,7 +174,8 @@ def test_12_expected_complete_owned_data_missing():
 
 def test_13_research_stale_requires_cycle():
     assert _decide(research_current=False) == ws.RESEARCH_CYCLE_REQUIRED
-    assert _ready(inputs=dict(_INPUTS), gate={**_GATE, "latest_completed_market_date": "2026-07-31"}
+    assert _ready(inputs=dict(_STALE_DAILY),
+                  gate={**_GATE, "latest_completed_market_date": "2026-07-31"}
                   )["overall_state"] == ws.RESEARCH_CYCLE_REQUIRED
 
 
@@ -377,13 +383,17 @@ def test_40_read_only_descriptive_actions_not_marked_executed():
     assert r["primary_action"]["execution_available"] is False
 
 
-def test_41_slice3_action_labelled_not_yet_implemented():
-    r = _ready(inputs=dict(_INPUTS), gate={**_GATE, "latest_completed_market_date": "2026-07-31"})
+def test_41_slice3_research_action_is_executable():
+    # Slice 3: the research-cycle action is now implemented and executable (the
+    # descriptive/routing-only Slice-2 placeholder is gone).
+    r = _ready(inputs=dict(_STALE_DAILY),
+               gate={**_GATE, "latest_completed_market_date": "2026-07-31"})
     pa = r["primary_action"]
+    assert r["overall_state"] == ws.RESEARCH_CYCLE_REQUIRED
     assert pa["action_code"] == ws.ACTION_RUN_RESEARCH_CYCLE
-    assert pa["slice3_pending"] is True
-    assert pa["execution_available"] is False
-    assert "not yet implemented" in pa["label"].lower()
+    assert pa["slice3_pending"] is False
+    assert pa["execution_available"] is True
+    assert pa["confirmation_required"] == "RUN_DAILY_RESEARCH_CYCLE"
 
 
 # =========================================================================== #
@@ -566,6 +576,7 @@ def test_66_existing_detailed_panels_and_loaders_intact():
 def test_frozen_vocabularies_are_stable():
     assert set(ws.OVERALL_STATES) == {
         "WAITING_FOR_SESSION_CLOSE", "WAITING_FOR_OWNED_DATA", "RESEARCH_CYCLE_REQUIRED",
+        "RESEARCH_CYCLE_RUNNING", "RESEARCH_CYCLE_BLOCKED",
         "PORTFOLIO_REASSESSMENT_REQUIRED", "READY_FOR_DAILY_CLOSE", "DAILY_CYCLE_COMPLETE",
         "DAILY_CYCLE_COMPLETE_EVIDENCE_GAP", "MANUAL_REVIEW_REQUIRED", "INCONSISTENT_STATE"}
     assert set(ws.ASSESSMENT_STATUSES) == {

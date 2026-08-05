@@ -156,6 +156,38 @@ SESSION_ARITH_RE = re.compile(
     r"while\s+[^\n]*weekday\(\)\s*>=\s*5|>=\s*time\(1[0-9]\s*,")
 MARKET_SESSION_REF = re.compile(r"market_session")
 
+# --- Slice 3 (Phase 29D) canonical Persistent Daily Research Cycle ownership ---- #
+# ONE orchestration owner composes the daily research pass through the existing
+# authoritative owners (scoring / target / evidence / assessment) via adapters; no
+# other module orchestrates the complete cycle, and the UI plans/prioritises nothing.
+DRC_OWNER = "api/daily_research_cycle.py"
+DRC_STATUS_ROUTE = "/v1/operations/daily-research-cycle/status"
+DRC_RUN_ROUTE = "/v1/operations/daily-research-cycle/run"
+DRC_EXECUTE_TOKEN = "RUN_DAILY_RESEARCH_CYCLE"
+# The orchestration entry points that identify the sole owner (exactly one module).
+DRC_RUN_DEF = "def run_daily_research_cycle("
+DRC_STATUS_DEF = "def load_daily_research_cycle_status("
+# The owner MUST delegate (reference these owners) and derive the evidence count
+# from the snapshot registry (never a hard-coded literal).
+DRC_MUST_DELEGATE = ("multi_horizon_engine", "forward_prediction_skill",
+                     "alpha_target", "daily_action_gate", "data_freshness",
+                     "SUPPORTED_BOOKS")
+# The owner must NEVER execute Daily Close or create an order / signal / decision /
+# fill, and must not host a SECOND scoring engine.
+DRC_FORBIDDEN_CALLS = ("run_daily_close(", "run_fill_cycle(", "place_order(",
+                       "submit_order(", "create_order(", "Signal(", "TradeDecision(")
+DRC_FORBIDDEN_MODEL_DEFS = ("def compute_scores(", "def _percentiles(")
+# UI: EXACTLY one status loader + one execution function; the DRC UI region derives
+# no dates / priority / freshness / plan.
+UI_DRC_LOADER = "function loadDailyResearchCycle"
+UI_DRC_EXEC = "function runDailyResearchCycle"
+UI_DRC_STATUS_FETCH = "/v1/operations/daily-research-cycle/status"
+UI_DRC_RUN_FETCH = "/v1/operations/daily-research-cycle/run"
+UI_DRC_REGION_END = "window.runDailyResearchCycle"
+UI_DRC_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", "build_execution_plan",
+                    "evaluate_alignment")
+
+
 # Canonical business concepts and the regex that identifies a *writer/producer*
 # of that concept (a function definition that computes it). Multiple modules
 # matching one concept is a source-of-truth candidate.
@@ -622,6 +654,94 @@ def check_workflow_state_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_daily_research_cycle_ownership(files: list[Path]) -> dict:
+    """Slice 3 semantic ownership guard.
+
+    Confirms (a) ``api.daily_research_cycle`` is the SOLE combined orchestration
+    owner (exactly one module defines the run + status entry points), (b) it
+    delegates scoring / target / evidence / assessment to the existing owners and
+    derives the evidence count from the snapshot registry, (c) it never executes
+    Daily Close and creates no order / signal / decision / fill and hosts no second
+    scoring engine, (d) the read-only status endpoint and the token-gated run
+    endpoint are declared, and (e) the UI has EXACTLY ONE status loader and ONE
+    execution function and derives no dates / priority / freshness / plan. This
+    validates ownership semantically rather than by an arbitrary occurrence count.
+    """
+    src = _read(DRC_OWNER)
+    owner_present = (REPO_ROOT / DRC_OWNER).exists()
+
+    run_def_modules: list[str] = []
+    status_def_modules: list[str] = []
+    for fp in files:
+        rel = _rel(fp)
+        # This audit tool itself references the def signatures as literal constants;
+        # it is not a competing orchestrator (mirrors SESSION_ARITH_EXEMPT).
+        if rel == "scripts/audit_architecture.py":
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if DRC_RUN_DEF in text:
+            run_def_modules.append(rel)
+        if DRC_STATUS_DEF in text:
+            status_def_modules.append(rel)
+    competing = sorted((set(run_def_modules) | set(status_def_modules)) - {DRC_OWNER})
+
+    delegates = {tok: (tok in src) for tok in DRC_MUST_DELEGATE}
+    missing_delegation = sorted(k for k, v in delegates.items() if not v)
+    forbidden_calls = sorted(t for t in DRC_FORBIDDEN_CALLS if t in src)
+    forbidden_model_defs = sorted(t for t in DRC_FORBIDDEN_MODEL_DEFS if t in src)
+
+    routes = check_routes()["routes"]
+    status_present = any(r["path"] == DRC_STATUS_ROUTE for r in routes)
+    run_present = any(r["path"] == DRC_RUN_ROUTE for r in routes)
+    # The run route must be POST-only; the status route GET-only.
+    status_methods = sorted({r["method"] for r in routes if r["path"] == DRC_STATUS_ROUTE})
+    run_methods = sorted({r["method"] for r in routes if r["path"] == DRC_RUN_ROUTE})
+
+    ui = _read(UI_FILE)
+    loader_count = ui.count(UI_DRC_LOADER)
+    exec_count = ui.count(UI_DRC_EXEC)
+    status_fetch_count = ui.count(UI_DRC_STATUS_FETCH)
+    run_fetch_count = ui.count(UI_DRC_RUN_FETCH)
+    region_hits: list[str] = []
+    start = ui.find(UI_DRC_LOADER)
+    end = ui.find(UI_DRC_REGION_END)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_DRC_FORBIDDEN:
+            if pat in region:
+                region_hits.append(pat)
+
+    # Daily Close delegates evidence to the canonical owner (no competing bundle).
+    dc = _read("api/daily_close.py")
+    daily_close_delegates_evidence = ("forward_prediction_skill" in dc
+                                      or "\nimport" in dc and "fps" in dc
+                                      or " fps." in dc)
+
+    return {
+        "owner": DRC_OWNER,
+        "owner_present": owner_present,
+        "sole_orchestrator": (competing == []),
+        "competing_orchestrators": competing,
+        "run_entry_modules": sorted(run_def_modules),
+        "status_entry_modules": sorted(status_def_modules),
+        "delegates": delegates,
+        "missing_delegation": missing_delegation,
+        "forbidden_execution_calls": forbidden_calls,
+        "forbidden_second_scoring_engine": forbidden_model_defs,
+        "status_endpoint_present": status_present,
+        "run_endpoint_present": run_present,
+        "status_methods": status_methods,
+        "run_methods": run_methods,
+        "ui_status_loader_count": loader_count,
+        "ui_execution_function_count": exec_count,
+        "ui_status_fetch_count": status_fetch_count,
+        "ui_run_fetch_count": run_fetch_count,
+        "ui_planning_derivation": sorted(set(region_hits)),
+        "daily_close_delegates_evidence": bool(daily_close_delegates_evidence),
+        "execute_token": DRC_EXECUTE_TOKEN,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -692,6 +812,7 @@ def run_audit() -> dict:
         "research_execution_terms": check_research_execution_terms(files),
         "market_session_ownership": check_market_session_ownership(files),
         "workflow_state_ownership": check_workflow_state_ownership(files),
+        "daily_research_cycle_ownership": check_daily_research_cycle_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -789,6 +910,22 @@ def _print_console(rep: dict) -> None:
     print(f"raw Daily Action Gate vocabulary retained (expected True): "
           f"{wf['raw_gate_vocab_retained']}")
 
+    hdr("DAILY RESEARCH CYCLE OWNERSHIP (Slice 3)")
+    dr = rep["daily_research_cycle_ownership"]
+    print(f"owner present: {dr['owner_present']} ({dr['owner']})")
+    print(f"sole orchestration owner: {dr['sole_orchestrator']}  "
+          f"competing (must be empty): {dr['competing_orchestrators']}")
+    print(f"status endpoint present: {dr['status_endpoint_present']} {dr['status_methods']}  "
+          f"run endpoint present: {dr['run_endpoint_present']} {dr['run_methods']}")
+    print(f"delegation missing (must be empty): {dr['missing_delegation']}")
+    print(f"forbidden execution calls (must be empty): {dr['forbidden_execution_calls']}")
+    print(f"second scoring engine (must be empty): {dr['forbidden_second_scoring_engine']}")
+    print(f"UI status loaders (must be 1): {dr['ui_status_loader_count']}  "
+          f"UI execution functions (must be 1): {dr['ui_execution_function_count']}")
+    print(f"UI planning/date derivation (must be empty): {dr['ui_planning_derivation']}")
+    print(f"Daily Close delegates evidence to canonical owner: "
+          f"{dr['daily_close_delegates_evidence']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -842,6 +979,7 @@ def main(argv=None) -> int:
 
     if args.strict:
         wf = rep["workflow_state_ownership"]
+        dr = rep["daily_research_cycle_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
                          + len(rep["research_execution_terms"])
                          + len(wf["ui_unauthorized_canonical_writers"])
@@ -849,6 +987,17 @@ def main(argv=None) -> int:
                          + len(wf["ui_workflow_priority_derivation"])
                          + (0 if wf["ui_workflow_loader_count"] == 1 else 1)
                          + (0 if wf["ui_canonical_ownership_declared"] else 1)
+                         + (0 if dr["owner_present"] else 1)
+                         + (0 if dr["sole_orchestrator"] else 1)
+                         + len(dr["competing_orchestrators"])
+                         + len(dr["missing_delegation"])
+                         + len(dr["forbidden_execution_calls"])
+                         + len(dr["forbidden_second_scoring_engine"])
+                         + (0 if dr["status_endpoint_present"] else 1)
+                         + (0 if dr["run_endpoint_present"] else 1)
+                         + (0 if dr["ui_status_loader_count"] == 1 else 1)
+                         + (0 if dr["ui_execution_function_count"] == 1 else 1)
+                         + len(dr["ui_planning_derivation"])
                          + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
                          + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
         return 1 if blocking_hits else 0

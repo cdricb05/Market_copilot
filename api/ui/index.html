@@ -4562,9 +4562,71 @@
         </div>
         <!-- Current Alpha Paper Book (Phase 13-F) END -->
 
-        <!-- Daily Alpha Run (Phase 13-G/H) START — manual daily trading-desk cockpit.
-             ONE explicit user-triggered action (RUN DAILY ALPHA REFRESH) launches the
-             read-only Phase 13-G EOD mark refresh, then marks TOP 25 + TOP 50 vs SPY:
+        <!-- Daily Research Cycle (Slice 3 / Phase 29D) START — the ONE canonical
+             daily research-and-reassessment action. It renders api.daily_research_cycle
+             status ONLY (one status loader, one execution function); the single RUN
+             button POSTs the confirm-token run endpoint. The UI performs NO freshness /
+             priority / date / scoring logic — it renders backend-provided fields and
+             obeys the backend `executable` flag. Preview only. No orders. Automation off.
+             The champion Daily Alpha Run below is a separate research detail. -->
+        <div class="card" id="drc-panel" style="margin-bottom:14px;border:2px solid var(--info,#3b82f6);">
+          <div class="card-title">
+            <span style="font-size:15px;font-weight:800;letter-spacing:.5px;">DAILY RESEARCH CYCLE</span>
+            <span style="font-size:10px;color:var(--text-accent);font-weight:600;">one canonical daily research + reassessment pass — preview only — no orders — automation off</span>
+          </div>
+          <div id="drc-badges" style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px;">
+            <span class="safety-badge" style="background:#6c3483;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">PREVIEW ONLY</span>
+            <span class="safety-badge" style="background:#c0392b;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">NO BROKER EXECUTION</span>
+            <span class="safety-badge" style="background:#784212;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">AUTOMATION OFF</span>
+            <span class="safety-badge" style="background:#1a5276;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">MANUAL REVIEW</span>
+            <span class="safety-badge" style="background:#515a5a;color:#fff;font-size:9px;padding:2px 8px;border-radius:3px;font-weight:700;letter-spacing:.5px;">CREATES SIGNALS ONLY</span>
+          </div>
+          <!-- Prominent primary action (backend-governed enabled/disabled state). -->
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 10px;">
+            <button class="btn" id="drc-run-btn" onclick="runDailyResearchCycle(this)" disabled style="background:var(--info,#3b82f6);color:#fff;font-size:13px;font-weight:800;padding:10px 18px;border:none;border-radius:4px;letter-spacing:.5px;cursor:pointer;">RUN DAILY RESEARCH CYCLE</button>
+            <span id="drc-run-hint" style="font-size:11px;color:var(--text-accent);">Loading Daily Research Cycle status…</span>
+          </div>
+          <div id="drc-action-result" style="display:none;border-radius:3px;padding:7px 9px;font-size:11px;font-weight:600;margin:6px 0;background:rgba(59,130,246,.1);color:var(--text-primary);"></div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="flex:1;min-width:320px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">CYCLE STATE</div>
+              <div>STATE: <span id="drc-state" class="mono" style="color:var(--text-primary);font-weight:700;">—</span></div>
+              <div style="color:var(--text-accent);">Eligible session: <span id="drc-eligible" class="mono" style="color:var(--text-primary);">—</span></div>
+              <div style="color:var(--text-accent);">Run: <span id="drc-run-id" class="mono" style="color:var(--text-primary);">—</span> · Step: <span id="drc-current-step" class="mono" style="color:var(--text-primary);">—</span></div>
+            </div>
+            <div style="flex:1;min-width:320px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">STRATEGY · UNIVERSE · TARGET · ASSESSMENT</div>
+              <div style="color:var(--text-accent);">Strategy: <span id="drc-strategy" class="mono" style="color:var(--text-primary);">—</span></div>
+              <div style="color:var(--text-accent);">Universe scored: <span id="drc-universe-size" class="mono" style="color:var(--text-primary);">—</span> · Coverage: <span id="drc-coverage" class="mono" style="color:var(--text-primary);">—</span></div>
+              <div style="color:var(--text-accent);">Target: <span id="drc-target" class="mono" style="color:var(--text-primary);">—</span> · Assessment: <span id="drc-assessment" class="mono" style="color:var(--text-primary);">—</span></div>
+            </div>
+          </div>
+          <div style="border:1px solid var(--border,#333);border-radius:3px;padding:8px 10px;font-size:11px;margin-bottom:10px;">
+            <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">EXECUTION PLAN · FORWARD EVIDENCE</div>
+            <div style="color:var(--text-accent);">Completed steps: <span id="drc-steps" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Stale inputs: <span id="drc-stale" class="mono" style="color:var(--text-primary);">—</span> · Refreshed: <span id="drc-refreshed" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">TRUE_FORWARD snapshots: <span id="drc-snapshots" class="mono" style="color:var(--text-primary);">—</span> · Evidence: <span id="drc-evidence" class="mono" style="color:var(--text-primary);">—</span></div>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">TOP 25</div>
+              <div id="drc-top25" class="mono" style="color:var(--text-primary);">—</div>
+            </div>
+            <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
+              <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">TOP 50</div>
+              <div id="drc-top50" class="mono" style="color:var(--text-primary);">—</div>
+            </div>
+          </div>
+          <div id="drc-blockers" style="display:none;background:rgba(239,68,68,.1);border:1px solid var(--danger);color:var(--danger);border-radius:3px;padding:8px 10px;font-size:11px;font-weight:600;margin-bottom:8px;"></div>
+          <div id="drc-next" style="font-size:11px;color:var(--text-accent);"></div>
+          <ul id="drc-warnings" style="margin:8px 0 0;padding-left:18px;font-size:11px;color:var(--text-accent);line-height:1.6;"></ul>
+        </div>
+        <!-- Daily Research Cycle END -->
+
+        <!-- Daily Alpha Run (Phase 13-G/H) START — champion-mark research DETAIL,
+             subordinate to the canonical Daily Research Cycle above. ONE explicit
+             user-triggered action (RUN DAILY ALPHA REFRESH) launches the read-only
+             Phase 13-G EOD mark refresh, then marks TOP 25 + TOP 50 vs SPY:
              POST /v1/research/current-alpha/daily-refresh (commit flag),
              GET  /v1/research/current-alpha/daily-status.
              It is NOT automation and NOT scheduling. No orders, no broker; does not
@@ -23896,12 +23958,14 @@ function loadOperationalBook() {
     try { loadDailyClose(); } catch (e) {}         // Phase 27E: the ONE daily-close status
     try { loadDataFreshness(); } catch (e) {}      // Slice 1: the ONE freshness/session strip
     try { loadWorkflowState(); } catch (e) {}      // Slice 2: the ONE workflow/operator state
+    try { loadDailyResearchCycle(); } catch (e) {} // Slice 3: the ONE research-cycle status
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
     try { loadDailyActionGate(); } catch (e) {}
     try { loadDailyClose(); } catch (e) {}
     try { loadDataFreshness(); } catch (e) {}
-    try { loadWorkflowState(); } catch (e) {} return null; });
+    try { loadWorkflowState(); } catch (e) {}
+    try { loadDailyResearchCycle(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
@@ -23949,6 +24013,120 @@ function loadWorkflowState() {
   return p;
 }
 window.loadWorkflowState = loadWorkflowState;
+
+// --- Daily Research Cycle (Slice 3 / Phase 29D) ----------------------------- //
+// EXACTLY ONE status loader (loadDailyResearchCycle) and EXACTLY ONE execution
+// function (runDailyResearchCycle). The UI renders backend-provided fields ONLY
+// and obeys the backend `executable` flag — it performs NO freshness / workflow-
+// priority / date / scoring logic and calls exactly one status endpoint and one
+// execution endpoint.
+window._drcData = null; window._drcInFlight = null; window._drcRunning = false;
+function loadDailyResearchCycle() {
+  if (window._drcInFlight) return window._drcInFlight;   // coalesce concurrent page loads
+  var p = _mhzGet('/v1/operations/daily-research-cycle/status').then(function (d) {
+    window._drcInFlight = null; window._drcData = d; renderDailyResearchCycle(d); return d;
+  }).catch(function () { window._drcInFlight = null; renderDailyResearchCycle(null); return null; });
+  window._drcInFlight = p;
+  return p;
+}
+window.loadDailyResearchCycle = loadDailyResearchCycle;
+
+function _drcSet(id, text) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
+}
+
+function renderDailyResearchCycle(d) {
+  var btn = document.getElementById('drc-run-btn');
+  var hint = document.getElementById('drc-run-hint');
+  if (!d) {
+    _drcSet('drc-state', 'UNAVAILABLE');
+    if (btn) btn.disabled = true;
+    if (hint) hint.textContent = 'Daily Research Cycle status unavailable.';
+    return;
+  }
+  _drcSet('drc-state', d.state);
+  _drcSet('drc-eligible', d.eligible_market_date);
+  _drcSet('drc-run-id', d.run_id);
+  _drcSet('drc-current-step', d.current_step);
+  _drcSet('drc-strategy', (d.strategy_id || '—') + ' ' + (d.strategy_version || ''));
+  _drcSet('drc-universe-size', (d.scored_count != null ? d.scored_count : '—'));
+  _drcSet('drc-coverage', (d.coverage_ratio != null ? d.coverage_ratio : '—'));
+  _drcSet('drc-target', (d.target_date || '—') + ' · ' + (d.target_status || '—'));
+  _drcSet('drc-assessment', (d.assessment_date || '—') + ' · ' + (d.assessment_result || d.assessment_status || '—'));
+  _drcSet('drc-steps', (d.completed_steps || []).join(', ') || '—');
+  var plan = d.input_plan || {};
+  _drcSet('drc-stale', (plan.required_stale_inputs || []).join(', ') || 'none');
+  var refreshed = (d.input_results || []).map(function (r) { return r.source_id; });
+  _drcSet('drc-refreshed', refreshed.join(', ') || '—');
+  _drcSet('drc-snapshots', (d.captured_snapshot_count != null ? d.captured_snapshot_count : '—') + ' / ' + (d.required_snapshot_count != null ? d.required_snapshot_count : '—'));
+  _drcSet('drc-evidence', d.evidence_status);
+  var t25 = (d.top25 || []).map(function (c) { return c.ticker; });
+  var t50 = (d.top50 || []).map(function (c) { return c.ticker; });
+  _drcSet('drc-top25', t25.length ? (t25.length + ': ' + t25.join(' ')) : '—');
+  _drcSet('drc-top50', t50.length ? (t50.length + ': ' + t50.join(' ')) : '—');
+
+  var bl = document.getElementById('drc-blockers');
+  if (bl) {
+    var blockers = d.blockers || [];
+    if (blockers.length) {
+      bl.style.display = 'block';
+      bl.textContent = 'BLOCKED: ' + blockers.map(function (b) {
+        return (b.source_id ? (b.source_id + ' — ') : '') + (b.missing_implementation || b.code || b.detail || 'blocker');
+      }).join('; ');
+    } else { bl.style.display = 'none'; bl.textContent = ''; }
+  }
+
+  var nxt = document.getElementById('drc-next');
+  var acts = d.required_actions || [];
+  if (nxt) nxt.textContent = acts.length
+    ? ('Next: ' + acts.map(function (a) { return a.action || a.missing_implementation || ''; }).filter(Boolean).join(' · '))
+    : '';
+
+  var wl = document.getElementById('drc-warnings');
+  if (wl) { wl.innerHTML = ''; (d.warnings || []).forEach(function (w) { var li = document.createElement('li'); li.textContent = w; wl.appendChild(li); }); }
+
+  // The button enabled/disabled state is governed ENTIRELY by the backend flag.
+  if (btn) btn.disabled = !d.executable || !!window._drcRunning;
+  if (hint) {
+    if (window._drcRunning) hint.textContent = 'Running — do not submit again.';
+    else if (d.executable) hint.textContent = 'Ready — one manual action refreshes required inputs, scores the universe, prepares the target and captures immutable evidence.';
+    else if (d.state === 'WAITING_FOR_SESSION_CLOSE') hint.textContent = 'Wait for the current market session to close.';
+    else if (d.state === 'WAITING_FOR_OWNED_DATA') hint.textContent = 'Waiting for owned market data' + (d.eligible_market_date ? (' for ' + d.eligible_market_date) : '') + '.';
+    else if (d.state === 'BLOCKED') hint.textContent = 'Blocked — resolve the named input above. Do not proceed to Daily Close.';
+    else if (d.state === 'COMPLETE' || d.state === 'COMPLETE_WITH_EVIDENCE_GAP') hint.textContent = 'Complete — proceed to the Daily Close.';
+    else hint.textContent = '';
+  }
+}
+window.renderDailyResearchCycle = renderDailyResearchCycle;
+
+function runDailyResearchCycle(btn) {
+  var b = document.getElementById('drc-run-btn');
+  if (b && b.disabled) return;           // never submit when the backend says not executable
+  if (window._drcRunning) return;        // prevent duplicate submission
+  window._drcRunning = true;
+  if (b) { b.disabled = true; b.textContent = 'DAILY RESEARCH CYCLE RUNNING…'; }
+  var res = document.getElementById('drc-action-result');
+  call('POST', '/v1/operations/daily-research-cycle/run', { confirmation: 'RUN_DAILY_RESEARCH_CYCLE' })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
+    })
+    .then(function (o) {
+      window._drcRunning = false;
+      if (b) b.textContent = 'RUN DAILY RESEARCH CYCLE';
+      if (res) {
+        res.style.display = 'block';
+        res.textContent = 'Daily Research Cycle result: ' + ((o.body && o.body.state) || ('HTTP ' + o.status));
+      }
+      return loadDailyResearchCycle().then(function () { try { loadWorkflowState(); } catch (e) {} });
+    })
+    .catch(function () {
+      window._drcRunning = false;
+      if (b) b.textContent = 'RUN DAILY RESEARCH CYCLE';
+      if (res) { res.style.display = 'block'; res.textContent = 'Could not run the Daily Research Cycle.'; }
+    });
+}
+window.runDailyResearchCycle = runDailyResearchCycle;
 
 // ---- Slice 2 (Phase 29C.1): CANONICAL DOM OWNERSHIP (Workstream C / E / H) -----
 // renderWorkflowState is the EXCLUSIVE owner of the PRIMARY operator interpretation

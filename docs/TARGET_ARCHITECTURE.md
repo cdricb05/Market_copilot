@@ -46,7 +46,7 @@ defect to be migrated, not a new owner to be blessed.
 | Market data (prices) | `market_data_service` (unify `engine/market_data` + owned-EOD transport) | World A Yahoo vs World B EODHD split |
 | Feature production | `feature_service` (extract from `multi_horizon_engine` inputs) | scattered CSV input builders |
 | Universe scoring / rankings | `universe_scoring` (`multi_horizon_engine.compute_scores`) | ≥8 z-score/rank reimplementations |
-| Research cycle orchestration | `research_cycle` (compose `alpha_target.run_refresh` + scoring) | Daily Alpha Run vs alpha-target vs close-embedded refresh |
+| Research cycle orchestration | `api/daily_research_cycle` (**LANDED, Slice 3**; composes session/freshness + `alpha_target.run_refresh` + `multi_horizon_engine` scoring + `forward_prediction_skill` evidence + `daily_action_gate` bridge) | Daily Alpha Run vs alpha-target vs close-embedded refresh; hidden month-boundary prerequisite |
 | Model registry / champion governance | `model_registry` (unify `alpha_registry` + tournament) | 2 challenger registries (phase20/21), dead phase18 wire |
 | Portfolio state (NAV, cash, holdings) | `portfolio_state` (`portfolio_valuation` as the mark authority) | 2 NAV authorities, `book_nav`, `cached_total_value`, `_collect_positions` |
 | Holding opportunity-cost | `opportunity_cost_engine` (new; Milestone 2) | ad-hoc rank/deterioration logic in `portfolio_manager` |
@@ -167,15 +167,27 @@ responsibilities, candidate existing modules, and migration approach.
 
 ### Research Cycle
 - **Responsibility:** orchestrate one persistent daily research pass (session →
-  data → features → scoring → status → forward evidence) with no hidden operator
-  prerequisites (Milestone 1).
-- **Inputs:** market session, data, scoring.
-- **Outputs:** run status, target review.
-- **Owned state:** run-status record.
-- **Forbidden:** mutating holdings.
-- **Candidates:** `alpha_target.run_refresh`, `current_alpha_daily_refresh`.
-- **Migration:** one orchestration path; the standalone refresh endpoints become
-  thin wrappers over it.
+  plan → data refresh → date-alignment → scoring → target → forward evidence →
+  portfolio-assessment bridge) with no hidden operator prerequisites (Milestone 1).
+- **Inputs:** market session / freshness, data, scoring.
+- **Outputs:** one canonical run manifest + status contract.
+- **Owned state:** run-status manifests under a research root (`PAPER_TRADER_DRC_DIR`).
+- **Forbidden:** mutating holdings; running Daily Close; auto-confirming a target;
+  promoting/recalibrating a model; creating an order/signal/decision/fill;
+  approximating the frozen monthly input.
+- **Candidates:** `api/daily_research_cycle` (**LANDED, Slice 3**).
+- **Status (Slice 3, LANDED):** `api/daily_research_cycle.py` is the ONE idempotent,
+  resumable orchestration owner. It composes the existing authoritative owners
+  through adapters (it does NOT consolidate scoring — Slice 4 — or portfolio state —
+  Slice 5, and is NOT the Milestone-2 opportunity-cost engine). The evidence count is
+  derived from `forward_prediction_skill.SUPPORTED_BOOKS`; the bundle is immutable and
+  first-write-wins; Daily Close idempotently reuses it (the cycle never runs Daily
+  Close). There is no safe automatic monthly-momentum emitter, so the cycle BLOCKS at
+  the month boundary (`RUN_RESEARCH_MONTHLY_INPUT_EMITTER`) instead of approximating.
+  `GET /v1/operations/daily-research-cycle/status` + `POST .../run`
+  (`RUN_DAILY_RESEARCH_CYCLE`); one UI status loader + one execution function;
+  `api/workflow_state` consumes the status (`RESEARCH_CYCLE_RUNNING` /
+  `RESEARCH_CYCLE_BLOCKED`). The standalone champion refresh remains a research detail.
 
 ### Model Registry and Champion/Challenger Governance
 - **Responsibility:** hold champion + challenger models, run gated evaluation,

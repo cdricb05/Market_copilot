@@ -173,6 +173,45 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
 - **Completion gate:** desk-mark date and `market_as_of_date` provably advance
   together on every path.
 - **Principle:** 2, 5. **Milestone:** 1.
+- **Status — LANDED (Phase 29D).** Canonical owner `api/daily_research_cycle.py` —
+  the ONE idempotent, resumable orchestration owner of the daily
+  research-and-reassessment pass with **no hidden operator prerequisite**. It
+  *orchestrates* the existing authoritative owners through explicit adapters and
+  reimplements no business logic: session/plan/freshness → `api.data_freshness`
+  (Slice 1); the daily price/score input refresh → `alpha_target.run_refresh`;
+  universe scoring / TOP25 / TOP50 → `multi_horizon_engine.build_current`
+  (unchanged — Slice 4 still owns consolidation); target preparation →
+  `alpha_target.load_readiness` (**never auto-confirmed**); the immutable
+  TRUE_FORWARD bundle → `forward_prediction_skill.capture_for_daily_close` (the
+  required snapshot count is **derived from `SUPPORTED_BOOKS`**, never hard-coded,
+  bundle `fca_<date>` first-write-wins, never backdated); the paper-only
+  portfolio-assessment **bridge** → `daily_action_gate` (a compatibility bridge,
+  **not** the Milestone-2 opportunity-cost engine). Frozen 16-state machine and
+  step contract; idempotency key = `sha256(eligible date | active book | strategy
+  version | universe | input-contract hash)` (completed runs are reused, safe
+  incomplete runs resume, a conflicting concurrent contract is `INCONSISTENT`,
+  a different contract for the same date never overwrites the immutable bundle).
+  **The month boundary is now explicit:** there is no safe automatic
+  monthly-momentum emitter in-repo, so the cycle returns `BLOCKED` /
+  `RUN_RESEARCH_MONTHLY_INPUT_EMITTER` rather than approximating the frozen
+  `mom_6_1` monthly input (the documented "August evidence gap" made visible).
+  New surfaces: `GET /v1/operations/daily-research-cycle/status` (read-only,
+  planning-only) and `POST /v1/operations/daily-research-cycle/run` (token
+  `RUN_DAILY_RESEARCH_CYCLE`); one UI status loader `loadDailyResearchCycle()` +
+  one execution function `runDailyResearchCycle()` render the canonical
+  Daily-Research-Cycle card (the shell "Daily Alpha Refresh" is demoted to a
+  champion-mark research detail). `api.workflow_state` **consumes** the cycle
+  status (new `RESEARCH_CYCLE_RUNNING` / `RESEARCH_CYCLE_BLOCKED` overall states;
+  the research action is now executable). Run manifests persist under
+  `PAPER_TRADER_DRC_DIR` (a research root, atomic) — **never** the operational
+  ledger root except through the already-authoritative evidence owner. It
+  **never** runs the operational Daily Close (which idempotently reuses the SAME
+  fps bundle), promotes/recalibrates a model, or creates an order/signal/decision/
+  fill. Static guard `check_daily_research_cycle_ownership` enforces the sole
+  owner, delegation, one UI loader/execution function, no UI planning, and the
+  no-execution invariants; inventory drift = 0. **Not begun:** Slice 4 (canonical
+  scoring), Slice 5 (portfolio state), Milestone 2 (opportunity-cost engine);
+  cadence remains disabled.
 
 ## Slice 4 — Canonical universe scoring
 

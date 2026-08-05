@@ -400,18 +400,54 @@ def test_70_roadmap_still_forbids_big_bang_and_orders_state_second():
     assert "workflow" in text[s2:s3].lower()
 
 
-def test_71_slice3_remains_not_implemented():
-    # Slice 3 (Persistent Daily Research Cycle) is described but NOT built: no
-    # research_cycle module exists yet, and the Slice-3 workflow action is labelled
-    # not-yet-implemented in the canonical owner.
-    assert not (REPO / "api" / "research_cycle.py").exists()
-    src = _read(REPO / "api" / "workflow_state.py")
-    assert "not yet implemented" in src.lower()
+def test_71_slice3_landed_and_bounded_from_slice4():
+    # Slice 3 (Persistent Daily Research Cycle) has LANDED with api.daily_research_cycle
+    # as the sole orchestration owner, while remaining strictly bounded from Slice 4
+    # (canonical scoring), Slice 5 (portfolio state), and the Milestone-2 holding
+    # opportunity-cost engine. Cadence stays disabled, no automatic model promotion is
+    # introduced, and the roadmap still forbids a big-bang rewrite.
     roadmap = _read(ROADMAP)
     s3 = roadmap.index("## Slice 3")
     s4 = roadmap.index("## Slice 4")
-    # Slice 3 has no LANDED status line (Slice 1 does; Slice 2 lands here).
-    assert "LANDED" not in roadmap[s3:s4]
+    s5 = roadmap.index("## Slice 5")
+    s6 = roadmap.index("## Slice 6")
+    s7 = roadmap.index("## Slice 7")
+    s3text = roadmap[s3:s4]
+    # Collapse whitespace so phrase checks tolerate the roadmap's hard line wrapping.
+    s3flat = re.sub(r"\s+", " ", s3text)
+
+    # 1. Slice 3 is documented as LANDED.
+    assert "LANDED (Phase 29D)" in s3flat
+
+    # 2. api.daily_research_cycle is documented as the canonical orchestration owner
+    #    and the module is actually present in the repository.
+    assert "api/daily_research_cycle.py" in s3flat
+    assert "orchestration owner" in s3flat
+    assert (REPO / "api" / "daily_research_cycle.py").exists()
+
+    # 3. Slice 3 remains bounded from Slice 4 (scoring consolidation is still Slice 4's).
+    assert "Slice 4 still owns consolidation" in s3flat
+    assert "Not begun:" in s3flat and "Slice 4 (canonical scoring)" in s3flat
+
+    # 4. Slice 4 is NOT documented as LANDED or implemented.
+    assert "LANDED" not in roadmap[s4:s5]
+
+    # 5. The Milestone-2 holding opportunity-cost engine is NOT claimed complete: the
+    #    Slice-3 status explicitly disclaims it, lists it under "Not begun", and the
+    #    engine's own slice (Slice 6) has no LANDED status line.
+    assert "Milestone-2 opportunity-cost engine" in s3flat
+    assert "Milestone 2 (opportunity-cost engine)" in s3flat
+    assert "LANDED" not in roadmap[s6:s7]
+
+    # 6. Cadence remains disabled.
+    assert "cadence remains disabled" in s3flat
+
+    # 7. No automatic model promotion is introduced (canonical workflow invariant).
+    ws_src = _read(REPO / "api" / "workflow_state.py")
+    assert '"automatic_promotion_allowed": False' in ws_src
+
+    # 8. The roadmap still prohibits a big-bang rewrite.
+    assert "No big-bang rewrite" in roadmap
 
 
 def test_72_workflow_state_target_owner_single_cell():

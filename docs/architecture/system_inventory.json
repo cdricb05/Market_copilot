@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "69d353d",
+    "head": "7fb8883",
     "branch": "main",
-    "phase": "29C-Slice2"
+    "phase": "29D-Slice3"
   },
   "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete.",
   "systems": {
@@ -125,6 +125,22 @@
       "status": "OK"
     },
     {
+      "concept": "daily_research_cycle_orchestration",
+      "authoritative_owner": "api/daily_research_cycle.py (Slice 3 canonical Persistent Daily Research Cycle owner)",
+      "current_writers": [
+        "api/daily_research_cycle.py"
+      ],
+      "delegating_domain_fact_owners": [
+        "api/data_freshness.py (eligible session + per-source freshness plan + consistency)",
+        "api/alpha_target.py (daily price/score input refresh + target readiness; DETECTS the month boundary)",
+        "api/multi_horizon_engine.py (universe scoring / TOP25 / TOP50)",
+        "api/forward_prediction_skill.py (immutable TRUE_FORWARD bundle; count from SUPPORTED_BOOKS)",
+        "api/daily_action_gate.py (paper-only portfolio-assessment bridge)"
+      ],
+      "notes": "Slice 3 introduces api/daily_research_cycle.py as the ONE orchestration owner of the daily research-and-reassessment pass (session -> plan -> refresh -> alignment -> scoring -> target -> immutable evidence -> assessment) with no hidden operator prerequisite. It ORCHESTRATES existing owners through adapters and does NOT consolidate scoring (Slice 4) or portfolio state (Slice 5). There is NO safe automatic monthly-momentum emitter in-repo: the frozen mom_6_1 monthly input is never approximated intramonth, so the cycle returns BLOCKED / RUN_RESEARCH_MONTHLY_INPUT_EMITTER at the month boundary (the documented 'August evidence gap' made explicit). It NEVER runs the operational Daily Close (which idempotently reuses the SAME immutable fps bundle), never auto-confirms a target, never promotes/recalibrates a model, and creates no order/signal/decision/fill. Run manifests persist under PAPER_TRADER_DRC_DIR (a research root), never the operational ledger root. Read-only status: GET /v1/operations/daily-research-cycle/status; token-gated run: POST /v1/operations/daily-research-cycle/run (RUN_DAILY_RESEARCH_CYCLE). api/workflow_state.py consumes the cycle status (RESEARCH_CYCLE_RUNNING / RESEARCH_CYCLE_BLOCKED overall states).",
+      "status": "OWNED_SLICE3"
+    },
+    {
       "concept": "model_mark_price",
       "authoritative_owner": "api/paper_trading_desk.py desk marks (operational)",
       "current_writers": [
@@ -225,6 +241,11 @@
     {
       "prefix": "/v1/operations/workflow-state",
       "owner": "api/workflow_state.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/daily-research-cycle",
+      "owner": "api/daily_research_cycle.py",
       "system": "infrastructure"
     },
     {
@@ -532,7 +553,38 @@
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "The ONE owner of the combined operator interpretation (Consolidation Roadmap Slice 2). Owns the frozen overall-state vocabulary (WAITING_FOR_SESSION_CLOSE / WAITING_FOR_OWNED_DATA / RESEARCH_CYCLE_REQUIRED / PORTFOLIO_REASSESSMENT_REQUIRED / READY_FOR_DAILY_CLOSE / DAILY_CYCLE_COMPLETE / DAILY_CYCLE_COMPLETE_EVIDENCE_GAP / MANUAL_REVIEW_REQUIRED / INCONSISTENT_STATE), the assessment-currency vocabulary (CURRENT/STALE/DUE/OVERDUE/MISSING/INCONSISTENT), the action-severity vocabulary (INFO/SUCCESS/ATTENTION/BLOCKED/ERROR), the deterministic priority policy and the decision-currency rule (an older Daily Action Gate result is never re-presented as a stale 'today' conclusion). Specialized modules keep their domain facts; the UI renders these values and derives none of them. Read-only: no provider/prediction call, no Daily Close, no research refresh, no reassessment, no write, no proposal. Slice 2 performs no workflow action; Slice-3 actions are labelled not-yet-implemented."
+      "notes": "The ONE owner of the combined operator interpretation (Consolidation Roadmap Slice 2). Owns the frozen overall-state vocabulary (WAITING_FOR_SESSION_CLOSE / WAITING_FOR_OWNED_DATA / RESEARCH_CYCLE_REQUIRED / RESEARCH_CYCLE_RUNNING / RESEARCH_CYCLE_BLOCKED / PORTFOLIO_REASSESSMENT_REQUIRED / READY_FOR_DAILY_CLOSE / DAILY_CYCLE_COMPLETE / DAILY_CYCLE_COMPLETE_EVIDENCE_GAP / MANUAL_REVIEW_REQUIRED / INCONSISTENT_STATE), the assessment-currency vocabulary (CURRENT/STALE/DUE/OVERDUE/MISSING/INCONSISTENT), the action-severity vocabulary (INFO/SUCCESS/ATTENTION/BLOCKED/ERROR), the deterministic priority policy and the decision-currency rule (an older Daily Action Gate result is never re-presented as a stale 'today' conclusion). Specialized modules keep their domain facts; the UI renders these values and derives none of them. Slice 3 (Phase 29D): it now CONSUMES the canonical Daily Research Cycle status (api/daily_research_cycle.py) and adds the RESEARCH_CYCLE_RUNNING / RESEARCH_CYCLE_BLOCKED overall states + a research_cycle_state block; the research primary action is now executable (confirm token RUN_DAILY_RESEARCH_CYCLE). Read-only: no provider/prediction call, no Daily Close, no research refresh, no reassessment, no write, no proposal."
+    },
+    {
+      "path": "api/daily_research_cycle.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 3 CANONICAL Persistent Daily Research Cycle: the ONE idempotent, resumable orchestration owner of the daily research-and-reassessment pass (session -> plan -> refresh -> alignment -> scoring -> target -> immutable evidence -> assessment) with no hidden operator prerequisite. Read-only status planning + token-gated execution; composes existing owners through adapters and reimplements no business logic.",
+      "classification": "KEEP",
+      "target_owner": "api/daily_research_cycle.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "data_freshness.load_data_freshness (eligible session + per-source cadence plan + active book + consistency)",
+        "alpha_target.load_readiness (target readiness / target date)",
+        "forward_prediction_skill.SUPPORTED_BOOKS (evidence registry — required snapshot count)"
+      ],
+      "direct_writes": [
+        "daily_research_cycle run manifests + index + lock under PAPER_TRADER_DRC_DIR (a research root, atomic; NOT the operational ledger root)",
+        "delegated research writes ONLY through the existing owners: alpha_target.run_refresh (model-input CSVs), forward_prediction_skill.capture_for_daily_close (immutable TRUE_FORWARD bundle)"
+      ],
+      "endpoints": [
+        "/v1/operations/daily-research-cycle/status",
+        "/v1/operations/daily-research-cycle/run"
+      ],
+      "ui_consumers": [
+        "loadDailyResearchCycle",
+        "runDailyResearchCycle"
+      ],
+      "tests": [
+        "tests/test_slice3_daily_research_cycle.py"
+      ],
+      "migration_priority": 1,
+      "risk": "med",
+      "notes": "The ONE orchestration owner of the daily research pass (Consolidation Roadmap Slice 3). Frozen state vocabulary NOT_STARTED / WAITING_FOR_SESSION_CLOSE / WAITING_FOR_OWNED_DATA / PLANNING / REFRESHING_REQUIRED_INPUTS / VALIDATING_INPUT_ALIGNMENT / SCORING_UNIVERSE / PREPARING_TARGET / CAPTURING_FORWARD_EVIDENCE / RUNNING_PORTFOLIO_ASSESSMENT / COMPLETE / COMPLETE_WITH_EVIDENCE_GAP / BLOCKED / FAILED / INCONSISTENT / RUN_IN_PROGRESS. Token RUN_DAILY_RESEARCH_CYCLE. Idempotency key = sha256(eligible date | active book | strategy version | universe | input-contract hash); a completed run is REUSED, a safe incomplete run RESUMES, a conflicting concurrent contract is INCONSISTENT. It ORCHESTRATES existing owners: scoring stays in multi_horizon_engine (Slice 4 will consolidate), evidence stays in forward_prediction_skill (count derived from SUPPORTED_BOOKS, never hard-coded 6; bundle fca_<date> first-write-wins, never backdated), the target is PREPARED never auto-confirmed, and the assessment is a compatibility BRIDGE to the Daily Action Gate (NOT the Milestone-2 opportunity-cost engine). There is NO safe automatic monthly-momentum emitter in-repo: the frozen mom_6_1 monthly input is never approximated intramonth, so the cycle BLOCKS at the month boundary with RUN_RESEARCH_MONTHLY_INPUT_EMITTER (the documented 'August evidence gap' made explicit). It NEVER runs the operational Daily Close (which idempotently reuses the SAME immutable fps bundle), never promotes/recalibrates a model, and creates no order/signal/decision/fill. Every provider/write boundary is an injectable seam so tests never call a provider, prediction, or a real cycle."
     },
     {
       "path": "api/alpha_book.py",

@@ -225,6 +225,66 @@
 - **Consequence:** no runtime business action occurred; Slice 3 remains next and
   unimplemented.
 
+### D-13 — Canonical Persistent Daily Research Cycle (Slice 3) — CONFIRMED (LANDED)
+- **Decision:** one orchestration owner, `api/daily_research_cycle.py`, holds the
+  ONE idempotent, resumable Daily Research Cycle — the daily research-and-reassessment
+  pass (session → validate consistency → plan → refresh required inputs → validate
+  date-alignment → score universe → prepare target → capture immutable evidence →
+  portfolio-assessment bridge) with **no hidden operator prerequisite button or
+  command**. Exposed read-only at `GET /v1/operations/daily-research-cycle/status`
+  (planning only) and token-gated at `POST /v1/operations/daily-research-cycle/run`
+  (`RUN_DAILY_RESEARCH_CYCLE`); one UI status loader + one execution function.
+- **Orchestration, not consolidation (scope boundary):** it composes the existing
+  authoritative owners through explicit adapters and reimplements no business logic
+  — `data_freshness` (session/plan), `alpha_target.run_refresh` (daily price/score
+  input), `multi_horizon_engine.build_current` (scoring — Slice 4 still owns
+  consolidation), `alpha_target.load_readiness` (target), `forward_prediction_skill`
+  (evidence), `daily_action_gate` (assessment bridge). It is **not** the Milestone-2
+  Holding Opportunity-Cost engine, does not consolidate scoring (Slice 4) or
+  portfolio state (Slice 5), and is an explicit compatibility layer.
+- **Month boundary made explicit (Principle 4):** there is no proven safe automatic
+  monthly-momentum emitter in-repo (`alpha_target.run_refresh` itself refuses at the
+  month boundary — `RUN_RESEARCH_MONTHLY_INPUT_EMITTER`). The frozen `mom_6_1`
+  monthly input is therefore **never approximated intramonth**; the cycle returns
+  `BLOCKED` naming the exact source and the missing implementation. This surfaces the
+  previously-hidden prerequisite behind the documented "August evidence gap" instead
+  of silently producing a stale/approximated evidence bundle.
+- **Idempotency / concurrency / resume (Principle 5):** idempotency key =
+  `sha256(eligible date | active book | strategy version | universe | input-contract
+  hash)`. A completed run is reused, a safe incomplete run resumes from the first
+  incomplete step, a concurrent identical contract returns `RUN_IN_PROGRESS`, a
+  conflicting concurrent contract returns `INCONSISTENT`, a stale lock is classified
+  and recovered, and a different input contract for the same date is refused as an
+  inconsistency (never overwrites the immutable bundle). Locks are bounded and never
+  block unrelated reads.
+- **Forward evidence (Principle 4, D-8 upheld):** the required snapshot count is
+  **derived from the `forward_prediction_skill.SUPPORTED_BOOKS` registry** (never a
+  hard-coded 6); one eligible date, one input-contract hash, one bundle id
+  (`fca_<date>`), first-write-wins, never backdated, the mandatory active-book
+  snapshot never silently omitted, a partial bundle never labelled complete
+  (`COMPLETE_WITH_EVIDENCE_GAP`). Daily Close idempotently reuses the SAME immutable
+  bundle through the same owner; the cycle **never** runs Daily Close.
+- **Separation of concerns (Principle 3, D-7 upheld):** a research failure never
+  invalidates a valid operational close; an assessment-bridge failure keeps the
+  research outputs valid and requires reassessment; a prior valid close is never
+  mutated by a later research run. Persistence is under a research root
+  (`PAPER_TRADER_DRC_DIR`), never the operational ledger root except through the
+  authoritative evidence owner. No model promotion/recalibration, no proposal, no
+  order/signal/decision/fill.
+- **Evidence:** both endpoints are authenticated (status GET-only/read-only, run
+  POST-only/token-validated); the DRC UI region derives no dates/priority/freshness/
+  plan; `api.workflow_state` consumes the cycle status (new `RESEARCH_CYCLE_RUNNING`
+  / `RESEARCH_CYCLE_BLOCKED` states, the research action now executable). The static
+  guard `check_daily_research_cycle_ownership` confirms the sole orchestration owner,
+  full delegation, no forbidden execution calls, one UI loader + one execution
+  function, and zero UI planning; audit inventory drift = 0. Deterministic tests
+  inject every read model and every provider/write seam, so no provider/prediction/
+  real cycle/Daily Close/ledger write occurs.
+- **Consequence:** Milestone 1's reliable persistent daily research cycle now has one
+  orchestration path. Slice 4 (canonical scoring), Slice 5 (portfolio state) and
+  Milestone 2 (opportunity-cost engine) are described here but not begun; cadence
+  remains disabled.
+
 ### D-10 — No big-bang rewrite of the monoliths — CONFIRMED
 - **Decision:** `api/app.py` (20.5k) and `api/ui/index.html` (26.7k) are reduced
   incrementally (domain routers, extracted view logic) as owning contexts

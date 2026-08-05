@@ -61,6 +61,8 @@ PHASE = "29C-Slice2"
 WAITING_FOR_SESSION_CLOSE = "WAITING_FOR_SESSION_CLOSE"
 WAITING_FOR_OWNED_DATA = "WAITING_FOR_OWNED_DATA"
 RESEARCH_CYCLE_REQUIRED = "RESEARCH_CYCLE_REQUIRED"
+RESEARCH_CYCLE_RUNNING = "RESEARCH_CYCLE_RUNNING"      # Slice 3 (a cycle is in flight)
+RESEARCH_CYCLE_BLOCKED = "RESEARCH_CYCLE_BLOCKED"      # Slice 3 (e.g. monthly emitter)
 PORTFOLIO_REASSESSMENT_REQUIRED = "PORTFOLIO_REASSESSMENT_REQUIRED"
 READY_FOR_DAILY_CLOSE = "READY_FOR_DAILY_CLOSE"
 DAILY_CYCLE_COMPLETE = "DAILY_CYCLE_COMPLETE"
@@ -72,6 +74,8 @@ OVERALL_STATES = (
     INCONSISTENT_STATE,
     WAITING_FOR_SESSION_CLOSE,
     WAITING_FOR_OWNED_DATA,
+    RESEARCH_CYCLE_RUNNING,
+    RESEARCH_CYCLE_BLOCKED,
     RESEARCH_CYCLE_REQUIRED,
     PORTFOLIO_REASSESSMENT_REQUIRED,
     READY_FOR_DAILY_CLOSE,
@@ -79,6 +83,18 @@ OVERALL_STATES = (
     DAILY_CYCLE_COMPLETE_EVIDENCE_GAP,
     DAILY_CYCLE_COMPLETE,
 )
+
+# Daily Research Cycle state mirror (a FROZEN subset of api.daily_research_cycle's
+# tested vocabulary). Kept as literals so this module stays importable/pure without
+# api.daily_research_cycle; the production path reads the real status via
+# daily_research_cycle.load_daily_research_cycle_status.
+_DRC_RUNNING_STATES = frozenset({
+    "PLANNING", "REFRESHING_REQUIRED_INPUTS", "VALIDATING_INPUT_ALIGNMENT",
+    "SCORING_UNIVERSE", "PREPARING_TARGET", "CAPTURING_FORWARD_EVIDENCE",
+    "RUNNING_PORTFOLIO_ASSESSMENT", "RUN_IN_PROGRESS"})
+_DRC_BLOCKED_STATES = frozenset({"BLOCKED", "FAILED"})
+_DRC_COMPLETE_STATES = frozenset({"COMPLETE", "COMPLETE_WITH_EVIDENCE_GAP"})
+_DRC_EXECUTE_TOKEN = "RUN_DAILY_RESEARCH_CYCLE"
 
 # Frozen assessment-currency vocabulary (Workstream D / decision currency F).
 ASSESS_CURRENT = "CURRENT"
@@ -124,6 +140,8 @@ ACTION_INSPECT_INCONSISTENCY = "INSPECT_STATE_INCONSISTENCY"
 ACTION_WAIT_FOR_SESSION_CLOSE = "WAIT_FOR_SESSION_CLOSE"
 ACTION_WAIT_FOR_OWNED_DATA = "WAIT_FOR_OR_REFRESH_OWNED_DATA"
 ACTION_RUN_RESEARCH_CYCLE = "RUN_DAILY_RESEARCH_CYCLE"
+ACTION_MONITOR_RESEARCH_CYCLE = "MONITOR_DAILY_RESEARCH_CYCLE"
+ACTION_RESOLVE_RESEARCH_BLOCKER = "RESOLVE_RESEARCH_CYCLE_BLOCKER"
 ACTION_RUN_PORTFOLIO_REASSESSMENT = "RUN_PORTFOLIO_REASSESSMENT"
 ACTION_RUN_DAILY_CLOSE = "RUN_DAILY_CLOSE"
 ACTION_REVIEW_EVIDENCE_GAP = "REVIEW_EVIDENCE_GAP"
@@ -404,7 +422,8 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
                     has_confirmed_eligible: bool, eligible_session_closed: bool,
                     owned_data_lag: bool, research_current: bool,
                     assessment_status: str, manual_review_required: bool,
-                    evidence_gap: bool) -> str:
+                    evidence_gap: bool, cycle_running: bool = False,
+                    cycle_blocked: bool = False) -> str:
     # P1 — an inconsistent authoritative state takes highest priority.
     if inconsistent or session_status == msession.INCONSISTENT_FUTURE_DATA \
             or assessment_status == ASSESS_INCONSISTENT:
@@ -423,6 +442,14 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     # From here a confirmed eligible completed session exists to work on. The
     # daily-cycle progression gates (P4–P6) run against that eligible session even
     # while today's session is still forming (before its close).
+
+    # P3.5 — a Persistent Daily Research Cycle run is in flight (Slice 3).
+    if cycle_running:
+        return RESEARCH_CYCLE_RUNNING
+    # P3.6 — the Daily Research Cycle is blocked (e.g. the frozen monthly momentum
+    #        input is due but has no safe automatic emitter). More specific than P4.
+    if cycle_blocked:
+        return RESEARCH_CYCLE_BLOCKED
 
     # P4 — required research inputs are stale or missing → run the research cycle.
     if not research_current:
@@ -494,16 +521,44 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
 
     if overall == RESEARCH_CYCLE_REQUIRED:
         return {"action_code": ACTION_RUN_RESEARCH_CYCLE,
-                "label": "Run the Daily Research Cycle (Slice 3 — not yet implemented)",
-                "explanation": "Required research inputs are stale or missing for "
-                               "the latest eligible session. The coordinated Daily "
-                               "Research Cycle is introduced in Slice 3; this action "
-                               "is descriptive/routing only in Slice 2.",
+                "label": "Run the Daily Research Cycle",
+                "explanation": "Required research inputs are stale or missing for the "
+                               "latest eligible session. The canonical Persistent Daily "
+                               "Research Cycle (Slice 3) refreshes every required input "
+                               "through its authoritative owner, scores the universe, "
+                               "prepares the target and captures immutable evidence.",
                 "severity": SEV_ATTENTION, "destination": DEST_DAILY_WORKFLOW,
+                "safe_to_execute": False, "execution_available": True,
+                "manual_confirmation_required": True, "slice3_pending": False,
+                "confirmation_required": _DRC_EXECUTE_TOKEN,
+                "current_task": "Run the Daily Research Cycle to refresh the stale inputs.",
+                "headline": "Research inputs are stale — run the Daily Research Cycle."}
+
+    if overall == RESEARCH_CYCLE_RUNNING:
+        return {"action_code": ACTION_MONITOR_RESEARCH_CYCLE,
+                "label": "Daily Research Cycle running",
+                "explanation": "A Persistent Daily Research Cycle run is in progress "
+                               "for the eligible session; watch its progress and do not "
+                               "start it again.",
+                "severity": SEV_INFO, "destination": DEST_DAILY_WORKFLOW,
                 "safe_to_execute": True, "execution_available": False,
-                "manual_confirmation_required": True, "slice3_pending": True,
-                "current_task": "Refresh the stale research inputs (Daily Research Cycle).",
-                "headline": "Research inputs are stale — a research refresh is due."}
+                "manual_confirmation_required": False, "slice3_pending": False,
+                "current_task": "Monitor the running Daily Research Cycle.",
+                "headline": "Daily Research Cycle is running."}
+
+    if overall == RESEARCH_CYCLE_BLOCKED:
+        return {"action_code": ACTION_RESOLVE_RESEARCH_BLOCKER,
+                "label": "Resolve the Daily Research Cycle blocker",
+                "explanation": "The Daily Research Cycle is blocked (a required research "
+                               "input cannot be refreshed automatically — e.g. the frozen "
+                               "monthly momentum input is due and has no safe emitter). "
+                               "The exact source and required action are named in the "
+                               "cycle status; the monthly input is never approximated.",
+                "severity": SEV_BLOCKED, "destination": DEST_DAILY_WORKFLOW,
+                "safe_to_execute": True, "execution_available": False,
+                "manual_confirmation_required": False, "slice3_pending": False,
+                "current_task": "Resolve the named Daily Research Cycle blocker.",
+                "headline": "Daily Research Cycle is blocked — resolve the named input."}
 
     if overall == PORTFOLIO_REASSESSMENT_REQUIRED:
         return {"action_code": ACTION_RUN_PORTFOLIO_REASSESSMENT,
@@ -576,7 +631,8 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
 def _queued_actions(*, primary_code: str, research_current: bool,
                     assessment_status: str, eligible_session_closed: bool,
                     has_confirmed_eligible: bool, evidence_gap: bool,
-                    manual_review_required: bool, pending_orders: int) -> list[dict]:
+                    manual_review_required: bool, pending_orders: int,
+                    cycle_active: bool = False) -> list[dict]:
     q: list[dict[str, Any]] = []
 
     def add(action_code, label, severity, destination, reason, *,
@@ -588,11 +644,11 @@ def _queued_actions(*, primary_code: str, research_current: bool,
                   "execution_available": execution_available,
                   "safe_to_execute": safe_to_execute, "slice3_pending": slice3_pending})
 
-    if not research_current:
-        add(ACTION_RUN_RESEARCH_CYCLE,
-            "Run the Daily Research Cycle (Slice 3 — not yet implemented)",
+    if not research_current and not cycle_active:
+        add(ACTION_RUN_RESEARCH_CYCLE, "Run the Daily Research Cycle",
             SEV_ATTENTION, DEST_DAILY_WORKFLOW,
-            "Required research inputs are stale or missing.", slice3_pending=True)
+            "Required research inputs are stale or missing.",
+            execution_available=True, safe_to_execute=False)
     if assessment_status in _ASSESS_NEEDS_ACTION:
         add(ACTION_RUN_PORTFOLIO_REASSESSMENT,
             "Run a portfolio reassessment (Slice 3 — not yet implemented)",
@@ -714,6 +770,8 @@ _EXPECTED_ACTION_FOR = {
     WAITING_FOR_SESSION_CLOSE: ACTION_WAIT_FOR_SESSION_CLOSE,
     WAITING_FOR_OWNED_DATA: ACTION_WAIT_FOR_OWNED_DATA,
     RESEARCH_CYCLE_REQUIRED: ACTION_RUN_RESEARCH_CYCLE,
+    RESEARCH_CYCLE_RUNNING: ACTION_MONITOR_RESEARCH_CYCLE,
+    RESEARCH_CYCLE_BLOCKED: ACTION_RESOLVE_RESEARCH_BLOCKER,
     PORTFOLIO_REASSESSMENT_REQUIRED: ACTION_RUN_PORTFOLIO_REASSESSMENT,
     READY_FOR_DAILY_CLOSE: ACTION_RUN_DAILY_CLOSE,
     MANUAL_REVIEW_REQUIRED: ACTION_MANUAL_REVIEW,
@@ -739,6 +797,7 @@ def load_workflow_state(
     desk_marks: Optional[dict] = None,
     forward_status: Optional[dict] = None,
     target_readiness: Optional[dict] = None,
+    research_cycle: Optional[dict] = None,
     date_overrides: Optional[dict] = None,
     active_book_override: Any = None,
 ) -> dict[str, Any]:
@@ -803,6 +862,13 @@ def load_workflow_state(
         if w not in warnings:
             warnings.append(w)
 
+    # --- Compose the Slice-3 Daily Research Cycle status (read-only) from the SAME
+    #     freshness contract so nothing is loaded twice; degrade-safe. --------- #
+    if research_cycle is None:
+        research_cycle = _safe(
+            lambda: _import_drc().load_daily_research_cycle_status(freshness=freshness),
+            warnings, "Daily Research Cycle status") or {}
+
     session = freshness.get("market_session") or {}
     session_status = session.get("session_status") or msession.NO_CONFIRMED_DATA
     eligible_date = freshness.get("eligible_market_date")
@@ -841,6 +907,12 @@ def load_workflow_state(
     research_current = not stale_source_ids
     research_cycle_required = not research_current
 
+    # --- Daily Research Cycle facts (Slice 3). --------------------------------- #
+    drc_state = (research_cycle or {}).get("state")
+    cycle_running = drc_state in _DRC_RUNNING_STATES
+    cycle_blocked = drc_state in _DRC_BLOCKED_STATES
+    cycle_complete = drc_state in _DRC_COMPLETE_STATES
+
     # --- Assessment currency (Workstream F). ----------------------------------- #
     latest_assessment_date = (gate or {}).get("latest_completed_market_date")
     latest_assessment_result = (gate or {}).get("outcome")
@@ -878,7 +950,8 @@ def load_workflow_state(
         eligible_session_closed=eligible_session_closed,
         owned_data_lag=owned_data_lag, research_current=research_current,
         assessment_status=assessment_status,
-        manual_review_required=manual_review_required, evidence_gap=evidence_gap)
+        manual_review_required=manual_review_required, evidence_gap=evidence_gap,
+        cycle_running=cycle_running, cycle_blocked=cycle_blocked)
 
     primary = _primary_action(overall, {
         "eligible_date": eligible_date,
@@ -890,7 +963,8 @@ def load_workflow_state(
         assessment_status=assessment_status,
         eligible_session_closed=eligible_session_closed,
         has_confirmed_eligible=has_confirmed_eligible, evidence_gap=evidence_gap,
-        manual_review_required=manual_review_required, pending_orders=pending_orders)
+        manual_review_required=manual_review_required, pending_orders=pending_orders,
+        cycle_active=(cycle_running or cycle_blocked))
 
     # --- Blockers + warnings (Workstream C.12/13). ----------------------------- #
     blockers: list[dict[str, Any]] = []
@@ -1000,7 +1074,8 @@ def load_workflow_state(
             "safe_to_execute": primary["safe_to_execute"],
             "execution_available": primary["execution_available"],
             "manual_confirmation_required": primary["manual_confirmation_required"],
-            "slice3_pending": primary.get("slice3_pending", False)},
+            "slice3_pending": primary.get("slice3_pending", False),
+            "confirmation_required": primary.get("confirmation_required")},
         "queued_actions": queued,
         "blockers": blockers,
         "warnings": uniq_warnings,
@@ -1041,6 +1116,28 @@ def load_workflow_state(
             "research_cycle_required": research_cycle_required,
             "stale_source_ids": stale_source_ids,
             "missing_source_ids": missing_source_ids,
+        },
+        "research_cycle_state": {
+            "state": drc_state,
+            "executable": bool((research_cycle or {}).get("executable")),
+            "eligible_market_date": (research_cycle or {}).get("eligible_market_date"),
+            "run_id": (research_cycle or {}).get("run_id"),
+            "current_step": (research_cycle or {}).get("current_step"),
+            "completed_steps": (research_cycle or {}).get("completed_steps"),
+            "required_stale_inputs": ((research_cycle or {}).get("input_plan")
+                                      or {}).get("required_stale_inputs"),
+            "blockers": (research_cycle or {}).get("blockers"),
+            "top25_count": (len((research_cycle or {}).get("top25") or [])
+                            if (research_cycle or {}).get("top25") is not None else None),
+            "top50_count": (len((research_cycle or {}).get("top50") or [])
+                            if (research_cycle or {}).get("top50") is not None else None),
+            "target_status": (research_cycle or {}).get("target_status"),
+            "evidence_status": (research_cycle or {}).get("evidence_status"),
+            "assessment_status": (research_cycle or {}).get("assessment_status"),
+            "confirmation_required": _DRC_EXECUTE_TOKEN,
+            "cycle_running": cycle_running,
+            "cycle_blocked": cycle_blocked,
+            "cycle_complete": cycle_complete,
         },
         "portfolio_assessment_state": {
             "latest_assessment_date": latest_assessment_date,
@@ -1156,9 +1253,15 @@ def _import_target():
     return alpha_target
 
 
+def _import_drc():
+    from paper_trader.api import daily_research_cycle
+    return daily_research_cycle
+
+
 __all__ = [
     "PHASE",
     "WAITING_FOR_SESSION_CLOSE", "WAITING_FOR_OWNED_DATA", "RESEARCH_CYCLE_REQUIRED",
+    "RESEARCH_CYCLE_RUNNING", "RESEARCH_CYCLE_BLOCKED",
     "PORTFOLIO_REASSESSMENT_REQUIRED", "READY_FOR_DAILY_CLOSE", "DAILY_CYCLE_COMPLETE",
     "DAILY_CYCLE_COMPLETE_EVIDENCE_GAP", "MANUAL_REVIEW_REQUIRED", "INCONSISTENT_STATE",
     "OVERALL_STATES",

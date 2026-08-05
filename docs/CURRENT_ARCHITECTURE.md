@@ -473,3 +473,62 @@ flowchart TD
   endpoint/panel. Slice 2 performs no workflow action; the Persistent Daily
   Research Cycle and portfolio reassessment (Slice 3) are described/routed but not
   executed.
+
+## 14. Slice 3 — Persistent Daily Research Cycle (implemented, Phase 29D)
+
+The third consolidation slice landed the ONE orchestration path for the daily
+research-and-reassessment pass (Milestone 1) with no hidden operator prerequisite.
+It composes the existing authoritative owners through adapters; no runtime was
+deleted and no owner's business logic was re-implemented.
+
+```mermaid
+flowchart TD
+  DF["api/data_freshness.py (Slice 1)<br/>eligible session + per-source plan + consistency"] --> DRC["api/daily_research_cycle.py (orchestration owner)"]
+  DRC --> P["plan (build_execution_plan) + date-alignment gate"]
+  DRC -->|"daily price/score input"| AT["alpha_target.run_refresh<br/>(BLOCKS at month boundary — no safe monthly emitter)"]
+  DRC -->|"universe scoring / TOP25 / TOP50"| ENG["multi_horizon_engine.build_current"]
+  DRC -->|"target (NEVER auto-confirmed)"| ATR["alpha_target.load_readiness"]
+  DRC -->|"immutable bundle; count from SUPPORTED_BOOKS"| FPS["forward_prediction_skill.capture_for_daily_close"]
+  DRC -->|"assessment BRIDGE (not Milestone 2)"| GATE["daily_action_gate.load_daily_action_gate"]
+  DRC --> MAN[("run manifests — PAPER_TRADER_DRC_DIR (research root)")]
+  DRC --> EPS["GET /v1/operations/daily-research-cycle/status<br/>POST /v1/operations/daily-research-cycle/run (RUN_DAILY_RESEARCH_CYCLE)"]
+  EPS --> UI["UI loadDailyResearchCycle() + runDailyResearchCycle() (one loader, one exec)"]
+  DRC -.->|"status consumed"| WS["api/workflow_state.py (RESEARCH_CYCLE_RUNNING / RESEARCH_CYCLE_BLOCKED)"]
+  FPS -.->|"same immutable bundle, idempotent"| DC["daily_close.run_daily_close (separate workflow — never run by the cycle)"]
+```
+
+- **Canonical owner** `api/daily_research_cycle.py`: frozen 16-state machine
+  (`NOT_STARTED` / `WAITING_FOR_SESSION_CLOSE` / `WAITING_FOR_OWNED_DATA` /
+  `PLANNING` / `REFRESHING_REQUIRED_INPUTS` / `VALIDATING_INPUT_ALIGNMENT` /
+  `SCORING_UNIVERSE` / `PREPARING_TARGET` / `CAPTURING_FORWARD_EVIDENCE` /
+  `RUNNING_PORTFOLIO_ASSESSMENT` / `COMPLETE` / `COMPLETE_WITH_EVIDENCE_GAP` /
+  `BLOCKED` / `FAILED` / `INCONSISTENT` / `RUN_IN_PROGRESS`) and a full per-step
+  audit contract. Read-only status plans deterministically; execution is token-gated
+  (`RUN_DAILY_RESEARCH_CYCLE`) and every provider/write boundary is an injectable
+  seam.
+- **Idempotency / concurrency / resume:** key = `sha256(eligible date | active book
+  | strategy version | universe | input-contract hash)`; completed runs are reused,
+  safe incomplete runs resume, a conflicting concurrent contract is `INCONSISTENT`,
+  a stale lock is classified/recovered, and a different contract for the same date
+  never overwrites the immutable evidence bundle.
+- **Month boundary made explicit:** there is no safe automatic monthly-momentum
+  emitter in-repo, so the cycle returns `BLOCKED` / `RUN_RESEARCH_MONTHLY_INPUT_EMITTER`
+  rather than approximating the frozen `mom_6_1` monthly input (the documented
+  "August evidence gap" surfaced instead of hidden).
+- **Consumers:** `GET /v1/operations/daily-research-cycle/status` (read-only) +
+  `POST /v1/operations/daily-research-cycle/run`; one UI status loader
+  (`loadDailyResearchCycle()`) + one execution function (`runDailyResearchCycle()`)
+  render the canonical Daily-Research-Cycle card (the shell "Daily Alpha Refresh" is
+  demoted to a champion-mark research detail). `api/workflow_state` composes the
+  cycle status and adds the `RESEARCH_CYCLE_RUNNING` / `RESEARCH_CYCLE_BLOCKED`
+  overall states + a `research_cycle_state` block; the research primary action is now
+  executable.
+- **Deliberately kept separate:** the operational Daily Close (a separate workflow
+  that idempotently reuses the SAME immutable fps bundle — the cycle never runs it),
+  the champion daily-refresh subprocess (research detail), and universe scoring /
+  portfolio state (Slices 4/5). The assessment is a compatibility BRIDGE to the Daily
+  Action Gate, explicitly not the Milestone-2 opportunity-cost engine.
+- **Static guard:** `scripts/audit_architecture.py:check_daily_research_cycle_ownership`
+  enforces the sole orchestration owner, full delegation, no forbidden execution
+  calls, one UI loader + one execution function, no UI planning, and the endpoints;
+  inventory drift = 0.

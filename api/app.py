@@ -198,6 +198,7 @@ from paper_trader.api.current_operating_state import (
 )
 from paper_trader.api.data_freshness import load_data_freshness
 from paper_trader.api.workflow_state import load_workflow_state
+from paper_trader.api import daily_research_cycle as _drc
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6204,6 +6205,78 @@ def operations_workflow_state() -> dict:
     reassessment (Slice 3+) are described / routed here but not executed.
     """
     return load_workflow_state()
+
+
+@app.get(
+    "/v1/operations/daily-research-cycle/status",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_daily_research_cycle_status() -> dict:
+    """Slice 3 canonical Persistent Daily Research Cycle — read-only STATUS.
+
+    The ONE status contract for the daily research-and-reassessment pass built by
+    ``api.daily_research_cycle``: the cycle state (frozen vocabulary), the eligible
+    market session, the deterministic execution plan (current / stale / slower-due /
+    missing / inconsistent / future-dated / unsupported inputs), whether the cycle is
+    executable, and the outputs of the latest persisted run (TOP25/TOP50, coverage,
+    target date/status, snapshot count, evidence status, assessment). It composes the
+    Slice-1 ``api.data_freshness`` contract and reflects the latest run manifest.
+
+    STRICTLY READ-ONLY: it plans deterministically but executes NO step — it invokes
+    no provider network call, calls no prediction service, runs no refresh, no
+    scoring write, no forward-evidence capture, no Daily Close, no reassessment, and
+    writes no file / ledger / database row / snapshot / order / signal / decision /
+    fill. A failing non-critical dependency degrades to a ``warnings[]`` entry with
+    HTTP 200.
+    """
+    return _drc.load_daily_research_cycle_status()
+
+
+class DailyResearchCycleRunRequest(BaseModel):
+    """Slice 3 explicit manual Daily-Research-Cycle confirmation body."""
+
+    confirmation: str
+    requested_by: str = "manual_ui"
+
+
+@app.post(
+    "/v1/operations/daily-research-cycle/run",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_daily_research_cycle_run(body: DailyResearchCycleRunRequest) -> dict:
+    """Execute ONE explicit, manual Persistent Daily Research Cycle for the eligible
+    completed session (Slice 3). Requires
+    ``{"confirmation": "RUN_DAILY_RESEARCH_CYCLE"}``; any other value returns HTTP 400.
+
+    The cycle is idempotent and resumable: it resolves the eligible session, validates
+    active-book / cross-surface consistency, plans the required-input refresh, refreshes
+    each required input through its authoritative owner (``alpha_target`` for the daily
+    price/score input; it BLOCKS at the month boundary because the frozen monthly
+    ``mom_6_1`` input has no safe automatic emitter — never approximated), validates
+    date-alignment, scores the full eligible universe through
+    ``multi_horizon_engine`` (TOP25/TOP50), prepares the operational target through
+    ``alpha_target`` (never auto-confirmed), captures the immutable TRUE_FORWARD
+    snapshot bundle through ``forward_prediction_skill`` (the required count is derived
+    from its registry), and runs the paper-only Daily Action Gate assessment for the
+    same session. It persists ONE run manifest and returns the canonical run contract.
+
+    It NEVER runs the operational Daily Close (a separate workflow that idempotently
+    reuses the SAME immutable evidence bundle), never confirms a target, never promotes
+    or recalibrates a model, and never creates an order / signal / decision / fill.
+    Before the current session closes it returns ``WAITING_FOR_SESSION_CLOSE`` and
+    writes nothing.
+    """
+    if body.confirmation != _drc.EXECUTE_CONFIRMATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit confirmation required. Send "
+                    f"{{'confirmation': '{_drc.EXECUTE_CONFIRMATION}'}} to run the "
+                    f"Persistent Daily Research Cycle."),
+        )
+    return _drc.run_daily_research_cycle(confirm=body.confirmation,
+                                         requested_by=body.requested_by)
 
 
 class DailyOperatingRunExecuteRequest(BaseModel):
