@@ -2005,13 +2005,30 @@
             <div class="cc-preview-hd" style="align-items:center;">
               <span class="cc-panel-title">Data Freshness &amp; Market Session</span>
               <span class="cc-badge" id="df-session-status" title="Canonical market-session status from engine.market_session (the one owner).">&mdash;</span>
+              <span class="cc-badge" id="df-book" title="The ACTIVE operational book that owns every operational date (authoritative book-selection policy).">&mdash;</span>
+              <span class="cc-badge" id="df-consistency" title="Cross-surface consistency of the freshness contract vs the authoritative read models.">&mdash;</span>
               <span class="cc-badge safe">READ ONLY</span>
             </div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:6px;">
-              <span class="cc-kv" title="Canonical eligible market date: the most recent session that is BOTH expected-complete and confirmed by owned data."><span class="k">Eligible Market Date</span><span class="v" id="df-eligible">&mdash;</span></span>
-              <span class="cc-kv" title="Operational valuation / desk-mark date (the current operating mark)."><span class="k">Operational Valuation</span><span class="v" id="df-opval">&mdash;</span></span>
-              <span class="cc-kv" title="Research / model mark date. Research dates are shown separately from the operational valuation."><span class="k">Research / Model Date</span><span class="v" id="df-research">&mdash;</span></span>
-              <span class="cc-kv" title="Whether all DAILY inputs are current through the eligible session."><span class="k">Daily Inputs</span><span class="v" id="df-daily">&mdash;</span></span>
+            <!-- OPERATIONAL dates — owned by the ACTIVE operational book / desk / close.
+                 A dormant legacy/current-alpha research book never supplies these. -->
+            <div style="font-size:10px;letter-spacing:.06em;color:var(--label);margin-top:8px;text-transform:uppercase;">Operational (active book)</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:3px;">
+              <span class="cc-kv" title="Canonical eligible market date: the most recent session that is BOTH expected-complete and confirmed by the ACTIVE operational owned data."><span class="k">Eligible Market Date</span><span class="v" id="df-eligible">&mdash;</span></span>
+              <span class="cc-kv" title="Active operational NAV / holdings valuation date (ledger-replayed)."><span class="k">Operational Valuation</span><span class="v" id="df-opval">&mdash;</span></span>
+              <span class="cc-kv" title="Active operational owned desk-mark date."><span class="k">Desk Mark</span><span class="v" id="df-desk">&mdash;</span></span>
+              <span class="cc-kv" title="Owned SPY benchmark date attached to the active operational mark."><span class="k">Benchmark</span><span class="v" id="df-benchmark">&mdash;</span></span>
+              <span class="cc-kv" title="Market date the current operational portfolio target was computed for."><span class="k">Target Calculation</span><span class="v" id="df-target">&mdash;</span></span>
+              <span class="cc-kv" title="Whether all owned operational daily marks are current through the eligible session."><span class="k">Daily Inputs</span><span class="v" id="df-daily">&mdash;</span></span>
+            </div>
+            <!-- RESEARCH dates — shown SEPARATELY and never collapsed into one "research date".
+                 Research / slower-cadence staleness is a research gate, not a close failure. -->
+            <div style="font-size:10px;letter-spacing:.06em;color:var(--label);margin-top:8px;text-transform:uppercase;">Research inputs</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:3px;">
+              <span class="cc-kv" title="Market date the owned alpha price/score inputs were refreshed to (research)."><span class="k">Latest Price / Score Refresh</span><span class="v" id="df-pricescore">&mdash;</span></span>
+              <span class="cc-kv" title="Frozen monthly momentum input month (read directly from its persisted source; never proxied)."><span class="k">Monthly Momentum Input</span><span class="v" id="df-momentum">&mdash;</span></span>
+              <span class="cc-kv" title="Frozen fundamental panel as-of date (its OWN quarterly cadence)."><span class="k">Fundamental Data</span><span class="v" id="df-fundamental">&mdash;</span></span>
+              <span class="cc-kv" title="Champion research-evaluation mark (research book — never confirms operational owned data)."><span class="k">Champion Research Mark</span><span class="v" id="df-champion">&mdash;</span></span>
+              <span class="cc-kv" title="Latest immutable TRUE_FORWARD snapshot date (evidence output)."><span class="k">TRUE_FORWARD Snapshot</span><span class="v" id="df-trueforward">&mdash;</span></span>
               <span class="cc-kv" title="Slower-cadence (monthly / quarterly) inputs that are due under their OWN cadence."><span class="k">Slower Inputs Due</span><span class="v" id="df-slower">&mdash;</span></span>
             </div>
             <div id="df-gate" style="font-size:12px;color:var(--label);margin-top:6px;line-height:1.45;"></div>
@@ -23901,6 +23918,11 @@ function _dfSrc(d, sourceId) {
   return null;
 }
 
+function _dfDate(d, sourceId) {
+  var r = _dfSrc(d, sourceId);
+  return r && r.as_of_date;   // rendered verbatim; the UI never computes a market date
+}
+
 function renderDataFreshness(d) {
   var card = document.getElementById('cc-freshness');
   if (!card) return;
@@ -23908,13 +23930,26 @@ function renderDataFreshness(d) {
   card.style.display = '';
   var ms = d.market_session || {};
   _dfSet('df-session-status', ms.session_status);
-  // Dates are rendered verbatim from the backend — the UI never computes a market date.
+  // Active operational book identity — the authoritative owner of the operational dates.
+  var ab = d.active_book || {};
+  _dfSet('df-book', ab.active_book_name
+    ? (ab.active_book_name + (ab.active_book_status ? ' · ' + ab.active_book_status : ''))
+    : (ab.active_book_id || '—'));
+  _dfSet('df-consistency', d.consistency_status || '—');
+  // Every date is rendered VERBATIM from the backend — the UI never computes a market date.
+  // OPERATIONAL dates (owned by the active operational book / desk / close).
   _dfSet('df-eligible', d.eligible_market_date || ms.eligible_market_date);
-  var opval = _dfSrc(d, 'operational_valuation');
-  var research = _dfSrc(d, 'research_model_mark');
-  _dfSet('df-opval', opval && opval.as_of_date);
-  _dfSet('df-research', research && research.as_of_date);
+  _dfSet('df-opval', _dfDate(d, 'operational_valuation'));
+  _dfSet('df-desk', _dfDate(d, 'desk_marks'));
+  _dfSet('df-benchmark', _dfDate(d, 'benchmark'));
+  _dfSet('df-target', _dfDate(d, 'target_calculation'));
   _dfSet('df-daily', d.all_daily_inputs_fresh ? 'All current' : 'One or more not current');
+  // RESEARCH dates (each distinct — never collapsed into one "research date").
+  _dfSet('df-pricescore', _dfDate(d, 'price_score_refresh'));
+  _dfSet('df-momentum', _dfDate(d, 'momentum_monthly'));
+  _dfSet('df-fundamental', _dfDate(d, 'fundamental_quarterly'));
+  _dfSet('df-champion', _dfDate(d, 'champion_research_mark'));
+  _dfSet('df-trueforward', _dfDate(d, 'latest_true_forward'));
   var slower = d.slower_inputs_due || [];
   _dfSet('df-slower', slower.length ? slower.join(', ') : 'None due');
   var gateEl = document.getElementById('df-gate');
@@ -23929,7 +23964,11 @@ function renderDataFreshness(d) {
   // Research/slower staleness is kept distinct from operational-close validity (D-7).
   var noteEl = document.getElementById('df-note');
   if (noteEl) {
-    if (!d.signal_refresh_ready && d.operational_close_ready) {
+    if (d.consistency_status === 'INCONSISTENT') {
+      noteEl.textContent = 'Cross-surface consistency check found ' +
+        ((d.consistency_violations || []).length) + ' violation(s); the operational ' +
+        'surfaces disagree — investigate before acting.';
+    } else if (!d.signal_refresh_ready && d.operational_close_ready) {
       noteEl.textContent = 'Research / signal readiness is separate: a slower-cadence or research input ' +
         'is due, but the completed operational close remains valid.';
     } else {

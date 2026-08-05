@@ -61,6 +61,26 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   touched this slice), `current_alpha_tournament_sync` and `engine/market_screener`
   are documented follow-ups. Historical-evidence and forward-roll calendars are
   kept as distinct concepts. Slice 2 (workflow state) is unblocked but not begun.
+- **Corrective patch — active operational book alignment (Phase 29B.1).** The
+  first build resolved the freshness dates from
+  `current_operating_state`/`portfolio_valuation` — the **dormant
+  legacy/current-alpha research book** (`2026-07-20`) — which leaked in as the
+  owned-data confirmation and produced a false `WAITING_FOR_OWNED_DATA` /
+  eligible `2026-07-20` while the ACTIVE operational book was complete at
+  `2026-08-04`. The patch re-owns every OPERATIONAL date via
+  `operational_book.load_operational_book` (active book) + `paper_trading_desk`
+  (owned desk marks / SPY), resolves each RESEARCH date from its own owner without
+  collapsing them, reads the frozen monthly momentum input directly from its
+  persisted `month_label` (never proxied; `MISSING`/`UNKNOWN` when absent), and
+  adds the active-book identity + a read-only cross-surface consistency validator.
+  **Corrective-patch completion gate:** the endpoint stays authenticated, GET-only,
+  read-only, provider-free and prediction-free; the UI keeps exactly one
+  `loadDataFreshness()` loader and performs no market-date arithmetic; audit
+  inventory drift = 0; a regression fixture reproducing the live state asserts
+  `SESSION_READY`, eligible = active mark, completed close still valid,
+  `momentum_monthly` STALE + in `slower_inputs_due`, `weakest_gate` = the exact
+  stale research source (never an owned-data lag), and `consistency_status`
+  `CONSISTENT`; no dormant research book supplies operational readiness.
 
 ## Slice 2 — Canonical workflow / read-state model
 

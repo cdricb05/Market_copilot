@@ -456,12 +456,15 @@
     {
       "path": "api/data_freshness.py",
       "system": "infrastructure",
-      "responsibility": "Slice 1 CANONICAL read-only cross-source data-freshness contract: classifies every input under its declared cadence and composes the market session.",
+      "responsibility": "Slice 1 CANONICAL read-only cross-source data-freshness contract: classifies every input under its declared cadence, resolves each OPERATIONAL date from the ACTIVE operational book (Phase 29B.1) and each RESEARCH date from its own owner, composes the market session, and cross-checks surface consistency.",
       "classification": "KEEP",
       "target_owner": "api/data_freshness.py",
       "duplicate_with": [],
       "direct_reads": [
-        "current_operating_state.load_current_operating_state (read-only)",
+        "operational_book.load_operational_book (read-only; ACTIVE operational book — owns eligible/valuation/desk/target dates)",
+        "multi_horizon_engine.load_inputs (read-only; price/score refresh + frozen monthly momentum month_label + fundamental as-of)",
+        "current_alpha_daily_refresh.load_current_alpha_daily_status (read-only; champion research-evaluation mark ONLY)",
+        "paper_trading_desk.read_marks (read-only; owned SPY benchmark attached to the active mark)",
         "daily_close.load_close_progress (read-only, probe-free)",
         "forward_prediction_skill.load_prediction_skill (read-only)"
       ],
@@ -479,7 +482,7 @@
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "The ONE owner of data-freshness status (Consolidation Roadmap Slice 1). Composes engine/market_session.py + existing read loaders; never re-derives their calculations; never calls a provider or prediction; never writes. Frozen freshness vocabulary FRESH/STALE/MISSING/FUTURE_DATED/INCONSISTENT/NOT_DUE/NOT_APPLICABLE/UNKNOWN."
+      "notes": "The ONE owner of data-freshness status (Consolidation Roadmap Slice 1; Phase 29B.1 active-book alignment). Every OPERATIONAL date concept (eligible market date, owned-data confirmation, valuation, desk mark, benchmark, target) is owned by the ACTIVE operational book (api/operational_book.py) and its owned desk marks; a dormant legacy/current-alpha research book (api/portfolio_valuation.py via api/current_operating_state.py) NEVER supplies operational readiness. Distinct RESEARCH dates (champion evaluation mark, latest price/score refresh, frozen monthly momentum input, fundamental panel, TRUE_FORWARD snapshot) come from their own owners and are never collapsed. The frozen monthly momentum input is read DIRECTLY from its persisted source (multi_horizon_engine month_label) and is NEVER proxied from the target, valuation, champion mark or expected session; it degrades to MISSING/UNKNOWN when absent. Emits active_book identity + a read-only cross-surface consistency_status (CONSISTENT/INCONSISTENT/UNKNOWN) with named violations. Never re-derives owner calculations; never calls a provider or prediction; never writes. Frozen freshness vocabulary FRESH/STALE/MISSING/FUTURE_DATED/INCONSISTENT/NOT_DUE/NOT_APPLICABLE/UNKNOWN."
     },
     {
       "path": "api/alpha_book.py",

@@ -69,6 +69,17 @@ responsibilities, candidate existing modules, and migration approach.
   completed date and classify freshness of every input family.
 - **Inputs:** wall clock (ET), owned SPY/price calendar, provider readiness.
 - **Outputs:** `eligible_market_date`, per-family freshness (`FRESH/STALE/BLOCKED`).
+- **Source-of-truth boundary (Phase 29B.1):** OPERATIONAL date concepts
+  (eligible/owned-data confirmation, valuation, desk mark, benchmark, target) are
+  owned by the **active operational book** (`api/operational_book.py` — the
+  authoritative book-selection policy) and its owned desk marks; a dormant
+  legacy/current-alpha research book (`portfolio_valuation`/`current_operating_state`)
+  MUST NOT supply operational readiness. RESEARCH dates (champion evaluation mark,
+  latest price/score refresh, frozen monthly momentum input, fundamental panel,
+  TRUE_FORWARD snapshot) are owned separately and never collapsed. The frozen
+  monthly momentum input is read directly from its persisted `month_label` and is
+  never proxied. The freshness owner additionally emits the active-book identity
+  and a read-only cross-surface `consistency_status` (never a provider call).
 - **Owned state:** none persistent (pure function over the calendar).
 - **Forbidden:** fetching prices, writing ledgers, scoring.
 - **Candidates:** `daily_operating_run.latest_completed_market_date`,

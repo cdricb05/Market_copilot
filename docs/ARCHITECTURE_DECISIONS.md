@@ -104,6 +104,42 @@
   slice). Historical evidence (`forward_prediction_skill.eligible_calendar`) and the
   research forward-roll are kept as distinct concepts.
 
+### D-11.1 — Active operational book owns every operational date (Phase 29B.1) — CONFIRMED
+- **Defect:** the first D-11 build composed `api/data_freshness.py` from
+  `current_operating_state.load_current_operating_state`, whose current-operating
+  mark is fed by `portfolio_valuation.load_portfolio_valuation` — the **dormant
+  legacy/current-alpha research book** (marked `2026-07-20`). That stale mark
+  leaked in as the owned-data confirmation, so the freshness surface reported
+  `WAITING_FOR_OWNED_DATA` / eligible `2026-07-20` while the ACTIVE operational
+  book (*Alpha Paper Book #1*) was already valued, desk-marked and Daily-Close
+  complete at `2026-08-04`.
+- **Decision:** every OPERATIONAL date concept (eligible market date, owned-data
+  confirmation, valuation, desk mark, benchmark, target) is owned by the **active
+  operational book** (`operational_book.load_operational_book` — the authoritative
+  book-selection policy) and its owned desk marks (`paper_trading_desk`). A
+  dormant/legacy/current-alpha research book can never supply operational
+  readiness. Distinct RESEARCH dates (champion evaluation mark, latest price/score
+  refresh, frozen monthly momentum input, fundamental panel, TRUE_FORWARD
+  snapshot) are resolved from their own owners and never collapsed.
+- **No-proxy rule:** the frozen monthly momentum input is read DIRECTLY from its
+  persisted source (`multi_horizon_engine.load_inputs` → `month_label`); it is
+  never proxied from the target, valuation, champion mark or expected session, and
+  degrades to `MISSING`/`UNKNOWN` when no persisted source exists.
+- **Active-book identity + consistency:** the contract reports the active book
+  identity (id/name/status/owner/operational mark) — multiple candidates degrade
+  to `INCONSISTENT`, never silently selected — and a read-only cross-surface
+  `consistency_status` (`CONSISTENT`/`INCONSISTENT`/`UNKNOWN`) that names every
+  violation; no provider or prediction call.
+- **Evidence:** the endpoint contract, endpoint safety, UI single-loader and
+  no-date-arithmetic guards are unchanged; a regression fixture reproduces the
+  observed live state and asserts `SESSION_READY`, eligible = active mark, the
+  completed close remains valid, and `weakest_gate` = the exact stale research
+  source (the due monthly momentum input) — never an owned-data lag.
+- **Consequence (D-7 upheld):** research/monthly staleness still never invalidates
+  a completed operational close. No runtime deleted; `current_operating_state` and
+  `portfolio_valuation` remain (they own the legacy/research read models) but no
+  longer supply the operational freshness contract.
+
 ### D-10 — No big-bang rewrite of the monoliths — CONFIRMED
 - **Decision:** `api/app.py` (20.5k) and `api/ui/index.html` (26.7k) are reduced
   incrementally (domain routers, extracted view logic) as owning contexts

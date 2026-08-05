@@ -325,7 +325,11 @@ flowchart TD
   DC["daily_close._expected_session / _resolve_clock<br/>(17:30 wrapper)"] -->|delegates| MS
   AT["alpha_target.latest_completed"] -->|via wrapper| DOR
   MS --> DF["api/data_freshness.py (READ-ONLY owner)"]
-  LOADERS["existing read loaders<br/>(current_operating_state, close_progress, prediction_skill)"] --> DF
+  OPB["operational_book.load_operational_book<br/>(ACTIVE book: eligible/valuation/desk/target)"] --> DF
+  ENGIN["multi_horizon_engine.load_inputs<br/>(price/score + frozen monthly momentum + fundamental)"] --> DF
+  DESKM["paper_trading_desk.read_marks (owned SPY benchmark)"] --> DF
+  CADS["current_alpha_daily_refresh (champion research mark ONLY)"] --> DF
+  LOADERS["close_progress (probe-free) + prediction_skill"] --> DF
   DF --> EP["GET /v1/operations/data-freshness"]
   EP --> UI["UI loadDataFreshness() (one strip; no JS date math)"]
   FPS["forward_prediction_skill.eligible_calendar<br/>(HISTORICAL evidence — kept separate)"] -.->|distinct concept| MS
@@ -361,3 +365,46 @@ flowchart TD
 - **Remaining (Slice 1/2/3 follow-ups):** `paper_trading_desk._required_mark_date`
   (desk owner untouched this slice), `current_alpha_tournament_sync`,
   `engine/market_screener`, and the `func.max(PriceSnapshot.market_date)` sites.
+
+### 12.1 Corrective patch — active operational book alignment (Phase 29B.1)
+
+The first Slice 1 build composed every date from
+`current_operating_state.load_current_operating_state`, whose
+`current_operating_mark` is fed by `portfolio_valuation.load_portfolio_valuation`
+— the **dormant legacy/current-alpha research book** ($9,999.52, 2 positions,
+`yahoo_finance`, marked `2026-07-20`). Its stale mark leaked in as the *owned-data
+confirmation*, so the freshness surface showed `WAITING_FOR_OWNED_DATA` and an
+`eligible_market_date` of `2026-07-20` while the ACTIVE operational book
+(*Alpha Paper Book #1*, `alpha_paper_book_1`) was already valued, desk-marked and
+Daily-Close-complete at `2026-08-04`.
+
+The corrective patch re-owns every concept:
+
+- **Operational dates** (eligible/owned-data confirmation, valuation, desk mark,
+  benchmark, target) come ONLY from the **active operational book**
+  (`operational_book.load_operational_book` — the authoritative book-selection
+  policy) and its owned desk marks (`paper_trading_desk`). A dormant
+  legacy/current-alpha research book can never supply operational readiness.
+- **Distinct research dates** are resolved from their OWN owners and never
+  collapsed into one "research date": the champion research-evaluation mark
+  (`current_alpha_daily_refresh`), the latest daily price/score refresh and the
+  frozen monthly momentum input (`multi_horizon_engine.load_inputs` —
+  `market_as_of_date` and `month_label` respectively), the fundamental panel
+  as-of date, and the latest TRUE_FORWARD snapshot.
+- **No monthly-input proxy:** the frozen monthly momentum input is read directly
+  from its persisted `month_label`; it is NEVER inferred from the target date,
+  valuation date, champion mark or expected session, and degrades to
+  `MISSING`/`UNKNOWN` when no persisted source exists.
+- **Active-book identity** (`active_book_id`/`name`/`status`/authoritative owner /
+  operational mark date) is reported; multiple candidates degrade to
+  `INCONSISTENT` rather than silently selecting one.
+- **Cross-surface consistency validator** (read-only, no provider call) compares
+  the freshness contract against the authoritative read models and reports
+  `consistency_status` ∈ {`CONSISTENT`,`INCONSISTENT`,`UNKNOWN`} with named
+  `consistency_violations`.
+- **Corrected live semantics** (same state, no hardcoded dates): `SESSION_READY`,
+  `eligible_market_date` = active mark, operational close valid, `weakest_gate`
+  names the exact stale **research** source (the due monthly momentum input) —
+  never an owned-data lag. The UI Command Center strip renders operational and
+  research dates in separate labelled groups from the SINGLE `loadDataFreshness()`
+  loader and performs no market-date arithmetic.
