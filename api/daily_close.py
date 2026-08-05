@@ -107,6 +107,10 @@ from paper_trader.api import multi_horizon_engine as eng
 from paper_trader.api import operational_book as ob
 from paper_trader.api import paper_trading_desk as desk
 from paper_trader.engine import market_hours as mh
+# Slice 1 canonical market-session owner. daily_close no longer performs its own
+# weekday/cutoff/walk-back arithmetic; the helpers below delegate to it (World B
+# policy = 17:30 ET post-close cutoff), preserving their exact return shapes.
+from paper_trader.engine import market_session as msession
 
 PHASE = "27H"
 
@@ -843,22 +847,23 @@ def _clock_now(now: Optional[datetime] = None) -> datetime:
 
 
 def _walk_back_weekend(d: date) -> date:
-    while d.weekday() >= 5:  # Sat/Sun -> previous Friday
-        d -= timedelta(days=1)
-    return d
+    # Compatibility wrapper (Slice 1): the weekday walk-back is owned by
+    # engine.market_session; this delegates and keeps the historical name.
+    return msession.walk_back_to_trading_day(d)
 
 
 def _expected_session(now_et: datetime) -> tuple[date, bool, bool]:
     """The clock's latest EXPECTED completed trading session, whether the post-close
     safety cutoff has passed, and whether we are inside a trading day still forming
-    today's session (a weekday before the cutoff). Weekends resolve back to the
-    latest weekday; a holiday only makes the expected date one session too new —
-    provider confirmation (part B) then resolves it to the latest actual session."""
-    is_weekday = now_et.weekday() < 5
-    cutoff_passed = is_weekday and now_et.timetz().replace(tzinfo=None) >= POST_CLOSE_CUTOFF_ET
-    candidate = now_et.date() if cutoff_passed else now_et.date() - timedelta(days=1)
-    within_trading_day = bool(is_weekday and not cutoff_passed)
-    return _walk_back_weekend(candidate), cutoff_passed, within_trading_day
+    today's session (a weekday before the cutoff).
+
+    COMPATIBILITY WRAPPER (Slice 1): the weekday/cutoff/walk-back arithmetic is
+    owned by ``engine.market_session``; this delegates with the World B policy
+    (17:30 ET post-close cutoff) and returns the identical triple. A holiday only
+    makes the expected date one session too new — provider confirmation (part B)
+    then resolves it to the latest actual session."""
+    es = msession.resolve_expected_session(now_et, close_cutoff_et=POST_CLOSE_CUTOFF_ET)
+    return es.market_date, es.cutoff_passed, es.within_trading_day
 
 
 def _resolve_clock(today: Optional[str] = None, now: Optional[datetime] = None) -> dict:
@@ -878,7 +883,9 @@ def _resolve_clock(today: Optional[str] = None, now: Optional[datetime] = None) 
     if now is None and _now_override is None and os.environ.get(NOW_ENV) is None \
             and today is not None:
         d = date.fromisoformat(str(today)[:10])
-        expected = _walk_back_weekend(d - timedelta(days=1))
+        # Offline injected-date rule (weekday before ``today``) — owned by
+        # engine.market_session.previous_trading_day (Slice 1 delegation).
+        expected = msession.previous_trading_day(d)
         base.update({
             "now_et": None, "cutoff_passed": True, "within_trading_day": False,
             "expected_market_date": expected.isoformat(),

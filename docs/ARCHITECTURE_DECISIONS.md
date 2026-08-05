@@ -81,6 +81,29 @@
 - **Consequence:** execution stays deferred to Milestone 7 with explicit
   authorization.
 
+### D-11 — Canonical market session & data freshness (Slice 1) — CONFIRMED (LANDED)
+- **Decision:** one pure owner (`engine/market_session.py`) holds all current-session
+  calendar/cutoff arithmetic; one read-only owner (`api/data_freshness.py`) holds the
+  cross-source freshness classification; both are exposed at one endpoint
+  (`GET /v1/operations/data-freshness`) and one UI loader (`loadDataFreshness()`).
+- **Policy:** owned-provider-confirmed sessions are the holiday-safe authority; the
+  weekday+cutoff calculation is an explicit *expectation* (`WEEKDAY_CUTOFF_NO_HOLIDAYS`)
+  that never overrides confirmed owned data. No exchange-holiday calendar dependency
+  is installed, so none is used. The two close policies (16:00 World A / 17:30
+  World B) are preserved as an explicit `close_cutoff_et` parameter, not hard-coded.
+- **Separation of concerns (D-7 upheld):** research/model or slower-cadence staleness
+  may block a NEW signal refresh or TRUE_FORWARD capture but never invalidates an
+  already-completed operational close; a month boundary is one freshness condition,
+  not a workflow mode.
+- **Evidence:** delegation parity (`daily_operating_run.latest_completed_market_date`,
+  `daily_close._expected_session/_resolve_clock`) is byte-identical to the pre-slice
+  implementation across a clock/DST/weekend matrix; audit `eligible_market_date`
+  authoritative owner = `engine/market_session.py`, `unexpected_session_resolvers = 0`.
+- **Consequence:** no runtime was deleted; `paper_trading_desk._required_mark_date`
+  and other resolvers remain documented follow-ups (the desk owner is untouched this
+  slice). Historical evidence (`forward_prediction_skill.eligible_calendar`) and the
+  research forward-roll are kept as distinct concepts.
+
 ### D-10 — No big-bang rewrite of the monoliths — CONFIRMED
 - **Decision:** `api/app.py` (20.5k) and `api/ui/index.html` (26.7k) are reduced
   incrementally (domain routers, extracted view logic) as owning contexts

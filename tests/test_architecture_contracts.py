@@ -294,3 +294,48 @@ def test_stage13a_classified_under_data_expansion(inventory):
     owners = {e["prefix"]: e for e in inventory["route_ownership"]}
     ar = owners.get("/v1/research/analyst-revisions")
     assert ar is not None and ar["system"] == "research_os"
+
+
+# --------------------------------------------------------------------------- #
+# Slice 1 (Phase 29B): canonical market session & data-freshness ownership
+# --------------------------------------------------------------------------- #
+def test_slice1_market_session_ownership_guard(audit):
+    rep = audit.check_market_session_ownership(audit._iter_source_files())
+    assert rep["owner_present"] is True
+    assert rep["freshness_owner_present"] is True
+    assert all(rep["delegating_wrappers"].values()), rep["delegating_wrappers"]
+    assert all(rep["migrated_wrappers_clean"].values()), rep["migrated_wrappers_clean"]
+    # No NEW independent current-session arithmetic (the desk resolver is the only
+    # documented remainder and is allow-listed).
+    assert rep["unexpected_session_resolvers"] == [], rep["unexpected_session_resolvers"]
+    # The UI performs no market-date arithmetic and has exactly one freshness loader.
+    assert rep["ui_market_date_arithmetic"] == [], rep["ui_market_date_arithmetic"]
+    assert rep["ui_freshness_loader_count"] == 1, rep["ui_freshness_loader_count"]
+
+
+def test_slice1_inventory_drift_zero(audit):
+    d = audit.run_audit()["inventory_drift"]
+    assert d["status"] == "OK", d["status"]
+    assert d["on_disk_not_in_inventory"] == [], d["on_disk_not_in_inventory"]
+    assert d["in_inventory_not_on_disk"] == [], d["in_inventory_not_on_disk"]
+
+
+def test_slice1_new_route_present_and_owned(audit, inventory):
+    paths = {r["path"] for r in audit.check_routes()["routes"]}
+    assert "/v1/operations/data-freshness" in paths
+    owners = {e["prefix"]: e for e in inventory["route_ownership"]}
+    e = owners.get("/v1/operations/data-freshness")
+    assert e is not None and e["owner"] == "api/data_freshness.py"
+
+
+def test_slice1_modules_inventoried(inventory):
+    paths = {m["path"] for m in inventory["modules"]}
+    assert "engine/market_session.py" in paths
+    assert "api/data_freshness.py" in paths
+
+
+def test_slice1_canonical_concepts_owned(inventory):
+    concepts = {c["concept"]: c for c in inventory["canonical_concepts"]}
+    assert "market_session" in concepts["eligible_market_date"]["authoritative_owner"]
+    assert concepts["data_source_freshness"]["authoritative_owner"].startswith(
+        "api/data_freshness.py")

@@ -50,6 +50,17 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
 - **Rollback:** revert the delegation; the primitives are unchanged.
 - **Completion gate:** audit `eligible_market_date` multi-writer set = 1.
 - **Principle:** 1. **Milestone:** 1.
+- **Status — LANDED (Phase 29B).** Canonical owner `engine/market_session.py`
+  (pure; expected vs owned-confirmed vs eligible date + frozen session-status
+  vocabulary; 17:30-vs-16:00 close policy is an explicit `close_cutoff_et`
+  parameter). Freshness owner `api/data_freshness.py` (read-only, cadence-aware,
+  frozen freshness vocabulary) exposed at `GET /v1/operations/data-freshness` and
+  rendered by the single UI `loadDataFreshness()` loader. `daily_operating_run`,
+  `daily_close` and (transitively) `alpha_target` delegate; no runtime was
+  deleted. **Remaining:** `paper_trading_desk._required_mark_date` (desk owner not
+  touched this slice), `current_alpha_tournament_sync` and `engine/market_screener`
+  are documented follow-ups. Historical-evidence and forward-roll calendars are
+  kept as distinct concepts. Slice 2 (workflow state) is unblocked but not begun.
 
 ## Slice 2 — Canonical workflow / read-state model
 

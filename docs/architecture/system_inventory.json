@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "06ed05d",
+    "head": "217fb47",
     "branch": "main",
-    "phase": "29A"
+    "phase": "29B-Slice1"
   },
   "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete.",
   "systems": {
@@ -19,8 +19,9 @@
   "canonical_concepts": [
     {
       "concept": "eligible_market_date",
-      "authoritative_owner": "engine/market_hours.py (target: one market_session service)",
+      "authoritative_owner": "engine/market_session.py (Slice 1 canonical owner, built on engine/market_hours.py)",
       "current_writers": [
+        "engine/market_session.py",
         "engine/market_hours.py",
         "api/daily_operating_run.py",
         "api/daily_close.py",
@@ -30,7 +31,29 @@
         "api/paper_trading_desk.py",
         "engine/market_screener.py"
       ],
-      "status": "CONFLICT"
+      "delegating_wrappers": [
+        "api/daily_operating_run.py (latest_completed_market_date -> market_session, 16:00 policy)",
+        "api/daily_close.py (_expected_session/_resolve_clock/_walk_back_weekend -> market_session, 17:30 policy)",
+        "api/alpha_target.py (via daily_operating_run.latest_completed_market_date wrapper)"
+      ],
+      "remaining_to_migrate": [
+        "api/paper_trading_desk.py (_required_mark_date; desk owner not modified in Slice 1)",
+        "api/current_alpha_tournament_sync.py (reconstruction date; distinct concept, review in Slice 2/3)",
+        "engine/market_screener.py (legacy DB scan; retire per roadmap)"
+      ],
+      "distinct_concepts_kept_separate": [
+        "api/forward_prediction_skill.py eligible_calendar (HISTORICAL EVIDENCE calendar of recorded completed sessions)",
+        "alpha_agent/source_exhaustion.py (research FORWARD session-roll)"
+      ],
+      "status": "RESOLVING_SLICE1"
+    },
+    {
+      "concept": "data_source_freshness",
+      "authoritative_owner": "api/data_freshness.py (Slice 1 canonical owner)",
+      "current_writers": [
+        "api/data_freshness.py"
+      ],
+      "status": "OWNED"
     },
     {
       "concept": "portfolio_nav_valuation",
@@ -180,6 +203,11 @@
       "prefix": "/v1/operations/daily-close",
       "owner": "api/daily_close.py",
       "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/operations/data-freshness",
+      "owner": "api/data_freshness.py",
+      "system": "infrastructure"
     },
     {
       "prefix": "/v1/operations/daily-run",
@@ -425,6 +453,34 @@
     "INVESTIGATE": "Live-wired but overlapping; confirm consumers before acting."
   },
   "modules": [
+    {
+      "path": "api/data_freshness.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 1 CANONICAL read-only cross-source data-freshness contract: classifies every input under its declared cadence and composes the market session.",
+      "classification": "KEEP",
+      "target_owner": "api/data_freshness.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "current_operating_state.load_current_operating_state (read-only)",
+        "daily_close.load_close_progress (read-only, probe-free)",
+        "forward_prediction_skill.load_prediction_skill (read-only)"
+      ],
+      "direct_writes": [
+        "read-only (no file/ledger/db/provider/prediction)"
+      ],
+      "endpoints": [
+        "/v1/operations/data-freshness"
+      ],
+      "ui_consumers": [
+        "loadDataFreshness"
+      ],
+      "tests": [
+        "tests/test_slice1_data_freshness.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "The ONE owner of data-freshness status (Consolidation Roadmap Slice 1). Composes engine/market_session.py + existing read loaders; never re-derives their calculations; never calls a provider or prediction; never writes. Frozen freshness vocabulary FRESH/STALE/MISSING/FUTURE_DATED/INCONSISTENT/NOT_DUE/NOT_APPLICABLE/UNKNOWN."
+    },
     {
       "path": "api/alpha_book.py",
       "system": "operational_alpha_book",
@@ -1590,7 +1646,29 @@
       "tests": [],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Pure ET market-date primitive (market_date_for). Should become the shared base for all eligible-date logic."
+      "notes": "Pure ET market-date primitive (market_date_for). Slice 1: engine/market_session.py is now built on this primitive and is the canonical current-session owner."
+    },
+    {
+      "path": "engine/market_session.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 1 CANONICAL market-session domain: expected/confirmed/eligible market date + session status. Pure (no IO), built on engine/market_hours.py.",
+      "classification": "KEEP",
+      "target_owner": "engine/market_session.py",
+      "duplicate_with": [],
+      "direct_reads": [],
+      "direct_writes": [],
+      "endpoints": [
+        "/v1/operations/data-freshness (via api/data_freshness.py)"
+      ],
+      "ui_consumers": [
+        "loadDataFreshness"
+      ],
+      "tests": [
+        "tests/test_slice1_market_session.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "The ONE authoritative owner of current-session calendar/cutoff arithmetic (Consolidation Roadmap Slice 1). daily_operating_run and daily_close now delegate to it; the 17:30-vs-16:00 close policy is an explicit close_cutoff_et parameter. Does NOT own historical evidence calendars (forward_prediction_skill.eligible_calendar)."
     },
     {
       "path": "engine/market_screener.py",

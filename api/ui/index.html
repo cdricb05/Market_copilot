@@ -1995,6 +1995,29 @@
 
           <div id="cc-error" class="cc-error" style="display:none;"></div>
 
+          <!-- ===================== Slice 1 (Phase 29B) DATA FRESHNESS & MARKET SESSION =====================
+               ONE connected read-only strip, filled by the single loadDataFreshness() loader from
+               GET /v1/operations/data-freshness. The UI performs NO market-date arithmetic; every date,
+               status and readiness comes from the backend market-session / data-freshness owner.
+               Operational and research dates are shown SEPARATELY, and research/slower-cadence staleness
+               is explained as a research gate — never rendered as an operational-close failure. -->
+          <div id="cc-freshness" class="cc-panel" style="display:none;border-left:3px solid var(--info,#3b82f6);">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title">Data Freshness &amp; Market Session</span>
+              <span class="cc-badge" id="df-session-status" title="Canonical market-session status from engine.market_session (the one owner).">&mdash;</span>
+              <span class="cc-badge safe">READ ONLY</span>
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;margin-top:6px;">
+              <span class="cc-kv" title="Canonical eligible market date: the most recent session that is BOTH expected-complete and confirmed by owned data."><span class="k">Eligible Market Date</span><span class="v" id="df-eligible">&mdash;</span></span>
+              <span class="cc-kv" title="Operational valuation / desk-mark date (the current operating mark)."><span class="k">Operational Valuation</span><span class="v" id="df-opval">&mdash;</span></span>
+              <span class="cc-kv" title="Research / model mark date. Research dates are shown separately from the operational valuation."><span class="k">Research / Model Date</span><span class="v" id="df-research">&mdash;</span></span>
+              <span class="cc-kv" title="Whether all DAILY inputs are current through the eligible session."><span class="k">Daily Inputs</span><span class="v" id="df-daily">&mdash;</span></span>
+              <span class="cc-kv" title="Slower-cadence (monthly / quarterly) inputs that are due under their OWN cadence."><span class="k">Slower Inputs Due</span><span class="v" id="df-slower">&mdash;</span></span>
+            </div>
+            <div id="df-gate" style="font-size:12px;color:var(--label);margin-top:6px;line-height:1.45;"></div>
+            <div id="df-note" style="font-size:11px;color:var(--label);margin-top:4px;line-height:1.4;"></div>
+          </div>
+
           <!-- ===================== Phase 27E TODAY'S DAILY CLOSE ===================== -->
           <!-- The FIRST primary operator card. ONE canonical daily-close status from
                /v1/operations/daily-close drives the primary action: Run Daily Close
@@ -23833,14 +23856,88 @@ function loadOperationalBook() {
     renderOperationalBook(d);
     try { loadDailyActionGate(); } catch (e) {}   // Phase 27C: the ONE daily gate result
     try { loadDailyClose(); } catch (e) {}         // Phase 27E: the ONE daily-close status
+    try { loadDataFreshness(); } catch (e) {}      // Slice 1: the ONE freshness/session strip
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
     try { loadDailyActionGate(); } catch (e) {}
-    try { loadDailyClose(); } catch (e) {} return null; });
+    try { loadDailyClose(); } catch (e) {}
+    try { loadDataFreshness(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
 window.loadOperationalBook = loadOperationalBook;
+
+/* ===================== Slice 1 (Phase 29B) — CANONICAL DATA FRESHNESS =====================
+   ONE single-flight read-only loader fetches /v1/operations/data-freshness once and
+   renders the canonical market session + cross-source freshness on the Command Center.
+   The UI performs NO market-date arithmetic: every date, status and readiness value is
+   rendered verbatim from the backend owner (engine.market_session / api.data_freshness).
+   Operational and research dates are shown SEPARATELY, and research / slower-cadence
+   staleness is explained as a research gate — never as an operational-close failure. */
+window._dfData = null;
+window._dfInFlight = null;
+
+function loadDataFreshness() {
+  if (window._dfInFlight) return window._dfInFlight;   // coalesce concurrent page loads
+  var p = _mhzGet('/v1/operations/data-freshness').then(function (d) {
+    window._dfInFlight = null;
+    window._dfData = d;
+    renderDataFreshness(d);
+    return d;
+  }).catch(function () { window._dfInFlight = null; renderDataFreshness(null); return null; });
+  window._dfInFlight = p;
+  return p;
+}
+window.loadDataFreshness = loadDataFreshness;
+
+function _dfSet(id, text) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
+}
+
+function _dfSrc(d, sourceId) {
+  var rows = (d && d.source_freshness) || [];
+  for (var i = 0; i < rows.length; i++) { if (rows[i].source_id === sourceId) return rows[i]; }
+  return null;
+}
+
+function renderDataFreshness(d) {
+  var card = document.getElementById('cc-freshness');
+  if (!card) return;
+  if (!d) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  var ms = d.market_session || {};
+  _dfSet('df-session-status', ms.session_status);
+  // Dates are rendered verbatim from the backend — the UI never computes a market date.
+  _dfSet('df-eligible', d.eligible_market_date || ms.eligible_market_date);
+  var opval = _dfSrc(d, 'operational_valuation');
+  var research = _dfSrc(d, 'research_model_mark');
+  _dfSet('df-opval', opval && opval.as_of_date);
+  _dfSet('df-research', research && research.as_of_date);
+  _dfSet('df-daily', d.all_daily_inputs_fresh ? 'All current' : 'One or more not current');
+  var slower = d.slower_inputs_due || [];
+  _dfSet('df-slower', slower.length ? slower.join(', ') : 'None due');
+  var gateEl = document.getElementById('df-gate');
+  if (gateEl) {
+    var acts = d.required_actions || [];
+    if (!acts.length) {
+      gateEl.textContent = 'All required inputs are current for the eligible market date.';
+    } else {
+      gateEl.textContent = 'Weakest gate: ' + (d.weakest_gate || '—') + ' — ' + (acts[0].action || '');
+    }
+  }
+  // Research/slower staleness is kept distinct from operational-close validity (D-7).
+  var noteEl = document.getElementById('df-note');
+  if (noteEl) {
+    if (!d.signal_refresh_ready && d.operational_close_ready) {
+      noteEl.textContent = 'Research / signal readiness is separate: a slower-cadence or research input ' +
+        'is due, but the completed operational close remains valid.';
+    } else {
+      noteEl.textContent = '';
+    }
+  }
+}
+window.renderDataFreshness = renderDataFreshness;
 
 /* ===================== Phase 27C — DAILY ACTION GATE (one canonical daily result) =====================
    ONE loader fetches /v1/operations/daily-action-gate once and renders the daily

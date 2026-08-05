@@ -196,6 +196,7 @@ from paper_trader.api.daily_operating_run import (
 from paper_trader.api.current_operating_state import (
     load_current_operating_state,
 )
+from paper_trader.api.data_freshness import load_data_freshness
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6146,6 +6147,32 @@ def dashboard_operating_state() -> dict:
     failing dependency degrades to a ``warnings[]`` entry with HTTP 200.
     """
     return load_current_operating_state()
+
+
+@app.get(
+    "/v1/operations/data-freshness",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_data_freshness() -> dict:
+    """Slice 1 canonical market-session + cross-source data-freshness report.
+
+    Read-only state/readiness report built by ``api.data_freshness`` on top of the
+    canonical ``engine.market_session`` domain and the existing authoritative read
+    loaders. It distinguishes what the calendar expects, what owned data confirms,
+    and what is safe to operate on, and classifies every input (owned prices, desk
+    marks, benchmark, research/model mark, target date, monthly momentum input,
+    quarterly fundamentals, operational valuation, latest Daily Close, latest
+    TRUE_FORWARD snapshot) under its declared cadence.
+
+    STRICTLY READ-ONLY: it invokes no provider network call, refreshes no data,
+    writes no file / ledger / database row / snapshot / cache, creates no order /
+    signal / decision / fill, calls no prediction service, and never runs Daily
+    Close. A failing non-critical dependency degrades to a ``warnings[]`` entry
+    with HTTP 200. The future Persistent Daily Research Cycle (Slice 3) will act
+    on this report; this slice only reports.
+    """
+    return load_data_freshness()
 
 
 class DailyOperatingRunExecuteRequest(BaseModel):

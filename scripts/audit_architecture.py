@@ -83,6 +83,34 @@ EXECUTION_CALL_TERMS = (
     "broker_execute", "live_order", "route_order",
 )
 
+# --- Slice 1 (Phase 29B) canonical market-session / data-freshness ownership --- #
+# The ONE authoritative owner of current-session calendar/cutoff arithmetic and
+# the ONE owner of cross-source data freshness.
+MARKET_SESSION_OWNER = "engine/market_session.py"
+DATA_FRESHNESS_OWNER = "api/data_freshness.py"
+# Modules that legitimately own session/calendar arithmetic or a DISTINCT calendar
+# concept and are therefore exempt from the "no independent session arithmetic"
+# guard. forward_prediction_skill.eligible_calendar is the HISTORICAL EVIDENCE
+# calendar (recorded past completed sessions) — a different concept, kept separate.
+SESSION_ARITH_EXEMPT = {
+    MARKET_SESSION_OWNER,               # the canonical owner
+    "engine/market_hours.py",           # the low-level primitive it is built on
+    "api/forward_prediction_skill.py",  # historical evidence calendar (distinct)
+    "alpha_agent/source_exhaustion.py", # research FORWARD session-roll (distinct)
+    "scripts/audit_architecture.py",    # this tool (defines the pattern as a literal)
+}
+# Compat wrappers that MUST now delegate to the canonical owner (Slice 1). Each is
+# expected to reference market_session and to contain NO raw session arithmetic.
+SESSION_DELEGATING_WRAPPERS = ("api/daily_operating_run.py", "api/daily_close.py")
+# Session resolvers deliberately NOT migrated in Slice 1 (documented remaining
+# work): the desk owner is intentionally left untouched this slice.
+SESSION_RESOLVERS_REMAINING_ALLOW = ("api/paper_trading_desk.py",)
+# Raw current-session arithmetic: a weekend walk-back loop or an explicit close-
+# cutoff time comparison. (A slower/injected-date parse does not match.)
+SESSION_ARITH_RE = re.compile(
+    r"while\s+[^\n]*weekday\(\)\s*>=\s*5|>=\s*time\(1[0-9]\s*,")
+MARKET_SESSION_REF = re.compile(r"market_session")
+
 # Canonical business concepts and the regex that identifies a *writer/producer*
 # of that concept (a function definition that computes it). Multiple modules
 # matching one concept is a source-of-truth candidate.
@@ -403,6 +431,70 @@ def check_research_execution_terms(files: list[Path]) -> list[dict]:
     return sorted(hits, key=lambda d: (d["path"], d["line"]))
 
 
+def check_market_session_ownership(files: list[Path]) -> dict:
+    """Slice 1 semantic ownership guard.
+
+    Confirms (a) the canonical ``engine.market_session`` owner and the
+    ``api.data_freshness`` owner exist, (b) the migrated compat wrappers delegate
+    to the owner and no longer contain raw session arithmetic, (c) no UNEXPECTED
+    module introduces independent current-session arithmetic (the desk resolver is
+    a documented, allow-listed remainder), and (d) the UI performs no market-date
+    arithmetic in the freshness code. This validates ownership + delegation
+    semantically rather than by an arbitrary occurrence count.
+    """
+    delegating: dict[str, bool] = {}
+    clean: dict[str, bool] = {}
+    for w in SESSION_DELEGATING_WRAPPERS:
+        txt = _read(w)
+        delegating[w] = bool(MARKET_SESSION_REF.search(txt))
+        clean[w] = not any(
+            SESSION_ARITH_RE.search(ln) for ln in txt.splitlines()
+            if not ln.strip().startswith("#"))
+
+    remaining: list[dict] = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel in SESSION_ARITH_EXEMPT:
+            continue
+        for i, line in enumerate(
+                fp.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if line.strip().startswith("#"):
+                continue
+            if SESSION_ARITH_RE.search(line):
+                remaining.append({"path": rel, "line": i, "text": line.strip()[:160]})
+    remaining = sorted(remaining, key=lambda d: (d["path"], d["line"]))
+    unexpected = sorted(
+        {r["path"] for r in remaining}
+        - set(SESSION_DELEGATING_WRAPPERS)
+        - set(SESSION_RESOLVERS_REMAINING_ALLOW))
+
+    # UI market-date arithmetic inside the single freshness loader/render region.
+    ui = _read(UI_FILE)
+    ui_hits: list[str] = []
+    start = ui.find("function loadDataFreshness")
+    end = ui.find("window.renderDataFreshness")
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in ("new Date(", "Date.now(", ".getTime("):
+            if pat in region:
+                ui_hits.append(pat)
+    freshness_loader_count = ui.count("function loadDataFreshness")
+
+    return {
+        "owner": MARKET_SESSION_OWNER,
+        "owner_present": (REPO_ROOT / MARKET_SESSION_OWNER).exists(),
+        "freshness_owner": DATA_FRESHNESS_OWNER,
+        "freshness_owner_present": (REPO_ROOT / DATA_FRESHNESS_OWNER).exists(),
+        "delegating_wrappers": delegating,
+        "migrated_wrappers_clean": clean,
+        "remaining_session_resolvers": remaining,
+        "unexpected_session_resolvers": unexpected,
+        "ui_freshness_loader_count": freshness_loader_count,
+        "ui_market_date_arithmetic": sorted(ui_hits),
+        "historical_evidence_calendar_exempt": "api/forward_prediction_skill.py",
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -471,6 +563,7 @@ def run_audit() -> dict:
         "ui_endpoint_wiring": check_ui_endpoint_wiring(routes["routes"]),
         "canonical_concept_writers": check_canonical_concept_writers(files),
         "research_execution_terms": check_research_execution_terms(files),
+        "market_session_ownership": check_market_session_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -539,6 +632,19 @@ def _print_console(rep: dict) -> None:
     print(f"count: {len(rep['research_execution_terms'])}")
     for h in rep["research_execution_terms"][:40]:
         print(f"  {h['path']}:{h['line']}  {h['term']}  {h['text']}")
+
+    hdr("MARKET-SESSION / DATA-FRESHNESS OWNERSHIP (Slice 1)")
+    ms = rep["market_session_ownership"]
+    print(f"owner present: {ms['owner_present']} ({ms['owner']})")
+    print(f"freshness owner present: {ms['freshness_owner_present']} ({ms['freshness_owner']})")
+    print(f"delegating wrappers: {ms['delegating_wrappers']}")
+    print(f"migrated wrappers clean (no raw arithmetic): {ms['migrated_wrappers_clean']}")
+    print(f"remaining session resolvers (documented): {len(ms['remaining_session_resolvers'])}")
+    for h in ms["remaining_session_resolvers"]:
+        print(f"  {h['path']}:{h['line']}  {h['text']}")
+    print(f"UNEXPECTED session resolvers (must be empty): {ms['unexpected_session_resolvers']}")
+    print(f"UI freshness loaders: {ms['ui_freshness_loader_count']}  "
+          f"UI market-date arithmetic (must be empty): {ms['ui_market_date_arithmetic']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]

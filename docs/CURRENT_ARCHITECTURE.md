@@ -267,7 +267,8 @@ the two-worlds operations split (§8).
 | Canonical concept | Intended owner | Reality | Verdict |
 |---|---|---|---|
 | Portfolio NAV / valuation | `portfolio_valuation.load_portfolio_valuation` (`:367`) | **Two authorities**: DB valuation vs ledger `paper_trading_desk.book_nav` (`:518`); UI renders NAV from 3 payloads (daily-close, operational-book, command-center) with no reconciliation; `engine/portfolio.py:262` still writes `cached_total_value`; `portfolio_terminal._collect_positions` re-marks independently | **CONFLICT** |
-| Eligible market date | (none canonical) | **≥8 resolvers** (`daily_operating_run:171`, `daily_close:899`, `market_screener:128`, 5× `func.max(PriceSnapshot.market_date)` in app.py, `paper_trading_desk:983`, `alpha_target`) + **6 `_today()` seams** | **CONFLICT** |
+| Eligible market date | `engine/market_session` (**Slice 1, LANDED**) | Canonical pure owner; `daily_operating_run:171`, `daily_close._expected_session/_resolve_clock` and `alpha_target` now **delegate** (byte-identical parity). Remaining resolvers documented: `paper_trading_desk._required_mark_date`, `current_alpha_tournament_sync`, `market_screener`, the `func.max(PriceSnapshot.market_date)` sites | **RESOLVING (Slice 1)** |
+| Cross-source data freshness | `api/data_freshness` (**Slice 1, LANDED**) | One read-only owner classifies every input under its declared cadence and composes the market session; served at `GET /v1/operations/data-freshness`, rendered by the single UI `loadDataFreshness()` | **OK** |
 | Universe scoring (`composite_sn`) | `multi_horizon_engine` | Single-sourced for `composite_sn`; but the z-score/rank primitive is reimplemented **≥8×**, and `engine/scoring.py` is a second legacy scoring lineage | **PARTIAL** |
 | Target portfolio | `alpha_target` → desk snapshot | Two "book" concepts: operational confirmed snapshot vs frozen champion book (`current_alpha_book`); top-N-sector-cap algorithm duplicated (`multi_horizon_engine:476` vs `multi_horizon_history:117`) | **PARTIAL** |
 | Workflow / gate state | `daily_action_gate` | **3 representations**: `app.py:_build_workflow_state` (legacy), `daily_action_gate.evaluate_daily_action_gate`, `operational_book.derive_lifecycle_view` | **CONFLICT** |
@@ -307,3 +308,56 @@ the two-worlds operations split (§8).
 10. **Tests coupled to implementation** — 648 `.count(`/`.index(` assertions
     across 49 test files (`test_api.py` alone 436), many pinning UI substrings, so
     consolidation must migrate contracts, not just code.
+
+## 12. Slice 1 — Canonical market session & data freshness (implemented, Phase 29B)
+
+The first consolidation slice landed the date/freshness foundation for Milestone 1.
+No runtime was deleted; migrated resolvers became thin delegating wrappers.
+
+```mermaid
+flowchart TD
+  CLOCK["ET clock (explicit)"] --> MS["engine/market_session.py (PURE owner)"]
+  OWNED["owned-EOD confirmed dates<br/>(desk mark, SPY, price)"] --> MS
+  MS --> EXP["expected_completed_market_date"]
+  MS --> CONF["latest_confirmed_owned_data_date"]
+  MS --> ELIG["eligible_market_date + session_status"]
+  DOR["daily_operating_run.latest_completed_market_date<br/>(16:00 wrapper)"] -->|delegates| MS
+  DC["daily_close._expected_session / _resolve_clock<br/>(17:30 wrapper)"] -->|delegates| MS
+  AT["alpha_target.latest_completed"] -->|via wrapper| DOR
+  MS --> DF["api/data_freshness.py (READ-ONLY owner)"]
+  LOADERS["existing read loaders<br/>(current_operating_state, close_progress, prediction_skill)"] --> DF
+  DF --> EP["GET /v1/operations/data-freshness"]
+  EP --> UI["UI loadDataFreshness() (one strip; no JS date math)"]
+  FPS["forward_prediction_skill.eligible_calendar<br/>(HISTORICAL evidence — kept separate)"] -.->|distinct concept| MS
+```
+
+- **Canonical owner** `engine/market_session.py`: pure (no IO), distinguishes
+  expected vs owned-confirmed vs eligible date; frozen status vocabulary
+  (`BEFORE_SESSION_CLOSE`, `EXPECTED_SESSION_COMPLETE`, `WAITING_FOR_OWNED_DATA`,
+  `SESSION_READY`, `NO_CONFIRMED_DATA`, `CALENDAR_POLICY_DEGRADED`,
+  `INCONSISTENT_FUTURE_DATA`). Owned-provider-confirmed sessions are the
+  holiday-safe authority; no exchange-calendar dependency is installed or used.
+- **Compatibility wrappers** (unchanged signatures, byte-identical output):
+  `daily_operating_run.latest_completed_market_date` (16:00), `daily_close`
+  `_expected_session`/`_resolve_clock`/`_walk_back_weekend` (17:30),
+  `alpha_target.latest_completed` (via the run wrapper).
+- **Freshness owner** `api/data_freshness.py`: read-only, cadence-aware
+  (`DAILY`/`MONTHLY`/`QUARTERLY`/`EVENT_DRIVEN`/`STATIC`), frozen vocabulary
+  (`FRESH`/`STALE`/`MISSING`/`FUTURE_DATED`/`INCONSISTENT`/`NOT_DUE`/
+  `NOT_APPLICABLE`/`UNKNOWN`). Composes existing loaders (probe-free); no provider
+  call, no prediction, no write. A month boundary blocks signal refresh /
+  TRUE_FORWARD when a monthly input is due, but never invalidates a completed
+  operational close (D-7).
+- **Consumers:** `GET /v1/operations/data-freshness` (authenticated, GET-only,
+  read-only) and one UI `loadDataFreshness()` loader on the Command Center; the
+  Daily Operating Run status payload also carries an additive `market_session`
+  summary from the same owner.
+- **World A vs World B / legacy status:** legacy Yahoo→Postgres availability is
+  reported as a *separate* source status and never overrides owned-EODHD/desk
+  authority (owned confirmation wins). Provider confirmation remains explicit.
+- **Deliberately kept separate:** `forward_prediction_skill.eligible_calendar`
+  (historical evidence calendar) and `alpha_agent/source_exhaustion.py` (research
+  forward session-roll).
+- **Remaining (Slice 1/2/3 follow-ups):** `paper_trading_desk._required_mark_date`
+  (desk owner untouched this slice), `current_alpha_tournament_sync`,
+  `engine/market_screener`, and the `func.max(PriceSnapshot.market_date)` sites.

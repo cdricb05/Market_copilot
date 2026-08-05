@@ -40,8 +40,9 @@ defect to be migrated, not a new owner to be blessed.
 
 | Concept | Target owner | Consolidates today's |
 |---|---|---|
-| Market session / eligible date | `market_session` (new; extract from `daily_operating_run.latest_completed_market_date`) | ≥8 date resolvers + 6 `_today()` seams |
-| Latest completed price date | `market_session` | `func.max(PriceSnapshot.market_date)` sites, `daily_close._latest_eligible_market_date` |
+| Market session / eligible date | `engine/market_session` (**LANDED, Slice 1**; built on `market_hours`) | ≥8 date resolvers + 6 `_today()` seams |
+| Cross-source data freshness | `api/data_freshness` (**LANDED, Slice 1**; read-only) | ad-hoc per-surface date/freshness displays |
+| Latest completed price date | `engine/market_session` | `func.max(PriceSnapshot.market_date)` sites, `daily_close._latest_eligible_market_date` |
 | Market data (prices) | `market_data_service` (unify `engine/market_data` + owned-EOD transport) | World A Yahoo vs World B EODHD split |
 | Feature production | `feature_service` (extract from `multi_horizon_engine` inputs) | scattered CSV input builders |
 | Universe scoring / rankings | `universe_scoring` (`multi_horizon_engine.compute_scores`) | ≥8 z-score/rank reimplementations |
@@ -74,6 +75,17 @@ responsibilities, candidate existing modules, and migration approach.
   `daily_close._latest_eligible_market_date`, `market_hours`.
 - **Migration:** extract one `market_session` function; route all resolvers and
   `_today()` seams through it behind tests.
+- **Status (Slice 1, LANDED):** `engine/market_session.py` (pure owner) +
+  `api/data_freshness.py` (read-only freshness) + `GET /v1/operations/data-freshness`
+  + one UI `loadDataFreshness()` loader. `daily_operating_run`, `daily_close` and
+  `alpha_target` delegate the session arithmetic; the 17:30-vs-16:00 close policy
+  is an explicit parameter. Owned-provider-confirmed sessions are the holiday-safe
+  authority (no exchange-calendar dependency is installed); the weekday+cutoff
+  calculation is a labelled *expectation* that never overrides confirmed owned
+  data. The historical evidence calendar (`forward_prediction_skill.eligible_calendar`)
+  and the research forward-roll (`alpha_agent/source_exhaustion.py`) are kept
+  separate. Remaining resolvers (`paper_trading_desk._required_mark_date`,
+  `current_alpha_tournament_sync`, `market_screener`) are documented follow-ups.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

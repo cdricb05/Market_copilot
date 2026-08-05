@@ -70,6 +70,10 @@ from paper_trader.api.current_alpha_book import (
     preview_or_create_current_alpha_book,
 )
 from paper_trader.workflows.snapshot import MissingPricesError, run_snapshot_workflow
+# Slice 1 canonical market-session owner. This module no longer performs its own
+# weekday/cutoff arithmetic; ``latest_completed_market_date`` is a compatibility
+# wrapper that delegates to it (World A policy = 16:00 ET regular close).
+from paper_trader.engine import market_session as _msession
 
 _ET = ZoneInfo("America/New_York")
 
@@ -169,23 +173,19 @@ def _parse_date(value: Any) -> Optional[date]:
 
 
 def latest_completed_market_date(now: datetime) -> date:
-    """Resolve the latest COMPLETED US market date from the clock (pure).
+    """Resolve the latest COMPLETED US market date from the clock (World A policy).
 
-    Regular session closes 16:00 US/Eastern on weekdays. If ``now`` (ET) is a
-    weekday at/after the close, today is completed; otherwise the most recent
-    prior weekday. No NYSE holiday calendar is consulted — this matches the
-    existing ``engine/market_hours.py`` limitation and is a conservative,
-    deterministic resolution (a holiday only makes the date one session too new,
-    never fabricates data — the price provider simply returns the last real bar).
+    COMPATIBILITY WRAPPER (Slice 1). The weekday/cutoff arithmetic is owned by
+    ``engine.market_session``; this function delegates to it with the World A
+    policy (16:00 US/Eastern regular close) and keeps its historical signature
+    ``(now: datetime) -> date`` for existing callers (alpha_target, the run
+    stages). Behaviour is byte-for-byte identical to the pre-Slice-1
+    implementation (proven by the delegation parity tests). No NYSE holiday
+    calendar is consulted — a holiday only makes the date one session too new;
+    the owned price provider then returns the last real bar.
     """
-    et = now.astimezone(_ET)
-    if et.weekday() < 5 and et.timetz().replace(tzinfo=None) >= time(16, 0):
-        candidate = et.date()
-    else:
-        candidate = et.date() - timedelta(days=1)
-    while candidate.weekday() >= 5:  # walk back over the weekend
-        candidate -= timedelta(days=1)
-    return candidate
+    return _msession.resolve_expected_session(
+        now, close_cutoff_et=_msession.REGULAR_CLOSE_ET).market_date
 
 
 def _safety() -> dict[str, Any]:
@@ -738,6 +738,21 @@ def load_daily_operating_run_status(
 
     blockers = [b["reason"] for b in alignment["blocking_mismatches"]]
 
+    # Slice 1: surface the canonical market session from the ONE owner
+    # (engine.market_session) as an ADDITIVE summary. Every existing field above
+    # is unchanged; the World A 16:00 policy keeps expected == required_market_date.
+    try:
+        market_session = _msession.evaluate_session(
+            now=now,
+            latest_confirmed_owned_data_date=vd["price_snapshot_market_date"],
+            latest_benchmark_date=ad["spy_market_date"],
+            close_cutoff_et=_msession.REGULAR_CLOSE_ET,
+            require_confirmation=True,
+        ).as_dict()
+    except Exception as exc:  # noqa: BLE001
+        market_session = None
+        warnings.append(f"Canonical market session unavailable: {str(exc)[:160]}")
+
     return {
         "status": alignment["status"],
         "required_market_date": _iso(required),
@@ -746,6 +761,7 @@ def load_daily_operating_run_status(
         "covered_position_count": vd["covered_position_count"],
         "total_position_count": vd["total_position_count"],
         "alignment": alignment,
+        "market_session": market_session,
         "alpha": {
             "available": ad["alpha_available"],
             "latest_valid_mark_date": ad["alpha_top25_market_date"],
