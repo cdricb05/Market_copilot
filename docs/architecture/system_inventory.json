@@ -1,0 +1,1814 @@
+{
+  "schema_version": "1.0",
+  "generated_for": {
+    "head": "06ed05d",
+    "branch": "main",
+    "phase": "29A"
+  },
+  "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete.",
+  "systems": {
+    "operational_alpha_book": "System 1 (Phase 27/28, LIVE): file-based chain-hashed JSON desk ledgers, owned-EODHD marks, Alpha Paper Book #1. No Postgres.",
+    "legacy_db_engine": "System 2 (Phase 14-15 + engine/): Postgres ORM, yfinance/FRED, remote prediction; the only order/fill (execution) code — conflicts with the preview-only mandate.",
+    "research_multi_horizon": "System 3a (Phase 25): owned-panel scoring engine + registry/history/ledger/platform/artifacts. multi_horizon_engine is the LIVE target/ranking engine feeding the gate.",
+    "research_alpha_factory": "System 3b (Phase 20/21): autonomous fundamental + price alpha factories, shared registry, owned price panel.",
+    "research_current_alpha": "System 3c (Phase 13/16/17/18/19): frozen composite_sn champion stack (preview/operations/book/daily-refresh/performance/decision-gate/integrity-gate/revalidation/tournament).",
+    "research_absolute_return": "System 3d (Phase 31B): read-only absolute-return diagnosis + shadow challengers.",
+    "infrastructure": "App wiring, auth, DB session factory, market-hours primitive.",
+    "research_os": "alpha_agent/ package (86 modules): shadow-only autonomous research OS (ingestion -> director -> tournament -> runtime). Never mutates operational holdings."
+  },
+  "canonical_concepts": [
+    {
+      "concept": "eligible_market_date",
+      "authoritative_owner": "engine/market_hours.py (target: one market_session service)",
+      "current_writers": [
+        "engine/market_hours.py",
+        "api/daily_operating_run.py",
+        "api/daily_close.py",
+        "api/alpha_target.py",
+        "api/forward_prediction_skill.py",
+        "api/current_alpha_tournament_sync.py",
+        "api/paper_trading_desk.py",
+        "engine/market_screener.py"
+      ],
+      "status": "CONFLICT"
+    },
+    {
+      "concept": "portfolio_nav_valuation",
+      "authoritative_owner": "api/portfolio_valuation.py (DB book) + api/paper_trading_desk.py book_nav (ledger book)",
+      "current_writers": [
+        "api/portfolio_valuation.py",
+        "api/paper_trading_desk.py",
+        "engine/portfolio.py",
+        "api/current_alpha_book.py",
+        "engine/absolute_return_research.py"
+      ],
+      "status": "CONFLICT"
+    },
+    {
+      "concept": "universe_scoring_rankings",
+      "authoritative_owner": "api/multi_horizon_engine.py",
+      "current_writers": [
+        "api/multi_horizon_engine.py",
+        "engine/scoring.py",
+        "engine/market_screener.py",
+        "api/alpha_factory.py",
+        "api/price_alpha_factory.py"
+      ],
+      "status": "PARTIAL"
+    },
+    {
+      "concept": "target_portfolio",
+      "authoritative_owner": "api/alpha_target.py + api/multi_horizon_engine.py",
+      "current_writers": [
+        "api/alpha_target.py",
+        "api/multi_horizon_engine.py",
+        "api/alpha_book.py",
+        "api/current_alpha_book.py",
+        "api/daily_action_gate.py"
+      ],
+      "status": "PARTIAL"
+    },
+    {
+      "concept": "workflow_gate_state",
+      "authoritative_owner": "api/daily_action_gate.py",
+      "current_writers": [
+        "api/daily_action_gate.py",
+        "api/daily_close.py",
+        "api/operational_book.py",
+        "api/daily_workflow_dashboard.py",
+        "api/command_center.py"
+      ],
+      "status": "CONFLICT"
+    },
+    {
+      "concept": "forward_evidence",
+      "authoritative_owner": "api/forward_prediction_skill.py (writer) + api/forward_evidence.py (reader)",
+      "current_writers": [
+        "api/forward_prediction_skill.py"
+      ],
+      "status": "OK"
+    },
+    {
+      "concept": "model_mark_price",
+      "authoritative_owner": "api/paper_trading_desk.py desk marks (operational)",
+      "current_writers": [
+        "api/paper_trading_desk.py",
+        "api/forward_prediction_skill.py",
+        "api/current_alpha_tournament_sync.py",
+        "api/daily_operating_run.py",
+        "engine/market_data.py"
+      ],
+      "status": "PARTIAL"
+    },
+    {
+      "concept": "db_session",
+      "authoritative_owner": "db/session.py",
+      "current_writers": [
+        "db/session.py"
+      ],
+      "status": "OK"
+    },
+    {
+      "concept": "operational_daily_close",
+      "authoritative_owner": "api/daily_close.py",
+      "current_writers": [
+        "api/daily_close.py"
+      ],
+      "status": "OK"
+    },
+    {
+      "concept": "champion_challenger_registry",
+      "authoritative_owner": "api/alpha_registry.py (target: unified model_registry)",
+      "current_writers": [
+        "api/alpha_factory.py",
+        "api/price_alpha_factory.py",
+        "api/current_alpha_tournament_sync.py"
+      ],
+      "status": "CONFLICT"
+    },
+    {
+      "concept": "execution",
+      "authoritative_owner": "NONE (deferred to Milestone 7; legacy engine/reconciler.py quarantined)",
+      "current_writers": [
+        "engine/reconciler.py"
+      ],
+      "status": "CONFLICT"
+    }
+  ],
+  "route_ownership": [
+    {
+      "prefix": "/",
+      "owner": "api/app.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/health",
+      "owner": "api/app.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/ready",
+      "owner": "api/app.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/auth",
+      "owner": "api/app.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/alpha-book",
+      "owner": "api/alpha_book.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/alpha-target",
+      "owner": "api/alpha_target.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/operational-book",
+      "owner": "api/operational_book.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/operations/daily-action-gate",
+      "owner": "api/daily_action_gate.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/operations/daily-close",
+      "owner": "api/daily_close.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/operations/daily-run",
+      "owner": "api/daily_operating_run.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/paper-desk",
+      "owner": "api/paper_trading_desk.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/portfolio-manager",
+      "owner": "api/portfolio_manager.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/evidence/prediction-skill",
+      "owner": "api/forward_prediction_skill.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/evidence",
+      "owner": "api/forward_evidence.py",
+      "system": "operational_alpha_book"
+    },
+    {
+      "prefix": "/v1/dashboard/command-center",
+      "owner": "api/command_center.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/dashboard/daily-workflow",
+      "owner": "api/daily_workflow_dashboard.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/dashboard/portfolio-terminal",
+      "owner": "api/portfolio_terminal.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/dashboard/portfolio-valuation",
+      "owner": "api/portfolio_valuation.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/dashboard/operating-state",
+      "owner": "api/current_operating_state.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/research/alpha-factory",
+      "owner": "api/alpha_factory.py",
+      "system": "research_alpha_factory"
+    },
+    {
+      "prefix": "/v1/research/price-alpha-factory",
+      "owner": "api/price_alpha_factory.py",
+      "system": "research_alpha_factory"
+    },
+    {
+      "prefix": "/v1/research/analyst-revisions",
+      "owner": "alpha_agent/analyst_revisions.py",
+      "system": "research_os"
+    },
+    {
+      "prefix": "/v1/research/tournament",
+      "owner": "alpha_agent/tournament.py",
+      "system": "research_os"
+    },
+    {
+      "prefix": "/v1/research/stage11",
+      "owner": "alpha_agent/stage11_research.py",
+      "system": "research_os"
+    },
+    {
+      "prefix": "/v1/research/stage12",
+      "owner": "alpha_agent/stage12_owned_data.py",
+      "system": "research_os"
+    },
+    {
+      "prefix": "/v1/research/alpha-agent-observatory",
+      "owner": "alpha_agent/runtime.py",
+      "system": "research_os"
+    },
+    {
+      "prefix": "/v1/research/alpha-agent-autonomy",
+      "owner": "alpha_agent/runtime.py",
+      "system": "research_os"
+    },
+    {
+      "prefix": "/v1/research/calibration-study",
+      "owner": "api/calibration_study.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/candidate-preview",
+      "owner": "api/research_candidate_preview.py",
+      "system": "research_current_alpha"
+    },
+    {
+      "prefix": "/v1/research/current-alpha",
+      "owner": "api/current_alpha_preview.py",
+      "system": "research_current_alpha"
+    },
+    {
+      "prefix": "/v1/research/current-alpha-books",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/current-alpha-scores",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/current-alpha-recommendations",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/alpha-models",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/alpha-sleeves",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/alpha-operating-state",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/alpha-paper-history",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/alpha-paper-snapshots",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/research/alpha-book-comparison",
+      "owner": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon"
+    },
+    {
+      "prefix": "/v1/review",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/strategy",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/market",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/model",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/signals",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/orders",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/trades",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/positions",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/portfolio",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/prices",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/performance",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/snapshot",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/snapshots",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/fill",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/benchmark-prices",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/prediction",
+      "owner": "engine/prediction_client.py",
+      "system": "legacy_db_engine"
+    },
+    {
+      "prefix": "/v1/ticker-detail",
+      "owner": "api/app.py",
+      "system": "legacy_db_engine"
+    }
+  ],
+  "classification_legend": {
+    "KEEP": "Authoritative for its concern; retain.",
+    "CONSOLIDATE": "Merge with a sibling / fold into the target owner behind tests.",
+    "DEPRECATE": "Superseded; wind down after confirming no live consumer.",
+    "REMOVE_CANDIDATE": "Appears unused; confirm then remove.",
+    "INVESTIGATE": "Live-wired but overlapping; confirm consumers before acting."
+  },
+  "modules": [
+    {
+      "path": "api/alpha_book.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Authoritative operational-book engine + order-plan builder",
+      "classification": "KEEP",
+      "target_owner": "api/alpha_book.py",
+      "duplicate_with": [
+        "api/paper_trading_desk.py (80 private accesses)"
+      ],
+      "direct_reads": [
+        "desk ledgers via desk._*"
+      ],
+      "direct_writes": [
+        "desk ledgers (POLICY/RECORDS/ORDERS)"
+      ],
+      "endpoints": [
+        "/v1/alpha-book/*"
+      ],
+      "ui_consumers": [
+        "loadPaperDesk"
+      ],
+      "tests": [
+        "tests/test_phase27a1_alpha_book_policy.py"
+      ],
+      "migration_priority": 1,
+      "risk": "high",
+      "notes": "Authoritative operational-book engine + order-plan builder. Reaches into paper_trading_desk privates 80x — the tightest coupling in the repo."
+    },
+    {
+      "path": "api/alpha_factory.py",
+      "system": "research_alpha_factory",
+      "responsibility": "Fundamental discovery factory + the reusable 17-A validation battery",
+      "classification": "CONSOLIDATE",
+      "target_owner": "model_registry (shared factory core)",
+      "duplicate_with": [
+        "api/price_alpha_factory.py"
+      ],
+      "direct_reads": [
+        "frozen 10-L panel",
+        "phase17a report"
+      ],
+      "direct_writes": [
+        "8 artifacts on D: (token-gated)"
+      ],
+      "endpoints": [
+        "/v1/research/alpha-factory/*"
+      ],
+      "ui_consumers": [
+        "research/audit view"
+      ],
+      "tests": [
+        "tests/test_phase20_alpha_factory.py"
+      ],
+      "migration_priority": 2,
+      "risk": "med",
+      "notes": "Fundamental discovery factory + the reusable 17-A validation battery. Should host a shared factory core that price_alpha_factory extends."
+    },
+    {
+      "path": "api/alpha_registry.py",
+      "system": "research_alpha_factory",
+      "responsibility": "Pure shared schema/vocabulary for both factories",
+      "classification": "KEEP",
+      "target_owner": "model_registry",
+      "duplicate_with": [
+        "api/multi_horizon_registry.py"
+      ],
+      "direct_reads": [
+        "-"
+      ],
+      "direct_writes": [
+        "read-only (pure)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase20_alpha_factory.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "Pure shared schema/vocabulary for both factories."
+    },
+    {
+      "path": "api/alpha_target.py",
+      "system": "operational_alpha_book",
+      "responsibility": "The one writer of the model input CSVs (six-date contract + hard confirm gate)",
+      "classification": "KEEP",
+      "target_owner": "api/alpha_target.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "multi_horizon_engine",
+        "desk",
+        "portfolio_valuation"
+      ],
+      "direct_writes": [
+        "input CSVs + manifest + refresh log (token-gated)"
+      ],
+      "endpoints": [
+        "/v1/alpha-target/*"
+      ],
+      "ui_consumers": [
+        "loadAlphaTargetReview"
+      ],
+      "tests": [
+        "tests/test_phase27a2_target_readiness.py"
+      ],
+      "migration_priority": 1,
+      "risk": "med",
+      "notes": "The one writer of the model input CSVs (six-date contract + hard confirm gate). Composed atomically into Daily Close (Phase 27H). Also a duplicate eligible-date resolver."
+    },
+    {
+      "path": "api/app.py",
+      "system": "infrastructure",
+      "responsibility": "20,556-line FastAPI monolith holding every route + the legacy candidate->signal->decision->order Daily-Plan preview pipeline",
+      "classification": "INVESTIGATE",
+      "target_owner": "orchestration + read_models (split into routers)",
+      "duplicate_with": [
+        "all service modules"
+      ],
+      "direct_reads": [
+        "db (legacy Daily-Plan routes)"
+      ],
+      "direct_writes": [
+        "db signals/decisions/orders (legacy)"
+      ],
+      "endpoints": [
+        "ALL 178 routes (owner-of-record)"
+      ],
+      "ui_consumers": [
+        "api/ui/index.html"
+      ],
+      "tests": [
+        "tests/test_api.py"
+      ],
+      "migration_priority": 3,
+      "risk": "high",
+      "notes": "20,556-line FastAPI monolith holding every route + the legacy candidate->signal->decision->order Daily-Plan preview pipeline. Split by domain into routers; retire the legacy pipeline."
+    },
+    {
+      "path": "api/calibration_study.py",
+      "system": "research_multi_horizon",
+      "responsibility": "Small self-contained membership-sensitivity diagnostic with hard NO_OPERATIONAL_CHANGE guards",
+      "classification": "KEEP",
+      "target_owner": "research (diagnostic)",
+      "duplicate_with": [],
+      "direct_reads": [
+        "multi_horizon_engine percentiles"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/research/calibration-study"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_calibration_study.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "Small self-contained membership-sensitivity diagnostic with hard NO_OPERATIONAL_CHANGE guards."
+    },
+    {
+      "path": "api/command_center.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Read-only Command Center view model + shared helper source reused by portfolio_terminal",
+      "classification": "KEEP",
+      "target_owner": "read_models",
+      "duplicate_with": [
+        "api/portfolio_terminal.py"
+      ],
+      "direct_reads": [
+        "postgres counts",
+        "portfolio_valuation",
+        "decision-gate",
+        "daily_operating_run"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/dashboard/command-center"
+      ],
+      "ui_consumers": [
+        "loadCommandCenter",
+        "loadResearchChampionSummary"
+      ],
+      "tests": [
+        "tests/test_phase14a_command_center.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "Read-only Command Center view model + shared helper source reused by portfolio_terminal. Keep; consolidation is on the terminal side."
+    },
+    {
+      "path": "api/current_alpha_book.py",
+      "system": "research_current_alpha",
+      "responsibility": "Phase 13-F stateful research book predating both the operational book and forward evidence; still routed",
+      "classification": "INVESTIGATE",
+      "target_owner": "portfolio_proposal (superseded)",
+      "duplicate_with": [
+        "api/operational_book.py"
+      ],
+      "direct_reads": [
+        "private JSON store",
+        "13-A CSVs",
+        "13-G marks on D:"
+      ],
+      "direct_writes": [
+        "current_alpha_paper_book/*.json (commit-gated)"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/book"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase13f_paper_book.py"
+      ],
+      "migration_priority": 3,
+      "risk": "med",
+      "notes": "Phase 13-F stateful research book predating both the operational book and forward evidence; still routed. Confirm consumers."
+    },
+    {
+      "path": "api/current_alpha_daily_refresh.py",
+      "system": "research_current_alpha",
+      "responsibility": "The only subprocess launcher — shells into a SEPARATE research repo with an EODHD key",
+      "classification": "CONSOLIDATE",
+      "target_owner": "research_cycle (unify mark paths)",
+      "duplicate_with": [
+        "api/paper_trading_desk.py"
+      ],
+      "direct_reads": [
+        "runner artifacts on D:"
+      ],
+      "direct_writes": [
+        "JSON only on commit; child writes D: artifact"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/daily-refresh",
+        "/v1/research/current-alpha/daily-status"
+      ],
+      "ui_consumers": [
+        "loadDailyAlphaStatus"
+      ],
+      "tests": [
+        "tests/test_phase13gh_daily_refresh.py"
+      ],
+      "migration_priority": 2,
+      "risk": "high",
+      "notes": "The only subprocess launcher — shells into a SEPARATE research repo with an EODHD key. A parallel champion mark path to the Phase-27 desk close."
+    },
+    {
+      "path": "api/current_alpha_decision_gate.py",
+      "system": "research_current_alpha",
+      "responsibility": "Phase 13-J provisional-primary decision superseded by the Phase 27 operating state",
+      "classification": "DEPRECATE",
+      "target_owner": "read_models (superseded)",
+      "duplicate_with": [
+        "api/current_alpha_integrity_gate.py"
+      ],
+      "direct_reads": [
+        "13-I artifacts"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/decision-gate"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase13j_decision_gate.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Phase 13-J provisional-primary decision superseded by the Phase 27 operating state."
+    },
+    {
+      "path": "api/current_alpha_integrity_gate.py",
+      "system": "research_current_alpha",
+      "responsibility": "Phase 16-A wrapper over a settled research question; retire with decision_gate",
+      "classification": "DEPRECATE",
+      "target_owner": "read_models (superseded)",
+      "duplicate_with": [
+        "api/current_alpha_decision_gate.py"
+      ],
+      "direct_reads": [
+        "16-A artifacts",
+        "decision_gate",
+        "operating_state"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/integrity-gate"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase16a_integrity_gate.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Phase 16-A wrapper over a settled research question; retire with decision_gate."
+    },
+    {
+      "path": "api/current_alpha_operations.py",
+      "system": "research_current_alpha",
+      "responsibility": "Phase 13-C/D/E daily-ops cockpit superseded by the operational book/daily-close surface",
+      "classification": "DEPRECATE",
+      "target_owner": "read_models (superseded)",
+      "duplicate_with": [],
+      "direct_reads": [
+        "13-A package",
+        "frozen 10-L panel"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/pnl",
+        "/v1/research/current-alpha/actions-preview",
+        "/v1/research/current-alpha/rebalance-simulation"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase13cde_daily_ops.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Phase 13-C/D/E daily-ops cockpit superseded by the operational book/daily-close surface."
+    },
+    {
+      "path": "api/current_alpha_performance.py",
+      "system": "research_current_alpha",
+      "responsibility": "Phase 13-I historical mark presentation largely superseded by forward_evidence; low-risk read-only",
+      "classification": "CONSOLIDATE",
+      "target_owner": "forward_evidence (superseded)",
+      "duplicate_with": [
+        "api/forward_evidence.py"
+      ],
+      "direct_reads": [
+        "13-I backfill on D:"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/performance"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase13i_backfill.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Phase 13-I historical mark presentation largely superseded by forward_evidence; low-risk read-only."
+    },
+    {
+      "path": "api/current_alpha_preview.py",
+      "system": "research_current_alpha",
+      "responsibility": "Foundational read-only 13-A loader + shared SAFETY_*/CSV helpers reused by operations + decision_gate",
+      "classification": "CONSOLIDATE",
+      "target_owner": "read_models (extract shared base)",
+      "duplicate_with": [
+        "api/research_candidate_preview.py"
+      ],
+      "direct_reads": [
+        "frozen 13-A package (JSON+11 CSVs)"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/preview"
+      ],
+      "ui_consumers": [
+        "loadCurrentAlphaPreview"
+      ],
+      "tests": [
+        "tests/test_current_alpha_preview_endpoint.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "Foundational read-only 13-A loader + shared SAFETY_*/CSV helpers reused by operations + decision_gate. Fold shared base into a util, retire endpoint with the Phase 13 family."
+    },
+    {
+      "path": "api/current_alpha_revalidation.py",
+      "system": "research_current_alpha",
+      "responsibility": "Surfaces a one-time frozen verdict (already PAPER_CHALLENGER_ELIGIBLE); pure artifact viewer",
+      "classification": "DEPRECATE",
+      "target_owner": "research (frozen verdict)",
+      "duplicate_with": [],
+      "direct_reads": [
+        "17-A report",
+        "17-B package"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/revalidation"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase17_revalidation.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Surfaces a one-time frozen verdict (already PAPER_CHALLENGER_ELIGIBLE); pure artifact viewer."
+    },
+    {
+      "path": "api/current_alpha_tournament.py",
+      "system": "research_current_alpha",
+      "responsibility": "GET loader + shared constants are load-bearing; the legacy run_current_alpha_tournament_refresh POST is imported but reachable by no route (dead wire)",
+      "classification": "INVESTIGATE",
+      "target_owner": "model_registry (retire legacy POST)",
+      "duplicate_with": [
+        "api/current_alpha_tournament_sync.py"
+      ],
+      "direct_reads": [
+        "static 18-A report",
+        "local store"
+      ],
+      "direct_writes": [
+        "legacy POST only: 2 JSONs (token-gated)"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/tournament (GET)"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase18_tournament.py"
+      ],
+      "migration_priority": 3,
+      "risk": "med",
+      "notes": "GET loader + shared constants are load-bearing; the legacy run_current_alpha_tournament_refresh POST is imported but reachable by no route (dead wire)."
+    },
+    {
+      "path": "api/current_alpha_tournament_sync.py",
+      "system": "research_current_alpha",
+      "responsibility": "The actual tournament data-sync/reconstruction engine + source of the shared EODHD primitives paper_trading_desk imports",
+      "classification": "KEEP",
+      "target_owner": "model_registry",
+      "duplicate_with": [
+        "api/paper_trading_desk.py (shared EOD primitives)"
+      ],
+      "direct_reads": [
+        "frozen book CSVs",
+        "owned EODHD"
+      ],
+      "direct_writes": [
+        "dedicated tournament store (commit+token)"
+      ],
+      "endpoints": [
+        "/v1/research/current-alpha/tournament/refresh"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase19_tournament_sync.py"
+      ],
+      "migration_priority": 2,
+      "risk": "med",
+      "notes": "The actual tournament data-sync/reconstruction engine + source of the shared EODHD primitives paper_trading_desk imports."
+    },
+    {
+      "path": "api/current_operating_state.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Read-only fan-in whose current-operating-mark overlaps the newer operational_book source of truth; confirm consumers then consolidate",
+      "classification": "INVESTIGATE",
+      "target_owner": "api/operational_book.py (consolidate)",
+      "duplicate_with": [
+        "api/operational_book.py"
+      ],
+      "direct_reads": [
+        "portfolio_valuation",
+        "daily_operating_run",
+        "current_alpha_*"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/dashboard/operating-state"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase15b_operating_state.py"
+      ],
+      "migration_priority": 2,
+      "risk": "med",
+      "notes": "Read-only fan-in whose current-operating-mark overlaps the newer operational_book source of truth; confirm consumers then consolidate."
+    },
+    {
+      "path": "api/daily_action_gate.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Pure deterministic event gate (13 checks)",
+      "classification": "KEEP",
+      "target_owner": "api/daily_action_gate.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "multi_horizon_engine",
+        "operational_book"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/operations/daily-action-gate"
+      ],
+      "ui_consumers": [
+        "loadDailyActionGate"
+      ],
+      "tests": [
+        "tests/test_phase27c_daily_event_operator_cutover.py"
+      ],
+      "migration_priority": 1,
+      "risk": "med",
+      "notes": "Pure deterministic event gate (13 checks). Authoritative workflow/gate target_state — but a third workflow vocabulary coexists in daily_close and operational_book."
+    },
+    {
+      "path": "api/daily_close.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Canonical atomic operational close composing desk marks + alpha_target refresh + gate + decision + forward evidence",
+      "classification": "KEEP",
+      "target_owner": "api/daily_close.py",
+      "duplicate_with": [
+        "api/daily_operating_run.py (competing world)"
+      ],
+      "direct_reads": [
+        "operational_book",
+        "gate",
+        "desk",
+        "forward_evidence"
+      ],
+      "direct_writes": [
+        "daily_close_journal.json (one row, token-gated)"
+      ],
+      "endpoints": [
+        "/v1/operations/daily-close*"
+      ],
+      "ui_consumers": [
+        "loadDailyClose"
+      ],
+      "tests": [
+        "tests/test_phase28c_forward_evidence_daily_close_workflow.py"
+      ],
+      "migration_priority": 1,
+      "risk": "high",
+      "notes": "Canonical atomic operational close composing desk marks + alpha_target refresh + gate + decision + forward evidence. World B orchestrator. Has its own 17:30 eligible-date resolver."
+    },
+    {
+      "path": "api/daily_operating_run.py",
+      "system": "legacy_db_engine",
+      "responsibility": "World A orchestrator (Yahoo->Postgres): the only api-side DB writer",
+      "classification": "INVESTIGATE",
+      "target_owner": "market_data_service + market_session (converge)",
+      "duplicate_with": [
+        "api/daily_close.py"
+      ],
+      "direct_reads": [
+        "postgres",
+        "yfinance",
+        "current_alpha_*"
+      ],
+      "direct_writes": [
+        "price_snapshots",
+        "benchmark_prices",
+        "portfolio_snapshots",
+        "job_runs"
+      ],
+      "endpoints": [
+        "/v1/operations/daily-run*"
+      ],
+      "ui_consumers": [
+        "loadCommandCenter"
+      ],
+      "tests": [
+        "tests/test_phase15a_daily_operating_run.py"
+      ],
+      "migration_priority": 1,
+      "risk": "high",
+      "notes": "World A orchestrator (Yahoo->Postgres): the only api-side DB writer. 16:00 ET date logic diverges from Daily Close's 17:30. Converge onto one provider policy, then deprecate the Yahoo path."
+    },
+    {
+      "path": "api/daily_workflow_dashboard.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Read-only 6-stage view over the superseded Create-Orders review pipeline; a fourth workflow vocabulary",
+      "classification": "DEPRECATE",
+      "target_owner": "daily_action_gate (retire legacy stages)",
+      "duplicate_with": [],
+      "direct_reads": [
+        "postgres (CandidateReview/Signal/TradeDecision/Order)",
+        "command_center"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/dashboard/daily-workflow"
+      ],
+      "ui_consumers": [
+        "loadDailyWorkflow"
+      ],
+      "tests": [
+        "tests/test_phase14b_daily_workflow.py"
+      ],
+      "migration_priority": 3,
+      "risk": "med",
+      "notes": "Read-only 6-stage view over the superseded Create-Orders review pipeline; a fourth workflow vocabulary. Retire with the legacy Daily-Plan surface."
+    },
+    {
+      "path": "api/forward_evidence.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Read-only attribution reconciled to NAV +/-$1; ACTIVE vs SHADOW never mixed",
+      "classification": "KEEP",
+      "target_owner": "api/forward_evidence.py",
+      "duplicate_with": [
+        "api/forward_prediction_skill.py (reader/writer split)"
+      ],
+      "direct_reads": [
+        "desk performance",
+        "fps price store",
+        "operational_book"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/evidence/forward",
+        "/v1/evidence/daily-attribution",
+        "/v1/evidence/rolling",
+        "/v1/evidence/holding-contributions",
+        "/v1/evidence/sector-contributions",
+        "/v1/evidence/shadow-comparison",
+        "/v1/evidence/attribution-history"
+      ],
+      "ui_consumers": [
+        "loadForwardEvidence"
+      ],
+      "tests": [
+        "tests/test_phase28a_forward_evidence_attribution.py"
+      ],
+      "migration_priority": 0,
+      "risk": "low",
+      "notes": "Read-only attribution reconciled to NAV +/-$1; ACTIVE vs SHADOW never mixed. Reads the immutable price store owned by forward_prediction_skill."
+    },
+    {
+      "path": "api/forward_prediction_skill.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Sole owner of the immutable TRUE_FORWARD ledgers; capture/maturation/rank-IC + token-gated recovery",
+      "classification": "KEEP",
+      "target_owner": "api/forward_prediction_skill.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "desk ledgers",
+        "multi_horizon_engine",
+        "owned EOD"
+      ],
+      "direct_writes": [
+        "forward_prediction_{snapshots,outcomes,prices}.json (immutable append-only)"
+      ],
+      "endpoints": [
+        "/v1/evidence/prediction-skill*"
+      ],
+      "ui_consumers": [
+        "loadPredictionSkill"
+      ],
+      "tests": [
+        "tests/test_phase28b2_atomic_forward_capture.py"
+      ],
+      "migration_priority": 0,
+      "risk": "med",
+      "notes": "Sole owner of the immutable TRUE_FORWARD ledgers; capture/maturation/rank-IC + token-gated recovery. Gaps documented, never fabricated."
+    },
+    {
+      "path": "api/multi_horizon_artifacts.py",
+      "system": "research_multi_horizon",
+      "responsibility": "NOT imported by app",
+      "classification": "REMOVE_CANDIDATE",
+      "target_owner": "research (offline builder)",
+      "duplicate_with": [
+        "alpha factories _write_artifacts"
+      ],
+      "direct_reads": [
+        "platform loaders"
+      ],
+      "direct_writes": [
+        "~20 artifacts on D: (no confirm token)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "NOT imported by app.py (__main__ only). Dormant offline artifact/benchmark builder."
+    },
+    {
+      "path": "api/multi_horizon_engine.py",
+      "system": "research_multi_horizon",
+      "responsibility": "NOT dormant: the canonical owned-data scoring/ranking + target engine feeding daily_action_gate",
+      "classification": "KEEP",
+      "target_owner": "universe_scoring",
+      "duplicate_with": [
+        "api/multi_horizon_history.py"
+      ],
+      "direct_reads": [
+        "owned CSVs on D:",
+        "sector map"
+      ],
+      "direct_writes": [
+        "read-only (in-memory cache)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [
+        "loadMultiHorizon (via platform)"
+      ],
+      "tests": [
+        "tests/test_multi_horizon_platform.py"
+      ],
+      "migration_priority": 1,
+      "risk": "med",
+      "notes": "NOT dormant: the canonical owned-data scoring/ranking + target engine feeding daily_action_gate. Owns the top-N sector-cap selection (duplicated in multi_horizon_history)."
+    },
+    {
+      "path": "api/multi_horizon_history.py",
+      "system": "research_multi_horizon",
+      "responsibility": "Research backtest reconstruction; re-implements book selection",
+      "classification": "DEPRECATE",
+      "target_owner": "research (backtest only)",
+      "duplicate_with": [
+        "api/multi_horizon_engine.py"
+      ],
+      "direct_reads": [
+        "frozen panels on D:"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_multi_horizon_platform.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Research backtest reconstruction; re-implements book selection. No live consumer beyond /v1/research + offline builder."
+    },
+    {
+      "path": "api/multi_horizon_ledger.py",
+      "system": "research_multi_horizon",
+      "responsibility": "Parallel paper-snapshot ledger largely superseded by the Phase 27 operational ledgers",
+      "classification": "DEPRECATE",
+      "target_owner": "portfolio_proposal (superseded)",
+      "duplicate_with": [
+        "api/operational_book.py"
+      ],
+      "direct_reads": [
+        "mhz_snapshots.json"
+      ],
+      "direct_writes": [
+        "mhz_snapshots.json (append, token-gated)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_multi_horizon_platform.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Parallel paper-snapshot ledger largely superseded by the Phase 27 operational ledgers."
+    },
+    {
+      "path": "api/multi_horizon_platform.py",
+      "system": "research_multi_horizon",
+      "responsibility": "Thin read-only aggregator for the /v1/research/alpha-* GETs; research surface largely superseded by the operational surface",
+      "classification": "INVESTIGATE",
+      "target_owner": "read_models",
+      "duplicate_with": [],
+      "direct_reads": [
+        "engine/history/ledger/registry"
+      ],
+      "direct_writes": [
+        "via ledger.confirm_snapshot only"
+      ],
+      "endpoints": [
+        "/v1/research/alpha-models",
+        "/v1/research/alpha-sleeves",
+        "/v1/research/alpha-operating-state",
+        "/v1/research/alpha-paper-history",
+        "/v1/research/alpha-paper-snapshots",
+        "/v1/research/alpha-book-comparison",
+        "/v1/research/current-alpha-books",
+        "/v1/research/current-alpha-scores",
+        "/v1/research/current-alpha-recommendations"
+      ],
+      "ui_consumers": [
+        "loadMultiHorizon"
+      ],
+      "tests": [
+        "tests/test_multi_horizon_platform.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "Thin read-only aggregator for the /v1/research/alpha-* GETs; research surface largely superseded by the operational surface."
+    },
+    {
+      "path": "api/multi_horizon_registry.py",
+      "system": "research_multi_horizon",
+      "responsibility": "Pure versioned model/sleeve + safety contract; live dependency of the operational gate",
+      "classification": "KEEP",
+      "target_owner": "model_registry",
+      "duplicate_with": [
+        "api/alpha_registry.py"
+      ],
+      "direct_reads": [
+        "-"
+      ],
+      "direct_writes": [
+        "read-only (pure)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_multi_horizon_platform.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "Pure versioned model/sleeve + safety contract; live dependency of the operational gate."
+    },
+    {
+      "path": "api/operational_book.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Single read-only operational presentation contract; correctly single-producer",
+      "classification": "KEEP",
+      "target_owner": "api/operational_book.py",
+      "duplicate_with": [
+        "api/alpha_book.py"
+      ],
+      "direct_reads": [
+        "alpha_book",
+        "alpha_target",
+        "desk"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/operational-book*"
+      ],
+      "ui_consumers": [
+        "loadOperationalBook (10 sites)"
+      ],
+      "tests": [
+        "tests/test_phase27b_operational_consolidation.py"
+      ],
+      "migration_priority": 0,
+      "risk": "med",
+      "notes": "Single read-only operational presentation contract; correctly single-producer. Owns derive_lifecycle_view/_derive_review (one of 3 workflow-state reps)."
+    },
+    {
+      "path": "api/paper_trading_desk.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Sole engine for the live append-only paper desk: marks, NEXT_CLOSE settlement, performance",
+      "classification": "KEEP",
+      "target_owner": "api/paper_trading_desk.py",
+      "duplicate_with": [
+        "api/current_alpha_tournament_sync.py (EOD primitives)"
+      ],
+      "direct_reads": [
+        "desk JSON ledgers",
+        "owned-EODHD"
+      ],
+      "direct_writes": [
+        "desk JSON ledgers (append-only, chain-hashed)"
+      ],
+      "endpoints": [
+        "/v1/paper-desk/*"
+      ],
+      "ui_consumers": [
+        "loadPaperDesk"
+      ],
+      "tests": [
+        "tests/test_phase27a_paper_trading_desk.py"
+      ],
+      "migration_priority": 0,
+      "risk": "med",
+      "notes": "Sole engine for the live append-only paper desk: marks, NEXT_CLOSE settlement, performance. Owns book_nav (ledger NAV authority)."
+    },
+    {
+      "path": "api/portfolio_manager.py",
+      "system": "operational_alpha_book",
+      "responsibility": "Read-only decision workspace (WHAT SHOULD I DO TODAY)",
+      "classification": "KEEP",
+      "target_owner": "api/portfolio_manager.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "multi_horizon_engine",
+        "portfolio_valuation",
+        "operational_book",
+        "gate",
+        "daily_close"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/portfolio-manager/*"
+      ],
+      "ui_consumers": [
+        "loadPortfolioManager"
+      ],
+      "tests": [
+        "tests/test_phase26_portfolio_manager.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "Read-only decision workspace (WHAT SHOULD I DO TODAY). Passthrough over gate/close/valuation; seed for the Milestone 2 opportunity-cost engine. Trim legacy DB-portfolio health items."
+    },
+    {
+      "path": "api/portfolio_terminal.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Read-only terminal over the DB portfolio",
+      "classification": "CONSOLIDATE",
+      "target_owner": "read_models (fold into command_center helpers)",
+      "duplicate_with": [
+        "api/command_center.py"
+      ],
+      "direct_reads": [
+        "postgres",
+        "portfolio_valuation"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/dashboard/portfolio-terminal"
+      ],
+      "ui_consumers": [
+        "loadPortfolioTerminal"
+      ],
+      "tests": [
+        "tests/test_phase14b_portfolio_terminal.py"
+      ],
+      "migration_priority": 2,
+      "risk": "med",
+      "notes": "Read-only terminal over the DB portfolio. Public path is thin; the exported-uncalled _collect_positions re-mark (duplicates portfolio_valuation) is a REMOVE_CANDIDATE."
+    },
+    {
+      "path": "api/portfolio_valuation.py",
+      "system": "legacy_db_engine",
+      "responsibility": "The one canonical valuation of the legacy/archived DB portfolio",
+      "classification": "KEEP",
+      "target_owner": "portfolio_state (scoped: legacy DB archive)",
+      "duplicate_with": [],
+      "direct_reads": [
+        "postgres (Portfolio/Position/PriceSnapshot)"
+      ],
+      "direct_writes": [
+        "read-only (never cached_total_value)"
+      ],
+      "endpoints": [
+        "/v1/dashboard/portfolio-valuation"
+      ],
+      "ui_consumers": [
+        "renderPortfolioDashboard"
+      ],
+      "tests": [
+        "tests/test_phase14c_portfolio_valuation.py"
+      ],
+      "migration_priority": 1,
+      "risk": "med",
+      "notes": "The one canonical valuation of the legacy/archived DB portfolio. Scope it explicitly as the legacy archive; the live book NAV authority is paper_trading_desk.book_nav."
+    },
+    {
+      "path": "api/price_alpha_factory.py",
+      "system": "research_alpha_factory",
+      "responsibility": "Price discovery factory reusing alpha_factory's battery wholesale; near-duplicate scaffolding",
+      "classification": "CONSOLIDATE",
+      "target_owner": "model_registry (shared factory core)",
+      "duplicate_with": [
+        "api/alpha_factory.py"
+      ],
+      "direct_reads": [
+        "10-L panel",
+        "price_panel",
+        "phase17a report"
+      ],
+      "direct_writes": [
+        "13 artifacts on D: (token-gated)"
+      ],
+      "endpoints": [
+        "/v1/research/price-alpha-factory/*"
+      ],
+      "ui_consumers": [
+        "research/audit view"
+      ],
+      "tests": [
+        "tests/test_phase21_price_alpha_factory.py"
+      ],
+      "migration_priority": 2,
+      "risk": "med",
+      "notes": "Price discovery factory reusing alpha_factory's battery wholesale; near-duplicate scaffolding. Only the candidate generator + input panel differ."
+    },
+    {
+      "path": "api/price_panel.py",
+      "system": "research_alpha_factory",
+      "responsibility": "Clean read-only owned PIT trailing-price feature primitive; sole consumer is price_alpha_factory",
+      "classification": "KEEP",
+      "target_owner": "feature_service",
+      "duplicate_with": [],
+      "direct_reads": [
+        "owned adjusted-close CSV on D:"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase21_price_alpha_factory.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "Clean read-only owned PIT trailing-price feature primitive; sole consumer is price_alpha_factory."
+    },
+    {
+      "path": "api/research_candidate_preview.py",
+      "system": "research_current_alpha",
+      "responsibility": "Oldest wrapper on a pre-champion Phase 4-B package that may no longer exist on disk (503s if absent)",
+      "classification": "REMOVE_CANDIDATE",
+      "target_owner": "read_models (obsolete)",
+      "duplicate_with": [
+        "api/current_alpha_preview.py"
+      ],
+      "direct_reads": [
+        "phase4b package (may be absent)"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/research/candidate-preview"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_research_candidate_preview.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Oldest wrapper on a pre-champion Phase 4-B package that may no longer exist on disk (503s if absent)."
+    },
+    {
+      "path": "db/models.py",
+      "system": "legacy_db_engine",
+      "responsibility": "13 ORM tables",
+      "classification": "INVESTIGATE",
+      "target_owner": "db/models.py (split legacy execution tables)",
+      "duplicate_with": [],
+      "direct_reads": [
+        "-"
+      ],
+      "direct_writes": [
+        "ORM schema (13 tables)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_models.py"
+      ],
+      "migration_priority": 3,
+      "risk": "med",
+      "notes": "13 ORM tables. Signal/TradeDecision/Order/Trade/PortfolioSnapshot/JobRun are the legacy-execution counterpart to the JSON ledgers; Portfolio/CashLedger/Position/PriceSnapshot/CandidateReview/PredictionRun remain in use."
+    },
+    {
+      "path": "db/session.py",
+      "system": "infrastructure",
+      "responsibility": "Clean single-source DB session factory (get_session/get_dedicated_session)",
+      "classification": "KEEP",
+      "target_owner": "db/session.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "config"
+      ],
+      "direct_writes": [
+        "postgres engine/session"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/conftest.py"
+      ],
+      "migration_priority": 0,
+      "risk": "low",
+      "notes": "Clean single-source DB session factory (get_session/get_dedicated_session). The model for a future ledger/store service."
+    },
+    {
+      "path": "engine/absolute_return_research.py",
+      "system": "research_absolute_return",
+      "responsibility": "Self-contained read-only absolute-return diagnosis + pre-registered shadow variants (never promoted)",
+      "classification": "KEEP",
+      "target_owner": "research (read-only)",
+      "duplicate_with": [
+        "api/portfolio_valuation.py",
+        "api/forward_evidence.py"
+      ],
+      "direct_reads": [
+        "desk/fps readers",
+        "owned CSVs on D:"
+      ],
+      "direct_writes": [
+        "read-only w.r.t. Paper Trader (artifacts under output_root)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_phase31b_absolute_return.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Self-contained read-only absolute-return diagnosis + pre-registered shadow variants (never promoted). Off the live serving path (CLI only)."
+    },
+    {
+      "path": "engine/market_data.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Stateless yfinance + FRED fetchers",
+      "classification": "INVESTIGATE",
+      "target_owner": "market_data_service",
+      "duplicate_with": [
+        "api/paper_trading_desk.py (owned EOD)"
+      ],
+      "direct_reads": [
+        "yfinance",
+        "FRED"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/market/indicators"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_market_data.py"
+      ],
+      "migration_priority": 2,
+      "risk": "med",
+      "notes": "Stateless yfinance + FRED fetchers. Price-ingest role superseded by owned-EODHD marks; keep the market indicators."
+    },
+    {
+      "path": "engine/market_hours.py",
+      "system": "infrastructure",
+      "responsibility": "Pure ET market-date primitive (market_date_for)",
+      "classification": "KEEP",
+      "target_owner": "market_session (new)",
+      "duplicate_with": [
+        "api/daily_operating_run.py",
+        "api/daily_close.py"
+      ],
+      "direct_reads": [],
+      "direct_writes": [],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Pure ET market-date primitive (market_date_for). Should become the shared base for all eligible-date logic."
+    },
+    {
+      "path": "engine/market_screener.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Legacy DB-snapshot universe ranker; owned-panel analogue of the factories",
+      "classification": "INVESTIGATE",
+      "target_owner": "universe_scoring (retire if scan dead)",
+      "duplicate_with": [
+        "api/multi_horizon_engine.py"
+      ],
+      "direct_reads": [
+        "postgres PriceSnapshot/BenchmarkPrice"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/market/scan"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_market_screener.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Legacy DB-snapshot universe ranker; owned-panel analogue of the factories. DEPRECATE if the scan endpoint is dead."
+    },
+    {
+      "path": "engine/portfolio.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Foundational DB accounting; writes cached_total_value (the cache the canonical valuation refuses to trust)",
+      "classification": "DEPRECATE",
+      "target_owner": "portfolio_state (superseded)",
+      "duplicate_with": [
+        "api/portfolio_valuation.py"
+      ],
+      "direct_reads": [
+        "postgres"
+      ],
+      "direct_writes": [
+        "CashLedger/Position/Portfolio (cached_total_value)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_portfolio.py"
+      ],
+      "migration_priority": 3,
+      "risk": "high",
+      "notes": "Foundational DB accounting; writes cached_total_value (the cache the canonical valuation refuses to trust). Superseded by the file-based operational book."
+    },
+    {
+      "path": "engine/prediction_client.py",
+      "system": "legacy_db_engine",
+      "responsibility": "The only remote-prediction (:9000) integration; clean, side-effect-isolated",
+      "classification": "KEEP",
+      "target_owner": "engine/prediction_client.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "remote prediction :9000"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/prediction/health"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_prediction_client.py"
+      ],
+      "migration_priority": 2,
+      "risk": "low",
+      "notes": "The only remote-prediction (:9000) integration; clean, side-effect-isolated. Never runs prediction locally."
+    },
+    {
+      "path": "engine/prediction_strategy.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Pure prediction->signal adapter bridging prediction_client to risk; legacy alongside strategy/risk/reconciler",
+      "classification": "INVESTIGATE",
+      "target_owner": "universe_scoring (retire with pipeline)",
+      "duplicate_with": [
+        "engine/strategy.py"
+      ],
+      "direct_reads": [
+        "caller dicts"
+      ],
+      "direct_writes": [
+        "read-only (pure)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_prediction_strategy.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Pure prediction->signal adapter bridging prediction_client to risk; legacy alongside strategy/risk/reconciler."
+    },
+    {
+      "path": "engine/reconciler.py",
+      "system": "legacy_db_engine",
+      "responsibility": "The order-execution/fill core (run_fill_cycle) — directly conflicts with the preview-only mandate",
+      "classification": "DEPRECATE",
+      "target_owner": "execution (quarantine)",
+      "duplicate_with": [
+        "engine/portfolio.py"
+      ],
+      "direct_reads": [
+        "postgres (Order/Position/PriceSnapshot)"
+      ],
+      "direct_writes": [
+        "Order/Trade/Position/CashLedger (COMMITS)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_reconciler.py"
+      ],
+      "migration_priority": 3,
+      "risk": "high",
+      "notes": "The order-execution/fill core (run_fill_cycle) — directly conflicts with the preview-only mandate. Confirm no live route drives it, then quarantine under the deferred Execution context."
+    },
+    {
+      "path": "engine/risk.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Pre-trade risk gate + position sizer for the DB order flow; superseded by the rules-based alpha-book policy",
+      "classification": "DEPRECATE",
+      "target_owner": "risk_cost_service (superseded)",
+      "duplicate_with": [],
+      "direct_reads": [
+        "postgres state"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_risk.py"
+      ],
+      "migration_priority": 3,
+      "risk": "med",
+      "notes": "Pre-trade risk gate + position sizer for the DB order flow; superseded by the rules-based alpha-book policy."
+    },
+    {
+      "path": "engine/scoring.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Decision Model v2 candidate scorer (4 profiles) for the legacy candidate-preview product; a second scoring lineage beside composite_sn",
+      "classification": "INVESTIGATE",
+      "target_owner": "universe_scoring (retire if Daily-Review dead)",
+      "duplicate_with": [
+        "api/multi_horizon_engine.py"
+      ],
+      "direct_reads": [
+        "caller dicts"
+      ],
+      "direct_writes": [
+        "read-only (pure)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_scoring.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Decision Model v2 candidate scorer (4 profiles) for the legacy candidate-preview product; a second scoring lineage beside composite_sn."
+    },
+    {
+      "path": "engine/strategy.py",
+      "system": "legacy_db_engine",
+      "responsibility": "Legacy SMA-crossover signal generator; not part of the prediction/alpha-book product",
+      "classification": "DEPRECATE",
+      "target_owner": "universe_scoring (superseded)",
+      "duplicate_with": [
+        "engine/prediction_strategy.py"
+      ],
+      "direct_reads": [
+        "postgres PriceSnapshot"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/signals"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_strategy.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "Legacy SMA-crossover signal generator; not part of the prediction/alpha-book product."
+    },
+    {
+      "path": "engine/universe.py",
+      "system": "legacy_db_engine",
+      "responsibility": "CSV S&P 500 universe loader; the live universe comes from owned panels",
+      "classification": "INVESTIGATE",
+      "target_owner": "market_data_service (retire with screener)",
+      "duplicate_with": [],
+      "direct_reads": [
+        "data/sp500_universe*.csv"
+      ],
+      "direct_writes": [
+        "read-only"
+      ],
+      "endpoints": [
+        "/v1/strategy/universe"
+      ],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_universe.py"
+      ],
+      "migration_priority": 3,
+      "risk": "low",
+      "notes": "CSV S&P 500 universe loader; the live universe comes from owned panels. Retire with the DB screener if dead."
+    }
+  ]
+}

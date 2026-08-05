@@ -131,3 +131,43 @@ The browser validation must check:
 - no enabled automation
 
 <!-- END PAPER TRADER MANDATORY UI REDESIGN WORKFLOW -->
+
+<!-- BEGIN CANONICAL PROJECT OBJECTIVE (Phase 29A) -->
+
+# Canonical Project Objective
+
+The canonical objective of Paper Trader is to build an **active, research-driven
+paper portfolio manager** that continuously determines whether the current
+holdings remain the best risk-adjusted use of capital, identifies stronger
+alternatives, and produces explainable portfolio-change proposals under strict
+safety, point-in-time evidence, and manual-review controls. The system must
+eventually operate close to real time. It is **not** a static buy-and-hold
+tracker, a monthly-maintenance tool, a set of disconnected research dashboards,
+a system that constantly retrains without evidence, or an automated
+broker-execution system.
+
+The system runs three operating cycles: **signal refresh (frequent)**,
+**portfolio reassessment (frequent)**, and **model recalibration (controlled,
+evidence-gated)**. Work is sequenced across seven milestones and governed by
+eight architectural principles.
+
+The authoritative statements live in these canonical documents — read them
+before architectural or workflow changes, and keep them in sync with the code:
+
+- [docs/PROJECT_CHARTER.md](docs/PROJECT_CHARTER.md) — canonical objective, three
+  operating cycles, seven milestones, eight architectural principles, safety
+  boundaries, current and deferred scope.
+- [docs/CURRENT_ARCHITECTURE.md](docs/CURRENT_ARCHITECTURE.md) — the current,
+  evidence-based system map (modules, endpoints, UI, stores, workflows, risks).
+- [docs/TARGET_ARCHITECTURE.md](docs/TARGET_ARCHITECTURE.md) — the target
+  boundaries that support the seven milestones without a big-bang rewrite.
+- [docs/CONSOLIDATION_ROADMAP.md](docs/CONSOLIDATION_ROADMAP.md) — the sequenced,
+  bounded consolidation slices behind tests.
+- [docs/ARCHITECTURE_DECISIONS.md](docs/ARCHITECTURE_DECISIONS.md) — confirmed,
+  provisional, and unresolved architectural decisions with evidence.
+
+These canonical rules do not replace the UI redesign workflow above; both apply.
+Paper-only, preview-first, manual-review, and no-automation safety boundaries
+remain in force.
+
+<!-- END CANONICAL PROJECT OBJECTIVE (Phase 29A) -->
