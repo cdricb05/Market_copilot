@@ -271,7 +271,7 @@ the two-worlds operations split (§8).
 | Cross-source data freshness | `api/data_freshness` (**Slice 1, LANDED**) | One read-only owner classifies every input under its declared cadence and composes the market session; served at `GET /v1/operations/data-freshness`, rendered by the single UI `loadDataFreshness()` | **OK** |
 | Universe scoring (`composite_sn`) | `multi_horizon_engine` | Single-sourced for `composite_sn`; but the z-score/rank primitive is reimplemented **≥8×**, and `engine/scoring.py` is a second legacy scoring lineage | **PARTIAL** |
 | Target portfolio | `alpha_target` → desk snapshot | Two "book" concepts: operational confirmed snapshot vs frozen champion book (`current_alpha_book`); top-N-sector-cap algorithm duplicated (`multi_horizon_engine:476` vs `multi_horizon_history:117`) | **PARTIAL** |
-| Workflow / gate state | `daily_action_gate` | **3 representations**: `app.py:_build_workflow_state` (legacy), `daily_action_gate.evaluate_daily_action_gate`, `operational_book.derive_lifecycle_view` | **CONFLICT** |
+| Workflow / gate state | `api/workflow_state` (**Slice 2, LANDED**) | Canonical combined-interpretation owner composes the domain facts; the specialized owners (`daily_action_gate.evaluate_daily_action_gate`, `daily_close`, `operational_book.derive_lifecycle_view`) keep their domain facts; the 4 legacy stage vocabularies (`app.py:_build_workflow_state` + `_canonical_daily_stage`, `command_center._derive_stage`, `daily_workflow_dashboard`) remain until Slice-11 quarantine | **RESOLVING (Slice 2)** |
 | Forward evidence | `forward_prediction_skill` + `forward_evidence` | Coherent; ACTIVE vs SHADOW never mixed; gaps documented, never fabricated | **OK** |
 | DB session | `db/session.py` | Single-source, clean | **OK** |
 | Model mark | `paper_trading_desk` desk marks | Coherent within World B; diverges from World A `price_snapshots` | **PARTIAL** |
@@ -408,3 +408,53 @@ The corrective patch re-owns every concept:
   never an owned-data lag. The UI Command Center strip renders operational and
   research dates in separate labelled groups from the SINGLE `loadDataFreshness()`
   loader and performs no market-date arithmetic.
+
+## 13. Slice 2 — Canonical workflow / operator state (implemented, Phase 29C)
+
+The second consolidation slice landed the ONE combined-operator-interpretation
+owner on top of the Slice-1 freshness foundation. No runtime was deleted; the
+specialized modules keep their domain facts and the legacy stage vocabularies
+remain (they retire with the legacy Create-Orders surface in Slice 11).
+
+```mermaid
+flowchart TD
+  DF["api/data_freshness.py (Slice 1)<br/>session + dates + active book + consistency"] --> WS["api/workflow_state.py (READ-ONLY owner)"]
+  GATE["daily_action_gate.load_daily_action_gate<br/>(assessment outcome + review clock)"] --> WS
+  CLOSE["daily_close.load_close_progress (PROBE-FREE)<br/>(latest completed close + status)"] --> WS
+  OB["operational_book.load_operational_book<br/>(active book / NAV / holdings / pending orders)"] --> WS
+  FPS["forward_prediction_skill.load_prediction_skill<br/>(latest TRUE_FORWARD + evidence state)"] --> WS
+  AT["alpha_target.load_readiness<br/>(target market date)"] --> WS
+  WS --> POLICY["deterministic priority policy + decision currency"]
+  POLICY --> EP["GET /v1/operations/workflow-state"]
+  EP --> UI["UI loadWorkflowState() (ONE loader; 6 surfaces; no priority/currency math)"]
+```
+
+- **Canonical owner** `api/workflow_state.py`: read-only composition; owns the
+  frozen overall-state vocabulary (`WAITING_FOR_SESSION_CLOSE`,
+  `WAITING_FOR_OWNED_DATA`, `RESEARCH_CYCLE_REQUIRED`,
+  `PORTFOLIO_REASSESSMENT_REQUIRED`, `READY_FOR_DAILY_CLOSE`,
+  `DAILY_CYCLE_COMPLETE`, `DAILY_CYCLE_COMPLETE_EVIDENCE_GAP`,
+  `MANUAL_REVIEW_REQUIRED`, `INCONSISTENT_STATE`), the assessment-currency
+  vocabulary (`CURRENT`/`STALE`/`DUE`/`OVERDUE`/`MISSING`/`INCONSISTENT`), the
+  action-severity vocabulary (`INFO`/`SUCCESS`/`ATTENTION`/`BLOCKED`/`ERROR`), the
+  deterministic priority policy and the decision-currency rule. It performs no
+  provider/prediction call, no Daily Close, no research refresh, no reassessment,
+  no model promotion and no write.
+- **Decision-currency repair:** an older Daily Action Gate result is never
+  re-presented as a stale "NO ACTION TODAY" today-conclusion; the historical
+  no-change result is preserved (dated) in `completed_summary`, and a stale/overdue
+  assessment is reported as "reassessment is due".
+- **Separation of concerns (D-7):** a valid completed operational close with a
+  documented forward-evidence gap is ATTENTION, never an operational failure;
+  research staleness never invalidates the completed close.
+- **Consumers:** `GET /v1/operations/workflow-state` (authenticated, GET-only,
+  read-only) and ONE UI `loadWorkflowState()` loader that fans the ONE payload to
+  the Command Center, Daily Workflow, Portfolio, Portfolio Manager, Research &
+  Audit and the Action/Safety panel. The UI derives no workflow priority or
+  assessment currency (audit `workflow_state_ownership`).
+- **Deliberately kept:** the four legacy stage vocabularies
+  (`app.py:_build_workflow_state` + `_canonical_daily_stage`,
+  `command_center._derive_stage`, `daily_workflow_dashboard`) and every existing
+  endpoint/panel. Slice 2 performs no workflow action; the Persistent Daily
+  Research Cycle and portfolio reassessment (Slice 3) are described/routed but not
+  executed.

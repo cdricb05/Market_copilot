@@ -197,6 +197,7 @@ from paper_trader.api.current_operating_state import (
     load_current_operating_state,
 )
 from paper_trader.api.data_freshness import load_data_freshness
+from paper_trader.api.workflow_state import load_workflow_state
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6173,6 +6174,36 @@ def operations_data_freshness() -> dict:
     on this report; this slice only reports.
     """
     return load_data_freshness()
+
+
+@app.get(
+    "/v1/operations/workflow-state",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_workflow_state() -> dict:
+    """Slice 2 canonical workflow / operator-state report.
+
+    The ONE authoritative read model for the *combined operator interpretation*:
+    the overall workflow state, the current task, the single primary next action
+    (with severity, destination and safe/execution flags), the queued follow-up
+    actions, the portfolio-assessment currency, the blocking conditions, the
+    completed-state summary, and a deterministic cross-surface consistency verdict.
+    Built by ``api.workflow_state`` on top of the Slice-1 ``api.data_freshness``
+    contract and the existing authoritative read models (Daily Action Gate, the
+    probe-free Daily Close progress, the active Operational Book, the Forward
+    Prediction Skill, and alpha-target readiness). It never re-derives their
+    business logic.
+
+    STRICTLY READ-ONLY: it invokes no provider network call, calls no prediction
+    service, runs no Daily Close, runs no research refresh, runs no portfolio
+    reassessment, promotes no model, and writes no file / ledger / database row /
+    snapshot / order / signal / decision / fill / proposal. A failing non-critical
+    dependency degrades to a ``warnings[]`` entry with HTTP 200. Slice 2 performs
+    no workflow action; the future Persistent Daily Research Cycle and portfolio
+    reassessment (Slice 3+) are described / routed here but not executed.
+    """
+    return load_workflow_state()
 
 
 class DailyOperatingRunExecuteRequest(BaseModel):

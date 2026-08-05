@@ -1978,6 +1978,10 @@
         <!-- ===================== Phase 14-A COMMAND CENTER START ===================== -->
         <div id="cc-root">
 
+          <!-- Slice 2 (Phase 29C): canonical workflow-state banner. Every value is
+               rendered from GET /v1/operations/workflow-state; the UI derives none. -->
+          <div id="wf-cc" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 12px; margin:0 0 12px;"></div>
+
           <!-- TOP STATUS BAR -->
           <div class="cc-statusbar">
             <span class="cc-status-pill"><span id="cc-dot-ready" class="cc-dot"></span><span id="cc-status-ready">System —</span></span>
@@ -2206,6 +2210,8 @@
 
       <!-- TAB 1: DAILY PLAN -->
       <div id="tab-prediction-cockpit" class="tab-content">
+        <!-- Slice 2 (Phase 29C): canonical workflow-state banner (server-rendered). -->
+        <div id="wf-dw" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 12px; margin:0 0 12px;"></div>
 
         <!-- ===================== Phase 27E DAILY CLOSE (primary daily action) ===================== -->
         <div id="dw-dc-card" class="dw-terminal" style="border-left:3px solid var(--info,#3b82f6); margin-bottom:10px; display:none;">
@@ -2336,6 +2342,8 @@
            operational order lifecycle is governed by the daily action gate. -->
       <!-- TAB 4: PORTFOLIO -->
       <div id="tab-portfolio" class="tab-content">
+        <!-- Slice 2 (Phase 29C): canonical workflow-state banner (server-rendered). -->
+        <div id="wf-pt" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 12px; margin:0 0 12px;"></div>
 
         <!-- ===================== Phase 27B.8 PORTFOLIO — OPERATIONAL HOLDINGS DASHBOARD ===================== -->
         <!-- The authoritative holdings + valuation + P&L + allocation dashboard for the ONE
@@ -2602,6 +2610,8 @@
       ============================================================================================ -->
       <!-- ===================== Phase 26 PORTFOLIO MANAGER WORKSTATION ===================== -->
       <div id="tab-portfolio-manager" class="tab-content">
+        <!-- Slice 2 (Phase 29C): canonical workflow-state banner (server-rendered). -->
+        <div id="wf-pm" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 12px; margin:0 0 12px;"></div>
         <div class="card" style="margin-bottom:12px;">
           <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <span style="font-size:15px;font-weight:800;letter-spacing:.03em;">PORTFOLIO MANAGER
@@ -3224,6 +3234,8 @@
       </div>
 
       <div id="tab-audit-advanced" class="tab-content">
+        <!-- Slice 2 (Phase 29C): canonical workflow-state banner (server-rendered). -->
+        <div id="wf-ra" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 12px; margin:0 0 12px;"></div>
 
         <!-- ===================== Phase 15-B RESEARCH & AUDIT WORKSPACE NAV ===================== -->
         <!-- One section active at a time via deep links. Champion Overview is default;
@@ -5292,6 +5304,11 @@
 
   <!-- Right Panel: Action / Safety Panel -->
   <div class="right-panel">
+    <!-- Slice 2 (Phase 29C): canonical workflow-state block. The overall state,
+         current task and single primary next action are rendered from
+         GET /v1/operations/workflow-state; the legacy operator card below remains
+         intact. The UI derives no workflow priority or assessment currency. -->
+    <div id="wf-right" class="wf-state-banner" style="display:none; border:1px solid var(--border); border-left:3px solid var(--info); border-radius:6px; padding:8px 10px; margin-bottom:10px;"></div>
     <div class="panel-section" style="border-color: var(--info); padding-bottom: 10px; margin-bottom: 10px;">
       <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-primary); margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;">Action / Safety Panel</div>
       <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px;">
@@ -23874,11 +23891,13 @@ function loadOperationalBook() {
     try { loadDailyActionGate(); } catch (e) {}   // Phase 27C: the ONE daily gate result
     try { loadDailyClose(); } catch (e) {}         // Phase 27E: the ONE daily-close status
     try { loadDataFreshness(); } catch (e) {}      // Slice 1: the ONE freshness/session strip
+    try { loadWorkflowState(); } catch (e) {}      // Slice 2: the ONE workflow/operator state
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
     try { loadDailyActionGate(); } catch (e) {}
     try { loadDailyClose(); } catch (e) {}
-    try { loadDataFreshness(); } catch (e) {} return null; });
+    try { loadDataFreshness(); } catch (e) {}
+    try { loadWorkflowState(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
@@ -23906,6 +23925,84 @@ function loadDataFreshness() {
   return p;
 }
 window.loadDataFreshness = loadDataFreshness;
+
+// ---- Slice 2 (Phase 29C): canonical workflow / operator state loader ----------
+// ONE single-flight loader for the ONE authoritative combined operator
+// interpretation. Every value shown by the canonical banners comes from
+// GET /v1/operations/workflow-state. The UI performs NO workflow-priority
+// calculation, NO assessment-currency calculation, NO overdue derivation, and
+// never constructs a "today" conclusion — it renders the server payload verbatim.
+window._wsData = null; window._wsInFlight = null;
+function loadWorkflowState() {
+  if (window._wsInFlight) return window._wsInFlight;   // coalesce concurrent page loads
+  var p = _mhzGet('/v1/operations/workflow-state').then(function (d) {
+    window._wsInFlight = null;
+    window._wsData = d;
+    renderWorkflowState(d);
+    return d;
+  }).catch(function () { window._wsInFlight = null; renderWorkflowState(null); return null; });
+  window._wsInFlight = p;
+  return p;
+}
+window.loadWorkflowState = loadWorkflowState;
+
+// Map the SERVER-PROVIDED action severity to a colour (no client derivation).
+function _wsSevColor(sev) {
+  return (sev === 'ERROR' || sev === 'BLOCKED') ? 'var(--danger,#ef4444)'
+    : sev === 'ATTENTION' ? 'var(--warning,#f59e0b)'
+    : sev === 'SUCCESS' ? 'var(--ok,#22c55e)'
+    : 'var(--info,#3b82f6)';
+}
+function _wsEsc(s) {
+  s = (s == null) ? '' : String(s);
+  return s.replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+// Compose the canonical banner HTML STRICTLY from the server payload fields.
+// No stage, currency, overdue, next-action, evidence-severity or "today" logic
+// is computed here — those are all read from the canonical contract.
+function _wsBannerHtml(d) {
+  if (!d || !d.primary_action) return '';
+  var pa = d.primary_action;
+  var os = d.operational_state || {};
+  var cs = d.current_session || {};
+  var pas = d.portfolio_assessment_state || {};
+  var ev = d.evidence_state || {};
+  var sevc = _wsSevColor(pa.severity);
+  var chips = (d.queued_actions || []).map(function (q) {
+    return '<span style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; padding:1px 7px; margin:2px 3px 0 0;">' + _wsEsc(q.label) + '</span>';
+  }).join('');
+  var btn = pa.destination
+    ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(pa.destination) + '\');">' + _wsEsc(pa.label) + '</button>'
+    : '';
+  return ''
+    + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
+    +   '<span style="font-size:9px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#04120a; background:' + sevc + '; border-radius:4px; padding:2px 7px;">' + _wsEsc(d.overall_state) + '</span>'
+    +   '<span style="font-size:11px; font-weight:700; color:var(--text-primary);">' + _wsEsc(d.headline) + '</span>'
+    + '</div>'
+    + '<div style="font-size:10px; color:var(--text-accent); margin-top:4px;">Current task: ' + _wsEsc(d.current_task) + '</div>'
+    + '<div style="font-size:9px; color:var(--label); margin-top:4px;">'
+    +   'Session: ' + _wsEsc(cs.session_status || '—')
+    +   ' &middot; Latest close: ' + _wsEsc(os.latest_completed_close_date || '—') + ' (' + (os.operational_close_valid ? 'valid' : 'not valid') + ')'
+    +   ' &middot; Assessment: ' + _wsEsc(pas.assessment_status || '—')
+    +   ' &middot; Evidence: ' + _wsEsc(ev.gap_severity || '—') + (ev.documented_gap ? ' (gap)' : '')
+    + '</div>'
+    + (chips ? '<div style="margin-top:4px;">' + chips + '</div>' : '')
+    + btn;
+}
+// Fan the ONE payload out to every primary surface + the Action/Safety panel.
+function renderWorkflowState(d) {
+  var html = _wsBannerHtml(d);
+  ['wf-cc', 'wf-dw', 'wf-pt', 'wf-pm', 'wf-ra', 'wf-right'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (!html) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.innerHTML = html;
+    el.style.display = 'block';
+  });
+}
+window.renderWorkflowState = renderWorkflowState;
 
 function _dfSet(id, text) {
   var el = document.getElementById(id);

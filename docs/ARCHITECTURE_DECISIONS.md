@@ -140,6 +140,52 @@
   `portfolio_valuation` remain (they own the legacy/research read models) but no
   longer supply the operational freshness contract.
 
+### D-12 — Canonical workflow / operator state (Slice 2) — CONFIRMED (LANDED)
+- **Decision:** one read-only owner, `api/workflow_state.py`, holds the **combined
+  operator interpretation** (overall workflow state, current task, single primary
+  next action + severity, queued follow-ups, portfolio-assessment currency,
+  blockers, completed-state summary, cross-surface consistency). It is exposed at
+  one endpoint (`GET /v1/operations/workflow-state`) and one UI loader
+  (`loadWorkflowState()`), refining the roadmap's original "the gate is the state
+  authority" into a dedicated composition owner so no surface re-derives the
+  interpretation.
+- **Composition, not recomputation:** it composes the Slice-1 `data_freshness`
+  contract and the existing DOMAIN-fact owners — Daily Action Gate (assessment
+  outcome/target_state + monthly review clock), probe-free `daily_close.load_close_progress`,
+  active `operational_book`, `forward_prediction_skill`, `alpha_target.load_readiness`
+  — and never re-implements their logic. Specialized modules keep their domain
+  facts; the four legacy stage vocabularies (`app.py:_build_workflow_state` +
+  `_canonical_daily_stage`, `command_center._derive_stage`,
+  `daily_workflow_dashboard`) are documented and retire with the legacy
+  Create-Orders surface (Slice 11), not this slice.
+- **Deterministic priority policy (documented precedence):** P1 inconsistent state
+  → P2 current session not closed (eligible session already processed) → P3 owned
+  data not confirmed → P4 research inputs stale/missing → P5 research current but
+  assessment missing/due/overdue/stale → P6 research+assessment current but close
+  incomplete → then the terminal region, where a material-risk/manual-review gate
+  (P7) preempts an evidence-gapped completion (P8) which preempts a plain
+  completion (P9). First matching condition wins.
+- **Decision currency (Workstream F):** a Daily Action Gate result is called
+  current only when its date equals the latest eligible completed session under its
+  review policy; a stale/overdue result is classified (`STALE`/`DUE`/`OVERDUE`) and
+  its historical "no change on <date>" conclusion is preserved (dated) in
+  `completed_summary` — never re-presented as a current "NO ACTION TODAY". No new
+  assessment is run.
+- **Separation of concerns (D-7 upheld):** research/model staleness or a documented
+  forward-evidence gap is ATTENTION-level and never downgrades a valid completed
+  operational close to a failure. Automatic model promotion remains `false`.
+- **Evidence:** the endpoint is authenticated, GET-only, read-only, provider-free
+  and prediction-free; the UI keeps exactly one `loadWorkflowState()` loader and
+  performs no workflow-priority/assessment-currency arithmetic (audit
+  `workflow_state_ownership`); a live regression fixture reproduces the observed
+  state and asserts `overall_state = WAITING_FOR_SESSION_CLOSE`, the research cycle
+  and overdue reassessment appear in `queued_actions`, the historical assessment is
+  preserved but not labelled "today", the completed close stays valid, the evidence
+  gap is ATTENTION, and `consistency_status = CONSISTENT`; audit inventory drift = 0.
+- **Consequence:** Slice 2 performs no workflow action. The Persistent Daily
+  Research Cycle and portfolio reassessment (Slice 3) are described/routed here but
+  not executed; those actions are labelled not-yet-implemented.
+
 ### D-10 — No big-bang rewrite of the monoliths — CONFIRMED
 - **Decision:** `api/app.py` (20.5k) and `api/ui/index.html` (26.7k) are reduced
   incrementally (domain routers, extracted view logic) as owning contexts

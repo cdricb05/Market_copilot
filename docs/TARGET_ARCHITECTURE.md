@@ -54,7 +54,7 @@ defect to be migrated, not a new owner to be blessed.
 | Risk and cost evaluation | `risk_cost_service` (unify `engine/risk` + cap families) | duplicated top-N-sector-cap + name-cap code |
 | Forward evidence | `forward_evidence` (+ `forward_prediction_skill`) | already coherent — keep |
 | Operational daily close | `daily_close.run_daily_close` | World A/B split; standalone refresh bypass |
-| Workflow / gate state | `daily_action_gate` | `app.py:_build_workflow_state`, `derive_lifecycle_view` |
+| Workflow / gate state | `api/workflow_state` (**LANDED, Slice 2**; composes the gate/close/book/freshness domain facts) | `app.py:_build_workflow_state` (legacy), `command_center._derive_stage`, `daily_workflow_dashboard` stages, `derive_lifecycle_view` |
 | Execution | `execution` (deferred; empty until Milestone 7) | the legacy paper "Create Orders" surface |
 | Read models / UI | `read_models` + `api/ui` | NAV/holdings rendered from 3 payloads |
 | Orchestration | `orchestration` (one path per workflow) | 5 standalone mark writers |
@@ -97,6 +97,32 @@ responsibilities, candidate existing modules, and migration approach.
   and the research forward-roll (`alpha_agent/source_exhaustion.py`) are kept
   separate. Remaining resolvers (`paper_trading_desk._required_mark_date`,
   `current_alpha_tournament_sync`, `market_screener`) are documented follow-ups.
+
+### Workflow / Operator State
+- **Responsibility:** hold the single authoritative *combined operator
+  interpretation* — the overall workflow state, the current task, the one primary
+  next action (severity/destination/safe/execution flags), the queued follow-ups,
+  the portfolio-assessment currency, the blockers, the completed-state summary and
+  a cross-surface consistency verdict.
+- **Inputs:** the Slice-1 `data_freshness` contract (session + dates + active book
+  + consistency), the Daily Action Gate (assessment domain fact + review clock),
+  the probe-free Daily Close progress, the active Operational Book, the Forward
+  Prediction Skill, alpha-target readiness. **Composed, never recomputed.**
+- **Outputs:** one workflow contract (`GET /v1/operations/workflow-state`).
+- **Owned state:** none (pure composition over injected read models).
+- **Forbidden:** re-deriving any domain fact; any provider/prediction call; any
+  Daily Close, research refresh, portfolio reassessment, model promotion or write.
+- **Candidates:** `api/workflow_state` (**LANDED, Slice 2**).
+- **Status (Slice 2, LANDED):** `api/workflow_state.py` (read-only owner) +
+  `GET /v1/operations/workflow-state` + one UI `loadWorkflowState()` loader that
+  fans the ONE payload to every primary surface and the Action/Safety panel. The
+  frozen overall-state vocabulary, the assessment-currency vocabulary, the
+  deterministic priority policy and the decision-currency rule (a stale gate
+  result is never re-presented as a "today" conclusion) live here. Specialized
+  modules keep their domain facts; the four legacy stage vocabularies
+  (`app.py`×2, `command_center`, `daily_workflow_dashboard`) are documented and
+  retired with the legacy Create-Orders surface (Slice 11). The UI derives no
+  workflow priority or assessment currency. Slice 2 performs no workflow action.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

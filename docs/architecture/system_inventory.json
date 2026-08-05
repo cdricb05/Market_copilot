@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "217fb47",
+    "head": "69d353d",
     "branch": "main",
-    "phase": "29B-Slice1"
+    "phase": "29C-Slice2"
   },
   "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete.",
   "systems": {
@@ -93,15 +93,28 @@
     },
     {
       "concept": "workflow_gate_state",
-      "authoritative_owner": "api/daily_action_gate.py",
+      "authoritative_owner": "api/workflow_state.py (Slice 2 canonical combined-interpretation owner)",
       "current_writers": [
+        "api/workflow_state.py",
         "api/daily_action_gate.py",
         "api/daily_close.py",
         "api/operational_book.py",
         "api/daily_workflow_dashboard.py",
-        "api/command_center.py"
+        "api/command_center.py",
+        "api/app.py"
       ],
-      "status": "CONFLICT"
+      "delegating_domain_fact_owners": [
+        "api/daily_action_gate.py (portfolio assessment outcome/target_state + monthly review clock — DOMAIN FACT, not the combined interpretation)",
+        "api/daily_close.py (operational close status/date — DOMAIN FACT via load_close_progress)",
+        "api/operational_book.py (active-book identity/NAV/holdings/pending orders/lifecycle — DOMAIN FACT)"
+      ],
+      "legacy_representations_retained": [
+        "api/app.py (_build_workflow_state 8-stage + _canonical_daily_stage 5-stage — legacy Create-Orders pipeline, not migrated in Slice 2)",
+        "api/command_center.py (_derive_stage 8-stage mirror + _STAGE_FLOW)",
+        "api/daily_workflow_dashboard.py (6-stage DATA/CANDIDATES/REVIEW/SIGNALS/DECISIONS/PORTFOLIO stepper)"
+      ],
+      "notes": "Slice 2 introduces api/workflow_state.py as the ONE owner of the combined operator interpretation (overall workflow state, current task, primary next action, action severity, assessment currency, queued workflow actions). Specialized modules keep their domain facts; the legacy Create-Orders stage vocabularies remain until their surface is quarantined (Slice 11). No runtime deleted.",
+      "status": "RESOLVING_SLICE2"
     },
     {
       "concept": "forward_evidence",
@@ -207,6 +220,11 @@
     {
       "prefix": "/v1/operations/data-freshness",
       "owner": "api/data_freshness.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/workflow-state",
+      "owner": "api/workflow_state.py",
       "system": "infrastructure"
     },
     {
@@ -483,6 +501,37 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "The ONE owner of data-freshness status (Consolidation Roadmap Slice 1; Phase 29B.1 active-book alignment). Every OPERATIONAL date concept (eligible market date, owned-data confirmation, valuation, desk mark, benchmark, target) is owned by the ACTIVE operational book (api/operational_book.py) and its owned desk marks; a dormant legacy/current-alpha research book (api/portfolio_valuation.py via api/current_operating_state.py) NEVER supplies operational readiness. Distinct RESEARCH dates (champion evaluation mark, latest price/score refresh, frozen monthly momentum input, fundamental panel, TRUE_FORWARD snapshot) come from their own owners and are never collapsed. The frozen monthly momentum input is read DIRECTLY from its persisted source (multi_horizon_engine month_label) and is NEVER proxied from the target, valuation, champion mark or expected session; it degrades to MISSING/UNKNOWN when absent. Emits active_book identity + a read-only cross-surface consistency_status (CONSISTENT/INCONSISTENT/UNKNOWN) with named violations. Never re-derives owner calculations; never calls a provider or prediction; never writes. Frozen freshness vocabulary FRESH/STALE/MISSING/FUTURE_DATED/INCONSISTENT/NOT_DUE/NOT_APPLICABLE/UNKNOWN."
+    },
+    {
+      "path": "api/workflow_state.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 2 CANONICAL read-only combined-operator-interpretation contract: composes api.data_freshness (engine.market_session) + the Daily Action Gate + probe-free Daily Close progress + active Operational Book + Forward Prediction Skill + alpha-target readiness into ONE workflow view (overall state, current task, single primary next action, queued follow-ups, assessment currency, blockers, completed summary, cross-surface consistency). Never recomputes a domain fact.",
+      "classification": "KEEP",
+      "target_owner": "api/workflow_state.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "data_freshness.load_data_freshness (read-only; Slice-1 session + freshness + active-book identity + consistency)",
+        "daily_action_gate.load_daily_action_gate (read-only; assessment outcome/target_state + review clock)",
+        "daily_close.load_close_progress (read-only, PROBE-FREE; latest completed close date + status)",
+        "operational_book.load_operational_book (read-only; active-book identity/NAV/cash/holdings/pending orders)",
+        "forward_prediction_skill.load_prediction_skill (read-only; latest TRUE_FORWARD snapshot + evidence state)",
+        "alpha_target.load_readiness (read-only; target market date for the consistency cross-check)"
+      ],
+      "direct_writes": [
+        "read-only (no file/ledger/db/provider/prediction/close/refresh/reassessment)"
+      ],
+      "endpoints": [
+        "/v1/operations/workflow-state"
+      ],
+      "ui_consumers": [
+        "loadWorkflowState"
+      ],
+      "tests": [
+        "tests/test_slice2_workflow_state.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "The ONE owner of the combined operator interpretation (Consolidation Roadmap Slice 2). Owns the frozen overall-state vocabulary (WAITING_FOR_SESSION_CLOSE / WAITING_FOR_OWNED_DATA / RESEARCH_CYCLE_REQUIRED / PORTFOLIO_REASSESSMENT_REQUIRED / READY_FOR_DAILY_CLOSE / DAILY_CYCLE_COMPLETE / DAILY_CYCLE_COMPLETE_EVIDENCE_GAP / MANUAL_REVIEW_REQUIRED / INCONSISTENT_STATE), the assessment-currency vocabulary (CURRENT/STALE/DUE/OVERDUE/MISSING/INCONSISTENT), the action-severity vocabulary (INFO/SUCCESS/ATTENTION/BLOCKED/ERROR), the deterministic priority policy and the decision-currency rule (an older Daily Action Gate result is never re-presented as a stale 'today' conclusion). Specialized modules keep their domain facts; the UI renders these values and derives none of them. Read-only: no provider/prediction call, no Daily Close, no research refresh, no reassessment, no write, no proposal. Slice 2 performs no workflow action; Slice-3 actions are labelled not-yet-implemented."
     },
     {
       "path": "api/alpha_book.py",

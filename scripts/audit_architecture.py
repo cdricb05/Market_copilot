@@ -88,6 +88,21 @@ EXECUTION_CALL_TERMS = (
 # the ONE owner of cross-source data freshness.
 MARKET_SESSION_OWNER = "engine/market_session.py"
 DATA_FRESHNESS_OWNER = "api/data_freshness.py"
+
+# --- Slice 2 (Phase 29C) canonical workflow / operator-state ownership --------- #
+# The ONE owner of the COMBINED operator interpretation (overall workflow state,
+# current task, primary next action, action severity, assessment currency, queued
+# workflow actions). Specialized modules keep their DOMAIN facts (the gate outcome,
+# the close status, the lifecycle) but not the combined interpretation, and the UI
+# renders these values without deriving any of them.
+WORKFLOW_STATE_OWNER = "api/workflow_state.py"
+WORKFLOW_STATE_ROUTE = "/v1/operations/workflow-state"
+UI_WORKFLOW_LOADER = "function loadWorkflowState"
+UI_WORKFLOW_RENDER_EXPORT = "window.renderWorkflowState"
+# Client-side derivation the UI must NOT perform inside the workflow loader/render
+# region: market-date arithmetic, or constructing a stale "today" assessment label.
+UI_WORKFLOW_FORBIDDEN_ARITH = ("new Date(", "Date.now(", ".getTime(")
+UI_WORKFLOW_FORBIDDEN_TODAY_LABEL = "NO ACTION TODAY"
 # Modules that legitimately own session/calendar arithmetic or a DISTINCT calendar
 # concept and are therefore exempt from the "no independent session arithmetic"
 # guard. forward_prediction_skill.eligible_calendar is the HISTORICAL EVIDENCE
@@ -495,6 +510,45 @@ def check_market_session_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_workflow_state_ownership(files: list[Path]) -> dict:
+    """Slice 2 semantic ownership guard.
+
+    Confirms (a) the canonical ``api.workflow_state`` combined-interpretation owner
+    exists, (b) the read-only endpoint is declared, (c) the UI has EXACTLY ONE
+    ``loadWorkflowState`` loader, and (d) the UI performs NO workflow-priority /
+    assessment-currency derivation in that loader/render region — no market-date
+    arithmetic and no client-constructed stale "NO ACTION TODAY" label. This
+    validates ownership + no-UI-derivation semantically rather than by an arbitrary
+    occurrence count.
+    """
+    owner_present = (REPO_ROOT / WORKFLOW_STATE_OWNER).exists()
+
+    routes = check_routes()["routes"]
+    endpoint_present = any(r["path"] == WORKFLOW_STATE_ROUTE for r in routes)
+
+    ui = _read(UI_FILE)
+    loader_count = ui.count(UI_WORKFLOW_LOADER)
+    region_hits: list[str] = []
+    start = ui.find(UI_WORKFLOW_LOADER)
+    end = ui.find(UI_WORKFLOW_RENDER_EXPORT)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_WORKFLOW_FORBIDDEN_ARITH:
+            if pat in region:
+                region_hits.append(pat)
+        if UI_WORKFLOW_FORBIDDEN_TODAY_LABEL in region:
+            region_hits.append(UI_WORKFLOW_FORBIDDEN_TODAY_LABEL)
+
+    return {
+        "owner": WORKFLOW_STATE_OWNER,
+        "owner_present": owner_present,
+        "route": WORKFLOW_STATE_ROUTE,
+        "endpoint_present": endpoint_present,
+        "ui_workflow_loader_count": loader_count,
+        "ui_workflow_priority_derivation": sorted(set(region_hits)),
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -564,6 +618,7 @@ def run_audit() -> dict:
         "canonical_concept_writers": check_canonical_concept_writers(files),
         "research_execution_terms": check_research_execution_terms(files),
         "market_session_ownership": check_market_session_ownership(files),
+        "workflow_state_ownership": check_workflow_state_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -645,6 +700,14 @@ def _print_console(rep: dict) -> None:
     print(f"UNEXPECTED session resolvers (must be empty): {ms['unexpected_session_resolvers']}")
     print(f"UI freshness loaders: {ms['ui_freshness_loader_count']}  "
           f"UI market-date arithmetic (must be empty): {ms['ui_market_date_arithmetic']}")
+
+    hdr("WORKFLOW-STATE OWNERSHIP (Slice 2)")
+    wf = rep["workflow_state_ownership"]
+    print(f"owner present: {wf['owner_present']} ({wf['owner']})")
+    print(f"endpoint present: {wf['endpoint_present']} ({wf['route']})")
+    print(f"UI workflow loaders (must be 1): {wf['ui_workflow_loader_count']}")
+    print(f"UI workflow-priority/currency derivation (must be empty): "
+          f"{wf['ui_workflow_priority_derivation']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]

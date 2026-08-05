@@ -100,6 +100,34 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
 - **Rollback:** shim reverts to per-surface strings.
 - **Completion gate:** audit `workflow_state` multi-writer set ≤ 1 authority.
 - **Principle:** 1, 2, 6. **Milestone:** 1.
+- **Status — LANDED (Phase 29C).** Refined from "the gate is the state authority"
+  to a dedicated read-only composition owner `api/workflow_state.py` — the ONE
+  owner of the **combined operator interpretation** (overall state, current task,
+  single primary next action + severity, queued follow-ups, assessment currency,
+  blockers, completed summary, cross-surface consistency). It **composes** the
+  Slice-1 `data_freshness` contract plus the existing domain-fact owners (Daily
+  Action Gate, probe-free Daily Close progress, active Operational Book, Forward
+  Prediction Skill, alpha-target readiness) and never re-derives their business
+  logic. New surface: `GET /v1/operations/workflow-state` (authenticated, GET-only,
+  read-only) rendered by ONE UI `loadWorkflowState()` loader on the Command Center,
+  Daily Workflow, Portfolio, Portfolio Manager, Research & Audit and the
+  Action/Safety panel; the UI derives no workflow priority or assessment currency.
+  Frozen vocabularies: overall-state (`WAITING_FOR_SESSION_CLOSE` /
+  `WAITING_FOR_OWNED_DATA` / `RESEARCH_CYCLE_REQUIRED` /
+  `PORTFOLIO_REASSESSMENT_REQUIRED` / `READY_FOR_DAILY_CLOSE` /
+  `DAILY_CYCLE_COMPLETE` / `DAILY_CYCLE_COMPLETE_EVIDENCE_GAP` /
+  `MANUAL_REVIEW_REQUIRED` / `INCONSISTENT_STATE`), assessment-currency
+  (`CURRENT`/`STALE`/`DUE`/`OVERDUE`/`MISSING`/`INCONSISTENT`), action-severity
+  (`INFO`/`SUCCESS`/`ATTENTION`/`BLOCKED`/`ERROR`). The decision-currency defect is
+  repaired: an older Daily Action Gate result is never re-presented as a stale
+  "NO ACTION TODAY" today-conclusion (it is preserved, dated, in
+  `completed_summary`); a valid completed close with a forward-evidence gap is
+  ATTENTION, never an operational failure (D-7). **Deliberately kept:** the four
+  legacy stage vocabularies (`app.py:_build_workflow_state` + `_canonical_daily_stage`,
+  `command_center._derive_stage`, `daily_workflow_dashboard`) and every existing
+  endpoint/panel remain (they retire with the legacy Create-Orders surface in
+  Slice 11). Slice 2 performs no workflow action; the Persistent Daily Research
+  Cycle and portfolio reassessment (Slice 3) are described/routed but not executed.
 
 ## Slice 3 — Persistent Daily Research Cycle orchestration
 

@@ -339,3 +339,86 @@ def test_slice1_canonical_concepts_owned(inventory):
     assert "market_session" in concepts["eligible_market_date"]["authoritative_owner"]
     assert concepts["data_source_freshness"]["authoritative_owner"].startswith(
         "api/data_freshness.py")
+
+
+# --------------------------------------------------------------------------- #
+# Slice 2 (Phase 29C): canonical workflow / operator-state ownership
+# --------------------------------------------------------------------------- #
+def test_slice2_workflow_state_ownership_guard(audit):
+    rep = audit.check_workflow_state_ownership(audit._iter_source_files())
+    assert rep["owner_present"] is True, rep
+    assert rep["endpoint_present"] is True, rep
+    # 55 / 63 / 64 — exactly one UI loader and NO client-side workflow-priority or
+    # assessment-currency derivation in the loader/render region.
+    assert rep["ui_workflow_loader_count"] == 1, rep["ui_workflow_loader_count"]
+    assert rep["ui_workflow_priority_derivation"] == [], rep["ui_workflow_priority_derivation"]
+
+
+def test_slice2_new_route_present_and_owned(audit, inventory):
+    paths = {r["path"] for r in audit.check_routes()["routes"]}
+    assert "/v1/operations/workflow-state" in paths
+    owners = {e["prefix"]: e for e in inventory["route_ownership"]}
+    e = owners.get("/v1/operations/workflow-state")
+    assert e is not None and e["owner"] == "api/workflow_state.py"
+
+
+def test_slice2_module_inventoried(inventory):
+    paths = {m["path"] for m in inventory["modules"]}
+    assert "api/workflow_state.py" in paths
+
+
+def test_slice2_inventory_drift_zero(audit):
+    d = audit.run_audit()["inventory_drift"]
+    assert d["status"] == "OK", d["status"]
+    assert d["on_disk_not_in_inventory"] == [], d["on_disk_not_in_inventory"]
+    assert d["in_inventory_not_on_disk"] == [], d["in_inventory_not_on_disk"]
+
+
+def test_67_workflow_state_is_the_canonical_owner(inventory):
+    concepts = {c["concept"]: c for c in inventory["canonical_concepts"]}
+    wf = concepts["workflow_gate_state"]
+    assert "api/workflow_state.py" in wf["authoritative_owner"]
+    # The specialized modules remain listed but as DOMAIN-fact owners, not the
+    # combined interpretation.
+    assert "api/workflow_state.py" in wf["current_writers"]
+
+
+def test_69_no_duplicate_workflow_state_owner(inventory):
+    # Exactly one route owner and one inventoried module path for workflow_state.
+    owners = [e for e in inventory["route_ownership"]
+              if e["owner"] == "api/workflow_state.py"]
+    assert len(owners) == 1
+    mods = [m for m in inventory["modules"] if m["path"] == "api/workflow_state.py"]
+    assert len(mods) == 1 and mods[0]["classification"] == "KEEP"
+
+
+def test_70_roadmap_still_forbids_big_bang_and_orders_state_second():
+    text = _read(ROADMAP)
+    assert "No big-bang rewrite" in text
+    s2 = text.index("## Slice 2")
+    s3 = text.index("## Slice 3")
+    assert "workflow" in text[s2:s3].lower()
+
+
+def test_71_slice3_remains_not_implemented():
+    # Slice 3 (Persistent Daily Research Cycle) is described but NOT built: no
+    # research_cycle module exists yet, and the Slice-3 workflow action is labelled
+    # not-yet-implemented in the canonical owner.
+    assert not (REPO / "api" / "research_cycle.py").exists()
+    src = _read(REPO / "api" / "workflow_state.py")
+    assert "not yet implemented" in src.lower()
+    roadmap = _read(ROADMAP)
+    s3 = roadmap.index("## Slice 3")
+    s4 = roadmap.index("## Slice 4")
+    # Slice 3 has no LANDED status line (Slice 1 does; Slice 2 lands here).
+    assert "LANDED" not in roadmap[s3:s4]
+
+
+def test_72_workflow_state_target_owner_single_cell():
+    # The TARGET owner table assigns exactly one owner to workflow/gate state.
+    rows = dict(_parse_owner_table(_read(TARGET)))
+    wf_rows = {c: o for c, o in rows.items() if "workflow" in c.lower()}
+    assert wf_rows, "no workflow owner row in TARGET owner table"
+    for concept, owner in wf_rows.items():
+        assert owner and " / " not in owner, (concept, owner)
+        assert "workflow_state" in owner
