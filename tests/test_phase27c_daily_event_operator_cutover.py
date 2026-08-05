@@ -415,8 +415,14 @@ class TestUiStaticGateSurfaces:
         assert "function renderDailyActionGate" in js
         start = js.index("function renderDailyActionGate")
         body = js[start:js.index("window.renderDailyActionGate")]
-        for tok in ("cc-dag", "dw-dag", "pm-dag", "right-dag-badge"):
+        # The gate loader still feeds the per-surface DETAIL on every operator surface.
+        for tok in ("cc-dag", "dw-dag", "pm-dag"):
             assert tok in body, tok
+        # Slice 2 (Phase 29C.1) hard cutover: the compact right-rail gate badge and the
+        # per-surface currency BADGE/HEADLINE are OWNED by the canonical workflow-state
+        # renderer, not the Daily Action Gate loader (which no longer writes them).
+        assert "right-dag-badge" not in body
+        assert "_wsOwnSet('right-dag-badge'" in js
 
     def test_gate_load_wired_into_operational_book_loader(self, js):
         assert "try { loadDailyActionGate(); } catch (e) {}" in js

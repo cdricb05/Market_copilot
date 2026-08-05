@@ -128,6 +128,31 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   endpoint/panel remain (they retire with the legacy Create-Orders surface in
   Slice 11). Slice 2 performs no workflow action; the Persistent Daily Research
   Cycle and portfolio reassessment (Slice 3) are described/routed but not executed.
+- **UI hard cutover — Phase 29C.1 (COMPLETE).** The Slice-2 backend was correct, but
+  older visible surfaces still contradicted it: the Daily Action Gate cards read
+  "DAILY ACTION GATE — TODAY / NO ACTION TODAY" and the Action/Safety panel read
+  "DAILY GATE — NO ACTION TODAY", re-presenting a valid **historical** (dated) result
+  as a current "today" conclusion. Root cause: the canonical `renderWorkflowState`
+  banners and the legacy `renderDailyActionGate` / `renderDailyClose` /
+  `renderOperationalBook` writers targeted overlapping DOM nodes, so the last async
+  loader to finish won. The cutover makes `api.workflow_state` own **every visible
+  primary interpretation** via two additive backend presentation blocks
+  (`assessment_presentation` — a DATED historical result with its canonical currency,
+  "today" wording permitted only when current; `evidence_presentation` — the still-open
+  current session kept distinct from the completed close's documented, attention-level
+  forward-evidence gap) and one canonical UI owner (`renderWorkflowState`, the single
+  `loadWorkflowState()` loader) that exclusively writes the workflow banners, the right
+  Action/Safety panel (task / next action / primary button / close + assessment-currency
+  badges) and the reframed Daily-Action-Gate card TITLE / currency BADGE / HEADLINE /
+  EXPLANATION across Command Center, Daily Workflow, Portfolio, Portfolio Manager and
+  Research & Audit. Ownership is enforced by a STATIC guard in the shared specialized
+  setters (`_dcSet`/`_dagSet`/`_obSet` refuse canonical nodes) plus a `data-wf-owned`
+  stamp, so the final visible state is **independent of async completion order** — the
+  canonical value wins by ownership, not timing (proven by an in-process DOM harness
+  that runs the real renderers in every order). The specialized loaders keep their
+  DETAIL only (checks, turnover, dates, P&L, holdings); the raw Daily Action Gate
+  endpoint retains its historic `NO_ACTION_TODAY` outcome vocabulary. No runtime
+  business action; Slice 3 remains next and unimplemented.
 
 ## Slice 3 — Persistent Daily Research Cycle orchestration
 

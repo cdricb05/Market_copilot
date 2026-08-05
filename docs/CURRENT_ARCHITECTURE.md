@@ -452,6 +452,21 @@ flowchart TD
   the Command Center, Daily Workflow, Portfolio, Portfolio Manager, Research &
   Audit and the Action/Safety panel. The UI derives no workflow priority or
   assessment currency (audit `workflow_state_ownership`).
+- **UI hard cutover (Phase 29C.1):** `api/workflow_state.py` adds two additive
+  backend presentation blocks — `assessment_presentation` (a DATED historical
+  result with its canonical currency; "today" wording only when current) and
+  `evidence_presentation` (the still-open current session kept distinct from the
+  completed close's documented, attention-level forward-evidence gap) — and
+  `renderWorkflowState` becomes the EXCLUSIVE owner of every visible primary
+  interpretation: the workflow banners, the right Action/Safety panel (task / next
+  action / primary button / factual close chip / assessment-currency chip) and the
+  reframed Daily-Action-Gate card TITLE / currency BADGE / HEADLINE / EXPLANATION.
+  Ownership is enforced by a STATIC guard in the shared setters
+  (`_dcSet`/`_dagSet`/`_obSet` refuse canonical nodes) plus a `data-wf-owned` stamp,
+  so the final visible state is independent of async completion order (the canonical
+  value wins by ownership, not timing — proven by an in-process DOM harness). The
+  specialized loaders keep DETAIL only; the raw Daily Action Gate endpoint retains
+  its `NO_ACTION_TODAY` outcome code (see [ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md) D-12.1).
 - **Deliberately kept:** the four legacy stage vocabularies
   (`app.py:_build_workflow_state` + `_canonical_daily_stage`,
   `command_center._derive_stage`, `daily_workflow_dashboard`) and every existing

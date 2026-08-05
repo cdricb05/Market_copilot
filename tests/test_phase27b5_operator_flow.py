@@ -313,7 +313,10 @@ class TestCrossSurfaceAgreement:
             assert probe in js, probe
 
     def test_ui_waiting_language_is_calm_and_specific(self, js):
-        assert "Wait for an eligible completed close. Then run " in js
+        # Slice 2 (Phase 29C.1) hard cutover: the right-panel next-action waiting text
+        # is owned by the canonical workflow-state; the operational-book card keeps its
+        # own calm, specific waiting language.
+        assert "awaiting the next eligible completed close" in js
         assert "expected, not a failure" in js
         assert "Refresh After Market Close" in js
 

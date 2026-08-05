@@ -2084,7 +2084,7 @@
                holdings and returns NO_ACTION_TODAY or PORTFOLIO CHANGES PROPOSED. -->
           <div id="cc-dag-card" class="cc-panel" style="border-left:3px solid var(--ok);display:none;">
             <div class="cc-preview-hd" style="align-items:center;">
-              <span class="cc-panel-title">Daily Action Gate &mdash; Today</span>
+              <span class="cc-panel-title" id="cc-dag-title">Daily Action Gate &mdash; Today</span>
               <span class="cc-badge" id="cc-dag-badge" title="The canonical daily action-gate outcome for Alpha Paper Book #1.">&mdash;</span>
               <span class="cc-badge" id="cc-dag-tstate" style="display:none;" title="Canonical target state (single source; drives every operator surface).">&mdash;</span>
               <span class="cc-badge safe">MANUAL REVIEW</span>
@@ -2242,7 +2242,7 @@
              primary action. -->
         <div id="dw-dag-card" class="dw-terminal" style="border-left:3px solid var(--ok); margin-bottom:10px; display:none;">
           <div class="dw-hd">
-            <span class="dw-hd-title">Daily Action Gate</span>
+            <span class="dw-hd-title" id="dw-dag-title">Daily Action Gate</span>
             <span class="cc-badge" id="dw-dag-badge">&mdash;</span>
             <span class="cc-badge" id="dw-dag-tstate" style="display:none;" title="Canonical target state (single source).">&mdash;</span>
             <span class="cc-badge safe">MANUAL REVIEW</span>
@@ -2429,6 +2429,13 @@
                processed close is evidence-blocked / partial / still capturing — a
                zero-of-six capture must never look like an ordinary complete close. -->
           <div id="dc-evidence-banner" style="display:none;font-size:11.5px;font-weight:700;margin:2px 0 8px;padding:8px 10px;border:1px solid var(--warn,#d97706);border-radius:6px;line-height:1.6;"></div>
+          <!-- Slice 2 (Phase 29C.1): canonical evidence presentation — the CURRENT
+               still-open session and the LATEST COMPLETED close are stated SEPARATELY,
+               rendered verbatim from /v1/operations/workflow-state (evidence_presentation).
+               A documented gap on a valid completed close is ATTENTION, never an
+               operational failure and never a rerun-close suggestion. Owned exclusively
+               by renderWorkflowState. -->
+          <div id="wf-evidence" data-wf-owned="0" style="display:none;font-size:11px;margin:2px 0 8px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;line-height:1.6;"></div>
           <!-- Phase 27H — the explicit atomic date set (each date shown with its own meaning). -->
           <div id="dc-dates-strip" class="mono" style="display:none;font-size:11px;color:var(--label);margin:2px 0 8px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;line-height:1.7;">
             <span style="font-weight:800;text-transform:uppercase;letter-spacing:.06em;">Operating dates</span>
@@ -2665,7 +2672,7 @@
                manual review flow. -->
           <div id="pm-dag-card" style="border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
-              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today's Daily Action Gate</span>
+              <span id="pm-dag-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today's Daily Action Gate</span>
               <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
                 <span class="cc-badge" id="pm-dag-tstate" style="display:none;" title="Canonical target state (single source; drives every operator surface).">&mdash;</span>
                 <span class="cc-badge" id="pm-dag-badge" title="Canonical daily action-gate outcome.">&mdash;</span>
@@ -9947,10 +9954,12 @@ async function runPortfolioMonitorWorkspace(btn) {
         exitActionEl.innerHTML = '<div style="padding:6px 10px;font-size:10px;color:var(--ok);">No exit order needed.</div>';
       }
     }
-    // Update right panel to mirror exit state (legacy flow; the operational-book
-    // payload owns the right-panel task once loaded - Phase 27B.1)
-    var _rpTaskEl = window._obData ? null : document.getElementById('right-current-task');
-    var _rpNextEl = window._obData ? null : document.getElementById('right-next-action');
+    // Slice 2 hard cutover (Workstream H): the right Action/Safety panel task /
+    // next action are OWNED by renderWorkflowState. This legacy exit-flow mirror no
+    // longer writes the canonical nodes (it kept a `_obData` guard before; now it
+    // never targets them). The Today's-Review card (tr-*) below is unaffected.
+    var _rpTaskEl = null;
+    var _rpNextEl = null;
     if (data.reviewed_for_exit_count > 0) {
       if (_rpTaskEl) _rpTaskEl.textContent = 'Review Exit';
       if (_rpNextEl) _rpNextEl.textContent = 'Create a manual SELL paper order ticket or keep monitoring.';
@@ -19186,10 +19195,12 @@ function updateTodayReview(ctx) {
     renderTradeFlowCard('HIDE');
   }
 
-  // Sync right panel to mirror Today's Review (legacy flow). Phase 27B.1: the
-  // operational-book payload owns the right-panel task once loaded.
-  const _rpTaskEl = window._obData ? null : document.getElementById('right-current-task');
-  const _rpNextEl = window._obData ? null : document.getElementById('right-next-action');
+  // Slice 2 hard cutover (Workstream H): the right Action/Safety panel is OWNED by
+  // renderWorkflowState (canonical workflow-state). This legacy Today's-Review flow
+  // no longer mirrors onto the canonical right-panel nodes; it still drives its own
+  // tr-* card above.
+  const _rpTaskEl = null;
+  const _rpNextEl = null;
   if (_rpTaskEl) _rpTaskEl.textContent = _rpTask;
   if (_rpNextEl) _rpNextEl.textContent = _rightNext || _rpNext;
 
@@ -19266,8 +19277,8 @@ function updateTodayReview(ctx) {
   try {
     // Phase 27B.1: once the operational-book payload owns the right-panel task,
     // the legacy review flow must not overwrite it.
-    const _rt = window._obData ? null : document.getElementById('right-current-task');
-    const _rn = window._obData ? null : document.getElementById('right-next-action');
+    const _rt = null;   // Slice 2: canonical right-panel task owned by renderWorkflowState
+    const _rn = null;   // Slice 2: canonical right-panel next action owned by renderWorkflowState
     const _st = (window._canonicalWorkflowState || {}).stage;
     let _gtlTask = null, _gtlNext = null;
     if (_st === 'REVIEW_CANDIDATES') {
@@ -19343,17 +19354,12 @@ function applyCanonicalToOverview() {
 // Mirror the canonical state onto the right-side Action / Safety panel so its
 // next-action text and primary button point at the same target as Overview.
 function applyCanonicalToActionPanel() {
-  const st = window._canonicalWorkflowState;
-  if (!st) return;
-  // Phase 27B.1: the operational-book payload owns the right-panel task once
-  // loaded - the legacy canonical state must not overwrite it.
-  if (window._obData) return;
-  const taskEl = document.getElementById('right-current-task');
-  const nextEl = document.getElementById('right-next-action');
-  const btnEl = document.getElementById('right-primary-action-btn');
-  if (taskEl && st.title) taskEl.textContent = st.title;
-  if (nextEl && st.description) nextEl.textContent = st.description;
-  if (btnEl) btnEl.textContent = st.button_label || st.primary_button_label || 'Go to next action';
+  // Slice 2 hard cutover (Workstream H): the right Action/Safety panel (current
+  // task / next action / primary button) is OWNED exclusively by renderWorkflowState
+  // (the canonical /v1/operations/workflow-state contract). This legacy mirror is a
+  // deliberate no-op — the Overview strip (applyCanonicalToOverview) still renders
+  // the legacy daily-review workflow. It never writes the canonical right-panel nodes.
+  return;
 }
 
 // ----- Single navigation contract (item C + G) -----
@@ -19399,10 +19405,10 @@ function navigateToPortfolioPositions() {
     var el = document.getElementById('pdash-kpis') || document.getElementById('pdash-table');
     if (el && el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
   }, 80);
-  // Right-panel last-action feedback so the user sees where they landed.
+  // Slice 2 hard cutover (Workstream H): right-next-action is OWNED by
+  // renderWorkflowState. Navigation feedback uses only the non-canonical status
+  // node so it never overwrites the canonical next action.
   try {
-    const rn = document.getElementById('right-next-action');
-    if (rn) rn.textContent = 'Showing Portfolio — Alpha Paper Book #1 holdings.';
     const rs = document.getElementById('right-action-status');
     if (rs) { rs.textContent = new Date().toLocaleTimeString(); rs.style.color = 'var(--ok)'; }
   } catch (e) {}
@@ -19934,10 +19940,8 @@ function viewPortfolio() {
   // Focus the Open Positions section and report where the user landed so every
   // "View Portfolio" CTA behaves identically to navigateToPortfolioPositions().
   setTimeout(function () { focusSection('open-positions'); }, 60);
-  try {
-    const rn = document.getElementById('right-next-action');
-    if (rn) rn.textContent = 'Showing Portfolio — Open Positions.';
-  } catch (e) {}
+  // Slice 2 hard cutover (Workstream H): right-next-action is OWNED by
+  // renderWorkflowState; this legacy "View Portfolio" feedback no longer writes it.
 }
 
 function updateCockpitReviewSummary() {
@@ -23946,6 +23950,57 @@ function loadWorkflowState() {
 }
 window.loadWorkflowState = loadWorkflowState;
 
+// ---- Slice 2 (Phase 29C.1): CANONICAL DOM OWNERSHIP (Workstream C / E / H) -----
+// renderWorkflowState is the EXCLUSIVE owner of the PRIMARY operator interpretation
+// nodes below (the workflow banners, the right Action/Safety panel task/action/
+// badges/button, the per-surface Daily-Action-Gate TITLE/currency BADGE/HEADLINE/
+// EXPLANATION, and the Portfolio evidence line). Ownership is enforced so the final
+// visible state is INDEPENDENT of async completion order (Workstream G) — never
+// merely "render workflow last":
+//   (1) a STATIC guard: the shared specialized setters (_dcSet/_dagSet/_obSet)
+//       hard-refuse to write any canonical node, in whatever order they run; and
+//   (2) a data-wf-owned STAMP: the canonical value is marked, so a specialized
+//       renderer may only supply a SAFE, non-"today" placeholder via _wsGuardedSet,
+//       which no-ops once the canonical value is present.
+window.WS_CANONICAL_NODES = {
+  'wf-cc': 1, 'wf-dw': 1, 'wf-pt': 1, 'wf-pm': 1, 'wf-ra': 1, 'wf-right': 1, 'wf-evidence': 1,
+  'right-current-task': 1, 'right-next-action': 1, 'right-primary-action-btn': 1,
+  'right-dc-badge': 1, 'right-dag-badge': 1, 'right-review-hint': 1,
+  'cc-dag-title': 1, 'cc-dag-badge': 1, 'cc-dag-headline': 1, 'cc-dag-explanation': 1,
+  'dw-dag-title': 1, 'dw-dag-badge': 1, 'dw-dag-headline': 1, 'dw-dag-explanation': 1,
+  'pm-dag-title': 1, 'pm-dag-badge': 1, 'pm-dag-headline': 1, 'pm-dag-explanation': 1
+};
+function _wsIsCanonicalNode(id) {
+  return !!(window.WS_CANONICAL_NODES && window.WS_CANONICAL_NODES[id]);
+}
+// renderWorkflowState-only: write text (+optional colour) and STAMP ownership.
+function _wsOwnSet(id, text, color) {
+  var el = document.getElementById(id);
+  if (!el) return null;
+  el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
+  if (color) el.style.color = color;
+  el.setAttribute('data-wf-owned', '1');
+  return el;
+}
+// renderWorkflowState-only: write HTML and STAMP ownership.
+function _wsOwnHtml(id, html) {
+  var el = document.getElementById(id);
+  if (!el) return null;
+  el.innerHTML = html;
+  el.setAttribute('data-wf-owned', '1');
+  return el;
+}
+// Specialized-renderer SAFE fallback: writes a canonical node ONLY while no
+// canonical value is present; it NEVER overwrites the owned value. Used by
+// renderDailyActionGate for a non-"today" placeholder before workflow-state loads.
+function _wsGuardedSet(id, text, color) {
+  var el = document.getElementById(id);
+  if (!el || el.getAttribute('data-wf-owned') === '1') return;
+  el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
+  if (color) el.style.color = color;
+}
+window._wsIsCanonicalNode = _wsIsCanonicalNode;
+
 // Map the SERVER-PROVIDED action severity to a colour (no client derivation).
 function _wsSevColor(sev) {
   return (sev === 'ERROR' || sev === 'BLOCKED') ? 'var(--danger,#ef4444)'
@@ -23992,17 +24047,95 @@ function _wsBannerHtml(d) {
     + btn;
 }
 // Fan the ONE payload out to every primary surface + the Action/Safety panel.
+// renderWorkflowState OWNS every primary operator-interpretation node; the
+// specialized Daily-Close / Daily-Action-Gate / Operational-Book loaders render
+// only their detail and never these nodes (Workstream C / E). The canonical value
+// wins by OWNERSHIP, not by timing.
 function renderWorkflowState(d) {
   var html = _wsBannerHtml(d);
   ['wf-cc', 'wf-dw', 'wf-pt', 'wf-pm', 'wf-ra', 'wf-right'].forEach(function (id) {
     var el = document.getElementById(id);
     if (!el) return;
+    el.setAttribute('data-wf-owned', '1');
     if (!html) { el.style.display = 'none'; el.innerHTML = ''; return; }
     el.innerHTML = html;
     el.style.display = 'block';
   });
+  _wsApplyRightPanel(d);
+  _wsApplyAssessmentFraming(d);
+  _wsApplyEvidence(d);
 }
 window.renderWorkflowState = renderWorkflowState;
+
+// The right Action / Safety panel renders ONLY canonical workflow-state values
+// (Workstream E): current task, next action, primary button (routes to the
+// canonical destination), the FACTUAL latest-close chip, and the portfolio-
+// assessment CURRENCY chip — never a stale gate outcome such as "NO ACTION TODAY".
+function _wsApplyRightPanel(d) {
+  if (!d || !d.primary_action) return;
+  var pa = d.primary_action;
+  var os = d.operational_state || {};
+  var ap = d.assessment_presentation || {};
+  _wsOwnSet('right-current-task', d.current_task);
+  _wsOwnSet('right-next-action', pa.label);
+  var btn = _wsOwnSet('right-primary-action-btn', pa.label);
+  if (btn && pa.destination) {
+    btn.onclick = function (ev) { if (ev) ev.stopPropagation(); navigateToRoute(pa.destination); };
+  }
+  // Factual latest completed-close chip (state, not interpretation).
+  var dcCol = os.operational_close_valid ? 'var(--ok,#22c55e)' : 'var(--warning,#f59e0b)';
+  var dcTxt = os.operational_close_valid
+    ? ('VALID · ' + (os.latest_completed_close_date || '—'))
+    : (os.latest_close_status || os.latest_completed_close_date || '—');
+  var dcb = _wsOwnSet('right-dc-badge', dcTxt, dcCol);
+  if (dcb) dcb.style.display = '';
+  // Portfolio-assessment CURRENCY chip — CURRENT / STALE / DUE / OVERDUE / MISSING /
+  // INCONSISTENT. Never the raw gate "NO ACTION TODAY" outcome.
+  var agb = _wsOwnSet('right-dag-badge', ap.currency_status || '—', _wsSevColor(ap.severity));
+  if (agb) agb.style.display = '';
+  var hint = document.getElementById('right-review-hint');
+  if (hint) { hint.style.display = 'none'; hint.setAttribute('data-wf-owned', '1'); }
+}
+
+// Fan the canonical portfolio-assessment presentation across every Daily-Action-
+// Gate surface (Command Center, Daily Workflow, Portfolio Manager). This is the
+// SOLE owner of the card TITLE / currency BADGE / HEADLINE / EXPLANATION (an older
+// no-change result is shown as a DATED historical statement with its currency, and
+// "today" wording is used only when the backend marks the assessment current). The
+// Daily Action Gate loader keeps only the dated detail (checks / turnover / changes).
+function _wsApplyAssessmentFraming(d) {
+  var ap = d && d.assessment_presentation;
+  if (!ap) return;
+  var col = _wsSevColor(ap.severity);
+  ['cc', 'dw', 'pm'].forEach(function (p) {
+    _wsOwnSet(p + '-dag-title', ap.title_with_date);
+    var b = _wsOwnSet(p + '-dag-badge', ap.badge, col);
+    if (b) { b.style.borderColor = col; b.style.display = ''; }
+    _wsOwnSet(p + '-dag-headline', ap.headline, col);
+    _wsOwnSet(p + '-dag-explanation', ap.explanation);
+  });
+}
+
+// Canonical evidence presentation on the Portfolio: the still-open CURRENT session
+// and the LATEST COMPLETED close are stated SEPARATELY; a documented gap is
+// ATTENTION and never a rerun-close suggestion (Workstream F).
+function _wsApplyEvidence(d) {
+  var ep = d && d.evidence_presentation;
+  var el = document.getElementById('wf-evidence');
+  if (!el) return;
+  if (!ep) { el.style.display = 'none'; el.innerHTML = ''; el.setAttribute('data-wf-owned', '1'); return; }
+  var col = _wsSevColor(ep.severity);
+  var cs = ep.current_session || {}, lc = ep.latest_completed_close || {};
+  var gapChip = ep.documented_gap
+    ? '<span style="display:inline-block;font-size:9px;font-weight:800;color:#04120a;background:' + col + ';border-radius:4px;padding:1px 6px;margin-left:6px;">' + _wsEsc(ep.documented_gap_label) + '</span>'
+    : '';
+  _wsOwnHtml('wf-evidence',
+    '<div style="font-weight:800;text-transform:uppercase;letter-spacing:.05em;font-size:9px;color:var(--label);">Forward evidence' + gapChip + '</div>'
+    + '<div style="margin-top:3px;"><b>Current session:</b> ' + _wsEsc(cs.explanation || '—') + '</div>'
+    + '<div style="margin-top:2px;"><b>Latest completed close:</b> ' + _wsEsc(lc.explanation || '—') + '</div>');
+  el.style.borderColor = col;
+  el.style.display = '';
+}
 
 function _dfSet(id, text) {
   var el = document.getElementById(id);
@@ -24102,6 +24235,7 @@ function _dagSevColor(sev) {
 }
 
 function _dagSet(id, text) {
+  if (_wsIsCanonicalNode(id)) return;   // canonical nodes are owned by renderWorkflowState
   var el = document.getElementById(id);
   if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
 }
@@ -24135,24 +24269,26 @@ function renderDailyActionGate(g) {
   ['cc-dag-card', 'dw-dag-card', 'pm-dag-card'].forEach(function (id) {
     var el = document.getElementById(id); if (el) el.style.display = ok ? '' : 'none';
   });
-  var rBadge = document.getElementById('right-dag-badge');
-  if (!ok) { if (rBadge) rBadge.style.display = 'none'; return; }
+  if (!ok) return;
   var color = _dagSevColor(g.action_severity);
   var reviewTxt = (g.next_scheduled_full_review || '—') +
     (g.scheduled_review_due ? ' · review due' : ' · review not due');
   var matchTxt = g.target_actual_match ? 'Aligned' : ((g.proposed_change_count || 0) + ' change(s)');
   var changesHtml = _dagChangesHtml(g);
 
-  // ---- Command Center + Daily Workflow (same fields) ----
-  [['cc', 'dagPrimaryAction'], ['dw', 'dagPrimaryAction']].forEach(function (px) {
-    var p = px[0];
-    _dagSet(p + '-dag-badge', g.outcome_label);
+  // Slice 2 hard cutover (Workstream D): the DAG card TITLE / currency BADGE /
+  // HEADLINE / EXPLANATION are OWNED by renderWorkflowState (the canonical
+  // portfolio-assessment presentation). This loader renders only the dated DETAIL
+  // below; it never presents an older gate result as a current "today" conclusion.
+  // A SAFE, non-"today" fallback framing is applied ONLY while the canonical value
+  // has not yet been stamped (it self-guards on data-wf-owned).
+  _dagApplySafeFraming(g);
+
+  // ---- Command Center + Daily Workflow (dated DETAIL only) ----
+  ['cc', 'dw'].forEach(function (p) {
     _dagTstate(p + '-dag-tstate', g, color);
-    _dagSet(p + '-dag-headline', g.headline);
-    _dagSet(p + '-dag-explanation', g.explanation);
     _dagSet(p + '-dag-market', g.latest_completed_market_date);
     _dagSet(p + '-dag-review', reviewTxt);
-    var hl = document.getElementById(p + '-dag-headline'); if (hl) hl.style.color = color;
     var card = document.getElementById(p + '-dag-card'); if (card) card.style.borderLeftColor = color;
     var btn = document.getElementById(p + '-dag-btn');
     if (btn) { btn.textContent = g.primary_action_label; btn.style.display = ''; }
@@ -24160,18 +24296,14 @@ function renderDailyActionGate(g) {
     if (ch) { ch.innerHTML = changesHtml; ch.style.display = changesHtml ? '' : 'none'; }
   });
 
-  // ---- Portfolio Manager (fuller detail; NO confirm controls when no action) ----
-  _dagSet('pm-dag-badge', g.outcome_label);
+  // ---- Portfolio Manager (fuller DETAIL; NO confirm controls when no action) ----
   _dagTstate('pm-dag-tstate', g, color);
-  _dagSet('pm-dag-headline', g.headline);
-  _dagSet('pm-dag-explanation', g.explanation);
   _dagSet('pm-dag-eval', g.evaluation_date);
   _dagSet('pm-dag-market', g.latest_completed_market_date);
   _dagSet('pm-dag-review', reviewTxt);
   _dagSet('pm-dag-match', matchTxt);
   _dagSet('pm-dag-turnover', _dagPct(g.estimated_turnover));
   _dagSet('pm-dag-cost', _dagPct(g.estimated_cost));
-  var pmHl = document.getElementById('pm-dag-headline'); if (pmHl) pmHl.style.color = color;
   var pmCard = document.getElementById('pm-dag-card'); if (pmCard) pmCard.style.borderColor = color;
   var pmBtn = document.getElementById('pm-dag-btn');
   if (pmBtn) {
@@ -24181,19 +24313,28 @@ function renderDailyActionGate(g) {
   var pmCh = document.getElementById('pm-dag-changes');
   if (pmCh) { pmCh.innerHTML = changesHtml; pmCh.style.display = changesHtml ? '' : 'none'; }
 
-  // ---- Right panel: compact daily-gate outcome badge (title carries target state) ----
-  if (rBadge) {
-    rBadge.textContent = g.outcome_label; rBadge.style.color = color; rBadge.style.display = '';
-    rBadge.title = 'Daily action gate — ' + (g.target_state_label || g.outcome_label || '');
-  }
-
-  // ---- Checks Performed Today (canonical 13 daily risk / control checks) ----
+  // ---- Checks Performed Today (canonical daily risk / control checks) ----
   renderChecksPerformed(g);
   // Re-sync the (collapsed) OTR target-review badge now that the canonical gate is
   // known, so it never lingers on a stale "READY TO CONFIRM" in the aligned state.
   try { if (window._otrData) renderOtr(window._otrData); } catch (e) {}
 }
 window.renderDailyActionGate = renderDailyActionGate;
+
+// SAFE, non-"today" fallback framing for the DAG cards, applied ONLY while the
+// canonical workflow-state presentation has not yet stamped these nodes (it uses
+// the guarded setter, so it never overwrites the owned value). It never asserts a
+// "today" verdict and never reproduces a stale outcome badge — it uses the gate's
+// OWN dated fields. renderWorkflowState overrides it on load, in any order.
+function _dagApplySafeFraming(g) {
+  var dt = g.latest_completed_market_date ? (' as of ' + g.latest_completed_market_date) : '';
+  ['cc', 'dw', 'pm'].forEach(function (p) {
+    _wsGuardedSet(p + '-dag-title', 'LATEST PORTFOLIO ASSESSMENT');
+    _wsGuardedSet(p + '-dag-badge', '—');
+    _wsGuardedSet(p + '-dag-headline', 'Latest completed portfolio assessment' + dt + '.');
+    _wsGuardedSet(p + '-dag-explanation', 'Loading the canonical assessment currency…');
+  });
+}
 
 // Canonical target-state chip (single source; never re-derived on the page).
 function _dagTstate(id, g, color) {
@@ -24587,6 +24728,7 @@ function renderPredictionSkill(d) {
 window.renderPredictionSkill = renderPredictionSkill;
 
 function _dcSet(id, text) {
+  if (_wsIsCanonicalNode(id)) return;   // canonical nodes are owned by renderWorkflowState
   var el = document.getElementById(id);
   if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
 }
@@ -24685,8 +24827,7 @@ function renderDailyClose(d) {
   ['cc-dc-card', 'dw-dc-card', 'pm-dc-card', 'dc-perf-panel'].forEach(function (id) {
     var el = document.getElementById(id); if (el) el.style.display = ok ? '' : 'none';
   });
-  var rBadge = document.getElementById('right-dc-badge');
-  if (!ok) { if (rBadge) rBadge.style.display = 'none'; return; }
+  if (!ok) return;
   var color = _dcSevColor(d.severity);
   var pa = d.primary_action || {};
   var pnl = d.pnl || {};
@@ -24744,10 +24885,9 @@ function renderDailyClose(d) {
   // ---- Portfolio daily-performance ----
   renderDailyClosePerf(d);
 
-  // ---- Right panel: mirror the canonical daily-close status/task/next action ----
-  if (rBadge) { rBadge.textContent = d.close_status_label; rBadge.style.color = color; rBadge.style.display = ''; }
-  _dcSet('right-current-task', d.current_task);
-  _dcSet('right-next-action', d.next_action);
+  // Slice 2 hard cutover: the right Action/Safety panel (task / next action /
+  // close + gate badges / primary button) is OWNED by renderWorkflowState — this
+  // loader no longer writes right-current-task / right-next-action / right-dc-badge.
 }
 window.renderDailyClose = renderDailyClose;
 
@@ -25122,6 +25262,7 @@ async function recoverForwardEvidence(btn, marketDate) {
 window.recoverForwardEvidence = recoverForwardEvidence;
 
 function _obSet(id, text) {
+  if (_wsIsCanonicalNode(id)) return;   // canonical nodes are owned by renderWorkflowState
   var el = document.getElementById(id);
   if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
 }
@@ -25852,37 +25993,11 @@ function renderOperationalBook(d) {
       rightState.textContent = '';
     }
   }
-  if (ob) {
-    _obSet('right-current-task', (view.ordersExist && view.currentTask)
-      ? view.currentTask : _obTaskLabel(nextCode));
-    _obSet('right-next-action', view.waiting
-      ? ('Wait for an eligible completed close. Then run ' + primaryLabel + '.')
-      : (view.lifecycleStage === 'FILLED' && view.monitorLine)
-        ? view.monitorLine
-        : (view.ordersExist && view.explanation)
-          ? view.explanation
-          : (ob.next_action_label || ob.next_action || '—'));
-    var btn = document.getElementById('right-primary-action-btn');
-    if (btn) {
-      btn.textContent = primaryLabel;
-      btn.onclick = function (ev) { if (ev) ev.stopPropagation(); obPrimaryAction(); };
-    }
-    var taskEl = document.getElementById('right-current-task');
-    var sec = taskEl && taskEl.closest ? taskEl.closest('.panel-section') : null;
-    if (sec) {
-      // Phase 27B.8: when the book is active, "Monitor Holdings and Performance"
-      // routes to the Portfolio holdings dashboard, not the paper desk.
-      if (view.lifecycleStage === 'FILLED') {
-        sec.onclick = function () { navigateToPortfolioPositions(); };
-        sec.title = 'Open the Portfolio — the actual filled Alpha Paper Book #1 holdings, valuation and P&L.';
-      } else {
-        sec.onclick = function () { navigateToRoute('portfolio-manager'); };
-        sec.title = 'Open the Portfolio Manager — the operational next action of Alpha Paper Book #1.';
-      }
-    }
-    var hint = document.getElementById('right-review-hint');
-    if (hint) hint.style.display = 'none';
-  }
+  // Slice 2 hard cutover (Workstream E): the right Action/Safety panel task /
+  // next action / primary button / review hint are OWNED by renderWorkflowState
+  // (the canonical combined operator interpretation). The operational book keeps
+  // its FACTUAL detail (right-ob-statement / right-ob-* / footer) above; it no
+  // longer writes the canonical workflow nodes here.
 
   // Portfolio Manager implementation strip (three distinct states, never mixed).
   // Phase 27D: the model-target state uses the CANONICAL target-freshness label

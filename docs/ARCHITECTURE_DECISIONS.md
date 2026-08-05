@@ -186,6 +186,45 @@
   Research Cycle and portfolio reassessment (Slice 3) are described/routed here but
   not executed; those actions are labelled not-yet-implemented.
 
+### D-12.1 — Canonical DOM ownership: the UI hard cutover (Phase 29C.1) — CONFIRMED (LANDED)
+- **Defect:** the Slice-2 backend (D-12) was correct, yet older visible surfaces
+  still presented a valid **historical** (dated) assessment as a current conclusion —
+  "DAILY ACTION GATE — TODAY / NO ACTION TODAY" on the gate cards and
+  "DAILY GATE — NO ACTION TODAY" on the Action/Safety panel — contradicting the
+  canonical workflow strip. Root cause: the canonical `renderWorkflowState` banners
+  and the legacy `renderDailyActionGate` / `renderDailyClose` / `renderOperationalBook`
+  writers targeted overlapping DOM nodes, so the last async loader to finish won.
+- **Decision:** `api.workflow_state` owns **every visible primary operator
+  interpretation**. Two additive, backend-generated presentation blocks stop the UI
+  from turning raw dates/booleans into conclusions: `assessment_presentation` (a DATED
+  historical result — "No portfolio change was recommended on <date>." — with its
+  canonical currency label/badge/severity; a `today_wording_allowed` flag that is true
+  ONLY when the assessment is current) and `evidence_presentation` (the still-open
+  CURRENT session — "no result yet" — kept distinct from the LATEST COMPLETED close's
+  documented, attention-level forward-evidence gap).
+- **Exclusive DOM ownership (not render-last):** one UI owner, `renderWorkflowState`
+  (via the single `loadWorkflowState()` loader), writes and STAMPS (`data-wf-owned`)
+  the workflow banners, the right Action/Safety panel (current task / next action /
+  primary button / factual close chip / assessment-currency chip) and the reframed
+  Daily-Action-Gate card TITLE / currency BADGE / HEADLINE / EXPLANATION on every
+  primary surface. The shared specialized setters (`_dcSet`/`_dagSet`/`_obSet`)
+  hard-refuse canonical nodes, and legacy client-side mirrors
+  (`updateTodayReview`/`applyCanonicalToActionPanel`/`updateCockpitReviewSummary`)
+  are neutralised. The specialized loaders render only DETAIL (checks, turnover, dates,
+  P&L, holdings). Because ownership is by static guard + stamp, the final visible state
+  is identical under every async completion order (proven by an in-process DOM harness
+  that runs the real renderers in each order).
+- **Historic vocabulary retained (D-7 upheld):** the raw Daily Action Gate endpoint
+  still returns its `NO_ACTION_TODAY` outcome code; only the *visible primary*
+  presentation is canonical. A documented forward-evidence gap on a valid completed
+  close remains ATTENTION, never an operational failure or a rerun-close suggestion.
+- **Evidence:** the endpoint stays authenticated, GET-only, read-only, provider-free
+  and prediction-free; audit `workflow_state_ownership` confirms one
+  `loadWorkflowState`, the ownership declaration + guards, zero UI priority/currency
+  derivation and zero unauthorized canonical-node writers; inventory drift = 0.
+- **Consequence:** no runtime business action occurred; Slice 3 remains next and
+  unimplemented.
+
 ### D-10 — No big-bang rewrite of the monoliths — CONFIRMED
 - **Decision:** `api/app.py` (20.5k) and `api/ui/index.html` (26.7k) are reduced
   incrementally (domain routers, extracted view logic) as owning contexts

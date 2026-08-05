@@ -123,6 +123,16 @@ responsibilities, candidate existing modules, and migration approach.
   (`app.py`×2, `command_center`, `daily_workflow_dashboard`) are documented and
   retired with the legacy Create-Orders surface (Slice 11). The UI derives no
   workflow priority or assessment currency. Slice 2 performs no workflow action.
+- **UI DOM-ownership boundary (Phase 29C.1, LANDED):** `renderWorkflowState` is the
+  EXCLUSIVE owner of every visible primary operator-interpretation node (the workflow
+  banners, the right Action/Safety panel, and the reframed Daily-Action-Gate card
+  title/currency-badge/headline/explanation), backed by additive backend
+  `assessment_presentation` / `evidence_presentation` blocks. The specialized detail
+  renderers (`renderDailyActionGate`/`renderDailyClose`/`renderOperationalBook`) own
+  DETAIL only and are hard-guarded out of the canonical nodes, so the final visible
+  state is independent of async loader completion order (ownership, not timing). This
+  is the DOM-side analogue of "one concept, one owner": one owner per *visible*
+  interpretation, mirroring the backend one-owner-per-concept boundary.
 
 ### Market Data
 - **Responsibility:** produce point-in-time EOD prices for the universe and

@@ -480,12 +480,18 @@ class TestUiHeaderAndRightPanel:
         assert ">Paper position open<" not in html
 
     def test_legacy_task_writers_yield_to_operational_payload(self, html):
+        # Slice 2 (Phase 29C.1) hard cutover supersedes the Phase 27B.1 _obData guard:
+        # the canonical right Action/Safety panel is OWNED by renderWorkflowState, and
+        # the legacy task writers no longer target the canonical nodes at all.
         js = _scripts(html)
-        assert js.count("window._obData ? null : document.getElementById('right-current-task')") >= 3
         assert "function _obTaskLabel" in js
+        assert "window._obData ? null : document.getElementById('right-current-task')" not in js
+        assert "_wsOwnSet('right-current-task'" in js
+        assert "_wsOwnSet('right-next-action'" in js
+        # applyCanonicalToActionPanel is a deliberate no-op now.
         fn = js[js.index("function applyCanonicalToActionPanel"):]
         fn = fn[:fn.index("// ----- Single navigation contract")]
-        assert "if (window._obData) return;" in fn
+        assert "getElementById('right-current-task')" not in fn
 
 
 class TestUiPortfolioAndCommandCenter:

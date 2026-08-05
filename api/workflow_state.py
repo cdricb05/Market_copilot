@@ -260,6 +260,142 @@ def classify_assessment(*, assessment_date: Any, eligible_date: Any,
 
 
 # --------------------------------------------------------------------------- #
+# Canonical presentation contract (Workstream B / D / F). The backend GENERATES
+# the operator-facing text so the UI never turns raw dates/booleans into a
+# conclusion. An older no-change assessment is presented as a DATED historical
+# result with its canonical currency; "today" wording is allowed ONLY when the
+# assessment is current. The evidence presentation separates the still-open
+# current session from the latest completed close's documented (attention-level)
+# forward-evidence gap. No new assessment or evidence is computed here.
+# --------------------------------------------------------------------------- #
+_CURRENCY_LABELS = {
+    ASSESS_CURRENT: "Current", ASSESS_STALE: "Stale", ASSESS_DUE: "Due",
+    ASSESS_OVERDUE: "Overdue", ASSESS_MISSING: "Missing",
+    ASSESS_INCONSISTENT: "Inconsistent",
+}
+_CURRENCY_SEVERITY = {
+    ASSESS_CURRENT: SEV_SUCCESS, ASSESS_STALE: SEV_ATTENTION, ASSESS_DUE: SEV_ATTENTION,
+    ASSESS_OVERDUE: SEV_ATTENTION, ASSESS_MISSING: SEV_ATTENTION,
+    ASSESS_INCONSISTENT: SEV_ERROR,
+}
+_PROPOSAL_OUTCOMES = frozenset({
+    "PORTFOLIO_CHANGES_PROPOSED", "PROPOSAL", "REBALANCE_PROPOSAL_READY",
+    "APPROVAL_REQUIRED", "PROPOSED"})
+
+
+def _historical_result_text(outcome: Any, recommendation: Any) -> str:
+    """Human, DATE-FREE statement of what the latest assessment concluded. The
+    date is added by the presentation headline, never baked in here."""
+    if outcome == _GATE_OUTCOME_NO_ACTION:
+        return "No portfolio change was recommended."
+    if outcome in _PROPOSAL_OUTCOMES:
+        return "Portfolio changes were proposed."
+    if recommendation:
+        return str(recommendation)
+    if outcome:
+        return str(outcome).replace("_", " ").capitalize() + "."
+    return "No portfolio assessment result is available."
+
+
+def build_assessment_presentation(*, assessment_status: str, assessment_date: Any,
+                                  outcome: Any, recommendation: Any,
+                                  current_for_eligible: bool) -> dict[str, Any]:
+    """Presentation for the latest portfolio assessment (Workstream B/D).
+
+    The historical no-change result is preserved and DATED; its canonical currency
+    is surfaced; "today" wording is permitted only when the assessment is current.
+    """
+    status = assessment_status
+    is_current = (status == ASSESS_CURRENT)
+    date_txt = _iso(_coerce_date(assessment_date)) or (
+        str(assessment_date) if assessment_date else None)
+    hist = _historical_result_text(outcome, recommendation)
+    title = "LATEST PORTFOLIO ASSESSMENT"
+    title_with_date = ("%s — %s" % (title, date_txt)) if date_txt else title
+
+    if status == ASSESS_MISSING:
+        headline = "No portfolio assessment has been recorded yet."
+    elif date_txt:
+        headline = hist.rstrip(".") + " on %s." % date_txt
+    else:
+        headline = hist
+
+    if status == ASSESS_INCONSISTENT:
+        explanation = ("The recorded assessment is dated after the latest eligible "
+                       "completed session; reconcile the inconsistency before acting.")
+        follow_up = "Inspect the state inconsistency."
+    elif is_current:
+        explanation = "This assessment is current for the latest completed session."
+        follow_up = None
+    else:
+        explanation = "A new portfolio reassessment is required."
+        follow_up = "A new portfolio reassessment is required."
+
+    return {
+        "title": title,
+        "title_with_date": title_with_date,
+        "assessment_date": date_txt,
+        "historical_result": hist,
+        "recommendation": (str(recommendation) if recommendation else None),
+        "currency_status": status,
+        "currency_label": _CURRENCY_LABELS.get(status, status),
+        "badge": status,
+        "headline": headline,
+        "explanation": explanation,
+        "severity": _CURRENCY_SEVERITY.get(status, SEV_ATTENTION),
+        "follow_up": follow_up,
+        "may_be_called_current": is_current,
+        "today_wording_allowed": is_current,
+        "current_for_eligible_session": bool(current_for_eligible),
+    }
+
+
+def build_evidence_presentation(*, operational_close_valid: bool, latest_close_date: Any,
+                                evidence_gap: bool, active_book_snapshot_present: bool,
+                                current_session_open: bool) -> dict[str, Any]:
+    """Presentation that keeps the still-open CURRENT session distinct from the
+    latest completed close's evidence state (Workstream F). A documented gap on a
+    valid completed close is ATTENTION-level and never an operational failure.
+
+    ``current_session_open`` means today's market session has not yet closed/been
+    processed — so no close or evidence result exists for IT yet (this is separate
+    from the already-completed close, which may carry a documented gap)."""
+    close_txt = _iso(_coerce_date(latest_close_date)) or (
+        str(latest_close_date) if latest_close_date else None)
+
+    if current_session_open:
+        cur = {"state": "NO_RESULT_YET", "label": "No result yet",
+               "explanation": "No close or evidence result exists yet for the "
+                              "still-open current session."}
+    else:
+        cur = {"state": "SESSION_PROCESSED", "label": "Session processed",
+               "explanation": "The current market session has been processed."}
+
+    if not operational_close_valid:
+        comp = {"state": "NONE", "label": "No completed close",
+                "explanation": "No completed operational close has been recorded yet."}
+    elif evidence_gap:
+        comp = {"state": "VALID_WITH_DOCUMENTED_GAP",
+                "label": "Valid — documented forward-evidence gap",
+                "explanation": "The latest completed close (%s) remains valid and has a "
+                               "documented forward-evidence gap." % (close_txt or "n/a")}
+    else:
+        comp = {"state": "VALID", "label": "Valid — forward evidence captured",
+                "explanation": "The latest completed close (%s) is valid with forward "
+                               "evidence captured." % (close_txt or "n/a")}
+
+    return {
+        "current_session": cur,
+        "latest_completed_close": comp,
+        "documented_gap": bool(evidence_gap),
+        "documented_gap_label": ("Documented forward-evidence gap" if evidence_gap
+                                 else "No documented forward-evidence gap"),
+        "severity": (SEV_ATTENTION if evidence_gap else SEV_INFO),
+        "explanation": ("%s %s" % (cur["explanation"], comp["explanation"])).strip(),
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Deterministic priority policy (Workstream E). Returns the single overall state.
 # First matching condition wins; the exact precedence is documented inline and in
 # docs/ARCHITECTURE_DECISIONS.md (D-12).
@@ -804,6 +940,20 @@ def load_workflow_state(
         "latest_evidence_snapshot": {"market_date": latest_snapshot_date},
     }
 
+    # --- Canonical presentation contract (Workstream B/D/F). ------------------- #
+    # Backend-generated operator text so the UI renders (never derives) the primary
+    # interpretation: an older no-change assessment is a DATED historical result
+    # with its currency; the still-open session is kept distinct from the completed
+    # close's documented (attention) forward-evidence gap.
+    assessment_presentation = build_assessment_presentation(
+        assessment_status=assessment_status, assessment_date=latest_assessment_date,
+        outcome=latest_assessment_result, recommendation=latest_assessment_recommendation,
+        current_for_eligible=ac["current_for_eligible_session"])
+    evidence_presentation = build_evidence_presentation(
+        operational_close_valid=operational_close_valid, latest_close_date=latest_close_date,
+        evidence_gap=evidence_gap, active_book_snapshot_present=active_book_snapshot_present,
+        current_session_open=(session_status == msession.BEFORE_SESSION_CLOSE))
+
     # --- Model governance (read-only; promotion always manual). ---------------- #
     fps_active = (forward_status or {}).get("active_book") or {}
     fps_shadows = (forward_status or {}).get("shadow_books") or []
@@ -918,6 +1068,8 @@ def load_workflow_state(
             "recovery_classification": (forward_status or {}).get("interpretation"),
         },
         "model_governance_state": model_governance,
+        "assessment_presentation": assessment_presentation,
+        "evidence_presentation": evidence_presentation,
         "completed_summary": completed_summary,
         "consistency_status": consistency_status,
         "consistency_violations": consistency_violations,
@@ -1016,5 +1168,6 @@ __all__ = [
     "ACTION_SEVERITIES",
     "CONSISTENT", "INCONSISTENT", "UNKNOWN", "CONSISTENCY_VOCAB",
     "VALID_DESTINATIONS",
-    "classify_assessment", "load_workflow_state",
+    "classify_assessment", "build_assessment_presentation",
+    "build_evidence_presentation", "load_workflow_state",
 ]

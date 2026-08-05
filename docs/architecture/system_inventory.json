@@ -113,8 +113,8 @@
         "api/command_center.py (_derive_stage 8-stage mirror + _STAGE_FLOW)",
         "api/daily_workflow_dashboard.py (6-stage DATA/CANDIDATES/REVIEW/SIGNALS/DECISIONS/PORTFOLIO stepper)"
       ],
-      "notes": "Slice 2 introduces api/workflow_state.py as the ONE owner of the combined operator interpretation (overall workflow state, current task, primary next action, action severity, assessment currency, queued workflow actions). Specialized modules keep their domain facts; the legacy Create-Orders stage vocabularies remain until their surface is quarantined (Slice 11). No runtime deleted.",
-      "status": "RESOLVING_SLICE2"
+      "notes": "Slice 2 introduces api/workflow_state.py as the ONE owner of the combined operator interpretation (overall workflow state, current task, primary next action, action severity, assessment currency, queued workflow actions). Phase 29C.1 completes the UI HARD CUTOVER: two additive backend presentation blocks (assessment_presentation = a DATED historical result + canonical currency, today-wording only when current; evidence_presentation = still-open current session kept distinct from the completed close's documented attention-level forward-evidence gap), and renderWorkflowState becomes the EXCLUSIVE UI owner of every visible primary interpretation (workflow banners, right Action/Safety panel, reframed Daily-Action-Gate card title/currency-badge/headline/explanation). The shared specialized setters (_dcSet/_dagSet/_obSet) hard-guard canonical nodes and a data-wf-owned stamp makes the final visible state independent of async completion order. The raw Daily Action Gate endpoint retains its NO_ACTION_TODAY outcome vocabulary. Specialized modules keep their domain facts; the legacy Create-Orders stage vocabularies remain until their surface is quarantined (Slice 11). No runtime deleted.",
+      "status": "RESOLVED_SLICE2_UI_CUTOVER"
     },
     {
       "concept": "forward_evidence",
@@ -505,7 +505,7 @@
     {
       "path": "api/workflow_state.py",
       "system": "infrastructure",
-      "responsibility": "Slice 2 CANONICAL read-only combined-operator-interpretation contract: composes api.data_freshness (engine.market_session) + the Daily Action Gate + probe-free Daily Close progress + active Operational Book + Forward Prediction Skill + alpha-target readiness into ONE workflow view (overall state, current task, single primary next action, queued follow-ups, assessment currency, blockers, completed summary, cross-surface consistency). Never recomputes a domain fact.",
+      "responsibility": "Slice 2 CANONICAL read-only combined-operator-interpretation contract: composes api.data_freshness (engine.market_session) + the Daily Action Gate + probe-free Daily Close progress + active Operational Book + Forward Prediction Skill + alpha-target readiness into ONE workflow view (overall state, current task, single primary next action, queued follow-ups, assessment currency, blockers, completed summary, cross-surface consistency). Phase 29C.1 adds backend presentation blocks (assessment_presentation, evidence_presentation) so the UI renders — never derives — the primary interpretation (renderWorkflowState owns the visible primary nodes). Never recomputes a domain fact.",
       "classification": "KEEP",
       "target_owner": "api/workflow_state.py",
       "duplicate_with": [],
@@ -527,7 +527,8 @@
         "loadWorkflowState"
       ],
       "tests": [
-        "tests/test_slice2_workflow_state.py"
+        "tests/test_slice2_workflow_state.py",
+        "tests/test_slice2_ui_hard_cutover.py"
       ],
       "migration_priority": 1,
       "risk": "low",

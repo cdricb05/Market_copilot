@@ -30210,9 +30210,14 @@ class TestDailyReviewOutcomeConsistencyV1Content:
     # --- Right-side Action / Safety panel mirrors Today's Review ---
 
     def test_right_panel_mirrors_today_review(self) -> None:
-        fn = self._today_review_fn(self._read_html())
-        assert "right-current-task" in fn
-        assert "right-next-action" in fn
+        # Slice 2 (Phase 29C.1) hard cutover: the right Action/Safety panel is OWNED
+        # by the canonical workflow-state renderer; Today's Review no longer mirrors
+        # onto the canonical right-panel nodes (it still drives its own tr-* card).
+        html = self._read_html()
+        fn = self._today_review_fn(html)
+        assert "right-current-task" not in fn and "right-next-action" not in fn
+        assert "_wsOwnSet('right-current-task'" in html
+        assert "_wsOwnSet('right-next-action'" in html
 
     def test_right_panel_workflow_language_present(self) -> None:
         html = self._read_html()
@@ -30339,11 +30344,12 @@ class TestDailyCandidateDecisionCardV1Content:
     # --- Right-side panel mirrors the candidate decision card (item 8) ---
 
     def test_right_panel_decide_on_ticker(self) -> None:
+        # Today's Review still computes its guided-flow labels; the right-panel mirror
+        # is gone (Slice 2 cutover — the panel is owned by workflow-state).
         fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
         assert "Decide on " in fn
         assert "Generate trade plan from approved candidates." in fn
         assert "Review open positions." in fn
-        assert "right-next-action" in fn
 
     # --- Friendly status term replaces raw APPROVED_FOR_SIGNAL in workflow ---
 
@@ -30769,9 +30775,12 @@ class TestGuidedTradePlanPaperOrderFlowV1Ui:
         assert "No approved candidates available for a trade plan." in fn
 
     def test_right_panel_mirrors_guided_stages(self) -> None:
-        fn = self._fn(self._read_html(), "function updateTodayReview(ctx) {")
-        assert "right-current-task" in fn
-        assert "right-next-action" in fn
+        # Slice 2 (Phase 29C.1) hard cutover: the guided-stage right-panel mirror is
+        # removed; the canonical workflow-state renderer owns the right panel.
+        html = self._read_html()
+        fn = self._fn(html, "function updateTodayReview(ctx) {")
+        assert "right-current-task" not in fn and "right-next-action" not in fn
+        assert "function _wsApplyRightPanel(" in html
 
     def test_workflow_status_refreshes_cockpit(self) -> None:
         fn = self._fn(self._read_html(), "function refreshWorkflowStatus(")
@@ -32647,11 +32656,18 @@ class TestDailyWorkflowStateUiContractV1:
         assert "ov-na-btn" in fn
 
     def test_action_safety_panel_renders_from_canonical_state(self) -> None:
+        # Slice 2 (Phase 29C.1) hard cutover: the right Action/Safety panel renders
+        # from the canonical /v1/operations/workflow-state (renderWorkflowState /
+        # _wsApplyRightPanel), NOT the legacy client-side _canonicalWorkflowState.
         html = self._read_html()
-        assert "function applyCanonicalToActionPanel(" in html
-        fn = _fn_body(html, "function applyCanonicalToActionPanel(")
-        assert "_canonicalWorkflowState" in fn
+        assert "function _wsApplyRightPanel(" in html
+        fn = _fn_body(html, "function _wsApplyRightPanel(")
         assert "right-current-task" in fn and "right-next-action" in fn
+        assert "_wsOwnSet(" in fn
+        # applyCanonicalToActionPanel is now a deliberate no-op (owns nothing).
+        assert "function applyCanonicalToActionPanel(" in html
+        panel = _fn_body(html, "function applyCanonicalToActionPanel(")
+        assert "right-current-task" not in panel
 
     def test_daily_plan_top_action_uses_canonical_state(self) -> None:
         html = self._read_html()
@@ -33100,7 +33116,11 @@ class TestWorkflowNavigationContractUiV1:
         assert "switchToTab('portfolio')" in fn
         assert "pdash-kpis" in fn
         assert "open-positions" not in fn
-        assert "Showing Portfolio — Alpha Paper Book #1 holdings." in fn
+        # Slice 2 (Phase 29C.1) hard cutover: navigation feedback no longer writes the
+        # canonical right-next-action node (owned by workflow-state); the non-canonical
+        # right-action-status timestamp feedback remains.
+        assert "getElementById('right-next-action')" not in fn
+        assert "right-action-status" in fn
 
     def test_history_only_label_present(self) -> None:
         assert "Older Trade Ideas — History Only" in self._read_html()

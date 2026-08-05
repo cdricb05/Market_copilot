@@ -103,6 +103,36 @@ UI_WORKFLOW_RENDER_EXPORT = "window.renderWorkflowState"
 # region: market-date arithmetic, or constructing a stale "today" assessment label.
 UI_WORKFLOW_FORBIDDEN_ARITH = ("new Date(", "Date.now(", ".getTime(")
 UI_WORKFLOW_FORBIDDEN_TODAY_LABEL = "NO ACTION TODAY"
+
+# --- Slice 2 UI HARD CUTOVER (Phase 29C.1) canonical DOM ownership -------------- #
+# renderWorkflowState is the EXCLUSIVE owner of every PRIMARY operator-interpretation
+# node below; the specialized detail renderers must NOT write any of them, and the
+# shared specialized setters hard-guard them so the final visible state is
+# independent of async completion order.
+UI_WS_OWNERSHIP_DECL = "window.WS_CANONICAL_NODES"
+UI_WS_OWN_HELPERS = ("function _wsOwnSet", "function _wsOwnHtml",
+                     "function _wsGuardedSet", "function _wsIsCanonicalNode")
+# Mirror of window.WS_CANONICAL_NODES: the canonical primary-interpretation nodes.
+UI_CANONICAL_NODES = (
+    "right-current-task", "right-next-action", "right-primary-action-btn",
+    "right-dc-badge", "right-dag-badge",
+    "cc-dag-title", "cc-dag-badge", "cc-dag-headline", "cc-dag-explanation",
+    "dw-dag-title", "dw-dag-badge", "dw-dag-headline", "dw-dag-explanation",
+    "pm-dag-title", "pm-dag-badge", "pm-dag-headline", "pm-dag-explanation",
+)
+# Specialized DETAIL renderers that must not write a canonical node. Each is bounded
+# by its own ``window.NAME = NAME;`` export so the region excludes neighbours.
+UI_SPECIALIZED_RENDERERS = ("renderDailyActionGate", "renderDailyClose",
+                            "renderOperationalBook")
+# The shared specialized setters that MUST hard-guard canonical nodes, and the guard.
+UI_GUARDED_SETTERS = ("_dagSet", "_dcSet", "_obSet")
+UI_SETTER_GUARD = "if (_wsIsCanonicalNode(id)) return;"
+# The stale-today derivation the DAG render must never perform (present the gate
+# outcome label as a current verdict). The raw gate ENDPOINT may still return the
+# NO_ACTION_TODAY code — that historic vocabulary is intentionally retained.
+UI_DAG_STALE_TODAY_TOKEN = "outcome_label"
+RAW_GATE_OWNER = "api/daily_action_gate.py"
+RAW_GATE_VOCAB = "NO_ACTION_TODAY"
 # Modules that legitimately own session/calendar arithmetic or a DISTINCT calendar
 # concept and are therefore exempt from the "no independent session arithmetic"
 # guard. forward_prediction_skill.eligible_calendar is the HISTORICAL EVIDENCE
@@ -539,6 +569,44 @@ def check_workflow_state_ownership(files: list[Path]) -> dict:
         if UI_WORKFLOW_FORBIDDEN_TODAY_LABEL in region:
             region_hits.append(UI_WORKFLOW_FORBIDDEN_TODAY_LABEL)
 
+    # --- Slice 2 UI HARD CUTOVER guards (Phase 29C.1). --------------------------- #
+    ownership_declared = (UI_WS_OWNERSHIP_DECL in ui
+                          and all(h in ui for h in UI_WS_OWN_HELPERS))
+
+    # (a) The shared specialized setters hard-guard canonical nodes (guard within a
+    #     small window after the signature, so no full-body parse is needed).
+    setters_guarded: list[str] = []
+    for s in UI_GUARDED_SETTERS:
+        sig = "function %s(id, text) {" % s
+        si = ui.find(sig)
+        if si != -1 and UI_SETTER_GUARD in ui[si:si + 200]:
+            setters_guarded.append(s)
+    unguarded_setters = sorted(set(UI_GUARDED_SETTERS) - set(setters_guarded))
+
+    # (b) No specialized DETAIL renderer writes a canonical node. Each function is
+    #     bounded by its own ``window.NAME = NAME;`` export (excludes neighbours),
+    #     so the region never leaks into the canonical owner or the safe-fallback.
+    unauthorized_canonical_writers: list[str] = []
+    for fn in UI_SPECIALIZED_RENDERERS:
+        fs = ui.find("function %s(" % fn)
+        fe = ui.find("window.%s = %s;" % (fn, fn))
+        if fs == -1 or fe == -1 or fe <= fs:
+            unauthorized_canonical_writers.append("%s:REGION_NOT_FOUND" % fn)
+            continue
+        body = ui[fs:fe]
+        for node in UI_CANONICAL_NODES:
+            if ("'%s'" % node) in body or ('"%s"' % node) in body:
+                unauthorized_canonical_writers.append("%s:%s" % (fn, node))
+        if "_wsOwnSet(" in body or "_wsOwnHtml(" in body:
+            unauthorized_canonical_writers.append("%s:OWN_HELPER" % fn)
+        # The DAG render must not present the gate outcome label as a current verdict.
+        if fn == "renderDailyActionGate" and UI_DAG_STALE_TODAY_TOKEN in body:
+            unauthorized_canonical_writers.append("%s:STALE_TODAY_LABEL" % fn)
+
+    # (c) The raw Daily Action Gate endpoint MAY retain its historic NO_ACTION_TODAY
+    #     outcome vocabulary (informational — its retention is expected).
+    raw_gate_vocab_retained = RAW_GATE_VOCAB in _read(RAW_GATE_OWNER)
+
     return {
         "owner": WORKFLOW_STATE_OWNER,
         "owner_present": owner_present,
@@ -546,6 +614,11 @@ def check_workflow_state_ownership(files: list[Path]) -> dict:
         "endpoint_present": endpoint_present,
         "ui_workflow_loader_count": loader_count,
         "ui_workflow_priority_derivation": sorted(set(region_hits)),
+        "ui_canonical_ownership_declared": ownership_declared,
+        "ui_shared_setters_guarded": sorted(setters_guarded),
+        "ui_unguarded_setters": unguarded_setters,
+        "ui_unauthorized_canonical_writers": sorted(set(unauthorized_canonical_writers)),
+        "raw_gate_vocab_retained": raw_gate_vocab_retained,
     }
 
 
@@ -708,6 +781,13 @@ def _print_console(rep: dict) -> None:
     print(f"UI workflow loaders (must be 1): {wf['ui_workflow_loader_count']}")
     print(f"UI workflow-priority/currency derivation (must be empty): "
           f"{wf['ui_workflow_priority_derivation']}")
+    print(f"UI canonical ownership declared: {wf['ui_canonical_ownership_declared']}")
+    print(f"UI shared setters guarded: {wf['ui_shared_setters_guarded']}  "
+          f"unguarded (must be empty): {wf['ui_unguarded_setters']}")
+    print(f"UI unauthorized canonical-node writers (must be empty): "
+          f"{wf['ui_unauthorized_canonical_writers']}")
+    print(f"raw Daily Action Gate vocabulary retained (expected True): "
+          f"{wf['raw_gate_vocab_retained']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -761,8 +841,16 @@ def main(argv=None) -> int:
             print(f"\nJSON report written to: {tf.name}")
 
     if args.strict:
+        wf = rep["workflow_state_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
-                         + len(rep["research_execution_terms"]))
+                         + len(rep["research_execution_terms"])
+                         + len(wf["ui_unauthorized_canonical_writers"])
+                         + len(wf["ui_unguarded_setters"])
+                         + len(wf["ui_workflow_priority_derivation"])
+                         + (0 if wf["ui_workflow_loader_count"] == 1 else 1)
+                         + (0 if wf["ui_canonical_ownership_declared"] else 1)
+                         + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
+                         + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
         return 1 if blocking_hits else 0
     return 0
 
