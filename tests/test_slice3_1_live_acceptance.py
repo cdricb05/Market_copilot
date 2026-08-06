@@ -386,6 +386,15 @@ def _full_cycle(tmp_path):
     def assess(*, today):
         return {"latest_completed_market_date": today, "outcome": "NO_ACTION_TODAY",
                 "target_state": "CURRENT_ALIGNED", "headline": "No change."}
+
+    def holding_opp(*, scoring=None, hoc_dir=None):   # Slice 6: hermetic stub (no I/O)
+        return {"assessment": {"assessment_state": "READY", "assessment_hash": "hoc_stub",
+                               "eligible_market_date": D1, "holding_reviews": [],
+                               "recommendation_counts": {"HOLD": 0, "REDUCE": 0, "EXIT": 0,
+                                                         "REPLACE": 0, "ADD": 0},
+                               "data_quality": {"data_gaps": []}},
+                "persistence": {"status": "CREATED", "artifact_id": "hoc_stub",
+                                "persisted": True}}
     # Session ready at D-1 (both desk and SPY at D-1); a stale daily price/score input
     # is refreshed to D-1 (so the refresh step runs), momentum current for the month.
     return drc.run_daily_research_cycle(
@@ -398,7 +407,8 @@ def _full_cycle(tmp_path):
         forward_status=copy.deepcopy(_FWD),
         daily_refresh_fn=refresh, scoring_fn=score, target_loader=target,
         evidence_capture_fn=capture, evidence_registry=[("m", "b", 25, "ACTIVE")],
-        assessment_loader=assess, refresh_confirm_token="CONFIRM_ALPHA_TARGET_REFRESH",
+        assessment_loader=assess, holding_opp_cost_fn=holding_opp,
+        refresh_confirm_token="CONFIRM_ALPHA_TARGET_REFRESH",
         monthly_emitter_fn=None)
 
 
@@ -590,17 +600,22 @@ def test_a55_no_scheduler_change():
     assert "ScheduledTask" not in src and "schtasks" not in src
 
 
-def test_a56_slice5_landed_slice6_not_implemented():
-    # Slice 5 (portfolio state / one-NAV) has since LANDED (Phase 29F). The boundary
-    # has advanced: the NEXT slice — Slice 6 (Holding Opportunity-Cost engine) — is NOT
-    # started, and no opportunity-cost owner module exists.
+def test_a56_slice6_landed_slice7_not_implemented():
+    # Slice 5 (Phase 29F) and Slice 6 (Holding Opportunity-Cost engine, Phase 29G) have
+    # LANDED. The boundary has advanced: the NEXT slice — Slice 7 (Reallocation Proposal
+    # engine) — is NOT started, and no Slice-7 owner module exists.
     roadmap = (ROOT / "docs" / "CONSOLIDATION_ROADMAP.md").read_text(encoding="utf-8")
     s5 = roadmap.index("## Slice 5")
     s6 = roadmap.index("## Slice 6")
     s7 = roadmap.index("## Slice 7")
+    s8 = roadmap.index("## Slice 8")
     assert "LANDED (Phase 29F)" in roadmap[s5:s6]
-    assert "LANDED" not in roadmap[s6:s7]
-    assert not (ROOT / "api" / "opportunity_cost_engine.py").exists()
+    assert "LANDED (Phase 29G)" in roadmap[s6:s7]
+    assert "LANDED" not in roadmap[s7:s8]
+    # The Slice 6 owners exist; the Slice 7 owner does not.
+    assert (ROOT / "engine" / "holding_opportunity_cost.py").exists()
+    assert (ROOT / "api" / "holding_opportunity_cost.py").exists()
+    assert not (ROOT / "api" / "portfolio_proposal.py").exists()
 
 
 def test_frozen_monthly_status_vocabulary_stable():

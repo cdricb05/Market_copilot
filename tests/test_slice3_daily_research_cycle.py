@@ -147,10 +147,25 @@ class Fakes:
                 "outcome": "NO_ACTION_TODAY", "target_state": "CURRENT_ALIGNED",
                 "headline": "No portfolio change required."}
 
+    def holding_opp(self, *, scoring=None, hoc_dir=None):
+        # Slice 6: hermetic stub of the opportunity-cost engine seam (no I/O), mirroring
+        # how every other write boundary is stubbed in this harness.
+        self.calls["holding_opp"] = self.calls.get("holding_opp", 0) + 1
+        return {"assessment": {"assessment_state": "READY",
+                               "assessment_hash": "hoc_stub_hash",
+                               "eligible_market_date": "2026-08-05",
+                               "holding_reviews": [],
+                               "recommendation_counts": {"HOLD": 0, "REDUCE": 0, "EXIT": 0,
+                                                         "REPLACE": 0, "ADD": 0},
+                               "data_quality": {"data_gaps": []}},
+                "persistence": {"status": "CREATED", "artifact_id": "hoc_stub",
+                                "persisted": True}}
+
     def kw(self):
         return dict(daily_refresh_fn=self.refresh, scoring_fn=self.score,
                     target_loader=self.target, evidence_capture_fn=self.capture,
                     evidence_registry=self.registry, assessment_loader=self.assess,
+                    holding_opp_cost_fn=self.holding_opp,
                     refresh_confirm_token="CONFIRM_ALPHA_TARGET_REFRESH",
                     monthly_emitter_fn=(self.monthly_emit if self.monthly else None))
 
@@ -252,7 +267,7 @@ def test_11_complete_successful_cycle(tmp_path):
     assert r["state"] == drc.COMPLETE
     assert r["completed_steps"] == list(drc.STEP_SEQUENCE)
     assert f.calls == {"refresh": 1, "monthly": 0, "score": 1, "target": 1,
-                       "evidence": 1, "assess": 1}
+                       "evidence": 1, "assess": 1, "holding_opp": 1}
 
 
 def test_12_successful_cycle_with_monthly_source_due(tmp_path):

@@ -57,6 +57,12 @@ from paper_trader.api import paper_trading_desk as desk
 
 PHASE = "27D"
 
+# Slice 6 (Phase 29G): the reassessment proposal is now backed by the canonical
+# Holding Opportunity-Cost review, but remains review-only — the Reallocation Proposal
+# engine (Slice 7) is not implemented, so it is never an approved reallocation.
+PROPOSAL_REVIEW_LABEL = (
+    "HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED")
+
 _EPS = 1e-9
 
 # --------------------------------------------------------------------------- #
@@ -1027,10 +1033,38 @@ def _default_operational_loader(today: Optional[str] = None):
     return ob.load_operational_book(today=today)
 
 
+def _default_opportunity_cost_loader(*, active_book_id: Optional[str] = None,
+                                     eligible_market_date: Optional[str] = None) -> dict:
+    """Slice 6 (Phase 29G): the canonical Holding Opportunity-Cost summary the gate
+    delegates to. Read-only and degrade-safe (available=False when no artifact).
+
+    Performance repair (Phase 29G): the gate supplies the explicit ``active_book_id`` /
+    ``eligible_market_date`` context it already owns, and the summary reads ONLY the
+    immutable artifact for that book+date. It no longer loads ``api.portfolio_state``,
+    which had closed a circular recomposition (portfolio_state → gate → summary →
+    portfolio_state → …). The summary never runs the engine or a live assessment."""
+    from paper_trader.api import holding_opportunity_cost as hoc
+    return hoc.load_assessment_summary(active_book_id=active_book_id,
+                                       eligible_market_date=eligible_market_date)
+
+
+def _default_freshness_loader(operational: Optional[dict] = None) -> dict:
+    """The authoritative eligible-market-date owner (``api.data_freshness``, built on
+    ``engine.market_session``). Passing the already-loaded operational book avoids a
+    second ledger replay. This is the SAME source ``api.portfolio_state`` and the
+    read endpoint use to key the opportunity-cost artifact, so the gate's summary
+    lookup targets the exact book+date the Daily Research Cycle persisted. It composes
+    no gate / portfolio-state / opportunity-cost owner, so it introduces no cycle."""
+    from paper_trader.api import data_freshness as df
+    return df.load_data_freshness(operational=operational)
+
+
 # Injectable seams (mirror the pattern used across the operational modules). Tests
 # swap these to run fully offline; production uses the owned-data engine + book.
 _ENGINE_CURRENT_LOADER = _default_engine_current
 _OPERATIONAL_BOOK_LOADER = _default_operational_loader
+_OPPORTUNITY_COST_LOADER = _default_opportunity_cost_loader
+_FRESHNESS_LOADER = _default_freshness_loader
 
 
 def _holdings_from_operational(cs: dict, ob_book: dict) -> dict:
@@ -1111,9 +1145,15 @@ def _signals_from_recs(current: dict, held: set, size: int) -> tuple[dict, dict,
 
 
 def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dict] = None,
-                           operational: Optional[dict] = None) -> dict:
+                           operational: Optional[dict] = None,
+                           opportunity_cost: Optional[dict] = None) -> dict:
     """Assemble and evaluate the canonical daily action gate. Read-only; degrades to
-    ``DATA_NOT_READY`` (never a stack trace) when the owned model inputs are absent."""
+    ``DATA_NOT_READY`` (never a stack trace) when the owned model inputs are absent.
+
+    Slice 6 (Phase 29G): the gate delegates to the canonical Holding Opportunity-Cost
+    summary (``api.holding_opportunity_cost.load_assessment_summary``) and surfaces its
+    ``opportunity_cost_*`` compatibility fields. The gate itself computes no
+    opportunity cost; when no assessment exists the fields report available=False."""
     warnings: list[str] = []
 
     # 1. The ONE operational book — holdings, review clock, lifecycle, pending orders.
@@ -1194,6 +1234,51 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
         "book_valuation_date": cs.get("valuation_date") or desk_mark_date,
         "next_scheduled_full_review": next_review,
     }
+    # --- Slice 6 (Phase 29G) Holding Opportunity-Cost compatibility summary ------ #
+    # The gate DELEGATES to the canonical opportunity-cost summary (never computes it).
+    # Performance repair (Phase 29G): the gate supplies the explicit (active_book_id,
+    # eligible_market_date) context it already owns so the summary reads ONLY the
+    # immutable artifact for that book+date. The summary no longer loads
+    # api.portfolio_state — that edge had closed a circular recomposition
+    # (portfolio_state → gate → summary → portfolio_state → …). The eligible date comes
+    # from the authoritative api.data_freshness owner (the same source portfolio_state
+    # and the read endpoint use to key the artifact), reusing the operational book the
+    # gate already loaded. data_freshness composes no gate / portfolio-state / HOC owner,
+    # so no cycle is created.
+    if opportunity_cost is not None:
+        oc = opportunity_cost
+    else:
+        oc = {}
+        hoc_active_book_id = ob_book.get("book_id")
+        hoc_eligible_market_date = None
+        try:
+            fresh = _FRESHNESS_LOADER(operational=ops) or {}
+            hoc_eligible_market_date = fresh.get("eligible_market_date")
+        except Exception as exc:  # noqa: BLE001 — degrade to NOT_RUN, never crash the gate
+            warnings.append("Opportunity-cost eligible date unavailable: %s" % str(exc)[:160])
+        try:
+            oc = _OPPORTUNITY_COST_LOADER(active_book_id=hoc_active_book_id,
+                                          eligible_market_date=hoc_eligible_market_date)
+        except Exception as exc:  # noqa: BLE001 — degrade, never crash the gate
+            oc = {}
+            warnings.append("Opportunity-cost summary unavailable: %s" % str(exc)[:160])
+    result["opportunity_cost_available"] = bool(oc.get("opportunity_cost_available"))
+    result["opportunity_cost_assessment_hash"] = oc.get("opportunity_cost_assessment_hash")
+    result["opportunity_cost_state"] = oc.get("opportunity_cost_state")
+    result["opportunity_cost_recommendation_counts"] = (
+        oc.get("opportunity_cost_recommendation_counts") or {})
+    result["opportunity_cost_replacement_count"] = int(
+        oc.get("opportunity_cost_replacement_count") or 0)
+    result["opportunity_cost_exit_count"] = int(oc.get("opportunity_cost_exit_count") or 0)
+    result["opportunity_cost_reduce_count"] = int(oc.get("opportunity_cost_reduce_count") or 0)
+    result["opportunity_cost_hold_count"] = int(oc.get("opportunity_cost_hold_count") or 0)
+    result["opportunity_cost_add_count"] = int(oc.get("opportunity_cost_add_count") or 0)
+    result["opportunity_cost_data_gaps"] = list(oc.get("opportunity_cost_data_gaps") or [])
+    # The proposal is a review-only opportunity-cost review; the Reallocation Proposal
+    # engine (Slice 7) is not implemented, so it is NEVER an approved reallocation.
+    result["proposal_label"] = PROPOSAL_REVIEW_LABEL
+    result["proposal_review_only"] = True
+    result["reallocation_engine_implemented"] = False
     result["warnings"] = warnings
     result.update(_safety())
     return result
@@ -1217,5 +1302,6 @@ __all__ = [
     "MATERIAL_WEIGHT_DRIFT", "MIN_ACTION_TURNOVER", "MAX_INDIVIDUAL_WEIGHT",
     "SECTOR_CAP_FRACTION", "MIN_ADV_DOLLAR",
     "HARD_ELIGIBILITY_CODES", "HARD_RISK_CODES",
+    "PROPOSAL_REVIEW_LABEL",
     "evaluate_daily_action_gate", "load_daily_action_gate",
 ]

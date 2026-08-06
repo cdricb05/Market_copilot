@@ -526,6 +526,65 @@
   Milestone 3) and Slice 8 (Persistent Alpha Research Agent, Milestone 4) are described
   but not begun; cadence remains disabled.
 
+### D-16 — Canonical Holding Opportunity-Cost engine (Slice 6, Milestone 2) — CONFIRMED (LANDED)
+- **Decision:** the Milestone-2 opportunity-cost engine has TWO canonical owners: a
+  pure deterministic calculation kernel `engine/holding_opportunity_cost.py` (the SOLE
+  holding comparison + decision engine, no I/O) and a composition / validation /
+  immutable-artifact / read owner `api/holding_opportunity_cost.py` (the SOLE API
+  owner). The kernel consumes ONE immutable point-in-time assessment-input contract and
+  produces, per holding: current / previous rank + rank change, signal strength +
+  deterioration, trailing returns (5/20/60), realized volatility (20/60), max drawdown
+  (60), covariance risk contribution, concentration, liquidity, the strongest eligible
+  NON-ALLOCATED replacement candidate, switching cost, gross / risk-adjusted / net
+  improvement, and a recommendation from the frozen vocabulary HOLD / REDUCE / EXIT /
+  REPLACE / ADD, plus non-held ADD candidates.
+- **Source-of-truth reuse:** holdings / weights / NAV / cash / sectors →
+  `api.portfolio_state`; rank / score / eligibility / adv_dollar → `api.universe_scoring`;
+  owned trailing close + dollar volume → `api.price_panel` (extended with `dollar_vol`
+  and `trailing_median_dollar_volume`); construction constants (entry rank / exit buffer
+  / sector cap / name cap / liquidity floor) → `api.multi_horizon_engine`; transaction
+  cost → `api.paper_trading_desk.COST_RATE_PER_SIDE`. None is forked; they are injected
+  through one explicit versioned decision policy (`hoc_decision_policy.v1`).
+- **Point-in-time honesty (D-8 upheld):** previous rank has NO pre-existing owner, so it
+  is sourced from the previous eligible date's persisted artifact and reported
+  UNAVAILABLE (with a reason) when none exists; owned volume absent → liquidity
+  UNAVAILABLE (never invented); insufficient aligned returns → risk contribution
+  UNAVAILABLE (never forced); no expected-return forecast is claimed
+  (`expected_return_delta` is always null / UNAVAILABLE — improvement is a SCORE
+  comparison net of a modeled switching-cost hurdle).
+- **Decision policy:** reused constants + genuinely-new, declared, justified,
+  hash-folded, boundary-tested thresholds (participation rate, liquidity day bands,
+  relative single-name risk-contribution trip = `3 / n_covariance_names`, min gross /
+  net improvement, cost-bps → score-hurdle factor). Precedence: EXIT (broken) > REDUCE
+  (concentration / risk breach) > REPLACE (qualified alternative net of cost) > HOLD.
+  Deterministic for identical inputs; `assessment_hash` excludes `generated_at`.
+- **One orchestration path (D-13 / Principle 2):** the sole normal execution path is the
+  Daily Research Cycle — a new `ASSESS_HOLDING_OPPORTUNITY_COST` step runs after
+  canonical universe scoring and before the portfolio-assessment step, persists an
+  immutable artifact under a research / decision-evidence root (`PAPER_TRADER_HOC_DIR`;
+  atomic, indexed, idempotent identical rerun, conflicting artifact rejected,
+  interrupted-write recoverable — never the operational ledger, PostgreSQL, order, fill,
+  holding, cash or NAV), and feeds its summary into the Daily Action Gate. There is
+  deliberately NO separate manual opportunity-cost execution endpoint; the read endpoint
+  `GET /v1/operations/holding-opportunity-cost` is GET-only and never runs the engine.
+- **Daily Action Gate compatibility (Workstream K):** the gate delegates to the
+  opportunity-cost summary (new `opportunity_cost_*` fields) and the review-only banner
+  now reads `HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED`
+  (superseding the Slice-5 `PRELIMINARY PROPOSAL` banner), reflecting that the
+  opportunity-cost review exists while the Reallocation Proposal engine (Slice 7) does
+  not.
+- **Evidence:** the static guard `check_holding_opportunity_cost_ownership` confirms the
+  sole calculation + API owners, full delegation, the GET-only route, no separate manual
+  execution endpoint, no second recommendation engine, no order / fill / target-weight /
+  NAV / universe-score in either owner, kernel purity, ONE UI loader with no
+  recommendation / cost computation, the gate delegation, and that Slice 7 / Slice 8
+  remain future; audit inventory drift = 0. 84 deterministic tests inject every input,
+  so no provider / prediction / real cycle / ledger write occurs.
+- **Consequence:** Charter Milestone 2 is delivered, review-only. Slice 7 (Reallocation
+  Proposal engine, Milestone 3) and Slice 8 (Persistent Alpha Research Agent, Milestone
+  4) remain not begun; automatic model promotion remains prohibited; cadence remains
+  disabled.
+
 ### D-10 — No big-bang rewrite of the monoliths — CONFIRMED
 - **Decision:** `api/app.py` (20.5k) and `api/ui/index.html` (26.7k) are reduced
   incrementally (domain routers, extracted view logic) as owning contexts

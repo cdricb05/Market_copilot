@@ -101,10 +101,12 @@ _CLOSE_COMPLETE_STATUSES = frozenset({
     "DAILY_CLOSE_COMPLETE_HOLD", "REBALANCE_PROPOSAL_READY",
     "PAPER_ORDERS_SUBMITTED", "INITIAL_BASELINE_RECORDED", "ALREADY_PROCESSED"})
 
-# The canonical review-only proposal banner (Workstream F): the preliminary
-# reassessment proposal is NOT an approved reallocation.
+# The canonical review-only proposal banner. Slice 6 (Phase 29G): the reassessment
+# proposal is now backed by the Holding Opportunity-Cost review, but it remains
+# review-only — the Reallocation Proposal engine (Slice 7) is not implemented, so it
+# is NEVER an approved reallocation.
 PRELIMINARY_PROPOSAL_LABEL = (
-    "PRELIMINARY PROPOSAL — OPPORTUNITY-COST ENGINE NOT YET IMPLEMENTED")
+    "HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED")
 
 SAFETY_BADGES = ["READ ONLY", "NO PROVIDER CALL", "NO PREDICTION CALL",
                  "NO ORDERS", "NO FILLS", "AUTOMATION OFF", "MANUAL REVIEW",
@@ -720,12 +722,18 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "proposal_status": ("PRELIMINARY_REVIEW_ONLY_UNAPPROVED" if is_proposal
                             else "NO_PROPOSAL"),
         "preliminary_proposal_label": PRELIMINARY_PROPOSAL_LABEL,
-        "proposal_note": ("The reassessment proposal is preliminary and review-only. "
-                          "It is NOT an approved reallocation: the Holding "
-                          "Opportunity-Cost engine (Slice 6) and the Reallocation "
-                          "Proposal engine (Slice 7) are not implemented yet. Manual "
-                          "review remains mandatory; no paper orders are created."),
+        "proposal_note": ("The reassessment proposal is review-only. It is backed by the "
+                          "Slice 6 Holding Opportunity-Cost review but is NOT an approved "
+                          "reallocation: the Reallocation Proposal engine (Slice 7) is not "
+                          "implemented yet. Manual review remains mandatory; no paper orders "
+                          "are created."),
         "confirmation_allowed": False,
+        # Slice 6 (Phase 29G) opportunity-cost compatibility summary from the gate.
+        "opportunity_cost_available": bool((gate or {}).get("opportunity_cost_available")),
+        "opportunity_cost_assessment_hash": (gate or {}).get("opportunity_cost_assessment_hash"),
+        "opportunity_cost_recommendation_counts": (
+            (gate or {}).get("opportunity_cost_recommendation_counts") or {}),
+        "opportunity_cost_data_gaps": list((gate or {}).get("opportunity_cost_data_gaps") or []),
         "provenance": "api.daily_action_gate.load_daily_action_gate",
     }
 

@@ -404,6 +404,52 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
 - **Rollback:** feature-flag the panel/endpoint off.
 - **Completion gate:** every holding gets a recommendation with evidence.
 - **Principle:** 1, 3. **Milestone:** 2.
+- **Status — LANDED (Phase 29G).** Two canonical owners: the pure deterministic
+  calculation kernel `engine/holding_opportunity_cost.py` (the SOLE holding comparison
+  + decision engine) and the composition/validation/immutable-artifact/read owner
+  `api/holding_opportunity_cost.py` (the SOLE API owner). For every holding the kernel
+  measures — from ONE immutable point-in-time assessment-input contract — current /
+  previous rank + rank change (previous rank honestly UNAVAILABLE when no prior
+  artifact exists; no owner stored prior ranks before this slice), signal strength +
+  deterioration, trailing returns (5/20/60 closes), realized volatility (20/60,
+  annualized), max drawdown (60), covariance risk contribution
+  (`w_i (Σw)_i / portfolio variance` from date-aligned owned daily returns, with an
+  explicit lookback / min-observation / missing-data policy and a variance floor),
+  concentration, liquidity (owned trailing median dollar volume → estimated days to
+  liquidate; UNAVAILABLE when owned volume is absent — never invented), the strongest
+  eligible NON-ALLOCATED replacement candidate, the reused desk switching cost, and
+  gross / risk-adjusted / net improvement (a SCORE comparison — `expected_return_delta`
+  is always null/UNAVAILABLE because no validated forecast model exists), producing a
+  recommendation from the frozen vocabulary **HOLD / REDUCE / EXIT / REPLACE / ADD**
+  plus non-held ADD candidates. It **reuses** (never forks) the
+  `api.multi_horizon_engine` construction constants (entry rank / exit buffer / sector
+  cap / name cap / liquidity floor) and the `api.paper_trading_desk.COST_RATE_PER_SIDE`
+  transaction-cost model, injected through one explicit versioned decision policy
+  (`hoc_decision_policy.v1`) folded into a deterministic `assessment_hash`
+  (`generated_at` excluded). New owned input: `api/price_panel.py` now exposes owned
+  point-in-time trailing dollar volume (`dollar_vol` + `trailing_median_dollar_volume`).
+  New surface: `GET /v1/operations/holding-opportunity-cost` (authenticated, GET-only,
+  read-only, readable in DEGRADED / BLOCKED / NOT_RUN) rendered by ONE UI loader
+  `loadHoldingOpportunityCost()` (single-flight; no JS recommendation / rank / risk /
+  cost / total computation). The **sole normal execution path is the Daily Research
+  Cycle** — a new `ASSESS_HOLDING_OPPORTUNITY_COST` step runs after canonical universe
+  scoring and before the portfolio-assessment step, persists an immutable artifact
+  under a research / decision-evidence root (`PAPER_TRADER_HOC_DIR`; atomic, indexed,
+  idempotent identical rerun, conflicting artifact rejected, interrupted-write
+  recoverable — never the operational ledger), and feeds its summary into the Daily
+  Action Gate; there is deliberately NO separate manual execution endpoint. The Daily
+  Action Gate now delegates to the opportunity-cost summary (new `opportunity_cost_*`
+  fields) and the review-only banner reads **HOLDING OPPORTUNITY-COST REVIEW —
+  REALLOCATION ENGINE NOT YET IMPLEMENTED**. Static guard
+  `check_holding_opportunity_cost_ownership` enforces the sole calculation + API
+  owners, delegation, the GET-only route, no separate manual execution endpoint, no
+  second recommendation engine, no order / fill / target-weight / NAV / universe-score
+  in either owner, one UI loader with no computation, the gate delegation, and that
+  Slice 7 / Slice 8 remain future; inventory drift = 0. Review-only, preview-first,
+  paper-only: confirms no target, creates no order / fill, changes no holding / cash /
+  NAV, promotes no model, enables no cadence. **Not begun:** Slice 7 (Reallocation
+  Proposal engine, Milestone 3), Slice 8 (Persistent Alpha Research Agent,
+  Milestone 4); cadence remains disabled.
 
 ## Slice 7 — Portfolio reallocation proposal engine
 

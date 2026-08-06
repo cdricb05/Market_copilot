@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "bd1f6ae",
+    "head": "315f628",
     "branch": "main",
-    "phase": "29F"
+    "phase": "29G"
   },
   "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete.",
   "systems": {
@@ -263,6 +263,11 @@
     {
       "prefix": "/v1/operations/portfolio-state",
       "owner": "api/portfolio_state.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/holding-opportunity-cost",
+      "owner": "api/holding_opportunity_cost.py",
       "system": "infrastructure"
     },
     {
@@ -612,6 +617,60 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "The ONE authoritative read model of the operational portfolio state (Consolidation Roadmap Slice 5). Resolves the portfolio_nav_valuation CONFLICT at the read layer: the LIVE NAV authority is paper_trading_desk.book_nav (ledger replay, via operational_book) and portfolio_valuation.py is the explicitly-scoped legacy DB archive that is never selected as the active book. Owns the frozen portfolio-state vocabulary (PORTFOLIO_STATE_READY / PORTFOLIO_STATE_DEGRADED / PORTFOLIO_STATE_INCONSISTENT / NO_ACTIVE_BOOK / PORTFOLIO_STATE_UNAVAILABLE) and the consistency vocabulary (CONSISTENT/DEGRADED/INCONSISTENT/UNAVAILABLE) with 12 read-only cross-source checks; never silently repairs. Exposes state_hash + source_hashes (generated_at excluded). The preliminary reassessment proposal it references is review-only and unapproved (Holding Opportunity-Cost engine Slice 6 and Reallocation Proposal engine Slice 7 not implemented). One UI loader (loadPortfolioState) owns the valuation nodes; the UI computes no NAV/totals/active-book selection/valuation date/pending count. Read-only: no provider/prediction call, no Daily Close, no research refresh, no reassessment, no write."
+    },
+    {
+      "path": "engine/holding_opportunity_cost.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 6 (Phase 29G) CANONICAL Holding Opportunity-Cost calculation kernel (Milestone 2): the ONE pure, deterministic per-holding comparison + decision engine. From one immutable assessment-input contract it computes, per holding, current/previous rank + rank change (previous rank honestly UNAVAILABLE when no prior snapshot), signal strength + deterioration, trailing returns (5/20/60), realized volatility (20/60), max drawdown (60), covariance risk contribution, concentration, liquidity (median dollar volume -> days-to-liquidate), the strongest eligible NON-ALLOCATED replacement candidate, switching cost, gross/risk-adjusted/net improvement (a SCORE comparison, never a forecasted dollar return), and a recommendation from the frozen vocabulary HOLD/REDUCE/EXIT/REPLACE/ADD, plus non-held ADD candidates. No I/O; never mutates inputs; review-only.",
+      "classification": "KEEP",
+      "target_owner": "engine/holding_opportunity_cost.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "pure kernel: consumes only the immutable input_contract dict supplied by api.holding_opportunity_cost (no file/db/network/provider/prediction access)"
+      ],
+      "direct_writes": [
+        "read-only (pure function; no file/ledger/db/order/fill/NAV/target write)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_slice6_holding_opportunity_cost.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Charter Milestone 2 (Consolidation Roadmap Slice 6). The SOLE holding-recommendation calculation owner; reuses (never forks) the api.multi_horizon_engine construction constants (entry rank / exit buffer / sector cap / name cap / liquidity floor) and the api.paper_trading_desk transaction-cost constant, injected via the versioned decision policy. Deterministic assessment_hash (generated_at excluded). Produces no target weights, no NAV, no universe score, no order/fill. Review-only; the Reallocation Proposal engine (Slice 7) is not implemented."
+    },
+    {
+      "path": "api/holding_opportunity_cost.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 6 (Phase 29G) CANONICAL Holding Opportunity-Cost composition / validation / immutable-artifact / read owner (Milestone 2). Sources the immutable point-in-time assessment-input contract from the authoritative owners (portfolio_state holdings/NAV/cash/sectors; universe_scoring rank/score/eligibility/adv_dollar; price_panel owned trailing close + dollar volume; market_session previous eligible session; the previous eligible date's persisted artifact for prior-session rank), runs the pure engine.holding_opportunity_cost kernel, persists a completed production assessment as an immutable artifact (atomic write, index/manifest, idempotent identical rerun, conflicting artifact rejected, interrupted write recoverable) under a dedicated research/decision-evidence root (PAPER_TRADER_HOC_DIR), and exposes the read contract + a lightweight Daily Action Gate summary. Never writes an operational ledger / PostgreSQL / order / fill / holding / cash / NAV.",
+      "classification": "KEEP",
+      "target_owner": "api/holding_opportunity_cost.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "portfolio_state.load_portfolio_state (active book / positions / weights / NAV / cash / sectors / dates / state_hash)",
+        "universe_scoring.build_universe_scoring (rankings / scores / eligibility / adv_dollar / output_hash)",
+        "price_panel.load_price_panel + asof_index + trailing_median_dollar_volume (owned PIT trailing close + dollar volume)",
+        "multi_horizon_engine constants (entry/exit/sector/name/liquidity — reused, not forked)",
+        "paper_trading_desk.COST_RATE_PER_SIDE / COST_BPS_PER_SIDE (transaction-cost model — reused)",
+        "market_session.previous_trading_day (previous eligible session anchor)",
+        "the previous eligible date's persisted opportunity-cost artifact (prior-session rank snapshot)"
+      ],
+      "direct_writes": [
+        "immutable holding-opportunity-cost artifacts + index under PAPER_TRADER_HOC_DIR (a research / decision-evidence root, atomic; NOT the operational ledger root). No PostgreSQL / order / fill / holding / cash / NAV write."
+      ],
+      "endpoints": [
+        "/v1/operations/holding-opportunity-cost"
+      ],
+      "ui_consumers": [
+        "loadHoldingOpportunityCost"
+      ],
+      "tests": [
+        "tests/test_slice6_holding_opportunity_cost.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Charter Milestone 2 (Consolidation Roadmap Slice 6). The SOLE composition/read/persistence owner over the pure engine.holding_opportunity_cost kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run); there is deliberately NO separate manual opportunity-cost execution endpoint (the read endpoint is GET-only). The Daily Action Gate delegates to load_assessment_summary for its opportunity_cost_* compatibility fields; the review-only proposal banner reads HOLDING OPPORTUNITY-COST REVIEW - REALLOCATION ENGINE NOT YET IMPLEMENTED. Preview-first, paper-only, review-only: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. The Reallocation Proposal engine (Slice 7) and the Persistent Alpha Research Agent (Slice 8 / Milestone 4) are not implemented."
     },
     {
       "path": "api/daily_research_cycle.py",

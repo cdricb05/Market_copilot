@@ -117,12 +117,13 @@ STEP_VALIDATE_ALIGNMENT = "VALIDATE_INPUT_ALIGNMENT"
 STEP_SCORE_UNIVERSE = "SCORE_UNIVERSE"
 STEP_PREPARE_TARGET = "PREPARE_TARGET"
 STEP_CAPTURE_EVIDENCE = "CAPTURE_FORWARD_EVIDENCE"
+STEP_HOLDING_OPP_COST = "ASSESS_HOLDING_OPPORTUNITY_COST"
 STEP_RUN_ASSESSMENT = "RUN_PORTFOLIO_ASSESSMENT"
 
 STEP_SEQUENCE = (
     STEP_RESOLVE_SESSION, STEP_VALIDATE_CONSISTENCY, STEP_PLAN, STEP_REFRESH_INPUTS,
     STEP_VALIDATE_ALIGNMENT, STEP_SCORE_UNIVERSE, STEP_PREPARE_TARGET,
-    STEP_CAPTURE_EVIDENCE, STEP_RUN_ASSESSMENT,
+    STEP_CAPTURE_EVIDENCE, STEP_HOLDING_OPP_COST, STEP_RUN_ASSESSMENT,
 )
 
 # Frozen step-status vocabulary.
@@ -640,6 +641,21 @@ def _default_assessment_loader(*, today):
     return dag.load_daily_action_gate(today=today)
 
 
+def _default_holding_opp_cost_fn(*, scoring=None, hoc_dir=None):
+    """The canonical Holding Opportunity-Cost engine (Slice 6, Milestone 2).
+
+    Delegates to ``api.holding_opportunity_cost.run_and_persist`` — the sole
+    composition/persistence owner — which sources the immutable input contract from
+    ``portfolio_state`` / ``universe_scoring`` / ``price_panel``, runs the pure
+    ``engine.holding_opportunity_cost`` kernel and persists the immutable artifact.
+    The DRC never computes the opportunity cost itself. ``scoring`` (the canonical
+    universe-scoring contract the cycle already built) is reused so the engine does not
+    re-score; ``hoc_dir`` isolates the artifact root for a sandboxed run.
+    """
+    from paper_trader.api import holding_opportunity_cost as hoc
+    return hoc.run_and_persist(scoring=scoring, hoc_dir=hoc_dir)
+
+
 def _default_refresh_confirm_token() -> str:
     from paper_trader.api import alpha_target as at
     return at.REFRESH_CONFIRM_TOKEN
@@ -823,7 +839,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
               resumed: bool = False, warnings: Optional[list] = None,
               blockers: Optional[list] = None, required_actions: Optional[list] = None,
               started_at: Optional[str] = None, completed_at: Optional[str] = None,
-              monthly_owner: Optional[dict] = None,
+              monthly_owner: Optional[dict] = None, holding_opp_cost: Optional[dict] = None,
               performed_write: bool = False, executable: bool = False) -> dict:
     step_results = step_results or []
     done_ids = [s["step_id"] for s in step_results
@@ -838,6 +854,8 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
     tg = target or {}
     asmt = assessment or {}
     aln = alignment or {}
+    hoc = holding_opp_cost or {}
+    hoc_available = bool(hoc.get("available"))
     return {
         "status": "OK",
         "phase": PHASE,
@@ -894,10 +912,25 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "assessment_status": asmt.get("assessment_status"),
         "assessment_result": asmt.get("assessment_result"),
         "assessment": assessment,
+        # --- Slice 6 (Phase 29G) Holding Opportunity-Cost engine (Milestone 2) ---- #
+        "opportunity_cost_owner": "api.holding_opportunity_cost",
+        "opportunity_cost_state": hoc.get("state"),
+        "opportunity_cost_required": True,
+        "opportunity_cost_selected": hoc_available,
+        "opportunity_cost_artifact_id": hoc.get("artifact_id"),
+        "opportunity_cost_assessment_hash": hoc.get("assessment_hash"),
+        "opportunity_cost_holding_count": hoc.get("holding_count"),
+        "opportunity_cost_recommendation_counts": hoc.get("recommendation_counts"),
+        "opportunity_cost_data_gaps": hoc.get("data_gaps"),
+        "opportunity_cost_last_error": hoc.get("last_error"),
+        "holding_opportunity_cost": holding_opp_cost,
         "milestone2_limitation": (
-            "This is a compatibility bridge to the existing Daily Action Gate for the "
-            "eligible session; it is NOT the Milestone-2 Holding Opportunity-Cost "
-            "engine (no replacement-candidate / switching-cost analysis is performed)."),
+            "The Milestone-2 Holding Opportunity-Cost engine (Slice 6) is implemented and "
+            "runs inside this cycle (per-holding rank / deterioration / performance / risk "
+            "/ liquidity / replacement-candidate / switching-cost / net-improvement review, "
+            "recommendation HOLD/REDUCE/EXIT/REPLACE/ADD). It remains review-only: no target "
+            "is confirmed and no order is created. The Reallocation Proposal engine (Slice 7) "
+            "is NOT implemented, so no recommendation is an approved reallocation."),
         "warnings": list(warnings or []),
         "blockers": list(blockers or []),
         "required_actions": list(required_actions or []),
@@ -916,7 +949,10 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
                 "over multi_horizon_engine.build_current — Slice 4)",
                 "alpha_target.load_readiness (operational target — never auto-confirmed)",
                 "forward_prediction_skill.capture_for_daily_close (immutable evidence)",
-                "daily_action_gate.load_daily_action_gate (assessment bridge)",
+                "holding_opportunity_cost.run_and_persist (Slice 6 Milestone 2 "
+                "opportunity-cost engine over engine.holding_opportunity_cost; review-only)",
+                "daily_action_gate.load_daily_action_gate (assessment bridge — consumes the "
+                "opportunity-cost summary)",
             ],
             "note": "Read-only status planning; execution invokes the existing owners "
                     "through adapters and NEVER runs the operational Daily Close, "
@@ -1020,6 +1056,33 @@ def _extract_assessment(gate: Optional[dict], eligible: Optional[str]) -> dict:
             and _coerce_date(g.get("latest_completed_market_date")) == _coerce_date(eligible)),
         "output_hash": _hash({"date": g.get("latest_completed_market_date"),
                               "outcome": g.get("outcome")}),
+    }
+
+
+def _extract_holding_opp_cost(built: Optional[dict], eligible: Optional[str]) -> dict:
+    """Normalize the Holding Opportunity-Cost engine output (Slice 6) for the DRC
+    contract. ``built`` is the ``api.holding_opportunity_cost.run_and_persist`` result
+    ``{"assessment": <kernel result>, "persistence": {...}}``. Purely descriptive —
+    the DRC computes no opportunity cost."""
+    b = built or {}
+    assessment = b.get("assessment") or {}
+    persistence = b.get("persistence") or {}
+    state = assessment.get("assessment_state")
+    counts = assessment.get("recommendation_counts") or {}
+    gaps = (assessment.get("data_quality") or {}).get("data_gaps") or []
+    available = bool(assessment) and state in ("READY", "DEGRADED")
+    return {
+        "available": available,
+        "owner": "api.holding_opportunity_cost",
+        "calculation_owner": "engine.holding_opportunity_cost",
+        "state": state,
+        "eligible_market_date": assessment.get("eligible_market_date") or eligible,
+        "assessment_hash": assessment.get("assessment_hash"),
+        "artifact_id": persistence.get("artifact_id"),
+        "persistence_status": persistence.get("status"),
+        "holding_count": len(assessment.get("holding_reviews") or []),
+        "recommendation_counts": counts,
+        "data_gaps": list(gaps),
     }
 
 
@@ -1173,6 +1236,7 @@ def run_daily_research_cycle(
     evidence_capture_fn: Optional[Callable] = None,
     evidence_registry: Optional[list] = None,
     assessment_loader: Optional[Callable] = None,
+    holding_opp_cost_fn: Optional[Callable] = None,
     refresh_confirm_token: Optional[str] = None,
     operational: Optional[dict] = None, inputs: Optional[dict] = None,
     daily_status: Optional[dict] = None, desk_marks: Optional[dict] = None,
@@ -1206,7 +1270,8 @@ def run_daily_research_cycle(
             daily_refresh_fn=daily_refresh_fn, monthly_emitter_fn=monthly_emitter_fn,
             scoring_fn=scoring_fn, target_loader=target_loader,
             evidence_capture_fn=evidence_capture_fn, evidence_registry=evidence_registry,
-            assessment_loader=assessment_loader, refresh_confirm_token=refresh_confirm_token,
+            assessment_loader=assessment_loader, holding_opp_cost_fn=holding_opp_cost_fn,
+            refresh_confirm_token=refresh_confirm_token,
             operational=operational, inputs=inputs, daily_status=daily_status,
             desk_marks=desk_marks, close_progress=close_progress,
             forward_status=forward_status, date_overrides=date_overrides,
@@ -1218,7 +1283,8 @@ def run_daily_research_cycle(
 def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                 downloader, freshness, freshness_loader, daily_refresh_fn,
                 monthly_emitter_fn, scoring_fn, target_loader, evidence_capture_fn,
-                evidence_registry, assessment_loader, refresh_confirm_token,
+                evidence_registry, assessment_loader, holding_opp_cost_fn,
+                refresh_confirm_token,
                 operational, inputs, daily_status, desk_marks, close_progress,
                 forward_status, date_overrides, active_book_override) -> dict:
     warnings: list[str] = []
@@ -1505,12 +1571,14 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
             reason="Date-alignment gate passed: %s." % alignment["status"]))
 
         # STEP: score the full eligible universe (existing engine adapter).
+        raw_scoring = None   # the RAW canonical universe-scoring contract (for the hoc engine)
         if _reuse_or(STEP_SCORE_UNIVERSE) and prior.get("scoring"):
             scoring = prior["scoring"]
             step_results.append(prior_steps[STEP_SCORE_UNIVERSE])
         else:
             built = _safe(scoring_fn or _default_scoring_fn, warnings,
                           "Universe scoring")
+            raw_scoring = built
             scoring = _extract_scoring(built or {})
             if not scoring.get("available"):
                 step_results.append(_step(STEP_SCORE_UNIVERSE, S_FAILED,
@@ -1576,7 +1644,54 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                        % (evidence.get("captured_snapshot_count"),
                           evidence.get("required_snapshot_count"))))
 
+        # STEP: Holding Opportunity-Cost engine (Slice 6 / Milestone 2) — after
+        # canonical scoring and before the portfolio-assessment completion step. It
+        # reuses the canonical scoring the cycle already built, sources holdings + owned
+        # prices, runs the pure kernel and persists an immutable artifact under an
+        # isolated research root; review-only (never confirms a target / creates an order).
+        if _reuse_or(STEP_HOLDING_OPP_COST) and prior.get("holding_opportunity_cost"):
+            holding_opp = prior["holding_opportunity_cost"]
+            step_results.append(prior_steps[STEP_HOLDING_OPP_COST])
+        else:
+            # Artifacts are isolated under the run's research root when a drc_dir override
+            # is supplied (sandboxed runs); production (drc_dir is None) uses the canonical
+            # PAPER_TRADER_HOC_DIR owned by api.holding_opportunity_cost.
+            hoc_subdir = str(Path(drc_dir) / "holding_opportunity_cost") if drc_dir else None
+            # Run the engine when an explicit seam is injected, this is a production run
+            # (no drc_dir override), or the canonical universe contract is available. A
+            # sandboxed run with a non-canonical scoring skips hermetically (no live
+            # sourcing / no write).
+            run_engine = (holding_opp_cost_fn is not None or drc_dir is None
+                          or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
+            if run_engine:
+                hoc_fn = holding_opp_cost_fn or _default_holding_opp_cost_fn
+                hoc_built = _safe(lambda: hoc_fn(scoring=raw_scoring, hoc_dir=hoc_subdir),
+                                  warnings, "Holding Opportunity-Cost engine")
+                holding_opp = _extract_holding_opp_cost(hoc_built, facts["eligible"])
+                step_results.append(_step(STEP_HOLDING_OPP_COST,
+                    S_OK if holding_opp.get("available") else S_FAILED,
+                    owner="api.holding_opportunity_cost.run_and_persist",
+                    as_of_date=holding_opp.get("eligible_market_date"),
+                    output_hash=holding_opp.get("assessment_hash"),
+                    reason=("Per-holding opportunity-cost review produced (%s holdings; %s); "
+                            "review-only, no target confirmed and no order created."
+                            % (holding_opp.get("holding_count"),
+                               holding_opp.get("recommendation_counts")))))
+                if not holding_opp.get("available"):
+                    warnings.append("The Holding Opportunity-Cost engine did not complete; "
+                                    "the research outputs remain valid and reassessment is "
+                                    "required.")
+            else:
+                holding_opp = {"available": False, "owner": "api.holding_opportunity_cost",
+                               "state": "SKIPPED", "recommendation_counts": {},
+                               "data_gaps": [], "holding_count": 0}
+                step_results.append(_step(STEP_HOLDING_OPP_COST, S_SKIPPED,
+                    owner="api.holding_opportunity_cost",
+                    reason="Canonical universe scoring not available in this sandboxed run; "
+                           "Holding Opportunity-Cost engine skipped (no sourcing / no write)."))
+
         # STEP: portfolio-assessment bridge (Daily Action Gate for the eligible session).
+        # It consumes the just-persisted opportunity-cost summary for its compatibility fields.
         asmt_fn = assessment_loader or _default_assessment_loader
         gate = _safe(lambda: asmt_fn(today=facts["eligible"]), warnings,
                      "Portfolio-assessment bridge")
@@ -1602,7 +1717,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         _clear_lock(drc_dir)
         return _persist(final, alignment=alignment, scoring=scoring, target=target,
                         evidence=evidence, assessment=assessment,
-                        completed_at=_now_iso())
+                        holding_opp_cost=holding_opp, completed_at=_now_iso())
     except Exception as exc:  # noqa: BLE001
         warnings.append("Daily Research Cycle failed: %s" % str(exc)[:200])
         step_results.append(_step("UNCAUGHT", S_FAILED, error_code="UNCAUGHT_EXCEPTION",

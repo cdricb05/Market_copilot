@@ -202,6 +202,7 @@ from paper_trader.api.data_freshness import load_data_freshness
 from paper_trader.api.workflow_state import load_workflow_state
 from paper_trader.api import daily_research_cycle as _drc
 from paper_trader.api import portfolio_state as _pstate
+from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6300,6 +6301,39 @@ def operations_portfolio_state() -> dict:
     (Slice 7) are not implemented yet.
     """
     return _pstate.load_portfolio_state()
+
+
+@app.get(
+    "/v1/operations/holding-opportunity-cost",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_holding_opportunity_cost() -> dict:
+    """Slice 6 (Phase 29G) canonical Holding Opportunity-Cost review (Milestone 2).
+
+    The ONE authoritative read model of the per-holding opportunity-cost assessment
+    for the active Alpha Paper Book and current eligible session: for every holding it
+    reports current / previous rank + rank change, signal strength + deterioration,
+    trailing performance (5 / 20 / 60 closes), realized volatility (20 / 60),
+    drawdown, covariance risk contribution, concentration, liquidity, the strongest
+    eligible NON-ALLOCATED replacement candidate, the reused desk switching cost, the
+    gross / risk-adjusted / net expected improvement, and a recommendation from the
+    frozen vocabulary HOLD / REDUCE / EXIT / REPLACE / ADD, plus non-held ADD
+    candidates. Built by ``api.holding_opportunity_cost`` from the canonical owners
+    (``api.portfolio_state`` holdings/NAV, ``api.universe_scoring`` ranks/scores,
+    ``api.price_panel`` owned trailing price/volume) and computed by the pure
+    ``engine.holding_opportunity_cost`` kernel; it reuses the ``api.multi_horizon_engine``
+    construction constants and the ``api.paper_trading_desk`` transaction-cost model.
+
+    STRICTLY READ-ONLY: it never runs the engine (the sole execution path is the
+    Daily Research Cycle, ``POST /v1/operations/daily-research-cycle/run``), returns
+    the latest immutable persisted assessment, and confirms no target, creates no
+    order plan, creates no order/fill, and changes no holding/cash/NAV. The endpoint
+    remains readable (HTTP 200) in DEGRADED / BLOCKED / NOT_RUN states. This is a
+    review-only, preview-first, paper-only surface; the Reallocation Proposal engine
+    (Slice 7) is not implemented, so no recommendation is an approved reallocation.
+    """
+    return _hoc.load_holding_opportunity_cost()
 
 
 @app.get(

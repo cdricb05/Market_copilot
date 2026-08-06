@@ -60,6 +60,7 @@ C_TICKER = "ticker"
 C_ADJ = "adjusted_close"
 C_BENCH = "benchmark_close"
 C_VOL = "volume"
+C_DOLLAR_VOL = "dollar_volume"
 
 # --- stable feature vocabulary (every key this module can emit) ----------------------------
 FEATURE_KEYS = [
@@ -120,9 +121,11 @@ def _resolve(path: Optional[Union[str, Path]]) -> Path:
 def load_price_panel(path: Optional[Union[str, Path]] = None) -> Optional[dict]:
     """Load the owned daily price CSV into per-ticker ascending-sorted arrays.
 
-    Returns a dict ``{"series": {ticker: {dates, adj, bench, ret}}, "manifest": {...}}`` or None if
-    the file is unreadable / empty. ``ret[t]`` is the 1-day simple return adj[t]/adj[t-1]-1 (ret[0]
-    is None). ``bench[t]`` is the SPY close aligned to that ticker's bar t (from ``benchmark_close``).
+    Returns a dict ``{"series": {ticker: {dates, adj, bench, ret, bret, dollar_vol}}, "manifest":
+    {...}}`` or None if the file is unreadable / empty. ``ret[t]`` is the 1-day simple return
+    adj[t]/adj[t-1]-1 (ret[0] is None). ``bench[t]`` is the SPY close aligned to that ticker's bar t
+    (from ``benchmark_close``). ``dollar_vol[t]`` is the owned point-in-time daily dollar volume for
+    bar t (from the ``dollar_volume`` column, else ``volume`` * adjusted close, else None).
     Rows with a non-positive / missing adjusted close are dropped. Dates are ISO strings that sort
     chronologically, so bisection on them is a valid PIT "as-of" lookup.
     """
@@ -130,7 +133,7 @@ def load_price_panel(path: Optional[Union[str, Path]] = None) -> Optional[dict]:
     try:
         with open(p, "r", encoding="utf-8", newline="") as fh:
             reader = csv.DictReader(fh)
-            raw: dict[str, list[tuple[str, float, Optional[float]]]] = {}
+            raw: dict[str, list[tuple[str, float, Optional[float], Optional[float]]]] = {}
             for r in reader:
                 tk = (r.get(C_TICKER) or "").strip().upper()
                 d = (r.get(C_DATE) or "").strip()
@@ -138,7 +141,15 @@ def load_price_panel(path: Optional[Union[str, Path]] = None) -> Optional[dict]:
                 if not tk or len(d) < 10 or adj is None or adj <= 0:
                     continue
                 bench = _to_float(r.get(C_BENCH))
-                raw.setdefault(tk, []).append((d, adj, bench))
+                # Owned point-in-time daily dollar volume (Phase 29G Slice 6 liquidity
+                # input): prefer the precomputed ``dollar_volume`` column; otherwise
+                # derive it from raw ``volume`` * adjusted close. None when unavailable
+                # (liquidity is reported UNAVAILABLE downstream, never invented).
+                dvol = _to_float(r.get(C_DOLLAR_VOL))
+                if dvol is None:
+                    vol = _to_float(r.get(C_VOL))
+                    dvol = (vol * adj) if vol is not None else None
+                raw.setdefault(tk, []).append((d, adj, bench, dvol))
     except OSError:
         return None
     if not raw:
@@ -154,14 +165,17 @@ def load_price_panel(path: Optional[Union[str, Path]] = None) -> Optional[dict]:
         dates: list[str] = []
         adj: list[float] = []
         bench: list[Optional[float]] = []
-        for d, a, b in rows:
+        dvol: list[Optional[float]] = []
+        for d, a, b, dv in rows:
             if dates and dates[-1] == d:
                 adj[-1] = a
                 bench[-1] = b
+                dvol[-1] = dv
             else:
                 dates.append(d)
                 adj.append(a)
                 bench.append(b)
+                dvol.append(dv)
         ret: list[Optional[float]] = [None]
         bret: list[Optional[float]] = [None]
         for t in range(1, len(adj)):
@@ -169,7 +183,8 @@ def load_price_panel(path: Optional[Union[str, Path]] = None) -> Optional[dict]:
             ret.append((adj[t] / prev - 1.0) if prev > 0 else None)
             pb, cb = bench[t - 1], bench[t]
             bret.append((cb / pb - 1.0) if (pb not in (None, 0) and cb is not None) else None)
-        series[tk] = {"dates": dates, "adj": adj, "bench": bench, "ret": ret, "bret": bret}
+        series[tk] = {"dates": dates, "adj": adj, "bench": bench, "ret": ret,
+                      "bret": bret, "dollar_vol": dvol}
         if dates:
             all_dates.update((dates[0], dates[-1]))
             if min_d is None or dates[0] < min_d:
@@ -189,6 +204,8 @@ def load_price_panel(path: Optional[Union[str, Path]] = None) -> Optional[dict]:
         "median_bars_per_ticker": sorted(n_bars.values())[len(n_bars) // 2] if n_bars else 0,
         "duplicate_dates_handling": "collapsed to the last bar for a repeated (ticker, date)",
         "missing_price_handling": "rows with non-positive / missing adjusted_close dropped",
+        "dollar_volume_source": ("owned ``dollar_volume`` column (else volume*adjusted_close); "
+                                 "None when unavailable -> liquidity reported UNAVAILABLE, never invented"),
         "survivorship_caveat": ("current-membership names only; delisted names absent -> momentum / "
                                 "low-vol backtests modestly optimistic"),
         "pit_guarantee": ("features at date T use only bars with date<=T; forward returns use only "
@@ -205,6 +222,34 @@ def load_price_panel(path: Optional[Union[str, Path]] = None) -> Optional[dict]:
 def asof_index(dates: list[str], as_of: str) -> int:
     """Return the index of the latest bar with date <= ``as_of`` (or -1 if none). PIT-safe."""
     return bisect.bisect_right(dates, as_of) - 1
+
+
+def trailing_median_dollar_volume(series: dict, j: int, k: int) -> Optional[float]:
+    """Median owned daily dollar volume over the last ``k`` bars ending at bar ``j``.
+
+    Point-in-time: uses only ``dollar_vol[j-k+1 .. j]``. Returns None when the panel
+    carries no owned dollar-volume for the window (fewer than ``max(1, k//2)`` valid
+    bars) so liquidity is reported UNAVAILABLE downstream rather than invented. This is
+    the canonical owned trailing dollar-volume read for the Phase 29G Slice 6 liquidity
+    measure; no volume is fabricated here.
+    """
+    if j < 0:
+        return None
+    dv = series.get("dollar_vol") or []
+    lo = max(0, j - k + 1)
+    seg = [v for v in dv[lo: j + 1] if v is not None and v >= 0]
+    if len(seg) < max(1, k // 2):
+        return None
+    return _median(seg)
+
+
+def _median(xs: list[float]) -> Optional[float]:
+    n = len(xs)
+    if n == 0:
+        return None
+    s = sorted(xs)
+    mid = n // 2
+    return s[mid] if n % 2 == 1 else 0.5 * (s[mid - 1] + s[mid])
 
 
 # --------------------------------------------------------------------------- #

@@ -296,7 +296,9 @@ def test_18_assessment_reference_review_only():
     assert a["proposed_change_count"] == 17
     assert a["is_preliminary_proposal"] is True
     assert a["confirmation_allowed"] is False
-    assert "OPPORTUNITY-COST ENGINE NOT YET IMPLEMENTED" in a["preliminary_proposal_label"]
+    # Slice 6 (Phase 29G) relabelled the review-only banner now that the Holding
+    # Opportunity-Cost engine exists; the Reallocation engine (Slice 7) still does not.
+    assert "REALLOCATION ENGINE NOT YET IMPLEMENTED" in a["preliminary_proposal_label"]
 
 
 def test_19_evidence_reference():

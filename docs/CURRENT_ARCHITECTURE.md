@@ -275,6 +275,7 @@ the two-worlds operations split (§8).
 | Cross-source data freshness | `api/data_freshness` (**Slice 1, LANDED**) | One read-only owner classifies every input under its declared cadence and composes the market session; served at `GET /v1/operations/data-freshness`, rendered by the single UI `loadDataFreshness()` | **OK** |
 | Universe scoring / rankings | `api/universe_scoring` (**Slice 4, LANDED**) over the `multi_horizon_engine` kernel | Canonical composition & read owner: calls the pure kernel once, deep-copies the cache, and normalises it into ONE frozen contract (identity + content-level `input_contract_hash` + reconciled counts + deterministic ranking + TOP25/TOP50 + exclusions + universe identity + consistency validator) at `GET /v1/research/universe-scoring`; `current-alpha-scores` is a compat wrapper; the DRC and identity re-exports (`alpha_target`, `forward_prediction_skill`) consume it. No operational module duplicates the kernel's combined-score math. `engine/scoring.py` remains the legacy DB screener lineage (retires with Slice 11) | **RESOLVING (Slice 4)** |
 | Target portfolio | `alpha_target` → desk snapshot | Two "book" concepts: operational confirmed snapshot vs frozen champion book (`current_alpha_book`); top-N-sector-cap algorithm duplicated (`multi_horizon_engine:476` vs `multi_horizon_history:117`) | **PARTIAL** |
+| Holding opportunity cost / recommendation | `engine/holding_opportunity_cost` (kernel) + `api/holding_opportunity_cost` (composition/read) (**Slice 6, LANDED**) | The SOLE per-holding comparison + decision engine (HOLD/REDUCE/EXIT/REPLACE/ADD) over an immutable PIT input contract; reuses `multi_horizon_engine` constants + `paper_trading_desk` cost model, sources owned trailing price/volume from `price_panel`, sources prior rank from the previous eligible artifact (UNAVAILABLE otherwise). Runs inside the Daily Research Cycle; persists immutable artifacts under `PAPER_TRADER_HOC_DIR`; read at `GET /v1/operations/holding-opportunity-cost` (one UI loader, no JS computation); the Daily Action Gate delegates to its summary. Review-only; no target/order/fill/NAV write | **OK** |
 | Workflow / gate state | `api/workflow_state` (**Slice 2, LANDED**) | Canonical combined-interpretation owner composes the domain facts; the specialized owners (`daily_action_gate.evaluate_daily_action_gate`, `daily_close`, `operational_book.derive_lifecycle_view`) keep their domain facts; the 4 legacy stage vocabularies (`app.py:_build_workflow_state` + `_canonical_daily_stage`, `command_center._derive_stage`, `daily_workflow_dashboard`) remain until Slice-11 quarantine | **RESOLVING (Slice 2)** |
 | Forward evidence | `forward_prediction_skill` + `forward_evidence` | Coherent; ACTIVE vs SHADOW never mixed; gaps documented, never fabricated | **OK** |
 | DB session | `db/session.py` | Single-source, clean | **OK** |
@@ -643,3 +644,55 @@ flowchart LR
   provider / prediction call, no Daily Close, no research refresh, no reassessment, no
   write, no order/fill. Slice 6 (Holding Opportunity-Cost engine) remains next; cadence
   remains disabled.
+
+### Canonical Holding Opportunity-Cost engine (Slice 6, LANDED — Phase 29G, Milestone 2)
+
+- **Owners:** the pure deterministic calculation kernel
+  `engine/holding_opportunity_cost.py` (`build_assessment`, no I/O) is the SOLE holding
+  comparison + decision engine; `api/holding_opportunity_cost.py`
+  (`load_holding_opportunity_cost` / `run_and_persist` / `persist_assessment`) is the
+  SOLE composition / validation / immutable-artifact / read owner.
+- **Input contract (PIT):** ONE immutable assessment-input contract sourced as of the
+  portfolio-state eligible market date from `api.portfolio_state` (holdings / weights /
+  NAV / cash / sectors / `state_hash`), `api.universe_scoring` (rank / score /
+  eligibility / adv_dollar / `output_hash`), `api.price_panel` (owned trailing close +
+  `dollar_vol` + `trailing_median_dollar_volume`), `engine.market_session`
+  (`previous_trading_day`) and the previous eligible date's persisted artifact (prior
+  rank). It reuses the `api.multi_horizon_engine` construction constants and
+  `api.paper_trading_desk.COST_RATE_PER_SIDE` (never forked) via one versioned decision
+  policy `hoc_decision_policy.v1`.
+- **Per-holding measures:** current / previous rank + rank change (previous rank
+  UNAVAILABLE when no prior artifact — no owner stored ranks before this slice), signal
+  strength + deterioration, trailing returns (5/20/60), realized volatility (20/60),
+  max drawdown (60), covariance risk contribution (`w_i (Σw)_i / portfolio variance`
+  from date-aligned owned returns; explicit lookback / min-obs / variance floor;
+  UNAVAILABLE when insufficient), concentration, liquidity (median dollar volume →
+  days-to-liquidate; UNAVAILABLE when owned volume absent), the strongest eligible
+  NON-ALLOCATED replacement candidate, switching cost (reused desk model), gross /
+  risk-adjusted / net improvement (a SCORE comparison; `expected_return_delta` always
+  null / UNAVAILABLE), and a recommendation from the frozen vocabulary HOLD / REDUCE /
+  EXIT / REPLACE / ADD, plus non-held ADD candidates. Deterministic `assessment_hash`
+  (`generated_at` excluded).
+- **Execution path:** the sole normal path is the Daily Research Cycle — a new
+  `ASSESS_HOLDING_OPPORTUNITY_COST` step runs after canonical scoring and before the
+  portfolio-assessment step, persisting an immutable artifact under `PAPER_TRADER_HOC_DIR`
+  (atomic, indexed, idempotent, conflict-rejected, interrupted-write recoverable — never
+  the operational ledger / PostgreSQL / order / fill / holding / cash / NAV) and feeding
+  its summary into the Daily Action Gate. NO separate manual execution endpoint exists.
+- **Consumers:** `GET /v1/operations/holding-opportunity-cost` (authenticated, GET-only,
+  read-only; readable in DEGRADED / BLOCKED / NOT_RUN) rendered by ONE UI
+  `loadHoldingOpportunityCost()` (single-flight; no JS recommendation / rank / risk /
+  cost / total computation) — summary + sortable holding table with ALL / HOLD / REDUCE
+  / EXIT / REPLACE filters + a separate ADD-candidate section. The Daily Action Gate
+  delegates to the opportunity-cost summary (`opportunity_cost_*`) and the review-only
+  banner reads `HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET
+  IMPLEMENTED`.
+- **Static guard:** `scripts/audit_architecture.py:check_holding_opportunity_cost_ownership`
+  enforces the sole calculation + API owners, delegation, the GET-only route, no separate
+  manual execution endpoint, no second recommendation engine, no order / fill /
+  target-weight / NAV / universe-score in either owner, kernel purity, ONE UI loader with
+  no computation, the gate delegation, and that Slice 7 / Slice 8 remain future; inventory
+  drift = 0. Review-only, preview-first, paper-only: confirms no target, creates no order
+  / fill, changes no holding / cash / NAV, promotes no model. Slice 7 (Reallocation
+  Proposal engine, Milestone 3) is next; the Persistent Alpha Research Agent (Slice 8 /
+  Milestone 4) remains planned; cadence remains disabled.

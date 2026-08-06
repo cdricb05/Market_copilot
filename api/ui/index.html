@@ -3010,6 +3010,32 @@
               <div id="pm-three-way" style="font-size:10px;margin:0 0 8px;">&mdash;</div>
               <div id="pm-changes" style="overflow-x:auto;font-size:11px;">&mdash;</div>
             </div>
+            <!-- HOLDING OPPORTUNITY-COST REVIEW (Phase 29G Slice 6, Milestone 2).
+                 Canonical per-holding opportunity-cost review. Read-only, review-only:
+                 no orders, no automation, no target confirmation. Rendered by the ONE
+                 shared loader loadHoldingOpportunityCost() with a single-flight guard;
+                 the UI performs NO recommendation / rank / risk / cost / total
+                 computation (all values come from the backend engine). -->
+            <div class="card" style="margin-bottom:12px;" id="hoc-card">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Holding Opportunity-Cost Review
+                  <span class="cc-badge muted" title="Milestone 2 — per-holding opportunity-cost engine (HOLD/REDUCE/EXIT/REPLACE/ADD).">MILESTONE 2</span>
+                  <span class="cc-badge manual">REVIEW ONLY</span>
+                  <span class="cc-badge safe">NO ORDERS</span>
+                </span>
+                <button class="btn-sm" id="hoc-refresh" onclick="loadHoldingOpportunityCost()" title="Reload the read-only Holding Opportunity-Cost review.">&#8635; Refresh</button>
+              </div>
+              <div id="hoc-banner" style="border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);color:var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">HOLDING OPPORTUNITY-COST REVIEW &mdash; REALLOCATION ENGINE NOT YET IMPLEMENTED</div>
+              <div id="hoc-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only Holding Opportunity-Cost review&hellip;</div>
+              <div id="hoc-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
+              <div id="hoc-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;"></div>
+              <div id="hoc-table" class="compact-scroll-region" style="max-height:360px;overflow:auto;font-size:11px;">&mdash;</div>
+              <div class="card-title" style="margin-top:12px;font-size:12px;">Addition Candidates
+                <span class="cc-badge muted" title="Non-held eligible names — candidates for the future Reallocation Proposal engine (Slice 7). No weight assigned; no order created.">SLICE 7 CANDIDATES</span>
+              </div>
+              <div id="hoc-additions" style="overflow-x:auto;font-size:11px;">&mdash;</div>
+              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. Nothing here confirms a target, assigns a weight, or creates an order. The strongest replacement is a NON-ALLOCATED comparison candidate. Recommendations, ranks, risk, costs and totals are computed by the backend engine, never in the browser.</div>
+            </div>
             <!-- SINCE LAST REVIEW (Workstream G) -->
             <div class="card" style="margin-bottom:12px;">
               <div class="card-title">Since Last Review</div>
@@ -23254,6 +23280,7 @@ async function loadPortfolioManager() {
   if (note) note.textContent = 'Loading the read-only portfolio-manager decision view…';
   try { loadAlphaTargetReview(); } catch (e) {}   // Phase 27A.2 operational target review
   try { loadOperationalBook(); } catch (e) {}     // Phase 27B.1 canonical implementation strip
+  try { loadHoldingOpportunityCost(); } catch (e) {}  // Phase 29G Slice 6 opportunity-cost review
   var res = await Promise.all([
     _mhzGet('/v1/portfolio-manager/summary'),
     _mhzGet('/v1/portfolio-manager/actions'),
@@ -24100,6 +24127,227 @@ function loadPortfolioState() {
 }
 window.loadPortfolioState = loadPortfolioState;
 
+// =========================================================================== //
+// Holding Opportunity-Cost Review (Phase 29G Slice 6 / Milestone 2).
+// ONE single-flight read-only loader fetches /v1/operations/holding-opportunity-cost
+// once and renders the canonical per-holding review. The UI performs NO
+// recommendation / rank / risk / cost / total computation — every value is produced
+// by the backend engine. Filtering and column sorting only reorder/hide the
+// backend-provided rows; nothing is calculated here, and no order / confirm / submit
+// control exists.
+// =========================================================================== //
+window._hocFilter = window._hocFilter || 'ALL';
+window._hocSort = window._hocSort || { key: 'current_rank', dir: 1 };
+
+function _hocRecBadge(rec) {
+  var cls = { HOLD: 'muted', REDUCE: 'manual', EXIT: 'danger', REPLACE: 'manual',
+              ADD: 'safe' }[rec] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(rec || '—') + '</span>';
+}
+function _hocDetBadge(state) {
+  var cls = { STABLE: 'muted', IMPROVING: 'safe', DETERIORATING: 'manual',
+              BROKEN: 'danger', UNKNOWN: 'muted' }[state] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(state || '—') + '</span>';
+}
+function _hocLiqBadge(state) {
+  var cls = { LIQUID: 'safe', MODERATE: 'muted', ILLIQUID: 'manual',
+              UNAVAILABLE: 'muted' }[state] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(state || '—') + '</span>';
+}
+function _hocRankChange(v) {
+  if (v === null || v === undefined) return '—';
+  if (v > 0) return '<span style="color:var(--safe,#22c55e);">+' + v + '</span>';
+  if (v < 0) return '<span style="color:var(--danger,#ef4444);">' + v + '</span>';
+  return '0';
+}
+
+function loadHoldingOpportunityCost() {
+  if (window._hocInFlight) return window._hocInFlight;   // single-flight guard
+  var note = document.getElementById('hoc-note');
+  if (note) note.textContent = 'Loading the read-only Holding Opportunity-Cost review…';
+  var p = _mhzGet('/v1/operations/holding-opportunity-cost').then(function (d) {
+    window._hocInFlight = null;
+    window._hocData = d;
+    renderHoldingOpportunityCost(d);
+    return d;
+  }).catch(function () {
+    window._hocInFlight = null; renderHoldingOpportunityCost(null); return null;
+  });
+  window._hocInFlight = p;
+  return p;
+}
+window.loadHoldingOpportunityCost = loadHoldingOpportunityCost;
+
+function _hocApplyFilter(f) { window._hocFilter = f; renderHoldingOpportunityCost(window._hocData); }
+window._hocApplyFilter = _hocApplyFilter;
+function _hocSortBy(key) {
+  var s = window._hocSort;
+  window._hocSort = { key: key, dir: (s.key === key ? -s.dir : 1) };
+  renderHoldingOpportunityCost(window._hocData);
+}
+window._hocSortBy = _hocSortBy;
+
+function _hocOrder(rows) {
+  var s = window._hocSort, key = s.key, dir = s.dir;
+  var out = rows.slice();
+  out.sort(function (a, b) {
+    var av = a[key], bv = b[key];
+    var an = (av === null || av === undefined), bn = (bv === null || bv === undefined);
+    if (an && bn) return 0;
+    if (an) return 1;               // nulls sort last
+    if (bn) return -1;
+    if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv);
+    return dir * String(av).localeCompare(String(bv));
+  });
+  return out;
+}
+
+function renderHoldingOpportunityCost(d) {
+  var note = document.getElementById('hoc-note');
+  var sumEl = document.getElementById('hoc-summary');
+  var filtEl = document.getElementById('hoc-filters');
+  var tblEl = document.getElementById('hoc-table');
+  var addEl = document.getElementById('hoc-additions');
+  var banner = document.getElementById('hoc-banner');
+  if (!tblEl) return;
+  if (!d) {
+    if (note) note.textContent = 'The Holding Opportunity-Cost review is unavailable.';
+    tblEl.innerHTML = '—'; if (sumEl) sumEl.innerHTML = '—'; if (addEl) addEl.innerHTML = '—';
+    return;
+  }
+  var state = d.state || 'UNAVAILABLE';
+  var reviews = d.holding_reviews || [];
+  var counts = d.recommendation_counts || {};
+  var dq = d.data_quality || {};
+  var pol = d.policy || {};
+  if (note) {
+    if (state === 'NOT_RUN') {
+      note.textContent = 'Not yet run for the current eligible session. Run the Daily '
+        + 'Research Cycle to produce the opportunity-cost review (read-only).';
+    } else if (state === 'BLOCKED') {
+      note.textContent = 'Blocked: core inputs are unavailable for the current session.';
+    } else {
+      note.textContent = 'Assessment ' + escapeHtml(d.eligible_market_date || '—')
+        + ' · book ' + escapeHtml((d.active_book || {}).book_label || '—')
+        + ' · ' + escapeHtml(state);
+    }
+  }
+  if (banner) banner.style.display = '';
+
+  // --- summary chips (all values from the backend; no computation) ----------- //
+  if (sumEl) {
+    function chip(label, val, cls) {
+      return '<span class="cc-badge ' + (cls || 'muted') + '" style="font-size:10px;">'
+        + escapeHtml(label) + ' ' + escapeHtml(String(val)) + '</span>';
+    }
+    var ps = d.portfolio_summary || {};
+    sumEl.innerHTML =
+      chip('Holdings', dq.holdings_evaluated != null ? dq.holdings_evaluated : (reviews.length))
+      + chip('HOLD', counts.HOLD || 0, 'muted')
+      + chip('REDUCE', counts.REDUCE || 0, 'manual')
+      + chip('EXIT', counts.EXIT || 0, 'danger')
+      + chip('REPLACE', counts.REPLACE || 0, 'manual')
+      + chip('ADD', counts.ADD || 0, 'safe')
+      + chip('Data', dq.data_gaps && dq.data_gaps.length ? ('GAPS:' + dq.data_gaps.length) : 'COMPLETE',
+             dq.data_gaps && dq.data_gaps.length ? 'manual' : 'safe')
+      + chip('Policy', pol.policy_version || '—')
+      + chip('Hash', (d.assessment_hash || '—').slice(0, 12));
+  }
+
+  // --- filter chips ---------------------------------------------------------- //
+  if (filtEl) {
+    var filters = ['ALL', 'HOLD', 'REDUCE', 'EXIT', 'REPLACE'];
+    filtEl.innerHTML = filters.map(function (f) {
+      var active = (window._hocFilter === f);
+      return '<button class="btn-sm" style="padding:2px 8px;font-size:10px;'
+        + (active ? 'font-weight:800;border:1px solid var(--info,#3b82f6);' : '')
+        + '" onclick="_hocApplyFilter(\'' + f + '\')">' + f
+        + (f !== 'ALL' && counts[f] != null ? ' (' + counts[f] + ')' : '') + '</button>';
+    }).join(' ');
+  }
+
+  // --- holding table (sortable headers; filter applied) ---------------------- //
+  var shown = reviews;
+  if (window._hocFilter && window._hocFilter !== 'ALL') {
+    shown = reviews.filter(function (r) { return r.recommendation === window._hocFilter; });
+  }
+  shown = _hocOrder(shown);
+  var cols = [
+    { k: 'ticker', t: 'Ticker' }, { k: 'current_weight', t: 'Wt', pct: true },
+    { k: 'current_rank', t: 'Rank' }, { k: 'rank_change', t: 'ΔRank', rc: true },
+    { k: 'signal_strength', t: 'Signal', pct: true },
+    { k: 'deterioration_state', t: 'Deterioration', det: true },
+    { k: 'return_20d', t: 'Ret 20d', pct: true },
+    { k: 'drawdown_60d', t: 'DD 60d', pct: true },
+    { k: 'risk_contribution_pct', t: 'Risk', pct: true },
+    { k: 'liquidity_state', t: 'Liquidity', liq: true },
+    { k: 'strongest_replacement_ticker', t: 'Replacement' },
+    { k: 'switching_cost_bps', t: 'Switch bps' },
+    { k: 'net_improvement', t: 'Net Impr' },
+    { k: 'recommendation', t: 'Rec', rec: true },
+    { k: 'explanation', t: 'Explanation' }
+  ];
+  if (!shown.length) {
+    tblEl.innerHTML = '<div class="cc-na-note" style="font-size:11px;">No holdings for this view.</div>';
+  } else {
+    var head = '<tr>' + cols.map(function (c) {
+      var arrow = (window._hocSort.key === c.k) ? (window._hocSort.dir > 0 ? ' ▲' : ' ▼') : '';
+      return '<th style="text-align:left;padding:3px 6px;cursor:pointer;white-space:nowrap;" '
+        + 'onclick="_hocSortBy(\'' + c.k + '\')">' + escapeHtml(c.t) + arrow + '</th>';
+    }).join('') + '</tr>';
+    var body = shown.map(function (r) {
+      var repl = r.strongest_replacement_ticker
+        ? escapeHtml(r.strongest_replacement_ticker)
+          + (r.replacement_rank != null ? ' (#' + r.replacement_rank + ')' : '')
+        : '—';
+      function cell(v) { return '<td style="padding:3px 6px;white-space:nowrap;">' + v + '</td>'; }
+      return '<tr>'
+        + cell('<b>' + escapeHtml(r.ticker) + '</b>')
+        + cell(_mhzPct(r.current_weight, 1))
+        + cell(r.current_rank != null ? r.current_rank : '—')
+        + cell(_hocRankChange(r.rank_change))
+        + cell(_mhzPct(r.signal_strength, 0))
+        + cell(_hocDetBadge(r.deterioration_state))
+        + cell(_mhzPct(r.return_20d, 1))
+        + cell(_mhzPct(r.drawdown_60d, 1))
+        + cell(r.risk_contribution_pct != null ? _mhzPct(r.risk_contribution_pct, 1) : '—')
+        + cell(_hocLiqBadge(r.liquidity_state))
+        + cell(repl)
+        + cell(r.switching_cost_bps != null ? r.switching_cost_bps : '—')
+        + cell(r.net_improvement != null ? _mhzNum(r.net_improvement, 3) : '—')
+        + cell(_hocRecBadge(r.recommendation))
+        + '<td style="padding:3px 6px;max-width:280px;white-space:normal;color:var(--label);">'
+          + escapeHtml(r.explanation || '') + '</td>'
+        + '</tr>';
+    }).join('');
+    tblEl.innerHTML = '<table style="border-collapse:collapse;width:100%;font-size:10px;">'
+      + '<thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+  }
+
+  // --- addition candidates (non-held; Slice 7 candidates) -------------------- //
+  if (addEl) {
+    var adds = d.addition_candidates || [];
+    if (!adds.length) {
+      addEl.innerHTML = '<div class="cc-na-note" style="font-size:10px;">No eligible non-held addition candidates.</div>';
+    } else {
+      addEl.innerHTML = '<table style="border-collapse:collapse;width:100%;font-size:10px;">'
+        + '<thead><tr><th style="text-align:left;padding:3px 6px;">Ticker</th>'
+        + '<th style="text-align:left;padding:3px 6px;">Rank</th>'
+        + '<th style="text-align:left;padding:3px 6px;">Score</th>'
+        + '<th style="text-align:left;padding:3px 6px;">Sector</th>'
+        + '<th style="text-align:left;padding:3px 6px;">Rec</th></tr></thead><tbody>'
+        + adds.map(function (a) {
+          return '<tr><td style="padding:3px 6px;"><b>' + escapeHtml(a.ticker) + '</b></td>'
+            + '<td style="padding:3px 6px;">' + (a.rank != null ? a.rank : '—') + '</td>'
+            + '<td style="padding:3px 6px;">' + _mhzPct(a.score, 0) + '</td>'
+            + '<td style="padding:3px 6px;">' + escapeHtml(a.sector || '—') + '</td>'
+            + '<td style="padding:3px 6px;">' + _hocRecBadge(a.recommendation) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+  }
+}
+window.renderHoldingOpportunityCost = renderHoldingOpportunityCost;
+
 function renderPortfolioState(d) {
   var ok = !!(d && d.state && d.state !== 'PORTFOLIO_STATE_UNAVAILABLE' && d.state !== 'NO_ACTIVE_BOOK');
   var cap = (d && d.capital) || {};
@@ -24193,7 +24441,7 @@ function renderPortfolioState(d) {
   if (lbl) {
     if (ok && a.is_preliminary_proposal) {
       lbl.style.display = '';
-      lbl.textContent = a.preliminary_proposal_label || 'PRELIMINARY PROPOSAL — OPPORTUNITY-COST ENGINE NOT YET IMPLEMENTED';
+      lbl.textContent = a.preliminary_proposal_label || 'HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED';
     } else { lbl.style.display = 'none'; lbl.textContent = ''; }
     lbl.setAttribute('data-ps-owned', '1');
   }
@@ -24733,11 +24981,11 @@ function _dagChangesHtml(g) {
     return '<div style="margin-top:3px;"><span style="font-weight:800;">' + title + ' (' + rows.length +
       ')</span> ' + rows.map(fmt).join(', ') + '</div>';
   }
-  // Slice 5: the reassessment proposal is preliminary and review-only — the Holding
-  // Opportunity-Cost engine (Slice 6) and Reallocation Proposal engine (Slice 7) are
-  // not implemented yet. Manual review is mandatory; no paper orders are created.
+  // Slice 6: the reassessment proposal is backed by the Holding Opportunity-Cost
+  // review but remains review-only — the Reallocation Proposal engine (Slice 7) is not
+  // implemented yet. Manual review is mandatory; no paper orders are created.
   var html = '<div style="margin:0 0 5px;color:var(--warning,#f59e0b);font-weight:700;font-size:10px;letter-spacing:.02em;">' +
-    'PRELIMINARY PROPOSAL — OPPORTUNITY-COST ENGINE NOT YET IMPLEMENTED</div>';
+    'HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED</div>';
   html += block('Add', adds, function (r) { return escapeHtml(r.ticker); });
   html += block('Remove', rems, function (r) {
     return escapeHtml(r.ticker) + (r.reason ? ' (' + escapeHtml(r.reason) + ')' : ''); });

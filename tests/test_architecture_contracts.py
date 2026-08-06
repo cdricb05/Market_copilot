@@ -429,18 +429,30 @@ def test_71_slice3_landed_and_bounded_from_slice4():
     assert "Slice 4 still owns consolidation" in s3flat
     assert "Not begun:" in s3flat and "Slice 4 (canonical scoring)" in s3flat
 
-    # 4. Slice 4 (canonical universe scoring) has LANDED, and Slice 5 (canonical
-    #    portfolio state) has now LANDED too. The boundary has advanced: Slice 6
-    #    (Holding Opportunity-Cost engine) is NOT landed.
+    # 4. Slice 4 (canonical universe scoring) has LANDED, Slice 5 (canonical
+    #    portfolio state) has LANDED, and the boundary has now advanced again:
+    #    Slice 6 (Holding Opportunity-Cost engine) has LANDED as well.
     assert "LANDED (Phase 29E)" in roadmap[s4:s5]
     assert "LANDED (Phase 29F)" in roadmap[s5:s6]
 
-    # 5. The Milestone-2 holding opportunity-cost engine is NOT claimed complete: the
-    #    Slice-3 status explicitly disclaims it, lists it under "Not begun", and the
-    #    engine's own slice (Slice 6) has no LANDED status line.
+    # 5. Slice 3 stays historically bounded from the Milestone-2 engine — its own
+    #    status text still disclaims ownership of the opportunity-cost engine and
+    #    lists it among the work Slice 3 did not begin — while the engine itself has
+    #    now LANDED in its own slice (Slice 6), owned by the two canonical Slice-6
+    #    modules (the pure kernel and the API composition/read owner).
     assert "Milestone-2 opportunity-cost engine" in s3flat
     assert "Milestone 2 (opportunity-cost engine)" in s3flat
-    assert "LANDED" not in roadmap[s6:s7]
+    assert "LANDED (Phase 29G)" in roadmap[s6:s7]
+    assert (REPO / "engine" / "holding_opportunity_cost.py").exists()
+    assert (REPO / "api" / "holding_opportunity_cost.py").exists()
+
+    # 5b. Slice 7 (Reallocation Proposal engine, Milestone 3) remains NOT landed and
+    #     no Slice-7 owner module exists yet — Slice 6 generates no target weights and
+    #     no reallocation-execution surface.
+    s8 = roadmap.index("## Slice 8")
+    assert "LANDED" not in roadmap[s7:s8]
+    assert not (REPO / "api" / "portfolio_proposal.py").exists()
+    assert not (REPO / "api" / "reallocation_proposal.py").exists()
 
     # 6. Cadence remains disabled.
     assert "cadence remains disabled" in s3flat
@@ -461,3 +473,23 @@ def test_72_workflow_state_target_owner_single_cell():
     for concept, owner in wf_rows.items():
         assert owner and " / " not in owner, (concept, owner)
         assert "workflow_state" in owner
+
+
+def test_73_holding_opportunity_cost_read_graph_is_acyclic(audit):
+    """Phase 29G performance repair: the strict audit proves the canonical read graph
+    is a DAG — portfolio_state composes the Daily Action Gate (permitted), the gate
+    delegates to the opportunity-cost SUMMARY supplying explicit (active_book_id,
+    eligible_market_date) context (permitted), and the summary reads ONLY the immutable
+    artifact and NEVER re-loads portfolio_state (the edge that closed a circular
+    recomposition). Slice 7 stays absent; the summary stays GET/read-only."""
+    ho = audit.run_audit()["holding_opportunity_cost_ownership"]
+    assert ho["summary_loads_portfolio_state"] == []
+    assert ho["gate_supplies_hoc_context"] is True
+    assert ho["gate_delegates_to_summary"] is True
+    assert ho["portfolio_state_composes_gate"] is True
+    assert ho["no_circular_read_dependency"] is True
+    # The repair must not have weakened the standing Slice 6 guards.
+    assert ho["route_methods"] == ["GET"]
+    assert ho["ui_loader_count"] == 1
+    assert ho["owner_forbidden_calls"] == []
+    assert ho["slice7_present_modules"] == [] and ho["slice7_present_routes"] == []

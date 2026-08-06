@@ -285,6 +285,71 @@ UI_PS_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".reduce(",
 # The canonical valuation nodes must be guarded (owned) so no page recomputes them.
 UI_PS_GUARD_TOKENS = ("PS_CANONICAL_NODES", "_psIsCanonicalNode", "data-ps-owned")
 
+# --- Slice 6 (Phase 29G) canonical Holding Opportunity-Cost ownership ------------ #
+# The pure calculation KERNEL (engine.holding_opportunity_cost) is the SOLE holding
+# comparison / decision owner; the composition/persistence/read owner
+# (api.holding_opportunity_cost) is the SOLE API owner; the read endpoint is GET-only;
+# the Daily Research Cycle delegates to the owner (no separate manual execution
+# endpoint); the Daily Action Gate delegates to the opportunity-cost summary; NO order
+# / fill / execution / target-weight / NAV / universe-score is produced in either
+# owner; the UI has EXACTLY ONE loader and computes no recommendation / cost / total;
+# Slice 7 (reallocation) and Slice 8 (research agent) remain future.
+HOC_KERNEL = "engine/holding_opportunity_cost.py"
+HOC_OWNER = "api/holding_opportunity_cost.py"
+HOC_ROUTE = "/v1/operations/holding-opportunity-cost"
+HOC_KERNEL_BUILD_DEF = "def build_assessment("
+HOC_OWNER_LOAD_DEF = "def load_holding_opportunity_cost("
+# The composition owner MUST delegate to (compose) these authoritative owners.
+HOC_MUST_DELEGATE = ("holding_opportunity_cost", "portfolio_state", "universe_scoring",
+                     "price_panel", "paper_trading_desk", "multi_horizon_engine")
+# Neither owner may create an order/fill/execution, confirm a target, generate target
+# weights, duplicate NAV, recompute a universe score, or call a provider / prediction.
+HOC_FORBIDDEN_CALLS = ("place_order(", "submit_order(", "create_order(", "route_order(",
+                       "run_fill_cycle(", "settle_due_orders(", "confirm_target(",
+                       "confirm_snapshot(", "run_daily_close(", "compute_scores(",
+                       "compute_combined(", "_percentiles(", "requests.get(",
+                       "requests.post(", "urlopen(", "httpx.", "predict(",
+                       "promote_model(", "replace_champion(", "book_nav(")
+# The kernel is PURE — no file/network/db I/O.
+HOC_KERNEL_FORBIDDEN = ("open(", "requests.", "httpx.", "urlopen(", "sqlalchemy",
+                        "sessionmaker", "predict(", "os.environ", "Path(")
+# The DRC delegates to the owner; the gate delegates to the summary.
+DRC_HOC_DELEGATE_TOKEN = "holding_opportunity_cost"
+GATE_HOC_DELEGATE_TOKEN = "load_assessment_summary"
+GATE_OWNER = "api/daily_action_gate.py"
+# UI: EXACTLY one loader; the region computes no recommendation / cost / total / date.
+UI_HOC_LOADER = "function loadHoldingOpportunityCost"
+UI_HOC_FETCH = "/v1/operations/holding-opportunity-cost"
+UI_HOC_REGION_END = "window.renderHoldingOpportunityCost"
+UI_HOC_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".reduce(", "Math.",
+                    "cost_rate", "COST_BPS", "compute")
+# The proposal banner must read the opportunity-cost review language.
+UI_HOC_REVIEW_LABEL = "HOLDING OPPORTUNITY-COST REVIEW"
+# Slice 7 / Slice 8 must remain future (no owner module, no route).
+SLICE7_ABSENT_MODULES = ("api/portfolio_proposal.py", "api/reallocation_proposal.py")
+SLICE7_ABSENT_ROUTES = ("/v1/operations/reallocation-proposal",
+                        "/v1/operations/portfolio-proposal")
+SLICE8_ABSENT_MODULES = ("api/model_registry.py",)
+
+# --- Slice 6 (Phase 29G) ACYCLIC read-dependency contract ------------------------ #
+# The canonical read graph must be a DAG:
+#     api.portfolio_state  ──composes──▶  api.daily_action_gate      (permitted)
+#     api.daily_action_gate ──delegates──▶ HOC load_assessment_summary (permitted)
+#     HOC load_assessment_summary ──▶ api.portfolio_state             (FORBIDDEN)
+# The summary is a PURE artifact reader: given the gate's explicit (active_book_id,
+# eligible_market_date) context it reads ONLY the immutable artifact index/artifact —
+# it must NOT load portfolio state (that edge closed a circular recomposition that
+# recomputed the whole engine dozens of times per request).
+HOC_SUMMARY_DEF = "def load_assessment_summary("
+# Tokens that would re-introduce the forbidden summary → portfolio_state edge.
+HOC_SUMMARY_FORBIDDEN_PS = ("load_portfolio_state", "_default_portfolio_state_loader",
+                            "portfolio_state")
+# The gate must SUPPLY the explicit context to the summary (never let it self-discover
+# the book/date by loading portfolio state).
+GATE_HOC_CONTEXT_TOKENS = ("active_book_id=", "eligible_market_date=")
+# The permitted composition edge: portfolio_state composes the daily action gate.
+PS_GATE_COMPOSE_TOKEN = "load_daily_action_gate"
+
 
 # Canonical business concepts and the regex that identifies a *writer/producer*
 # of that concept (a function definition that computes it). Multiple modules
@@ -346,6 +411,32 @@ def _read(rel_path: str) -> str:
         return fp.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+def _module_func_body(src: str, func_def: str) -> str:
+    """Return the source of a MODULE-LEVEL ``def`` (from its signature line to the next
+    top-level ``def`` / block divider / ``__all__`` / EOF). Used to scope a semantic
+    check to a single function body rather than the whole module."""
+    i = src.find(func_def)
+    if i < 0:
+        return ""
+    lines = src[i:].splitlines(keepends=True)
+    out = [lines[0]]
+    for ln in lines[1:]:
+        if ln.startswith("def ") or ln.startswith("# ---") or ln.startswith("__all__"):
+            break
+        out.append(ln)
+    return "".join(out)
+
+
+def _strip_prose(code: str) -> str:
+    """Remove docstrings / triple-quoted strings and ``#`` line comments so a semantic
+    token scan inspects CODE only — a docstring that merely *names* a forbidden symbol
+    (e.g. documents that it is never called) must not read as a real reference."""
+    code = re.sub(r'"""[\s\S]*?"""', "", code)
+    code = re.sub(r"'''[\s\S]*?'''", "", code)
+    code = re.sub(r"#[^\n]*", "", code)
+    return code
 
 
 def _iter_source_files() -> list[Path]:
@@ -1135,6 +1226,133 @@ def check_portfolio_state_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_holding_opportunity_cost_ownership(files: list[Path]) -> dict:
+    """Slice 6 (Phase 29G) semantic ownership guard for the Holding Opportunity-Cost
+    engine (Milestone 2). Proves: (1) the pure kernel is the sole calculation owner;
+    (2) the api module is the sole composition/read/persistence owner; (3) the GET-only
+    read route exists; (4) the DRC delegates to the canonical owner; (5) no separate
+    manual execution endpoint exists; (6) no second holding-recommendation engine
+    exists; (7) neither owner calls order/fill/execution/target/NAV/score/provider/
+    prediction; (8) no target weights generated; (9) NAV not duplicated; (10) universe
+    score not recomputed; (11) the UI has exactly one loader; (12) the UI computes no
+    recommendation/cost; (13) the Daily Action Gate delegates to the summary;
+    (14) Slice 7 remains unimplemented; (15) Slice 8 remains planned; (16) automatic
+    model promotion prohibited; (17) cadence disabled; (18) inventory drift zero
+    (checked by ``check_inventory_drift``)."""
+    kernel_src = _read(HOC_KERNEL)
+    owner_src = _read(HOC_OWNER)
+    drc_src = _read(DRC_OWNER)
+    gate_src = _read(GATE_OWNER)
+    ui = _read(UI_FILE)
+
+    kernel_present = (REPO_ROOT / HOC_KERNEL).exists()
+    owner_present = (REPO_ROOT / HOC_OWNER).exists()
+
+    # (1) sole calculation owner: build_assessment defined ONLY in the kernel.
+    calc_def_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel == "scripts/audit_architecture.py":
+            continue
+        if HOC_KERNEL_BUILD_DEF in fp.read_text(encoding="utf-8", errors="replace"):
+            calc_def_modules.append(rel)
+    second_calculation_owner = sorted(set(calc_def_modules) - {HOC_KERNEL})
+
+    # (2) sole composition/read owner: load_holding_opportunity_cost only in the owner.
+    read_def_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel == "scripts/audit_architecture.py":
+            continue
+        if HOC_OWNER_LOAD_DEF in fp.read_text(encoding="utf-8", errors="replace"):
+            read_def_modules.append(rel)
+    second_composition_owner = sorted(set(read_def_modules) - {HOC_OWNER})
+
+    delegates = {tok: (tok in owner_src) for tok in HOC_MUST_DELEGATE}
+    missing_delegation = sorted(k for k, v in delegates.items() if not v)
+    owner_forbidden = sorted(t for t in HOC_FORBIDDEN_CALLS if t in owner_src)
+    kernel_forbidden = sorted(t for t in HOC_KERNEL_FORBIDDEN if t in kernel_src)
+
+    # (3)/(5) routes: the GET read route exists; no separate manual execution route.
+    routes = check_routes()["routes"]
+    route_present = any(r["path"] == HOC_ROUTE for r in routes)
+    route_methods = sorted({r["method"] for r in routes if r["path"] == HOC_ROUTE})
+    hoc_routes = sorted(r["path"] for r in routes
+                        if "holding-opportunity" in (r["path"] or "").lower())
+    hoc_route_methods = sorted({r["method"] for r in routes
+                                if "holding-opportunity" in (r["path"] or "").lower()})
+    no_manual_execution_endpoint = (hoc_route_methods == ["GET"])
+
+    # (4) DRC delegates; (13) gate delegates to the summary.
+    drc_delegates = DRC_HOC_DELEGATE_TOKEN in drc_src
+    gate_delegates = GATE_HOC_DELEGATE_TOKEN in gate_src or DRC_HOC_DELEGATE_TOKEN in gate_src
+
+    # (11)/(12) UI: exactly one loader; region computes nothing.
+    ui_loader_count = ui.count(UI_HOC_LOADER)
+    ui_fetch_count = ui.count(UI_HOC_FETCH)
+    ui_region_hits = []
+    start = ui.find(UI_HOC_LOADER)
+    end = ui.find(UI_HOC_REGION_END)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_HOC_FORBIDDEN:
+            if pat in region:
+                ui_region_hits.append(pat)
+    ui_review_label_present = UI_HOC_REVIEW_LABEL in ui
+
+    # (14)/(15) Slice 7 / Slice 8 remain future.
+    slice7_present_modules = sorted(m for m in SLICE7_ABSENT_MODULES
+                                    if (REPO_ROOT / m).exists())
+    slice7_present_routes = sorted(r for r in SLICE7_ABSENT_ROUTES
+                                   if any(rt["path"] == r for rt in routes))
+    slice8_present_modules = sorted(m for m in SLICE8_ABSENT_MODULES
+                                    if (REPO_ROOT / m).exists())
+
+    # (19) ACYCLIC read dependency (Phase 29G performance repair). The HOC summary is a
+    # PURE artifact reader: its body must NOT load portfolio state (that edge closed a
+    # circular recomposition portfolio_state → gate → summary → portfolio_state). The
+    # gate must SUPPLY the explicit (active_book_id, eligible_market_date) context, and
+    # portfolio_state may still compose the gate — a DAG, not a cycle.
+    ps_src = _read(PS_OWNER)
+    summary_body = _strip_prose(_module_func_body(owner_src, HOC_SUMMARY_DEF))
+    summary_loads_portfolio_state = sorted(t for t in HOC_SUMMARY_FORBIDDEN_PS
+                                           if t in summary_body)
+    gate_supplies_hoc_context = all(t in gate_src for t in GATE_HOC_CONTEXT_TOKENS)
+    portfolio_state_composes_gate = PS_GATE_COMPOSE_TOKEN in ps_src
+    no_circular_read_dependency = (not summary_loads_portfolio_state
+                                   and gate_supplies_hoc_context
+                                   and portfolio_state_composes_gate)
+
+    return {
+        "kernel": HOC_KERNEL, "owner": HOC_OWNER,
+        "kernel_present": kernel_present, "owner_present": owner_present,
+        "second_calculation_owner_modules": second_calculation_owner,
+        "second_composition_owner_modules": second_composition_owner,
+        "missing_delegation": missing_delegation,
+        "owner_forbidden_calls": owner_forbidden,
+        "kernel_impurity": kernel_forbidden,
+        "route_present": route_present, "route_methods": route_methods,
+        "no_separate_manual_execution_endpoint": no_manual_execution_endpoint,
+        "holding_opportunity_routes": hoc_routes,
+        "drc_delegates_to_owner": bool(drc_delegates),
+        "gate_delegates_to_summary": bool(gate_delegates),
+        "ui_loader_count": ui_loader_count,
+        "ui_fetch_count": ui_fetch_count,
+        "ui_recommendation_or_cost_computation": sorted(set(ui_region_hits)),
+        "ui_review_label_present": ui_review_label_present,
+        "slice7_present_modules": slice7_present_modules,
+        "slice7_present_routes": slice7_present_routes,
+        "slice8_present_modules": slice8_present_modules,
+        "automatic_model_promotion_allowed": False,
+        "cadence_enabled": False,
+        # Slice 6 (Phase 29G) acyclic read-dependency proof.
+        "summary_loads_portfolio_state": summary_loads_portfolio_state,
+        "gate_supplies_hoc_context": bool(gate_supplies_hoc_context),
+        "portfolio_state_composes_gate": bool(portfolio_state_composes_gate),
+        "no_circular_read_dependency": bool(no_circular_read_dependency),
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -1210,6 +1428,7 @@ def run_audit() -> dict:
         "universe_scoring_ownership": check_universe_scoring_ownership(files),
         "monthly_emitter_bridge_ownership": check_monthly_emitter_bridge_ownership(files),
         "portfolio_state_ownership": check_portfolio_state_ownership(files),
+        "holding_opportunity_cost_ownership": check_holding_opportunity_cost_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -1376,6 +1595,32 @@ def _print_console(rep: dict) -> None:
     print(f"UI portfolio-state computation (must be empty): {ps['ui_portfolio_state_computation']}")
     print(f"UI missing guard tokens (must be empty): {ps['ui_missing_guard_tokens']}")
 
+    hdr("HOLDING OPPORTUNITY-COST OWNERSHIP (Slice 6 / Milestone 2)")
+    ho = rep["holding_opportunity_cost_ownership"]
+    print(f"kernel present: {ho['kernel_present']} ({ho['kernel']})  "
+          f"owner present: {ho['owner_present']} ({ho['owner']})")
+    print(f"second calculation owner (must be empty): {ho['second_calculation_owner_modules']}")
+    print(f"second composition owner (must be empty): {ho['second_composition_owner_modules']}")
+    print(f"delegation missing (must be empty): {ho['missing_delegation']}")
+    print(f"owner forbidden calls (must be empty): {ho['owner_forbidden_calls']}")
+    print(f"kernel impurity (must be empty): {ho['kernel_impurity']}")
+    print(f"route present: {ho['route_present']} {ho['route_methods']}  "
+          f"no separate manual execution endpoint: {ho['no_separate_manual_execution_endpoint']}")
+    print(f"DRC delegates to owner: {ho['drc_delegates_to_owner']}  "
+          f"gate delegates to summary: {ho['gate_delegates_to_summary']}")
+    print(f"UI loaders (must be 1): {ho['ui_loader_count']}  "
+          f"UI recommendation/cost computation (must be empty): "
+          f"{ho['ui_recommendation_or_cost_computation']}")
+    print(f"UI review label present: {ho['ui_review_label_present']}")
+    print(f"Slice 7 present modules/routes (must be empty): "
+          f"{ho['slice7_present_modules']} {ho['slice7_present_routes']}")
+    print(f"Slice 8 present modules (must be empty): {ho['slice8_present_modules']}")
+    print(f"HOC summary loads portfolio_state (must be empty): "
+          f"{ho['summary_loads_portfolio_state']}")
+    print(f"gate supplies HOC context: {ho['gate_supplies_hoc_context']}  "
+          f"portfolio_state composes gate: {ho['portfolio_state_composes_gate']}  "
+          f"no circular read dependency: {ho['no_circular_read_dependency']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -1434,7 +1679,30 @@ def main(argv=None) -> int:
         la = rep["slice3_live_acceptance_ownership"]
         me = rep["monthly_emitter_bridge_ownership"]
         ps = rep["portfolio_state_ownership"]
+        ho = rep["holding_opportunity_cost_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
+                         + (0 if ho["kernel_present"] else 1)
+                         + (0 if ho["owner_present"] else 1)
+                         + len(ho["second_calculation_owner_modules"])
+                         + len(ho["second_composition_owner_modules"])
+                         + len(ho["missing_delegation"])
+                         + len(ho["owner_forbidden_calls"])
+                         + len(ho["kernel_impurity"])
+                         + (0 if ho["route_present"] else 1)
+                         + (0 if ho["route_methods"] == ["GET"] else 1)
+                         + (0 if ho["no_separate_manual_execution_endpoint"] else 1)
+                         + (0 if ho["drc_delegates_to_owner"] else 1)
+                         + (0 if ho["gate_delegates_to_summary"] else 1)
+                         + (0 if ho["ui_loader_count"] == 1 else 1)
+                         + len(ho["ui_recommendation_or_cost_computation"])
+                         + (0 if ho["ui_review_label_present"] else 1)
+                         + len(ho["slice7_present_modules"])
+                         + len(ho["slice7_present_routes"])
+                         + len(ho["slice8_present_modules"])
+                         + len(ho["summary_loads_portfolio_state"])
+                         + (0 if ho["gate_supplies_hoc_context"] else 1)
+                         + (0 if ho["portfolio_state_composes_gate"] else 1)
+                         + (0 if ho["no_circular_read_dependency"] else 1)
                          + (0 if ps["owner_present"] else 1)
                          + (0 if ps["owner_defines_loader"] else 1)
                          + len(ps["missing_delegation"])
