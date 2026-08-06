@@ -1,11 +1,11 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "27f4cee",
+    "head": "1aa2fde",
     "branch": "main",
-    "phase": "29G.1"
+    "phase": "29G.2"
   },
-  "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete. Phase 29G.1 (Slice 6 live-acceptance / operator-workflow & UI hard cutover): SERVICE readiness (GET /v1/ready, DB probe, exact 503 reason) and WORKFLOW readiness (api.workflow_state) are distinct and shown separately; the Daily Research Cycle is the sole Slice 6 execution path (no separate reassessment control); the legacy rank-membership comparison is compatibility-only and the Holding Opportunity-Cost review is the primary decision card; no target/rebalance/order route was added; Slice 7 next; Persistent Alpha Research Agent (Slice 8/Milestone 4) planned; cadence disabled.",
+  "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete. Phase 29G.2 (Slice 6 residual hard cutover + first-live operator gates): the Holding Opportunity-Cost Review is the SOLE primary portfolio-decision card on all three operator surfaces (Command Center / Daily Workflow / Portfolio Manager); the canonical operator state is HOLDING_OPPORTUNITY_COST_NOT_RUN before the first production artifact (no fabricated counts). The residual Daily Action Gate card no longer presents 'LATEST PORTFOLIO ASSESSMENT' / 'PROPOSAL READY' / 'PORTFOLIO CHANGES PROPOSED' / 'Review Proposed Changes'; the legacy rank-membership comparison is a collapsed, read-only LEGACY MEMBERSHIP-COMPARISON SUMMARY (compatibility-only) carrying explicit classification (compatibility_only / decision_authority=NONE / execution_available=false / canonical_decision_owner=api.holding_opportunity_cost / legacy_membership_comparison); the raw gate outcome/target-state vocabulary is preserved for historical consumers only. Two read-only GET-only operator scripts (pre_drc_readiness.ps1, post_drc_acceptance.ps1) gate the first live cycle. Guarded by check_slice6_residual_cutover_ownership. Prior (Phase 29G.1): SERVICE vs WORKFLOW readiness distinct; the Daily Research Cycle is the sole Slice 6 execution path. No target/rebalance/order route was added; Slice 7 next; Persistent Alpha Research Agent (Slice 8/Milestone 4) planned; cadence disabled.",
   "systems": {
     "operational_alpha_book": "System 1 (Phase 27/28, LIVE): file-based chain-hashed JSON desk ledgers, owned-EODHD marks, Alpha Paper Book #1. No Postgres.",
     "legacy_db_engine": "System 2 (Phase 14-15 + engine/): Postgres ORM, yfinance/FRED, remote prediction; the only order/fill (execution) code — conflicts with the preview-only mandate.",

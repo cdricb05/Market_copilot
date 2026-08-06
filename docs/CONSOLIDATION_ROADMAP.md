@@ -466,6 +466,23 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   for the session close → run the Daily Research Cycle → review the Holding
   Opportunity-Cost assessment → run the Daily Close. No target / rebalance / order
   authority is added.
+- **Residual hard cutover + first-live operator gates (Phase 29G.2):** Phase 29G.1 fixed
+  the FIRST compatibility card (Daily Close) but a SECOND renderer — the Daily Action Gate
+  card on the Command Center, Daily Workflow and Portfolio Manager — still presented the
+  legacy comparison as a primary decision ("LATEST PORTFOLIO ASSESSMENT", "PROPOSAL READY",
+  "PORTFOLIO CHANGES PROPOSED", "Review Proposed Changes", the 17-name Add/Remove list).
+  The residual cutover makes the **Holding Opportunity-Cost Review** the ONE primary
+  portfolio-decision card on all three surfaces (canonical operator state
+  `HOLDING_OPPORTUNITY_COST_NOT_RUN` before the first artifact, with "NONE YET" and no
+  fabricated counts), and demotes the legacy rank-membership comparison to a COLLAPSED,
+  read-only **LEGACY MEMBERSHIP-COMPARISON SUMMARY — COMPATIBILITY ONLY** (explicitly not a
+  proposal, creates no orders). The gate result carries an explicit classification
+  (`compatibility_only` / `decision_authority=NONE` / `execution_available=false` /
+  `canonical_decision_owner` / `legacy_membership_comparison`); the raw gate vocabulary is
+  preserved for historical consumers only. Two read-only GET-only operator scripts
+  (`pre_drc_readiness.ps1`, `post_drc_acceptance.ps1`) gate the first live cycle. Guarded
+  by `check_slice6_residual_cutover_ownership`. The Daily Research Cycle remains the sole
+  HOC execution path; no order or target authority is added; cadence remains disabled.
 
 ## Slice 7 — Portfolio reallocation proposal engine
 

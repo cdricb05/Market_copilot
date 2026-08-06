@@ -2096,24 +2096,31 @@
                and next action from /v1/operations/daily-action-gate. A completed EOD
                refresh recalculates the eligible sleeves (owned data, no prediction
                tunnel), rebuilds the combined target, compares it against the actual
-               holdings and returns NO_ACTION_TODAY or PORTFOLIO CHANGES PROPOSED. -->
+               holdings. Phase 29G.2: this card presents the canonical HOLDING
+               OPPORTUNITY-COST REVIEW (the ONE primary portfolio decision); the legacy
+               rank-membership comparison is a collapsed compatibility-only view. -->
           <div id="cc-dag-card" class="cc-panel" style="border-left:3px solid var(--ok);display:none;">
             <div class="cc-preview-hd" style="align-items:center;">
-              <span class="cc-panel-title" id="cc-dag-title">Daily Action Gate &mdash; Today</span>
-              <span class="cc-badge" id="cc-dag-badge" title="The canonical daily action-gate outcome for Alpha Paper Book #1.">&mdash;</span>
-              <span class="cc-badge" id="cc-dag-tstate" style="display:none;" title="Canonical target state (single source; drives every operator surface).">&mdash;</span>
-              <span class="cc-badge safe">MANUAL REVIEW</span>
+              <span class="cc-panel-title" id="cc-dag-title">Holding Opportunity-Cost Review</span>
+              <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Phase 29G.2: the Holding Opportunity-Cost Review is the ONE primary portfolio decision. The legacy membership comparison is a read-only compatibility view only.">PRIMARY PORTFOLIO DECISION</span>
+              <span class="cc-badge" id="cc-dag-badge" title="Canonical Holding Opportunity-Cost state for Alpha Paper Book #1.">&mdash;</span>
+              <span class="cc-badge" id="cc-dag-tstate" style="display:none;" title="Legacy comparison is compatibility-only; not a portfolio proposal.">&mdash;</span>
+              <span class="cc-badge safe">REVIEW ONLY</span>
+              <span class="cc-badge safe">NO ORDERS</span>
               <span class="cc-spacer" style="flex:1;"></span>
               <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest completed market date the model evaluated (owned data)."><span class="k">Market Date</span><span class="v" id="cc-dag-market">&mdash;</span></span>
               <span class="cc-kv" style="font-size:var(--fs-0);" title="Next scheduled full portfolio review. A material event can still propose action before this date."><span class="k">Next Full Review</span><span class="v" id="cc-dag-review">&mdash;</span></span>
             </div>
             <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;">
-              <div id="cc-dag-headline" style="font-size:16px;font-weight:900;letter-spacing:.02em;">Evaluating today&rsquo;s action gate&hellip;</div>
-              <button id="cc-dag-btn" class="cc-btn primary" style="display:none;" onclick="dagPrimaryAction()" title="The one primary action for today's daily gate result.">Monitor Holdings and Performance</button>
+              <div id="cc-dag-headline" style="font-size:16px;font-weight:900;letter-spacing:.02em;">Loading the Holding Opportunity-Cost review&hellip;</div>
+              <button id="cc-dag-btn" class="cc-btn" style="display:none;" onclick="dagViewLegacy('cc')" title="Open the read-only legacy membership-comparison (compatibility only).">View Legacy Membership Comparison</button>
             </div>
             <div id="cc-dag-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
             <div id="cc-dag-checks" class="mono" style="display:none;font-size:11px;margin-top:5px;color:var(--label);" title="Canonical daily risk / control checks — full detail on Portfolio Manager and Daily Workflow.">&mdash;</div>
-            <div id="cc-dag-changes" class="mono" style="display:none;font-size:11px;margin-top:6px;line-height:1.5;"></div>
+            <details id="cc-dag-legacy" style="display:none;margin-top:6px;">
+              <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.02em;">LEGACY MEMBERSHIP-COMPARISON SUMMARY &mdash; COMPATIBILITY ONLY</summary>
+              <div id="cc-dag-changes" class="mono" style="font-size:11px;margin-top:6px;line-height:1.5;"></div>
+            </details>
           </div>
 
           <!-- ===================== Phase 27B CURRENT OPERATIONAL BOOK ===================== -->
@@ -2252,25 +2259,30 @@
         <!-- ===================== Phase 27C DAILY ACTION GATE ===================== -->
         <!-- Today's canonical daily gate outcome (same /v1/operations/daily-action-gate
              payload as the Command Center). This is the primary result the operator
-             reads first: NO PORTFOLIO CHANGE REQUIRED FROM THE LATEST COMPLETED CLOSE,
-             PORTFOLIO CHANGES PROPOSED, or MARKET DATA REFRESH REQUIRED — with one
-             primary action. -->
+             reads the canonical HOLDING OPPORTUNITY-COST REVIEW (the ONE primary
+             portfolio decision); the legacy rank-membership comparison is a collapsed
+             compatibility-only view. -->
         <div id="dw-dag-card" class="dw-terminal" style="border-left:3px solid var(--ok); margin-bottom:10px; display:none;">
           <div class="dw-hd">
-            <span class="dw-hd-title" id="dw-dag-title">Daily Action Gate</span>
+            <span class="dw-hd-title" id="dw-dag-title">Holding Opportunity-Cost Review</span>
+            <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Phase 29G.2: the Holding Opportunity-Cost Review is the ONE primary portfolio decision.">PRIMARY PORTFOLIO DECISION</span>
             <span class="cc-badge" id="dw-dag-badge">&mdash;</span>
-            <span class="cc-badge" id="dw-dag-tstate" style="display:none;" title="Canonical target state (single source).">&mdash;</span>
-            <span class="cc-badge safe">MANUAL REVIEW</span>
+            <span class="cc-badge" id="dw-dag-tstate" style="display:none;" title="Legacy comparison is compatibility-only; not a portfolio proposal.">&mdash;</span>
+            <span class="cc-badge safe">REVIEW ONLY</span>
+            <span class="cc-badge safe">NO ORDERS</span>
             <span class="cc-spacer" style="flex:1;"></span>
             <span class="cc-kv" style="font-size:var(--fs-0);" title="Latest completed market date evaluated (owned data)."><span class="k">Data Date</span><span class="v" id="dw-dag-market">&mdash;</span></span>
             <span class="cc-kv" style="font-size:var(--fs-0);" title="Next scheduled full portfolio review."><span class="k">Next Full Review</span><span class="v" id="dw-dag-review">&mdash;</span></span>
           </div>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:6px;">
-            <div id="dw-dag-headline" style="font-size:15px;font-weight:900;letter-spacing:.02em;">Evaluating today&rsquo;s action gate&hellip;</div>
-            <button id="dw-dag-btn" class="cc-btn primary" style="display:none;" onclick="dagPrimaryAction()">Monitor Holdings and Performance</button>
+            <div id="dw-dag-headline" style="font-size:15px;font-weight:900;letter-spacing:.02em;">Loading the Holding Opportunity-Cost review&hellip;</div>
+            <button id="dw-dag-btn" class="cc-btn" style="display:none;" onclick="dagViewLegacy('dw')" title="Open the read-only legacy membership-comparison (compatibility only).">View Legacy Membership Comparison</button>
           </div>
           <div id="dw-dag-explanation" style="font-size:12px;color:var(--label);margin-top:4px;line-height:1.45;"></div>
-          <div id="dw-dag-changes" class="mono" style="display:none;font-size:11px;margin-top:6px;line-height:1.5;"></div>
+          <details id="dw-dag-legacy" style="display:none;margin-top:6px;">
+            <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.02em;">LEGACY MEMBERSHIP-COMPARISON SUMMARY &mdash; COMPATIBILITY ONLY</summary>
+            <div id="dw-dag-changes" class="mono" style="font-size:11px;margin-top:6px;line-height:1.5;"></div>
+          </details>
         </div>
         <!-- Phase 27D: CHECKS PERFORMED TODAY — the canonical daily risk / control
              checks (13). Compact chips + a collapsed detail; every status/threshold
@@ -2680,31 +2692,37 @@
             <div id="pm-dc-changes" style="display:none;margin-top:8px;font-size:11px;"></div>
             <button id="pm-dc-btn" class="btn-sm" style="display:none;margin-top:8px;font-weight:800;border:1px solid var(--info,#3b82f6);" onclick="dailyClosePrimaryAction(this)">Run Daily Close</button>
           </div>
-          <!-- Phase 27C: the Portfolio Manager focuses on the canonical DAILY ACTION
-               GATE (single source: /v1/operations/daily-action-gate). No action ->
-               NO PORTFOLIO CHANGE REQUIRED FROM THE LATEST COMPLETED CLOSE with no
-               confirmation controls; a proposal -> only the affected names + one
-               manual review flow. -->
+          <!-- Phase 29G.2: the Portfolio Manager presents the canonical HOLDING
+               OPPORTUNITY-COST REVIEW (single source of the primary portfolio decision).
+               The legacy rank-membership comparison (/v1/operations/daily-action-gate) is
+               a collapsed, read-only compatibility-only view; it never proposes a
+               portfolio change and creates no orders. -->
           <div id="pm-dag-card" style="border:1px solid var(--ok);border-radius:8px;padding:12px 16px;margin:0 0 10px;display:none;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;">
-              <span id="pm-dag-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Today's Daily Action Gate</span>
+              <span id="pm-dag-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Holding Opportunity-Cost Review</span>
               <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                <span class="cc-badge" id="pm-dag-tstate" style="display:none;" title="Canonical target state (single source; drives every operator surface).">&mdash;</span>
-                <span class="cc-badge" id="pm-dag-badge" title="Canonical daily action-gate outcome.">&mdash;</span>
+                <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Phase 29G.2: the ONE primary portfolio decision.">PRIMARY PORTFOLIO DECISION</span>
+                <span class="cc-badge" id="pm-dag-tstate" style="display:none;" title="Legacy comparison is compatibility-only; not a portfolio proposal.">&mdash;</span>
+                <span class="cc-badge" id="pm-dag-badge" title="Canonical Holding Opportunity-Cost state.">&mdash;</span>
+                <span class="cc-badge safe">REVIEW ONLY</span>
+                <span class="cc-badge safe">NO ORDERS</span>
               </span>
             </div>
-            <div id="pm-dag-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Evaluating today&rsquo;s action gate&hellip;</div>
+            <div id="pm-dag-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Loading the Holding Opportunity-Cost review&hellip;</div>
             <div id="pm-dag-explanation" class="cc-na-note" style="font-size:11px;max-width:1100px;">&mdash;</div>
             <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:8px;color:var(--label);">
               <span title="Gate evaluation date.">Evaluated <b id="pm-dag-eval">&mdash;</b></span>
               <span title="Latest completed market date evaluated (owned data).">Market date <b id="pm-dag-market">&mdash;</b></span>
               <span title="Next scheduled full portfolio review. A material event can still propose action before this date.">Next full review <b id="pm-dag-review">&mdash;</b></span>
-              <span title="Whether the actual holdings match the current model target.">Holdings vs target <b id="pm-dag-match">&mdash;</b></span>
-              <span title="Estimated one-way turnover of the proposal.">Est. turnover <b id="pm-dag-turnover">&mdash;</b></span>
-              <span title="Modeled execution cost at 12.5 bps per side.">Est. cost <b id="pm-dag-cost">&mdash;</b></span>
+              <span title="Whether the actual holdings match the ranked names (legacy comparison).">Holdings vs ranked <b id="pm-dag-match">&mdash;</b></span>
+              <span title="Estimated one-way turnover of the legacy comparison (compatibility only).">Est. turnover <b id="pm-dag-turnover">&mdash;</b></span>
+              <span title="Modeled execution cost at 12.5 bps per side (compatibility only).">Est. cost <b id="pm-dag-cost">&mdash;</b></span>
             </div>
-            <div id="pm-dag-changes" style="display:none;margin-top:8px;font-size:11px;"></div>
-            <button id="pm-dag-btn" class="btn-sm" style="display:none;margin-top:8px;font-weight:800;border:1px solid var(--info,#3b82f6);" onclick="dagPrimaryAction()">Review Proposed Changes</button>
+            <details id="pm-dag-legacy" style="display:none;margin-top:8px;">
+              <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.02em;">LEGACY MEMBERSHIP-COMPARISON SUMMARY &mdash; COMPATIBILITY ONLY</summary>
+              <div id="pm-dag-changes" style="margin-top:8px;font-size:11px;"></div>
+            </details>
+            <button id="pm-dag-btn" class="btn-sm" style="display:none;margin-top:8px;font-weight:800;border:1px solid var(--label,#94a3b8);" onclick="dagViewLegacy('pm')">View Legacy Membership Comparison</button>
           </div>
           <!-- Phase 27D: CHECKS PERFORMED TODAY — the canonical 13 daily risk / control
                checks with a compact summary + chips + collapsed detail. Read-only;
@@ -25102,11 +25120,14 @@ function _dagChangesHtml(g) {
     return '<div style="margin-top:3px;"><span style="font-weight:800;">' + title + ' (' + rows.length +
       ')</span> ' + rows.map(fmt).join(', ') + '</div>';
   }
-  // Slice 6: the reassessment proposal is backed by the Holding Opportunity-Cost
-  // review but remains review-only — the Reallocation Proposal engine (Slice 7) is not
-  // implemented yet. Manual review is mandatory; no paper orders are created.
-  var html = '<div style="margin:0 0 5px;color:var(--warning,#f59e0b);font-weight:700;font-size:10px;letter-spacing:.02em;">' +
-    'HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED</div>';
+  // Phase 29G.2: the daily action gate's rank-membership comparison is a read-only,
+  // COMPATIBILITY-ONLY view — NOT a portfolio proposal and NOT an approved reallocation.
+  // The backend supplies the compatibility framing (no text derived here); the canonical
+  // portfolio decision is the Holding Opportunity-Cost Review. No paper orders are created.
+  var lp = g.legacy_membership_comparison_presentation || {};
+  var hd = lp.historical_date ? (' (as of ' + escapeHtml(lp.historical_date) + ')') : '';
+  var html = '<div style="margin:0 0 5px;color:var(--label,#94a3b8);font-weight:700;font-size:10px;letter-spacing:.02em;">' +
+    escapeHtml(lp.summary_line || 'Legacy rank-membership comparison (compatibility only). Not a portfolio proposal; creates no orders.') + hd + '</div>';
   html += block('Add', adds, function (r) { return escapeHtml(r.ticker); });
   html += block('Remove', rems, function (r) {
     return escapeHtml(r.ticker) + (r.reason ? ' (' + escapeHtml(r.reason) + ')' : ''); });
@@ -25114,6 +25135,7 @@ function _dagChangesHtml(g) {
   if (g.blocked_changes && g.blocked_changes.length) {
     html += block('Below threshold', g.blocked_changes, function (r) { return escapeHtml(r.ticker); });
   }
+  html += '<div style="margin-top:5px;color:var(--label,#94a3b8);font-size:9px;">Read-only compatibility view &middot; not a portfolio proposal &middot; creates no orders &middot; canonical decision: Holding Opportunity-Cost Review.</div>';
   return html;
 }
 
@@ -25137,6 +25159,11 @@ function renderDailyActionGate(g) {
   // has not yet been stamped (it self-guards on data-wf-owned).
   _dagApplySafeFraming(g);
 
+  // Phase 29G.2: the legacy rank-membership comparison is a COLLAPSED, compatibility-only
+  // section — never a primary review-changes action. A "View Legacy Membership
+  // Comparison" affordance opens the read-only detail; it creates no orders.
+  var hasLegacy = !!changesHtml;
+
   // ---- Command Center + Daily Workflow (dated DETAIL only) ----
   ['cc', 'dw'].forEach(function (p) {
     _dagTstate(p + '-dag-tstate', g, color);
@@ -25144,12 +25171,17 @@ function renderDailyActionGate(g) {
     _dagSet(p + '-dag-review', reviewTxt);
     var card = document.getElementById(p + '-dag-card'); if (card) card.style.borderLeftColor = color;
     var btn = document.getElementById(p + '-dag-btn');
-    if (btn) { btn.textContent = g.primary_action_label; btn.style.display = ''; }
+    if (btn) {
+      if (hasLegacy) { btn.textContent = 'View Legacy Membership Comparison'; btn.style.display = ''; }
+      else btn.style.display = 'none';   // no legacy changes -> no affordance
+    }
     var ch = document.getElementById(p + '-dag-changes');
-    if (ch) { ch.innerHTML = changesHtml; ch.style.display = changesHtml ? '' : 'none'; }
+    if (ch) ch.innerHTML = changesHtml;
+    var lg = document.getElementById(p + '-dag-legacy');
+    if (lg) lg.style.display = hasLegacy ? '' : 'none';   // collapsed by default
   });
 
-  // ---- Portfolio Manager (fuller DETAIL; NO confirm controls when no action) ----
+  // ---- Portfolio Manager (fuller DETAIL; NO confirm/proposal controls) ----
   _dagTstate('pm-dag-tstate', g, color);
   _dagSet('pm-dag-eval', g.evaluation_date);
   _dagSet('pm-dag-market', g.latest_completed_market_date);
@@ -25160,11 +25192,13 @@ function renderDailyActionGate(g) {
   var pmCard = document.getElementById('pm-dag-card'); if (pmCard) pmCard.style.borderColor = color;
   var pmBtn = document.getElementById('pm-dag-btn');
   if (pmBtn) {
-    if (g.action_required) { pmBtn.textContent = g.primary_action_label; pmBtn.style.display = ''; }
-    else pmBtn.style.display = 'none';   // brief B5: no confirmation controls when no action
+    if (hasLegacy) { pmBtn.textContent = 'View Legacy Membership Comparison'; pmBtn.style.display = ''; }
+    else pmBtn.style.display = 'none';   // no legacy changes -> no affordance
   }
   var pmCh = document.getElementById('pm-dag-changes');
-  if (pmCh) { pmCh.innerHTML = changesHtml; pmCh.style.display = changesHtml ? '' : 'none'; }
+  if (pmCh) pmCh.innerHTML = changesHtml;
+  var pmLg = document.getElementById('pm-dag-legacy');
+  if (pmLg) pmLg.style.display = hasLegacy ? '' : 'none';   // collapsed by default
 
   // ---- Checks Performed Today (canonical daily risk / control checks) ----
   renderChecksPerformed(g);
@@ -25180,24 +25214,38 @@ window.renderDailyActionGate = renderDailyActionGate;
 // "today" verdict and never reproduces a stale outcome badge — it uses the gate's
 // OWN dated fields. renderWorkflowState overrides it on load, in any order.
 function _dagApplySafeFraming(g) {
-  var dt = g.latest_completed_market_date ? (' as of ' + g.latest_completed_market_date) : '';
+  // Phase 29G.2: the primary card is the canonical HOLDING OPPORTUNITY-COST REVIEW
+  // (owned by renderWorkflowState). This SAFE, guarded fallback is applied only while
+  // the canonical value has not yet been stamped; it never presents the legacy gate
+  // proposal as a primary decision.
   ['cc', 'dw', 'pm'].forEach(function (p) {
-    _wsGuardedSet(p + '-dag-title', 'LATEST PORTFOLIO ASSESSMENT');
+    _wsGuardedSet(p + '-dag-title', 'HOLDING OPPORTUNITY-COST REVIEW');
     _wsGuardedSet(p + '-dag-badge', '—');
-    _wsGuardedSet(p + '-dag-headline', 'Latest completed portfolio assessment' + dt + '.');
-    _wsGuardedSet(p + '-dag-explanation', 'Loading the canonical assessment currency…');
+    _wsGuardedSet(p + '-dag-headline', 'Loading the Holding Opportunity-Cost review…');
+    _wsGuardedSet(p + '-dag-explanation', 'The canonical portfolio decision is the Holding Opportunity-Cost Review.');
   });
 }
 
-// Canonical target-state chip (single source; never re-derived on the page).
+// Phase 29G.2: the daily action gate is a COMPATIBILITY-ONLY legacy view. This chip
+// shows ONLY the compatibility marker — never the legacy proposal-ready / target-state
+// label as a primary decision. The canonical decision is the Holding Opportunity-Cost
+// Review (owned by renderWorkflowState on the primary title/badge/headline nodes).
 function _dagTstate(id, g, color) {
   var el = document.getElementById(id);
   if (!el) return;
-  if (g && g.target_state_label) {
-    el.textContent = g.target_state_label;
-    el.style.borderColor = color; el.style.color = color; el.style.display = '';
+  if (g && g.compatibility_only) {
+    el.textContent = 'COMPATIBILITY ONLY';
+    var muted = 'var(--label,#94a3b8)';
+    el.style.borderColor = muted; el.style.color = muted; el.style.display = '';
   } else { el.style.display = 'none'; }
 }
+
+// Open the collapsed read-only legacy membership-comparison detail (compatibility only).
+function dagViewLegacy(prefix) {
+  var d = document.getElementById(prefix + '-dag-legacy');
+  if (d) { d.style.display = ''; d.open = true; }
+}
+window.dagViewLegacy = dagViewLegacy;
 
 function _chkColor(status) {
   if (status === 'PASS') return 'var(--ok, #22c55e)';

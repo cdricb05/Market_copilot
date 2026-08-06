@@ -63,6 +63,21 @@ PHASE = "27D"
 PROPOSAL_REVIEW_LABEL = (
     "HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED")
 
+# Phase 29G.2 residual hard cutover: the daily action gate's target-versus-actual
+# rank-membership comparison is NOT the canonical portfolio decision. It is a legacy,
+# read-only COMPATIBILITY view. The canonical portfolio decision is the Holding
+# Opportunity-Cost Review (Slice 6, api.holding_opportunity_cost). The gate result
+# therefore carries an explicit classification (compatibility_only / decision_authority
+# NONE / execution_available False / canonical_decision_owner / legacy_membership_
+# comparison) and a compatibility-only presentation block; the gate outcome/target-state
+# vocabulary is preserved unchanged for historical consumers, but no operator surface
+# may present it as a primary "Proposal Ready" / "Portfolio Changes Proposed" decision.
+CANONICAL_DECISION_OWNER = "api.holding_opportunity_cost"
+LEGACY_COMPARISON_TITLE = "LEGACY MEMBERSHIP-COMPARISON SUMMARY — COMPATIBILITY ONLY"
+LEGACY_COMPARISON_HEADLINE = (
+    "LEGACY MEMBERSHIP-COMPARISON SUMMARY — REVIEW-ONLY COMPATIBILITY")
+DECISION_AUTHORITY_NONE = "NONE"
+
 _EPS = 1e-9
 
 # --------------------------------------------------------------------------- #
@@ -367,6 +382,59 @@ def _target_state_for(outcome: str) -> tuple[str, str]:
     }
     ts = mapping.get(outcome, TARGET_STATE_CURRENT_ALIGNED)
     return ts, _TARGET_STATE_LABELS[ts]
+
+
+def build_legacy_membership_comparison_presentation(
+        *, proposed_additions: list, proposed_removals: list, proposed_resizes: list,
+        historical_date: Optional[str], outcome: str) -> dict:
+    """Phase 29G.2: the compatibility-only presentation of the legacy rank-membership
+    comparison (current holdings vs the ranked names).
+
+    This is NEVER a portfolio proposal, an approved reallocation, or an order. It is a
+    read-only, historically-dated compatibility view; the canonical portfolio decision
+    is the Holding Opportunity-Cost Review (``api.holding_opportunity_cost``). It carries
+    NO 'Proposal Ready' badge, NO 'Portfolio Changes Proposed' headline, and NO 'Review
+    Proposed Changes' / 'Review Rebalance Proposal' action. A 'View Legacy Membership
+    Comparison' expander is the only affordance."""
+    n_add = len(proposed_additions or [])
+    n_rem = len(proposed_removals or [])
+    n_rez = len(proposed_resizes or [])
+    total = n_add + n_rem + n_rez
+    if total:
+        summary_line = (
+            "Legacy rank-membership comparison (compatibility only): %d add / %d remove "
+            "/ %d resize vs the current holdings. This is NOT a portfolio proposal and "
+            "creates no orders. The canonical portfolio decision is the Holding "
+            "Opportunity-Cost Review." % (n_add, n_rem, n_rez))
+    else:
+        summary_line = (
+            "Legacy rank-membership comparison (compatibility only): the current holdings "
+            "match the ranked names. This is NOT a portfolio proposal and creates no "
+            "orders. The canonical portfolio decision is the Holding Opportunity-Cost "
+            "Review.")
+    return {
+        "title": LEGACY_COMPARISON_TITLE,
+        "headline": LEGACY_COMPARISON_HEADLINE,
+        "summary_line": summary_line,
+        "read_only": True,
+        "is_portfolio_proposal": False,
+        "creates_orders": False,
+        "compatibility_only": True,
+        "decision_authority": DECISION_AUTHORITY_NONE,
+        "canonical_decision_owner": CANONICAL_DECISION_OWNER,
+        "historical_date": historical_date,
+        "membership_add_count": n_add,
+        "membership_remove_count": n_rem,
+        "membership_resize_count": n_rez,
+        "membership_change_count": total,
+        "raw_outcome": outcome,
+        "view_action_label": "View Legacy Membership Comparison",
+        "note": ("Read-only compatibility view. The legacy rank-membership comparison of "
+                 "the current holdings against the ranked names is NOT an approved "
+                 "reallocation and creates no paper orders. The canonical portfolio "
+                 "decision is the Holding Opportunity-Cost Review (Slice 6); the "
+                 "Reallocation Proposal engine (Slice 7) is not implemented."),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -1279,6 +1347,25 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
     result["proposal_label"] = PROPOSAL_REVIEW_LABEL
     result["proposal_review_only"] = True
     result["reallocation_engine_implemented"] = False
+    # --- Phase 29G.2 residual hard cutover: explicit compatibility classification ---- #
+    # The gate result is the LEGACY rank-membership comparison. It carries NO decision
+    # authority and is NEVER executable: the canonical portfolio decision is the Holding
+    # Opportunity-Cost Review (api.holding_opportunity_cost). The raw outcome / target-
+    # state vocabulary is preserved for historical consumers, but every operator surface
+    # must render this as a compatibility-only view, never a primary "Proposal Ready" /
+    # "Portfolio Changes Proposed" decision.
+    result["compatibility_only"] = True
+    result["decision_authority"] = DECISION_AUTHORITY_NONE
+    result["execution_available"] = False
+    result["canonical_decision_owner"] = CANONICAL_DECISION_OWNER
+    result["legacy_membership_comparison"] = True
+    result["legacy_membership_comparison_presentation"] = (
+        build_legacy_membership_comparison_presentation(
+            proposed_additions=result.get("proposed_additions") or [],
+            proposed_removals=result.get("proposed_removals") or [],
+            proposed_resizes=result.get("proposed_resizes") or [],
+            historical_date=result.get("latest_completed_market_date"),
+            outcome=result.get("outcome")))
     result["warnings"] = warnings
     result.update(_safety())
     return result
@@ -1303,5 +1390,7 @@ __all__ = [
     "SECTOR_CAP_FRACTION", "MIN_ADV_DOLLAR",
     "HARD_ELIGIBILITY_CODES", "HARD_RISK_CODES",
     "PROPOSAL_REVIEW_LABEL",
+    "CANONICAL_DECISION_OWNER", "LEGACY_COMPARISON_TITLE", "LEGACY_COMPARISON_HEADLINE",
+    "DECISION_AUTHORITY_NONE", "build_legacy_membership_comparison_presentation",
     "evaluate_daily_action_gate", "load_daily_action_gate",
 ]

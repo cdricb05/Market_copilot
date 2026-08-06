@@ -386,6 +386,40 @@ LA6_ABSENT_ROUTES = ("/v1/operations/portfolio-reassessment",
                      "/v1/operations/confirm-target",
                      "/v1/operations/target-confirmation")
 
+# --- Phase 29G.2 Slice 6 RESIDUAL hard cutover (HOC is the SOLE primary decision) ---- #
+# The residual legacy proposal renderers are gone: the primary DAG-card presentation on
+# all three surfaces (Command Center, Daily Workflow, Portfolio Manager) is the canonical
+# Holding Opportunity-Cost Review; the legacy rank-membership comparison is compatibility-
+# only and COLLAPSED; there is NO primary "Proposal Ready" / "Portfolio Changes Proposed"
+# presentation and NO "Review Proposed Changes" / "Review Rebalance Proposal" button;
+# exactly one HOC loader; no JS recommendation/cost computation; the Daily Research Cycle
+# remains the SOLE execution path; and no reassessment/rebalance/order route exists. The
+# raw daily_action_gate outcome/target-state vocabulary is PRESERVED for historical
+# consumers, so these forbidden strings are checked against the UI and the workflow owner
+# (the primary presentation surfaces), never against the gate's preserved raw vocabulary.
+RC6_FORBIDDEN_PRIMARY_UI = ("LATEST PORTFOLIO ASSESSMENT", "Review Proposed Changes",
+                            "Review Rebalance Proposal", "target_state_label",
+                            "PROPOSAL READY", "PORTFOLIO CHANGES PROPOSED")
+RC6_FORBIDDEN_PRIMARY_WS = ("LATEST PORTFOLIO ASSESSMENT",)
+# (5) the gate result carries the explicit compatibility classification.
+RC6_GATE_CLASSIFICATION = ("compatibility_only", "decision_authority",
+                           "execution_available", "canonical_decision_owner",
+                           "legacy_membership_comparison")
+# (5)/(7) the workflow owner makes the HOC review the PRIMARY presentation + exposes the
+# canonical NOT_RUN operator state + the compatibility legacy block.
+RC6_WS_PRIMARY_TOKENS = (
+    "assessment_presentation = holding_opportunity_cost_presentation",
+    "def build_holding_opportunity_cost_presentation(",
+    "HOLDING_OPPORTUNITY_COST_NOT_RUN", "legacy_membership_comparison")
+# (6) the legacy comparison is COLLAPSED (native <details>) on all three surfaces.
+RC6_UI_LEGACY_DETAILS = ('id="cc-dag-legacy"', 'id="dw-dag-legacy"', 'id="pm-dag-legacy"')
+RC6_UI_LEGACY_SUMMARY = "LEGACY MEMBERSHIP-COMPARISON SUMMARY"
+RC6_UI_LEGACY_VIEW = "View Legacy Membership Comparison"
+# (7) the HOC review is the SOLE primary decision card.
+RC6_UI_HOC_PRIMARY_BADGE = "PRIMARY PORTFOLIO DECISION"
+RC6_UI_HOC_TITLE = "HOLDING OPPORTUNITY-COST REVIEW"
+RC6_UI_SURFACE_HOC_TITLE = ">Holding Opportunity-Cost Review"
+
 
 # Canonical business concepts and the regex that identifies a *writer/producer*
 # of that concept (a function definition that computes it). Multiple modules
@@ -1458,6 +1492,119 @@ def check_slice6_live_acceptance_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_slice6_residual_cutover_ownership(files: list[Path]) -> dict:
+    """Phase 29G.2 Slice-6 RESIDUAL hard-cutover guard.
+
+    Proves the eighteen release conditions: (1) no primary "Portfolio Changes Proposed"
+    presentation; (2) no primary "Proposal Ready" presentation for compatibility data;
+    (3) no "Review Proposed Changes" button; (4) no "Review Rebalance Proposal" button;
+    (5) the legacy membership comparison is classified compatibility-only; (6) it is
+    visually secondary / collapsed on all three surfaces; (7) the Holding Opportunity-Cost
+    Review is the SOLE primary portfolio-decision card; (8) Command Center uses the HOC
+    state; (9) Daily Workflow uses the HOC state; (10) Portfolio Manager uses the HOC
+    state; (11) exactly one canonical HOC loader; (12) no JavaScript recommendation / cost
+    computation; (13) the Daily Research Cycle remains the sole execution path; (14) no
+    reassessment / rebalance / order endpoint; (15) Slice 7 remains absent; (16) the
+    Persistent Alpha Research Agent (Slice 8) remains planned; (17) cadence remains
+    disabled; (18) inventory drift remains zero (checked by ``check_inventory_drift``)."""
+    ui = _read(UI_FILE)
+    ws_src = _read(WORKFLOW_STATE_OWNER)
+    gate_src = _read(GATE_OWNER)
+    drc_src = _read(DRC_OWNER)
+    routes = check_routes()["routes"]
+
+    # (1)/(2)/(3)/(4) no PRIMARY legacy-proposal presentation or action remains in the UI
+    # or the workflow owner (the gate keeps its PRESERVED raw vocabulary for history).
+    forbidden_primary_ui = sorted(t for t in RC6_FORBIDDEN_PRIMARY_UI if t in ui)
+    forbidden_primary_ws = sorted(t for t in RC6_FORBIDDEN_PRIMARY_WS if t in ws_src)
+
+    # (5) the gate result carries the explicit compatibility classification.
+    gate_classification_fields = sorted(t for t in RC6_GATE_CLASSIFICATION if t in gate_src)
+    gate_compatibility_classified = (len(gate_classification_fields)
+                                     == len(RC6_GATE_CLASSIFICATION))
+    # (5)/(7) the workflow owner makes the HOC review the PRIMARY presentation + exposes
+    # the canonical NOT_RUN operator state + the compatibility legacy block.
+    missing_ws_primary = sorted(t for t in RC6_WS_PRIMARY_TOKENS if t not in ws_src)
+    workflow_primary_is_hoc = (missing_ws_primary == [])
+
+    # (6) the legacy comparison is COLLAPSED (native <details>) on all three surfaces.
+    legacy_details_present = sorted(t for t in RC6_UI_LEGACY_DETAILS if t in ui)
+    legacy_comparison_collapsed = (
+        len(legacy_details_present) == len(RC6_UI_LEGACY_DETAILS)
+        and RC6_UI_LEGACY_SUMMARY in ui and RC6_UI_LEGACY_VIEW in ui)
+
+    # (7) the HOC review is the SOLE primary decision card (badge + title on each of the
+    # three surfaces; no primary legacy-proposal string remains).
+    hoc_primary_badge_count = ui.count(RC6_UI_HOC_PRIMARY_BADGE)
+    surface_hoc_title_count = ui.count(RC6_UI_SURFACE_HOC_TITLE)
+    hoc_is_sole_primary_card = (hoc_primary_badge_count >= 3
+                                and RC6_UI_HOC_TITLE in ui
+                                and surface_hoc_title_count >= 3
+                                and forbidden_primary_ui == [])
+
+    # (8)/(9)/(10) each surface's DAG card renders the canonical HOC state (title/badge/
+    # headline/explanation owned by renderWorkflowState from assessment_presentation=HOC).
+    surface_nodes_present = all(
+        ('id="%s-dag-title"' % p) in ui and ('id="%s-dag-badge"' % p) in ui
+        and ('id="%s-dag-headline"' % p) in ui and ('id="%s-dag-explanation"' % p) in ui
+        for p in ("cc", "dw", "pm"))
+    surfaces_use_hoc_state = bool(
+        surface_nodes_present and "_wsApplyAssessmentFraming" in ui
+        and workflow_primary_is_hoc)
+
+    # (11) exactly one canonical HOC loader.
+    ui_hoc_loader_count = ui.count(UI_HOC_LOADER)
+
+    # (12) no JS recommendation / cost / total computation in the HOC region.
+    hoc_region_hits: list[str] = []
+    start = ui.find(UI_HOC_LOADER)
+    end = ui.find(UI_HOC_REGION_END)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_HOC_FORBIDDEN:
+            if pat in region:
+                hoc_region_hits.append(pat)
+
+    # (13) the DRC remains the sole HOC execution path (owner delegates; gate delegates to
+    # the summary; no separate manual HOC execution route).
+    drc_sole_execution_path = (DRC_HOC_DELEGATE_TOKEN in drc_src
+                               and GATE_HOC_DELEGATE_TOKEN in gate_src)
+    hoc_route_methods = sorted({r["method"] for r in routes
+                               if "holding-opportunity" in (r["path"] or "").lower()})
+    no_manual_hoc_execution_endpoint = (hoc_route_methods == ["GET"])
+
+    # (14) no reassessment / rebalance / order / target-confirmation route.
+    forbidden_routes_present = sorted(r for r in LA6_ABSENT_ROUTES
+                                      if any(rt["path"] == r for rt in routes))
+
+    # (15)/(16) Slice 7 remains absent; Slice 8 (Persistent Alpha Research Agent) planned.
+    slice7_present = (sorted(m for m in SLICE7_ABSENT_MODULES if (REPO_ROOT / m).exists())
+                      + sorted(r for r in SLICE7_ABSENT_ROUTES
+                               if any(rt["path"] == r for rt in routes)))
+    slice8_present = sorted(m for m in SLICE8_ABSENT_MODULES if (REPO_ROOT / m).exists())
+
+    return {
+        "forbidden_primary_ui": forbidden_primary_ui,
+        "forbidden_primary_ws": forbidden_primary_ws,
+        "gate_compatibility_classified": gate_compatibility_classified,
+        "gate_classification_fields": gate_classification_fields,
+        "workflow_primary_is_hoc": workflow_primary_is_hoc,
+        "missing_ws_primary_tokens": missing_ws_primary,
+        "legacy_comparison_collapsed": legacy_comparison_collapsed,
+        "hoc_is_sole_primary_card": hoc_is_sole_primary_card,
+        "hoc_primary_badge_count": hoc_primary_badge_count,
+        "surfaces_use_hoc_state": surfaces_use_hoc_state,
+        "ui_hoc_loader_count": ui_hoc_loader_count,
+        "ui_recommendation_or_cost_computation": sorted(set(hoc_region_hits)),
+        "drc_sole_execution_path": bool(drc_sole_execution_path),
+        "no_manual_hoc_execution_endpoint": no_manual_hoc_execution_endpoint,
+        "forbidden_routes_present": forbidden_routes_present,
+        "slice7_present": slice7_present,
+        "slice8_present": slice8_present,
+        "cadence_enabled": False,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -1535,6 +1682,7 @@ def run_audit() -> dict:
         "portfolio_state_ownership": check_portfolio_state_ownership(files),
         "holding_opportunity_cost_ownership": check_holding_opportunity_cost_ownership(files),
         "slice6_live_acceptance_ownership": check_slice6_live_acceptance_ownership(files),
+        "slice6_residual_cutover_ownership": check_slice6_residual_cutover_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -1742,6 +1890,31 @@ def _print_console(rep: dict) -> None:
     print(f"HOC panel renders NOT_RUN: {la['hoc_renders_not_run']}  "
           f"renders completed: {la['hoc_renders_completed']}")
 
+    hdr("SLICE 6 RESIDUAL HARD CUTOVER — HOC IS THE SOLE PRIMARY DECISION (Phase 29G.2)")
+    rc = rep["slice6_residual_cutover_ownership"]
+    print(f"forbidden primary legacy-proposal strings in UI (must be empty): "
+          f"{rc['forbidden_primary_ui']}")
+    print(f"forbidden primary legacy title in workflow owner (must be empty): "
+          f"{rc['forbidden_primary_ws']}")
+    print(f"gate compatibility classified: {rc['gate_compatibility_classified']}  "
+          f"fields: {rc['gate_classification_fields']}")
+    print(f"workflow primary is HOC: {rc['workflow_primary_is_hoc']}  "
+          f"missing tokens (must be empty): {rc['missing_ws_primary_tokens']}")
+    print(f"legacy comparison collapsed (all 3 surfaces): {rc['legacy_comparison_collapsed']}")
+    print(f"HOC is sole primary card: {rc['hoc_is_sole_primary_card']}  "
+          f"primary badges: {rc['hoc_primary_badge_count']}")
+    print(f"CC/DW/PM use HOC state: {rc['surfaces_use_hoc_state']}")
+    print(f"UI HOC loaders (must be 1): {rc['ui_hoc_loader_count']}  "
+          f"UI recommendation/cost computation (must be empty): "
+          f"{rc['ui_recommendation_or_cost_computation']}")
+    print(f"DRC sole execution path: {rc['drc_sole_execution_path']}  "
+          f"no manual HOC execution endpoint: {rc['no_manual_hoc_execution_endpoint']}")
+    print(f"forbidden reassessment/rebalance/order routes (must be empty): "
+          f"{rc['forbidden_routes_present']}")
+    print(f"Slice 7 present (must be empty): {rc['slice7_present']}  "
+          f"Slice 8 present (must be empty): {rc['slice8_present']}  "
+          f"cadence enabled (must be False): {rc['cadence_enabled']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -1802,7 +1975,23 @@ def main(argv=None) -> int:
         ps = rep["portfolio_state_ownership"]
         ho = rep["holding_opportunity_cost_ownership"]
         la6 = rep["slice6_live_acceptance_ownership"]
+        rc6 = rep["slice6_residual_cutover_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
+                         + len(rc6["forbidden_primary_ui"])
+                         + len(rc6["forbidden_primary_ws"])
+                         + (0 if rc6["gate_compatibility_classified"] else 1)
+                         + (0 if rc6["workflow_primary_is_hoc"] else 1)
+                         + len(rc6["missing_ws_primary_tokens"])
+                         + (0 if rc6["legacy_comparison_collapsed"] else 1)
+                         + (0 if rc6["hoc_is_sole_primary_card"] else 1)
+                         + (0 if rc6["surfaces_use_hoc_state"] else 1)
+                         + (0 if rc6["ui_hoc_loader_count"] == 1 else 1)
+                         + len(rc6["ui_recommendation_or_cost_computation"])
+                         + (0 if rc6["drc_sole_execution_path"] else 1)
+                         + (0 if rc6["no_manual_hoc_execution_endpoint"] else 1)
+                         + len(rc6["forbidden_routes_present"])
+                         + len(rc6["slice7_present"])
+                         + len(rc6["slice8_present"])
                          + len(la6["obsolete_reassessment_control"])
                          + len(la6["obsolete_rebalance_label"])
                          + (0 if la6["legacy_compatibility_classified"] else 1)

@@ -148,6 +148,10 @@ ACTION_REVIEW_EVIDENCE_GAP = "REVIEW_EVIDENCE_GAP"
 ACTION_MANUAL_REVIEW = "MANUAL_PORTFOLIO_REVIEW"
 ACTION_MONITOR = "MONITOR_PORTFOLIO"
 ACTION_REVIEW_PENDING_ORDERS = "REVIEW_PENDING_PAPER_ORDERS"
+# Phase 29G.2: after a completed Holding Opportunity-Cost assessment exists, the operator
+# REVIEWS it (read-only) before the Daily Close. This is a review/routing action only —
+# it is NEVER a separate reassessment/proposal/rebalance/order execution control.
+ACTION_REVIEW_HOC = "REVIEW_HOLDING_OPPORTUNITY_COST"
 
 # Daily-close status vocabulary mirror (a FROZEN subset of api.daily_close's
 # tested contract). Kept as literals so this module stays importable/pure without
@@ -297,58 +301,100 @@ _CURRENCY_SEVERITY = {
     ASSESS_INCONSISTENT: SEV_ERROR,
 }
 _PROPOSAL_OUTCOMES = frozenset({
-    "PORTFOLIO_CHANGES_PROPOSED", "PROPOSAL", "REBALANCE_PROPOSAL_READY",
-    "APPROVAL_REQUIRED", "PROPOSED"})
+    "PORTFOLIO_CHANGES_PROPOSED", "PROPOSAL", "PROPOSAL_READY",
+    "REBALANCE_PROPOSAL_READY", "APPROVAL_REQUIRED", "PROPOSED"})
+
+# --------------------------------------------------------------------------- #
+# Phase 29G.2 residual hard cutover — the ONE primary portfolio-decision concept is
+# the Holding Opportunity-Cost Review (Slice 6). The legacy daily-action-gate rank-
+# membership comparison is reclassified compatibility-only and is NEVER a primary
+# decision. Before the first production HOC artifact, the canonical operator state is
+# HOLDING_OPPORTUNITY_COST_NOT_RUN (a compatibility comparison must never set the
+# canonical operator state to PROPOSAL_READY / REBALANCE_PROPOSAL_READY /
+# PORTFOLIO_CHANGES_PROPOSED).
+# --------------------------------------------------------------------------- #
+HOC_CANONICAL_OWNER = "api.holding_opportunity_cost"
+HOC_PRIMARY_TITLE = "HOLDING OPPORTUNITY-COST REVIEW"
+LEGACY_COMPARISON_TITLE = "LEGACY MEMBERSHIP-COMPARISON SUMMARY — COMPATIBILITY ONLY"
+
+# Canonical operator-state tokens (the ONE portfolio-decision state every surface reads).
+COS_NOT_RUN = "HOLDING_OPPORTUNITY_COST_NOT_RUN"
+COS_AVAILABLE = "HOLDING_OPPORTUNITY_COST_AVAILABLE"
+COS_DEGRADED = "HOLDING_OPPORTUNITY_COST_DEGRADED"
+COS_BLOCKED = "HOLDING_OPPORTUNITY_COST_BLOCKED"
+COS_NO_ACTIVE_BOOK = "HOLDING_OPPORTUNITY_COST_NO_ACTIVE_BOOK"
+COS_UNAVAILABLE = "HOLDING_OPPORTUNITY_COST_UNAVAILABLE"
+CANONICAL_OPERATOR_STATES = (COS_NOT_RUN, COS_AVAILABLE, COS_DEGRADED, COS_BLOCKED,
+                             COS_NO_ACTIVE_BOOK, COS_UNAVAILABLE)
+
+# HOC read-summary states (mirror of api.holding_opportunity_cost READ_STATE_VOCAB) —
+# kept as literals so this module stays importable/pure without importing the owner.
+_HOC_READY = "READY"
+_HOC_DEGRADED = "DEGRADED"
+_HOC_BLOCKED = "BLOCKED"
+_HOC_NO_ACTIVE_BOOK = "NO_ACTIVE_BOOK"
+_HOC_NOT_RUN = "NOT_RUN"
+_HOC_UNAVAILABLE = "UNAVAILABLE"
 
 
 def _historical_result_text(outcome: Any, recommendation: Any) -> str:
-    """Human, DATE-FREE statement of what the latest assessment concluded. The
-    date is added by the presentation headline, never baked in here."""
+    """Human, DATE-FREE statement of what the legacy membership comparison concluded.
+    The date is added by the presentation headline, never baked in here. This is the
+    LEGACY rank-membership comparison summary, never the primary portfolio decision."""
     if outcome == _GATE_OUTCOME_NO_ACTION:
-        return "No portfolio change was recommended."
+        return "The current holdings matched the ranked names."
     if outcome in _PROPOSAL_OUTCOMES:
-        return "Portfolio changes were proposed."
+        return "The legacy membership comparison identified changes (compatibility only)."
     if recommendation:
         return str(recommendation)
     if outcome:
         return str(outcome).replace("_", " ").capitalize() + "."
-    return "No portfolio assessment result is available."
+    return "No legacy membership-comparison result is available."
 
 
 def build_assessment_presentation(*, assessment_status: str, assessment_date: Any,
                                   outcome: Any, recommendation: Any,
-                                  current_for_eligible: bool) -> dict[str, Any]:
-    """Presentation for the latest portfolio assessment (Workstream B/D).
+                                  current_for_eligible: bool,
+                                  membership_add_count: int = 0,
+                                  membership_remove_count: int = 0,
+                                  membership_resize_count: int = 0) -> dict[str, Any]:
+    """LEGACY membership-comparison presentation (Phase 29G.2 compatibility-only).
 
-    The historical no-change result is preserved and DATED; its canonical currency
-    is surfaced; "today" wording is permitted only when the assessment is current.
-    """
+    This is the read-only compatibility framing of the daily-action-gate rank-membership
+    comparison. It is NEVER the primary portfolio-decision card (that is the Holding
+    Opportunity-Cost Review — ``build_holding_opportunity_cost_presentation``). The dated
+    historical currency is preserved for audit; the title/classification make the
+    compatibility-only, no-decision-authority status explicit. "today" wording is
+    permitted only when the comparison is current."""
     status = assessment_status
     is_current = (status == ASSESS_CURRENT)
     date_txt = _iso(_coerce_date(assessment_date)) or (
         str(assessment_date) if assessment_date else None)
     hist = _historical_result_text(outcome, recommendation)
-    title = "LATEST PORTFOLIO ASSESSMENT"
+    title = LEGACY_COMPARISON_TITLE
     title_with_date = ("%s — %s" % (title, date_txt)) if date_txt else title
 
     if status == ASSESS_MISSING:
-        headline = "No portfolio assessment has been recorded yet."
+        headline = "No legacy membership comparison has been recorded yet."
     elif date_txt:
         headline = hist.rstrip(".") + " on %s." % date_txt
     else:
         headline = hist
 
     if status == ASSESS_INCONSISTENT:
-        explanation = ("The recorded assessment is dated after the latest eligible "
+        explanation = ("The recorded comparison is dated after the latest eligible "
                        "completed session; reconcile the inconsistency before acting.")
         follow_up = "Inspect the state inconsistency."
     elif is_current:
-        explanation = "This assessment is current for the latest completed session."
+        explanation = ("Read-only compatibility view. The canonical portfolio decision "
+                       "is the Holding Opportunity-Cost Review.")
         follow_up = None
     else:
-        explanation = "A new portfolio reassessment is required."
-        follow_up = "A new portfolio reassessment is required."
+        explanation = ("Read-only compatibility view. The canonical portfolio decision "
+                       "is the Holding Opportunity-Cost Review.")
+        follow_up = None
 
+    total = int(membership_add_count) + int(membership_remove_count) + int(membership_resize_count)
     return {
         "title": title,
         "title_with_date": title_with_date,
@@ -365,6 +411,103 @@ def build_assessment_presentation(*, assessment_status: str, assessment_date: An
         "may_be_called_current": is_current,
         "today_wording_allowed": is_current,
         "current_for_eligible_session": bool(current_for_eligible),
+        # Phase 29G.2 explicit compatibility classification (never a primary decision).
+        "compatibility_only": True,
+        "decision_authority": "NONE",
+        "execution_available": False,
+        "is_portfolio_proposal": False,
+        "creates_orders": False,
+        "canonical_decision_owner": HOC_CANONICAL_OWNER,
+        "legacy_membership_comparison": True,
+        "membership_add_count": int(membership_add_count),
+        "membership_remove_count": int(membership_remove_count),
+        "membership_resize_count": int(membership_resize_count),
+        "membership_change_count": total,
+        "view_action_label": "View Legacy Membership Comparison",
+    }
+
+
+# HOC read-summary state → (canonical operator state, badge label, severity).
+_HOC_STATE_MAP = {
+    _HOC_READY: (COS_AVAILABLE, "AVAILABLE", SEV_SUCCESS),
+    _HOC_DEGRADED: (COS_DEGRADED, "AVAILABLE — DATA GAPS", SEV_ATTENTION),
+    _HOC_BLOCKED: (COS_BLOCKED, "BLOCKED", SEV_BLOCKED),
+    _HOC_NO_ACTIVE_BOOK: (COS_NO_ACTIVE_BOOK, "NO ACTIVE BOOK", SEV_ATTENTION),
+    _HOC_NOT_RUN: (COS_NOT_RUN, "NOT_RUN", SEV_ATTENTION),
+    _HOC_UNAVAILABLE: (COS_UNAVAILABLE, "UNAVAILABLE", SEV_ATTENTION),
+}
+
+
+def build_holding_opportunity_cost_presentation(
+        *, state: Any, available: bool, eligible_date: Any,
+        active_book_label: Any = None, recommendation_counts: Optional[dict] = None,
+        assessment_hash: Any = None, data_gaps: Optional[list] = None) -> dict[str, Any]:
+    """The ONE PRIMARY portfolio-decision presentation (Phase 29G.2): the Holding
+    Opportunity-Cost Review. Rendered on every operator surface (Command Center, Daily
+    Workflow, Portfolio Manager). Read-only, review-only: no target weights, no orders,
+    no confirmation. Before the first production artifact it presents NOT_RUN with
+    recommendations "NONE YET" — never fabricated HOLD/REDUCE/EXIT/REPLACE/ADD counts."""
+    hoc_state = str(state) if state else _HOC_NOT_RUN
+    if hoc_state not in _HOC_STATE_MAP:
+        hoc_state = _HOC_NOT_RUN if not available else _HOC_READY
+    canonical_state, badge, severity = _HOC_STATE_MAP[hoc_state]
+    date_txt = _iso(_coerce_date(eligible_date)) or (
+        str(eligible_date) if eligible_date else None)
+    title = HOC_PRIMARY_TITLE
+    title_with_date = ("%s — %s" % (title, date_txt)) if date_txt else title
+    counts = recommendation_counts or {}
+    gaps = list(data_gaps or [])
+
+    has_assessment = bool(available and hoc_state in (_HOC_READY, _HOC_DEGRADED))
+    if not has_assessment:
+        headline = ("No Holding Opportunity-Cost assessment has been produced for the "
+                    "current active book and eligible session yet.")
+        explanation = ("The first production assessment will be generated by the next "
+                       "completed Daily Research Cycle. Recommendations: NONE YET. "
+                       "Read-only, review-only: no target weights, no orders.")
+        recommendations_label = "NONE YET"
+    else:
+        def _c(k):
+            try:
+                return int(counts.get(k, 0) or 0)
+            except (TypeError, ValueError):
+                return 0
+        recommendations_label = (
+            "%d HOLD / %d REDUCE / %d EXIT / %d REPLACE / %d ADD"
+            % (_c("HOLD"), _c("REDUCE"), _c("EXIT"), _c("REPLACE"), _c("ADD")))
+        gap_txt = (" · %d data gap(s) documented" % len(gaps)) if gaps else ""
+        headline = ("Holding Opportunity-Cost assessment%s: %s.%s"
+                    % ((" — %s" % date_txt) if date_txt else "",
+                       recommendations_label, gap_txt))
+        explanation = ("Review-only per-holding opportunity-cost assessment produced by "
+                       "the Daily Research Cycle. No target weights, no orders, no "
+                       "confirmation. The Reallocation Proposal engine (Slice 7) is not "
+                       "implemented.")
+
+    return {
+        "title": title,
+        "title_with_date": title_with_date,
+        "badge": badge,
+        "currency_status": badge,
+        "headline": headline,
+        "explanation": explanation,
+        "severity": severity,
+        "state": hoc_state,
+        "canonical_operator_state": canonical_state,
+        "available": bool(has_assessment),
+        "has_assessment": has_assessment,
+        "eligible_market_date": date_txt,
+        "active_book_label": active_book_label,
+        "recommendation_counts": dict(counts) if has_assessment else {},
+        "recommendations_label": recommendations_label,
+        "assessment_hash": assessment_hash if has_assessment else None,
+        "data_gaps": gaps if has_assessment else [],
+        "is_primary_decision": True,
+        "decision_authority": "REVIEW_ONLY",
+        "execution_available": False,
+        "creates_orders": False,
+        "canonical_decision_owner": HOC_CANONICAL_OWNER,
+        "sole_execution_path": "POST /v1/operations/daily-research-cycle/run",
     }
 
 
@@ -647,7 +790,7 @@ def _queued_actions(*, primary_code: str, research_current: bool,
                     assessment_status: str, eligible_session_closed: bool,
                     has_confirmed_eligible: bool, evidence_gap: bool,
                     manual_review_required: bool, pending_orders: int,
-                    cycle_active: bool = False) -> list[dict]:
+                    cycle_active: bool = False, hoc_available: bool = False) -> list[dict]:
     q: list[dict[str, Any]] = []
 
     def add(action_code, label, severity, destination, reason, *,
@@ -674,6 +817,14 @@ def _queued_actions(*, primary_code: str, research_current: bool,
             "eligible session; it is produced by the Daily Research Cycle (the sole "
             "execution path), not a separate reassessment control."
             % assessment_status.lower(), slice3_pending=False)
+    if hoc_available:
+        # After a completed Holding Opportunity-Cost assessment exists, the operator
+        # REVIEWS it (read-only) before the Daily Close. Review/routing only — never a
+        # separate reassessment / proposal / rebalance / order execution control.
+        add(ACTION_REVIEW_HOC, "Review the Holding Opportunity-Cost assessment",
+            SEV_INFO, DEST_PORTFOLIO_MANAGER,
+            "A Holding Opportunity-Cost assessment is available for the eligible session; "
+            "review it (read-only) before the Daily Close. No orders, no confirmation.")
     if has_confirmed_eligible and not eligible_session_closed:
         add(ACTION_RUN_DAILY_CLOSE, "Run the Daily Close", SEV_ATTENTION,
             DEST_DAILY_WORKFLOW,
@@ -950,6 +1101,18 @@ def load_workflow_state(
 
     manual_review_required = bool(gate_target_state == _GATE_APPROVAL_REQUIRED)
 
+    # --- Holding Opportunity-Cost summary (Phase 29G.2 — the canonical primary
+    #     portfolio decision). The gate is the ONE owner that delegates to the HOC
+    #     read-summary (api.holding_opportunity_cost.load_assessment_summary) for the
+    #     active book + eligible session, so the workflow owner reads the HOC state from
+    #     the gate's already-loaded opportunity_cost_* fields — one documented shared
+    #     state path (no second HOC loader, no recomputation). ---------------------- #
+    hoc_available = bool((gate or {}).get("opportunity_cost_available"))
+    hoc_state = (gate or {}).get("opportunity_cost_state") or _HOC_NOT_RUN
+    hoc_counts = (gate or {}).get("opportunity_cost_recommendation_counts") or {}
+    hoc_hash = (gate or {}).get("opportunity_cost_assessment_hash")
+    hoc_gaps = (gate or {}).get("opportunity_cost_data_gaps") or []
+
     # --- Evidence facts (documented gap, never fabricated). -------------------- #
     latest_snapshot_date = (forward_status or {}).get("latest_snapshot_date")
     snap_d = _coerce_date(latest_snapshot_date)
@@ -983,7 +1146,7 @@ def load_workflow_state(
         eligible_session_closed=eligible_session_closed,
         has_confirmed_eligible=has_confirmed_eligible, evidence_gap=evidence_gap,
         manual_review_required=manual_review_required, pending_orders=pending_orders,
-        cycle_active=(cycle_running or cycle_blocked))
+        cycle_active=(cycle_running or cycle_blocked), hoc_available=hoc_available)
 
     # --- Blockers + warnings (Workstream C.12/13). ----------------------------- #
     blockers: list[dict[str, Any]] = []
@@ -1033,15 +1196,33 @@ def load_workflow_state(
         "latest_evidence_snapshot": {"market_date": latest_snapshot_date},
     }
 
-    # --- Canonical presentation contract (Workstream B/D/F). ------------------- #
-    # Backend-generated operator text so the UI renders (never derives) the primary
-    # interpretation: an older no-change assessment is a DATED historical result
-    # with its currency; the still-open session is kept distinct from the completed
-    # close's documented (attention) forward-evidence gap.
-    assessment_presentation = build_assessment_presentation(
+    # --- Canonical presentation contract (Workstream B/D — Phase 29G.2 cutover). --- #
+    # The ONE PRIMARY portfolio-decision presentation is the Holding Opportunity-Cost
+    # Review; it is what every operator surface (Command Center / Daily Workflow /
+    # Portfolio Manager) renders as ``assessment_presentation``. Before the first
+    # production HOC artifact it presents NOT_RUN with recommendations "NONE YET" (no
+    # fabricated counts). The legacy daily-action-gate rank-membership comparison is
+    # reclassified compatibility-only under ``legacy_membership_comparison`` and is NEVER
+    # a primary decision. The UI renders these values verbatim (never derives them).
+    hoc_membership_add = len((gate or {}).get("proposed_additions") or [])
+    hoc_membership_remove = len((gate or {}).get("proposed_removals") or [])
+    hoc_membership_resize = len((gate or {}).get("proposed_resizes") or [])
+    holding_opportunity_cost_presentation = build_holding_opportunity_cost_presentation(
+        state=hoc_state, available=hoc_available, eligible_date=eligible_date,
+        active_book_label=(freshness.get("active_book") or {}).get("active_book_name"),
+        recommendation_counts=hoc_counts, assessment_hash=hoc_hash, data_gaps=hoc_gaps)
+    canonical_operator_state = holding_opportunity_cost_presentation["canonical_operator_state"]
+    # The PRIMARY card payload is the HOC presentation (owned by the UI's
+    # renderWorkflowState canonical nodes) — it never carries the legacy "LATEST
+    # PORTFOLIO ASSESSMENT" / "PROPOSAL READY" / "PORTFOLIO CHANGES PROPOSED" wording.
+    assessment_presentation = holding_opportunity_cost_presentation
+    legacy_membership_comparison = build_assessment_presentation(
         assessment_status=assessment_status, assessment_date=latest_assessment_date,
         outcome=latest_assessment_result, recommendation=latest_assessment_recommendation,
-        current_for_eligible=ac["current_for_eligible_session"])
+        current_for_eligible=ac["current_for_eligible_session"],
+        membership_add_count=hoc_membership_add,
+        membership_remove_count=hoc_membership_remove,
+        membership_resize_count=hoc_membership_resize)
     evidence_presentation = build_evidence_presentation(
         operational_close_valid=operational_close_valid, latest_close_date=latest_close_date,
         evidence_gap=evidence_gap, active_book_snapshot_present=active_book_snapshot_present,
@@ -1184,7 +1365,16 @@ def load_workflow_state(
             "recovery_classification": (forward_status or {}).get("interpretation"),
         },
         "model_governance_state": model_governance,
+        # Phase 29G.2: the PRIMARY portfolio-decision presentation is the Holding
+        # Opportunity-Cost Review (assessment_presentation is an alias of it, retained so
+        # the UI's canonical-node owner keeps painting the same DOM). The legacy rank-
+        # membership comparison is compatibility-only and never a primary decision.
         "assessment_presentation": assessment_presentation,
+        "holding_opportunity_cost_presentation": holding_opportunity_cost_presentation,
+        "canonical_operator_state": canonical_operator_state,
+        "canonical_operator_state_vocabulary": list(CANONICAL_OPERATOR_STATES),
+        "canonical_decision_owner": HOC_CANONICAL_OWNER,
+        "legacy_membership_comparison": legacy_membership_comparison,
         "evidence_presentation": evidence_presentation,
         "completed_summary": completed_summary,
         "consistency_status": consistency_status,
@@ -1291,5 +1481,9 @@ __all__ = [
     "CONSISTENT", "INCONSISTENT", "UNKNOWN", "CONSISTENCY_VOCAB",
     "VALID_DESTINATIONS",
     "classify_assessment", "build_assessment_presentation",
+    "build_holding_opportunity_cost_presentation",
     "build_evidence_presentation", "load_workflow_state",
+    "HOC_CANONICAL_OWNER", "HOC_PRIMARY_TITLE", "LEGACY_COMPARISON_TITLE",
+    "COS_NOT_RUN", "COS_AVAILABLE", "COS_DEGRADED", "COS_BLOCKED",
+    "COS_NO_ACTIVE_BOOK", "COS_UNAVAILABLE", "CANONICAL_OPERATOR_STATES",
 ]

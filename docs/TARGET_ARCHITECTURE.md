@@ -339,6 +339,15 @@ responsibilities, candidate existing modules, and migration approach.
   separately. The Daily Research Cycle stays the sole Slice 6 execution path; the Holding
   Opportunity-Cost review stays the primary portfolio decision surface; no target /
   rebalance / order authority is added ahead of Slice 7.
+- **One primary portfolio-decision concept** (Phase 29G.2 residual hard cutover): the
+  Holding Opportunity-Cost Review is the SOLE primary decision card on every operator
+  surface (canonical operator state `HOLDING_OPPORTUNITY_COST_NOT_RUN` before the first
+  artifact). The legacy rank-membership comparison is compatibility-only and collapsed
+  (`compatibility_only` / `decision_authority=NONE` / `canonical_decision_owner=
+  api.holding_opportunity_cost`), never a "Proposal Ready" / "Portfolio Changes Proposed"
+  decision. Two read-only first-live operator gates (`pre_drc_readiness.ps1`,
+  `post_drc_acceptance.ps1`) precede the first live cycle and the Daily Close. Guarded by
+  `check_slice6_residual_cutover_ownership`; cadence remains disabled.
 - Paper-only, preview-first, manual-review, no-automation boundaries.
 - Remote prediction at `:9000`; no local prediction.
 - The clean `db/session.py` boundary — the model for the future store service.

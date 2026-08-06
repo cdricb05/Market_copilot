@@ -13,10 +13,11 @@ primary operator interpretation after the UI hard cutover:
   * ASYNC ORDER — an in-process DOM harness runs the ACTUAL render functions in
     every completion order and proves the final visible state is identical (the
     canonical value wins by OWNERSHIP, not timing).
-  * VISIBLE CONTRACT — the observed regression scenario shows WAITING FOR SESSION
-    CLOSE / LATEST PORTFOLIO ASSESSMENT / OVERDUE / a dated historical statement /
-    a required reassessment, and NEVER "DAILY ACTION GATE — TODAY" / "NO ACTION
-    TODAY" as a current conclusion.
+  * VISIBLE CONTRACT — after the Phase 29G.2 residual hard cutover the primary card on
+    every surface is the HOLDING OPPORTUNITY-COST REVIEW (NOT_RUN before the first
+    production artifact); the legacy rank-membership comparison is preserved DATED and
+    compatibility-only, and NEVER "DAILY ACTION GATE — TODAY" / "NO ACTION TODAY" /
+    "LATEST PORTFOLIO ASSESSMENT" / "PROPOSAL READY" appears as a primary conclusion.
   * API / SAFETY / ARCHITECTURE — the endpoint stays authenticated, GET-only and
     read-only; the raw gate keeps its NO_ACTION_TODAY code; the audit guards hold.
 
@@ -110,31 +111,50 @@ def _ui():
 # =========================================================================== #
 # BACKEND PRESENTATION (required 1–8)
 # =========================================================================== #
-def test_01_historical_no_change_result_preserved_and_dated():
-    ap = _regression()["assessment_presentation"]
-    assert ap["historical_result"] == "No portfolio change was recommended."
-    assert ap["assessment_date"] == "2026-07-31"
-    assert ap["title_with_date"] == "LATEST PORTFOLIO ASSESSMENT — 2026-07-31"
-    assert "2026-07-31" in ap["headline"]
-    assert ap["headline"] == "No portfolio change was recommended on 2026-07-31."
+def test_01_holding_opportunity_cost_is_the_primary_presentation():
+    # Phase 29G.2 residual hard cutover: the PRIMARY portfolio-decision presentation is
+    # the Holding Opportunity-Cost Review (NOT_RUN before the first production artifact).
+    r = _regression()
+    ap = r["assessment_presentation"]
+    assert ap["title"] == "HOLDING OPPORTUNITY-COST REVIEW"
+    assert ap["title_with_date"] == "HOLDING OPPORTUNITY-COST REVIEW — 2026-08-04"
+    assert ap["badge"] == "NOT_RUN"
+    assert ap["is_primary_decision"] is True
+    assert ap["recommendations_label"] == "NONE YET"
+    assert ap["canonical_decision_owner"] == "api.holding_opportunity_cost"
+    assert r["canonical_operator_state"] == ws.COS_NOT_RUN
+    # The legacy rank-membership comparison is preserved, DATED, and compatibility-only.
+    lg = r["legacy_membership_comparison"]
+    assert lg["title"] == ws.LEGACY_COMPARISON_TITLE
+    assert lg["assessment_date"] == "2026-07-31"
+    assert lg["historical_result"] == "The current holdings matched the ranked names."
+    assert lg["compatibility_only"] is True
+    assert lg["decision_authority"] == "NONE"
 
 
-def test_02_overdue_assessment_gets_overdue_presentation():
-    ap = _regression()["assessment_presentation"]
-    assert ap["currency_status"] == ws.ASSESS_OVERDUE
-    assert ap["currency_label"] == "Overdue"
-    assert ap["badge"] == "OVERDUE"
-    assert ap["severity"] == ws.SEV_ATTENTION
-    assert ap["follow_up"] == "A new portfolio reassessment is required."
+def test_02_overdue_legacy_comparison_is_never_a_primary_proposal():
+    r = _regression()
+    lg = r["legacy_membership_comparison"]
+    assert lg["currency_status"] == ws.ASSESS_OVERDUE
+    assert lg["currency_label"] == "Overdue"
+    assert lg["badge"] == "OVERDUE"
+    assert lg["severity"] == ws.SEV_ATTENTION
+    assert lg["is_portfolio_proposal"] is False
+    assert lg["view_action_label"] == "View Legacy Membership Comparison"
+    # The PRIMARY presentation is never the overdue legacy currency.
+    assert r["assessment_presentation"]["badge"] == "NOT_RUN"
 
 
-def test_03_stale_assessment_gets_stale_presentation():
+def test_03_legacy_stale_comparison_is_compatibility_only():
     ap = ws.build_assessment_presentation(
         assessment_status=ws.ASSESS_STALE, assessment_date="2026-07-31",
         outcome="NO_ACTION_TODAY", recommendation=None, current_for_eligible=False)
     assert ap["currency_status"] == "STALE" and ap["currency_label"] == "Stale"
     assert ap["today_wording_allowed"] is False
-    assert ap["explanation"] == "A new portfolio reassessment is required."
+    assert ap["title"] == ws.LEGACY_COMPARISON_TITLE
+    assert ap["compatibility_only"] is True
+    assert ap["decision_authority"] == "NONE"
+    assert ap["is_portfolio_proposal"] is False
 
 
 def test_04_current_assessment_may_be_presented_as_current():
@@ -301,44 +321,51 @@ def test_24b_specialized_setters_cannot_overwrite_after_workflow(harness):
 # =========================================================================== #
 # VISIBLE CONTRACT (required 25–38) — from the harness DOM dump + source.
 # =========================================================================== #
-def test_25_to_31_all_surfaces_use_canonical_assessment_presentation(harness):
+def test_25_to_31_all_surfaces_use_canonical_holding_opportunity_cost(harness):
+    # Phase 29G.2: all three surfaces present the ONE primary Holding Opportunity-Cost
+    # Review (NOT_RUN before the first production artifact) — never the legacy proposal.
     c = harness["orders"]["ws_then_gate"]["canonical"]
     for p in ("cc", "dw", "pm"):
-        assert c["%s-dag-title" % p] == "LATEST PORTFOLIO ASSESSMENT — 2026-07-31"
-        assert c["%s-dag-badge" % p] == "OVERDUE"
-        assert c["%s-dag-headline" % p] == "No portfolio change was recommended on 2026-07-31."
-        assert c["%s-dag-explanation" % p] == "A new portfolio reassessment is required."
+        assert c["%s-dag-title" % p] == "HOLDING OPPORTUNITY-COST REVIEW — 2026-08-04"
+        assert c["%s-dag-badge" % p] == "NOT_RUN"
+        assert "Holding Opportunity-Cost" in c["%s-dag-headline" % p]
+        assert "NONE YET" in c["%s-dag-explanation" % p]
 
 
-def test_30_right_rail_uses_canonical_workflow_presentation(harness):
+def test_30_right_rail_uses_canonical_holding_opportunity_cost(harness):
     c = harness["orders"]["ws_then_gate"]["canonical"]
     assert c["right-current-task"] == "Wait for the current market session to close."
     assert c["right-next-action"] == "Wait for the market session to close"
-    assert c["right-dag-badge"] == "OVERDUE"          # never "NO ACTION TODAY"
+    assert c["right-dag-badge"] == "NOT_RUN"           # HOC state, never "NO ACTION TODAY"
     assert c["right-dc-badge"].startswith("VALID")     # factual completed close
 
 
 def test_31_to_34_all_surfaces_agree(harness):
     c = harness["orders"]["ws_then_gate"]["canonical"]
-    # overall assessment currency identical across CC/DW/PM and the right rail.
+    # The canonical Holding Opportunity-Cost state is identical across CC/DW/PM + right rail.
     badges = {c["cc-dag-badge"], c["dw-dag-badge"], c["pm-dag-badge"], c["right-dag-badge"]}
-    assert badges == {"OVERDUE"}
+    assert badges == {"NOT_RUN"}
 
 
-def test_35_stale_assessment_not_shown_as_no_action_today(harness):
-    dump = json.dumps(harness["orders"]["ws_then_gate"]["canonical"])
-    assert "NO ACTION TODAY" not in dump
-    assert "DAILY ACTION GATE — TODAY" not in dump
-    # The offending phrase never appears as an undated/current canonical conclusion.
-    for p in ("cc", "dw", "pm"):
-        assert "TODAY" not in harness["orders"]["ws_then_gate"]["canonical"]["%s-dag-title" % p].upper() \
-            or "PORTFOLIO ASSESSMENT" in harness["orders"]["ws_then_gate"]["canonical"]["%s-dag-title" % p]
-
-
-def test_36_historical_result_remains_visible_and_dated(harness):
+def test_35_primary_card_shows_hoc_never_legacy_proposal(harness):
     c = harness["orders"]["ws_then_gate"]["canonical"]
-    assert "2026-07-31" in c["cc-dag-title"]
-    assert "2026-07-31" in c["cc-dag-headline"]
+    dump = json.dumps(c)
+    # No legacy primary-proposal wording survives on any canonical node.
+    for forbidden in ("NO ACTION TODAY", "DAILY ACTION GATE — TODAY",
+                      "LATEST PORTFOLIO ASSESSMENT", "PROPOSAL READY",
+                      "PORTFOLIO CHANGES PROPOSED", "Review Proposed Changes"):
+        assert forbidden not in dump, forbidden
+    for p in ("cc", "dw", "pm"):
+        assert c["%s-dag-title" % p].startswith("HOLDING OPPORTUNITY-COST REVIEW")
+
+
+def test_36_hoc_dated_and_legacy_history_preserved(harness):
+    c = harness["orders"]["ws_then_gate"]["canonical"]
+    assert "2026-08-04" in c["cc-dag-title"]            # HOC eligible-session date
+    # The dated legacy historical result is preserved in the backend contract.
+    lg = _regression()["legacy_membership_comparison"]
+    assert lg["assessment_date"] == "2026-07-31"
+    assert "2026-07-31" in lg["headline"]
 
 
 def test_37_current_session_and_completed_close_evidence_distinguished(harness):

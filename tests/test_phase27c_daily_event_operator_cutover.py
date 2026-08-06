@@ -427,10 +427,16 @@ class TestUiStaticGateSurfaces:
     def test_gate_load_wired_into_operational_book_loader(self, js):
         assert "try { loadDailyActionGate(); } catch (e) {}" in js
 
-    def test_pm_hides_confirm_when_no_action(self, js):
-        # brief B5: no confirmation controls when no action is required
-        assert "if (g.action_required)" in js
-        assert "brief B5: no confirmation controls when no action" in js
+    def test_pm_has_no_proposal_confirmation_control(self, js):
+        # Phase 29G.2 residual hard cutover: the Daily Action Gate card has NO proposal /
+        # confirmation control at all. The card presents the canonical Holding
+        # Opportunity-Cost Review; the ONLY affordance is a read-only "View Legacy
+        # Membership Comparison" expander, shown solely when the legacy comparison has
+        # changes. The obsolete action-required confirm gate is gone.
+        assert "if (g.action_required)" not in js
+        assert "Review Proposed Changes" not in js
+        assert "View Legacy Membership Comparison" in js
+        assert "if (hasLegacy)" in js
 
     def test_no_native_dialogs(self, html):
         for pat in ("alert(", "confirm(", "prompt("):

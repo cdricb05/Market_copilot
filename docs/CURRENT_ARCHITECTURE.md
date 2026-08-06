@@ -729,3 +729,43 @@ flowchart LR
   enforces all of the above; no target / rebalance / order / target-confirmation route is
   added; Slice 7 remains next; the Persistent Alpha Research Agent (Slice 8 / Milestone 4)
   remains planned; cadence remains disabled.
+
+### Slice 6 residual hard cutover + first-live operator gates (Phase 29G.2)
+
+- **Defect closed:** Phase 29G.1 reclassified the FIRST compatibility card (the Daily
+  Close card) but a SECOND renderer — the Daily Action Gate card (`cc/dw/pm-dag-card`) on
+  the Command Center, Daily Workflow and Portfolio Manager — still presented the legacy
+  rank-membership comparison as a PRIMARY decision ("LATEST PORTFOLIO ASSESSMENT",
+  "PROPOSAL READY — MANUAL REVIEW REQUIRED", "PORTFOLIO CHANGES PROPOSED", a "Review
+  Proposed Changes" button, the 17-name Add/Remove list). Two conflicting interpretations
+  of the same portfolio decision remained visible.
+- **One primary decision:** the Daily Action Gate card on all three surfaces now presents
+  the canonical **Holding Opportunity-Cost Review**. Its title / badge / headline /
+  explanation are owned by `renderWorkflowState` from `workflow_state.assessment_presentation`
+  (an alias of `holding_opportunity_cost_presentation`). Before the first production
+  artifact the canonical operator state is `HOLDING_OPPORTUNITY_COST_NOT_RUN` and the card
+  shows "NONE YET" with no fabricated HOLD/REDUCE/EXIT/REPLACE/ADD counts. `workflow_state`
+  reads the HOC summary from the gate's delegated `opportunity_cost_*` fields (one
+  documented shared state path — no second HOC loader).
+- **Legacy comparison (compatibility-only, collapsed):** the rank-membership comparison is
+  a COLLAPSED `<details>` "LEGACY MEMBERSHIP-COMPARISON SUMMARY — COMPATIBILITY ONLY" on
+  each surface (a "View Legacy Membership Comparison" affordance), explicitly not a
+  portfolio proposal and creating no orders. `daily_action_gate.load_daily_action_gate`
+  carries an explicit classification (`compatibility_only=true`, `decision_authority=NONE`,
+  `execution_available=false`, `canonical_decision_owner=api.holding_opportunity_cost`,
+  `legacy_membership_comparison=true`) plus a `legacy_membership_comparison_presentation`
+  block; the raw gate outcome / target-state vocabulary is PRESERVED for historical
+  consumers but never presented as a primary decision.
+- **First-live operator gates:** two read-only GET-only PowerShell scripts
+  (`Invoke-RestMethod`, no `.NET` HTTP client, no write request) —
+  `pre_drc_readiness.ps1` (`READY_TO_RUN_DAILY_RESEARCH_CYCLE` / `DO_NOT_RUN_…`) and
+  `post_drc_acceptance.ps1` (`READY_TO_RUN_DAILY_CLOSE` / `DO_NOT_RUN_…`) — gate the first
+  live cycle and the Daily Close.
+- **Static guard:** `scripts/audit_architecture.py:check_slice6_residual_cutover_ownership`
+  proves no primary "Portfolio Changes Proposed" / "Proposal Ready" presentation and no
+  "Review Proposed Changes" / "Review Rebalance Proposal" button remain, the legacy
+  comparison is compatibility-only and collapsed, HOC is the sole primary card that all
+  three surfaces use, exactly one HOC loader, no JS recommendation/cost computation, the
+  DRC is the sole execution path, and no reassessment/rebalance/order route exists. Slice 7
+  remains next; the Persistent Alpha Research Agent (Slice 8 / Milestone 4) remains
+  planned; cadence remains disabled.

@@ -626,6 +626,53 @@
   automation; Slice 7 (Reallocation Proposal, Milestone 3) is next; the Persistent Alpha
   Research Agent (Slice 8, Milestone 4) remains planned; cadence remains disabled.
 
+### D-17.1 — Slice 6 residual hard cutover: HOC is the sole primary decision (Phase 29G.2) — CONFIRMED (LANDED)
+- **Defect:** Phase 29G.1 reclassified the FIRST compatibility card (the Daily Close
+  card, `api.daily_close`) but a SECOND operator-facing renderer — the Daily Action Gate
+  card (`cc/dw/pm-dag-card`) on the Command Center, Daily Workflow and Portfolio Manager —
+  still presented the legacy rank-membership comparison as a PRIMARY decision: "LATEST
+  PORTFOLIO ASSESSMENT", "PROPOSAL READY — MANUAL REVIEW REQUIRED", "PORTFOLIO CHANGES
+  PROPOSED — MANUAL REVIEW REQUIRED", a "Review Proposed Changes" button and the 17-name
+  Add/Remove membership comparison. Two conflicting interpretations of the same portfolio
+  decision therefore remained visible.
+- **Decision:** there is exactly ONE primary portfolio-decision concept — the **HOLDING
+  OPPORTUNITY-COST REVIEW** (`api.holding_opportunity_cost`). The Daily Action Gate card
+  on all three surfaces now presents the canonical HOC state (title / badge / headline /
+  explanation owned by `renderWorkflowState` from `workflow_state.assessment_presentation`,
+  which is the HOC presentation). Before the first production artifact the canonical
+  operator state is `HOLDING_OPPORTUNITY_COST_NOT_RUN`, presented with "NONE YET" and no
+  fabricated HOLD/REDUCE/EXIT/REPLACE/ADD counts. The legacy rank-membership comparison is
+  demoted to a COLLAPSED, read-only **LEGACY MEMBERSHIP-COMPARISON SUMMARY — COMPATIBILITY
+  ONLY** (`<details>` on each surface, "View Legacy Membership Comparison" affordance),
+  explicitly not a portfolio proposal and creating no orders. The gate result carries an
+  explicit classification (`compatibility_only=true`, `decision_authority=NONE`,
+  `execution_available=false`, `canonical_decision_owner=api.holding_opportunity_cost`,
+  `legacy_membership_comparison=true`); the raw gate outcome / target-state vocabulary is
+  PRESERVED unchanged for historical consumers but never presented as a primary decision.
+  A compatibility comparison can never set the canonical operator state to PROPOSAL_READY /
+  REBALANCE_PROPOSAL_READY / PORTFOLIO_CHANGES_PROPOSED.
+- **Workflow sequence:** wait for the session to close → run the Daily Research Cycle (the
+  SOLE HOC execution path) → review the Holding Opportunity-Cost assessment (read-only) →
+  run the Daily Close. There is no separate reassessment / proposal-review / rebalance /
+  order execution control.
+- **First-live operator gates:** two read-only PowerShell scripts (GET-only,
+  `Invoke-RestMethod`, no `.NET` HTTP client, no write request) —
+  `pre_drc_readiness.ps1` (service ready, session closed, no workflow lock, active book,
+  25 holdings, 0 pending orders, HOC NOT_RUN, DRC executable → `READY_TO_RUN_DAILY_RESEARCH_
+  CYCLE`) and `post_drc_acceptance.ps1` (DRC complete, opportunity-cost step done, one
+  current artifact for the eligible date, artifact active-book / hash / holdings-evaluated
+  reconciled, 0 pending orders, workflow READY_FOR_DAILY_CLOSE → `READY_TO_RUN_DAILY_CLOSE`).
+- **Guard:** `scripts/audit_architecture.py:check_slice6_residual_cutover_ownership`
+  proves no primary "Portfolio Changes Proposed" / "Proposal Ready" presentation and no
+  "Review Proposed Changes" / "Review Rebalance Proposal" button remain, the legacy
+  comparison is compatibility-only and collapsed on all three surfaces, HOC is the sole
+  primary decision card that all three surfaces use, exactly one HOC loader, no JS
+  recommendation/cost computation, the DRC is the sole execution path, and no
+  reassessment/rebalance/order route exists.
+- **Consequence:** no target weight, no order or target authority; Slice 7 (Reallocation
+  Proposal, Milestone 3) is next; the Persistent Alpha Research Agent (Slice 8, Milestone
+  4) remains planned; cadence remains disabled.
+
 ## Rejected alternatives
 
 - **R-1 — Rewrite the backend from scratch.** Rejected: violates Principle 8;
