@@ -212,6 +212,31 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   no-execution invariants; inventory drift = 0. **Not begun:** Slice 4 (canonical
   scoring), Slice 5 (portfolio state), Milestone 2 (opportunity-cost engine);
   cadence remains disabled.
+- **Live-acceptance completion — Phase 29D.1 (Slice 3 remains LANDED).** The first
+  real post-close live acceptance (2026-08-05, after the 17:30 ET cutoff) exposed
+  three defects the offline fixtures had not: (1) `engine/market_session` inferred a
+  *holiday* from the ABSENCE of same-day owned data — the desk marks and the SPY
+  benchmark share ONE owned provider and lagged together on a normal publish delay —
+  returning a ready `CALENDAR_POLICY_DEGRADED`; (2) `api/workflow_state` therefore
+  surfaced the research blocker (`RESEARCH_CYCLE_BLOCKED`) instead of
+  `WAITING_FOR_OWNED_DATA`; and (3) `api/daily_research_cycle` emitted
+  `target_calculation — NO_REFRESH_OWNER`. Corrected: a weekday is a non-session ONLY
+  through an authoritative exchange calendar or a persisted provider-confirmed
+  contract (new `NON_SESSION` status); otherwise the expected weekday stays
+  unresolved as `WAITING_FOR_OWNED_DATA` with a `calendar_policy_degraded` flag and
+  the prior valid close is unchanged; the session is confirmed only when BOTH the
+  owned market marks AND the benchmark reach the expected date. `target_calculation`
+  now has a DECLARED prepared-downstream owner (`alpha_target.load_readiness`,
+  produced by `STEP_PREPARE_TARGET`) — never `NO_REFRESH_OWNER`. The frozen monthly
+  momentum input gains a DECLARED canonical in-repo adapter owner
+  (`api/monthly_momentum_input.py`) that wraps an injectable emitter seam and owns the
+  safe contract (due-ness / schema-period-provenance validation / idempotency /
+  atomic persist / reuse-or-reject). There is still no safe automatic emitter bundled
+  in the pure-stdlib repo, so a due month blocks HONESTLY through the adapter (never
+  `NO_REFRESH_OWNER`, never a separate operator monthly button). `WAITING_FOR_OWNED_DATA`
+  strictly outranks any research blocker. Static guard
+  `check_slice3_live_acceptance_ownership`; inventory drift = 0. Slice 4 still owns
+  consolidation; Slice 5 (portfolio state) remains not begun; cadence remains disabled.
 
 ## Slice 4 — Canonical universe scoring
 

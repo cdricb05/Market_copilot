@@ -435,7 +435,11 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
         return WAITING_FOR_SESSION_CLOSE
 
     # P3 — the expected session is not confirmed by owned data (or no confirmed
-    #      session exists) → wait for / refresh owned market data.
+    #      session exists) → wait for / refresh owned market data. INVARIANT
+    #      (Phase 29D.1 live-acceptance): unresolved current-session owned data
+    #      ALWAYS outranks any research-cycle blocker below — a research blocker on
+    #      the PRIOR session must never be surfaced while the expected session is
+    #      still unconfirmed. This precedes P3.5/P3.6 by construction.
     if (not has_confirmed_eligible) or owned_data_lag:
         return WAITING_FOR_OWNED_DATA
 
@@ -446,8 +450,9 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
     # P3.5 — a Persistent Daily Research Cycle run is in flight (Slice 3).
     if cycle_running:
         return RESEARCH_CYCLE_RUNNING
-    # P3.6 — the Daily Research Cycle is blocked (e.g. the frozen monthly momentum
-    #        input is due but has no safe automatic emitter). More specific than P4.
+    # P3.6 — the Daily Research Cycle is blocked (e.g. a due monthly momentum input
+    #        with no wired emitter). More specific than P4, but strictly BELOW P3:
+    #        it is only reachable once owned data has confirmed the eligible session.
     if cycle_blocked:
         return RESEARCH_CYCLE_BLOCKED
 

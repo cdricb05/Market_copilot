@@ -127,15 +127,53 @@ def test_11_no_confirmed_data():
     assert s.ready_for_operational_close is False
 
 
-def test_11b_holiday_owned_data_wins_over_weekday_calendar():
-    # Two independent owned series both stop one trading session back -> the weekday
-    # calendar over-counted a holiday; owned data is authoritative.
+def test_11b_absence_of_owned_data_is_never_a_holiday():
+    # Phase 29D.1 live-acceptance correction: two owned series (desk marks + SPY)
+    # both stop one session back — but they share ONE owned provider and lag together
+    # on a normal post-cutoff publish delay. With NO authoritative exchange calendar
+    # this is WAITING_FOR_OWNED_DATA (calendar policy DEGRADED), NEVER a holiday. The
+    # prior session stays valid.
     now = datetime(2026, 8, 4, 21, 45, tzinfo=timezone.utc)  # expected 2026-08-04
     s = ms.evaluate_session(now=now, latest_confirmed_owned_data_date="2026-08-03",
                             latest_benchmark_date="2026-08-03")
-    assert s.session_status == ms.CALENDAR_POLICY_DEGRADED
+    assert s.session_status == ms.WAITING_FOR_OWNED_DATA
+    assert s.ready_for_operational_close is False
+    assert s.calendar_policy_degraded is True
+    assert s.eligible_market_date == "2026-08-03"  # the prior valid session stands
+
+
+def test_11c_authoritative_calendar_holiday_permits_non_session():
+    # An AUTHORITATIVE exchange calendar marks the expected date a non-session -> the
+    # latest actual session is the prior day and owned data confirms it -> NON_SESSION.
+    now = datetime(2026, 8, 4, 21, 45, tzinfo=timezone.utc)  # expected 2026-08-04
+    s = ms.evaluate_session(now=now, latest_confirmed_owned_data_date="2026-08-03",
+                            latest_benchmark_date="2026-08-03",
+                            authoritative_non_sessions=["2026-08-04"])
+    assert s.session_status == ms.NON_SESSION
     assert s.eligible_market_date == "2026-08-03"
     assert s.ready_for_operational_close is True
+    assert "2026-08-04" in s.authoritative_non_sessions
+
+
+def test_11d_provider_confirmed_non_session_permits_non_session():
+    now = datetime(2026, 8, 4, 21, 45, tzinfo=timezone.utc)
+    s = ms.evaluate_session(now=now, latest_confirmed_owned_data_date="2026-08-03",
+                            provider_confirmed_non_sessions=("2026-08-04",))
+    assert s.session_status == ms.NON_SESSION
+    assert s.eligible_market_date == "2026-08-03"
+    assert s.ready_for_operational_close is True
+
+
+def test_11e_calendar_available_but_not_holiday_still_waits():
+    # A calendar IS available and confirms the expected date is a trading day, but
+    # owned data has not published yet -> WAITING_FOR_OWNED_DATA, NOT degraded.
+    now = datetime(2026, 8, 4, 21, 45, tzinfo=timezone.utc)
+    s = ms.evaluate_session(now=now, latest_confirmed_owned_data_date="2026-08-03",
+                            latest_benchmark_date="2026-08-03",
+                            authoritative_non_sessions=[])  # calendar present, no holiday
+    assert s.session_status == ms.WAITING_FOR_OWNED_DATA
+    assert s.ready_for_operational_close is False
+    assert s.calendar_policy_degraded is False
 
 
 def test_12_deterministic_output_same_inputs():

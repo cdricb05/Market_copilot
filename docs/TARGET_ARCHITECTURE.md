@@ -97,6 +97,14 @@ responsibilities, candidate existing modules, and migration approach.
   and the research forward-roll (`alpha_agent/source_exhaustion.py`) are kept
   separate. Remaining resolvers (`paper_trading_desk._required_mark_date`,
   `current_alpha_tournament_sync`, `market_screener`) are documented follow-ups.
+- **Non-session policy (Phase 29D.1):** a weekday is `NON_SESSION` ONLY through an
+  AUTHORITATIVE source (an installed exchange calendar or a persisted provider-confirmed
+  contract). The absence of same-day owned data is NEVER a holiday: with no calendar
+  available the expected weekday stays `WAITING_FOR_OWNED_DATA` with
+  `calendar_policy_degraded = True`, and the prior valid close is unchanged. The
+  eligible session is confirmed only when BOTH the owned market marks AND the benchmark
+  reach the expected date. This superseded the removed `likely_holiday` benchmark
+  heuristic (the desk marks and the SPY benchmark share one owned provider).
 
 ### Workflow / Operator State
 - **Responsibility:** hold the single authoritative *combined operator
@@ -199,6 +207,16 @@ responsibilities, candidate existing modules, and migration approach.
   (`RUN_DAILY_RESEARCH_CYCLE`); one UI status loader + one execution function;
   `api/workflow_state` consumes the status (`RESEARCH_CYCLE_RUNNING` /
   `RESEARCH_CYCLE_BLOCKED`). The standalone champion refresh remains a research detail.
+- **Live-acceptance completion (Phase 29D.1):** the frozen monthly momentum input has
+  a DECLARED canonical in-repo adapter owner (`api/monthly_momentum_input.py`) that
+  wraps an injectable emitter seam and owns the safe contract (due-ness / schema /
+  period / provenance validation / idempotency / atomic persist / reuse-or-reject);
+  a due month with no wired emitter blocks HONESTLY through the adapter, never
+  `NO_REFRESH_OWNER` and never a separate operator prerequisite. `target_calculation`
+  is a DECLARED prepared-downstream owner (`alpha_target.load_readiness`, produced by
+  `STEP_PREPARE_TARGET`). `WAITING_FOR_OWNED_DATA` strictly outranks any research
+  blocker; the cycle executes through ONE manual UI action once the expected session
+  is confirmed by owned data.
 
 ### Model Registry and Champion/Challenger Governance
 - **Responsibility:** hold champion + challenger models, run gated evaluation,

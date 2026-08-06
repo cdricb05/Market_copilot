@@ -593,6 +593,28 @@
       "notes": "The ONE orchestration owner of the daily research pass (Consolidation Roadmap Slice 3). Frozen state vocabulary NOT_STARTED / WAITING_FOR_SESSION_CLOSE / WAITING_FOR_OWNED_DATA / PLANNING / REFRESHING_REQUIRED_INPUTS / VALIDATING_INPUT_ALIGNMENT / SCORING_UNIVERSE / PREPARING_TARGET / CAPTURING_FORWARD_EVIDENCE / RUNNING_PORTFOLIO_ASSESSMENT / COMPLETE / COMPLETE_WITH_EVIDENCE_GAP / BLOCKED / FAILED / INCONSISTENT / RUN_IN_PROGRESS. Token RUN_DAILY_RESEARCH_CYCLE. Idempotency key = sha256(eligible date | active book | strategy version | universe | input-contract hash); a completed run is REUSED, a safe incomplete run RESUMES, a conflicting concurrent contract is INCONSISTENT. It ORCHESTRATES existing owners: scoring stays in multi_horizon_engine (Slice 4 will consolidate), evidence stays in forward_prediction_skill (count derived from SUPPORTED_BOOKS, never hard-coded 6; bundle fca_<date> first-write-wins, never backdated), the target is PREPARED never auto-confirmed, and the assessment is a compatibility BRIDGE to the Daily Action Gate (NOT the Milestone-2 opportunity-cost engine). There is NO safe automatic monthly-momentum emitter in-repo: the frozen mom_6_1 monthly input is never approximated intramonth, so the cycle BLOCKS at the month boundary with RUN_RESEARCH_MONTHLY_INPUT_EMITTER (the documented 'August evidence gap' made explicit). It NEVER runs the operational Daily Close (which idempotently reuses the SAME immutable fps bundle), never promotes/recalibrates a model, and creates no order/signal/decision/fill. Every provider/write boundary is an injectable seam so tests never call a provider, prediction, or a real cycle."
     },
     {
+      "path": "api/monthly_momentum_input.py",
+      "system": "infrastructure",
+      "responsibility": "Phase 29D.1 CANONICAL monthly momentum input adapter: the ONE in-repo owner of the frozen mom_6_1 monthly input CONTRACT (Feature Production). It computes NO mom_6_1 (the survivorship-free monthly emission is produced by an external research emitter); it wraps that emitter behind ONE injectable seam and owns the safe orchestration contract — due-ness (persisted input month vs eligible month), never intramonth / never backdate, schema / period / provenance validation, idempotent atomic persistence, reuse-identical / reject-conflicting, and an honest DATA_HOLD when no emitter is wired (never NO_REFRESH_OWNER). Read-only unless it emits; no orders / signals / decisions / fills, no provider / prediction / database / operational-ledger writes.",
+      "classification": "KEEP",
+      "target_owner": "api/monthly_momentum_input.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "multi_horizon_engine input paths (CUR_MOM_FILE / current_momentum_scores.csv month_label + market_as_of_date)"
+      ],
+      "direct_writes": [
+        "current_momentum_scores.csv (the canonical monthly artifact) ONLY when a due month is emitted through a WIRED emitter, atomically; never the operational ledger / database"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_slice3_1_live_acceptance.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Phase 29D.1 Slice 3 live-acceptance completion. The Daily Research Cycle calls emit_if_due through its execution plan (the declared refresh owner api.monthly_momentum_input for momentum_monthly), so there is NO NO_REFRESH_OWNER and no separate operator monthly prerequisite. There is no safe automatic emitter bundled in the pure-stdlib repo (the numpy/pandas survivorship-free emitter lives in the research repo), so by default NO emitter is wired and a due month blocks HONESTLY (owned by this adapter). An emitter is wired only through an explicit seam (an injected callable in tests, or the opt-in PAPER_TRADER_MONTHLY_EMITTER_ENABLED producer). Status vocabulary MONTHLY_INPUT_CURRENT / MONTHLY_INPUT_EMITTED / MONTHLY_INPUT_REUSED / MONTHLY_EMITTER_UNAVAILABLE / MONTHLY_INPUT_CONFLICT / MONTHLY_INPUT_INVALID / MONTHLY_INPUT_SOURCE_UNAVAILABLE. Never approximates the frozen mom_6_1 intramonth; never backdates; first-write-wins per month."
+    },
+    {
       "path": "api/alpha_book.py",
       "system": "operational_alpha_book",
       "responsibility": "Authoritative operational-book engine + order-plan builder",

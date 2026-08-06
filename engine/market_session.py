@@ -62,7 +62,17 @@ EXPECTED_SESSION_COMPLETE = "EXPECTED_SESSION_COMPLETE"
 WAITING_FOR_OWNED_DATA = "WAITING_FOR_OWNED_DATA"
 SESSION_READY = "SESSION_READY"
 NO_CONFIRMED_DATA = "NO_CONFIRMED_DATA"
+# CALENDAR_POLICY_DEGRADED is now a POLICY FLAG (see ``calendar_policy_degraded``),
+# NOT a ready-holiday state. It is retained in the vocabulary for compatibility but
+# a weekday is NEVER classified a non-session merely because same-day owned data is
+# absent (Phase 29D.1 live-acceptance correction). A true non-session requires an
+# AUTHORITATIVE source and yields ``NON_SESSION`` (below).
 CALENDAR_POLICY_DEGRADED = "CALENDAR_POLICY_DEGRADED"
+# An AUTHORITATIVE non-session (exchange holiday / provider-confirmed non-session):
+# the expected weekday did NOT trade. Only reachable via an authoritative calendar
+# or a persisted provider-confirmed non-session contract — never inferred from the
+# absence of same-day owned data.
+NON_SESSION = "NON_SESSION"
 INCONSISTENT_FUTURE_DATA = "INCONSISTENT_FUTURE_DATA"
 
 SESSION_STATUSES = (
@@ -72,6 +82,7 @@ SESSION_STATUSES = (
     SESSION_READY,
     NO_CONFIRMED_DATA,
     CALENDAR_POLICY_DEGRADED,
+    NON_SESSION,
     INCONSISTENT_FUTURE_DATA,
 )
 
@@ -135,6 +146,32 @@ def _coerce_cutoff(value: Any) -> time:
         except (TypeError, ValueError):
             return DEFAULT_CLOSE_CUTOFF_ET
     return DEFAULT_CLOSE_CUTOFF_ET
+
+
+def _norm_non_sessions(*values: Any) -> frozenset[str]:
+    """Normalize one or more authoritative non-session inputs to a set of ISO date
+    strings. Accepts an iterable of date/datetime/ISO-string values (or None).
+
+    These are the ONLY inputs that may classify a weekday as a non-session: an
+    authoritative exchange calendar or a persisted provider-confirmed non-session
+    contract. Absence of same-day owned data is NEVER a non-session (Phase 29D.1).
+    """
+    out: set[str] = set()
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, (str, date, datetime)):
+            items: Any = [value]
+        else:
+            try:
+                items = list(value)
+            except TypeError:
+                items = [value]
+        for item in items:
+            d = _coerce_date(item)
+            if d is not None:
+                out.add(d.isoformat())
+    return frozenset(out)
 
 
 # --------------------------------------------------------------------------- #
@@ -226,6 +263,14 @@ class MarketSession:
     weakest_gate: str
     operator_action: str
     warnings: tuple[str, ...]
+    # Phase 29D.1: True when the weekday+cutoff calendar is degraded (no authoritative
+    # exchange-holiday calendar available) AND owned data has not yet confirmed the
+    # expected session — the date stays unresolved (WAITING_FOR_OWNED_DATA), NEVER
+    # inferred as a holiday. False otherwise.
+    calendar_policy_degraded: bool = False
+    # Authoritative non-session dates (exchange holidays / provider-confirmed
+    # non-sessions) that were used to resolve the expected session, if any.
+    authoritative_non_sessions: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         d = {
@@ -247,6 +292,8 @@ class MarketSession:
             "reason": self.reason,
             "weakest_gate": self.weakest_gate,
             "operator_action": self.operator_action,
+            "calendar_policy_degraded": self.calendar_policy_degraded,
+            "authoritative_non_sessions": list(self.authoritative_non_sessions),
             "warnings": list(self.warnings),
         }
         return d
@@ -268,6 +315,9 @@ def evaluate_session(
     require_confirmation: bool = True,
     calendar_policy: str = CALENDAR_POLICY,
     confirmation_source: str = CONFIRMATION_SOURCE,
+    authoritative_non_sessions: Any = None,
+    provider_confirmed_non_sessions: Any = None,
+    exchange_calendar_available: Optional[bool] = None,
 ) -> MarketSession:
     """Evaluate the canonical market session (pure).
 
@@ -281,6 +331,19 @@ def evaluate_session(
     confirmation. ``require_confirmation=True`` (default) classifies the expected
     date against ``latest_confirmed_owned_data_date`` using the frozen status
     vocabulary; owned data is authoritative over the weekday calendar.
+
+    Non-session policy (Phase 29D.1 live-acceptance correction): a weekday is
+    classified ``NON_SESSION`` ONLY when it is in an AUTHORITATIVE source —
+    ``authoritative_non_sessions`` (an exchange calendar) or
+    ``provider_confirmed_non_sessions`` (a persisted provider-confirmed contract).
+    The absence of same-day owned data is NEVER a holiday. When no authoritative
+    calendar is available (``exchange_calendar_available`` is falsey / no calendar
+    set is supplied) and the expected session is not yet confirmed, the result is
+    ``WAITING_FOR_OWNED_DATA`` with ``calendar_policy_degraded=True`` — the expected
+    weekday stays unresolved, never advanced as a holiday. ``latest_benchmark_date``
+    is retained for compatibility (surfaced in the contract) but no longer drives any
+    holiday inference: the desk marks and the SPY benchmark share one owned provider
+    and lag together on a normal publish delay.
     """
     if now is not None and reference_today is not None:
         raise ValueError("supply either now or reference_today, not both")
@@ -296,16 +359,29 @@ def evaluate_session(
     benchmark = _coerce_date(latest_benchmark_date)
     warnings: list[str] = []
 
+    # AUTHORITATIVE non-session dates (exchange holidays / provider-confirmed
+    # non-sessions). These are the ONLY inputs allowed to classify a weekday as a
+    # non-session. ``calendar_available`` is explicit when given, else inferred from
+    # whether an authoritative-calendar set was supplied.
+    non_sessions = _norm_non_sessions(authoritative_non_sessions,
+                                      provider_confirmed_non_sessions)
+    calendar_available = (bool(exchange_calendar_available)
+                          if exchange_calendar_available is not None
+                          else authoritative_non_sessions is not None)
+
     evaluated_utc = (exp.now_et.astimezone(timezone.utc).isoformat()
                      if exp.now_et.tzinfo else None)
     evaluated_et = exp.now_et.isoformat()
 
     def build(*, eligible: Optional[date], status: str, ready: bool,
-              reason: str, gate: str, action: str) -> MarketSession:
+              reason: str, gate: str, action: str,
+              calendar_policy_degraded: bool = False,
+              non_session_dates: tuple = (),
+              expected_override: Optional[date] = None) -> MarketSession:
         return MarketSession(
             evaluated_at_utc=evaluated_utc,
             evaluated_at_et=evaluated_et,
-            expected_completed_market_date=expected.isoformat(),
+            expected_completed_market_date=(expected_override or expected).isoformat(),
             latest_confirmed_owned_data_date=(confirmed.isoformat() if confirmed else None),
             eligible_market_date=(eligible.isoformat() if eligible else None),
             latest_benchmark_date=(benchmark.isoformat() if benchmark else None),
@@ -322,6 +398,8 @@ def evaluate_session(
             weakest_gate=gate,
             operator_action=action,
             warnings=tuple(warnings),
+            calendar_policy_degraded=bool(calendar_policy_degraded),
+            authoritative_non_sessions=tuple(non_session_dates),
         )
 
     # Calendar-only mode (no owned-data confirmation requested): World A / 16:00.
@@ -379,39 +457,89 @@ def evaluate_session(
                    "unconfirmed calendar date alone.")
 
     if confirmed == expected:
+        # The eligible session is confirmed only when BOTH the owned market marks AND
+        # the benchmark (SPY) reach the expected session. If a benchmark is supplied
+        # and still lags, wait for it (Phase 29D.1). When no benchmark is supplied the
+        # single owned-data confirmation gates (backward compatible).
+        if benchmark is not None and benchmark < expected:
+            return build(
+                eligible=benchmark, status=WAITING_FOR_OWNED_DATA, ready=False,
+                reason="Owned market data confirms %s but the benchmark (SPY) is only "
+                       "current through %s; both must reach the expected session %s."
+                       % (confirmed.isoformat(), benchmark.isoformat(),
+                          expected.isoformat()),
+                gate=GATE_OWNED_DATA_LAG,
+                action="Wait for the owned benchmark (SPY) to publish the %s session."
+                       % expected.isoformat())
         return build(
             eligible=expected, status=SESSION_READY, ready=True,
-            reason="Owned data confirms the expected completed session %s."
-                   % expected.isoformat(),
+            reason="Owned data (market + benchmark) confirms the expected completed "
+                   "session %s." % expected.isoformat(),
             gate=GATE_NONE,
             action="None — the eligible market date is confirmed and ready.")
 
-    # confirmed < expected. Distinguish a likely holiday (a SECOND independent
-    # owned series — the benchmark — also stops exactly one trading session back)
-    # from an ordinary owned-data publish lag.
-    likely_holiday = (
-        benchmark is not None
-        and benchmark == confirmed
-        and previous_trading_day(expected) == confirmed
-    )
-    if likely_holiday:
-        warnings.append(
-            "Weekday calendar expected %s but two independent owned series both stop "
-            "at %s; %s is treated as a non-session (likely holiday). Owned data wins."
-            % (expected.isoformat(), confirmed.isoformat(), expected.isoformat()))
-        return build(
-            eligible=confirmed, status=CALENDAR_POLICY_DEGRADED, ready=True,
-            reason="Owned data confirms %s as the latest actual session; the weekday "
-                   "calendar over-counted %s (no holiday calendar). Owned data is "
-                   "authoritative." % (confirmed.isoformat(), expected.isoformat()),
-            gate=GATE_NONE,
-            action="None — owned data is authoritative; %s is the eligible session."
-                   % confirmed.isoformat())
+    # confirmed < expected. A weekday is a NON-SESSION only through an AUTHORITATIVE
+    # source (exchange calendar / provider-confirmed contract) — NEVER inferred from
+    # the absence of same-day owned data, and NEVER from a benchmark that stops one
+    # session back (the desk marks and the SPY benchmark come from the SAME owned
+    # provider and lag together on a normal post-cutoff publish delay). Phase 29D.1
+    # live-acceptance correction of the false-holiday inference.
+    #
+    # Resolve the TRUE latest expected session by skipping authoritative non-sessions.
+    true_expected = expected
+    skipped: list[str] = []
+    _guard = 0
+    while true_expected.isoformat() in non_sessions and _guard < 15:
+        skipped.append(true_expected.isoformat())
+        true_expected = previous_trading_day(true_expected)
+        _guard += 1
 
+    if skipped:
+        skipped_txt = ", ".join(skipped)
+        if confirmed >= true_expected:
+            warnings.append(
+                "Authoritative calendar: %s is a non-session; the latest actual "
+                "session is %s and owned data confirms %s."
+                % (skipped_txt, true_expected.isoformat(), confirmed.isoformat()))
+            return build(
+                eligible=true_expected, status=NON_SESSION, ready=True,
+                expected_override=true_expected, non_session_dates=tuple(skipped),
+                reason="Authoritative non-session(s) %s; the latest completed session "
+                       "is %s and owned data confirms it."
+                       % (skipped_txt, true_expected.isoformat()),
+                gate=GATE_NONE,
+                action="None — %s is a confirmed non-session; %s is the eligible "
+                       "session." % (skipped_txt, true_expected.isoformat()))
+        # Authoritative non-session(s) skipped, but owned data still lags the true
+        # latest session → wait for owned data (never holiday-inferred).
+        return build(
+            eligible=confirmed, status=WAITING_FOR_OWNED_DATA, ready=False,
+            expected_override=true_expected, non_session_dates=tuple(skipped),
+            reason="Owned data confirms only %s; the latest actual session %s (after "
+                   "skipping authoritative non-session(s) %s) is not yet confirmed."
+                   % (confirmed.isoformat(), true_expected.isoformat(), skipped_txt),
+            gate=GATE_OWNED_DATA_LAG,
+            action="Wait for owned market data to publish the %s session."
+                   % true_expected.isoformat())
+
+    # No authoritative non-session covers the expected weekday. The absence of
+    # same-day owned data is a PUBLISH LAG, never an inferred holiday. When no
+    # exchange calendar is available the calendar policy is DEGRADED but the expected
+    # weekday session stays UNRESOLVED (WAITING_FOR_OWNED_DATA), never advanced as a
+    # holiday. The latest valid prior session (confirmed) remains valid.
+    degraded = not calendar_available
+    if degraded:
+        warnings.append(
+            "No authoritative exchange-holiday calendar is available; the expected "
+            "%s session is UNRESOLVED and treated as WAITING_FOR_OWNED_DATA, never "
+            "inferred as a non-session from the absence of same-day owned data."
+            % expected.isoformat())
     return build(
         eligible=confirmed, status=WAITING_FOR_OWNED_DATA, ready=False,
+        calendar_policy_degraded=degraded,
         reason="Owned data confirms only %s; the expected completed session %s is "
-               "not yet confirmed." % (confirmed.isoformat(), expected.isoformat()),
+               "not yet confirmed (absence of same-day owned data is never a "
+               "holiday)." % (confirmed.isoformat(), expected.isoformat()),
         gate=GATE_OWNED_DATA_LAG,
         action="Wait for owned market data to publish the %s session (or refresh the "
                "owned EOD marks)." % expected.isoformat())
@@ -428,6 +556,7 @@ __all__ = [
     "SESSION_READY",
     "NO_CONFIRMED_DATA",
     "CALENDAR_POLICY_DEGRADED",
+    "NON_SESSION",
     "INCONSISTENT_FUTURE_DATA",
     "SESSION_STATUSES",
     "GATE_NONE",

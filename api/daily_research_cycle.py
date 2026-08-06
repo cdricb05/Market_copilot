@@ -13,10 +13,11 @@ NOT reimplement their business logic (Principle 1 / 2 / 8):
   * daily price/score input refresh    → ``api.alpha_target.run_refresh`` — the one
     writer of the owned model-input CSVs (it also DETECTS the monthly boundary and
     refuses to approximate the frozen ``mom_6_1`` monthly input).
-  * monthly momentum input             → an external research emitter (there is NO
-    safe automatic in-repo emitter; the cycle BLOCKS at the month boundary rather
-    than approximating the frozen monthly contract — this is the root cause of the
-    documented "August evidence gap").
+  * monthly momentum input             → the canonical monthly-input adapter
+    (``api.monthly_momentum_input``), which wraps an injectable emitter seam and owns
+    the safe contract (due-ness / validation / idempotency). There is no safe
+    automatic emitter bundled in the pure-stdlib repo, so a due month blocks HONESTLY
+    through the adapter (never approximated) — the documented "August evidence gap".
   * universe scoring / rankings        → ``api.universe_scoring.build_universe_scoring``
     (Slice 4 canonical composition owner over the pure ``api.multi_horizon_engine``
     kernel; frozen strategy version; TOP25 / TOP50; content-level input-contract hash).
@@ -148,13 +149,18 @@ ALIGNMENT_VOCAB = (ALIGNED, ALIGNED_WITH_SLOWER_CADENCE, BLOCKED_STALE_REQUIRED_
 CONSISTENT = "CONSISTENT"
 UNKNOWN = "UNKNOWN"
 
-# The external monthly momentum-input emitter that Slice 3 does NOT ship (there is
-# no proven safe in-repo emitter; the frozen mom_6_1 monthly contract is never
-# approximated intramonth). Matches alpha_target's required_next_action.
+# Honest missing-implementation token when a due monthly momentum input has no wired
+# emitter behind the canonical adapter (api.monthly_momentum_input). The frozen
+# mom_6_1 monthly contract is never approximated intramonth. Matches alpha_target's
+# required_next_action and monthly_momentum_input.MONTHLY_EMITTER_ACTION.
 MONTHLY_EMITTER_ACTION = "RUN_RESEARCH_MONTHLY_INPUT_EMITTER"
 
+# Accurate canonical badges (Phase 29D.1 audit): the Daily Research Cycle refreshes
+# owned inputs, scores the universe and captures immutable forward evidence — it does
+# NOT create legacy Signal rows (created_signals=False), so the badge reads "CREATES
+# RESEARCH EVIDENCE ONLY", not the inaccurate "CREATES SIGNALS ONLY".
 SAFETY_BADGES = ["PREVIEW ONLY", "PAPER ONLY", "NO LIVE ORDERS", "AUTOMATION OFF",
-                 "MANUAL REVIEW", "CREATES SIGNALS ONLY"]
+                 "MANUAL REVIEW", "CREATES RESEARCH EVIDENCE ONLY"]
 
 # Persistence root. Never the operational ledger root (C:\Users\binis\.paper_trader);
 # forward evidence is persisted through the canonical evidence owner, not here.
@@ -171,6 +177,11 @@ _now_override: Optional[datetime] = None
 
 # In-process single-flight guard (cross-process is the file lock below).
 _RUN_LOCK = threading.Lock()
+
+# Sentinel: "resolve the production monthly-emitter default" (distinct from an
+# explicit None = no emitter). Tests always pass an explicit value; the production
+# endpoint passes neither, so the canonical monthly adapter is wired here.
+_DEFAULT_MONTHLY = object()
 
 
 # --------------------------------------------------------------------------- #
@@ -393,10 +404,24 @@ _REFRESH_OWNERS = {
         "cadence": df.DAILY, "auto_refreshable": True,
         "role": "daily_price_score_input"},
     "momentum_monthly": {
-        "owner": "external research monthly momentum emitter",
+        # Phase 29D.1: the frozen monthly momentum input now has a DECLARED canonical
+        # in-repo owner (the monthly-input adapter), which wraps an injectable emitter
+        # seam, validates schema/period/provenance, is idempotent and NEVER approximates
+        # intramonth. When no emitter is wired it BLOCKS honestly (owned by the adapter),
+        # never NO_REFRESH_OWNER and never a "run a separate button" prerequisite.
+        "owner": "api.monthly_momentum_input",
         "cadence": df.MONTHLY, "auto_refreshable": False,
         "missing_implementation": MONTHLY_EMITTER_ACTION,
         "role": "frozen_monthly_momentum_input"},
+    # target_calculation is a REQUIRED reassessment input in data_freshness, but it is
+    # an OUTPUT the cycle PREPARES downstream (STEP_PREPARE_TARGET → the canonical target
+    # owner api.alpha_target.load_readiness), NOT a pre-scoring input to refresh. It has a
+    # declared owner and is NEVER a NO_REFRESH_OWNER blocker (Phase 29D.1 correction).
+    "target_calculation": {
+        "owner": "api.alpha_target.load_readiness",
+        "cadence": df.DAILY, "auto_refreshable": True,
+        "prepared_downstream_by": STEP_PREPARE_TARGET,
+        "role": "operational_target_preparation"},
 }
 # The frozen strategy / universe identity (from the champion registry). Recorded on
 # every run; never changed mid-run (Workstream R).
@@ -423,6 +448,7 @@ def build_execution_plan(freshness: dict, *, monthly_emitter_available: bool = F
     future_dated: list[str] = []
     nonblocking: list[str] = []
     unsupported: list[dict] = []
+    prepared_downstream: list[dict] = []
     blockers: list[dict] = []
 
     for r in rows:
@@ -447,15 +473,28 @@ def build_execution_plan(freshness: dict, *, monthly_emitter_available: bool = F
                 nonblocking.append(sid)
             continue
 
-        # A REQUIRED, non-satisfied input → a refresh step (or an unsupported blocker).
-        required_stale.append(sid)
+        # A REQUIRED, non-satisfied input.
         spec = _REFRESH_OWNERS.get(sid)
         if spec is None:
+            required_stale.append(sid)
             unsupported.append({"source_id": sid, "status": status,
                                 "reason": "No proven authoritative refresh owner."})
             blockers.append({"code": "NO_REFRESH_OWNER", "source_id": sid,
                              "detail": r.get("operator_action")})
             continue
+        # An input the cycle PREPARES downstream (e.g. the operational target via
+        # STEP_PREPARE_TARGET) has a declared owner but is NOT a pre-scoring refresh
+        # step and NEVER blocks the plan — it is produced by its own later step.
+        if spec.get("prepared_downstream_by"):
+            prepared_downstream.append({
+                "source_id": sid, "status": status,
+                "authoritative_owner": spec["owner"],
+                "prepared_by_step": spec["prepared_downstream_by"],
+                "expected_output_date": eligible,
+                "role": spec.get("role")})
+            continue
+        # A REQUIRED, non-satisfied input to refresh (or an unsupported blocker).
+        required_stale.append(sid)
         auto = bool(spec["auto_refreshable"]) or (
             sid == "momentum_monthly" and monthly_emitter_available)
         step = {
@@ -491,6 +530,7 @@ def build_execution_plan(freshness: dict, *, monthly_emitter_available: bool = F
         "future_dated_inputs": sorted(future_dated),
         "nonblocking_inputs": sorted(nonblocking),
         "unsupported_refreshes": unsupported,
+        "prepared_downstream_inputs": prepared_downstream,
         "refresh_steps": steps,
         "blockers": blockers,
         "plan_blocked": plan_blocked,
@@ -603,6 +643,19 @@ def _default_assessment_loader(*, today):
 def _default_refresh_confirm_token() -> str:
     from paper_trader.api import alpha_target as at
     return at.REFRESH_CONFIRM_TOKEN
+
+
+def _default_monthly_emitter_fn():
+    """The canonical monthly-input adapter, wired ONLY when an emitter is available
+    (opt-in / injected). Default: None → a due month blocks honestly (owned by the
+    adapter), never approximated. The adapter itself owns validation / idempotency."""
+    from paper_trader.api import monthly_momentum_input as mmi
+    return mmi.emit_if_due if mmi.emitter_is_wired() else None
+
+
+def _default_monthly_available() -> bool:
+    from paper_trader.api import monthly_momentum_input as mmi
+    return mmi.emitter_is_wired()
 
 
 # --------------------------------------------------------------------------- #
@@ -798,7 +851,8 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
             "composed_owners": [
                 "data_freshness.load_data_freshness (engine.market_session)",
                 "alpha_target.run_refresh (daily price/score input)",
-                "external monthly momentum emitter (BLOCKED — not shipped)",
+                "monthly_momentum_input.emit_if_due (canonical monthly adapter — "
+                "honest DATA_HOLD when no emitter is wired; never approximated)",
                 "universe_scoring.build_universe_scoring (canonical universe scoring "
                 "over multi_horizon_engine.build_current — Slice 4)",
                 "alpha_target.load_readiness (operational target — never auto-confirmed)",
@@ -828,6 +882,21 @@ def _classify_refresh(res: Optional[dict]) -> str:
     if ("INSUFFICIENT" in st or "PROVIDER_BLOCKED" in st or "BLOCKED" in st
             or "DATA_HOLD" in st):
         return "BLOCKED"
+    return "FAILED"
+
+
+def _classify_monthly(res: Optional[dict]) -> str:
+    """Map a monthly-adapter result to OK / BLOCKED / FAILED (robust to the canonical
+    ``api.monthly_momentum_input`` vocabulary and to injected test fakes)."""
+    st = str((res or {}).get("status") or "")
+    if any(k in st for k in ("EMITTED", "CURRENT", "REUSED", "ALREADY")):
+        return "OK"
+    if (res or {}).get("performed_write"):
+        return "OK"
+    if "UNAVAILABLE" in st or "DATA_HOLD" in st or "HOLD" in st:
+        return "BLOCKED"
+    if "CONFLICT" in st or "INVALID" in st or "REJECT" in st:
+        return "FAILED"
     return "FAILED"
 
 
@@ -922,13 +991,19 @@ def load_daily_research_cycle_status(
     *, now: Optional[datetime] = None, reference_today: Any = None,
     close_cutoff_et: Any = msession.DEFAULT_CLOSE_CUTOFF_ET, drc_dir=None,
     freshness: Optional[dict] = None, freshness_loader: Optional[Callable] = None,
-    monthly_emitter_available: bool = False,
+    monthly_emitter_available: Any = _DEFAULT_MONTHLY,
     operational: Optional[dict] = None, inputs: Optional[dict] = None,
     daily_status: Optional[dict] = None, desk_marks: Optional[dict] = None,
     close_progress: Optional[dict] = None, forward_status: Optional[dict] = None,
     date_overrides: Optional[dict] = None, active_book_override: Any = None,
 ) -> dict:
     warnings: list[str] = []
+    # Resolve the canonical monthly-adapter availability when the caller did not pin
+    # it (production). Tests pass an explicit bool. Default → False when no emitter
+    # is wired, so a due month blocks honestly through the declared adapter owner.
+    if monthly_emitter_available is _DEFAULT_MONTHLY:
+        monthly_emitter_available = bool(
+            _safe(_default_monthly_available, warnings, "Monthly emitter availability"))
     if freshness is None:
         loader = freshness_loader or _default_freshness_loader
         freshness = _safe(lambda: loader(
@@ -1031,7 +1106,7 @@ def run_daily_research_cycle(
     downloader=None,
     freshness: Optional[dict] = None, freshness_loader: Optional[Callable] = None,
     daily_refresh_fn: Optional[Callable] = None,
-    monthly_emitter_fn: Optional[Callable] = None,
+    monthly_emitter_fn: Any = _DEFAULT_MONTHLY,
     scoring_fn: Optional[Callable] = None, target_loader: Optional[Callable] = None,
     evidence_capture_fn: Optional[Callable] = None,
     evidence_registry: Optional[list] = None,
@@ -1047,6 +1122,15 @@ def run_daily_research_cycle(
                 "state": NOT_STARTED, "confirmation_required": EXECUTE_CONFIRMATION,
                 "message": ("Running the Daily Research Cycle requires confirm='%s'."
                             % EXECUTE_CONFIRMATION), "safety": _safety(False)}
+
+    # Resolve the canonical monthly adapter when the caller did not pin the seam
+    # (production). Tests pass an explicit callable or None. Default → the adapter
+    # when an emitter is wired, else None (a due month blocks honestly).
+    if monthly_emitter_fn is _DEFAULT_MONTHLY:
+        try:
+            monthly_emitter_fn = _default_monthly_emitter_fn()
+        except Exception:  # noqa: BLE001
+            monthly_emitter_fn = None
 
     if not _RUN_LOCK.acquire(blocking=False):
         return _contract(state=RUN_IN_PROGRESS, facts=_facts(freshness or {}),
@@ -1200,7 +1284,8 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         # STEP: refresh required inputs.
         if plan["plan_blocked"]:
             step_results.append(_step(STEP_REFRESH_INPUTS, S_BLOCKED,
-                                      owner="api.alpha_target / external emitter",
+                                      owner="api.alpha_target.run_refresh / "
+                                            "api.monthly_momentum_input",
                                       error_code="UNSUPPORTED_AUTOMATIC_REFRESH",
                                       error_detail=str(plan["blockers"])[:200]))
             _clear_lock(drc_dir)
@@ -1224,17 +1309,44 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                 if sid == "momentum_monthly":
                     if emit is None:
                         step_results.append(_step(STEP_REFRESH_INPUTS, S_BLOCKED,
-                            owner="external research monthly momentum emitter",
+                            owner="api.monthly_momentum_input",
                             error_code=MONTHLY_EMITTER_ACTION))
                         _clear_lock(drc_dir)
                         return _persist(BLOCKED, failed_step=STEP_REFRESH_INPUTS,
                             blockers=plan["blockers"], required_actions=_blocked_actions(plan))
                     res = emit(eligible=facts["eligible"])
-                    performed_write = True
                     refresh_results.append({"source_id": sid, "result": res})
-                    if working_inputs is not None:
-                        working_inputs["momentum_month"] = str(facts["eligible"])[:7]
-                    continue
+                    mcls = _classify_monthly(res)
+                    if mcls == "OK":
+                        performed_write = performed_write or bool(
+                            (res or {}).get("performed_write"))
+                        if working_inputs is not None:
+                            working_inputs["momentum_month"] = str(facts["eligible"])[:7]
+                        continue
+                    if mcls == "BLOCKED":
+                        step_results.append(_step(STEP_REFRESH_INPUTS, S_BLOCKED,
+                            owner="api.monthly_momentum_input",
+                            error_code=MONTHLY_EMITTER_ACTION,
+                            error_detail=str((res or {}).get("status"))[:160]))
+                        _clear_lock(drc_dir)
+                        return _persist(BLOCKED, failed_step=STEP_REFRESH_INPUTS,
+                            blockers=[{"code": "UNSUPPORTED_AUTOMATIC_REFRESH",
+                                       "source_id": "momentum_monthly",
+                                       "missing_implementation": MONTHLY_EMITTER_ACTION,
+                                       "detail": (res or {}).get("message")}],
+                            required_actions=[{"gate": "source",
+                                               "source_id": "momentum_monthly",
+                                               "action": MONTHLY_EMITTER_ACTION}])
+                    # FAILED: the emitter produced a conflicting/invalid artifact.
+                    step_results.append(_step(STEP_REFRESH_INPUTS, S_FAILED,
+                        owner="api.monthly_momentum_input",
+                        error_code="MONTHLY_INPUT_FAILED",
+                        error_detail=str((res or {}).get("status"))[:160]))
+                    _clear_lock(drc_dir)
+                    return _persist(FAILED, failed_step=STEP_REFRESH_INPUTS,
+                        blockers=[{"code": "MONTHLY_INPUT_FAILED",
+                                   "source_id": "momentum_monthly",
+                                   "detail": (res or {}).get("status")}])
                 res = fn(confirm=token, downloader=downloader,
                          completed_through=facts["eligible"])
                 refresh_results.append({"source_id": sid, "result": res})
@@ -1253,7 +1365,23 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                             required_actions=[{"gate": "source",
                                                "source_id": "momentum_monthly",
                                                "action": MONTHLY_EMITTER_ACTION}])
-                    emit(eligible=facts["eligible"])
+                    mres = emit(eligible=facts["eligible"])
+                    refresh_results.append({"source_id": "momentum_monthly",
+                                            "result": mres})
+                    if _classify_monthly(mres) != "OK":
+                        step_results.append(_step(STEP_REFRESH_INPUTS, S_BLOCKED,
+                            owner="api.monthly_momentum_input",
+                            error_code=MONTHLY_EMITTER_ACTION,
+                            error_detail=str((mres or {}).get("status"))[:160]))
+                        _clear_lock(drc_dir)
+                        return _persist(BLOCKED, failed_step=STEP_REFRESH_INPUTS,
+                            blockers=[{"code": "UNSUPPORTED_AUTOMATIC_REFRESH",
+                                       "source_id": "momentum_monthly",
+                                       "missing_implementation": MONTHLY_EMITTER_ACTION,
+                                       "detail": (mres or {}).get("message")}],
+                            required_actions=[{"gate": "source",
+                                               "source_id": "momentum_monthly",
+                                               "action": MONTHLY_EMITTER_ACTION}])
                     if working_inputs is not None:
                         working_inputs["momentum_month"] = str(facts["eligible"])[:7]
                     res = fn(confirm=token, downloader=downloader,

@@ -161,6 +161,10 @@ MARKET_SESSION_REF = re.compile(r"market_session")
 # authoritative owners (scoring / target / evidence / assessment) via adapters; no
 # other module orchestrates the complete cycle, and the UI plans/prioritises nothing.
 DRC_OWNER = "api/daily_research_cycle.py"
+# Phase 29D.1 Slice-3 live-acceptance completion: the canonical monthly momentum
+# input adapter (the DECLARED refresh owner for momentum_monthly).
+MONTHLY_INPUT_OWNER = "api/monthly_momentum_input.py"
+WORKFLOW_STATE_OWNER = "api/workflow_state.py"
 DRC_STATUS_ROUTE = "/v1/operations/daily-research-cycle/status"
 DRC_RUN_ROUTE = "/v1/operations/daily-research-cycle/run"
 DRC_EXECUTE_TOKEN = "RUN_DAILY_RESEARCH_CYCLE"
@@ -784,6 +788,66 @@ def check_daily_research_cycle_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_slice3_live_acceptance_ownership(files: list[Path]) -> dict:
+    """Phase 29D.1 Slice-3 live-acceptance completion ownership guard.
+
+    Confirms the corrective invariants: (a) ``engine.market_session`` owns session
+    classification and no longer infers a holiday from the ABSENCE of same-day owned
+    data — ``NON_SESSION`` requires an AUTHORITATIVE source and the old benchmark-based
+    ``likely_holiday`` inference is gone; (b) the canonical monthly momentum input
+    adapter exists and is the DECLARED refresh owner for ``momentum_monthly`` in the
+    DRC (no ``NO_REFRESH_OWNER``, no lingering 'external ... emitter' owner string, no
+    normal-path 'run a separate button' prerequisite); (c) ``target_calculation`` is a
+    DECLARED, prepared-downstream owner (the canonical target owner), never
+    ``NO_REFRESH_OWNER``; (d) the monthly adapter creates no order/signal/decision/fill
+    and calls no provider/prediction; and (e) ``workflow_state`` ranks
+    ``WAITING_FOR_OWNED_DATA`` strictly ABOVE ``RESEARCH_CYCLE_BLOCKED``.
+    """
+    ms_src = _read(MARKET_SESSION_OWNER)
+    drc_src = _read(DRC_OWNER)
+    mmi_src = _read(MONTHLY_INPUT_OWNER)
+    ws_src = _read(WORKFLOW_STATE_OWNER)
+
+    # (a) market_session non-session policy.
+    non_session_authoritative = bool(
+        "NON_SESSION" in ms_src
+        and "authoritative_non_sessions" in ms_src
+        and "likely_holiday" not in ms_src)
+
+    # (b) the monthly adapter is the declared owner (no external-emitter owner string).
+    monthly_adapter_present = (REPO_ROOT / MONTHLY_INPUT_OWNER).exists()
+    monthly_owner_declared = ("api.monthly_momentum_input" in drc_src
+                              and "external research monthly momentum emitter" not in drc_src)
+
+    # (c) the canonical target owner is declared as prepared-downstream.
+    target_owner_declared = ("api.alpha_target.load_readiness" in drc_src
+                             and "prepared_downstream_by" in drc_src
+                             and '"target_calculation"' in drc_src)
+
+    # (d) the monthly adapter hosts no execution / provider / prediction call.
+    mmi_forbidden = sorted(t for t in (
+        "place_order(", "submit_order(", "create_order(", "run_fill_cycle(",
+        "Signal(", "TradeDecision(", "run_daily_close(", "predict(",
+        "requests.get(", "requests.post(", "httpx.", ":9000") if t in mmi_src)
+
+    # (e) WAITING_FOR_OWNED_DATA is returned before RESEARCH_CYCLE_BLOCKED in the
+    #     priority policy (structural ordering of the first-match state machine).
+    w_ret = ws_src.find("return WAITING_FOR_OWNED_DATA")
+    b_ret = ws_src.find("return RESEARCH_CYCLE_BLOCKED")
+    waiting_outranks_blocked = bool(w_ret != -1 and b_ret != -1 and w_ret < b_ret)
+
+    return {
+        "market_session_owner_present": (REPO_ROOT / MARKET_SESSION_OWNER).exists(),
+        "non_session_requires_authoritative_source": non_session_authoritative,
+        "monthly_input_adapter_present": bool(monthly_adapter_present),
+        "monthly_input_owner_declared": bool(monthly_owner_declared),
+        "target_calculation_owner_declared": bool(target_owner_declared),
+        "no_normal_path_manual_monthly_prerequisite": bool(monthly_owner_declared),
+        "monthly_adapter_forbidden_calls": mmi_forbidden,
+        "waiting_outranks_research_blockers": waiting_outranks_blocked,
+    }
+
+
 def check_universe_scoring_ownership(files: list[Path]) -> dict:
     """Slice 4 semantic ownership guard.
 
@@ -944,6 +1008,7 @@ def run_audit() -> dict:
         "market_session_ownership": check_market_session_ownership(files),
         "workflow_state_ownership": check_workflow_state_ownership(files),
         "daily_research_cycle_ownership": check_daily_research_cycle_ownership(files),
+        "slice3_live_acceptance_ownership": check_slice3_live_acceptance_ownership(files),
         "universe_scoring_ownership": check_universe_scoring_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
@@ -1132,7 +1197,14 @@ def main(argv=None) -> int:
         wf = rep["workflow_state_ownership"]
         dr = rep["daily_research_cycle_ownership"]
         us = rep["universe_scoring_ownership"]
+        la = rep["slice3_live_acceptance_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
+                         + (0 if la["non_session_requires_authoritative_source"] else 1)
+                         + (0 if la["monthly_input_adapter_present"] else 1)
+                         + (0 if la["monthly_input_owner_declared"] else 1)
+                         + (0 if la["target_calculation_owner_declared"] else 1)
+                         + len(la["monthly_adapter_forbidden_calls"])
+                         + (0 if la["waiting_outranks_research_blockers"] else 1)
                          + (0 if us["owner_present"] else 1)
                          + (0 if us["kernel_present"] else 1)
                          + len(us["missing_delegation"])

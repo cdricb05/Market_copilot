@@ -511,10 +511,15 @@ flowchart TD
   safe incomplete runs resume, a conflicting concurrent contract is `INCONSISTENT`,
   a stale lock is classified/recovered, and a different contract for the same date
   never overwrites the immutable evidence bundle.
-- **Month boundary made explicit:** there is no safe automatic monthly-momentum
-  emitter in-repo, so the cycle returns `BLOCKED` / `RUN_RESEARCH_MONTHLY_INPUT_EMITTER`
-  rather than approximating the frozen `mom_6_1` monthly input (the documented
-  "August evidence gap" surfaced instead of hidden).
+- **Month boundary made explicit:** the frozen monthly momentum input has a DECLARED
+  canonical in-repo adapter owner (`api/monthly_momentum_input.py`, Phase 29D.1) that
+  wraps an injectable emitter seam and owns the safe contract (due-ness / schema /
+  period / provenance validation / idempotency / atomic persist / reuse-or-reject). It
+  computes no `mom_6_1` and never approximates it intramonth; there is still no safe
+  automatic emitter bundled in the pure-stdlib repo, so a due month blocks HONESTLY
+  through the adapter (`RUN_RESEARCH_MONTHLY_INPUT_EMITTER`, never `NO_REFRESH_OWNER`
+  and never a separate operator button) — the documented "August evidence gap"
+  surfaced through a declared owner instead of hidden.
 - **Consumers:** `GET /v1/operations/daily-research-cycle/status` (read-only) +
   `POST /v1/operations/daily-research-cycle/run`; one UI status loader
   (`loadDailyResearchCycle()`) + one execution function (`runDailyResearchCycle()`)
@@ -532,3 +537,19 @@ flowchart TD
   enforces the sole orchestration owner, full delegation, no forbidden execution
   calls, one UI loader + one execution function, no UI planning, and the endpoints;
   inventory drift = 0.
+- **Live-acceptance completion (Phase 29D.1).** The first real post-close live
+  acceptance (2026-08-05, after the 17:30 ET cutoff, owned data only through
+  2026-08-04) exposed a false-holiday inference in `engine/market_session` (the desk
+  marks and the SPY benchmark share one owned provider and lag together on a normal
+  publish delay), which cascaded into a `RESEARCH_CYCLE_BLOCKED` workflow state and a
+  `target_calculation — NO_REFRESH_OWNER` blocker. Corrected: a weekday is a
+  `NON_SESSION` ONLY through an authoritative exchange calendar or a provider-confirmed
+  contract; otherwise the expected weekday stays `WAITING_FOR_OWNED_DATA` with a
+  `calendar_policy_degraded` flag (the prior valid close unchanged), and the session
+  is confirmed only when BOTH owned market marks AND the benchmark reach the expected
+  date. `WAITING_FOR_OWNED_DATA` strictly outranks any research blocker.
+  `target_calculation` is a DECLARED prepared-downstream owner
+  (`alpha_target.load_readiness`) — never `NO_REFRESH_OWNER`. The monthly momentum
+  input is the declared adapter above. Static guard
+  `check_slice3_live_acceptance_ownership`; the DRC badge is corrected to
+  `CREATES RESEARCH EVIDENCE ONLY`. Slice 5 remains not started; cadence disabled.

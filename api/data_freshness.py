@@ -595,6 +595,9 @@ def load_data_freshness(
     forward_status: Optional[dict] = None,
     date_overrides: Optional[dict] = None,
     active_book_override: Any = None,
+    authoritative_non_sessions: Any = None,
+    provider_confirmed_non_sessions: Any = None,
+    exchange_calendar_available: Optional[bool] = None,
 ) -> dict[str, Any]:
     """Return the canonical cross-source data-freshness contract (read-only).
 
@@ -669,6 +672,13 @@ def load_data_freshness(
         latest_benchmark_date=benchmark,
         close_cutoff_et=close_cutoff_et,
         require_confirmation=True,
+        # A weekday is a NON-SESSION only through an AUTHORITATIVE calendar or a
+        # persisted provider-confirmed contract; absence of same-day owned data is
+        # never a holiday. None (production default) → the expected weekday stays
+        # unresolved (WAITING_FOR_OWNED_DATA, calendar_policy_degraded).
+        authoritative_non_sessions=authoritative_non_sessions,
+        provider_confirmed_non_sessions=provider_confirmed_non_sessions,
+        exchange_calendar_available=exchange_calendar_available,
     )
     warnings.extend(session.warnings)
 

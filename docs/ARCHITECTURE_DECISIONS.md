@@ -285,6 +285,72 @@
   Milestone 2 (opportunity-cost engine) are described here but not begun; cadence
   remains disabled.
 
+### D-13.1 — Slice 3 live-acceptance completion (Phase 29D.1) — CONFIRMED (LANDED)
+- **Defect (first live acceptance).** At ~17:51 ET on 2026-08-05 — a weekday after the
+  17:30 ET post-close cutoff, with owned market and benchmark data only through
+  2026-08-04 — the released UI showed `RESEARCH_CYCLE_BLOCKED` with the Daily Research
+  Cycle button disabled, `target_calculation — NO_REFRESH_OWNER` and
+  `momentum_monthly — RUN_RESEARCH_MONTHLY_INPUT_EMITTER`. Three root causes:
+  (1) **session mis-classification** — `engine/market_session.evaluate_session`
+  inferred a holiday from a heuristic (`benchmark == confirmed` and
+  `previous_trading_day(expected) == confirmed`), returning a READY
+  `CALENDAR_POLICY_DEGRADED` with `eligible = D-1`. But the desk marks and the SPY
+  benchmark come from the SAME owned EODHD provider and lag together on a normal
+  post-cutoff publish delay, so the "two independent series" were not independent —
+  a false-holiday inference. (2) **workflow priority** — `api/workflow_state`
+  computed `owned_data_lag` only from the `WAITING_FOR_OWNED_DATA` / `NO_CONFIRMED_DATA`
+  session statuses, so the false-ready session skipped P3 and the (false) research
+  block won P3.6. (3) **target NO_REFRESH_OWNER** — `target_calculation` is a required
+  reassessment input in `data_freshness` but was absent from the DRC refresh-owner
+  registry, so `build_execution_plan` emitted `NO_REFRESH_OWNER`.
+- **Decision — post-close session policy.** A weekday is classified `NON_SESSION`
+  (new status) ONLY through an AUTHORITATIVE source: an installed exchange calendar
+  (`authoritative_non_sessions`) or a persisted provider-confirmed non-session
+  contract (`provider_confirmed_non_sessions`). The ABSENCE of same-day owned data is
+  NEVER a holiday. With no authoritative calendar available, the expected weekday
+  stays UNRESOLVED as `WAITING_FOR_OWNED_DATA` with `calendar_policy_degraded = True`;
+  the latest valid PRIOR operational close is unchanged. The eligible session is
+  confirmed (`SESSION_READY`) only when BOTH the owned market marks AND the benchmark
+  reach the expected date. `latest_benchmark_date` is retained for compatibility but
+  no longer drives any holiday inference. This supersedes the D-11 `likely_holiday`
+  heuristic (removed).
+- **Decision — precedence.** Unresolved current-session owned data ALWAYS outranks a
+  research-cycle blocker: `WAITING_FOR_OWNED_DATA` (P3) precedes `RESEARCH_CYCLE_RUNNING`
+  / `RESEARCH_CYCLE_BLOCKED` (P3.5/P3.6) in `workflow_state._decide_overall`, and the
+  DRC's own pre-run gate returns `WAITING_FOR_OWNED_DATA` before planning any prior
+  session's inputs.
+- **Decision — canonical refresh owners.** Every required refreshable research input
+  has ONE declared owner: `price_score_refresh → alpha_target.run_refresh`;
+  `momentum_monthly → api/monthly_momentum_input` (a new pure-stdlib adapter that
+  wraps an injectable emitter seam and owns the safe contract — due-ness, schema /
+  period / provenance validation, idempotency, atomic persist, reuse-or-reject; it
+  never approximates the frozen `mom_6_1` intramonth and never backdates);
+  `target_calculation → alpha_target.load_readiness`, marked prepared-downstream
+  (produced by `STEP_PREPARE_TARGET`, not a pre-scoring refresh step). No required
+  input returns `NO_REFRESH_OWNER`. There is still no safe automatic monthly emitter
+  bundled in the pure-stdlib repo, so a due month blocks HONESTLY through the adapter
+  (owned by `api.monthly_momentum_input`, never a separate operator prerequisite) —
+  the honest "August evidence gap" preserved (Principle 4, D-8 upheld).
+- **Scope (unchanged).** Slice 3 remains an orchestration owner: it does not
+  consolidate scoring (Slice 4) or portfolio state (Slice 5), is not the Milestone-2
+  opportunity-cost engine, never runs the operational Daily Close, never auto-confirms
+  a target (the operational target is never silently replaced), never promotes /
+  recalibrates a model, and creates no order / signal / decision / fill. The DRC panel
+  badge is corrected from the inaccurate `CREATES SIGNALS ONLY` (it creates no legacy
+  Signal rows) to `CREATES RESEARCH EVIDENCE ONLY`.
+- **Evidence.** Static guard `check_slice3_live_acceptance_ownership` confirms the
+  non-session-requires-authoritative-source policy, the declared monthly-adapter and
+  target owners, the monthly adapter's zero execution / provider / prediction calls,
+  and `WAITING_FOR_OWNED_DATA` outranking research blockers; audit inventory drift = 0.
+  Deterministic tests inject every read model and every provider / write seam (the
+  monthly adapter writes only under a tmp inputs dir), so no provider / prediction /
+  real cycle / Daily Close / operational-ledger / real research-artifact mutation
+  occurs.
+- **Consequence.** Slice 3 live acceptance is complete: the canonical Daily Research
+  Cycle safely executes through one manual UI action once the expected market session
+  is confirmed by owned data. Slice 5 (portfolio state) remains not started; cadence
+  remains disabled.
+
 ### D-14 — Canonical universe scoring (Slice 4) — CONFIRMED (LANDED)
 - **Decision:** the pure model mathematics stay in ONE kernel
   (`api/multi_horizon_engine.py`), and ONE composition & read owner
