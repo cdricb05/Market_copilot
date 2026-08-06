@@ -48,7 +48,7 @@ defect to be migrated, not a new owner to be blessed.
 | Universe scoring / rankings | `api/universe_scoring` (**LANDED, Slice 4**; composition & read owner over the `multi_horizon_engine.compute_scores` kernel) | ≥8 z-score/rank reimplementations (legacy copies retire with the DB screener, Slice 11) |
 | Research cycle orchestration | `api/daily_research_cycle` (**LANDED, Slice 3**; composes session/freshness + `alpha_target.run_refresh` + `multi_horizon_engine` scoring + `forward_prediction_skill` evidence + `daily_action_gate` bridge) | Daily Alpha Run vs alpha-target vs close-embedded refresh; hidden month-boundary prerequisite |
 | Model registry / champion governance | `model_registry` (unify `alpha_registry` + tournament) | 2 challenger registries (phase20/21), dead phase18 wire |
-| Portfolio state (NAV, cash, holdings) | `portfolio_state` (`portfolio_valuation` as the mark authority) | 2 NAV authorities, `book_nav`, `cached_total_value`, `_collect_positions` |
+| Portfolio state (NAV, cash, holdings) | `api/portfolio_state` (**LANDED, Slice 5**; read owner composing the active `operational_book` + `data_freshness` dates + `paper_trading_desk` performance + `daily_action_gate` + `forward_prediction_skill`; LIVE NAV authority = `paper_trading_desk.book_nav`, `portfolio_valuation` = explicitly-scoped legacy DB archive) | resolved at the read layer; `engine/portfolio.cached_total_value`/`current_alpha_book`/`_collect_positions` remain research/legacy writers scoped for Slices 8/11 |
 | Holding opportunity-cost | `opportunity_cost_engine` (new; Milestone 2) | ad-hoc rank/deterioration logic in `portfolio_manager` |
 | Portfolio proposal / target | `portfolio_proposal` (`alpha_target` + `operational_book`) | operational snapshot vs frozen champion book |
 | Risk and cost evaluation | `risk_cost_service` (unify `engine/risk` + cap families) | duplicated top-N-sector-cap + name-cap code |
@@ -243,15 +243,23 @@ responsibilities, candidate existing modules, and migration approach.
   `price_alpha_factory`, `current_alpha_tournament_sync`.
 - **Migration:** merge the two factory registries; remove the dead phase18 wire.
 
-### Portfolio State
-- **Responsibility:** the one authoritative NAV / cash / holdings mark.
-- **Inputs:** market data, ledger fills.
-- **Outputs:** NAV, positions, freshness, reconciliation.
-- **Owned state:** valuation read model (never `cached_total_value`).
-- **Forbidden:** proposing changes.
-- **Candidates:** `portfolio_valuation` (mark authority), `paper_trading_desk.book_nav`.
-- **Migration:** one NAV function; UI reads one payload; retire `book_nav`/
-  `_collect_positions`/`cached_total_value` as marks.
+### Portfolio State (LANDED — Slice 5, Phase 29F)
+- **Responsibility:** the one authoritative NAV / cash / holdings / positions read
+  model for the active operational book.
+- **Inputs:** the active `operational_book` (ledger-replayed NAV/cash/holdings/positions),
+  `data_freshness` dates + active-book selection, `paper_trading_desk` performance,
+  `daily_action_gate` assessment, `forward_prediction_skill` evidence.
+- **Outputs:** NAV, positions, freshness dates, capital block, order/fill/target/
+  assessment/evidence references, a 12-check consistency verdict, a stable state hash.
+- **Owned state:** none (read model; never `cached_total_value`).
+- **Forbidden:** proposing changes; any write / provider / prediction / order / fill.
+- **Owner:** `api/portfolio_state.py` at `GET /v1/operations/portfolio-state`; ONE UI
+  loader `loadPortfolioState()`. LIVE NAV authority = `paper_trading_desk.book_nav`;
+  `portfolio_valuation` = explicitly-scoped legacy DB archive, never the active book.
+- **Landed:** the read layer is resolved (audit `check_portfolio_state_ownership`,
+  inventory drift = 0). The residual mark writers `engine/portfolio.cached_total_value`,
+  `current_alpha_book` and `portfolio_terminal._collect_positions` are research/legacy
+  lineages that retire with Slices 8/11; they are not on the operational NAV read path.
 
 ### Holding Opportunity-Cost Assessment
 - **Responsibility:** per-holding HOLD/REDUCE/EXIT/REPLACE/ADD with the full

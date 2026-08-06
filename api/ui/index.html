@@ -3004,6 +3004,8 @@
             <!-- PROPOSED PORTFOLIO CHANGES (Workstream D) -->
             <div class="card" style="margin-bottom:12px;">
               <div class="card-title">Proposed Portfolio Changes <span class="cc-badge muted" id="pm-changes-basis">&mdash;</span></div>
+              <!-- Slice 5: the reassessment proposal is review-only and unapproved (owned by renderPortfolioState). -->
+              <div id="ps-proposal-label" style="display:none;border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);color:var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;"></div>
               <div id="pm-initial-banner" style="display:none;border:1px solid rgba(59,130,246,.45);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;"></div>
               <div id="pm-three-way" style="font-size:10px;margin:0 0 8px;">&mdash;</div>
               <div id="pm-changes" style="overflow-x:auto;font-size:11px;">&mdash;</div>
@@ -23332,7 +23334,14 @@ function renderPmDecision(s) {
 }
 
 function renderPmStatusbar(s) {
-  function setT(id, v) { var el = document.getElementById(id); if (el) el.textContent = (v === undefined || v === null) ? '—' : v; }
+  // Slice 5: the active-book valuation nodes (pm-sb-value/-cash/-invested/-positions/
+  // -val-date) are owned by renderPortfolioState (the canonical ACTIVE Alpha Paper
+  // Book #1). renderPmStatusbar hard-refuses them so the PM summary can never fall
+  // back to the dormant legacy DB book reported by /v1/portfolio-manager/summary.
+  function setT(id, v) {
+    if (_psIsCanonicalNode(id)) return;
+    var el = document.getElementById(id); if (el) el.textContent = (v === undefined || v === null) ? '—' : v;
+  }
   var dates = (s && s.dates) || {};
   var p = (s && s.portfolio) || {};
   setT('pm-sb-alpha-date', dates.latest_alpha_market_date);
@@ -24003,6 +24012,7 @@ function loadOperationalBook() {
     window._obInFlight = null;
     window._obData = d;
     renderOperationalBook(d);
+    try { loadPortfolioState(); } catch (e) {}      // Slice 5: the ONE canonical portfolio state
     try { loadDailyActionGate(); } catch (e) {}   // Phase 27C: the ONE daily gate result
     try { loadDailyClose(); } catch (e) {}         // Phase 27E: the ONE daily-close status
     try { loadDataFreshness(); } catch (e) {}      // Slice 1: the ONE freshness/session strip
@@ -24011,6 +24021,7 @@ function loadOperationalBook() {
     try { loadUniverseScoring(); } catch (e) {}    // Slice 4: the ONE canonical scoring read
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
+    try { loadPortfolioState(); } catch (e) {}
     try { loadDailyActionGate(); } catch (e) {}
     try { loadDailyClose(); } catch (e) {}
     try { loadDataFreshness(); } catch (e) {}
@@ -24021,6 +24032,173 @@ function loadOperationalBook() {
   return p;
 }
 window.loadOperationalBook = loadOperationalBook;
+
+/* ===================== Slice 5 (Phase 29F) — CANONICAL PORTFOLIO STATE =====================
+   ONE single-flight read-only loader fetches /v1/operations/portfolio-state once and is the
+   SOLE writer of the operational VALUATION nodes — NAV / cash / invested / cost basis /
+   unrealized & daily P&L / holdings count / valuation date / pending & fill counts / the
+   active holdings table / the Portfolio-Manager active-book summary — across the Command
+   Center operational-book card, the Portfolio header + performance KPIs + holdings table,
+   the global right panel, the Daily-Plan summary and the Portfolio-Manager status bar.
+   Every value is read VERBATIM from the backend owner (api.portfolio_state): the UI computes
+   NO NAV, aggregates NO portfolio totals, selects NO active book, derives NO valuation date
+   and counts NO pending orders. The backend selects the active Alpha Paper Book #1; the
+   dormant legacy DB book is NEVER rendered as the active-book summary. Canonical nodes are
+   STAMPED data-ps-owned and the shared specialized setter (_obSet) and renderPmStatusbar
+   hard-refuse them, so the final visible value is independent of async completion order. */
+window._psData = null;
+window._psInFlight = null;
+window.PS_CANONICAL_NODES = {
+  'cc-ob-nav': 1, 'cc-ob-cash': 1, 'cc-ob-holdings': 1, 'cc-ob-pending': 1, 'cc-ob-fills': 1,
+  'ptob-nav': 1, 'ptob-cash': 1, 'ptob-holdings': 1, 'ptob-pending': 1, 'ptob-fills': 1,
+  'right-ob-nav': 1, 'right-ob-cash': 1, 'right-ob-holdings': 1, 'right-ob-pending': 1, 'right-ob-fills': 1,
+  'cc-status-mark': 1,
+  'dwob-sum-nav': 1, 'dwob-sum-cash': 1, 'dwob-sum-holdings': 1, 'dwob-sum-upnl': 1, 'dwob-sum-valdate': 1,
+  'pdash-kpi-nav': 1, 'pdash-kpi-cash': 1, 'pdash-kpi-invested': 1, 'pdash-kpi-holdings': 1,
+  'pdash-kpi-costbasis': 1, 'pdash-kpi-upnl': 1, 'pdash-kpi-uret': 1, 'pdash-kpi-dpnl': 1,
+  'pdash-kpi-valdate': 1, 'pdash-holdings-count': 1,
+  'pm-sb-value': 1, 'pm-sb-cash': 1, 'pm-sb-invested': 1, 'pm-sb-positions': 1, 'pm-sb-val-date': 1
+};
+function _psIsCanonicalNode(id) {
+  return !!(window.PS_CANONICAL_NODES && window.PS_CANONICAL_NODES[id]);
+}
+window._psIsCanonicalNode = _psIsCanonicalNode;
+
+// renderPortfolioState-only: write text (+optional class) and STAMP ownership.
+function _psOwnSet(id, text, cls) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
+  if (cls != null) el.className = cls;
+  el.setAttribute('data-ps-owned', '1');
+}
+
+// Map one canonical portfolio-state position to the holdings-table row shape the
+// existing read-only row renderer (_pdRenderRows) consumes. Pure field renaming;
+// no valuation math is performed in the UI.
+function _psMapPosition(p) {
+  return {
+    ticker: p.ticker, sector: p.sector, quantity: p.quantity, average_cost: p.average_cost,
+    latest_price: p.price, cost_basis: p.cost_basis, market_value: p.market_value,
+    unrealized_pnl: p.unrealized_pnl, unrealized_pnl_pct: p.unrealized_return,
+    current_weight: p.portfolio_weight, target_weight: p.target_weight,
+    weight_drift: p.drift, daily_pnl: p.daily_pnl, status: p.operational_status
+  };
+}
+window._psMapPosition = _psMapPosition;
+
+function loadPortfolioState() {
+  if (window._psInFlight) return window._psInFlight;   // coalesce concurrent page loads
+  var p = _mhzGet('/v1/operations/portfolio-state').then(function (d) {
+    window._psInFlight = null;
+    window._psData = d;
+    renderPortfolioState(d);
+    return d;
+  }).catch(function () { window._psInFlight = null; renderPortfolioState(null); return null; });
+  window._psInFlight = p;
+  return p;
+}
+window.loadPortfolioState = loadPortfolioState;
+
+function renderPortfolioState(d) {
+  var ok = !!(d && d.state && d.state !== 'PORTFOLIO_STATE_UNAVAILABLE' && d.state !== 'NO_ACTIVE_BOOK');
+  var cap = (d && d.capital) || {};
+  var ab = (d && d.active_book) || {};
+  var dt = (d && d.dates) || {};
+  var fills = (d && d.fills) || {};
+  var navTxt = (ok && cap.nav != null) ? _obMoney(cap.nav) : '—';
+  var cashTxt = (ok && cap.cash != null) ? _obMoney(cap.cash) : '—';
+  var investedTxt = (ok && cap.invested_value != null) ? _obMoney(cap.invested_value) : '—';
+  var hc = ok ? (ab.holdings_count != null ? ab.holdings_count : 0) : null;
+  var pend = ok ? (ab.pending_order_count != null ? ab.pending_order_count : 0) : null;
+  var fc = ok ? (fills.count != null ? fills.count : 0) : null;
+  var valDate = (ok && dt.valuation_date) ? dt.valuation_date : '—';
+
+  // Command Center operational-book card, Portfolio card and global right panel.
+  ['cc-ob', 'ptob', 'right-ob'].forEach(function (pfx) {
+    _psOwnSet(pfx + '-nav', navTxt);
+    _psOwnSet(pfx + '-cash', cashTxt);
+    _psOwnSet(pfx + '-holdings', hc != null ? (hc + (pfx !== 'right-ob' && ab.initialized ? ' names' : '')) : '—');
+    _psOwnSet(pfx + '-pending', pend != null ? String(pend) : '—');
+    _psOwnSet(pfx + '-fills', fc != null ? String(fc) : '—');
+  });
+  _psOwnSet('cc-status-mark', valDate);
+
+  // Daily-Plan compact operator summary.
+  _psOwnSet('dwob-sum-nav', navTxt);
+  _psOwnSet('dwob-sum-cash', cashTxt);
+  _psOwnSet('dwob-sum-holdings', hc != null ? String(hc) : '—');
+  var dwUp = document.getElementById('dwob-sum-upnl');
+  if (dwUp) {
+    dwUp.textContent = (ok && cap.unrealized_pnl != null) ? _pdSignedMoney(cap.unrealized_pnl) : '—';
+    dwUp.className = 'v ' + ((ok && cap.unrealized_pnl != null) ? _pdCls(cap.unrealized_pnl) : '');
+    dwUp.setAttribute('data-ps-owned', '1');
+  }
+  _psOwnSet('dwob-sum-valdate', valDate);
+
+  // Portfolio performance KPI row.
+  _psOwnSet('pdash-kpi-nav', navTxt);
+  _psOwnSet('pdash-kpi-cash', cashTxt);
+  _psOwnSet('pdash-kpi-invested', investedTxt);
+  _psOwnSet('pdash-kpi-holdings', hc != null ? String(hc) : '—');
+  _psOwnSet('pdash-kpi-costbasis', (ok && cap.cost_basis != null) ? ('cost basis ' + _obMoney(cap.cost_basis)) : '—');
+  var upEl = document.getElementById('pdash-kpi-upnl');
+  if (upEl) {
+    upEl.textContent = ok ? _pdSignedMoney(cap.unrealized_pnl) : '—';
+    upEl.className = 'v ' + (ok ? _pdCls(cap.unrealized_pnl) : '');
+    upEl.setAttribute('data-ps-owned', '1');
+  }
+  var urEl = document.getElementById('pdash-kpi-uret');
+  if (urEl) {
+    urEl.textContent = ok ? _pdSignedPct(cap.unrealized_return) : '—';
+    urEl.className = 'v ' + (ok ? _pdCls(cap.unrealized_return) : '');
+    urEl.setAttribute('data-ps-owned', '1');
+  }
+  var dpEl = document.getElementById('pdash-kpi-dpnl');
+  if (dpEl) {
+    var dpa = ok && cap.daily_pnl != null;
+    dpEl.textContent = dpa ? _pdSignedMoney(cap.daily_pnl) : '—';
+    dpEl.className = 'v ' + (dpa ? _pdCls(cap.daily_pnl) : '');
+    dpEl.setAttribute('data-ps-owned', '1');
+  }
+  _psOwnSet('pdash-kpi-valdate', ok ? _pdDateHuman(valDate) : '—');
+
+  // Active holdings table — rendered from the canonical positions (read-only rows).
+  var positions = (ok && d.positions) ? d.positions : [];
+  if (positions.length) {
+    window._pdHoldings = positions.map(_psMapPosition);
+    var empty = document.getElementById('pdash-holdings-empty');
+    var wrap = document.getElementById('pdash-table-wrap');
+    if (empty) empty.style.display = 'none';
+    if (wrap) wrap.style.display = '';
+    try { _pdInitSortHandlers(); } catch (e) {}
+    try { _pdRenderRows(); } catch (e) {}
+  }
+  _psOwnSet('pdash-holdings-count', positions.length
+    ? (positions.length + ' names') : (hc != null ? (hc + ' names') : '—'));
+
+  // Portfolio-Manager active-book summary — the canonical ACTIVE book (never the
+  // dormant legacy DB book that the /v1/portfolio-manager/summary block reports).
+  _psOwnSet('pm-sb-value', navTxt);
+  _psOwnSet('pm-sb-cash', (ok && cap.cash != null)
+    ? (cashTxt + (cap.currency ? '' : '')) : '—');
+  _psOwnSet('pm-sb-invested', investedTxt);
+  _psOwnSet('pm-sb-positions', hc != null ? String(hc) : '—');
+  _psOwnSet('pm-sb-val-date', valDate);
+
+  // Preliminary reassessment proposal (Slice 6/7 not implemented): the proposal is
+  // review-only and unapproved. The label is rendered verbatim from the backend.
+  var a = (d && d.assessment) || {};
+  var lbl = document.getElementById('ps-proposal-label');
+  if (lbl) {
+    if (ok && a.is_preliminary_proposal) {
+      lbl.style.display = '';
+      lbl.textContent = a.preliminary_proposal_label || 'PRELIMINARY PROPOSAL — OPPORTUNITY-COST ENGINE NOT YET IMPLEMENTED';
+    } else { lbl.style.display = 'none'; lbl.textContent = ''; }
+    lbl.setAttribute('data-ps-owned', '1');
+  }
+}
+window.renderPortfolioState = renderPortfolioState;
 
 /* ===================== Slice 1 (Phase 29B) — CANONICAL DATA FRESHNESS =====================
    ONE single-flight read-only loader fetches /v1/operations/data-freshness once and
@@ -24555,7 +24733,11 @@ function _dagChangesHtml(g) {
     return '<div style="margin-top:3px;"><span style="font-weight:800;">' + title + ' (' + rows.length +
       ')</span> ' + rows.map(fmt).join(', ') + '</div>';
   }
-  var html = '';
+  // Slice 5: the reassessment proposal is preliminary and review-only — the Holding
+  // Opportunity-Cost engine (Slice 6) and Reallocation Proposal engine (Slice 7) are
+  // not implemented yet. Manual review is mandatory; no paper orders are created.
+  var html = '<div style="margin:0 0 5px;color:var(--warning,#f59e0b);font-weight:700;font-size:10px;letter-spacing:.02em;">' +
+    'PRELIMINARY PROPOSAL — OPPORTUNITY-COST ENGINE NOT YET IMPLEMENTED</div>';
   html += block('Add', adds, function (r) { return escapeHtml(r.ticker); });
   html += block('Remove', rems, function (r) {
     return escapeHtml(r.ticker) + (r.reason ? ' (' + escapeHtml(r.reason) + ')' : ''); });
@@ -25565,6 +25747,7 @@ window.recoverForwardEvidence = recoverForwardEvidence;
 
 function _obSet(id, text) {
   if (_wsIsCanonicalNode(id)) return;   // canonical nodes are owned by renderWorkflowState
+  if (_psIsCanonicalNode(id)) return;   // valuation nodes are owned by renderPortfolioState (Slice 5)
   var el = document.getElementById(id);
   if (el) el.textContent = (text === null || text === undefined || text === '') ? '—' : String(text);
 }
@@ -25872,9 +26055,15 @@ function renderPortfolioDashboard(d) {
   var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
   var cs = (d && d.canonical_state) || (ob && ob.canonical_state) || null;
   var ps = (ob && ob.portfolio_summary) || null;
-  var hd = (ob && ob.holdings_detail) || [];
+  // Slice 5: the active holdings + valuation date are sourced from the canonical
+  // portfolio-state payload when present (renderPortfolioState owns the KPI + table
+  // nodes); this renderer no longer selects a valuation date or aggregates holdings.
+  var _pstate = window._psData || null;
+  var hd = (_pstate && _pstate.positions) ? _pstate.positions.map(_psMapPosition)
+    : ((ob && ob.holdings_detail) || []);
   var view = window._obView || deriveOperationalBookUiState(d);
-  var valDate = cs ? cs.valuation_date || cs.desk_mark_date : null;
+  var valDate = (_pstate && _pstate.dates) ? _pstate.dates.valuation_date
+    : (cs ? cs.valuation_date : null);
   var tgtDate = cs ? cs.target_date : null;
   // Phase 28B wording: two separate concepts, never one ambiguous "calculated as
   // of" date — the CONFIRMED target's composition date vs the latest owned
@@ -25919,9 +26108,10 @@ function renderPortfolioDashboard(d) {
     ? (cs.implemented_target_count + ' of ' + cs.confirmed_target_count + ' target names') : '—');
   var upnl = cs ? cs.unrealized_pnl : (ps ? ps.unrealized_pnl : null);
   var uret = cs ? cs.unrealized_pnl_pct : (ps ? ps.unrealized_return : null);
-  var upnlEl = document.getElementById('pdash-kpi-upnl');
+  // Slice 5: pdash-kpi-upnl/-uret/-dpnl are owned by renderPortfolioState (canonical).
+  var upnlEl = _psIsCanonicalNode('pdash-kpi-upnl') ? null : document.getElementById('pdash-kpi-upnl');
   if (upnlEl) { upnlEl.textContent = _pdSignedMoney(upnl); upnlEl.className = 'v ' + _pdCls(upnl); }
-  var uretEl = document.getElementById('pdash-kpi-uret');
+  var uretEl = _psIsCanonicalNode('pdash-kpi-uret') ? null : document.getElementById('pdash-kpi-uret');
   if (uretEl) { uretEl.textContent = _pdSignedPct(uret); uretEl.className = 'v ' + _pdCls(uret); }
   // Phase 27B.9 — show the execution-cost explanation while the book sits at (or
   // near) its initial cost-only mark: unrealized P&L negative and no daily P&L yet.
@@ -25932,7 +26122,7 @@ function renderPortfolioDashboard(d) {
     pnlExpl.style.display = atInitialMark ? '' : 'none';
   }
   _obSet('pdash-kpi-costbasis', (ps && ps.cost_basis_total != null) ? ('cost basis ' + _obMoney(ps.cost_basis_total)) : '—');
-  var dpnlEl = document.getElementById('pdash-kpi-dpnl');
+  var dpnlEl = _psIsCanonicalNode('pdash-kpi-dpnl') ? null : document.getElementById('pdash-kpi-dpnl');
   var dpnlAvail = !!(ps && ps.daily_pnl_available && ps.daily_pnl != null);
   if (dpnlEl) {
     dpnlEl.textContent = dpnlAvail ? _pdSignedMoney(ps.daily_pnl) : '—';
@@ -25946,7 +26136,8 @@ function renderPortfolioDashboard(d) {
   // C. Holdings table (or the pre-fill empty state).
   var empty = document.getElementById('pdash-holdings-empty');
   var wrap = document.getElementById('pdash-table-wrap');
-  var count = document.getElementById('pdash-holdings-count');
+  // Slice 5: pdash-holdings-count is owned by renderPortfolioState (canonical).
+  var count = _psIsCanonicalNode('pdash-holdings-count') ? null : document.getElementById('pdash-holdings-count');
   var ordersNote = document.getElementById('ptob-orders-note');
   var ordersBtn = document.getElementById('ptob-view-orders-btn');
   window._pdHoldings = hd;
@@ -26176,7 +26367,7 @@ function renderOperationalBook(d) {
     _obSet('dwob-sum-nav', cs.nav != null ? _obMoney(cs.nav) : '—');
     _obSet('dwob-sum-cash', cs.cash != null ? _obMoney(cs.cash) : '—');
     _obSet('dwob-sum-holdings', cs.holdings_count != null ? String(cs.holdings_count) : holdings);
-    var dwUpnl = document.getElementById('dwob-sum-upnl');
+    var dwUpnl = _psIsCanonicalNode('dwob-sum-upnl') ? null : document.getElementById('dwob-sum-upnl');
     if (dwUpnl) {
       dwUpnl.textContent = cs.unrealized_pnl != null ? _pdSignedMoney(cs.unrealized_pnl) : '—';
       dwUpnl.className = 'v ' + (cs.unrealized_pnl != null ? _pdCls(cs.unrealized_pnl) : '');

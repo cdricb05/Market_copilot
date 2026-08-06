@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "70fa62d",
+    "head": "bd1f6ae",
     "branch": "main",
-    "phase": "29D.2"
+    "phase": "29F"
   },
   "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete.",
   "systems": {
@@ -57,15 +57,31 @@
     },
     {
       "concept": "portfolio_nav_valuation",
-      "authoritative_owner": "api/portfolio_valuation.py (DB book) + api/paper_trading_desk.py book_nav (ledger book)",
+      "authoritative_owner": "api/portfolio_state.py (Slice 5 canonical READ owner) composing api/paper_trading_desk.py book_nav (LIVE NAV authority, ledger replay) + api/portfolio_valuation.py (explicitly-scoped legacy DB archive, never the active book)",
       "current_writers": [
-        "api/portfolio_valuation.py",
         "api/paper_trading_desk.py",
+        "api/portfolio_valuation.py",
         "engine/portfolio.py",
         "api/current_alpha_book.py",
         "engine/absolute_return_research.py"
       ],
-      "status": "CONFLICT"
+      "read_owner": "api/portfolio_state.py",
+      "live_nav_authority": "api/paper_trading_desk.py (book_nav ledger replay)",
+      "legacy_archive": "api/portfolio_valuation.py (DB book; dormant legacy_paper_portfolio, never selected as the active book)",
+      "delegating_read_models": [
+        "api/operational_book.py (active-book NAV/cash/holdings/positions producer)",
+        "api/data_freshness.py (operational dates + active-book selection)",
+        "api/paper_trading_desk.py load_performance (cumulative return/benchmark/drawdown)",
+        "api/daily_action_gate.py (portfolio-assessment reference)",
+        "api/forward_prediction_skill.py (forward-evidence reference)"
+      ],
+      "research_and_legacy_writers_scoped_later": [
+        "engine/portfolio.py (cached_total_value; legacy DB stack, retires Slice 11)",
+        "api/current_alpha_book.py (frozen champion research book construction)",
+        "engine/absolute_return_research.py (research diagnostic books)"
+      ],
+      "notes": "Slice 5 resolves the read layer: api/portfolio_state.py is the ONE authoritative read model of the operational portfolio state, exposed at GET /v1/operations/portfolio-state and rendered by the ONE UI loader loadPortfolioState. The LIVE NAV authority is paper_trading_desk.book_nav (ledger replay); portfolio_valuation.py is the explicitly-scoped legacy DB archive and is never selected as the active book. The remaining research/legacy writers are separate lineages scoped for later slices (8/11) and are not part of the operational NAV read path.",
+      "status": "RESOLVED_SLICE5_READ_OWNER"
     },
     {
       "concept": "universe_scoring_rankings",
@@ -242,6 +258,11 @@
     {
       "prefix": "/v1/operations/workflow-state",
       "owner": "api/workflow_state.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/portfolio-state",
+      "owner": "api/portfolio_state.py",
       "system": "infrastructure"
     },
     {
@@ -560,6 +581,37 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "The ONE owner of the combined operator interpretation (Consolidation Roadmap Slice 2). Owns the frozen overall-state vocabulary (WAITING_FOR_SESSION_CLOSE / WAITING_FOR_OWNED_DATA / RESEARCH_CYCLE_REQUIRED / RESEARCH_CYCLE_RUNNING / RESEARCH_CYCLE_BLOCKED / PORTFOLIO_REASSESSMENT_REQUIRED / READY_FOR_DAILY_CLOSE / DAILY_CYCLE_COMPLETE / DAILY_CYCLE_COMPLETE_EVIDENCE_GAP / MANUAL_REVIEW_REQUIRED / INCONSISTENT_STATE), the assessment-currency vocabulary (CURRENT/STALE/DUE/OVERDUE/MISSING/INCONSISTENT), the action-severity vocabulary (INFO/SUCCESS/ATTENTION/BLOCKED/ERROR), the deterministic priority policy and the decision-currency rule (an older Daily Action Gate result is never re-presented as a stale 'today' conclusion). Specialized modules keep their domain facts; the UI renders these values and derives none of them. Slice 3 (Phase 29D): it now CONSUMES the canonical Daily Research Cycle status (api/daily_research_cycle.py) and adds the RESEARCH_CYCLE_RUNNING / RESEARCH_CYCLE_BLOCKED overall states + a research_cycle_state block; the research primary action is now executable (confirm token RUN_DAILY_RESEARCH_CYCLE). Read-only: no provider/prediction call, no Daily Close, no research refresh, no reassessment, no write, no proposal."
+    },
+    {
+      "path": "api/portfolio_state.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 5 (Phase 29F) CANONICAL operational portfolio-state read owner: composes the active Operational Book + api.data_freshness dates/active-book selection + paper_trading_desk performance + Daily Action Gate assessment + Forward Prediction Skill evidence into ONE read model of the complete operational portfolio state (active-book identity, dates, capital/NAV/cost basis/P&L/cumulative return/benchmark/drawdown, per-holding positions, order/fill summaries, target reference, assessment reference, evidence reference, safety mode) plus a deterministic read-only consistency verdict (CONSISTENT/DEGRADED/INCONSISTENT/UNAVAILABLE) and a stable state hash. Selects the ACTIVE Alpha Paper Book #1 and never the dormant legacy DB book. Recomputes no business logic; never a writer.",
+      "classification": "KEEP",
+      "target_owner": "api/portfolio_state.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "operational_book.load_operational_book (read-only; active-book identity/NAV/cash/holdings/positions/orders/target ref/safety)",
+        "data_freshness.load_data_freshness (read-only; eligible/valuation/desk-mark/benchmark/close/target dates + active-book selection + freshness consistency)",
+        "paper_trading_desk.load_performance (read-only; cumulative return / benchmark value+date / excess vs benchmark / drawdown)",
+        "paper_trading_desk.load_fills (read-only; fill rows for reconciliation)",
+        "daily_action_gate.load_daily_action_gate (read-only; assessment date/outcome/proposed-change count/target_state)",
+        "forward_prediction_skill.load_prediction_skill (read-only; forward-evidence state/latest snapshot)"
+      ],
+      "direct_writes": [
+        "read-only (no file/ledger/db/provider/prediction/close/refresh/reassessment/order/fill)"
+      ],
+      "endpoints": [
+        "/v1/operations/portfolio-state"
+      ],
+      "ui_consumers": [
+        "loadPortfolioState"
+      ],
+      "tests": [
+        "tests/test_slice5_portfolio_state.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "The ONE authoritative read model of the operational portfolio state (Consolidation Roadmap Slice 5). Resolves the portfolio_nav_valuation CONFLICT at the read layer: the LIVE NAV authority is paper_trading_desk.book_nav (ledger replay, via operational_book) and portfolio_valuation.py is the explicitly-scoped legacy DB archive that is never selected as the active book. Owns the frozen portfolio-state vocabulary (PORTFOLIO_STATE_READY / PORTFOLIO_STATE_DEGRADED / PORTFOLIO_STATE_INCONSISTENT / NO_ACTIVE_BOOK / PORTFOLIO_STATE_UNAVAILABLE) and the consistency vocabulary (CONSISTENT/DEGRADED/INCONSISTENT/UNAVAILABLE) with 12 read-only cross-source checks; never silently repairs. Exposes state_hash + source_hashes (generated_at excluded). The preliminary reassessment proposal it references is review-only and unapproved (Holding Opportunity-Cost engine Slice 6 and Reallocation Proposal engine Slice 7 not implemented). One UI loader (loadPortfolioState) owns the valuation nodes; the UI computes no NAV/totals/active-book selection/valuation date/pending count. Read-only: no provider/prediction call, no Daily Close, no research refresh, no reassessment, no write."
     },
     {
       "path": "api/daily_research_cycle.py",

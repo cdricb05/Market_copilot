@@ -340,6 +340,54 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
 - **Completion gate:** audit `portfolio_nav_valuation` writers = 1 live authority
   + 1 explicitly-scoped legacy archive.
 - **Principle:** 1, 6. **Milestone:** 1.
+- **Status — LANDED (Phase 29F).** Canonical owner `api/portfolio_state.py` — the ONE
+  authoritative, READ-ONLY composition owner of the complete operational
+  portfolio-state of the active Alpha Paper Book. It **composes** the existing
+  authoritative read models and recomputes NO business logic: the active book +
+  capital + positions + orders + target reference → `operational_book.load_operational_book`
+  (NAV/cash/holdings each produced exactly once by the desk-ledger replay
+  `paper_trading_desk.book_nav`); the operational dates + active-book selection +
+  freshness consistency → `data_freshness.load_data_freshness` (Slice 1); the
+  cumulative performance (cumulative return / benchmark value+date / excess vs
+  benchmark / drawdown) → `paper_trading_desk.load_performance`; the portfolio
+  assessment (date / outcome / proposed-change count / target state) →
+  `daily_action_gate.load_daily_action_gate`; the forward-evidence reference →
+  `forward_prediction_skill.load_prediction_skill`. New surface:
+  `GET /v1/operations/portfolio-state` (authenticated, GET-only, read-only) rendered
+  by ONE UI loader `loadPortfolioState()` that is the SOLE writer of the operational
+  VALUATION nodes across the Command Center card, the Portfolio header + performance
+  KPIs + active holdings table, the right panel, the Daily-Plan summary and the
+  Portfolio-Manager active-book summary (canonical nodes STAMPED `data-ps-owned`; the
+  shared `_obSet` setter and `renderPmStatusbar` hard-refuse them, so the visible value
+  is independent of async completion order). The UI computes NO NAV, aggregates NO
+  totals, selects NO active book, derives NO valuation date and counts NO pending
+  orders. **Active-book selection** picks the active Alpha Paper Book #1 through the
+  authoritative policy and NEVER the dormant legacy DB book
+  (`portfolio_valuation` — `legacy_paper_portfolio`, dated 2026-07-20), which is
+  reported only as an explicitly ignored archive; this repaired the Portfolio-Manager
+  status bar, which had been showing the dormant legacy book ($9,999.52 / 2026-07-20)
+  instead of the active book ($100,327.99 / 2026-08-05 / 25 holdings). **Consistency
+  engine:** 12 read-only cross-source checks (valuation-vs-desk-mark, valuation-vs-close,
+  benchmark-vs-valuation, holdings-count-vs-rows, NAV reconciliation ±$0.01,
+  invested-vs-positions, pending-order count, fill count, target-membership count,
+  target-date-vs-owner, assessment-vs-eligible, active-book identity) returning
+  `CONSISTENT` / `DEGRADED` / `INCONSISTENT` / `UNAVAILABLE` with exact reason codes;
+  it never silently repairs and the endpoint stays available in a degraded state.
+  Deterministic: a stable `state_hash` + per-source `source_hashes` (with
+  `generated_at` explicitly excluded). It is a READ model — it is **never** a writer,
+  runs no Daily Close / research refresh / reassessment, calls no provider or
+  prediction service, promotes no model, and creates no order / signal / decision /
+  fill. The preliminary reassessment proposal it references (the August 17 proposed
+  changes) is **review-only and unapproved** and labelled
+  `PRELIMINARY PROPOSAL — OPPORTUNITY-COST ENGINE NOT YET IMPLEMENTED` — the Holding
+  Opportunity-Cost engine (Slice 6) and the Reallocation Proposal engine (Slice 7) are
+  not implemented yet; confirmation / order creation is not permitted. Static guard
+  `check_portfolio_state_ownership` enforces the sole owner, delegation, no second
+  owner, no writer, the dormant-legacy rejection, the GET-only route, ONE UI loader +
+  renderer with no UI NAV/total/active-book/valuation computation; inventory drift = 0.
+  **Not begun:** Slice 6 (Holding Opportunity-Cost engine, Milestone 2), Slice 7
+  (Reallocation Proposal engine), Slice 8 (Persistent Alpha Research Agent,
+  Milestone 4); cadence remains disabled.
 
 ## Slice 6 — Holding opportunity-cost engine
 

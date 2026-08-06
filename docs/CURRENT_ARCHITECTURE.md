@@ -270,7 +270,7 @@ the two-worlds operations split (§8).
 
 | Canonical concept | Intended owner | Reality | Verdict |
 |---|---|---|---|
-| Portfolio NAV / valuation | `portfolio_valuation.load_portfolio_valuation` (`:367`) | **Two authorities**: DB valuation vs ledger `paper_trading_desk.book_nav` (`:518`); UI renders NAV from 3 payloads (daily-close, operational-book, command-center) with no reconciliation; `engine/portfolio.py:262` still writes `cached_total_value`; `portfolio_terminal._collect_positions` re-marks independently | **CONFLICT** |
+| Portfolio NAV / valuation | `api/portfolio_state` (**Slice 5, LANDED**) — READ owner over `paper_trading_desk.book_nav` (`:518`, LIVE authority) + `portfolio_valuation` (legacy DB archive) | Canonical read model of the complete operational portfolio state (active-book identity + selection, dates, capital/NAV/cost basis/P&L/cumulative return/benchmark/drawdown, positions, orders/fills, target/assessment/evidence refs, consistency verdict, stable state hash) at `GET /v1/operations/portfolio-state`; ONE UI `loadPortfolioState()` owns the valuation nodes (no JS NAV/total/active-book/valuation computation). Selects the active Alpha Paper Book #1, never the dormant legacy DB book (`legacy_paper_portfolio`, 2026-07-20); the PM status bar is cut over from the dormant book to the active book. The live NAV authority is `paper_trading_desk.book_nav`; `engine/portfolio.py:262` (`cached_total_value`) and `current_alpha_book`/`absolute_return_research` remain research/legacy writers scoped for Slices 8/11 | **RESOLVING (Slice 5)** |
 | Eligible market date | `engine/market_session` (**Slice 1, LANDED**) | Canonical pure owner; `daily_operating_run:171`, `daily_close._expected_session/_resolve_clock` and `alpha_target` now **delegate** (byte-identical parity). Remaining resolvers documented: `paper_trading_desk._required_mark_date`, `current_alpha_tournament_sync`, `market_screener`, the `func.max(PriceSnapshot.market_date)` sites | **RESOLVING (Slice 1)** |
 | Cross-source data freshness | `api/data_freshness` (**Slice 1, LANDED**) | One read-only owner classifies every input under its declared cadence and composes the market session; served at `GET /v1/operations/data-freshness`, rendered by the single UI `loadDataFreshness()` | **OK** |
 | Universe scoring / rankings | `api/universe_scoring` (**Slice 4, LANDED**) over the `multi_horizon_engine` kernel | Canonical composition & read owner: calls the pure kernel once, deep-copies the cache, and normalises it into ONE frozen contract (identity + content-level `input_contract_hash` + reconciled counts + deterministic ranking + TOP25/TOP50 + exclusions + universe identity + consistency validator) at `GET /v1/research/universe-scoring`; `current-alpha-scores` is a compat wrapper; the DRC and identity re-exports (`alpha_target`, `forward_prediction_skill`) consume it. No operational module duplicates the kernel's combined-score math. `engine/scoring.py` remains the legacy DB screener lineage (retires with Slice 11) | **RESOLVING (Slice 4)** |
@@ -592,3 +592,54 @@ flowchart TD
   Static guard `check_monthly_emitter_bridge_ownership`; inventory drift = 0. Slice 5
   (portfolio state / one-NAV) remains next; the Persistent Alpha Research Agent remains
   a future milestone (Slice 8 / Milestone 4); cadence remains disabled.
+
+### Canonical operational portfolio state (Slice 5, LANDED — Phase 29F)
+
+```mermaid
+flowchart LR
+  OB["operational_book.load_operational_book<br/>(active book: NAV/cash/holdings/positions/orders/target)"] --> PS["api/portfolio_state.py (READ-ONLY owner)"]
+  DF["data_freshness.load_data_freshness<br/>(dates + active-book selection + consistency)"] --> PS
+  PERF["paper_trading_desk.load_performance<br/>(cumulative return / benchmark / drawdown)"] --> PS
+  GATE["daily_action_gate.load_daily_action_gate<br/>(assessment / proposed-change count)"] --> PS
+  FPS["forward_prediction_skill.load_prediction_skill<br/>(forward evidence)"] --> PS
+  PS --> CE["12-check consistency engine<br/>CONSISTENT / DEGRADED / INCONSISTENT / UNAVAILABLE"]
+  PS --> EP["GET /v1/operations/portfolio-state (authenticated, GET-only)"]
+  EP --> UI["ONE UI loader loadPortfolioState()<br/>owns valuation nodes (data-ps-owned)"]
+  LEG["portfolio_valuation (legacy DB book, 2026-07-20)"] -. "explicitly ignored, never active" .-> PS
+```
+
+- **Canonical owner** `api/portfolio_state.py`: read-only composition; the ONE
+  authoritative complete operational portfolio-state of the active Alpha Paper Book
+  (active-book identity + selection, dates, capital/NAV/cost basis/P&L/cumulative
+  return/benchmark/drawdown, per-holding positions, order/fill summaries, target /
+  assessment / evidence references, safety mode, a deterministic consistency verdict,
+  a stable `state_hash` with `generated_at` excluded). It re-implements no business
+  calculation; the LIVE NAV authority is `paper_trading_desk.book_nav` (ledger replay).
+- **Active-book selection:** selects the active Alpha Paper Book #1 through the
+  authoritative `operational_book` policy; the dormant legacy DB book
+  (`legacy_paper_portfolio`, 2026-07-20) is NEVER selected and is reported only as an
+  ignored archive. The Portfolio-Manager status bar is cut over from the dormant book
+  ($9,999.52 / 2026-07-20 / 2 positions) to the active book ($100,327.99 / 2026-08-05 /
+  25 holdings).
+- **Consistency engine:** 12 read-only cross-source checks (Decimal-safe ±$0.01 NAV
+  reconciliation) returning `CONSISTENT` / `DEGRADED` / `INCONSISTENT` / `UNAVAILABLE`
+  with exact reason codes; never silently repairs; the endpoint stays available while
+  degraded.
+- **Consumers:** `GET /v1/operations/portfolio-state` (authenticated, GET-only,
+  read-only) rendered by ONE UI `loadPortfolioState()` + `renderPortfolioState()` that
+  own the operational valuation nodes across the Command Center card, the Portfolio
+  header / performance KPIs / active holdings table, the right panel, the Daily-Plan
+  summary and the PM active-book summary (STAMPED `data-ps-owned`; `_obSet` and
+  `renderPmStatusbar` hard-refuse them). The UI computes no NAV/total/active-book
+  selection/valuation date/pending count.
+- **Preliminary proposal:** the reassessment proposal (the August 17 proposed changes)
+  is review-only and unapproved, labelled `PRELIMINARY PROPOSAL — OPPORTUNITY-COST
+  ENGINE NOT YET IMPLEMENTED`; no confirmation / order-creation path exists (Slice 6 /
+  Slice 7 not implemented).
+- **Static guard:** `scripts/audit_architecture.py:check_portfolio_state_ownership`
+  enforces the sole owner, full delegation, no second owner, no writer, the
+  dormant-legacy rejection, the GET-only route, ONE UI loader + renderer with no UI
+  NAV/total/active-book/valuation computation; inventory drift = 0. Read-only: no
+  provider / prediction call, no Daily Close, no research refresh, no reassessment, no
+  write, no order/fill. Slice 6 (Holding Opportunity-Cost engine) remains next; cadence
+  remains disabled.

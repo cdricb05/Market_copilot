@@ -880,6 +880,13 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "fill_count": fills_count,
         "current_target": target,
         "target_count": target_count or None,
+        # Phase 29F (Slice 5) — the smallest public read-only exposure of the
+        # confirmed target membership + weights the active book is tracking (the
+        # frozen snapshot the per-holding drift is measured against). Read-only;
+        # api.portfolio_state (the canonical portfolio-state owner) reads THIS as
+        # the authoritative target membership rather than reaching into the book.
+        "frozen_target_weights": ((book or {}).get("frozen_target_weights") or {}),
+        "target_tickers": list(rd.get("target_tickers") or []),
         "target_market_date": (rd.get("target_market_date")
                                or (target or {}).get("alpha_market_date")),
         "target_confirmation_status": (target or {}).get("state"),

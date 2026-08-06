@@ -201,6 +201,7 @@ from paper_trader.api.current_operating_state import (
 from paper_trader.api.data_freshness import load_data_freshness
 from paper_trader.api.workflow_state import load_workflow_state
 from paper_trader.api import daily_research_cycle as _drc
+from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6261,6 +6262,44 @@ def operations_workflow_state() -> dict:
     reassessment (Slice 3+) are described / routed here but not executed.
     """
     return load_workflow_state()
+
+
+@app.get(
+    "/v1/operations/portfolio-state",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_state() -> dict:
+    """Slice 5 canonical operational portfolio-state report.
+
+    The ONE authoritative read model for the complete current operational state of
+    the active Alpha Paper Book: the active-book identity + selection, the
+    operational dates, the capital block (cash / invested / NAV / cost basis /
+    P&L / cumulative return / benchmark / drawdown), the per-holding positions, the
+    order / fill summaries, the current target reference, the latest portfolio
+    assessment reference, the forward-evidence reference, the operational safety
+    mode, a deterministic read-only consistency verdict, and a stable state hash.
+    Built by ``api.portfolio_state`` on top of the existing authoritative read
+    models (the active ``operational_book`` — the NAV/cash/holdings ledger-replay
+    producer; the Slice-1 ``data_freshness`` dates + active-book selection; the
+    ``paper_trading_desk`` performance ledger; the Daily Action Gate assessment;
+    and the Forward Prediction Skill). It never re-derives their business logic.
+
+    Active-book selection selects the active operational Alpha Paper Book #1 and
+    never the dormant legacy DB book (``portfolio_valuation`` —
+    ``legacy_paper_portfolio``), which is reported only as an ignored archive.
+
+    STRICTLY READ-ONLY: it invokes no provider network call, calls no prediction
+    service, runs no Daily Close, runs no research refresh, runs no portfolio
+    reassessment, promotes no model, and writes no file / ledger / database row /
+    snapshot / order / signal / decision / fill / proposal. The endpoint remains
+    available (HTTP 200) in a DEGRADED / INCONSISTENT consistency state; a failing
+    non-critical dependency degrades to a ``warnings[]`` entry. The preliminary
+    reassessment proposal it references is review-only and unapproved — the Holding
+    Opportunity-Cost engine (Slice 6) and the Reallocation Proposal engine
+    (Slice 7) are not implemented yet.
+    """
+    return _pstate.load_portfolio_state()
 
 
 @app.get(

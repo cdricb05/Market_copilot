@@ -247,6 +247,44 @@ UI_US_REGION_END = "window.loadUniverseScoring"
 UI_US_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".sort(",
                    "compute_", "_percentiles", "zscore", "* 0.5")
 
+# --- Slice 5 (Phase 29F) canonical operational portfolio-state ownership -------- #
+# ONE read-only composition owner (api.portfolio_state) is the authoritative complete
+# operational portfolio-state of the ACTIVE Alpha Paper Book. It composes the existing
+# owners (operational_book / data_freshness / paper_trading_desk / daily_action_gate /
+# forward_prediction_skill) and recomputes NO business logic; it selects the active book
+# through the authoritative policy and NEVER the dormant legacy DB book; it is a read
+# model (no writer); and the UI has EXACTLY ONE canonical portfolio-state loader +
+# renderer that computes no NAV / totals / active-book selection / valuation date /
+# pending count.
+PS_OWNER = "api/portfolio_state.py"
+PS_ROUTE = "/v1/operations/portfolio-state"
+PS_LOAD_DEF = "def load_portfolio_state("
+# The owner MUST delegate to (compose) these authoritative read models.
+PS_MUST_DELEGATE = ("operational_book", "data_freshness", "paper_trading_desk",
+                    "daily_action_gate", "forward_prediction_skill")
+# The owner must select the active book via the policy and reject the dormant legacy book.
+PS_LEGACY_TOKEN = "legacy_paper_portfolio"
+PS_SELECT_FN = "def _select_active_book("
+# The owner must NEVER write, create an order/signal/decision/fill, promote a model,
+# run a cycle/close/refresh, or call a provider / prediction service (read model only).
+PS_FORBIDDEN_CALLS = ("place_order(", "submit_order(", "create_order(", "run_fill_cycle(",
+                      "Signal(", "TradeDecision(", "run_daily_close(", "run_refresh(",
+                      "run_daily_research_cycle(", "requests.get(", "requests.post(",
+                      "urlopen(", "httpx.", "predict(", "promote_model(",
+                      "replace_champion(", "_atomic_write", ".commit(")
+# No OTHER operational api/*.py module may define a second portfolio-state owner.
+PS_SECOND_OWNER_DEF = "def load_portfolio_state("
+# UI: EXACTLY one canonical portfolio-state loader + renderer; the region computes nothing.
+UI_PS_LOADER = "function loadPortfolioState"
+UI_PS_RENDERER = "function renderPortfolioState"
+UI_PS_FETCH = "/v1/operations/portfolio-state"
+UI_PS_REGION_START = "function loadPortfolioState"
+UI_PS_REGION_END = "window.renderPortfolioState"
+UI_PS_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".reduce(",
+                   "|| 'fundamental", "book_id ||", "cached_total_value")
+# The canonical valuation nodes must be guarded (owned) so no page recomputes them.
+UI_PS_GUARD_TOKENS = ("PS_CANONICAL_NODES", "_psIsCanonicalNode", "data-ps-owned")
+
 
 # Canonical business concepts and the regex that identifies a *writer/producer*
 # of that concept (a function definition that computes it). Multiple modules
@@ -1024,6 +1062,79 @@ def check_universe_scoring_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_portfolio_state_ownership(files: list[Path]) -> dict:
+    """Slice 5 (Phase 29F) semantic ownership guard for the canonical operational
+    portfolio-state owner (api.portfolio_state).
+
+    Asserts ONE read-only composition owner that delegates to the authoritative read
+    models, selects the ACTIVE Alpha Paper Book (never the dormant legacy DB book),
+    is NOT a writer, and is exposed at ONE GET route with EXACTLY ONE canonical UI
+    loader + renderer that compute no NAV / totals / active-book selection /
+    valuation date / pending count."""
+    owner_src = _read(PS_OWNER)
+    owner_present = (REPO_ROOT / PS_OWNER).exists()
+
+    delegates = {tok: (tok in owner_src) for tok in PS_MUST_DELEGATE}
+    missing_delegation = sorted(k for k, v in delegates.items() if not v)
+    forbidden_calls = sorted(t for t in PS_FORBIDDEN_CALLS if t in owner_src)
+    active_book_selection_present = PS_SELECT_FN in owner_src
+    rejects_legacy_book = PS_LEGACY_TOKEN in owner_src
+    owner_defines_loader = PS_LOAD_DEF in owner_src
+
+    # (b) No OTHER operational api/*.py module defines a second portfolio-state owner.
+    second_owner_modules: list[str] = []
+    for fp in files:
+        rel = _rel(fp)
+        parts = rel.split("/")
+        if len(parts) != 2 or parts[0] != "api":
+            continue
+        if rel == PS_OWNER:
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if PS_SECOND_OWNER_DEF in text:
+            second_owner_modules.append(rel)
+    second_owner_modules = sorted(second_owner_modules)
+
+    # (c) routes — the canonical route exists and is GET-only.
+    routes = check_routes()["routes"]
+    canonical_present = any(r["path"] == PS_ROUTE for r in routes)
+    canonical_methods = sorted({r["method"] for r in routes if r["path"] == PS_ROUTE})
+
+    # (d) UI: EXACTLY one canonical loader + renderer; the region computes nothing.
+    ui = _read(UI_FILE)
+    loader_count = ui.count(UI_PS_LOADER)
+    renderer_count = ui.count(UI_PS_RENDERER)
+    fetch_count = ui.count(UI_PS_FETCH)
+    region_hits: list[str] = []
+    start = ui.find(UI_PS_REGION_START)
+    end = ui.find(UI_PS_REGION_END)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_PS_FORBIDDEN:
+            if pat in region:
+                region_hits.append(pat)
+    guard_present = {tok: (tok in ui) for tok in UI_PS_GUARD_TOKENS}
+    missing_guard_tokens = sorted(k for k, v in guard_present.items() if not v)
+
+    return {
+        "owner": PS_OWNER, "owner_present": owner_present,
+        "owner_defines_loader": owner_defines_loader,
+        "delegates": delegates, "missing_delegation": missing_delegation,
+        "forbidden_execution_calls": forbidden_calls,
+        "portfolio_state_is_writer": bool(forbidden_calls),
+        "active_book_selection_present": active_book_selection_present,
+        "rejects_dormant_legacy_book": rejects_legacy_book,
+        "second_portfolio_state_owner_modules": second_owner_modules,
+        "canonical_route_present": canonical_present,
+        "canonical_route_methods": canonical_methods,
+        "ui_portfolio_state_loader_count": loader_count,
+        "ui_portfolio_state_renderer_count": renderer_count,
+        "ui_portfolio_state_fetch_count": fetch_count,
+        "ui_portfolio_state_computation": sorted(set(region_hits)),
+        "ui_missing_guard_tokens": missing_guard_tokens,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -1098,6 +1209,7 @@ def run_audit() -> dict:
         "slice3_live_acceptance_ownership": check_slice3_live_acceptance_ownership(files),
         "universe_scoring_ownership": check_universe_scoring_ownership(files),
         "monthly_emitter_bridge_ownership": check_monthly_emitter_bridge_ownership(files),
+        "portfolio_state_ownership": check_portfolio_state_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -1246,6 +1358,24 @@ def _print_console(rep: dict) -> None:
     print(f"no separate monthly UI button: {me['no_separate_monthly_ui_button']}  "
           f"separate monthly endpoints (must be empty): {me['separate_monthly_endpoints']}")
 
+    hdr("PORTFOLIO-STATE OWNERSHIP (Slice 5)")
+    ps = rep["portfolio_state_ownership"]
+    print(f"owner present: {ps['owner_present']} ({ps['owner']})  "
+          f"defines loader: {ps['owner_defines_loader']}")
+    print(f"delegation missing (must be empty): {ps['missing_delegation']}")
+    print(f"forbidden execution/provider/prediction/write calls (must be empty): "
+          f"{ps['forbidden_execution_calls']}")
+    print(f"is writer (must be False): {ps['portfolio_state_is_writer']}")
+    print(f"active-book selection present: {ps['active_book_selection_present']}  "
+          f"rejects dormant legacy book: {ps['rejects_dormant_legacy_book']}")
+    print(f"second portfolio-state owner modules (must be empty): "
+          f"{ps['second_portfolio_state_owner_modules']}")
+    print(f"canonical route present: {ps['canonical_route_present']} {ps['canonical_route_methods']}")
+    print(f"UI canonical loaders (must be 1): {ps['ui_portfolio_state_loader_count']}  "
+          f"renderers (must be 1): {ps['ui_portfolio_state_renderer_count']}")
+    print(f"UI portfolio-state computation (must be empty): {ps['ui_portfolio_state_computation']}")
+    print(f"UI missing guard tokens (must be empty): {ps['ui_missing_guard_tokens']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -1303,7 +1433,21 @@ def main(argv=None) -> int:
         us = rep["universe_scoring_ownership"]
         la = rep["slice3_live_acceptance_ownership"]
         me = rep["monthly_emitter_bridge_ownership"]
+        ps = rep["portfolio_state_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
+                         + (0 if ps["owner_present"] else 1)
+                         + (0 if ps["owner_defines_loader"] else 1)
+                         + len(ps["missing_delegation"])
+                         + len(ps["forbidden_execution_calls"])
+                         + (0 if ps["active_book_selection_present"] else 1)
+                         + (0 if ps["rejects_dormant_legacy_book"] else 1)
+                         + len(ps["second_portfolio_state_owner_modules"])
+                         + (0 if ps["canonical_route_present"] else 1)
+                         + (0 if ps["canonical_route_methods"] == ["GET"] else 1)
+                         + (0 if ps["ui_portfolio_state_loader_count"] == 1 else 1)
+                         + (0 if ps["ui_portfolio_state_renderer_count"] == 1 else 1)
+                         + len(ps["ui_portfolio_state_computation"])
+                         + len(ps["ui_missing_guard_tokens"])
                          + (0 if me["owner_present"] else 1)
                          + (0 if me["bridge_pure_stdlib"] else 1)
                          + len(me["bridge_numeric_imports"])

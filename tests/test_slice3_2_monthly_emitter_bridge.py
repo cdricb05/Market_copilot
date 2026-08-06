@@ -684,12 +684,16 @@ def test_42_no_separate_monthly_execution_endpoint():
     assert "activate_production_emitter" in src  # app wires the resolver, adds no route
 
 
-def test_43_slice5_remains_not_implemented():
+def test_43_slice5_landed_slice6_not_implemented():
+    # Slice 5 (portfolio state / one-NAV) has since LANDED (Phase 29F); the NEXT slice
+    # (Slice 6, Holding Opportunity-Cost engine) is NOT started.
     roadmap = (ROOT / "docs" / "CONSOLIDATION_ROADMAP.md").read_text(encoding="utf-8")
     s5 = roadmap.index("## Slice 5")
     s6 = roadmap.index("## Slice 6")
-    assert "LANDED" not in roadmap[s5:s6]
-    assert not (ROOT / "api" / "portfolio_state.py").exists()
+    s7 = roadmap.index("## Slice 7")
+    assert "LANDED (Phase 29F)" in roadmap[s5:s6]
+    assert "LANDED" not in roadmap[s6:s7]
+    assert not (ROOT / "api" / "opportunity_cost_engine.py").exists()
 
 
 def test_44_no_new_scheduler_or_cadence_enabled():
