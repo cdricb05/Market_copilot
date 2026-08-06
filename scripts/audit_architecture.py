@@ -191,6 +191,20 @@ UI_DRC_REGION_END = "window.runDailyResearchCycle"
 UI_DRC_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", "build_execution_plan",
                     "evaluate_alignment")
 
+# --- Phase 29D.2 production monthly-momentum emitter bridge ownership ----------- #
+# The ONE pure-stdlib SUBPROCESS bridge wired behind the canonical monthly-input
+# adapter's seam. It must import NEITHER numpy NOR pandas (the heavy math runs only
+# in the external subprocess), never use a shell string, delegate ALL mathematics to
+# the external Phase-25 module (no SECOND monthly formula in Paper Trader), be wired
+# by the adapter + app startup, and expose no separate monthly execution endpoint / UI
+# button (the monthly step lives inside the Daily Research Cycle).
+MONTHLY_EMITTER_OWNER = "api/monthly_momentum_emitter.py"
+MONTHLY_EMITTER_MATH_OWNER = "phase25_multi_horizon_inputs"
+# The month-end momentum formula signature that must NOT reappear in any operational
+# api module (it belongs solely to the external Phase-25 mathematics owner).
+MONTHLY_FORMULA_SIG = re.compile(
+    r"""resample\(["']ME["']\)|\.shift\(7\)|close\[m\s*-\s*7\]""")
+
 # --- Slice 4 (Phase 29E) canonical universe-scoring ownership ------------------ #
 # ONE composition & read owner (api.universe_scoring) normalises the pure scoring
 # KERNEL (api.multi_horizon_engine) into the canonical operational scoring/ranking
@@ -848,6 +862,79 @@ def check_slice3_live_acceptance_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_monthly_emitter_bridge_ownership(files: list[Path]) -> dict:
+    """Phase 29D.2 production monthly-momentum emitter bridge ownership guard.
+
+    Confirms (a) the pure-stdlib SUBPROCESS bridge ``api.monthly_momentum_emitter``
+    exists, imports NEITHER numpy NOR pandas and never uses a shell string, (b) it
+    delegates ALL monthly momentum mathematics to the external Phase-25 module (no
+    SECOND monthly formula exists in any operational api module), (c) the canonical
+    monthly-input adapter wires it through ``activate_production_emitter`` and the app
+    activates the production resolver at startup, (d) the Daily Research Cycle status
+    contract exposes the monthly owner, and (e) NO separate monthly execution endpoint
+    or UI primary button exists (the monthly step lives inside the DRC).
+    """
+    emitter_src = _read(MONTHLY_EMITTER_OWNER)
+    adapter_src = _read(MONTHLY_INPUT_OWNER)
+    app_src = _read(APP_MODULE)
+    drc_src = _read(DRC_OWNER)
+    ui = _read(UI_FILE)
+
+    present = (REPO_ROOT / MONTHLY_EMITTER_OWNER).exists()
+    numeric_imports = sorted(
+        t for t in ("import numpy", "import pandas", "from numpy", "from pandas")
+        if t in emitter_src)
+    uses_shell = "shell=True" in emitter_src
+    delegates_math = MONTHLY_EMITTER_MATH_OWNER in emitter_src
+    uses_argv_array = ("def build_run_command(" in emitter_src
+                       and "subprocess.run(" in emitter_src)
+
+    # No SECOND monthly formula: no operational api module RECOMPUTES the month-end
+    # mom_6_1 mathematics (that belongs solely to the external Phase-25 owner). A real
+    # reimplementation needs a numeric library, so a module is flagged only when it BOTH
+    # imports numpy/pandas AND matches the formula signature — this ignores docstrings /
+    # comments that merely DESCRIBE the formula (e.g. the bridge's own module docstring).
+    _numeric = ("import numpy", "import pandas", "from numpy", "from pandas")
+    second_formula_modules: list[str] = []
+    for fp in files:
+        rel = _rel(fp)
+        parts = rel.split("/")
+        if len(parts) != 2 or parts[0] != "api" or rel == MONTHLY_EMITTER_OWNER:
+            continue
+        text = fp.read_text(encoding="utf-8", errors="replace")
+        if any(t in text for t in _numeric) and MONTHLY_FORMULA_SIG.search(text):
+            second_formula_modules.append(rel)
+    second_formula_modules = sorted(second_formula_modules)
+
+    adapter_wires = "activate_production_emitter" in adapter_src
+    app_wires = ("activate_production_emitter" in app_src
+                 and "monthly_momentum_emitter" in app_src)
+    drc_exposes_owner = "monthly_owner" in drc_src
+    ui_no_separate_button = ("runMonthlyInputEmitter" not in ui
+                             and "month-boundary-btn" not in ui)
+
+    routes = check_routes()["routes"]
+    # No dedicated monthly execution endpoint (the monthly step is inside the DRC run).
+    monthly_endpoints = sorted(r["path"] for r in routes
+                               if "monthly" in (r["path"] or "").lower())
+
+    return {
+        "owner": MONTHLY_EMITTER_OWNER,
+        "owner_present": present,
+        "bridge_pure_stdlib": (numeric_imports == []),
+        "bridge_numeric_imports": numeric_imports,
+        "bridge_no_shell_string": (not uses_shell),
+        "bridge_uses_argv_array": bool(uses_argv_array),
+        "bridge_delegates_phase25_math": bool(delegates_math),
+        "second_monthly_formula_modules": second_formula_modules,
+        "adapter_wires_production_resolver": bool(adapter_wires),
+        "app_wires_production_resolver": bool(app_wires),
+        "drc_status_exposes_monthly_owner": bool(drc_exposes_owner),
+        "no_separate_monthly_ui_button": bool(ui_no_separate_button),
+        "separate_monthly_endpoints": monthly_endpoints,
+    }
+
+
 def check_universe_scoring_ownership(files: list[Path]) -> dict:
     """Slice 4 semantic ownership guard.
 
@@ -1010,6 +1097,7 @@ def run_audit() -> dict:
         "daily_research_cycle_ownership": check_daily_research_cycle_ownership(files),
         "slice3_live_acceptance_ownership": check_slice3_live_acceptance_ownership(files),
         "universe_scoring_ownership": check_universe_scoring_ownership(files),
+        "monthly_emitter_bridge_ownership": check_monthly_emitter_bridge_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -1142,6 +1230,22 @@ def _print_console(rep: dict) -> None:
     print(f"automatic model promotion allowed (must be False): "
           f"{us['automatic_model_promotion_allowed']}")
 
+    hdr("MONTHLY-MOMENTUM EMITTER BRIDGE OWNERSHIP (Phase 29D.2)")
+    me = rep["monthly_emitter_bridge_ownership"]
+    print(f"owner present: {me['owner_present']} ({me['owner']})")
+    print(f"bridge pure-stdlib (no numpy/pandas): {me['bridge_pure_stdlib']}  "
+          f"numeric imports (must be empty): {me['bridge_numeric_imports']}")
+    print(f"no shell string: {me['bridge_no_shell_string']}  "
+          f"uses argv array: {me['bridge_uses_argv_array']}  "
+          f"delegates Phase-25 math: {me['bridge_delegates_phase25_math']}")
+    print(f"second monthly formula modules (must be empty): "
+          f"{me['second_monthly_formula_modules']}")
+    print(f"adapter wires resolver: {me['adapter_wires_production_resolver']}  "
+          f"app wires resolver: {me['app_wires_production_resolver']}  "
+          f"DRC exposes monthly owner: {me['drc_status_exposes_monthly_owner']}")
+    print(f"no separate monthly UI button: {me['no_separate_monthly_ui_button']}  "
+          f"separate monthly endpoints (must be empty): {me['separate_monthly_endpoints']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -1198,7 +1302,18 @@ def main(argv=None) -> int:
         dr = rep["daily_research_cycle_ownership"]
         us = rep["universe_scoring_ownership"]
         la = rep["slice3_live_acceptance_ownership"]
+        me = rep["monthly_emitter_bridge_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
+                         + (0 if me["owner_present"] else 1)
+                         + (0 if me["bridge_pure_stdlib"] else 1)
+                         + len(me["bridge_numeric_imports"])
+                         + (0 if me["bridge_no_shell_string"] else 1)
+                         + (0 if me["bridge_delegates_phase25_math"] else 1)
+                         + len(me["second_monthly_formula_modules"])
+                         + (0 if me["adapter_wires_production_resolver"] else 1)
+                         + (0 if me["app_wires_production_resolver"] else 1)
+                         + (0 if me["no_separate_monthly_ui_button"] else 1)
+                         + len(me["separate_monthly_endpoints"])
                          + (0 if la["non_session_requires_authoritative_source"] else 1)
                          + (0 if la["monthly_input_adapter_present"] else 1)
                          + (0 if la["monthly_input_owner_declared"] else 1)

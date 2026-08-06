@@ -658,6 +658,63 @@ def _default_monthly_available() -> bool:
     return mmi.emitter_is_wired()
 
 
+def _default_monthly_emitter_status(eligible):
+    """Read-only production monthly-emitter status (owner / availability / source-panel
+    coverage) for the DRC status contract. Reads no provider; runs no subprocess."""
+    from paper_trader.api import monthly_momentum_emitter as mme
+    return mme.status(eligible=eligible)
+
+
+def _monthly_owner_status(freshness: dict, facts: dict, monthly_available: bool,
+                          warnings: list, *, emitter_status_fn: Optional[Callable] = None
+                          ) -> dict:
+    """Workstream G: the canonical monthly-momentum OWNER block exposed by the Daily
+    Research Cycle status contract — the DECLARED owner + production producer, owner
+    availability, current vs required month, refresh required / selected, the honest
+    missing-implementation token, and (only when an emitter is actually wired) the
+    owned source-panel date / coverage, emitter status and last error. Read-only; the
+    production source-panel detail is never read in the hermetic default (unwired)."""
+    cur_month = None
+    for r in (freshness.get("source_freshness") or []):
+        if r.get("source_id") == "momentum_monthly":
+            d = r.get("as_of_date")
+            cur_month = (str(d)[:7] if d else None)
+            break
+    eligible = facts.get("eligible")
+    required_month = (str(eligible)[:7] if eligible else None)
+    due = bool(required_month and (cur_month is None or required_month > cur_month))
+    block = {
+        "owner": "api.monthly_momentum_input",
+        "producer": "api.monthly_momentum_emitter",
+        "math_owner": "research.phase25_multi_horizon_inputs",
+        "panel_owner": "research.phase24_daily_panel",
+        "available": bool(monthly_available),
+        "current_month": cur_month,
+        "required_month": required_month,
+        "due": due,
+        "refresh_required": due,
+        "refresh_selected": bool(due and monthly_available),
+        "missing_implementation": (None if (monthly_available or not due)
+                                   else MONTHLY_EMITTER_ACTION),
+        "emitter_status": None,
+        "last_error": None,
+        "retry_classification": None,
+        "source_panel_date": None,
+        "source_panel_covered": None,
+        "incremental_supported": False,
+    }
+    if monthly_available:
+        fn = emitter_status_fn or _default_monthly_emitter_status
+        st = _safe(lambda: fn(eligible), warnings, "Monthly emitter status")
+        if isinstance(st, dict):
+            sp = st.get("source_panel") or {}
+            block["emitter_status"] = ("AVAILABLE" if st.get("available") else "UNAVAILABLE")
+            block["source_panel_date"] = sp.get("panel_last_date")
+            block["source_panel_covered"] = sp.get("covered")
+            block["config"] = st.get("config")
+    return block
+
+
 # --------------------------------------------------------------------------- #
 # Scoring adapter (Workstream G / I). The cycle delegates to the canonical
 # universe-scoring composition owner (Slice 4) - it no longer interprets the raw
@@ -766,6 +823,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
               resumed: bool = False, warnings: Optional[list] = None,
               blockers: Optional[list] = None, required_actions: Optional[list] = None,
               started_at: Optional[str] = None, completed_at: Optional[str] = None,
+              monthly_owner: Optional[dict] = None,
               performed_write: bool = False, executable: bool = False) -> dict:
     step_results = step_results or []
     done_ids = [s["step_id"] for s in step_results
@@ -806,6 +864,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "failed_step": failed_step,
         "step_results": step_results,
         "input_plan": plan,
+        "monthly_owner": monthly_owner,
         "input_results": (plan or {}).get("refresh_results")
         if plan else None,
         "input_contract_hash": facts.get("input_contract_hash"),
@@ -1019,6 +1078,8 @@ def load_daily_research_cycle_status(
     facts = _facts(freshness)
     plan = build_execution_plan(freshness,
                                 monthly_emitter_available=monthly_emitter_available)
+    monthly_owner = _monthly_owner_status(freshness, facts, monthly_emitter_available,
+                                          warnings)
 
     # Reflect the latest persisted run for this eligible session, if any.
     prior = None
@@ -1037,7 +1098,7 @@ def load_daily_research_cycle_status(
                          "detail": "Authoritative surfaces disagree; reconcile before running."}]
         return _contract(state=pre, facts=facts, plan=plan, warnings=warnings,
                          blockers=blockers, required_actions=required_actions,
-                         executable=False)
+                         monthly_owner=monthly_owner, executable=False)
 
     # Session is closed with owned data confirmed. Prefer an in-flight / persisted run.
     lock = _read_lock(drc_dir)
@@ -1050,7 +1111,7 @@ def load_daily_research_cycle_status(
                          current_step=(running or {}).get("current_step"),
                          step_results=(running or {}).get("step_results") or [],
                          warnings=warnings + ["A Daily Research Cycle run is in progress."],
-                         executable=False)
+                         monthly_owner=monthly_owner, executable=False)
 
     if prior and prior.get("input_contract_hash") == facts["input_contract_hash"] \
             and prior.get("state") in _COMPLETED:
@@ -1069,7 +1130,8 @@ def load_daily_research_cycle_status(
     if plan["plan_blocked"]:
         return _contract(state=BLOCKED, facts=facts, plan=plan, warnings=warnings,
                          blockers=plan["blockers"],
-                         required_actions=_blocked_actions(plan), executable=False)
+                         required_actions=_blocked_actions(plan),
+                         monthly_owner=monthly_owner, executable=False)
 
     # Ready to run (minimal or with refreshable steps). Reflect a prior BLOCKED/FAILED.
     state = NOT_STARTED
@@ -1081,7 +1143,7 @@ def load_daily_research_cycle_status(
                      required_actions=[{"gate": "daily_research_cycle",
                                         "action": "Run the Daily Research Cycle.",
                                         "confirmation_required": EXECUTE_CONFIRMATION}],
-                     executable=(state == NOT_STARTED))
+                     monthly_owner=monthly_owner, executable=(state == NOT_STARTED))
 
 
 def _blocked_actions(plan: dict) -> list:
@@ -1177,12 +1239,17 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
     monthly_available = monthly_emitter_fn is not None
     plan = build_execution_plan(fr, monthly_emitter_available=monthly_available)
     started_at = _now_iso()
+    # Run-path monthly-owner block: hermetic (never reads the production source-panel
+    # here — the read-only status endpoint owns that detail).
+    monthly_owner_block = _monthly_owner_status(
+        fr, facts, monthly_available, warnings, emitter_status_fn=lambda _e: None)
 
     # --- Pre-run gates: no writes, nothing persisted. ------------------------- #
     pre = _pre_run_state(facts)
     if pre is not None:
         return _contract(state=pre, facts=facts, plan=plan, warnings=warnings,
                          started_at=started_at, executable=False,
+                         monthly_owner=monthly_owner_block,
                          required_actions=[{"gate": "market_session",
                                             "action": facts.get("session_operator_action")}])
 
@@ -1249,6 +1316,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         rec = _contract(state=state, facts=facts, run_id=run_id, plan=plan,
                         step_results=step_results, started_at=started_at,
                         resumed=resumed, warnings=warnings,
+                        monthly_owner=monthly_owner_block,
                         performed_write=performed_write, **kw)
         _save_run(rec, drc_dir)
         _update_index(eligible_date=facts["eligible"], idempotency_key=key,

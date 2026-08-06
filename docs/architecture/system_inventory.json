@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "7fb8883",
+    "head": "70fa62d",
     "branch": "main",
-    "phase": "29D-Slice3"
+    "phase": "29D.2"
   },
   "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete.",
   "systems": {
@@ -590,7 +590,7 @@
       ],
       "migration_priority": 1,
       "risk": "med",
-      "notes": "The ONE orchestration owner of the daily research pass (Consolidation Roadmap Slice 3). Frozen state vocabulary NOT_STARTED / WAITING_FOR_SESSION_CLOSE / WAITING_FOR_OWNED_DATA / PLANNING / REFRESHING_REQUIRED_INPUTS / VALIDATING_INPUT_ALIGNMENT / SCORING_UNIVERSE / PREPARING_TARGET / CAPTURING_FORWARD_EVIDENCE / RUNNING_PORTFOLIO_ASSESSMENT / COMPLETE / COMPLETE_WITH_EVIDENCE_GAP / BLOCKED / FAILED / INCONSISTENT / RUN_IN_PROGRESS. Token RUN_DAILY_RESEARCH_CYCLE. Idempotency key = sha256(eligible date | active book | strategy version | universe | input-contract hash); a completed run is REUSED, a safe incomplete run RESUMES, a conflicting concurrent contract is INCONSISTENT. It ORCHESTRATES existing owners: scoring stays in multi_horizon_engine (Slice 4 will consolidate), evidence stays in forward_prediction_skill (count derived from SUPPORTED_BOOKS, never hard-coded 6; bundle fca_<date> first-write-wins, never backdated), the target is PREPARED never auto-confirmed, and the assessment is a compatibility BRIDGE to the Daily Action Gate (NOT the Milestone-2 opportunity-cost engine). There is NO safe automatic monthly-momentum emitter in-repo: the frozen mom_6_1 monthly input is never approximated intramonth, so the cycle BLOCKS at the month boundary with RUN_RESEARCH_MONTHLY_INPUT_EMITTER (the documented 'August evidence gap' made explicit). It NEVER runs the operational Daily Close (which idempotently reuses the SAME immutable fps bundle), never promotes/recalibrates a model, and creates no order/signal/decision/fill. Every provider/write boundary is an injectable seam so tests never call a provider, prediction, or a real cycle."
+      "notes": "The ONE orchestration owner of the daily research pass (Consolidation Roadmap Slice 3). Frozen state vocabulary NOT_STARTED / WAITING_FOR_SESSION_CLOSE / WAITING_FOR_OWNED_DATA / PLANNING / REFRESHING_REQUIRED_INPUTS / VALIDATING_INPUT_ALIGNMENT / SCORING_UNIVERSE / PREPARING_TARGET / CAPTURING_FORWARD_EVIDENCE / RUNNING_PORTFOLIO_ASSESSMENT / COMPLETE / COMPLETE_WITH_EVIDENCE_GAP / BLOCKED / FAILED / INCONSISTENT / RUN_IN_PROGRESS. Token RUN_DAILY_RESEARCH_CYCLE. Idempotency key = sha256(eligible date | active book | strategy version | universe | input-contract hash); a completed run is REUSED, a safe incomplete run RESUMES, a conflicting concurrent contract is INCONSISTENT. It ORCHESTRATES existing owners: scoring stays in multi_horizon_engine (Slice 4 will consolidate), evidence stays in forward_prediction_skill (count derived from SUPPORTED_BOOKS, never hard-coded 6; bundle fca_<date> first-write-wins, never backdated), the target is PREPARED never auto-confirmed, and the assessment is a compatibility BRIDGE to the Daily Action Gate (NOT the Milestone-2 opportunity-cost engine). The frozen mom_6_1 monthly input is never approximated intramonth; Phase 29D.2 wires the production subprocess bridge (api.monthly_momentum_emitter) behind the canonical adapter, so a due month is EMITTED in-cycle when the owned Phase-24 panel covers the eligible session (the documented 'August evidence gap' is removed), and still BLOCKS honestly (RUN_RESEARCH_MONTHLY_INPUT_EMITTER) when the production environment or owned panel is unavailable. It NEVER runs the operational Daily Close (which idempotently reuses the SAME immutable fps bundle), never promotes/recalibrates a model, and creates no order/signal/decision/fill. Every provider/write boundary is an injectable seam so tests never call a provider, prediction, or a real cycle."
     },
     {
       "path": "api/monthly_momentum_input.py",
@@ -612,7 +612,30 @@
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Phase 29D.1 Slice 3 live-acceptance completion. The Daily Research Cycle calls emit_if_due through its execution plan (the declared refresh owner api.monthly_momentum_input for momentum_monthly), so there is NO NO_REFRESH_OWNER and no separate operator monthly prerequisite. There is no safe automatic emitter bundled in the pure-stdlib repo (the numpy/pandas survivorship-free emitter lives in the research repo), so by default NO emitter is wired and a due month blocks HONESTLY (owned by this adapter). An emitter is wired only through an explicit seam (an injected callable in tests, or the opt-in PAPER_TRADER_MONTHLY_EMITTER_ENABLED producer). Status vocabulary MONTHLY_INPUT_CURRENT / MONTHLY_INPUT_EMITTED / MONTHLY_INPUT_REUSED / MONTHLY_EMITTER_UNAVAILABLE / MONTHLY_INPUT_CONFLICT / MONTHLY_INPUT_INVALID / MONTHLY_INPUT_SOURCE_UNAVAILABLE. Never approximates the frozen mom_6_1 intramonth; never backdates; first-write-wins per month."
+      "notes": "Phase 29D.1 Slice 3 live-acceptance completion. The Daily Research Cycle calls emit_if_due through its execution plan (the declared refresh owner api.monthly_momentum_input for momentum_monthly), so there is NO NO_REFRESH_OWNER and no separate operator monthly prerequisite. There is no safe automatic emitter bundled in the pure-stdlib repo (the numpy/pandas survivorship-free emitter lives in the research repo), so by default NO emitter is wired and a due month blocks HONESTLY (owned by this adapter). Phase 29D.2 wires the production PRODUCER (the subprocess bridge api.monthly_momentum_emitter) through activate_production_emitter, activated by the api.app startup wiring, so a due month is resolved by ONE RUN DAILY RESEARCH CYCLE action (no separate command / button / restart / file op); a due month still blocks honestly when the production environment is unavailable. An emitter is wired through an explicit seam only (an injected callable in tests, the activated production resolver, or the opt-in PAPER_TRADER_MONTHLY_EMITTER_ENABLED producer). Status vocabulary MONTHLY_INPUT_CURRENT / MONTHLY_INPUT_EMITTED / MONTHLY_INPUT_REUSED / MONTHLY_EMITTER_UNAVAILABLE / MONTHLY_INPUT_CONFLICT / MONTHLY_INPUT_INVALID / MONTHLY_INPUT_SOURCE_UNAVAILABLE. A recoverable DATA_HOLD (source panel behind / unverifiable / timeout / emitter env unavailable) maps to S_UNAVAILABLE (honest BLOCKED); the promotion result carries an old/new-hash promotion manifest and clears the scoring cache only after a validated promotion. Never approximates the frozen mom_6_1 intramonth; never backdates; first-write-wins per month."
+    },
+    {
+      "path": "api/monthly_momentum_emitter.py",
+      "system": "infrastructure",
+      "responsibility": "Phase 29D.2 PRODUCTION monthly-momentum emitter bridge: the ONE pure-stdlib SUBPROCESS producer wired behind the canonical monthly-input adapter's seam. It inspects the owned Phase-24 survivorship-free daily source panel's coverage, runs the AUTHORITATIVE Phase-25 monthly momentum mathematics in an ISOLATED temporary output dir through an explicit subprocess argument ARRAY (never a shell string / shell=True), validates the produced artifacts (schema / unique tickers / produced month == eligible month / produced market date == eligible date / no future data / provenance / source-panel fingerprint / no intramonth approximation) and returns them for the adapter to promote. It computes NO mom_6_1 and imports NEITHER numpy NOR pandas (the numeric work happens only in the external subprocess). Source-panel policy: Phase 24 supports no safe incremental extension, so the bridge NEVER triggers a panel refresh — it runs Phase 25 only when the owned panel already covers the eligible session and otherwise returns an explicit DATA_HOLD blocker rather than an uncontrolled full rebuild.",
+      "classification": "KEEP",
+      "target_owner": "api/monthly_momentum_emitter.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "research.phase24_daily_panel manifest.json (owned source-panel last_date coverage; pure-stdlib JSON, no numpy)",
+        "the Phase-25 output CSVs it produced in an isolated temp dir (schema / period / provenance validation)"
+      ],
+      "direct_writes": [
+        "an ISOLATED temporary output dir under the emitter work root (PAPER_TRADER_MONTHLY_EMITTER_WORK_DIR; deleted on success) + a bounded emission / diagnostic manifest; NEVER the canonical inputs, the operational ledger, or the database"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_slice3_2_monthly_emitter_bridge.py"
+      ],
+      "migration_priority": 1,
+      "risk": "med",
+      "notes": "Phase 29D.2 removes the final hidden daily-research prerequisite: when momentum_monthly is due, ONE RUN DAILY RESEARCH CYCLE action resolves it with no separate command / button / restart / manual file operation. Ownership boundaries unchanged: research.phase24_daily_panel owns the survivorship-free source panel, research.phase25_multi_horizon_inputs owns the frozen mom_6_1 mathematics, api.monthly_momentum_input owns validation + idempotent atomic promotion, api.daily_research_cycle owns orchestration, api.universe_scoring owns scoring interpretation. Activated by the api.app startup wiring (activate_production_emitter -> resolve_production_emitter); returns a concrete emitter only when the production environment (external repo + Python + Phase-24/25 modules + panel + manifest) is available, else the cycle blocks honestly. Explicit, overridable config via PAPER_TRADER_MONTHLY_EMITTER_{REPO,PYTHON,PANEL_NPZ,PANEL_MANIFEST,WORK_DIR,TIMEOUT_SECONDS,DISABLED}. No order/signal/decision/fill; no provider (only the owned Norgate-free NPZ, read by the subprocess); no prediction; no operational-ledger / database write."
     },
     {
       "path": "api/alpha_book.py",

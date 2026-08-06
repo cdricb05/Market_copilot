@@ -4605,6 +4605,7 @@
             <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">EXECUTION PLAN · FORWARD EVIDENCE</div>
             <div style="color:var(--text-accent);">Completed steps: <span id="drc-steps" class="mono" style="color:var(--text-primary);">—</span></div>
             <div style="color:var(--text-accent);">Stale inputs: <span id="drc-stale" class="mono" style="color:var(--text-primary);">—</span> · Refreshed: <span id="drc-refreshed" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Monthly momentum step: <span id="drc-monthly" class="mono" style="color:var(--text-primary);">—</span></div>
             <div style="color:var(--text-accent);">TRUE_FORWARD snapshots: <span id="drc-snapshots" class="mono" style="color:var(--text-primary);">—</span> · Evidence: <span id="drc-evidence" class="mono" style="color:var(--text-primary);">—</span></div>
           </div>
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
@@ -24109,6 +24110,20 @@ function renderDailyResearchCycle(d) {
   _drcSet('drc-stale', (plan.required_stale_inputs || []).join(', ') || 'none');
   var refreshed = (d.input_results || []).map(function (r) { return r.source_id; });
   _drcSet('drc-refreshed', refreshed.join(', ') || '—');
+  // Monthly momentum owner/step shown INSIDE the Daily Research Cycle (no separate button).
+  var mo = d.monthly_owner || null;
+  if (mo) {
+    var moParts = [];
+    moParts.push(mo.available ? 'owner AVAILABLE' : 'owner unavailable');
+    moParts.push('current ' + (mo.current_month || '—'));
+    moParts.push('required ' + (mo.required_month || '—'));
+    if (mo.refresh_required) moParts.push(mo.refresh_selected ? 'refresh SELECTED' : 'refresh REQUIRED');
+    else moParts.push('current (no refresh)');
+    if (mo.source_panel_date) moParts.push('panel ' + mo.source_panel_date);
+    if (mo.emitter_status) moParts.push(mo.emitter_status);
+    if (mo.last_error) moParts.push('err: ' + mo.last_error);
+    _drcSet('drc-monthly', moParts.join(' · '));
+  } else { _drcSet('drc-monthly', '—'); }
   _drcSet('drc-snapshots', (d.captured_snapshot_count != null ? d.captured_snapshot_count : '—') + ' / ' + (d.required_snapshot_count != null ? d.required_snapshot_count : '—'));
   _drcSet('drc-evidence', d.evidence_status);
   var t25 = (d.top25 || []).map(function (c) { return c.ticker; });

@@ -809,3 +809,62 @@ class TestUiStatic:
 
     def test_gates_note_never_promotes(self, ui_html):
         assert "never promote or retire a model" in ui_html
+
+
+# --------------------------------------------------------------------------- #
+# RELEASE-GATE REGRESSION — the RANK_IC_DEGRADATION flag threshold text carries
+# a literal "40%". Once the forward sample matured past _FLAG_MIN_OBS the branch
+# fired and an old-style "%"-format applied to that literal ("% o" + "%d" = two
+# conversions, one argument) raised TypeError. The threshold is now an f-string;
+# this guards the exact business text and the observation-only contract so the
+# defect can never silently regress. RESEARCH-ONLY: the flag never mutates a
+# model, target, holding, order, signal, decision or fill.
+# --------------------------------------------------------------------------- #
+_EXPECTED_IC_THRESHOLD = (
+    "mean IC < 0 AND positive-IC rate < 40% over >= 5 matured observations"
+)
+
+
+class TestResearchFlagPercentFormatting:
+    def test_rank_ic_degradation_threshold_formats_literal_percent(self):
+        # An active-model 1-close cell that has matured to exactly the flag floor
+        # with a negative mean IC and a sub-40% positive-IC rate — the branch that
+        # previously crashed on the literal "40%".
+        cell = {
+            "model_id": fps.ACTIVE_MODEL_ID,
+            "horizon_eligible_closes": 1,
+            "matured_observation_count": fps._FLAG_MIN_OBS,
+            "ic_mean": -0.1234,
+            "ic_positive_rate_pct": 20.0,
+        }
+        skill = {"cells": [cell]}
+        skill_before = copy.deepcopy(skill)
+
+        # (1) No exception — the literal "40%" no longer collides with "%d".
+        flags = fps.build_research_flags(skill=skill, portfolios=[])
+
+        # (2) Exactly one RANK_IC_DEGRADATION flag.
+        deg = [f for f in flags if f["flag"] == fps.FLAG_RANK_IC_DEGRADATION]
+        assert len(deg) == 1, [f["flag"] for f in flags]
+        flag = deg[0]
+
+        # (3) Exact business threshold text (with _FLAG_MIN_OBS == 5).
+        assert fps._FLAG_MIN_OBS == 5
+        assert flag["threshold"] == _EXPECTED_IC_THRESHOLD
+        assert "40%" in flag["threshold"]  # the literal percent survived verbatim
+
+        # (4) sample_count is the matured count.
+        assert flag["sample_count"] == fps._FLAG_MIN_OBS
+
+        # (5)-(7) Observation-only contract is intact — never actionable.
+        assert flag["actionable"] is False
+        assert flag["observation_only"] is True
+        assert flag["operational_effect"].startswith("NONE")
+
+        # (8) Pure research observation: the input skill is not mutated, and no
+        # emitted flag is ever actionable (no model / target / holding / order /
+        # signal / decision / fill can change here).
+        assert skill == skill_before
+        assert all(f["actionable"] is False for f in flags)
+        assert all(f["observation_only"] is True for f in flags)
+        assert all(f["operational_effect"].startswith("NONE") for f in flags)

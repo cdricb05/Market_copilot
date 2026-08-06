@@ -47,7 +47,11 @@ Key runtime facts:
 
 - **No `startup`/`lifespan` handler exists** (repo-wide search is empty). The app
   object is built at import (`api/app.py:235`); the UI is served by Starlette
-  `StaticFiles` (`api/app.py:20551`) with `/` redirecting to `/ui/`
+  `StaticFiles` (`api/app.py:20551`) with `/` redirecting to `/ui/`. The one piece
+  of import-time deployment wiring is `_wire_production_monthly_emitter()` (Phase
+  29D.2): it activates the production monthly-momentum emitter resolver in the
+  running backend and is GUARDED off under pytest (`"pytest" in sys.modules`) so the
+  test suite stays hermetic — it runs no subprocess and imports no numpy/pandas.
   (`api/app.py:20554`). Editing `api/ui/index.html` requires a **backend restart
   and a `?cb=` cache-buster** to be visible (ETag/Last-Modified caching, no
   `--reload`), which is a real operator prerequisite even though no code caches
@@ -515,11 +519,22 @@ flowchart TD
   canonical in-repo adapter owner (`api/monthly_momentum_input.py`, Phase 29D.1) that
   wraps an injectable emitter seam and owns the safe contract (due-ness / schema /
   period / provenance validation / idempotency / atomic persist / reuse-or-reject). It
-  computes no `mom_6_1` and never approximates it intramonth; there is still no safe
-  automatic emitter bundled in the pure-stdlib repo, so a due month blocks HONESTLY
-  through the adapter (`RUN_RESEARCH_MONTHLY_INPUT_EMITTER`, never `NO_REFRESH_OWNER`
-  and never a separate operator button) — the documented "August evidence gap"
-  surfaced through a declared owner instead of hidden.
+  computes no `mom_6_1` and never approximates it intramonth. **Phase 29D.2** wires
+  the production PRODUCER behind that seam — the pure-stdlib subprocess bridge
+  `api/monthly_momentum_emitter.py`, activated by the `api/app.py` import-time wiring —
+  so when momentum_monthly is due, ONE `RUN DAILY RESEARCH CYCLE` action resolves it
+  with no separate command / button / restart / manual file operation. The bridge
+  inspects the owned Phase-24 panel's coverage, runs the Phase-25 mathematics in an
+  isolated temp dir through an explicit subprocess argument array, validates the
+  outputs (schema / unique tickers / produced month == eligible month / produced date
+  == eligible / no future data / provenance / source-panel fingerprint / no intramonth
+  approximation) and hands them back for the adapter to promote atomically (old/new-hash
+  promotion manifest; scoring cache cleared only after a validated promotion). Phase 24
+  supports no safe incremental extension, so a behind / future / unverifiable panel is
+  an explicit DATA_HOLD blocker rather than an uncontrolled full rebuild. A due month
+  still blocks HONESTLY (`RUN_RESEARCH_MONTHLY_INPUT_EMITTER`, never `NO_REFRESH_OWNER`
+  and never a separate operator button) when the production environment or owned panel
+  is unavailable — the documented "August evidence gap" is removed on the normal path.
 - **Consumers:** `GET /v1/operations/daily-research-cycle/status` (read-only) +
   `POST /v1/operations/daily-research-cycle/run`; one UI status loader
   (`loadDailyResearchCycle()`) + one execution function (`runDailyResearchCycle()`)
@@ -553,3 +568,27 @@ flowchart TD
   input is the declared adapter above. Static guard
   `check_slice3_live_acceptance_ownership`; the DRC badge is corrected to
   `CREATES RESEARCH EVIDENCE ONLY`. Slice 5 remains not started; cadence disabled.
+- **Production monthly emitter bridge (Phase 29D.2).** The first real Daily Research
+  Cycle and Daily Close (2026-08-05) succeeded, but only after a MANUAL external
+  monthly-input workflow (running the owned Phase-24 panel + Phase-25 emitter outside
+  Paper Trader and restarting the backend), because the released adapter's production
+  emitter was unwired — the cycle returned `momentum_monthly — RUN_RESEARCH_MONTHLY_INPUT_EMITTER`.
+  Successful live results: eligible session 2026-08-05, full universe scored 234, target
+  `READY_TO_CONFIRM`, portfolio assessment `PROPOSAL_READY`, TRUE_FORWARD 6/6,
+  `FORWARD_EVIDENCE_COMPLETE`, Daily Close `VALID — 2026-08-05`, 0 pending orders, 25
+  holdings. Those artifacts are now the authoritative starting state. Phase 29D.2 wires
+  ONE safe production monthly-momentum owner (`api/monthly_momentum_emitter.py`) into the
+  canonical cycle so no hidden prerequisite command / button / restart / file operation
+  remains: it resolves the external repo + Python, inspects the owned panel, runs the
+  authoritative Phase-25 calculation in an isolated temp dir, validates the artifacts,
+  atomically promotes through `api/monthly_momentum_input.py`, clears the scoring cache,
+  and continues the SAME run through input alignment → scoring → target → TRUE_FORWARD
+  evidence → assessment. Ownership boundaries unchanged (Phase 24 = source panel, Phase
+  25 = mathematics, `monthly_momentum_input` = adapter/validation/promotion,
+  `daily_research_cycle` = orchestration, `universe_scoring` = scoring interpretation);
+  no second monthly formula exists in Paper Trader. Point-in-time safeguards: no
+  future-dated rows, no current-constituent substitution into historical dates, no
+  survivorship reconstruction, no duplicate ticker/date rows, provenance preserved.
+  Static guard `check_monthly_emitter_bridge_ownership`; inventory drift = 0. Slice 5
+  (portfolio state / one-NAV) remains next; the Persistent Alpha Research Agent remains
+  a future milestone (Slice 8 / Milestone 4); cadence remains disabled.

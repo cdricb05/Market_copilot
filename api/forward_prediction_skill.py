@@ -1488,7 +1488,7 @@ def build_research_flags(*, skill: dict, portfolios: list[dict]) -> list[dict]:
                                       % c["horizon_eligible_closes"],
                                value=c["ic_mean"],
                                threshold="mean IC < 0 AND positive-IC rate < 40% "
-                                         "over >= %d matured observations" % _FLAG_MIN_OBS,
+                                         f"over >= {_FLAG_MIN_OBS} matured observations",
                                sample_count=n,
                                detail="Rank ordering is not predicting realized "
                                       "returns at this horizon so far."))

@@ -217,6 +217,20 @@ responsibilities, candidate existing modules, and migration approach.
   `STEP_PREPARE_TARGET`). `WAITING_FOR_OWNED_DATA` strictly outranks any research
   blocker; the cycle executes through ONE manual UI action once the expected session
   is confirmed by owned data.
+- **Production monthly emitter bridge (Phase 29D.2):** the production PRODUCER behind
+  that adapter seam is `api/monthly_momentum_emitter.py` — a pure-stdlib SUBPROCESS
+  bridge (imports no numpy/pandas) wired by the `api/app.py` import-time deployment
+  wiring. Ownership stays layered: `research.phase24_daily_panel` owns the survivorship-
+  free source panel, `research.phase25_multi_horizon_inputs` owns the frozen `mom_6_1`
+  mathematics, `api.monthly_momentum_emitter` owns the isolated subprocess emission +
+  output validation, `api.monthly_momentum_input` owns validation + idempotent atomic
+  promotion, `api.daily_research_cycle` owns orchestration, `api.universe_scoring` owns
+  scoring interpretation. No second monthly formula exists in Paper Trader. Source-panel
+  policy: no refresh when the owned panel covers the eligible session; an explicit
+  DATA_HOLD blocker (never an uncontrolled full rebuild) when it is behind, because
+  Phase 24 supports no safe incremental extension. When momentum_monthly is due, ONE
+  `RUN DAILY RESEARCH CYCLE` action emits, promotes, clears the scoring cache and
+  continues the same run — no separate command / button / restart / file operation.
 
 ### Model Registry and Champion/Challenger Governance
 - **Responsibility:** hold champion + challenger models, run gated evaluation,

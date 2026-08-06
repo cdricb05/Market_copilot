@@ -237,6 +237,31 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   strictly outranks any research blocker. Static guard
   `check_slice3_live_acceptance_ownership`; inventory drift = 0. Slice 4 still owns
   consolidation; Slice 5 (portfolio state) remains not begun; cadence remains disabled.
+- **Production monthly emitter bridge — Phase 29D.2 (Slice 3 remains LANDED).** The
+  first live 2026-08-05 Daily Research Cycle and Daily Close succeeded (eligible session
+  2026-08-05, full universe scored 234, target `READY_TO_CONFIRM`, assessment
+  `PROPOSAL_READY`, TRUE_FORWARD 6/6, `FORWARD_EVIDENCE_COMPLETE`, Daily Close `VALID`),
+  but ONLY after a MANUAL external monthly-input workflow + backend restart, because the
+  released adapter's production emitter was unwired (`momentum_monthly —
+  RUN_RESEARCH_MONTHLY_INPUT_EMITTER`). This bridge removes that final hidden
+  prerequisite: `api/monthly_momentum_emitter.py` is the ONE pure-stdlib subprocess
+  PRODUCER wired behind the adapter's seam (activated by the `api/app.py` import-time
+  wiring). When momentum_monthly is due, ONE `RUN DAILY RESEARCH CYCLE` action resolves
+  the external repo + Python, inspects the owned Phase-24 panel, runs the authoritative
+  Phase-25 mathematics in an isolated temp dir through an explicit subprocess argument
+  array, validates the artifacts (schema / unique tickers / produced month == eligible
+  month / produced date == eligible / no future data / provenance / source-panel
+  fingerprint / no intramonth approximation), promotes atomically through
+  `api/monthly_momentum_input.py` (old/new-hash manifest; scoring cache cleared only after
+  a validated promotion), and continues the SAME run through input alignment → scoring →
+  target → TRUE_FORWARD evidence → assessment. Phase 24 supports no safe incremental
+  extension, so a behind / future / unverifiable panel is an explicit DATA_HOLD blocker,
+  never an uncontrolled full rebuild. No second monthly formula exists in Paper Trader;
+  ownership is unchanged (Phase 24 = source panel, Phase 25 = mathematics,
+  `monthly_momentum_input` = adapter, `daily_research_cycle` = orchestration,
+  `universe_scoring` = scoring). Static guard `check_monthly_emitter_bridge_ownership`;
+  inventory drift = 0. Slice 5 (portfolio state) remains next; the Persistent Alpha
+  Research Agent remains a future milestone (Slice 8 / Milestone 4); cadence disabled.
 
 ## Slice 4 — Canonical universe scoring
 

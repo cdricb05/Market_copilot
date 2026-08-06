@@ -351,6 +351,56 @@
   is confirmed by owned data. Slice 5 (portfolio state) remains not started; cadence
   remains disabled.
 
+### D-13.2 — Production monthly-momentum emitter bridge (Phase 29D.2) — CONFIRMED (LANDED)
+- **Defect.** The first real 2026-08-05 Daily Research Cycle and Daily Close succeeded
+  only after a MANUAL external monthly-input workflow (running the owned Phase-24 panel
+  + Phase-25 emitter outside Paper Trader and restarting the backend): the released
+  adapter (`api/monthly_momentum_input.py`) declared the owner but wired no production
+  emitter, so a due month returned `momentum_monthly — RUN_RESEARCH_MONTHLY_INPUT_EMITTER`.
+  That violated the Slice-3 requirement of ONE Daily Research Cycle action with no hidden
+  prerequisite command.
+- **Decision.** Wire ONE safe production monthly-momentum PRODUCER behind the adapter's
+  existing seam — a NEW pure-stdlib SUBPROCESS bridge `api/monthly_momentum_emitter.py`,
+  activated by the `api/app.py` import-time deployment wiring (guarded off under pytest).
+  When momentum_monthly is due, the bridge resolves the configured external research repo
+  + Python, inspects the owned Phase-24 daily panel's coverage, runs the AUTHORITATIVE
+  Phase-25 mathematics in a UNIQUE temporary output dir through an EXPLICIT subprocess
+  argument array (never a shell string), validates the produced artifacts (files exist /
+  non-empty / schema / unique tickers / produced month == eligible month / produced date
+  == eligible / no future data / provenance / source-panel fingerprint / no intramonth
+  approximation), and hands them back for the adapter to promote ATOMICALLY (temp sibling
+  + atomic replace; an old/new-hash promotion manifest; the canonical scoring cache
+  cleared ONLY after a validated promotion; reuse-identical / reject-conflicting). The
+  SAME run then continues through input alignment → scoring → target → TRUE_FORWARD
+  evidence → assessment. It imports NEITHER numpy NOR pandas (the numeric work happens
+  only in the external subprocess), so the Paper Trader process stays pure-stdlib.
+- **Ownership (unchanged).** Phase 24 = owned survivorship-free source panel; Phase 25 =
+  frozen `mom_6_1` mathematics; `api.monthly_momentum_emitter` = isolated subprocess
+  emission + output validation; `api.monthly_momentum_input` = validation + idempotent
+  atomic promotion; `api.daily_research_cycle` = combined orchestration;
+  `api.universe_scoring` = canonical scoring interpretation. No SECOND monthly formula
+  exists in Paper Trader (Principle 1, D-4 upheld).
+- **Point-in-time (Principle 4, D-8 upheld).** No future-dated rows; no current-
+  constituent substitution into historical dates; no survivorship reconstruction; no
+  duplicate ticker/date rows; provenance preserved. Phase 24 supports no safe incremental
+  extension, so a behind / future / unverifiable panel is an EXPLICIT DATA_HOLD blocker
+  rather than an uncontrolled full rebuild (a recoverable hold maps to an honest BLOCKED,
+  not a mixed input set).
+- **Scope (unchanged).** No new monthly execution endpoint or UI button (the monthly
+  step lives inside the DRC); no Create Orders / order execution / automation; no
+  cadence; the operational Daily Close is never run; no model promotion / recalibration;
+  no order / signal / decision / fill; no operational-ledger or database write. Slice 5
+  (portfolio state) remains next; the Persistent Alpha Research Agent remains a future
+  milestone (Slice 8 / Milestone 4).
+- **Evidence.** Static guard `check_monthly_emitter_bridge_ownership` confirms the bridge
+  is pure-stdlib, uses an argv array (no shell string), delegates Phase-25 math, has no
+  second monthly formula, is wired by the adapter + app, exposes the monthly owner in the
+  DRC status, and adds no separate monthly endpoint / UI button; audit inventory drift =
+  0. The Workstream-K live regression fixture reproduces the 2026-08-05 eligible session
+  with a 2026-07 monthly input and drives the whole cycle to `COMPLETE` through injected
+  subprocess/provider seams under tmp fixture roots — no live provider / prediction /
+  Daily Close / operational or research-artifact mutation occurs.
+
 ### D-14 — Canonical universe scoring (Slice 4) — CONFIRMED (LANDED)
 - **Decision:** the pure model mathematics stay in ONE kernel
   (`api/multi_horizon_engine.py`), and ONE composition & read owner

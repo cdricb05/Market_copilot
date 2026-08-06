@@ -22,13 +22,18 @@ contract around it:
     calls a provider / prediction service, mutates an operational ledger / database,
     or changes holdings / cash / NAV.
 
-There is no safe automatic emitter bundled in the pure-stdlib repo (the survivorship-
-free daily panel and its numpy/pandas emitter live in the research repo). By DEFAULT
-NO emitter is wired, so a due month BLOCKS HONESTLY — owned by THIS adapter, never
-``NO_REFRESH_OWNER`` and never a "run a separate button" prerequisite. An emitter is
-wired only through an EXPLICIT seam: an injected callable (tests) or an opt-in
-configured producer (``PAPER_TRADER_MONTHLY_EMITTER_ENABLED``). The Persistent Daily
-Research Cycle calls ``emit_if_due`` through its execution plan.
+The frozen mom_6_1 monthly momentum is computed by an owned numpy/pandas emitter that
+lives in the research repo; the pure-stdlib Paper Trader process never imports it.
+Phase 29D.2 wires ONE production PRODUCER behind this adapter's seam — the subprocess
+bridge ``api.monthly_momentum_emitter`` — activated by the ``api.app`` startup wiring
+(``activate_production_emitter``). So when momentum_monthly is due, ONE ``RUN DAILY
+RESEARCH CYCLE`` action resolves it with no separate command / button / restart / file
+operation. The bridge remains an EXPLICIT seam: an injected callable (tests), the
+activated production resolver (the running backend), or the opt-in env producer
+(``PAPER_TRADER_MONTHLY_EMITTER_ENABLED``). When no producer is available a due month
+still BLOCKS HONESTLY — owned by THIS adapter, never ``NO_REFRESH_OWNER`` and never a
+"run a separate button" prerequisite. The Persistent Daily Research Cycle calls
+``emit_if_due`` through its execution plan.
 
 Emitter seam contract — an emitter callable is invoked as
 ``emitter_fn(month=<YYYY-MM>, eligible=<YYYY-MM-DD>, inputs_dir=<path>)`` and returns::
@@ -221,29 +226,56 @@ def is_due(*, eligible: Any, current_month: Any) -> bool:
     return em > cm
 
 
-def resolve_default_emitter() -> Optional[Callable]:
-    """Production emitter resolver. Default: None (no safe in-repo emitter). An
-    emitter is wired ONLY when explicitly opted in AND a producer is discoverable;
-    the pure-stdlib repo never imports the external numpy/pandas emitter by default,
-    so this returns None unless a deployment wires one. Kept as the single seam so a
-    future safe producer can be attached without touching the Daily Research Cycle."""
-    if str(os.environ.get(EMITTER_ENABLED_ENV, "")).strip().lower() not in ("1", "true", "yes"):
-        return None
-    # Opt-in requested. A concrete producer must be registered by the deployment via
-    # `register_emitter(...)`; absent that, remain honestly unavailable.
-    return _REGISTERED_EMITTER
-
-
-# A deployment may register a concrete emitter callable (importable producer) here.
-# Default None keeps production honestly blocked at the month boundary.
+# A deployment may register a concrete emitter callable (importable producer) here,
+# or activate the production RESOLVER (Phase 29D.2). Both default to unset so the
+# pure-stdlib repo stays hermetic (a due month blocks honestly) until an explicit
+# deployment wiring activates the production subprocess bridge.
 _REGISTERED_EMITTER: Optional[Callable] = None
+_PRODUCTION_RESOLVER: Optional[Callable[[], Optional[Callable]]] = None
 
 
 def register_emitter(fn: Optional[Callable]) -> None:
     """Register (or clear) the concrete monthly emitter producer for this process.
-    Used by an explicit opt-in deployment wiring; never called automatically."""
+    Used by an explicit opt-in deployment wiring or a test; never called automatically."""
     global _REGISTERED_EMITTER
     _REGISTERED_EMITTER = fn
+
+
+def activate_production_emitter(resolver: Optional[Callable[[], Optional[Callable]]]) -> None:
+    """Phase 29D.2: activate (or clear) the production emitter RESOLVER — a zero-arg
+    callable that returns a concrete seam-shaped emitter when the production
+    environment is available, else None (honest DATA_HOLD). Called by the explicit
+    deployment startup wiring (``api.app``) only; NEVER during import or tests, so the
+    Paper Trader process stays pure-stdlib and the test suite stays hermetic."""
+    global _PRODUCTION_RESOLVER
+    _PRODUCTION_RESOLVER = resolver
+
+
+def _lazy_production_resolver() -> Optional[Callable]:
+    """Env opt-in fallback: resolve the production subprocess bridge on demand."""
+    from paper_trader.api import monthly_momentum_emitter as mme
+    return mme.resolve_production_emitter()
+
+
+def resolve_default_emitter() -> Optional[Callable]:
+    """Production emitter resolver. Default: None (no safe in-repo emitter), so a due
+    month blocks HONESTLY through this adapter. An emitter is wired when a concrete
+    producer was registered (tests / explicit deployment), when the production
+    subprocess bridge RESOLVER was activated at startup (Phase 29D.2), or when the
+    opt-in env is set. The pure-stdlib repo never imports the external numpy/pandas
+    emitter automatically — the bridge shells out through an external Python."""
+    if _REGISTERED_EMITTER is not None:
+        return _REGISTERED_EMITTER
+    resolver = _PRODUCTION_RESOLVER
+    if resolver is None and str(os.environ.get(EMITTER_ENABLED_ENV, "")).strip().lower() \
+            in ("1", "true", "yes"):
+        resolver = _lazy_production_resolver
+    if resolver is None:
+        return None
+    try:
+        return resolver()
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _resolve_emitter(emitter_fn: Optional[Callable]) -> Optional[Callable]:
@@ -338,6 +370,7 @@ def monthly_status(*, eligible: Any, inputs_dir=None,
     return {
         "phase": PHASE,
         "authoritative_owner": CANONICAL_OWNER,
+        "producer": "api.monthly_momentum_emitter",
         "eligible_month": _eligible_month(eligible),
         "current_month": cur_month,
         "current_market_as_of_date": cur_as_of,
@@ -417,8 +450,23 @@ def emit_if_due(*, eligible: Any, inputs_dir=None,
         artifact = emitter(month=eligible_month, eligible=base["eligible"],
                            inputs_dir=str(_inputs_dir(inputs_dir)))
     except Exception as exc:  # noqa: BLE001
+        # A recoverable DATA_HOLD (e.g. the owned source panel is behind the eligible
+        # session, an unverifiable panel, a transient timeout, or an unavailable emitter
+        # environment) blocks HONESTLY through this adapter (S_UNAVAILABLE) — never a
+        # mixed input set. A hard error is an INVALID artifact (nothing written).
+        if getattr(exc, "monthly_data_hold", False):
+            return {**base, "status": S_UNAVAILABLE, "due": True,
+                    "missing_implementation": MONTHLY_EMITTER_ACTION,
+                    "emitter_status": getattr(exc, "emitter_status", None),
+                    "retry_classification": getattr(exc, "retry_classification", "TRANSIENT"),
+                    "last_error": str(exc)[:300],
+                    "message": ("A new monthly momentum input for %s is due but the owned "
+                                "emission is on hold: %s" % (eligible_month, str(exc)[:200]))}
         return {**base, "status": S_INVALID, "due": True,
                 "errors": ["EMITTER_RAISED: %s" % str(exc)[:200]],
+                "emitter_status": getattr(exc, "emitter_status", None),
+                "retry_classification": getattr(exc, "retry_classification", "PERMANENT"),
+                "last_error": str(exc)[:300],
                 "message": "The monthly emitter raised; nothing was written."}
 
     ok, errors = _validate_artifact(artifact, due_month=eligible_month,
@@ -437,23 +485,43 @@ def emit_if_due(*, eligible: Any, inputs_dir=None,
                 "message": "Dry-run: the monthly artifact for %s validated and would "
                            "be written." % eligible_month}
 
+    # Old artifact identity (for the promotion manifest); the atomic replace preserves
+    # the existing file until success, so a partial failure never leaves a mixed set.
+    old_hash = _identity_hash(existing_rows) if existing_rows else None
     fieldnames = existing_fields if (existing_fields and cur_month is not None) \
         else _fieldnames_for(rows)
     _atomic_write_csv(path, list(fieldnames), rows)
-    # Keep the engine input cache coherent with the new monthly artifact.
+    # Clear the canonical scoring cache ONLY after a successful validated promotion.
+    cache_cleared = False
     try:
         eng.clear_cache()
+        cache_cleared = True
     except Exception:  # noqa: BLE001
-        pass
+        cache_cleared = False
 
+    as_of = _coerce_date(artifact.get("market_as_of_date"))
+    promotion = {
+        "canonical_path": str(path),
+        "old_artifact_hash": old_hash,
+        "new_artifact_hash": new_hash,
+        "reused_identical": bool(old_hash is not None and old_hash == new_hash),
+        "rows_written": len(rows),
+        "cache_cleared": cache_cleared,
+        "source": artifact.get("source"),
+        "content_hash": artifact.get("content_hash"),
+        "market_as_of_date": as_of.isoformat() if as_of else None,
+        "month_label": eligible_month,
+    }
     out = dict(base)
     out["performed_write"] = True
     out["artifacts_written"] = [str(path)]
     out["safety"] = {**_safety(), "read_only_when_not_emitting": False}
     return {**out, "status": S_EMITTED, "due": True, "artifact_hash": new_hash,
-            "market_as_of_date": _coerce_date(artifact.get("market_as_of_date")).isoformat()
-            if _coerce_date(artifact.get("market_as_of_date")) else None,
-            "rows_written": len(rows),
+            "market_as_of_date": as_of.isoformat() if as_of else None,
+            "rows_written": len(rows), "cache_cleared": cache_cleared,
+            "promotion": promotion,
+            "emitter_status": artifact.get("emitter_status"),
+            "source_panel": artifact.get("source_panel"),
             "message": "Emitted and persisted the monthly momentum input for %s."
                        % eligible_month}
 
@@ -485,5 +553,5 @@ __all__ = [
     "S_CURRENT", "S_EMITTED", "S_REUSED", "S_UNAVAILABLE", "S_CONFLICT", "S_INVALID",
     "S_SOURCE_UNAVAILABLE", "STATUS_VOCAB", "REQUIRED_COLUMNS",
     "is_due", "emitter_is_wired", "resolve_default_emitter", "register_emitter",
-    "monthly_status", "emit_if_due", "classify_result",
+    "activate_production_emitter", "monthly_status", "emit_if_due", "classify_result",
 ]

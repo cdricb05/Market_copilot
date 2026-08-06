@@ -64,7 +64,9 @@ from __future__ import annotations
 import csv
 import inspect
 import io
+import os
 import pathlib
+import sys
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -237,6 +239,40 @@ _SERVICE_NAME = "paper_trader"
 _SERVICE_VERSION = "1.0.0"
 
 app = FastAPI(title=_SERVICE_NAME, version=_SERVICE_VERSION)
+
+
+# ---------------------------------------------------------------------------
+# Phase 29D.2 — production monthly-momentum emitter bridge wiring.
+#
+# Activate the canonical monthly-input adapter's production PRODUCER (the
+# subprocess bridge api.monthly_momentum_emitter) so that when momentum_monthly
+# is due, ONE "RUN DAILY RESEARCH CYCLE" action resolves it with no separate
+# command / button / restart / manual file operation. The resolver returns a
+# concrete emitter only when the production environment is available (else the
+# cycle blocks honestly). Importing the bridge is pure-stdlib (subprocess only);
+# no numpy/pandas is imported in-process and no subprocess runs at wiring time.
+#
+# Guarded so the test suite stays hermetic: under pytest we do NOT auto-activate
+# (tests inject their own emitter seams), unless PAPER_TRADER_MONTHLY_EMITTER_FORCE_WIRE
+# is explicitly set. The DISABLE env is a deployment kill switch.
+# ---------------------------------------------------------------------------
+def _wire_production_monthly_emitter() -> None:
+    if str(os.environ.get("PAPER_TRADER_MONTHLY_EMITTER_DISABLED", "")).strip().lower() \
+            in ("1", "true", "yes"):
+        return
+    if "pytest" in sys.modules and str(
+            os.environ.get("PAPER_TRADER_MONTHLY_EMITTER_FORCE_WIRE", "")
+    ).strip().lower() not in ("1", "true", "yes"):
+        return  # keep the test suite hermetic; tests inject their own seams
+    try:
+        from paper_trader.api import monthly_momentum_input as _mmi
+        from paper_trader.api import monthly_momentum_emitter as _mme
+        _mmi.activate_production_emitter(_mme.resolve_production_emitter)
+    except Exception:  # noqa: BLE001 — wiring must never break app import
+        pass
+
+
+_wire_production_monthly_emitter()
 
 
 # ---------------------------------------------------------------------------
