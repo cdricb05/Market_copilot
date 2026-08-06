@@ -417,7 +417,13 @@ class TestReady:
         monkeypatch.setattr("paper_trader.api.app.get_session", _broken_session)
         resp = client.get("/v1/ready")
         assert resp.status_code == 503
-        assert resp.json()["detail"] == "Database unreachable."
+        # Phase 29G.1: SERVICE readiness failure exposes an EXACT, structured reason
+        # (never masked as ok) and is service-scoped, not workflow/session-scoped.
+        detail = resp.json()["detail"]
+        assert detail["ready"] is False
+        assert detail["readiness_kind"] == "service"
+        assert "Database unreachable" in detail["reason"]
+        assert "connection refused" in detail["reason"]
 
 
 # ---------------------------------------------------------------------------

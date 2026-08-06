@@ -1716,10 +1716,18 @@
 
 <header>
   <h1>paper_trader</h1>
+  <!-- Phase 29G.1: SERVICE readiness and WORKFLOW readiness are DISTINCT concepts,
+       shown separately and never conflated. SERVICE readiness (can the backend serve
+       authenticated operational reads?) comes from /v1/health + /v1/ready. WORKFLOW
+       readiness (can today's daily workflow action execute now?) comes from
+       /v1/operations/workflow-state; WAITING_FOR_SESSION_CLOSE is a valid workflow
+       state and never means the service is unhealthy. -->
   <div class="header-status">
-    <span class="status-light neutral" id="health-light"></span>
-    <span class="status-text" id="health-status">Connecting...</span>
+    <span class="status-light neutral" id="health-light" title="SERVICE readiness — backend + database reachable (/v1/health, /v1/ready). Independent of the daily-workflow state."></span>
+    <span class="status-text" title="SERVICE readiness — can the backend serve authenticated operational reads?"><span style="opacity:.7;">Service:</span> <span id="health-status">Connecting...</span></span>
     <span class="status-debug" id="health-debug"></span>
+    <span class="status-light neutral" id="wf-readiness-light" style="margin-left:12px;" title="WORKFLOW readiness — whether today's daily workflow action can execute now (/v1/operations/workflow-state). A waiting workflow never means the service is unhealthy."></span>
+    <span class="status-text" title="WORKFLOW readiness — can the current daily workflow action execute now?"><span style="opacity:.7;">Workflow:</span> <span id="wf-readiness-text">&mdash;</span></span>
     <span class="status-debug" id="ui-refresh-stamp" aria-live="polite"></span>
   </div>
   <span class="badge warning" style="font-size: 9px; padding: 2px 7px; margin-right: 4px;">MANUAL REVIEW</span>
@@ -1754,20 +1762,27 @@
         const readyTimeout = setTimeout(() => readyController.abort(), 5000);
         const readyResp = await fetch('/v1/ready', { signal: readyController.signal });
         clearTimeout(readyTimeout);
-        if (!readyResp.ok) throw new Error('ready');
+        if (!readyResp.ok) {
+          // SERVICE readiness genuinely failed — surface the EXACT reason from the
+          // owner (/v1/ready), never a masked "ok". This is service-only; the daily
+          // workflow state is shown separately and is not affected.
+          let reason = '/v1/ready ' + readyResp.status;
+          try { const rb = await readyResp.json(); if (rb && rb.detail && rb.detail.reason) reason = rb.detail.reason; } catch (e2) {}
+          light.className = 'status-light err';
+          text.textContent = 'Not Ready';
+          if (debug) debug.textContent = 'service not ready — ' + reason;
+          return;
+        }
         light.className = 'status-light ok';
         text.textContent = 'Ready';
-        if (debug) debug.textContent = '/v1/health OK /v1/ready OK';
+        if (debug) debug.textContent = 'service ready (/v1/health, /v1/ready)';
       } catch (e) {
         light.className = 'status-light err';
         let msg = 'Offline';
-        let debugMsg = 'offline';
+        let debugMsg = 'service offline';
         if (e.name === 'AbortError') {
           msg = 'Timeout';
-          debugMsg = 'timeout';
-        } else if (e.message === 'ready') {
-          msg = 'Not Ready';
-          debugMsg = '/v1/health OK /v1/ready FAIL';
+          debugMsg = 'service probe timeout';
         }
         text.textContent = msg;
         if (debug) debug.textContent = debugMsg;
@@ -3019,6 +3034,7 @@
             <div class="card" style="margin-bottom:12px;" id="hoc-card">
               <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
                 <span>Holding Opportunity-Cost Review
+                  <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Phase 29G.1: the Holding Opportunity-Cost review is the PRIMARY portfolio decision card. The legacy membership comparison is a read-only compatibility view only.">PRIMARY PORTFOLIO DECISION</span>
                   <span class="cc-badge muted" title="Milestone 2 — per-holding opportunity-cost engine (HOLD/REDUCE/EXIT/REPLACE/ADD).">MILESTONE 2</span>
                   <span class="cc-badge manual">REVIEW ONLY</span>
                   <span class="cc-badge safe">NO ORDERS</span>
@@ -4635,6 +4651,17 @@
             <div style="color:var(--text-accent);">Stale inputs: <span id="drc-stale" class="mono" style="color:var(--text-primary);">—</span> · Refreshed: <span id="drc-refreshed" class="mono" style="color:var(--text-primary);">—</span></div>
             <div style="color:var(--text-accent);">Monthly momentum step: <span id="drc-monthly" class="mono" style="color:var(--text-primary);">—</span></div>
             <div style="color:var(--text-accent);">TRUE_FORWARD snapshots: <span id="drc-snapshots" class="mono" style="color:var(--text-primary);">—</span> · Evidence: <span id="drc-evidence" class="mono" style="color:var(--text-primary);">—</span></div>
+          </div>
+          <!-- Slice 6 (Phase 29G) Holding Opportunity-Cost step, surfaced INSIDE the one
+               canonical Daily Research Cycle. Every value is rendered verbatim from the DRC
+               status contract; the ASSESS_HOLDING_OPPORTUNITY_COST step runs as part of the
+               cycle (no separate execution control). Review-only — no orders. -->
+          <div style="border:1px solid var(--info,#3b82f6);border-radius:3px;padding:8px 10px;font-size:11px;margin-bottom:10px;">
+            <div style="font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--text-accent);margin-bottom:3px;">HOLDING OPPORTUNITY-COST · STEP ASSESS_HOLDING_OPPORTUNITY_COST · SLICE 6</div>
+            <div style="color:var(--text-accent);">Owner: <span id="drc-oc-owner" class="mono" style="color:var(--text-primary);">—</span> · State: <span id="drc-oc-state" class="mono" style="color:var(--text-primary);">—</span> · Required: <span id="drc-oc-required" class="mono" style="color:var(--text-primary);">—</span> · Step: <span id="drc-oc-step" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Artifact: <span id="drc-oc-artifact" class="mono" style="color:var(--text-primary);">—</span> · Hash: <span id="drc-oc-hash" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Holdings: <span id="drc-oc-holdings" class="mono" style="color:var(--text-primary);">—</span> · Recommendations: <span id="drc-oc-counts" class="mono" style="color:var(--text-primary);">—</span></div>
+            <div style="color:var(--text-accent);">Data gaps: <span id="drc-oc-gaps" class="mono" style="color:var(--text-primary);">—</span></div>
           </div>
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
             <div style="flex:1;min-width:280px;border:1px solid var(--border,#333);border-radius:3px;padding:7px 10px;font-size:11px;">
@@ -10802,35 +10829,45 @@ async function loadHealth() {
       throw new Error(`HTTP ${r.status}`);
     }
     const b = await r.json();
-    const dbReady = await checkDbReady();
-    const status = b.status === 'ok' && dbReady ? 'ready' : 'error';
-    light.className = 'status-light ' + (status === 'ready' ? 'ok' : 'err');
-    text.textContent = status === 'ready' ? 'Ready' : 'Not Ready';
-    if (debug) debug.textContent = status === 'ready' ? '/v1/health ✓ /v1/ready ✓' : '/v1/health ✓ /v1/ready ✗';
+    // SERVICE readiness only: /v1/health liveness AND /v1/ready DB probe. This is
+    // independent of WORKFLOW readiness (shown separately in the header); a waiting
+    // workflow never flips this to "Not Ready".
+    const svc = await checkServiceReady();
+    const ok = b.status === 'ok' && svc.ready;
+    light.className = 'status-light ' + (ok ? 'ok' : 'err');
+    text.textContent = ok ? 'Ready' : 'Not Ready';
+    if (debug) debug.textContent = ok ? 'service ready (/v1/health, /v1/ready)'
+      : ('service not ready — ' + (svc.reason || '/v1/ready failed'));
   } catch (e) {
     light.className = 'status-light err';
     let msg = 'Offline';
     let debugMsg = '';
     if (e.name === 'AbortError') {
       msg = 'Timeout';
-      debugMsg = '/v1/health timeout';
+      debugMsg = 'service probe timeout';
     } else {
       msg = 'Offline';
-      debugMsg = '/v1/health unreachable';
+      debugMsg = 'service unreachable';
     }
     text.textContent = msg;
     if (debug) debug.textContent = debugMsg;
   }
 }
 
-async function checkDbReady() {
+// SERVICE readiness probe reader. Returns {ready, reason}; on a genuine dependency
+// failure it surfaces the EXACT reason from /v1/ready (never masks it as ready).
+async function checkServiceReady() {
   try {
     const r = await fetchWithTimeout('/v1/ready', 5000);
-    if (!r.ok) return false;
+    if (!r.ok) {
+      let reason = '/v1/ready ' + r.status;
+      try { const b = await r.json(); if (b && b.detail && b.detail.reason) reason = b.detail.reason; } catch (e2) {}
+      return { ready: false, reason: reason };
+    }
     const b = await r.json();
-    return b.database === 'ok';
-  } catch {
-    return false;
+    return { ready: b.database === 'ok', reason: (b && b.reason) || null };
+  } catch (e) {
+    return { ready: false, reason: (e && e.name === 'AbortError') ? 'service probe timeout' : 'service unreachable' };
   }
 }
 
@@ -24220,29 +24257,74 @@ function renderHoldingOpportunityCost(d) {
   var counts = d.recommendation_counts || {};
   var dq = d.data_quality || {};
   var pol = d.policy || {};
-  if (note) {
-    if (state === 'NOT_RUN') {
-      note.textContent = 'Not yet run for the current eligible session. Run the Daily '
-        + 'Research Cycle to produce the opportunity-cost review (read-only).';
-    } else if (state === 'BLOCKED') {
-      note.textContent = 'Blocked: core inputs are unavailable for the current session.';
-    } else {
-      note.textContent = 'Assessment ' + escapeHtml(d.eligible_market_date || '—')
-        + ' · book ' + escapeHtml((d.active_book || {}).book_label || '—')
-        + ' · ' + escapeHtml(state);
-    }
+  var ab = d.active_book || {};
+  var bookName = ab.book_label || (ab.book_id ? ab.book_id : '—');
+  // An assessment (production artifact) exists only when the backend supplies an
+  // artifact / hash / holding reviews. Otherwise this is a first-class no-assessment
+  // state (NOT_RUN / WAITING / BLOCKED / DEGRADED / NO_ACTIVE_BOOK / UNAVAILABLE):
+  // the owner is available but NO counts are ever fabricated.
+  var hasAssessment = !!(d.artifact || d.assessment_hash || (reviews && reviews.length));
+
+  function chip(label, val, cls) {
+    return '<span class="cc-badge ' + (cls || 'muted') + '" style="font-size:10px;">'
+      + escapeHtml(label) + ' ' + escapeHtml(String(val)) + '</span>';
   }
   if (banner) banner.style.display = '';
 
-  // --- summary chips (all values from the backend; no computation) ----------- //
-  if (sumEl) {
-    function chip(label, val, cls) {
-      return '<span class="cc-badge ' + (cls || 'muted') + '" style="font-size:10px;">'
-        + escapeHtml(label) + ' ' + escapeHtml(String(val)) + '</span>';
+  if (!hasAssessment) {
+    // Canonical NO-ASSESSMENT view. Owner available; no production artifact; next
+    // creation path is the Daily Research Cycle; current active book + eligible/session
+    // state shown; no artificial HOLD/REDUCE/EXIT/REPLACE/ADD counts; review-only.
+    var msg;
+    if (state === 'NOT_RUN') {
+      msg = 'Not yet run for the current eligible session. The first Holding '
+        + 'Opportunity-Cost assessment will be produced by the next completed Daily '
+        + 'Research Cycle (read-only).';
+    } else if (state === 'NO_ACTIVE_BOOK') {
+      msg = 'No active operational book — no assessment.';
+    } else if (state === 'BLOCKED') {
+      msg = 'Blocked: core inputs are unavailable for the current session; no assessment produced.';
+    } else if (state === 'WAITING_FOR_SESSION_CLOSE') {
+      msg = 'Waiting for the current market session to close before the next Daily '
+        + 'Research Cycle can produce the assessment.';
+    } else if (state === 'UNAVAILABLE') {
+      msg = 'The Holding Opportunity-Cost review is currently unavailable.';
+    } else {
+      msg = 'No Holding Opportunity-Cost assessment is available for the current active '
+        + 'book and eligible session yet.';
     }
-    var ps = d.portfolio_summary || {};
+    if (note) note.textContent = msg;
+    if (sumEl) sumEl.innerHTML =
+      chip('Book', bookName)
+      + chip('Eligible', d.eligible_market_date || '—')
+      + chip('Owner', d.composition_owner || 'api.holding_opportunity_cost', 'muted')
+      + chip('State', state, 'manual')
+      + chip('Assessment', 'NONE YET', 'muted')
+      + chip('Next', 'Daily Research Cycle', 'muted')
+      + chip('Safety', 'REVIEW-ONLY · PAPER · NO ORDERS', 'safe');
+    if (filtEl) filtEl.innerHTML = '';
+    if (tblEl) tblEl.innerHTML = '<div class="cc-na-note" style="font-size:11px;">'
+      + escapeHtml(msg) + ' No holdings are evaluated and no HOLD / REDUCE / EXIT / '
+      + 'REPLACE / ADD counts exist until the assessment runs. Sole execution path: '
+      + escapeHtml(d.sole_execution_path || 'POST /v1/operations/daily-research-cycle/run')
+      + '.</div>';
+    if (addEl) addEl.innerHTML = '<div class="cc-na-note" style="font-size:10px;">'
+      + 'No addition candidates until the assessment runs.</div>';
+    return;
+  }
+
+  // --- completed assessment view -------------------------------------------- //
+  if (note) {
+    note.textContent = 'Assessment ' + escapeHtml(d.eligible_market_date || '—')
+      + ' · book ' + escapeHtml(bookName)
+      + ' · state ' + escapeHtml(state);
+  }
+  // --- summary chips (all values from the backend; nothing derived here) ----- //
+  if (sumEl) {
     sumEl.innerHTML =
-      chip('Holdings', dq.holdings_evaluated != null ? dq.holdings_evaluated : (reviews.length))
+      chip('Assessment', d.eligible_market_date || '—')
+      + chip('Book', bookName)
+      + chip('Holdings', dq.holdings_evaluated != null ? dq.holdings_evaluated : (reviews.length))
       + chip('HOLD', counts.HOLD || 0, 'muted')
       + chip('REDUCE', counts.REDUCE || 0, 'manual')
       + chip('EXIT', counts.EXIT || 0, 'danger')
@@ -24552,6 +24634,26 @@ function renderDailyResearchCycle(d) {
   } else { _drcSet('drc-monthly', '—'); }
   _drcSet('drc-snapshots', (d.captured_snapshot_count != null ? d.captured_snapshot_count : '—') + ' / ' + (d.required_snapshot_count != null ? d.required_snapshot_count : '—'));
   _drcSet('drc-evidence', d.evidence_status);
+
+  // --- Slice 6 Holding Opportunity-Cost step (verbatim from the DRC status contract) --- //
+  _drcSet('drc-oc-owner', d.opportunity_cost_owner);
+  _drcSet('drc-oc-state', d.opportunity_cost_state);
+  _drcSet('drc-oc-required', d.opportunity_cost_required === true ? 'YES'
+    : (d.opportunity_cost_required === false ? 'no' : '—'));
+  // Step lifecycle: completed (in completed_steps) / running (current step) / selected / pending.
+  var _ocStep = 'ASSESS_HOLDING_OPPORTUNITY_COST';
+  var _ocDone = (d.completed_steps || []).indexOf(_ocStep) !== -1;
+  var _ocCurrent = (d.current_step === _ocStep);
+  _drcSet('drc-oc-step', _ocDone ? 'completed'
+    : (_ocCurrent ? 'running' : (d.opportunity_cost_selected === true ? 'selected' : 'pending')));
+  _drcSet('drc-oc-artifact', d.opportunity_cost_artifact_id);
+  _drcSet('drc-oc-hash', d.opportunity_cost_assessment_hash);
+  _drcSet('drc-oc-holdings', d.opportunity_cost_holding_count);
+  var _ocC = d.opportunity_cost_recommendation_counts || null;
+  _drcSet('drc-oc-counts', _ocC ? ('HOLD ' + (_ocC.HOLD || 0) + ' · REDUCE ' + (_ocC.REDUCE || 0)
+    + ' · EXIT ' + (_ocC.EXIT || 0) + ' · REPLACE ' + (_ocC.REPLACE || 0) + ' · ADD ' + (_ocC.ADD || 0)) : '—');
+  var _ocG = d.opportunity_cost_data_gaps || [];
+  _drcSet('drc-oc-gaps', (_ocG && _ocG.length) ? _ocG.join(', ') : 'none');
   var t25 = (d.top25 || []).map(function (c) { return c.ticker; });
   var t50 = (d.top50 || []).map(function (c) { return c.ticker; });
   _drcSet('drc-top25', t25.length ? (t25.length + ': ' + t25.join(' ')) : '—');
@@ -24789,6 +24891,25 @@ function renderWorkflowState(d) {
     el.innerHTML = html;
     el.style.display = 'block';
   });
+  // Header WORKFLOW-readiness indicator (Phase 29G.1) — a DISTINCT concept from SERVICE
+  // readiness (health/db) shown in the same header. Rendered VERBATIM from the backend
+  // workflow-state owner; NO date arithmetic, NO workflow-priority derivation, and a
+  // waiting workflow is never conflated with a service failure. WAITING_FOR_SESSION_CLOSE
+  // is a valid workflow state, not a fault. Inlined (no external helper) so the render
+  // harness executes the real code.
+  var _wfLight = document.getElementById('wf-readiness-light');
+  var _wfText = document.getElementById('wf-readiness-text');
+  if (_wfText) {
+    if (!d) {
+      _wfText.textContent = 'Unavailable';
+      if (_wfLight) _wfLight.className = 'status-light neutral';
+    } else {
+      var _wfPa = d.primary_action || {};
+      var _wfSev = { INFO: 'ok', SUCCESS: 'ok', ATTENTION: 'warn', BLOCKED: 'err' };
+      _wfText.textContent = _wfPa.current_task || _wfPa.headline || d.overall_state || '—';
+      if (_wfLight) _wfLight.className = 'status-light ' + (_wfSev[_wfPa.severity] || 'neutral');
+    }
+  }
   _wsApplyRightPanel(d);
   _wsApplyAssessmentFraming(d);
   _wsApplyEvidence(d);

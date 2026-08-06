@@ -696,3 +696,36 @@ flowchart LR
   / fill, changes no holding / cash / NAV, promotes no model. Slice 7 (Reallocation
   Proposal engine, Milestone 3) is next; the Persistent Alpha Research Agent (Slice 8 /
   Milestone 4) remains planned; cadence remains disabled.
+
+### Service vs workflow readiness + Slice 6 operator workflow (Phase 29G.1)
+
+- **Service readiness (owner `GET /v1/ready`):** a lightweight DB connectivity probe
+  answering "can the backend serve authenticated operational reads?". Returns 200 with
+  `ready=true`, `readiness_kind="service"`, `database="ok"`; on a genuine dependency
+  failure it returns 503 with an EXACT `reason` (never masked). It is deliberately
+  independent of market-session timing and of the daily-workflow state. `GET /v1/health`
+  is the liveness probe.
+- **Workflow readiness (owner `api.workflow_state`):** answers "can today's daily
+  workflow action execute now?" (`WAITING_FOR_SESSION_CLOSE`, `RESEARCH_CYCLE_REQUIRED`,
+  `READY_FOR_DAILY_CLOSE`, …). A valid `WAITING_FOR_SESSION_CLOSE` state never makes the
+  service report unready. Command Center `backend_ready` is a SERVICE signal (DB reach),
+  consistent with `/v1/ready`.
+- **UI:** the header shows the two indicators SEPARATELY ("Service:" from
+  `/v1/health` + `/v1/ready` with the exact reason on failure; "Workflow:" rendered
+  verbatim from the workflow-state owner). No surface conflates the two.
+- **Operator workflow:** the sole execution path is `POST
+  /v1/operations/daily-research-cycle/run`; the reassessment (its
+  `ASSESS_HOLDING_OPPORTUNITY_COST` step) runs inside it — there is no separate
+  reassessment control and no "Slice 3 — not yet implemented" placeholder. The canonical
+  next actions are: wait for the market session to close → run the Daily Research Cycle →
+  review the Holding Opportunity-Cost assessment → run the Daily Close.
+- **Legacy comparison:** the old rank-membership comparison is a read-only **LEGACY
+  MEMBERSHIP-COMPARISON SUMMARY (compatibility-only)** — never a "Rebalance Proposal
+  Ready" primary card. The Holding Opportunity-Cost review is the PRIMARY portfolio
+  decision card, rendered in every state (NOT_RUN / WAITING / BLOCKED / DEGRADED /
+  completed) by the ONE single-flight loader with no fabricated recommendation counts
+  before a production artifact exists (the DRC creates the first one).
+- **Static guard:** `scripts/audit_architecture.py:check_slice6_live_acceptance_ownership`
+  enforces all of the above; no target / rebalance / order / target-confirmation route is
+  added; Slice 7 remains next; the Persistent Alpha Research Agent (Slice 8 / Milestone 4)
+  remains planned; cadence remains disabled.

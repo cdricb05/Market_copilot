@@ -594,6 +594,38 @@
 - **Consequence:** every slice preserves behavior and migrates contracts
   (Principle 8).
 
+### D-17 — Service vs workflow readiness + Slice 6 operator/UI hard cutover (Phase 29G.1) — CONFIRMED (LANDED)
+- **Decision:** SERVICE readiness (can the backend serve authenticated operational
+  reads?) and WORKFLOW readiness (can today's daily workflow action execute now?) are
+  DISTINCT concepts, owned and displayed separately. `GET /v1/ready` is the SERVICE
+  probe: a lightweight DB check that returns 200 (`ready=true`, `readiness_kind="service"`)
+  or 503 with an EXACT `reason` — it never masks a real dependency failure and never keys
+  off market-session timing. `api.workflow_state` owns WORKFLOW readiness; a valid
+  `WAITING_FOR_SESSION_CLOSE` state never makes the service report unready. The header
+  shows both indicators separately ("Service:" / "Workflow:"). The obsolete Slice-2
+  "Run a portfolio reassessment (Slice 3 — not yet implemented)" placeholder is removed:
+  the reassessment is produced by the Daily Research Cycle (its
+  `ASSESS_HOLDING_OPPORTUNITY_COST` step) — the SOLE execution path — with no separate
+  reassessment execution control. The legacy rank-membership comparison is reclassified
+  as a read-only **LEGACY MEMBERSHIP-COMPARISON SUMMARY (compatibility-only)** and never
+  labelled "Rebalance Proposal Ready"; the Holding Opportunity-Cost review is the PRIMARY
+  portfolio decision card, rendered in every state (NOT_RUN / WAITING / BLOCKED / DEGRADED
+  / completed) by the ONE single-flight loader with no fabricated recommendation counts
+  before an artifact exists.
+- **Evidence:** the header previously showed an ambiguous "Not Ready /v1/ready" while the
+  Command Center said "System Ready" (two readiness concepts rendered ambiguously); the UI
+  carried a stale "Slice 3 — not yet implemented" reassessment control and a
+  "REBALANCE PROPOSAL READY" card for a comparison that is not an approved reallocation.
+- **Guard:** `scripts/audit_architecture.py:check_slice6_live_acceptance_ownership`
+  proves the obsolete control is gone, the legacy comparison is compatibility-only, the
+  two readiness concepts are distinct, `/v1/ready` is service-scoped and never
+  session-scoped, the HOC panel renders NOT_RUN and completed states, and no reassessment
+  / rebalance / order / target-confirmation route was added.
+- **Consequence:** the application is ready for the first post-close Slice 6 Daily
+  Research Cycle. No target weight, no Reallocation Proposal engine, no orders, no
+  automation; Slice 7 (Reallocation Proposal, Milestone 3) is next; the Persistent Alpha
+  Research Agent (Slice 8, Milestone 4) remains planned; cadence remains disabled.
+
 ## Rejected alternatives
 
 - **R-1 — Rewrite the backend from scratch.** Rejected: violates Principle 8;

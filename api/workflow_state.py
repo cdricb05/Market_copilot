@@ -566,18 +566,28 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                 "headline": "Daily Research Cycle is blocked — resolve the named input."}
 
     if overall == PORTFOLIO_REASSESSMENT_REQUIRED:
+        # Phase 29G.1 hard cutover: Slice 3 (the Daily Research Cycle) and Slice 6 (the
+        # Holding Opportunity-Cost engine) are IMPLEMENTED. The portfolio reassessment is
+        # produced inside the Daily Research Cycle (its ASSESS_HOLDING_OPPORTUNITY_COST
+        # step) — there is NO separate reassessment execution control, and the obsolete
+        # Slice-2 placeholder label is gone. This action is descriptive/routing only
+        # (execution_available False); the sole execution path is the DRC run action.
         return {"action_code": ACTION_RUN_PORTFOLIO_REASSESSMENT,
-                "label": "Run a portfolio reassessment (Slice 3 — not yet implemented)",
-                "explanation": "Research is current but the portfolio assessment is "
-                               "not current for the latest eligible session. Portfolio "
-                               "reassessment is introduced in Slice 3; this action is "
-                               "descriptive/routing only in Slice 2. No assessment is "
-                               "run here.",
-                "severity": SEV_ATTENTION, "destination": DEST_PORTFOLIO_MANAGER,
+                "label": "Reassess the portfolio by running the Daily Research Cycle",
+                "explanation": "Research inputs are current, but the portfolio Holding "
+                               "Opportunity-Cost assessment is not current for the latest "
+                               "eligible session. The reassessment is produced by the "
+                               "canonical Daily Research Cycle (its "
+                               "ASSESS_HOLDING_OPPORTUNITY_COST step) — the sole execution "
+                               "path (POST /v1/operations/daily-research-cycle/run). There "
+                               "is no separate reassessment control: run the Daily Research "
+                               "Cycle from the Daily Workflow, then review the Holding "
+                               "Opportunity-Cost assessment.",
+                "severity": SEV_ATTENTION, "destination": DEST_DAILY_WORKFLOW,
                 "safe_to_execute": True, "execution_available": False,
-                "manual_confirmation_required": True, "slice3_pending": True,
-                "current_task": "Reassess the portfolio against current alternatives.",
-                "headline": "Portfolio reassessment is due."}
+                "manual_confirmation_required": False, "slice3_pending": False,
+                "current_task": "Run the Daily Research Cycle to reassess the portfolio.",
+                "headline": "Portfolio reassessment is due — run the Daily Research Cycle."}
 
     if overall == READY_FOR_DAILY_CLOSE:
         return {"action_code": ACTION_RUN_DAILY_CLOSE,
@@ -655,11 +665,15 @@ def _queued_actions(*, primary_code: str, research_current: bool,
             "Required research inputs are stale or missing.",
             execution_available=True, safe_to_execute=False)
     if assessment_status in _ASSESS_NEEDS_ACTION:
+        # Phase 29G.1: the reassessment is produced by the Daily Research Cycle (the sole
+        # execution path), not a separate obsolete placeholder control.
         add(ACTION_RUN_PORTFOLIO_REASSESSMENT,
-            "Run a portfolio reassessment (Slice 3 — not yet implemented)",
-            SEV_ATTENTION, DEST_PORTFOLIO_MANAGER,
-            "The portfolio assessment is %s for the latest eligible session."
-            % assessment_status.lower(), slice3_pending=True)
+            "Reassess the portfolio by running the Daily Research Cycle",
+            SEV_ATTENTION, DEST_DAILY_WORKFLOW,
+            "The portfolio Holding Opportunity-Cost assessment is %s for the latest "
+            "eligible session; it is produced by the Daily Research Cycle (the sole "
+            "execution path), not a separate reassessment control."
+            % assessment_status.lower(), slice3_pending=False)
     if has_confirmed_eligible and not eligible_session_closed:
         add(ACTION_RUN_DAILY_CLOSE, "Run the Daily Close", SEV_ATTENTION,
             DEST_DAILY_WORKFLOW,

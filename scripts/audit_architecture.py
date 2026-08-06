@@ -350,6 +350,42 @@ GATE_HOC_CONTEXT_TOKENS = ("active_book_id=", "eligible_market_date=")
 # The permitted composition edge: portfolio_state composes the daily action gate.
 PS_GATE_COMPOSE_TOKEN = "load_daily_action_gate"
 
+# --- Phase 29G.1 Slice 6 LIVE-ACCEPTANCE / operator-workflow & UI hard cutover ----- #
+# The obsolete Slice-2 reassessment placeholder control must be GONE from the workflow
+# owner; the legacy rank-membership comparison must be reclassified compatibility-only
+# (never "Rebalance Proposal Ready"); SERVICE readiness and WORKFLOW readiness must be
+# distinct UI concepts (a waiting workflow never means the service is unhealthy); the
+# canonical HOC panel must render NOT_RUN and completed states; the Daily Research Cycle
+# stays the SOLE Slice 6 execution path (no reassessment / rebalance / order route).
+LA6_WORKFLOW_OWNER = "api/workflow_state.py"
+LA6_DAILY_CLOSE_OWNER = "api/daily_close.py"
+LA6_APP_OWNER = "api/app.py"
+# (1) obsolete reassessment placeholder control — must NOT appear in the workflow owner.
+LA6_OBSOLETE_REASSESSMENT_TOKENS = ("not yet implemented", "Run a portfolio reassessment")
+# (3) legacy "rebalance proposal ready" primary label — must NOT appear in daily_close.
+LA6_OBSOLETE_REBALANCE_TOKENS = ("REBALANCE PROPOSAL READY", "Review Rebalance Proposal")
+# (4) the legacy comparison MUST be reclassified compatibility-only in daily_close.
+LA6_LEGACY_COMPAT_TOKENS = ("LEGACY MEMBERSHIP-COMPARISON",)
+# (9) SERVICE vs WORKFLOW readiness — both distinct UI indicators must exist.
+LA6_UI_SERVICE_READINESS_TOKENS = ('id="health-status"', "checkServiceReady")
+LA6_UI_WORKFLOW_READINESS_TOKENS = ('id="wf-readiness-text"', "wf-readiness-light")
+# (9)/(10) /v1/ready is an explicit SERVICE probe carrying readiness_kind, and its body
+# never keys off market-session timing (a waiting workflow never makes it report unready).
+LA6_READY_SERVICE_TOKEN = "readiness_kind"
+LA6_READY_FORBIDDEN_SESSION_TOKENS = ("market_session", "WAITING_FOR_SESSION",
+                                      "eligible_market_date", "session_close")
+# (6)/(7) the HOC UI renders NOT_RUN and completed assessment states.
+LA6_UI_HOC_NOT_RUN_TOKENS = ("hasAssessment", "NONE YET")
+LA6_UI_HOC_COMPLETED_TOKEN = "completed assessment view"
+# (2)/(11)/(13) reassessment / rebalance / HOC-run / target-confirmation routes: FORBIDDEN.
+LA6_ABSENT_ROUTES = ("/v1/operations/portfolio-reassessment",
+                     "/v1/operations/reassessment",
+                     "/v1/operations/rebalance",
+                     "/v1/operations/rebalance-proposal",
+                     "/v1/operations/holding-opportunity-cost/run",
+                     "/v1/operations/confirm-target",
+                     "/v1/operations/target-confirmation")
+
 
 # Canonical business concepts and the regex that identifies a *writer/producer*
 # of that concept (a function definition that computes it). Multiple modules
@@ -1353,6 +1389,75 @@ def check_holding_opportunity_cost_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_slice6_live_acceptance_ownership(files: list[Path]) -> dict:
+    """Phase 29G.1 Slice 6 LIVE-ACCEPTANCE / operator-workflow & UI hard-cutover guard.
+
+    Proves the sixteen release conditions: (1) no visible "Slice 3 — not yet
+    implemented" reassessment control remains; (2) no separate reassessment execution
+    button/route exists; (3) no "Rebalance Proposal Ready" primary label remains for
+    the legacy comparison; (4) the legacy comparison is classified compatibility-only;
+    (5) exactly one HOC UI loader (see holding_opportunity_cost_ownership); (6) the HOC
+    panel renders NOT_RUN; (7) the HOC panel renders completed assessments; (8) no JS
+    recommendation/allocation calculation (see holding_opportunity_cost_ownership);
+    (9) SERVICE readiness and WORKFLOW readiness are separate concepts; (10)
+    WAITING_FOR_SESSION_CLOSE does not imply backend service failure (the /v1/ready
+    body never keys off session timing); (11) the Daily Research Cycle remains the sole
+    Slice 6 execution path; (12) Slice 7 remains absent (see
+    holding_opportunity_cost_ownership); (13) no order / target-confirmation path is
+    added; (14) the Persistent Alpha Research Agent (Slice 8) remains planned (see
+    holding_opportunity_cost_ownership); (15) cadence remains disabled; (16) inventory
+    drift remains zero (see check_inventory_drift)."""
+    ws_src = _read(LA6_WORKFLOW_OWNER)
+    dc_src = _read(LA6_DAILY_CLOSE_OWNER)
+    app_src = _read(LA6_APP_OWNER)
+    ui = _read(UI_FILE)
+    routes = check_routes()["routes"]
+
+    # (1) obsolete reassessment placeholder control removed from the workflow owner.
+    obsolete_reassessment_control = sorted(t for t in LA6_OBSOLETE_REASSESSMENT_TOKENS
+                                           if t in ws_src)
+    # (3) legacy "rebalance proposal ready" primary label removed from daily_close.
+    obsolete_rebalance_label = sorted(t for t in LA6_OBSOLETE_REBALANCE_TOKENS
+                                      if t in dc_src)
+    # (4) legacy comparison reclassified compatibility-only.
+    legacy_compatibility_classified = all(t in dc_src for t in LA6_LEGACY_COMPAT_TOKENS)
+    # (2)/(11)/(13) no reassessment / rebalance / HOC-run / target-confirmation route.
+    forbidden_routes_present = sorted(r for r in LA6_ABSENT_ROUTES
+                                      if any(rt["path"] == r for rt in routes))
+    # (9) SERVICE vs WORKFLOW readiness — both distinct UI indicators present.
+    service_readiness_ui = all(t in ui for t in LA6_UI_SERVICE_READINESS_TOKENS)
+    workflow_readiness_ui = all(t in ui for t in LA6_UI_WORKFLOW_READINESS_TOKENS)
+    readiness_separated = bool(service_readiness_ui and workflow_readiness_ui)
+    # (9)/(10) /v1/ready is an explicit SERVICE probe whose CODE never keys off session
+    # timing (WAITING_FOR_SESSION_CLOSE must never make the service report unready). The
+    # docstring may legitimately NAME that workflow state to explain the separation, so
+    # prose (docstrings/comments) is stripped before scanning the executable body.
+    ready_start = app_src.find("def ready(")
+    ready_body = _strip_prose(app_src[ready_start:ready_start + 2500]) if ready_start != -1 else ""
+    ready_is_service_scoped = (LA6_READY_SERVICE_TOKEN in ready_body)
+    ready_conflates_session = sorted(t for t in LA6_READY_FORBIDDEN_SESSION_TOKENS
+                                     if t in ready_body)
+    # (6)/(7) the HOC UI renders NOT_RUN and completed assessment states.
+    hoc_renders_not_run = all(t in ui for t in LA6_UI_HOC_NOT_RUN_TOKENS)
+    hoc_renders_completed = (LA6_UI_HOC_COMPLETED_TOKEN in ui)
+
+    return {
+        "workflow_owner": LA6_WORKFLOW_OWNER,
+        "daily_close_owner": LA6_DAILY_CLOSE_OWNER,
+        "obsolete_reassessment_control": obsolete_reassessment_control,
+        "obsolete_rebalance_label": obsolete_rebalance_label,
+        "legacy_compatibility_classified": legacy_compatibility_classified,
+        "forbidden_routes_present": forbidden_routes_present,
+        "service_readiness_ui": service_readiness_ui,
+        "workflow_readiness_ui": workflow_readiness_ui,
+        "readiness_separated": readiness_separated,
+        "ready_is_service_scoped": ready_is_service_scoped,
+        "ready_conflates_session": ready_conflates_session,
+        "hoc_renders_not_run": hoc_renders_not_run,
+        "hoc_renders_completed": hoc_renders_completed,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -1429,6 +1534,7 @@ def run_audit() -> dict:
         "monthly_emitter_bridge_ownership": check_monthly_emitter_bridge_ownership(files),
         "portfolio_state_ownership": check_portfolio_state_ownership(files),
         "holding_opportunity_cost_ownership": check_holding_opportunity_cost_ownership(files),
+        "slice6_live_acceptance_ownership": check_slice6_live_acceptance_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -1621,6 +1727,21 @@ def _print_console(rep: dict) -> None:
           f"portfolio_state composes gate: {ho['portfolio_state_composes_gate']}  "
           f"no circular read dependency: {ho['no_circular_read_dependency']}")
 
+    hdr("SLICE 6 LIVE-ACCEPTANCE / OPERATOR-WORKFLOW & UI HARD CUTOVER (Phase 29G.1)")
+    la = rep["slice6_live_acceptance_ownership"]
+    print(f"obsolete reassessment control (must be empty): {la['obsolete_reassessment_control']}")
+    print(f"obsolete rebalance-proposal label (must be empty): {la['obsolete_rebalance_label']}")
+    print(f"legacy comparison compatibility-only: {la['legacy_compatibility_classified']}")
+    print(f"forbidden reassessment/rebalance/order routes (must be empty): "
+          f"{la['forbidden_routes_present']}")
+    print(f"service readiness UI: {la['service_readiness_ui']}  "
+          f"workflow readiness UI: {la['workflow_readiness_ui']}  "
+          f"readiness separated: {la['readiness_separated']}")
+    print(f"/v1/ready service-scoped: {la['ready_is_service_scoped']}  "
+          f"ready conflates session (must be empty): {la['ready_conflates_session']}")
+    print(f"HOC panel renders NOT_RUN: {la['hoc_renders_not_run']}  "
+          f"renders completed: {la['hoc_renders_completed']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -1680,7 +1801,17 @@ def main(argv=None) -> int:
         me = rep["monthly_emitter_bridge_ownership"]
         ps = rep["portfolio_state_ownership"]
         ho = rep["holding_opportunity_cost_ownership"]
+        la6 = rep["slice6_live_acceptance_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
+                         + len(la6["obsolete_reassessment_control"])
+                         + len(la6["obsolete_rebalance_label"])
+                         + (0 if la6["legacy_compatibility_classified"] else 1)
+                         + len(la6["forbidden_routes_present"])
+                         + (0 if la6["readiness_separated"] else 1)
+                         + (0 if la6["ready_is_service_scoped"] else 1)
+                         + len(la6["ready_conflates_session"])
+                         + (0 if la6["hoc_renders_not_run"] else 1)
+                         + (0 if la6["hoc_renders_completed"] else 1)
                          + (0 if ho["kernel_present"] else 1)
                          + (0 if ho["owner_present"] else 1)
                          + len(ho["second_calculation_owner_modules"])

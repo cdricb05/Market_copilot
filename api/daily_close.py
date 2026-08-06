@@ -329,16 +329,28 @@ _PRESENTATION = {
                         "close."),
         "cycle_label": "DAILY CLOSE COMPLETE — HOLD",
     },
+    # Phase 29G.1 hard cutover: the legacy rank-membership comparison (current holdings
+    # vs the ranked names) is NOT a completed reallocation proposal. It is reclassified
+    # as a read-only, compatibility-only membership-comparison summary. The canonical
+    # portfolio decision is the Holding Opportunity-Cost review (Slice 6); the
+    # Reallocation Proposal engine (Slice 7) is not implemented. The state KEY and
+    # primary_action_kind are preserved for historical/audit compatibility; only the
+    # operator-facing classification changes. It never says "Rebalance Proposal Ready",
+    # "Portfolio Changes Proposed", "approved proposal" or "ready to rebalance".
     REBALANCE_PROPOSAL_READY: {
-        "label": "REBALANCE PROPOSAL READY — MANUAL REVIEW REQUIRED",
-        "headline": "REBALANCE PROPOSAL READY — MANUAL REVIEW REQUIRED",
+        "label": "LEGACY MEMBERSHIP-COMPARISON SUMMARY — COMPATIBILITY ONLY",
+        "headline": "LEGACY MEMBERSHIP-COMPARISON SUMMARY — REVIEW-ONLY COMPATIBILITY",
         "severity": SEV_AMBER,
-        "primary_action_label": "Review Rebalance Proposal",
+        "primary_action_label": "View Legacy Membership Comparison",
         "primary_action_kind": "REVIEW_PROPOSAL",
-        "current_task": "Review Rebalance Proposal",
-        "next_action": ("Review the proposed portfolio changes; paper orders are created "
-                        "only by a separate explicit confirmation."),
-        "cycle_label": "PROPOSAL READY",
+        "current_task": "Review the legacy membership comparison (compatibility-only)",
+        "next_action": ("Read-only compatibility view. The legacy rank-membership "
+                        "comparison of the current holdings against the ranked names is "
+                        "NOT an approved reallocation and creates no paper orders. The "
+                        "canonical portfolio decision is the Holding Opportunity-Cost "
+                        "review (Slice 6); the Reallocation Proposal engine (Slice 7) is "
+                        "not implemented."),
+        "cycle_label": "LEGACY MEMBERSHIP COMPARISON",
     },
     PAPER_ORDERS_SUBMITTED: {
         "label": "PAPER ORDERS PENDING",

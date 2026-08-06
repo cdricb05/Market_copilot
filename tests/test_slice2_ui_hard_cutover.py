@@ -399,16 +399,22 @@ def test_55_inventory_drift_zero():
     assert d["in_inventory_not_on_disk"] == []
 
 
-def test_56_slice3_research_cycle_executable_reassessment_deferred():
-    # Slice 3 IMPLEMENTS the Daily Research Cycle action (now executable). Portfolio
-    # reassessment (the Milestone-2 opportunity-cost engine) remains not-yet-implemented.
+def test_56_slice6_reassessment_routes_to_daily_research_cycle():
+    # Phase 29G.1 hard cutover: Slice 3 (the Daily Research Cycle) and Slice 6 (the
+    # Holding Opportunity-Cost engine) are IMPLEMENTED. The portfolio reassessment is
+    # produced BY the Daily Research Cycle (the sole execution path); there is NO
+    # separate reassessment execution control and NO "not yet implemented" placeholder.
     r = _regression()
     q_by_code = {q["action_code"]: q for q in r["queued_actions"]}
     assert ws.ACTION_RUN_RESEARCH_CYCLE in q_by_code
     assert ws.ACTION_RUN_PORTFOLIO_REASSESSMENT in q_by_code
     assert q_by_code[ws.ACTION_RUN_RESEARCH_CYCLE]["execution_available"] is True
     rea = q_by_code[ws.ACTION_RUN_PORTFOLIO_REASSESSMENT]
-    assert rea["execution_available"] is False and rea["slice3_pending"] is True
+    # Descriptive/routing only — NOT a separate execution control.
+    assert rea["execution_available"] is False
+    assert rea["slice3_pending"] is False
+    assert "not yet implemented" not in rea["label"]
+    assert rea["destination"] == ws.DEST_DAILY_WORKFLOW
 
 
 def test_57_roadmap_forbids_big_bang_rewrite():

@@ -450,6 +450,22 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   NAV, promotes no model, enables no cadence. **Not begun:** Slice 7 (Reallocation
   Proposal engine, Milestone 3), Slice 8 (Persistent Alpha Research Agent,
   Milestone 4); cadence remains disabled.
+- **Live-acceptance readiness / operator-workflow & UI hard cutover (Phase 29G.1):**
+  before the first post-close production HOC assessment, the operator path was hardened
+  without running a real cycle. SERVICE readiness (`/v1/ready`, DB probe, exact 503
+  reason) and WORKFLOW readiness (`api.workflow_state`) are now DISTINCT and shown
+  separately in the header — a `WAITING_FOR_SESSION_CLOSE` workflow never means the
+  service is unhealthy. The obsolete "Slice 3 — not yet implemented" reassessment control
+  is removed (the reassessment runs inside the Daily Research Cycle, the sole execution
+  path); the legacy rank-membership comparison is reclassified **LEGACY
+  MEMBERSHIP-COMPARISON SUMMARY (compatibility-only)** and the Holding Opportunity-Cost
+  review is the PRIMARY decision card, rendered in every state (NOT_RUN … completed) with
+  no fabricated counts before an artifact exists; the DRC UI surfaces the
+  `ASSESS_HOLDING_OPPORTUNITY_COST` step lifecycle. Guarded by
+  `check_slice6_live_acceptance_ownership`. First-live-cycle acceptance procedure: wait
+  for the session close → run the Daily Research Cycle → review the Holding
+  Opportunity-Cost assessment → run the Daily Close. No target / rebalance / order
+  authority is added.
 
 ## Slice 7 — Portfolio reallocation proposal engine
 

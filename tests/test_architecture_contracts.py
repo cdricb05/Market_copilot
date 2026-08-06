@@ -493,3 +493,24 @@ def test_73_holding_opportunity_cost_read_graph_is_acyclic(audit):
     assert ho["ui_loader_count"] == 1
     assert ho["owner_forbidden_calls"] == []
     assert ho["slice7_present_modules"] == [] and ho["slice7_present_routes"] == []
+
+
+def test_74_slice6_live_acceptance_and_ui_hard_cutover(audit):
+    """Phase 29G.1 operator-workflow & UI hard cutover: the strict audit proves the
+    obsolete Slice-3 reassessment placeholder control is gone, the legacy membership
+    comparison is reclassified compatibility-only (never "Rebalance Proposal Ready"),
+    SERVICE and WORKFLOW readiness are distinct concepts (a waiting workflow never makes
+    /v1/ready report unready), the HOC panel renders NOT_RUN and completed states, and
+    no reassessment / rebalance / order route was added."""
+    la = audit.run_audit()["slice6_live_acceptance_ownership"]
+    assert la["obsolete_reassessment_control"] == []
+    assert la["obsolete_rebalance_label"] == []
+    assert la["legacy_compatibility_classified"] is True
+    assert la["forbidden_routes_present"] == []
+    assert la["service_readiness_ui"] is True
+    assert la["workflow_readiness_ui"] is True
+    assert la["readiness_separated"] is True
+    assert la["ready_is_service_scoped"] is True
+    assert la["ready_conflates_session"] == []
+    assert la["hoc_renders_not_run"] is True
+    assert la["hoc_renders_completed"] is True

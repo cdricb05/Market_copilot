@@ -332,6 +332,13 @@ responsibilities, candidate existing modules, and migration approach.
 
 ## 4. What the target deliberately keeps
 
+- **Service readiness vs workflow readiness stay distinct** (Phase 29G.1): `GET /v1/ready`
+  answers service readiness (backend + DB reachable, with an exact failure reason);
+  `api.workflow_state` answers workflow readiness (can today's action run now). A waiting
+  workflow (`WAITING_FOR_SESSION_CLOSE`) is never a service fault, and the two are shown
+  separately. The Daily Research Cycle stays the sole Slice 6 execution path; the Holding
+  Opportunity-Cost review stays the primary portfolio decision surface; no target /
+  rebalance / order authority is added ahead of Slice 7.
 - Paper-only, preview-first, manual-review, no-automation boundaries.
 - Remote prediction at `:9000`; no local prediction.
 - The clean `db/session.py` boundary — the model for the future store service.

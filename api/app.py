@@ -69,7 +69,7 @@ import pathlib
 import sys
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, Security, status
@@ -300,10 +300,18 @@ class HealthOut(BaseModel):
 
 
 class ReadyOut(BaseModel):
+    # SERVICE readiness only (Phase 29G.1): can the backend safely serve
+    # authenticated operational reads? This is DISTINCT from WORKFLOW readiness
+    # (whether today's daily workflow action can execute now — owned by
+    # api.workflow_state). A valid workflow state such as WAITING_FOR_SESSION_CLOSE
+    # never makes the service unready.
     status: str
     service: str
     version: str
     database: str
+    ready: bool = True
+    readiness_kind: str = "service"
+    reason: Optional[str] = None
 
 
 class AuthCheckOut(BaseModel):
@@ -4079,27 +4087,47 @@ def health() -> HealthOut:
 )
 def ready() -> ReadyOut:
     """
-    Readiness probe endpoint.
+    SERVICE readiness probe endpoint (Phase 29G.1).
 
     No authentication required. Performs a lightweight database connectivity
-    check (SELECT 1) to verify the service is ready to serve traffic.
+    check (SELECT 1) to verify the backend can serve authenticated operational
+    reads. This probe reports SERVICE readiness ONLY — it is deliberately
+    independent of WORKFLOW readiness (whether today's daily workflow action can
+    execute now, owned by ``api.workflow_state``). A valid workflow state such as
+    ``WAITING_FOR_SESSION_CLOSE`` never makes this probe report unready, and this
+    probe never inspects market-session timing.
 
-    Returns 200 when the database is reachable, 503 when it is not.
-    Used by Kubernetes readiness probes and load balancers.
+    Returns 200 (``ready=true``) when the database is reachable, and 503
+    (``ready=false`` with an EXACT ``reason``) when a genuine dependency fails.
+    It never masks a real dependency failure by returning success.
+    Used by Kubernetes readiness probes, load balancers, and the header
+    service-readiness indicator.
     """
     try:
         with get_session() as session:
             session.execute(text("SELECT 1"))
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database unreachable.",
+            detail={
+                "status": "unready",
+                "service": _SERVICE_NAME,
+                "version": _SERVICE_VERSION,
+                "database": "unreachable",
+                "ready": False,
+                "readiness_kind": "service",
+                "reason": "Database unreachable: %s: %s"
+                % (type(exc).__name__, str(exc)[:160]),
+            },
         )
     return ReadyOut(
         status="ok",
         service=_SERVICE_NAME,
         version=_SERVICE_VERSION,
         database="ok",
+        ready=True,
+        readiness_kind="service",
+        reason=None,
     )
 
 

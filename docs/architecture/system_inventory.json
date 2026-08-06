@@ -1,11 +1,11 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "315f628",
+    "head": "27f4cee",
     "branch": "main",
-    "phase": "29G"
+    "phase": "29G.1"
   },
-  "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete.",
+  "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete. Phase 29G.1 (Slice 6 live-acceptance / operator-workflow & UI hard cutover): SERVICE readiness (GET /v1/ready, DB probe, exact 503 reason) and WORKFLOW readiness (api.workflow_state) are distinct and shown separately; the Daily Research Cycle is the sole Slice 6 execution path (no separate reassessment control); the legacy rank-membership comparison is compatibility-only and the Holding Opportunity-Cost review is the primary decision card; no target/rebalance/order route was added; Slice 7 next; Persistent Alpha Research Agent (Slice 8/Milestone 4) planned; cadence disabled.",
   "systems": {
     "operational_alpha_book": "System 1 (Phase 27/28, LIVE): file-based chain-hashed JSON desk ledgers, owned-EODHD marks, Alpha Paper Book #1. No Postgres.",
     "legacy_db_engine": "System 2 (Phase 14-15 + engine/): Postgres ORM, yfinance/FRED, remote prediction; the only order/fill (execution) code — conflicts with the preview-only mandate.",
