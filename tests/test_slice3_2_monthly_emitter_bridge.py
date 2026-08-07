@@ -719,9 +719,9 @@ def test_42_no_separate_monthly_execution_endpoint():
 
 
 def test_43_slice5_6_7_8_landed():
-    # Slice 5 (Phase 29F), Slice 6 (Phase 29G), Slice 7 (Reallocation Proposal, Phase 29H)
-    # and Slice 8 (Persistent Alpha Research Agent, Phase 29I) have LANDED; the NEXT slice
-    # (Slice 9, Paid-data integration) is NOT started.
+    # Slice 5 (Phase 29F), Slice 6 (Phase 29G), Slice 7 (Reallocation Proposal, Phase 29H),
+    # Slice 8 (Persistent Alpha Research Agent, Phase 29I) and Slice 9 (Data Expansion /
+    # Purchase-Gate, Phase 29J) have LANDED; the NEXT slice (Slice 10, Intraday) is NOT started.
     roadmap = (ROOT / "docs" / "CONSOLIDATION_ROADMAP.md").read_text(encoding="utf-8")
     s5 = roadmap.index("## Slice 5")
     s6 = roadmap.index("## Slice 6")
@@ -729,13 +729,17 @@ def test_43_slice5_6_7_8_landed():
     s8 = roadmap.index("## Slice 8")
     s9 = roadmap.index("## Slice 9")
     s10 = roadmap.index("## Slice 10")
+    s11 = roadmap.index("## Slice 11")
     assert "LANDED (Phase 29F)" in roadmap[s5:s6]
     assert "LANDED (Phase 29G)" in roadmap[s6:s7]
     assert "LANDED (Phase 29H)" in roadmap[s7:s8]
     assert "LANDED (Phase 29I)" in roadmap[s8:s9]
-    assert "LANDED" not in roadmap[s9:s10]
+    assert "LANDED (Phase 29J)" in roadmap[s9:s10]
+    assert "LANDED" not in roadmap[s10:s11]
     assert (ROOT / "engine" / "reallocation_proposal.py").exists()
     assert (ROOT / "engine" / "research_agent.py").exists()
+    assert (ROOT / "engine" / "data_expansion_gate.py").exists()
+    assert (ROOT / "api" / "data_expansion.py").exists()
     assert not (ROOT / "api" / "portfolio_proposal.py").exists()
     assert not (ROOT / "api" / "model_registry.py").exists()
 

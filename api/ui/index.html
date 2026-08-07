@@ -3373,6 +3373,7 @@
           <a id="ra-nav-stage11" data-rasub="stage11" onclick="navigateToRoute('research-audit/stage11')" title="Stage 11 Multi-Factor Research: signal factory, two-stage funnel, multiple-testing/FDR, orthogonal ensembles and the SHADOW-ONLY portfolio. Read-only, research use only, no orders, no automatic promotion.">Stage 11 Multi-Factor</a>
           <a id="ra-nav-stage12" data-rasub="stage12" onclick="navigateToRoute('research-audit/stage12')" title="Stage 12 Alpha Failure Autopsy &amp; Event-Driven Discovery: Stage 11 failure taxonomy, effective-hypothesis-count, owned-data power inventory, sample-power, a frozen pre-registered hypothesis registry, and the focused tournament. Read-only, research only, no live broker orders, no auto-promotion.">Stage 12 Autopsy</a>
           <a id="ra-nav-stage13a" data-rasub="stage13a" onclick="navigateToRoute('research-audit/stage13a')" title="Stage 13A Analyst-Revision Data Purchase-Evaluation Framework: provider-neutral normalized contract, point-in-time integrity, frozen 6-hypothesis registry, adequacy gate, power/confidence model, cost and purchase gate, and vendor comparison. Research only, no purchase executed, manual approval required, no auto-promotion.">Stage 13A Revisions</a>
+          <a id="ra-nav-data-expansion" data-rasub="data-expansion" onclick="navigateToRoute('research-audit/data-expansion')" title="Data Expansion Purchase-Gate (Slice 9, Milestone 5): is an external dataset worth acquiring / integrating? Sixteen-dimension gate — point-in-time integrity, historical depth, inactive/delisted coverage, universe breadth, effective sample, revision history, freshness, identifiers, survivorship risk, restatement/backfill, licensing, cost, incremental information, measured lift, implementation complexity, operational reliability — with blockers, gaps and one explicit recommendation. Research governance only — read-only, manual purchase approval, no auto-purchase, no provider activation, no portfolio mutation, automation off.">Data Expansion</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
@@ -3465,6 +3466,53 @@
           </details>
 
           <div style="font-size:10px;margin:8px 0 0;color:var(--muted,#8b98b0);">Evidence sufficiency, champion-health states, degradation categories, challenger classification, the recalibration recommendation and every opportunity are produced by the backend research-agent engine, never in the browser. Research governance only &mdash; no model is promoted, no portfolio is changed, no order is created.</div>
+        </div>
+
+        <!-- ===================== Phase 29J SLICE 9 DATA EXPANSION (RESEARCH) ===================== -->
+        <!-- The Data Expansion purchase/integration gate. One canonical loader (loadDataExpansion);
+             every dimension state, blocker, gap, cost, licensing and recommendation is read
+             verbatim from the backend engine.data_expansion_gate — NO gate math in the browser.
+             Research governance only: no dataset purchased, no provider activated, no paid API
+             called, no portfolio mutation, automation off. -->
+        <div class="card" id="dex-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Data Expansion Purchase-Gate
+              <span class="cc-badge muted" title="Consolidation Roadmap Slice 9 / Charter Milestone 5.">MILESTONE 5</span>
+              <span class="cc-badge" id="dex-state" title="Catalog read state / overall gate status.">&mdash;</span>
+            </span>
+            <button class="btn-sm" id="dex-refresh" onclick="loadDataExpansion()" title="Reload the read-only data-expansion purchase-gate catalog and evaluations.">&#8635; Refresh</button>
+          </div>
+
+          <div id="dex-banner" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:2px 0 10px;font-weight:800;letter-spacing:.03em;font-size:11px;">
+            DATA EXPANSION PURCHASE-GATE &mdash; RESEARCH GOVERNANCE ONLY &middot; MANUAL PURCHASE APPROVAL REQUIRED
+          </div>
+
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge manual">MANUAL PURCHASE APPROVAL</span>
+            <span class="cc-badge">NO AUTO-PURCHASE</span>
+            <span class="cc-badge">NO PROVIDER ACTIVATION</span>
+            <span class="cc-badge">NO PORTFOLIO MUTATION</span>
+          </div>
+
+          <div id="dex-note" style="font-size:12px;margin:0 0 10px;color:var(--muted,#8b98b0);">Loading the read-only data-expansion catalog&hellip;</div>
+
+          <!-- Catalog / gate summary chips. -->
+          <div id="dex-summary" style="font-size:12px;margin:0 0 12px;">&mdash;</div>
+
+          <!-- Per-candidate dataset cards (recommendation, dimensions, blockers, gaps, cost, licensing). -->
+          <div id="dex-datasets" style="font-size:12px;">&mdash;</div>
+
+          <!-- Cadence + reevaluation-trigger note. -->
+          <div id="dex-cadence" style="font-size:11px;margin:10px 0 0;color:var(--muted,#8b98b0);">&mdash;</div>
+
+          <!-- Expandable raw-evidence / provenance detail. -->
+          <details id="dex-detail-wrap" style="margin:8px 0 4px;">
+            <summary style="cursor:pointer;font-weight:700;font-size:12px;">Recommendation vocabulary, cadence &amp; provenance</summary>
+            <div id="dex-detail" style="font-size:11px;margin:8px 0 0;font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;">&mdash;</div>
+          </details>
+
+          <div style="font-size:10px;margin:8px 0 0;color:var(--muted,#8b98b0);">Every dimension score, blocker, gap, cost/licensing state and the purchase/integration recommendation are produced by the backend data-expansion gate engine, never in the browser. Research governance only &mdash; no dataset is purchased, no provider is activated, no paid API is called, no portfolio is changed, automation off.</div>
         </div>
 
         <!-- ===================== Phase 28A FORWARD EVIDENCE (RESEARCH) ===================== -->
@@ -22464,9 +22512,10 @@ var _RA_SECTIONS = {
   'stage11':          { panels: ['s11-panel'], champion: false },
   'stage12':          { panels: ['s12-panel'], champion: false },
   'stage13a':         { panels: ['s13a-panel'], champion: false },
+  'data-expansion':   { panels: ['dex-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'dex-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -22520,6 +22569,7 @@ function _raLoadSection(sub) {
     'stage11': ['loadStage11'],
     'stage12': ['loadStage12'],
     'stage13a': ['loadStage13a'],
+    'data-expansion': ['loadDataExpansion'],
     'diagnostics': ['loadPaperBookDecisionGate'],
   };
   (loaders[sub] || []).forEach(function (fn) {
@@ -24922,6 +24972,138 @@ function renderResearchAgent(d) {
   _setHtml('rag-detail', escapeHtml(JSON.stringify(detail, null, 2)));
 }
 window.renderResearchAgent = renderResearchAgent;
+
+// Phase 29J Slice 9 — Data Expansion Purchase-Gate (the ONE canonical loader).
+// It reads GET /v1/research/data-expansion and renders the Research & Audit panel.
+// It performs NO gate math — every dimension state, blocker, gap, cost, licensing state and
+// the purchase/integration recommendation is read verbatim from the backend engine. Research
+// governance only: no dataset purchased, no provider activated, no paid API called, no
+// portfolio mutation, automation off.
+// ---------------------------------------------------------------------------
+function loadDataExpansion() {
+  if (window._dataExpansionInFlight) return window._dataExpansionInFlight;
+  var note = document.getElementById('dex-note');
+  if (note) note.textContent = 'Loading the read-only data-expansion catalog…';
+  var p = _mhzGet('/v1/research/data-expansion').then(function (d) {
+    window._dataExpansionInFlight = null;
+    window._dataExpansionData = d;
+    renderDataExpansion(d);
+    return d;
+  }).catch(function () {
+    window._dataExpansionInFlight = null; renderDataExpansion(null); return null;
+  });
+  window._dataExpansionInFlight = p;
+  return p;
+}
+window.loadDataExpansion = loadDataExpansion;
+
+function _dexRecBadge(state) {
+  var cls = { PURCHASE_RECOMMENDED: 'danger', INTEGRATION_RECOMMENDED: 'manual',
+              CANDIDATE: 'manual', RESEARCH_ONLY: 'muted', INSUFFICIENT_EVIDENCE: 'muted',
+              REJECT: 'danger', NOT_RUN: 'muted', OK: 'safe', EMPTY_CATALOG: 'muted',
+              UNAVAILABLE: 'manual' }[state] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(state || '—') + '</span>';
+}
+
+function _dexDimBadge(state) {
+  var cls = { PASS: 'safe', WATCH: 'manual', FAIL: 'danger', UNKNOWN: 'muted' }[state] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(state || '—') + '</span>';
+}
+
+function renderDataExpansion(d) {
+  function chip(label, val, cls) {
+    return '<span class="cc-badge ' + (cls || 'muted') + '" title="' + escapeHtml(label)
+      + '">' + escapeHtml(label) + ': ' + escapeHtml(val == null ? '—' : String(val)) + '</span>';
+  }
+  var stateEl = document.getElementById('dex-state');
+  var noteEl = document.getElementById('dex-note');
+  if (!d) {
+    if (stateEl) { stateEl.textContent = 'UNAVAILABLE'; stateEl.className = 'cc-badge manual'; }
+    if (noteEl) noteEl.textContent = 'The data-expansion catalog is unavailable.';
+    _setHtml('dex-summary', '—'); _setHtml('dex-datasets', '—');
+    _setHtml('dex-cadence', '—'); _setHtml('dex-detail', '—');
+    return;
+  }
+  var state = d.state || 'UNAVAILABLE';
+  if (stateEl) {
+    stateEl.textContent = state;
+    stateEl.className = 'cc-badge ' + ({ OK: 'safe', EMPTY_CATALOG: 'muted',
+      UNAVAILABLE: 'manual' }[state] || 'muted');
+  }
+  if (noteEl) noteEl.textContent = d.message || '';
+
+  var summary = [];
+  summary.push(chip('Candidates', d.catalog_size, 'muted'));
+  summary.push(chip('Evaluated', d.evaluated_count, 'muted'));
+  summary.push(chip('Not run', d.not_run_count, 'muted'));
+  summary.push('<span class="cc-badge safe">NO AUTO-PURCHASE</span>');
+  summary.push('<span class="cc-badge safe">NO PROVIDER ACTIVATION</span>');
+  _setHtml('dex-summary', summary.join(' '));
+
+  // Per-candidate dataset cards — every value read verbatim from the backend.
+  var datasets = d.datasets || [];
+  var rows = [];
+  datasets.forEach(function (ds) {
+    var ev = ds.evaluation || {};
+    var rec = ev.recommendation || {};
+    var meta = ds.metadata_summary || {};
+    var recState = ev.recommendation_state || 'NOT_RUN';
+    var dimSummary = ev.dimension_summary || {};
+    var dimChips = [];
+    Object.keys(dimSummary).forEach(function (k) {
+      dimChips.push(_dexDimBadge(dimSummary[k]) + ' <span style="color:var(--muted,#8b98b0);font-size:10px;">'
+        + escapeHtml(k) + '</span>');
+    });
+    var blockerBadges = [];
+    (ev.blockers || []).forEach(function (b) {
+      var cls = b.tier === 'DISQUALIFYING' ? 'danger' : (b.tier === 'EVIDENCE' ? 'muted' : 'manual');
+      blockerBadges.push('<span class="cc-badge ' + cls + '" title="' + escapeHtml(b.detail || '')
+        + '">' + escapeHtml(b.code || '') + '</span>');
+    });
+    var gapBadges = [];
+    (ev.gaps || []).forEach(function (g) {
+      gapBadges.push('<span class="cc-badge muted" title="' + escapeHtml(g.detail || '') + '">'
+        + escapeHtml(g.code || '') + (g.by_design ? ' (by design)' : '') + '</span>');
+    });
+    var manualBadge = rec.manual_approval_required
+      ? '<span class="cc-badge manual" style="margin-left:6px;">MANUAL PURCHASE APPROVAL</span>' : '';
+    rows.push('<div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 10px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">'
+      + '<span><b>' + escapeHtml(ds.dataset_name || ds.dataset_id || '') + '</b> '
+      + '<span class="cc-badge muted">' + escapeHtml(ds.data_category || '') + '</span> '
+      + '<span style="color:var(--muted,#8b98b0);font-size:11px;">' + escapeHtml(ds.provider || '') + '</span></span>'
+      + '<span>' + _dexRecBadge(recState) + manualBadge + '</span></div>'
+      + '<div style="color:var(--muted,#8b98b0);font-size:11px;margin:4px 0 0;">' + escapeHtml(ds.research_intent || '') + '</div>'
+      + '<div style="margin:6px 0 0;">' + (dimChips.length ? dimChips.join(' ') : '<span style="color:var(--muted,#8b98b0);font-size:11px;">Not evaluated yet (NOT_RUN).</span>') + '</div>'
+      + (blockerBadges.length ? '<div style="margin:6px 0 0;"><b style="font-size:11px;">Blockers:</b> ' + blockerBadges.join(' ') + '</div>' : '')
+      + (gapBadges.length ? '<div style="margin:4px 0 0;"><b style="font-size:11px;">Gaps:</b> ' + gapBadges.join(' ') + '</div>' : '')
+      + '<div style="margin:6px 0 0;color:var(--muted,#8b98b0);font-size:11px;">'
+      + chip('PIT', meta.pit_guarantee, 'muted') + ' '
+      + chip('History yrs', meta.history_years, 'muted') + ' '
+      + chip('Delisted', meta.inactive_delisted_support, 'muted') + ' '
+      + chip('Revisions', meta.revision_history_support, 'muted') + ' '
+      + chip('Universe', meta.universe_size, 'muted') + ' '
+      + chip('Cost/yr USD', meta.cost_annual_usd, 'muted') + ' '
+      + chip('Licence research-use', meta.licensing_research_use_allowed, 'muted') + '</div>'
+      + '</div>');
+  });
+  _setHtml('dex-datasets', rows.length ? rows.join('')
+    : '<span style="color:var(--muted,#8b98b0);">No dataset candidates in the catalog.</span>');
+
+  var cad = d.cadence || {};
+  _setHtml('dex-cadence', 'Cadence: ' + escapeHtml(cad.enabled ? 'ENABLED' : 'DISABLED')
+    + ' · ' + escapeHtml(cad.detail || '')
+    + ' · Re-evaluation triggers: ' + escapeHtml((cad.reevaluation_triggers || []).join(', ')));
+
+  var detail = {
+    recommendation_vocabulary: d.recommendation_vocabulary,
+    read_state_vocabulary: d.read_state_vocabulary,
+    cadence: d.cadence, policy_version: d.policy_version,
+    provenance: d.provenance, safety: d.safety
+  };
+  _setHtml('dex-detail', escapeHtml(JSON.stringify(detail, null, 2)));
+}
+window.renderDataExpansion = renderDataExpansion;
 
 function renderPortfolioState(d) {
   var ok = !!(d && d.state && d.state !== 'PORTFOLIO_STATE_UNAVAILABLE' && d.state !== 'NO_ACTIVE_BOOK');

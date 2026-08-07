@@ -205,6 +205,7 @@ from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
 from paper_trader.api import research_agent as _research_agent
+from paper_trader.api import data_expansion as _data_expansion
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6432,6 +6433,56 @@ def research_research_agent() -> dict:
     run legitimately yields WATCH / INSUFFICIENT_EVIDENCE, never a premature RECALIBRATION_DUE.
     """
     return _research_agent.load_research_agent()
+
+
+@app.get(
+    "/v1/research/data-expansion",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_data_expansion() -> dict:
+    """Slice 9 (Phase 29J) canonical Data Expansion purchase/integration gate (Milestone 5).
+
+    The ONE authoritative read model of whether an external dataset candidate is worth
+    acquiring / integrating. Assembled by ``api.data_expansion`` from the canonical dataset
+    catalog (candidate metadata + provider / licensing / cost metadata) and the MEASURED
+    research evidence produced by the existing experiment/evidence owners
+    (``alpha_agent.experiment_contracts``), and evaluated by the pure
+    ``engine.data_expansion_gate`` kernel across sixteen dimensions (point-in-time integrity,
+    historical depth, inactive/delisted coverage, universe breadth, effective sample, revision
+    history, freshness, identifier quality, survivorship risk, restatement/backfill, licensing,
+    cost, incremental information, measured lift, implementation complexity, operational
+    reliability). It reuses — never forks — the existing provider/provenance owner
+    (``alpha_agent.source_contracts``), the freshness owner (``api.data_freshness``), the
+    Stage 13A analyst-revisions framework (``alpha_agent.analyst_revisions``) and the Slice 8
+    DATA research opportunities (``engine.research_agent``).
+
+    STRICTLY READ-ONLY and RESEARCH GOVERNANCE ONLY: it reads only persisted immutable
+    evaluations (candidates without one show NOT_RUN); it NEVER recomputes a research study on
+    a GET, purchases a dataset, subscribes to / activates a provider, calls a paid provider,
+    uses a paid API quota, alters credentials, integrates a dataset, mutates the portfolio,
+    promotes a model, creates an order / fill or enables cadence. PURCHASE_RECOMMENDED /
+    INTEGRATION_RECOMMENDED are always MANUAL APPROVAL REQUIRED and never purchasing authority.
+    A full purchase-gate evaluation is not a daily job (cadence disabled).
+    """
+    return _data_expansion.load_data_expansion()
+
+
+@app.get(
+    "/v1/research/data-expansion/{dataset_id}",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_data_expansion_detail(dataset_id: str) -> dict:
+    """Slice 9 (Phase 29J) Data Expansion candidate detail (read-only).
+
+    Returns the full catalog entry for ``dataset_id`` plus the full latest immutable
+    evaluation (dimensions, blockers, gaps, incremental value, measured lift, cost, licensing,
+    recommendation) or NOT_RUN when no evaluation has been produced. NOT_FOUND (HTTP-200 body)
+    when the id is not in the catalog. Same safety envelope as the catalog endpoint: read-only,
+    manual purchase approval, no purchase, no provider activation, automation off.
+    """
+    return _data_expansion.load_data_expansion_detail(dataset_id)
 
 
 @app.get(

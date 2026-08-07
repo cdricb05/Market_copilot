@@ -623,9 +623,10 @@ def test_a55_no_scheduler_change():
 
 
 def test_a56_slice5_6_7_8_landed():
-    # Slice 5 (Phase 29F), Slice 6 (Phase 29G), Slice 7 (Reallocation Proposal, Phase 29H)
-    # and Slice 8 (Persistent Alpha Research Agent, Phase 29I) have LANDED. The boundary has
-    # advanced: the NEXT slice — Slice 9 (Paid-data integration) — is NOT started.
+    # Slice 5 (Phase 29F), Slice 6 (Phase 29G), Slice 7 (Reallocation Proposal, Phase 29H),
+    # Slice 8 (Persistent Alpha Research Agent, Phase 29I) and Slice 9 (Data Expansion /
+    # Purchase-Gate, Phase 29J) have LANDED. The boundary has advanced: the NEXT slice —
+    # Slice 10 (Intraday / near-real-time) — is NOT started.
     roadmap = (ROOT / "docs" / "CONSOLIDATION_ROADMAP.md").read_text(encoding="utf-8")
     s5 = roadmap.index("## Slice 5")
     s6 = roadmap.index("## Slice 6")
@@ -633,18 +634,23 @@ def test_a56_slice5_6_7_8_landed():
     s8 = roadmap.index("## Slice 8")
     s9 = roadmap.index("## Slice 9")
     s10 = roadmap.index("## Slice 10")
+    s11 = roadmap.index("## Slice 11")
     assert "LANDED (Phase 29F)" in roadmap[s5:s6]
     assert "LANDED (Phase 29G)" in roadmap[s6:s7]
     assert "LANDED (Phase 29H)" in roadmap[s7:s8]
     assert "LANDED (Phase 29I)" in roadmap[s8:s9]
-    assert "LANDED" not in roadmap[s9:s10]
-    # The Slice 6, 7 and 8 owners exist.
+    assert "LANDED (Phase 29J)" in roadmap[s9:s10]
+    assert "LANDED" not in roadmap[s10:s11]
+    # The Slice 6, 7, 8 and 9 owners exist.
     assert (ROOT / "engine" / "holding_opportunity_cost.py").exists()
     assert (ROOT / "engine" / "reallocation_proposal.py").exists()
     assert (ROOT / "engine" / "research_agent.py").exists()
     assert (ROOT / "api" / "research_agent.py").exists()
+    assert (ROOT / "engine" / "data_expansion_gate.py").exists()
+    assert (ROOT / "api" / "data_expansion.py").exists()
     assert not (ROOT / "api" / "portfolio_proposal.py").exists()
     assert not (ROOT / "api" / "model_registry.py").exists()
+    assert not (ROOT / "api" / "intraday_platform.py").exists()
 
 
 def test_frozen_monthly_status_vocabulary_stable():

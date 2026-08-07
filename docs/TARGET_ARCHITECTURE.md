@@ -48,6 +48,7 @@ defect to be migrated, not a new owner to be blessed.
 | Universe scoring / rankings | `api/universe_scoring` (**LANDED, Slice 4**; composition & read owner over the `multi_horizon_engine.compute_scores` kernel) | ≥8 z-score/rank reimplementations (legacy copies retire with the DB screener, Slice 11) |
 | Research cycle orchestration | `api/daily_research_cycle` (**LANDED, Slice 3**; composes session/freshness + `alpha_target.run_refresh` + `multi_horizon_engine` scoring + `forward_prediction_skill` evidence + `daily_action_gate` bridge) | Daily Alpha Run vs alpha-target vs close-embedded refresh; hidden month-boundary prerequisite |
 | Model registry / champion governance | `model_registry` (unify `alpha_registry` + tournament) — DEFERRED, separate consolidation; NOT part of Milestone 4. The Slice 8 Research Agent READS these registries (never forks or unifies them) | 2 challenger registries (phase20/21), dead phase18 wire |
+| Data expansion / dataset purchase-gate | `engine/data_expansion_gate` (kernel) + `api/data_expansion` (catalog/composition/read) (**LANDED, Slice 9**; Milestone 5; a sixteen-dimension purchase/integration gate that REUSES `source_contracts` provenance, `data_freshness`, `experiment_contracts` evidence gates, Stage 13A `analyst_revisions`, and Slice 8 `research_agent` DATA opportunities; cadence disabled; read at `GET /v1/research/data-expansion`) | resolved (research governance only); no dataset purchased, no provider activated, no paid API called; NO paid-data registry fork |
 | Research-state monitoring / governance | `engine/research_agent` (kernel) + `api/research_agent` (composition/read) (**LANDED, Slice 8**; Milestone 4; READS champion identity `universe_scoring`, rank IC `forward_prediction_skill`, realized performance `paper_trading_desk`+`forward_evidence`, challenger `current_alpha_tournament`, thresholds `current_alpha_decision_gate`, Slice-6 HOC + Slice-7 reallocation histories; runs inside the Daily Research Cycle; read at `GET /v1/research/research-agent`) | resolved (research governance only); no model promotion / recalibration / retraining, no champion pointer, no order/target/NAV authority is created |
 | Portfolio state (NAV, cash, holdings) | `api/portfolio_state` (**LANDED, Slice 5**; read owner composing the active `operational_book` + `data_freshness` dates + `paper_trading_desk` performance + `daily_action_gate` + `forward_prediction_skill`; LIVE NAV authority = `paper_trading_desk.book_nav`, `portfolio_valuation` = explicitly-scoped legacy DB archive) | resolved at the read layer; `engine/portfolio.cached_total_value`/`current_alpha_book`/`_collect_positions` remain research/legacy writers scoped for Slices 8/11 |
 | Holding opportunity-cost | `engine/holding_opportunity_cost` (kernel) + `api/holding_opportunity_cost` (composition/read) (**LANDED, Slice 6**; Milestone 2; reuses `multi_horizon_engine` constants + `paper_trading_desk` cost model; runs inside the Daily Research Cycle; read at `GET /v1/operations/holding-opportunity-cost`) | resolved; the prior ad-hoc rank/deterioration logic in `portfolio_manager` is superseded (review-only) |
@@ -349,6 +350,42 @@ responsibilities, candidate existing modules, and migration approach.
 - **Status:** research governance only, manual approval mandatory. Findings never block a
   valid Daily Close (research recommendation != operational action). Guarded by
   `check_research_agent_ownership`; cadence remains disabled.
+
+### Data Expansion / Purchase-Gate (LANDED — Slice 9, Phase 29J)
+- **Responsibility:** decide whether a new external dataset is worth acquiring / integrating
+  (Milestone 5). Two owners: the pure kernel `engine/data_expansion_gate.py` (sole dataset-gate
+  calculation owner; `evaluate_dataset`) and `api/data_expansion.py` (catalog / composition /
+  persistence / read). It is a decision layer over existing owners, not a new provider layer.
+- **Inputs:** one immutable dataset-evaluation contract — candidate metadata (from the dataset
+  catalog: PIT guarantee, history, inactive/delisted coverage, universe breadth, revision
+  history, identifiers, licensing, cost, entitlement/integration state), the intended research
+  requirements, and the MEASURED research evidence (out-of-sample rank-IC / decile-spread /
+  challenger lift, regime & sector robustness, turnover, cost-adjusted lift, effective sample,
+  correlation/redundancy versus owned features) produced by the existing experiment/evidence
+  owners. Thresholds are one versioned policy (`data_expansion_gate_policy.v1`).
+- **Outputs:** sixteen explained per-dimension sub-assessments (never one opaque score), hard
+  blockers separated from soft visible gaps, and ONE explicit recommendation — `REJECT` /
+  `INSUFFICIENT_EVIDENCE` / `RESEARCH_ONLY` / `CANDIDATE` / `PURCHASE_RECOMMENDED` /
+  `INTEGRATION_RECOMMENDED` (the last two always MANUAL APPROVAL REQUIRED); a deterministic
+  `evaluation_hash`; persisted as an immutable artifact under `PAPER_TRADER_DATA_EXPANSION_DIR`;
+  read at `GET /v1/research/data-expansion` (+ `/{dataset_id}`). Never fabricates a score when
+  data is absent; never recommends a purchase on in-sample-only evidence or on current/live P&L.
+- **Reuses (never forks):** `alpha_agent/source_contracts` (provenance), `api/data_freshness`
+  (freshness), `alpha_agent/experiment_contracts` (evidence gates), `alpha_agent/analyst_revisions`
+  (Stage 13A analyst-revisions candidate), `engine/research_agent` (Slice 8 DATA opportunities).
+- **Owned state:** immutable dataset-evaluation artifacts (research / decision-evidence root; a
+  different metadata/evidence/policy supersedes, never silently reuses).
+- **Forbidden:** purchasing a dataset, subscribing to / activating a provider, calling a paid
+  provider, using a paid API quota, altering credentials, integrating a dataset, mutating the
+  portfolio, promoting a model, creating an order/fill, enabling cadence, or a
+  purchase/subscribe/activate/integrate/enable-paid-data endpoint. GET reads only persisted
+  evaluations (`NOT_RUN` before one exists; no GET recomputes a research study).
+- **Cadence DISABLED:** a full purchase-gate evaluation is never a daily job (`CADENCE_ENABLED =
+  False`) — it runs only on candidate add / metadata change / sufficient new evidence / a review
+  checkpoint / an explicit operator request; the Daily Research Cycle may only READ the latest
+  status.
+- **Status:** research governance only, manual purchase approval mandatory. Guarded by
+  `check_data_expansion_ownership`; cadence remains disabled. Slice 10 (Intraday) remains next.
 
 ### Risk and Cost Evaluation
 - **Responsibility:** volatility, drawdown, concentration, caps, switching cost.

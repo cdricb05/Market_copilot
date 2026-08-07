@@ -635,25 +635,66 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   GET-only route, no promote/recalibrate/retrain/apply route, the DRC as the sole execution
   path, no champion-pointer / order / fill / target / NAV / holdings mutation, kernel purity,
   one UI loader with no research computation, immutable/idempotent artifacts, no second/unified
-  model registry, and that Slice 9 remains future; inventory drift = 0. Research governance
-  only, manual approval mandatory: promotes / recalibrates / retrains / replaces no model,
-  writes no champion pointer, confirms no target, creates no order / fill, changes no holding /
-  cash / NAV, executes no experiment, enables no cadence. **Not begun:** Slice 9 (Paid-data
-  integration, Data Expansion, Milestone 5); cadence remains disabled.
+  model registry, and that no paid-data registry fork exists (Slice 9 landed as a purchase
+  gate, not a registry); inventory drift = 0. Research governance only, manual approval
+  mandatory: promotes / recalibrates / retrains / replaces no model, writes no champion
+  pointer, confirms no target, creates no order / fill, changes no holding / cash / NAV,
+  executes no experiment, enables no cadence. **Next:** Slice 10 (Intraday / near-real-time,
+  Milestone 6); cadence remains disabled.
 
-## Slice 9 — Paid-data integration (Data Expansion)
+## Slice 9 — Data Expansion / Purchase-Gate
 
+- **Status — LANDED (Phase 29J).** Two canonical owners: the pure deterministic evaluation
+  kernel `engine/data_expansion_gate.py` (the SOLE dataset purchase/integration-gate
+  calculation owner; `evaluate_dataset`) and `api/data_expansion.py` (the SOLE dataset-catalog
+  / composition / persistence / read owner). Given an external-dataset candidate's metadata,
+  the intended research requirements and the MEASURED research evidence produced by the
+  existing experiment/evidence owners, it decides — across sixteen explicit dimensions
+  (point-in-time integrity, historical depth, inactive/delisted coverage, universe breadth,
+  effective sample, revision history, freshness, identifier quality, survivorship risk,
+  restatement/backfill, licensing, cost, incremental information, measured lift, implementation
+  complexity, operational reliability) — whether the dataset is worth acquiring / integrating,
+  separating hard blockers from soft visible gaps and returning ONE explicit recommendation
+  (`REJECT` / `INSUFFICIENT_EVIDENCE` / `RESEARCH_ONLY` / `CANDIDATE` / `PURCHASE_RECOMMENDED` /
+  `INTEGRATION_RECOMMENDED`). It never fabricates a score when required data is absent, and
+  never recommends a purchase on in-sample-only evidence or on current/live P&L. It REUSES —
+  never forks — the existing provider/provenance owner (`alpha_agent/source_contracts`), the
+  freshness owner (`api/data_freshness`), the evidence gates (`alpha_agent/experiment_contracts`),
+  the Stage 13A analyst-revisions framework (`alpha_agent/analyst_revisions`) for the
+  analyst-revisions candidate, and the Slice 8 DATA research opportunities
+  (`engine/research_agent`). Read-only endpoints `GET /v1/research/data-expansion` and
+  `GET /v1/research/data-expansion/{dataset_id}` return the catalog + latest immutable
+  evaluations (`NOT_RUN` before an evaluation exists; no GET recomputes a research study);
+  there is deliberately NO purchase / subscribe / activate-provider / integrate /
+  enable-paid-data endpoint — the gate has no purchasing authority. Immutable idempotent
+  artifacts under `PAPER_TRADER_DATA_EXPANSION_DIR` (different dataset metadata / evidence /
+  policy SUPERSEDES — never silently reuses — the stale evaluation). **Cadence is DISABLED**
+  (`CADENCE_ENABLED = False`): a full purchase-gate evaluation is never a daily job — it runs
+  only when a candidate is added, candidate metadata changes, enough new research evidence
+  exists, a formal review checkpoint is due, or an operator explicitly requests a
+  re-evaluation; the Daily Research Cycle may only READ the latest status. Static guard
+  `check_data_expansion_ownership` enforces the sole calculation + API owners, the reuse of
+  the existing provider/data/evidence owners (never forked), the two GET-only routes, no
+  purchase/subscribe/activate/integrate route, no secret/credential ownership, one UI loader
+  with no gate computation, immutable/idempotent artifacts, cadence disabled, that the gate is
+  never a DRC daily job, and that Slice 10 (Intraday) remains future; inventory drift = 0. No
+  paid provider is ever called during implementation/tests (fixtures only). **`PURCHASE_RECOMMENDED`
+  / `INTEGRATION_RECOMMENDED` are always MANUAL APPROVAL REQUIRED and never purchasing
+  authority.**
 - **Objective:** integrate economically distinct datasets only when PIT/coverage/
   cost gates pass; historical analyst revisions live here.
-- **Existing modules:** `alpha_agent/analyst_revisions` (Stage 13A, `TRIAL_NOT_STARTED`),
-  ingestion collectors.
-- **Target owner:** `feature_service` + `model_registry` (evidence-gated).
+- **Existing modules reused (not forked):** `alpha_agent/analyst_revisions` (Stage 13A,
+  `TRIAL_NOT_STARTED`), `alpha_agent/source_contracts`, `api/data_freshness`,
+  `alpha_agent/experiment_contracts`, ingestion collectors.
+- **Target owner:** `engine/data_expansion_gate.py` + `api/data_expansion.py` (evidence-gated).
 - **Dependencies:** Slice 8.
 - **Migration method:** the existing adequacy/power/purchase gate stays; data
-  enters only through the PIT contract.
-- **Tests required:** the Stage 13A fixture self-test + PIT invariants.
-- **Rollback:** data source disabled by config.
-- **Completion gate:** a dataset passes all seven acquisition criteria before use.
+  enters only through the PIT contract; the gate is a decision layer over existing owners.
+- **Tests required:** `tests/test_slice9_data_expansion.py` (PIT/history, coverage/sample,
+  incremental value, cost/licensing, the six-outcome gate, persistence/api, UI, architecture).
+- **Rollback:** data source disabled by config; no dataset is ever purchased/activated.
+- **Completion gate:** a dataset passes all hard acquisition gates and shows measured,
+  robust, out-of-sample, cost-adjusted incremental lift before a purchase is recommended.
 - **Principle:** 4. **Milestone:** 5 (supporting track, not the main objective).
 
 ## Slice 10 — Intraday / near-real-time evolution

@@ -374,7 +374,10 @@ SLICE8_FORBIDDEN_MODULES = ("api/model_registry.py",)
 # second-registry modules present (must stay EMPTY). Landing Slice 8 as the Research Agent
 # does not create such a registry, so this stays empty and those guards stay honest.
 SLICE8_ABSENT_MODULES = SLICE8_FORBIDDEN_MODULES
-# Slice 9 (Paid-data integration, Data Expansion) remains future.
+# Slice 9 (Data Expansion / Purchase-Gate, Milestone 5) is LANDED as a purchase GATE
+# (engine/data_expansion_gate.py + api/data_expansion.py), NOT a paid-data registry: a
+# unified paid-data registry that acquires / activates providers must NEVER be created, so
+# ``api/paid_data_registry.py`` must remain ABSENT.
 SLICE9_ABSENT_MODULES = ("api/paid_data_registry.py",)
 
 # --- Slice 7 (Phase 29H) Reallocation Proposal ownership contract ---------------- #
@@ -451,6 +454,52 @@ UI_RA_LOADER = "function loadResearchAgent"
 UI_RA_FETCH = "/v1/research/research-agent"
 UI_RA_REGION_END = "window.renderResearchAgent"
 UI_RA_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".reduce(", "Math.", "compute")
+
+# --- Slice 9 (Phase 29J) Data Expansion / Purchase-Gate ownership contract -------- #
+DE_KERNEL = "engine/data_expansion_gate.py"
+DE_OWNER = "api/data_expansion.py"
+DE_ROUTE = "/v1/research/data-expansion"
+DE_DETAIL_ROUTE = "/v1/research/data-expansion/{dataset_id}"
+DE_KERNEL_EVAL_DEF = "def evaluate_dataset("
+DE_OWNER_LOAD_DEF = "def load_data_expansion("
+DE_OWNER_PERSIST_DEF = "def persist_evaluation("
+DE_LANDED_MODULES = ("engine/data_expansion_gate.py", "api/data_expansion.py")
+# The composition owner MUST reference (reuse, never fork) these authoritative data/provider/
+# evidence owners — Slice 9 is a decision gate over existing owners, not a new provider layer.
+DE_MUST_REUSE = ("source_contracts", "data_freshness", "experiment_contracts",
+                 "analyst_revisions", "research_agent")
+# Neither owner may purchase / subscribe / activate a provider, call a paid provider, use a
+# paid API quota, alter credentials, integrate a dataset, mutate the portfolio, promote a
+# model, create an order/fill, run the Daily Close, or enable cadence.
+DE_FORBIDDEN_CALLS = ("purchase_dataset(", "subscribe_provider(", "activate_provider(",
+                      "integrate_dataset(", "enable_paid_data(", "place_order(",
+                      "submit_order(", "create_order(", "route_order(", "run_fill_cycle(",
+                      "settle_due_orders(", "confirm_target(", "run_daily_close(",
+                      "promote_model(", "replace_champion(", "requests.get(",
+                      "requests.post(", "urlopen(", "httpx.", "predict(", "book_nav(")
+# The kernel is PURE — no file/network/db I/O and no credential access.
+DE_KERNEL_FORBIDDEN = ("open(", "requests.", "httpx.", "urlopen(", "sqlalchemy",
+                       "sessionmaker", "predict(", "os.environ", "Path(")
+# There is NO purchase / subscribe / activate / integrate / enable-paid-data / confirm / run
+# route — the gate has no purchasing authority.
+SLICE9_FORBIDDEN_ROUTES = ("/v1/research/data-expansion/purchase",
+                           "/v1/research/data-expansion/subscribe",
+                           "/v1/research/data-expansion/activate-provider",
+                           "/v1/research/data-expansion/integrate",
+                           "/v1/research/data-expansion/enable-paid-data",
+                           "/v1/research/data-expansion/confirm",
+                           "/v1/research/data-expansion/run")
+# Cadence is DISABLED — the owner declares CADENCE_ENABLED = False and the gate is NEVER wired
+# as a mandatory Daily Research Cycle step.
+DE_CADENCE_DISABLED_TOKEN = "CADENCE_ENABLED = False"
+DE_DRC_DAILY_JOB_TOKENS = ("STEP_RUN_DATA_EXPANSION", "data_expansion.run_and_persist")
+# Slice 10 (Intraday platform) remains future; Slice 11 (Controlled Execution) later.
+SLICE10_ABSENT_MODULES = ("api/intraday_platform.py", "engine/intraday_platform.py")
+# UI: EXACTLY one loader; the region computes no gate metric in JS.
+UI_DE_LOADER = "function loadDataExpansion"
+UI_DE_FETCH = "/v1/research/data-expansion"
+UI_DE_REGION_END = "window.renderDataExpansion"
+UI_DE_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".reduce(", "Math.", "compute")
 
 
 def _slice7_landed_status(routes: list) -> dict:
@@ -1787,8 +1836,9 @@ def check_research_agent_ownership(files: list[Path]) -> dict:
     no broker / prediction / provider call; (13) the UI performs no research calculation;
     (14) exactly ONE UI loader; (15) immutable / idempotent artifact ownership; (16) Slice 6
     (HOC) and Slice 7 (reallocation) remain their own owners (composed, not forked); (17) NO
-    second / unified model registry exists; (18) Slice 9 remains planned; (19) cadence
-    disabled and NO automatic model promotion; (20) inventory drift zero (checked by
+    second / unified model registry exists; (18) no paid-data registry fork exists (Slice 9
+    Data Expansion landed as a purchase GATE, not a registry); (19) cadence disabled and NO
+    automatic model promotion; (20) inventory drift zero (checked by
     ``check_inventory_drift``)."""
     kernel_src = _read(RA_KERNEL)
     owner_src = _read(RA_OWNER)
@@ -1862,7 +1912,8 @@ def check_research_agent_ownership(files: list[Path]) -> dict:
     kernel_forks_scoring = ("def compute_scores(" in kernel_src
                             or "def compute_combined(" in kernel_src)
 
-    # (17) NO second / unified model registry; (18) Slice 9 remains planned.
+    # (17) NO second / unified model registry; (18) no paid-data registry fork (Slice 9
+    # Data Expansion landed as a purchase gate, not a registry).
     second_registry_present_modules = sorted(m for m in SLICE8_FORBIDDEN_MODULES
                                              if (REPO_ROOT / m).exists())
     slice9_present_modules = sorted(m for m in SLICE9_ABSENT_MODULES
@@ -1898,6 +1949,140 @@ def check_research_agent_ownership(files: list[Path]) -> dict:
         "automatic_model_promotion_allowed": False,
         "automatic_model_recalibration_allowed": False,
         "automatic_model_retraining_allowed": False,
+        "cadence_enabled": False,
+    }
+
+
+def check_data_expansion_ownership(files: list[Path]) -> dict:
+    """Phase 29J Slice 9 Data Expansion / Purchase-Gate ownership guard.
+
+    Proves the seventeen release conditions: (1) ``engine.data_expansion_gate`` is the SOLE
+    dataset-gate calculation owner (``evaluate_dataset`` defined only there); (2)
+    ``api.data_expansion`` is the SOLE composition / persistence / read owner
+    (``load_data_expansion`` defined only there); (3)/(4) the two GET read routes exist and
+    every response is read-only (no POST); (5) the existing provider / data / evidence owners
+    are REUSED, never forked (the owner references source_contracts / data_freshness /
+    experiment_contracts / analyst_revisions / research_agent); (6) no secret / credential
+    ownership; (7) NO purchase / subscribe / activate-provider / integrate / enable-paid-data
+    route; (8) no provider activation; (9) no automatic subscription; (10) no portfolio
+    mutation; (11) no model promotion; (12) no broker / order / prediction / provider call in
+    either owner; (13) the UI performs no gate calculation; (14) exactly ONE UI loader; (15)
+    immutable / idempotent evaluation-artifact ownership; (16) the Research Agent (Slice 8)
+    remains its own owner (the gate does not fork it); (17) Slice 10 (Intraday) remains future,
+    cadence disabled, and the gate is never a Daily Research Cycle daily job; inventory drift
+    zero is checked by ``check_inventory_drift``."""
+    kernel_src = _read(DE_KERNEL)
+    owner_src = _read(DE_OWNER)
+    drc_src = _read(DRC_OWNER)
+    ui = _read(UI_FILE)
+
+    kernel_present = (REPO_ROOT / DE_KERNEL).exists()
+    owner_present = (REPO_ROOT / DE_OWNER).exists()
+
+    # (1) sole gate calculation owner: evaluate_dataset() defined ONLY in the kernel.
+    calc_def_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel in ("scripts/audit_architecture.py", DE_OWNER):
+            continue
+        if DE_KERNEL_EVAL_DEF in fp.read_text(encoding="utf-8", errors="replace"):
+            calc_def_modules.append(rel)
+    second_calculation_owner = sorted(set(calc_def_modules) - {DE_KERNEL})
+
+    # (2) sole composition/read owner: load_data_expansion() defined only in the owner.
+    read_def_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel == "scripts/audit_architecture.py":
+            continue
+        if DE_OWNER_LOAD_DEF in fp.read_text(encoding="utf-8", errors="replace"):
+            read_def_modules.append(rel)
+    second_composition_owner = sorted(set(read_def_modules) - {DE_OWNER})
+
+    # (5) the owner REUSES the authoritative data/provider/evidence owners (never forks).
+    reuse = {tok: (tok in owner_src) for tok in DE_MUST_REUSE}
+    missing_reuse = sorted(k for k, v in reuse.items() if not v)
+    # (10)-(12) neither owner purchases / activates / mutates / executes / calls a provider.
+    owner_forbidden = sorted(t for t in DE_FORBIDDEN_CALLS if t in owner_src)
+    kernel_forbidden = sorted(t for t in DE_KERNEL_FORBIDDEN if t in kernel_src)
+
+    # (3)/(4)/(7) routes: two GET read routes exist; no purchase/activate/integrate route.
+    routes = check_routes()["routes"]
+    de_route_entries = [r for r in routes if r["path"] == DE_ROUTE]
+    detail_route_entries = [r for r in routes if r["path"] == DE_DETAIL_ROUTE]
+    route_get_count = sum(1 for r in de_route_entries if r["method"] == "GET")
+    detail_route_get_count = sum(1 for r in detail_route_entries if r["method"] == "GET")
+    de_route_methods = sorted({r["method"] for r in de_route_entries + detail_route_entries})
+    forbidden_route_methods = (de_route_methods not in (["GET"], []))
+    forbidden_routes_present = sorted(r for r in SLICE9_FORBIDDEN_ROUTES
+                                      if any(rt["path"] == r for rt in routes))
+
+    # (15) immutable/idempotent artifact ownership: persist + atomic write + index.
+    persist_present = DE_OWNER_PERSIST_DEF in owner_src
+    atomic_persist_present = ("os.replace(" in owner_src and "index" in owner_src.lower())
+
+    # (13)/(14) UI: exactly one loader; region computes no gate metric.
+    ui_loader_count = ui.count(UI_DE_LOADER)
+    ui_fetch_count = ui.count(UI_DE_FETCH)
+    ui_region_hits = []
+    start = ui.find(UI_DE_LOADER)
+    end = ui.find(UI_DE_REGION_END)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_DE_FORBIDDEN:
+            if pat in region:
+                ui_region_hits.append(pat)
+
+    # (16) the Slice 8 Research Agent + Stage 13A analyst revisions remain their own owners:
+    # the gate kernel must not fork them.
+    kernel_forks_research_agent = "def load_research_agent(" in kernel_src
+    kernel_forks_stage13a = "def purchase_decision(" in kernel_src
+
+    # (6) no secret / credential ownership in either owner.
+    secret_tokens = ("api_key =", "API_KEY =", "secret =", "SECRET =", "password =",
+                     "PASSWORD =", "token =", "private_key =")
+    secret_ownership = sorted(t for t in secret_tokens
+                              if t in kernel_src or t in owner_src)
+
+    # (17) cadence disabled + the gate is NEVER a mandatory DRC daily job.
+    cadence_disabled = DE_CADENCE_DISABLED_TOKEN in owner_src
+    drc_daily_job_present = sorted(t for t in DE_DRC_DAILY_JOB_TOKENS if t in drc_src)
+
+    landed_modules_missing = sorted(m for m in DE_LANDED_MODULES
+                                    if not (REPO_ROOT / m).exists())
+    # Slice 10 (Intraday) remains future.
+    slice10_present_modules = sorted(m for m in SLICE10_ABSENT_MODULES
+                                     if (REPO_ROOT / m).exists())
+
+    return {
+        "kernel": DE_KERNEL, "owner": DE_OWNER,
+        "kernel_present": kernel_present, "owner_present": owner_present,
+        "landed_modules_missing": landed_modules_missing,
+        "second_calculation_owner_modules": second_calculation_owner,
+        "second_composition_owner_modules": second_composition_owner,
+        "reuse": reuse, "missing_reuse": missing_reuse,
+        "owner_forbidden_calls": owner_forbidden,
+        "kernel_forbidden_calls": kernel_forbidden,
+        "route_get_count": route_get_count,
+        "detail_route_get_count": detail_route_get_count,
+        "data_expansion_route_methods": de_route_methods,
+        "forbidden_route_methods_present": bool(forbidden_route_methods),
+        "forbidden_routes_present": forbidden_routes_present,
+        "persist_present": bool(persist_present),
+        "atomic_idempotent_persist_present": bool(atomic_persist_present),
+        "ui_loader_count": ui_loader_count,
+        "ui_fetch_count": ui_fetch_count,
+        "ui_metric_computation": sorted(set(ui_region_hits)),
+        "kernel_forks_research_agent": bool(kernel_forks_research_agent),
+        "kernel_forks_stage13a": bool(kernel_forks_stage13a),
+        "secret_ownership": secret_ownership,
+        "cadence_disabled": bool(cadence_disabled),
+        "drc_daily_job_present": drc_daily_job_present,
+        "slice10_present_modules": slice10_present_modules,
+        "automatic_purchase_allowed": False,
+        "automatic_provider_activation_allowed": False,
+        "automatic_subscription_allowed": False,
+        "automatic_integration_allowed": False,
         "cadence_enabled": False,
     }
 
@@ -2166,6 +2351,7 @@ def run_audit() -> dict:
         "drc_manifest_recovery": check_drc_manifest_recovery(files),
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "research_agent_ownership": check_research_agent_ownership(files),
+        "data_expansion_ownership": check_data_expansion_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -2465,8 +2651,34 @@ def _print_console(rep: dict) -> None:
     print(f"kernel forks HOC/realloc/scoring (must be False): "
           f"{ra['kernel_forks_hoc']}/{ra['kernel_forks_reallocation']}/{ra['kernel_forks_scoring']}")
     print(f"second registry present (must be empty): {ra['second_registry_present_modules']}  "
-          f"Slice 9 present (must be empty): {ra['slice9_present_modules']}  "
+          f"paid-data registry fork present (must be empty): {ra['slice9_present_modules']}  "
           f"cadence enabled (must be False): {ra['cadence_enabled']}")
+
+    hdr("DATA EXPANSION / PURCHASE-GATE OWNERSHIP (Slice 9, Phase 29J, Milestone 5)")
+    de = rep["data_expansion_ownership"]
+    print(f"kernel present: {de['kernel_present']}  owner present: {de['owner_present']}  "
+          f"landed modules missing (must be empty): {de['landed_modules_missing']}")
+    print(f"second calculation owner (must be empty): {de['second_calculation_owner_modules']}  "
+          f"second composition owner (must be empty): {de['second_composition_owner_modules']}")
+    print(f"missing reuse of existing owners (must be empty): {de['missing_reuse']}")
+    print(f"owner forbidden calls (must be empty): {de['owner_forbidden_calls']}  "
+          f"kernel forbidden calls (must be empty): {de['kernel_forbidden_calls']}")
+    print(f"GET catalog route count (must be 1): {de['route_get_count']}  "
+          f"GET detail route count (must be 1): {de['detail_route_get_count']}  "
+          f"route methods: {de['data_expansion_route_methods']}  "
+          f"forbidden route methods present (must be False): {de['forbidden_route_methods_present']}")
+    print(f"forbidden routes present (must be empty): {de['forbidden_routes_present']}")
+    print(f"persist present: {de['persist_present']}  "
+          f"atomic/idempotent persist: {de['atomic_idempotent_persist_present']}")
+    print(f"UI loaders (must be 1): {de['ui_loader_count']}  "
+          f"UI gate computation (must be empty): {de['ui_metric_computation']}")
+    print(f"kernel forks research-agent/stage13a (must be False): "
+          f"{de['kernel_forks_research_agent']}/{de['kernel_forks_stage13a']}")
+    print(f"secret/credential ownership (must be empty): {de['secret_ownership']}  "
+          f"cadence disabled (must be True): {de['cadence_disabled']}  "
+          f"DRC daily-job present (must be empty): {de['drc_daily_job_present']}")
+    print(f"Slice 10 present (must be empty): {de['slice10_present_modules']}  "
+          f"cadence enabled (must be False): {de['cadence_enabled']}")
 
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
@@ -2532,6 +2744,7 @@ def main(argv=None) -> int:
         mr = rep["drc_manifest_recovery"]
         rp = rep["reallocation_proposal_ownership"]
         ra = rep["research_agent_ownership"]
+        de = rep["data_expansion_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
                          + len(rc6["forbidden_primary_ui"])
                          + len(rc6["forbidden_primary_ws"])
@@ -2699,6 +2912,29 @@ def main(argv=None) -> int:
                          + (0 if not ra["kernel_forks_scoring"] else 1)
                          + len(ra["second_registry_present_modules"])
                          + len(ra["slice9_present_modules"])
+                         # --- Slice 9 (Phase 29J) data expansion / purchase-gate ------ #
+                         + (0 if de["kernel_present"] else 1)
+                         + (0 if de["owner_present"] else 1)
+                         + len(de["landed_modules_missing"])
+                         + len(de["second_calculation_owner_modules"])
+                         + len(de["second_composition_owner_modules"])
+                         + len(de["missing_reuse"])
+                         + len(de["owner_forbidden_calls"])
+                         + len(de["kernel_forbidden_calls"])
+                         + (0 if de["route_get_count"] == 1 else 1)
+                         + (0 if de["detail_route_get_count"] == 1 else 1)
+                         + (0 if not de["forbidden_route_methods_present"] else 1)
+                         + len(de["forbidden_routes_present"])
+                         + (0 if de["persist_present"] else 1)
+                         + (0 if de["atomic_idempotent_persist_present"] else 1)
+                         + (0 if de["ui_loader_count"] == 1 else 1)
+                         + len(de["ui_metric_computation"])
+                         + (0 if not de["kernel_forks_research_agent"] else 1)
+                         + (0 if not de["kernel_forks_stage13a"] else 1)
+                         + len(de["secret_ownership"])
+                         + (0 if de["cadence_disabled"] else 1)
+                         + len(de["drc_daily_job_present"])
+                         + len(de["slice10_present_modules"])
                          + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
                          + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
         return 1 if blocking_hits else 0

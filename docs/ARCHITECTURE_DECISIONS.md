@@ -831,12 +831,56 @@
   + API owners, delegation, the GET-only route, no promote/recalibrate/retrain/apply route, the
   DRC as the sole execution path, no champion-pointer / order / fill / target / NAV / holdings
   mutation in either owner, kernel purity, ONE UI loader with no research computation,
-  immutable/idempotent artifacts, no second/unified model registry, and that Slice 9 remains
-  future; audit inventory drift = 0. Deterministic tests inject every input, so no provider /
-  prediction / real cycle / ledger / real research-agent artifact write occurs.
+  immutable/idempotent artifacts, no second/unified model registry, and that no paid-data
+  registry fork exists (Slice 9 landed as a purchase gate, not a registry); audit inventory
+  drift = 0. Deterministic tests inject every input, so no provider / prediction / real cycle /
+  ledger / real research-agent artifact write occurs.
 - **Consequence:** Charter Milestone 4's monitoring/governance mandate is delivered, research
-  governance only. Slice 9 (Paid-data integration, Data Expansion, Milestone 5) remains not
-  begun; automatic model promotion / recalibration / retraining remains prohibited; cadence
+  governance only. Slice 9 (Data Expansion / Purchase-Gate, Milestone 5) has LANDED (Phase 29J,
+  D-9 below); Slice 10 (Intraday) remains next; automatic model promotion / recalibration /
+  retraining remains prohibited; cadence remains disabled.
+
+## D-9 — Data Expansion / Purchase-Gate is a decision layer over existing owners, never a new provider or purchasing authority (Phase 29J, Slice 9, Milestone 5)
+
+- **Status:** CONFIRMED (Phase 29J). Charter Milestone 5.
+- **Decision:** the canonical framework for deciding whether a new external dataset is worth
+  acquiring / integrating is ONE pure gate calculation (`engine/data_expansion_gate.py`,
+  `evaluate_dataset`) over one immutable dataset-evaluation input contract, plus ONE
+  composition / catalog / persistence / read owner (`api/data_expansion.py`). The gate scores
+  sixteen dimensions (PIT integrity, historical depth, inactive/delisted coverage, universe
+  breadth, effective sample, revision history, freshness, identifiers, survivorship risk,
+  restatement/backfill, licensing, cost, incremental information, measured lift, implementation
+  complexity, operational reliability), separates hard blockers from soft gaps, and returns ONE
+  explicit recommendation drawn from a frozen vocabulary: `REJECT` / `INSUFFICIENT_EVIDENCE` /
+  `RESEARCH_ONLY` / `CANDIDATE` / `PURCHASE_RECOMMENDED` / `INTEGRATION_RECOMMENDED`.
+- **Why a gate, not a provider layer:** the existing owners already own the underlying concerns
+  — `alpha_agent/source_contracts` (provider/provenance), `api/data_freshness` (freshness),
+  `alpha_agent/experiment_contracts` (evidence gates), `alpha_agent/analyst_revisions` (Stage 13A
+  analyst-revisions purchase framework) and `engine/research_agent` (Slice 8 DATA opportunities).
+  Slice 9 REUSES them and adds only the cross-dataset acquisition decision; it does not fork a
+  provider, a normalized-record contract, a freshness owner or a second analyst-revisions
+  framework. No paid-data registry (`api/paid_data_registry.py`) is created.
+- **No purchasing authority (Principle 3/7, safety boundary):** `PURCHASE_RECOMMENDED` /
+  `INTEGRATION_RECOMMENDED` are always MANUAL APPROVAL REQUIRED. The gate purchases no dataset,
+  subscribes to / activates no provider, calls no paid provider, uses no paid API quota, alters
+  no credentials, integrates no dataset, mutates no portfolio, promotes no model, creates no
+  order/fill, and enables no cadence. There is deliberately NO purchase / subscribe / activate /
+  integrate / enable-paid-data endpoint. No purchase is ever recommended on in-sample-only
+  evidence, and current / live P&L is never used as proof that a paid dataset is necessary.
+- **Cadence DISABLED:** a full purchase-gate evaluation is never a daily job (`CADENCE_ENABLED =
+  False`) — it runs only on candidate add / metadata change / sufficient new evidence / a review
+  checkpoint / an explicit operator request; the Daily Research Cycle may only READ the latest
+  status. GET endpoints read only persisted immutable evaluations (`NOT_RUN` before one exists);
+  no GET recomputes a research study.
+- **Evidence:** the static guard `check_data_expansion_ownership` confirms the sole calculation +
+  API owners, the reuse (never forking) of the existing owners, the two GET-only routes, no
+  purchase/subscribe/activate/integrate route, no secret/credential ownership, ONE UI loader with
+  no gate computation, immutable/idempotent artifacts, cadence disabled, that the gate is never a
+  DRC daily job, and that Slice 10 (Intraday) remains future; audit inventory drift = 0.
+  Deterministic tests inject every input; no paid provider is ever called (fixtures only).
+- **Consequence:** Charter Milestone 5's data-expansion mandate is delivered as a formal,
+  evidence-gated, manual-approval decision framework. Slice 10 (Intraday / near-real-time,
+  Milestone 6) remains next; Slice 11 (Controlled Execution, Milestone 7) remains later; cadence
   remains disabled.
 
 ## Rejected alternatives
