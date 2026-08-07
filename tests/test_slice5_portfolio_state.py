@@ -296,9 +296,10 @@ def test_18_assessment_reference_review_only():
     assert a["proposed_change_count"] == 17
     assert a["is_preliminary_proposal"] is True
     assert a["confirmation_allowed"] is False
-    # Slice 6 (Phase 29G) relabelled the review-only banner now that the Holding
-    # Opportunity-Cost engine exists; the Reallocation engine (Slice 7) still does not.
-    assert "REALLOCATION ENGINE NOT YET IMPLEMENTED" in a["preliminary_proposal_label"]
+    # Slice 7 (Phase 29H) relabelled the review-only banner now that both the Holding
+    # Opportunity-Cost review and the Reallocation Proposal engine exist (review-only).
+    assert "NOT YET IMPLEMENTED" not in a["preliminary_proposal_label"]
+    assert "REVIEW ONLY" in a["preliminary_proposal_label"]
 
 
 def test_19_evidence_reference():
@@ -577,16 +578,19 @@ def test_43_existing_operational_surfaces_still_present():
         assert p in paths, p
 
 
-def test_44_slice6_7_8_not_implemented():
+def test_44_slice8_not_implemented():
     root = Path(__file__).resolve().parent.parent
-    # Slice 6 Holding Opportunity-Cost engine + Slice 7 Reallocation Proposal engine
-    # + Slice 8 Persistent Alpha Research Agent registry are NOT implemented yet.
+    # Slice 6 (Holding Opportunity-Cost) and Slice 7 (Reallocation Proposal) are now
+    # LANDED under their canonical owners; the Slice 8 Persistent Alpha Research Agent
+    # registry remains NOT implemented, and the superseded-naming modules stay absent.
     for missing in ("api/opportunity_cost_engine.py", "api/portfolio_proposal.py",
                     "api/model_registry.py"):
         assert not (root / missing).exists(), missing
     paths = _route_paths()
+    # Slice 7 landed the read route; only the never-built alternative stays absent.
+    assert "/v1/operations/reallocation-proposal" in paths
     for absent in ("/v1/operations/opportunity-cost",
-                   "/v1/operations/reallocation-proposal"):
+                   "/v1/operations/portfolio-proposal"):
         assert absent not in paths, absent
 
 

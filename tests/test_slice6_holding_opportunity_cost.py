@@ -640,8 +640,10 @@ def test_65_daily_action_gate_compatibility():
     assert r["opportunity_cost_exit_count"] == 2
     assert r["opportunity_cost_add_count"] == 4
     assert r["proposal_label"] == dag.PROPOSAL_REVIEW_LABEL
-    assert "REALLOCATION ENGINE NOT YET IMPLEMENTED" in r["proposal_label"]
-    assert r["reallocation_engine_implemented"] is False
+    # Slice 7 (Phase 29H) LANDED: the reallocation engine is implemented, review-only.
+    assert "NOT YET IMPLEMENTED" not in r["proposal_label"]
+    assert r["reallocation_engine_implemented"] is True
+    assert r["proposal_review_only"] is True
 
 
 # =========================================================================== #
@@ -759,7 +761,9 @@ def _route_paths():
 
 def test_77_existing_portfolio_state_compatibility():
     from paper_trader.api import portfolio_state as ps
-    assert "REALLOCATION ENGINE NOT YET IMPLEMENTED" in ps.PRELIMINARY_PROPOSAL_LABEL
+    # Slice 7 (Phase 29H) LANDED: the banner is review-only manual-review, not "not implemented".
+    assert "NOT YET IMPLEMENTED" not in ps.PRELIMINARY_PROPOSAL_LABEL
+    assert "REVIEW ONLY" in ps.PRELIMINARY_PROPOSAL_LABEL
     assert "/v1/operations/portfolio-state" in _route_paths()
 
 
@@ -807,11 +811,16 @@ def test_81_inventory_drift_zero():
     assert d["in_inventory_not_on_disk"] == []
 
 
-def test_82_slice7_remains_future():
+def test_82_slice7_landed():
+    # Slice 7 (Phase 29H) is LANDED: the exact owners + GET route exist; the
+    # alternative naming and any apply/rebalance route stay absent.
     root = ROOT
-    for missing in ("api/portfolio_proposal.py", "api/reallocation_proposal.py"):
-        assert not (root / missing).exists(), missing
-    for absent in ("/v1/operations/reallocation-proposal", "/v1/operations/portfolio-proposal"):
+    for present in ("engine/reallocation_proposal.py", "api/reallocation_proposal.py"):
+        assert (root / present).exists(), present
+    assert "/v1/operations/reallocation-proposal" in _route_paths()
+    for absent in ("/v1/operations/portfolio-proposal",
+                   "/v1/operations/reallocation-proposal/apply",
+                   "/v1/operations/rebalance"):
         assert absent not in _route_paths(), absent
 
 
@@ -1018,7 +1027,7 @@ def test_94_summary_and_gate_create_no_artifact(monkeypatch, tmp_path):
     assert not (tmp_path / "index.json").exists()
     assert not (tmp_path / "artifacts").exists()
     assert r["performed_write"] is False
-    assert r["reallocation_engine_implemented"] is False
+    assert r["reallocation_engine_implemented"] is True
     assert r["proposal_review_only"] is True
 
 

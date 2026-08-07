@@ -110,12 +110,12 @@ _CLOSE_COMPLETE_STATUSES = frozenset({
     "DAILY_CLOSE_COMPLETE_HOLD", "REBALANCE_PROPOSAL_READY",
     "PAPER_ORDERS_SUBMITTED", "INITIAL_BASELINE_RECORDED", "ALREADY_PROCESSED"})
 
-# The canonical review-only proposal banner. Slice 6 (Phase 29G): the reassessment
-# proposal is now backed by the Holding Opportunity-Cost review, but it remains
-# review-only — the Reallocation Proposal engine (Slice 7) is not implemented, so it
-# is NEVER an approved reallocation.
+# The canonical review-only proposal banner. Slice 7 (Phase 29H): the reassessment is
+# backed by the Holding Opportunity-Cost review (Slice 6) and the Reallocation Proposal
+# engine (Slice 7, LANDED). It remains REVIEW ONLY — a research proposal that confirms no
+# target and creates no order; it is NEVER an approved reallocation.
 PRELIMINARY_PROPOSAL_LABEL = (
-    "HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED")
+    "REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED (REVIEW ONLY, NO ORDERS)")
 
 SAFETY_BADGES = ["READ ONLY", "NO PROVIDER CALL", "NO PREDICTION CALL",
                  "NO ORDERS", "NO FILLS", "AUTOMATION OFF", "MANUAL REVIEW",

@@ -161,11 +161,27 @@ class Fakes:
                 "persistence": {"status": "CREATED", "artifact_id": "hoc_stub",
                                 "persisted": True}}
 
+    def reallocation(self, *, scoring=None, hoc_assessment=None, reallocation_dir=None,
+                     hoc_dir=None):
+        # Slice 7: hermetic stub of the reallocation-proposal engine seam (no I/O).
+        self.calls["reallocation"] = self.calls.get("reallocation", 0) + 1
+        return {"proposal": {"proposal_state": "READY",
+                             "proposal_hash": "realloc_stub_hash",
+                             "eligible_market_date": "2026-08-05",
+                             "action_counts": {"RETAIN": 0, "INCREASE": 0, "REDUCE": 0,
+                                               "EXIT": 0, "ADD": 0, "REPLACE_OUT": 0,
+                                               "REPLACE_IN": 0},
+                             "portfolio": {"proposed_holding_count": 0},
+                             "signal": {}, "turnover": {}, "data_gaps": []},
+                "persistence": {"status": "CREATED", "proposal_id": "realloc_stub",
+                                "persisted": True, "superseded_proposal_id": None}}
+
     def kw(self):
         return dict(daily_refresh_fn=self.refresh, scoring_fn=self.score,
                     target_loader=self.target, evidence_capture_fn=self.capture,
                     evidence_registry=self.registry, assessment_loader=self.assess,
                     holding_opp_cost_fn=self.holding_opp,
+                    reallocation_proposal_fn=self.reallocation,
                     refresh_confirm_token="CONFIRM_ALPHA_TARGET_REFRESH",
                     monthly_emitter_fn=(self.monthly_emit if self.monthly else None))
 
@@ -267,7 +283,7 @@ def test_11_complete_successful_cycle(tmp_path):
     assert r["state"] == drc.COMPLETE
     assert r["completed_steps"] == list(drc.STEP_SEQUENCE)
     assert f.calls == {"refresh": 1, "monthly": 0, "score": 1, "target": 1,
-                       "evidence": 1, "assess": 1, "holding_opp": 1}
+                       "evidence": 1, "assess": 1, "holding_opp": 1, "reallocation": 1}
 
 
 def test_12_successful_cycle_with_monthly_source_due(tmp_path):

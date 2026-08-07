@@ -571,11 +571,19 @@ def _hoc_stub(*, scoring=None, hoc_dir=None):   # Slice 6: hermetic stub (no I/O
             "persistence": {"status": "CREATED", "artifact_id": "hoc_stub", "persisted": True}}
 
 
+def _realloc_stub(*, scoring=None, hoc_assessment=None, reallocation_dir=None, hoc_dir=None):
+    return {"proposal": {"proposal_state": "READY", "proposal_hash": "realloc_stub",
+                         "eligible_market_date": D, "action_counts": {}, "data_gaps": [],
+                         "portfolio": {}, "signal": {}, "turnover": {}},
+            "persistence": {"status": "CREATED", "proposal_id": "realloc_stub",
+                            "persisted": True, "superseded_proposal_id": None}}
+
+
 def _run_drc(tmp, *, inputs=None, monthly_emitter_fn=None):
     score, target, capture, refresh, assess = _fakes()
     return drc.run_daily_research_cycle(
         confirm=drc.EXECUTE_CONFIRMATION, drc_dir=str(tmp), now=NOW_AFTER_CUTOFF_D,
-        holding_opp_cost_fn=_hoc_stub,
+        holding_opp_cost_fn=_hoc_stub, reallocation_proposal_fn=_realloc_stub,
         operational=_op(), inputs=(inputs if inputs is not None else _inputs()),
         daily_status=dict(_DAILY), desk_marks=_desk(), close_progress=dict(_CLOSE),
         forward_status=copy.deepcopy(_FWD), daily_refresh_fn=refresh, scoring_fn=score,
@@ -694,18 +702,20 @@ def test_42_no_separate_monthly_execution_endpoint():
     assert "activate_production_emitter" in src  # app wires the resolver, adds no route
 
 
-def test_43_slice6_landed_slice7_not_implemented():
-    # Slice 5 (Phase 29F) and Slice 6 (Holding Opportunity-Cost engine, Phase 29G) have
-    # LANDED; the NEXT slice (Slice 7, Reallocation Proposal engine) is NOT started.
+def test_43_slice5_6_7_landed():
+    # Slice 5 (Phase 29F), Slice 6 (Phase 29G) and Slice 7 (Reallocation Proposal engine,
+    # Phase 29H) have LANDED; the NEXT slice (Slice 8, Research Agent) is NOT started.
     roadmap = (ROOT / "docs" / "CONSOLIDATION_ROADMAP.md").read_text(encoding="utf-8")
     s5 = roadmap.index("## Slice 5")
     s6 = roadmap.index("## Slice 6")
     s7 = roadmap.index("## Slice 7")
     s8 = roadmap.index("## Slice 8")
+    s9 = roadmap.index("## Slice 9")
     assert "LANDED (Phase 29F)" in roadmap[s5:s6]
     assert "LANDED (Phase 29G)" in roadmap[s6:s7]
-    assert "LANDED" not in roadmap[s7:s8]
-    assert (ROOT / "engine" / "holding_opportunity_cost.py").exists()
+    assert "LANDED (Phase 29H)" in roadmap[s7:s8]
+    assert "LANDED" not in roadmap[s8:s9]
+    assert (ROOT / "engine" / "reallocation_proposal.py").exists()
     assert not (ROOT / "api" / "portfolio_proposal.py").exists()
 
 

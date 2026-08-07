@@ -513,10 +513,10 @@ def test_37_inventory_drift_zero():
     assert d["in_inventory_not_on_disk"] == []
 
 
-def test_38_slice7_remains_future():
+def test_38_slice7_landed():
     audit = _load_audit()
     rc = audit.check_slice6_residual_cutover_ownership(audit._iter_source_files())
-    assert rc["slice7_present"] == []
+    assert rc["slice7_missing"] == []
 
 
 def test_39_persistent_alpha_research_agent_remains_planned():

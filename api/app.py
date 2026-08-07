@@ -203,6 +203,7 @@ from paper_trader.api.workflow_state import load_workflow_state
 from paper_trader.api import daily_research_cycle as _drc
 from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
+from paper_trader.api import reallocation_proposal as _realloc
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6358,10 +6359,41 @@ def operations_holding_opportunity_cost() -> dict:
     the latest immutable persisted assessment, and confirms no target, creates no
     order plan, creates no order/fill, and changes no holding/cash/NAV. The endpoint
     remains readable (HTTP 200) in DEGRADED / BLOCKED / NOT_RUN states. This is a
-    review-only, preview-first, paper-only surface; the Reallocation Proposal engine
-    (Slice 7) is not implemented, so no recommendation is an approved reallocation.
+    review-only, preview-first, paper-only surface. The Reallocation Proposal engine
+    (Slice 7) consumes this assessment; see GET /v1/operations/reallocation-proposal.
     """
     return _hoc.load_holding_opportunity_cost()
+
+
+@app.get(
+    "/v1/operations/reallocation-proposal",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_reallocation_proposal() -> dict:
+    """Slice 7 (Phase 29H) canonical Reallocation Proposal (Milestone 3).
+
+    The ONE authoritative read model of the paper-only proposed target portfolio for
+    the active Alpha Paper Book and current eligible session. Built from the canonical
+    CURRENT portfolio state (``api.portfolio_state``) and the Slice 6 Holding
+    Opportunity-Cost assessment (``api.holding_opportunity_cost``) by
+    ``api.reallocation_proposal`` and computed by the pure ``engine.reallocation_proposal``
+    kernel (which reuses the ``api.multi_horizon_engine`` construction constants and the
+    ``api.paper_trading_desk`` transaction-cost model). It answers: which holdings are
+    retained / reduced / exited / replaced; which candidates receive capital and at what
+    proposed target weight; the required turnover and implied transaction cost; whether
+    the portfolio SCORE improves after switching costs (expected return is never
+    fabricated — no validated forecast model exists, so it is null / NOT_CALIBRATED);
+    and how concentration and portfolio risk change before vs after.
+
+    STRICTLY READ-ONLY and MANUAL-REVIEW ONLY: it never runs the engine (the sole
+    execution path is the Daily Research Cycle, ``POST /v1/operations/daily-research-cycle/run``),
+    returns the current immutable persisted proposal, and creates no operational or alpha
+    target, no order plan, no order/fill; it changes no holding/cash/NAV, performs no
+    broker execution, promotes no model and enables no automation. It returns NOT_RUN
+    before a proposal exists and remains readable (HTTP 200) in DEGRADED / BLOCKED states.
+    """
+    return _realloc.load_reallocation_proposal()
 
 
 @app.get(

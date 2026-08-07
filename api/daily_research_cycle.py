@@ -131,12 +131,14 @@ STEP_SCORE_UNIVERSE = "SCORE_UNIVERSE"
 STEP_PREPARE_TARGET = "PREPARE_TARGET"
 STEP_CAPTURE_EVIDENCE = "CAPTURE_FORWARD_EVIDENCE"
 STEP_HOLDING_OPP_COST = "ASSESS_HOLDING_OPPORTUNITY_COST"
+STEP_BUILD_REALLOCATION = "BUILD_REALLOCATION_PROPOSAL"
 STEP_RUN_ASSESSMENT = "RUN_PORTFOLIO_ASSESSMENT"
 
 STEP_SEQUENCE = (
     STEP_RESOLVE_SESSION, STEP_VALIDATE_CONSISTENCY, STEP_PLAN, STEP_REFRESH_INPUTS,
     STEP_VALIDATE_ALIGNMENT, STEP_SCORE_UNIVERSE, STEP_PREPARE_TARGET,
-    STEP_CAPTURE_EVIDENCE, STEP_HOLDING_OPP_COST, STEP_RUN_ASSESSMENT,
+    STEP_CAPTURE_EVIDENCE, STEP_HOLDING_OPP_COST, STEP_BUILD_REALLOCATION,
+    STEP_RUN_ASSESSMENT,
 )
 
 # Frozen step-status vocabulary.
@@ -191,6 +193,12 @@ _LOCK_STALE_MINUTES = 45
 # never writes here; it composes the canonical HOC read owner.
 HOC_DIR_ENV = "PAPER_TRADER_HOC_DIR"
 _DEFAULT_HOC_DIR = Path(r"D:\Stock_Prediction_app_data\holding_opportunity_cost")
+
+# Slice 7 (Phase 29H) immutable reallocation-proposal root. The DRC never writes here
+# directly; it composes the canonical Reallocation Proposal owner (api.reallocation_proposal),
+# which persists under this root (isolated per run under a sandbox override).
+REALLOC_DIR_ENV = "PAPER_TRADER_REALLOC_DIR"
+_DEFAULT_REALLOC_DIR = Path(r"D:\Stock_Prediction_app_data\reallocation_proposals")
 
 # Deterministic clock seam (tests / explicit callers).
 NOW_ENV = "PAPER_TRADER_DRC_NOW"
@@ -473,6 +481,16 @@ def _validate_terminal_manifest(rec: dict) -> list:
         if not rec.get("opportunity_cost_artifact_id") \
                 or not rec.get("opportunity_cost_assessment_hash"):
             problems.append("opportunity-cost step OK but artifact reference missing")
+    # Slice 7 (Phase 29H): if the Reallocation Proposal step actually RAN (S_OK), a
+    # COMPLETE manifest must carry its immutable proposal reference (id + proposal hash).
+    # A hermetically SKIPPED / BLOCKED reallocation step (no canonical scoring / no HOC)
+    # is exempt.
+    realloc_step = next((s for s in (rec.get("step_results") or [])
+                         if s.get("step_id") == STEP_BUILD_REALLOCATION), None)
+    if realloc_step and realloc_step.get("status") == S_OK:
+        if not rec.get("reallocation_proposal_id") \
+                or not rec.get("reallocation_proposal_hash"):
+            problems.append("reallocation step OK but proposal reference missing")
     return problems
 
 
@@ -748,6 +766,26 @@ def _default_holding_opp_cost_fn(*, scoring=None, hoc_dir=None):
     return hoc.run_and_persist(scoring=scoring, hoc_dir=hoc_dir)
 
 
+def _default_reallocation_fn(*, scoring=None, hoc_assessment=None, reallocation_dir=None,
+                             hoc_dir=None):
+    """The canonical Reallocation Proposal engine (Slice 7, Milestone 3).
+
+    Delegates to ``api.reallocation_proposal.run_and_persist`` — the sole
+    composition/persistence owner — which sources the immutable input contract from
+    ``portfolio_state`` (holdings/weights/NAV/cash) + the Slice-6 ``hoc_assessment``
+    (recommendations/replacements/switching costs) + ``universe_scoring`` (candidate
+    ranking) + ``price_panel`` (owned returns), runs the pure
+    ``engine.reallocation_proposal`` kernel and persists the immutable proposal artifact.
+    The DRC computes no allocation itself. ``scoring`` / ``hoc_assessment`` (both already
+    built earlier in the SAME cycle) are reused so nothing is recomputed; ``reallocation_dir``
+    isolates the artifact root for a sandboxed run; ``hoc_dir`` locates the HOC artifact
+    when the assessment object is not passed. Review-only: it confirms no target and
+    creates no order."""
+    from paper_trader.api import reallocation_proposal as rp
+    return rp.run_and_persist(scoring=scoring, hoc_assessment=hoc_assessment,
+                              reallocation_dir=reallocation_dir, hoc_dir=hoc_dir)
+
+
 def _default_refresh_confirm_token() -> str:
     from paper_trader.api import alpha_target as at
     return at.REFRESH_CONFIRM_TOKEN
@@ -935,6 +973,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
               blockers: Optional[list] = None, required_actions: Optional[list] = None,
               started_at: Optional[str] = None, completed_at: Optional[str] = None,
               monthly_owner: Optional[dict] = None, holding_opp_cost: Optional[dict] = None,
+              reallocation_proposal: Optional[dict] = None,
               performed_write: bool = False, executable: bool = False) -> dict:
     step_results = step_results or []
     done_ids = [s["step_id"] for s in step_results
@@ -951,6 +990,8 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
     aln = alignment or {}
     hoc = holding_opp_cost or {}
     hoc_available = bool(hoc.get("available"))
+    rp = reallocation_proposal or {}
+    rp_available = bool(rp.get("available"))
     return {
         "status": "OK",
         "phase": PHASE,
@@ -1020,13 +1061,36 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "opportunity_cost_data_gaps": hoc.get("data_gaps"),
         "opportunity_cost_last_error": hoc.get("last_error"),
         "holding_opportunity_cost": holding_opp_cost,
+        # --- Slice 7 (Phase 29H) Reallocation Proposal engine (Milestone 3) ------- #
+        "reallocation_proposal_owner": "api.reallocation_proposal",
+        "reallocation_proposal_state": rp.get("state"),
+        "reallocation_proposal_required": True,
+        "reallocation_proposal_selected": rp_available,
+        "reallocation_proposal_id": rp.get("proposal_id"),
+        "reallocation_proposal_hash": rp.get("proposal_hash"),
+        "reallocation_proposed_holding_count": rp.get("proposed_holding_count"),
+        "reallocation_action_counts": rp.get("action_counts"),
+        "reallocation_one_way_turnover": rp.get("one_way_turnover"),
+        "reallocation_estimated_transaction_cost": rp.get("estimated_transaction_cost"),
+        "reallocation_score_improvement": rp.get("score_improvement"),
+        "reallocation_score_improvement_net_of_cost": rp.get("score_improvement_net_of_cost"),
+        "reallocation_data_gaps": rp.get("data_gaps"),
+        "reallocation_proposal": reallocation_proposal,
         "milestone2_limitation": (
             "The Milestone-2 Holding Opportunity-Cost engine (Slice 6) is implemented and "
-            "runs inside this cycle (per-holding rank / deterioration / performance / risk "
-            "/ liquidity / replacement-candidate / switching-cost / net-improvement review, "
+            "runs inside this cycle (per-holding rank / deterioration / performance / risk / "
+            "liquidity / replacement-candidate / switching-cost / net-improvement review, "
             "recommendation HOLD/REDUCE/EXIT/REPLACE/ADD). It remains review-only: no target "
-            "is confirmed and no order is created. The Reallocation Proposal engine (Slice 7) "
-            "is NOT implemented, so no recommendation is an approved reallocation."),
+            "is confirmed and no order is created. Its output feeds the Reallocation Proposal "
+            "engine (Slice 7, implemented and review-only) — no recommendation is an approved "
+            "reallocation or an order."),
+        "milestone3_note": (
+            "The Milestone-3 Reallocation Proposal engine (Slice 7) is implemented and runs "
+            "inside this cycle after the Holding Opportunity-Cost step: it builds ONE coherent "
+            "paper-only proposed target portfolio (retain / reduce / exit / replace / add) with "
+            "turnover, transaction cost, before/after score, concentration and risk. It remains "
+            "REVIEW ONLY — it confirms no operational or alpha target, creates no order/fill, "
+            "changes no holding/cash/NAV and enables no automation. Manual review is mandatory."),
         "warnings": list(warnings or []),
         "blockers": list(blockers or []),
         "required_actions": list(required_actions or []),
@@ -1047,6 +1111,8 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
                 "forward_prediction_skill.capture_for_daily_close (immutable evidence)",
                 "holding_opportunity_cost.run_and_persist (Slice 6 Milestone 2 "
                 "opportunity-cost engine over engine.holding_opportunity_cost; review-only)",
+                "reallocation_proposal.run_and_persist (Slice 7 Milestone 3 reallocation "
+                "proposal engine over engine.reallocation_proposal; review-only)",
                 "daily_action_gate.load_daily_action_gate (assessment bridge — consumes the "
                 "opportunity-cost summary)",
             ],
@@ -1178,6 +1244,41 @@ def _extract_holding_opp_cost(built: Optional[dict], eligible: Optional[str]) ->
         "persistence_status": persistence.get("status"),
         "holding_count": len(assessment.get("holding_reviews") or []),
         "recommendation_counts": counts,
+        "data_gaps": list(gaps),
+    }
+
+
+def _extract_reallocation(built: Optional[dict], eligible: Optional[str]) -> dict:
+    """Normalize the Reallocation Proposal engine output (Slice 7) for the DRC contract.
+    ``built`` is the ``api.reallocation_proposal.run_and_persist`` result
+    ``{"proposal": <kernel result>, "persistence": {...}}``. Purely descriptive — the
+    DRC computes no allocation and creates no order/target."""
+    b = built or {}
+    proposal = b.get("proposal") or {}
+    persistence = b.get("persistence") or {}
+    state = proposal.get("proposal_state")
+    counts = proposal.get("action_counts") or {}
+    gaps = [g.get("code") for g in (proposal.get("data_gaps") or []) if not g.get("by_design")]
+    available = bool(proposal) and state in ("READY", "DEGRADED")
+    signal = proposal.get("signal") or {}
+    turnover = proposal.get("turnover") or {}
+    portfolio = proposal.get("portfolio") or {}
+    return {
+        "available": available,
+        "owner": "api.reallocation_proposal",
+        "calculation_owner": "engine.reallocation_proposal",
+        "state": state,
+        "eligible_market_date": proposal.get("eligible_market_date") or eligible,
+        "proposal_hash": proposal.get("proposal_hash"),
+        "proposal_id": persistence.get("proposal_id"),
+        "persistence_status": persistence.get("status"),
+        "superseded_proposal_id": persistence.get("superseded_proposal_id"),
+        "action_counts": counts,
+        "proposed_holding_count": portfolio.get("proposed_holding_count"),
+        "one_way_turnover": turnover.get("one_way_turnover"),
+        "estimated_transaction_cost": turnover.get("estimated_transaction_cost"),
+        "score_improvement": signal.get("score_improvement"),
+        "score_improvement_net_of_cost": signal.get("score_improvement_net_of_cost"),
         "data_gaps": list(gaps),
     }
 
@@ -1398,6 +1499,7 @@ def run_daily_research_cycle(
     evidence_registry: Optional[list] = None,
     assessment_loader: Optional[Callable] = None,
     holding_opp_cost_fn: Optional[Callable] = None,
+    reallocation_proposal_fn: Optional[Callable] = None,
     refresh_confirm_token: Optional[str] = None,
     operational: Optional[dict] = None, inputs: Optional[dict] = None,
     daily_status: Optional[dict] = None, desk_marks: Optional[dict] = None,
@@ -1432,6 +1534,7 @@ def run_daily_research_cycle(
             scoring_fn=scoring_fn, target_loader=target_loader,
             evidence_capture_fn=evidence_capture_fn, evidence_registry=evidence_registry,
             assessment_loader=assessment_loader, holding_opp_cost_fn=holding_opp_cost_fn,
+            reallocation_proposal_fn=reallocation_proposal_fn,
             refresh_confirm_token=refresh_confirm_token,
             operational=operational, inputs=inputs, daily_status=daily_status,
             desk_marks=desk_marks, close_progress=close_progress,
@@ -1445,6 +1548,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                 downloader, freshness, freshness_loader, daily_refresh_fn,
                 monthly_emitter_fn, scoring_fn, target_loader, evidence_capture_fn,
                 evidence_registry, assessment_loader, holding_opp_cost_fn,
+                reallocation_proposal_fn,
                 refresh_confirm_token,
                 operational, inputs, daily_status, desk_marks, close_progress,
                 forward_status, date_overrides, active_book_override) -> dict:
@@ -1580,7 +1684,8 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         # PRESERVED for recovery.
         rec = _build(state, **kw)
         refs = {k: kw[k] for k in ("alignment", "scoring", "target", "evidence",
-                                   "assessment", "holding_opp_cost", "completed_at")
+                                   "assessment", "holding_opp_cost", "reallocation_proposal",
+                                   "completed_at")
                 if k in kw}
         if state in _COMPLETED:
             problems = _validate_terminal_manifest(rec)
@@ -1603,6 +1708,8 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                        and verify.get("state") == state
                        and verify.get("opportunity_cost_assessment_hash")
                        == rec.get("opportunity_cost_assessment_hash")
+                       and verify.get("reallocation_proposal_hash")
+                       == rec.get("reallocation_proposal_hash")
                        and idx_back.get("run_id") == run_id
                        and idx_back.get("state") == state)
         if not durable and state in _COMPLETED:
@@ -1880,6 +1987,8 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         # reuses the canonical scoring the cycle already built, sources holdings + owned
         # prices, runs the pure kernel and persists an immutable artifact under an
         # isolated research root; review-only (never confirms a target / creates an order).
+        raw_hoc_assessment = None
+        hoc_subdir = str(Path(drc_dir) / "holding_opportunity_cost") if drc_dir else None
         if _reuse_or(STEP_HOLDING_OPP_COST) and prior.get("holding_opportunity_cost"):
             holding_opp = prior["holding_opportunity_cost"]
             step_results.append(prior_steps[STEP_HOLDING_OPP_COST])
@@ -1887,7 +1996,6 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
             # Artifacts are isolated under the run's research root when a drc_dir override
             # is supplied (sandboxed runs); production (drc_dir is None) uses the canonical
             # PAPER_TRADER_HOC_DIR owned by api.holding_opportunity_cost.
-            hoc_subdir = str(Path(drc_dir) / "holding_opportunity_cost") if drc_dir else None
             # Run the engine when an explicit seam is injected, this is a production run
             # (no drc_dir override), or the canonical universe contract is available. A
             # sandboxed run with a non-canonical scoring skips hermetically (no live
@@ -1898,6 +2006,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                 hoc_fn = holding_opp_cost_fn or _default_holding_opp_cost_fn
                 hoc_built = _safe(lambda: hoc_fn(scoring=raw_scoring, hoc_dir=hoc_subdir),
                                   warnings, "Holding Opportunity-Cost engine")
+                raw_hoc_assessment = (hoc_built or {}).get("assessment")
                 holding_opp = _extract_holding_opp_cost(hoc_built, facts["eligible"])
                 step_results.append(_step(STEP_HOLDING_OPP_COST,
                     S_OK if holding_opp.get("available") else S_FAILED,
@@ -1920,6 +2029,54 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                     owner="api.holding_opportunity_cost",
                     reason="Canonical universe scoring not available in this sandboxed run; "
                            "Holding Opportunity-Cost engine skipped (no sourcing / no write)."))
+
+        # STEP: Reallocation Proposal engine (Slice 7 / Milestone 3) — AFTER the
+        # opportunity-cost step. It consumes the just-produced HOC assessment + the
+        # canonical scoring the cycle already built, sources holdings + owned prices,
+        # runs the pure kernel and persists ONE immutable proposal artifact under an
+        # isolated research root; review-only (never confirms a target / creates an order).
+        _rp_skipped = {"available": False, "owner": "api.reallocation_proposal",
+                       "state": "SKIPPED", "action_counts": {}, "data_gaps": [],
+                       "proposed_holding_count": 0}
+        if _reuse_or(STEP_BUILD_REALLOCATION) and prior.get("reallocation_proposal"):
+            reallocation = prior["reallocation_proposal"]
+            step_results.append(prior_steps[STEP_BUILD_REALLOCATION])
+        else:
+            realloc_subdir = (str(Path(drc_dir) / "reallocation_proposals")
+                              if drc_dir else None)
+            run_engine = (reallocation_proposal_fn is not None or drc_dir is None
+                          or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
+            if run_engine and holding_opp.get("available"):
+                rp_fn = reallocation_proposal_fn or _default_reallocation_fn
+                rp_built = _safe(
+                    lambda: rp_fn(scoring=raw_scoring, hoc_assessment=raw_hoc_assessment,
+                                  reallocation_dir=realloc_subdir, hoc_dir=hoc_subdir),
+                    warnings, "Reallocation Proposal engine")
+                reallocation = _extract_reallocation(rp_built, facts["eligible"])
+                step_results.append(_step(STEP_BUILD_REALLOCATION,
+                    S_OK if reallocation.get("available") else S_FAILED,
+                    owner="api.reallocation_proposal.run_and_persist",
+                    as_of_date=reallocation.get("eligible_market_date"),
+                    output_hash=reallocation.get("proposal_hash"),
+                    reason=("Reallocation proposal produced (%s proposed holdings; %s); "
+                            "review-only, no target confirmed and no order created."
+                            % (reallocation.get("proposed_holding_count"),
+                               reallocation.get("action_counts")))))
+                if not reallocation.get("available"):
+                    warnings.append("The Reallocation Proposal engine did not complete; the "
+                                    "research outputs and opportunity-cost review remain valid.")
+            elif run_engine and not holding_opp.get("available"):
+                reallocation = _rp_skipped
+                step_results.append(_step(STEP_BUILD_REALLOCATION, S_SKIPPED,
+                    owner="api.reallocation_proposal",
+                    reason="Holding Opportunity-Cost assessment not available; reallocation "
+                           "proposal skipped (no sourcing / no write)."))
+            else:
+                reallocation = _rp_skipped
+                step_results.append(_step(STEP_BUILD_REALLOCATION, S_SKIPPED,
+                    owner="api.reallocation_proposal",
+                    reason="Canonical universe scoring not available in this sandboxed run; "
+                           "reallocation proposal skipped (no sourcing / no write)."))
 
         # STEP: portfolio-assessment bridge (Daily Action Gate for the eligible session).
         # It consumes the just-persisted opportunity-cost summary for its compatibility fields.
@@ -1948,7 +2105,8 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         _clear_lock(drc_dir)
         return _persist(final, alignment=alignment, scoring=scoring, target=target,
                         evidence=evidence, assessment=assessment,
-                        holding_opp_cost=holding_opp, completed_at=_now_iso())
+                        holding_opp_cost=holding_opp, reallocation_proposal=reallocation,
+                        completed_at=_now_iso())
     except Exception as exc:  # noqa: BLE001
         warnings.append("Daily Research Cycle failed: %s" % str(exc)[:200])
         step_results.append(_step("UNCAUGHT", S_FAILED, error_code="UNCAUGHT_EXCEPTION",

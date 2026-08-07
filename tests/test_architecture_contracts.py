@@ -446,13 +446,13 @@ def test_71_slice3_landed_and_bounded_from_slice4():
     assert (REPO / "engine" / "holding_opportunity_cost.py").exists()
     assert (REPO / "api" / "holding_opportunity_cost.py").exists()
 
-    # 5b. Slice 7 (Reallocation Proposal engine, Milestone 3) remains NOT landed and
-    #     no Slice-7 owner module exists yet — Slice 6 generates no target weights and
-    #     no reallocation-execution surface.
+    # 5b. Slice 7 (Reallocation Proposal engine, Milestone 3) has LANDED (Phase 29H)
+    #     under its two canonical owners; the never-built alternative naming stays absent.
     s8 = roadmap.index("## Slice 8")
-    assert "LANDED" not in roadmap[s7:s8]
+    assert "LANDED (Phase 29H)" in roadmap[s7:s8]
     assert not (REPO / "api" / "portfolio_proposal.py").exists()
-    assert not (REPO / "api" / "reallocation_proposal.py").exists()
+    assert (REPO / "engine" / "reallocation_proposal.py").exists()
+    assert (REPO / "api" / "reallocation_proposal.py").exists()
 
     # 6. Cadence remains disabled.
     assert "cadence remains disabled" in s3flat
@@ -492,7 +492,8 @@ def test_73_holding_opportunity_cost_read_graph_is_acyclic(audit):
     assert ho["route_methods"] == ["GET"]
     assert ho["ui_loader_count"] == 1
     assert ho["owner_forbidden_calls"] == []
-    assert ho["slice7_present_modules"] == [] and ho["slice7_present_routes"] == []
+    assert ho["slice7_missing_modules"] == [] and ho["slice7_missing_route"] == []
+    assert ho["slice7_forbidden_present"] == []
 
 
 def test_74_slice6_live_acceptance_and_ui_hard_cutover(audit):

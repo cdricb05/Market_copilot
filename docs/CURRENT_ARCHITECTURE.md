@@ -693,9 +693,47 @@ flowchart LR
   target-weight / NAV / universe-score in either owner, kernel purity, ONE UI loader with
   no computation, the gate delegation, and that Slice 7 / Slice 8 remain future; inventory
   drift = 0. Review-only, preview-first, paper-only: confirms no target, creates no order
-  / fill, changes no holding / cash / NAV, promotes no model. Slice 7 (Reallocation
-  Proposal engine, Milestone 3) is next; the Persistent Alpha Research Agent (Slice 8 /
-  Milestone 4) remains planned; cadence remains disabled.
+  / fill, changes no holding / cash / NAV, promotes no model. Its assessment feeds the
+  Reallocation Proposal engine (Slice 7, LANDED); the Persistent Alpha Research Agent
+  (Slice 8 / Milestone 4) remains planned; cadence remains disabled.
+
+### Canonical Reallocation Proposal engine (Slice 7, LANDED — Phase 29H, Milestone 3)
+- **Two owners.** The pure deterministic calculation kernel
+  `engine/reallocation_proposal.py` (`build_proposal`, no I/O) is the SOLE allocation-math
+  owner; `api/reallocation_proposal.py` (`load_reallocation_proposal` / `run_and_persist` /
+  `persist_proposal` / `load_proposal_summary`) is the SOLE composition / validation /
+  immutable-artifact / read owner. From the current portfolio state (`api.portfolio_state`)
+  and the Slice 6 Holding Opportunity-Cost assessment (`api.holding_opportunity_cost`) —
+  plus the eligible universe ranking (`api.universe_scoring`) and owned returns
+  (`api.price_panel`) — it builds ONE coherent paper-only proposed target portfolio.
+- **Deterministic allocation.** HOLD/REDUCE retained, EXIT zeroed, each REPLACE swapped to
+  a traceable eligible non-held candidate clearing the net-of-cost hurdle (unmatched
+  REPLACEs retained, never a silent exit-to-cash), ADD candidates filling remaining slots by
+  rank; equal-weight `min(1/N, name_cap)`, residual as cash, sector count-cap. Reuses (never
+  forks) the `multi_horizon_engine` constants + `paper_trading_desk` cost model via one
+  versioned policy (`reallocation_allocation_policy.v1`) and the Slice-6 covariance
+  primitive. Emits per-ticker actions (RETAIN/INCREASE/REDUCE/EXIT/ADD/REPLACE_OUT/
+  REPLACE_IN), turnover, transaction + switching cost, before/after portfolio SCORE
+  (expected return NEVER fabricated — null/`NOT_CALIBRATED`), concentration and volatility
+  before/after, and hard-constraint validation; states READY/DEGRADED/BLOCKED/NO_ACTIVE_BOOK
+  (read layer adds NOT_RUN/UNAVAILABLE).
+- **Orchestration.** The sole execution path is the Daily Research Cycle's
+  `BUILD_REALLOCATION_PROPOSAL` step (after `ASSESS_HOLDING_OPPORTUNITY_COST`), persisting
+  an immutable artifact under `PAPER_TRADER_REALLOC_DIR` (atomic, indexed, idempotent
+  identical rerun; a different source HOC hash for the same date supersedes, never silently
+  reuses). `GET /v1/operations/reallocation-proposal` is GET-only (NOT_RUN before a proposal
+  exists); ONE UI loader `loadReallocationProposal()` renders a first-class Portfolio-Manager
+  card plus concise Command Center / Daily Workflow status with no JS allocation math. The
+  Daily Action Gate delegates to `load_proposal_summary`; `api.workflow_state` exposes the
+  proposal state as an informational review action that never gates the (independent) Daily
+  Close.
+- **Static guard:** `scripts/audit_architecture.py:check_reallocation_proposal_ownership`
+  enforces the sole calculation + API owners, delegation, the GET-only route, no create/
+  apply/confirm-target/rebalance/order route, the DRC as the sole execution path, no order /
+  fill / target / NAV / holdings mutation, kernel purity, ONE UI loader with no allocation
+  computation, immutable/idempotent artifacts, and that Slice 8 remains future; inventory
+  drift = 0. Review-only, preview-first, paper-only, manual review mandatory. The Persistent
+  Alpha Research Agent (Slice 8 / Milestone 4) is next; cadence remains disabled.
 
 ### Service vs workflow readiness + Slice 6 operator workflow (Phase 29G.1)
 

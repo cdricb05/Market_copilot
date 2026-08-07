@@ -2123,6 +2123,20 @@
             </details>
           </div>
 
+          <!-- Phase 29H Slice 7: concise reallocation-proposal status (review-only). -->
+          <div id="cc-realloc-card" class="cc-panel" style="border-left:3px solid var(--info,#3b82f6);display:none;">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="cc-panel-title" id="cc-realloc-title">Reallocation Proposal</span>
+              <span class="cc-badge muted" title="Milestone 3 — paper-only proposed target portfolio.">MILESTONE 3</span>
+              <span class="cc-badge" id="cc-realloc-badge" title="Reallocation proposal state for Alpha Paper Book #1.">&mdash;</span>
+              <span class="cc-badge manual">MANUAL REVIEW</span>
+              <span class="cc-badge safe">REVIEW ONLY</span>
+              <span class="cc-badge safe">NO ORDERS</span>
+            </div>
+            <div id="cc-realloc-headline" style="font-size:13px;font-weight:800;margin-top:6px;">&mdash;</div>
+            <div id="cc-realloc-explanation" style="font-size:11px;color:var(--label);margin-top:4px;line-height:1.4;"></div>
+          </div>
+
           <!-- ===================== Phase 27B CURRENT OPERATIONAL BOOK ===================== -->
           <!-- The ONE operational portfolio. Every operational page renders this same
                /v1/operational-book payload — legacy is archive, research is evidence. -->
@@ -2283,6 +2297,19 @@
             <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.02em;">LEGACY MEMBERSHIP-COMPARISON SUMMARY &mdash; COMPATIBILITY ONLY</summary>
             <div id="dw-dag-changes" class="mono" style="font-size:11px;margin-top:6px;line-height:1.5;"></div>
           </details>
+          <!-- Phase 29H Slice 7: concise reallocation-proposal status (review-only). -->
+          <div id="dw-realloc-card" style="border-top:1px solid var(--border,#333);margin-top:8px;padding-top:8px;display:none;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span class="dw-hd-title" id="dw-realloc-title" style="font-size:13px;">Reallocation Proposal</span>
+              <span class="cc-badge muted" title="Milestone 3 — paper-only proposed target portfolio.">MILESTONE 3</span>
+              <span class="cc-badge" id="dw-realloc-badge">&mdash;</span>
+              <span class="cc-badge manual">MANUAL REVIEW</span>
+              <span class="cc-badge safe">REVIEW ONLY</span>
+              <span class="cc-badge safe">NO ORDERS</span>
+            </div>
+            <div id="dw-realloc-headline" style="font-size:12px;font-weight:800;margin-top:5px;">&mdash;</div>
+            <div id="dw-realloc-explanation" style="font-size:11px;color:var(--label);margin-top:3px;line-height:1.4;"></div>
+          </div>
         </div>
         <!-- Phase 27D: CHECKS PERFORMED TODAY — the canonical daily risk / control
              checks (13). Compact chips + a collapsed detail; every status/threshold
@@ -3059,16 +3086,37 @@
                 </span>
                 <button class="btn-sm" id="hoc-refresh" onclick="loadHoldingOpportunityCost()" title="Reload the read-only Holding Opportunity-Cost review.">&#8635; Refresh</button>
               </div>
-              <div id="hoc-banner" style="border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);color:var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">HOLDING OPPORTUNITY-COST REVIEW &mdash; REALLOCATION ENGINE NOT YET IMPLEMENTED</div>
+              <div id="hoc-banner" style="border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);color:var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">HOLDING OPPORTUNITY-COST REVIEW &mdash; REVIEW ONLY &middot; FEEDS THE REALLOCATION PROPOSAL (BELOW)</div>
               <div id="hoc-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only Holding Opportunity-Cost review&hellip;</div>
               <div id="hoc-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
               <div id="hoc-filters" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 6px;"></div>
               <div id="hoc-table" class="compact-scroll-region" style="max-height:360px;overflow:auto;font-size:11px;">&mdash;</div>
               <div class="card-title" style="margin-top:12px;font-size:12px;">Addition Candidates
-                <span class="cc-badge muted" title="Non-held eligible names — candidates for the future Reallocation Proposal engine (Slice 7). No weight assigned; no order created.">SLICE 7 CANDIDATES</span>
+                <span class="cc-badge muted" title="Non-held eligible names — candidates consumed by the Reallocation Proposal engine (Slice 7). No weight assigned; no order created.">REALLOCATION CANDIDATES</span>
               </div>
               <div id="hoc-additions" style="overflow-x:auto;font-size:11px;">&mdash;</div>
               <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. Nothing here confirms a target, assigns a weight, or creates an order. The strongest replacement is a NON-ALLOCATED comparison candidate. Recommendations, ranks, risk, costs and totals are computed by the backend engine, never in the browser.</div>
+            </div>
+            <!-- REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED (Phase 29H, Slice 7, Milestone 3) -->
+            <div class="card" style="margin-bottom:12px;" id="realloc-card">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Reallocation Proposal
+                  <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Milestone 3 — the paper-only proposed target portfolio built from the current portfolio state and the Holding Opportunity-Cost review.">MILESTONE 3</span>
+                  <span class="cc-badge manual">MANUAL REVIEW REQUIRED</span>
+                  <span class="cc-badge safe">REVIEW ONLY</span>
+                  <span class="cc-badge safe">NO ORDERS</span>
+                  <span class="cc-badge safe">NO AUTOMATION</span>
+                </span>
+                <button class="btn-sm" id="realloc-refresh" onclick="loadReallocationProposal()" title="Reload the read-only reallocation proposal.">&#8635; Refresh</button>
+              </div>
+              <div id="realloc-banner" style="border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);color:var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">REALLOCATION PROPOSAL &mdash; MANUAL REVIEW REQUIRED &middot; PAPER ONLY &middot; REVIEW ONLY &middot; NO ORDERS &middot; NO AUTOMATION</div>
+              <div id="realloc-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only reallocation proposal&hellip;</div>
+              <div id="realloc-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
+              <div class="card-title" style="margin-top:6px;font-size:12px;">Proposed Allocation
+                <span class="cc-badge muted" title="Ticker | Current % | Proposed % | Delta | Action | Reason — all computed by the backend engine.">BEFORE / AFTER</span>
+              </div>
+              <div id="realloc-table" class="compact-scroll-region" style="max-height:360px;overflow:auto;font-size:11px;">&mdash;</div>
+              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. Nothing here confirms an operational or alpha target, assigns capital, or creates an order or fill. Weights, turnover, costs, score, concentration and risk are computed by the backend engine, never in the browser. Expected return is never fabricated (no validated forecast model). The Daily Close is a separate action.</div>
             </div>
             <!-- SINCE LAST REVIEW (Workstream G) -->
             <div class="card" style="margin-bottom:12px;">
@@ -23336,6 +23384,7 @@ async function loadPortfolioManager() {
   try { loadAlphaTargetReview(); } catch (e) {}   // Phase 27A.2 operational target review
   try { loadOperationalBook(); } catch (e) {}     // Phase 27B.1 canonical implementation strip
   try { loadHoldingOpportunityCost(); } catch (e) {}  // Phase 29G Slice 6 opportunity-cost review
+  try { loadReallocationProposal(); } catch (e) {}   // Phase 29H Slice 7 reallocation proposal
   var res = await Promise.all([
     _mhzGet('/v1/portfolio-manager/summary'),
     _mhzGet('/v1/portfolio-manager/actions'),
@@ -24101,6 +24150,7 @@ function loadOperationalBook() {
     try { loadWorkflowState(); } catch (e) {}      // Slice 2: the ONE workflow/operator state
     try { loadDailyResearchCycle(); } catch (e) {} // Slice 3: the ONE research-cycle status
     try { loadUniverseScoring(); } catch (e) {}    // Slice 4: the ONE canonical scoring read
+    try { loadReallocationProposal(); } catch (e) {} // Slice 7: the ONE reallocation proposal
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
     try { loadPortfolioState(); } catch (e) {}
@@ -24109,7 +24159,8 @@ function loadOperationalBook() {
     try { loadDataFreshness(); } catch (e) {}
     try { loadWorkflowState(); } catch (e) {}
     try { loadDailyResearchCycle(); } catch (e) {}
-    try { loadUniverseScoring(); } catch (e) {} return null; });
+    try { loadUniverseScoring(); } catch (e) {}
+    try { loadReallocationProposal(); } catch (e) {} return null; });
   window._obInFlight = p;
   return p;
 }
@@ -24448,6 +24499,170 @@ function renderHoldingOpportunityCost(d) {
 }
 window.renderHoldingOpportunityCost = renderHoldingOpportunityCost;
 
+// ---------------------------------------------------------------------------
+// Phase 29H Slice 7 — Reallocation Proposal (the ONE canonical loader). It reads
+// GET /v1/operations/reallocation-proposal and renders the Portfolio Manager full
+// card + the concise Command Center / Daily Workflow status. It performs NO
+// portfolio math — every weight, delta, turnover, cost, score, concentration and
+// risk value is read verbatim from the backend engine. Review-only, no orders.
+// ---------------------------------------------------------------------------
+function loadReallocationProposal() {
+  if (window._reallocInFlight) return window._reallocInFlight;
+  var note = document.getElementById('realloc-note');
+  if (note) note.textContent = 'Loading the read-only reallocation proposal…';
+  var p = _mhzGet('/v1/operations/reallocation-proposal').then(function (d) {
+    window._reallocInFlight = null;
+    window._reallocData = d;
+    renderReallocationProposal(d);
+    return d;
+  }).catch(function () {
+    window._reallocInFlight = null; renderReallocationProposal(null); return null;
+  });
+  window._reallocInFlight = p;
+  return p;
+}
+window.loadReallocationProposal = loadReallocationProposal;
+
+function _reallocActionBadge(action) {
+  var cls = { RETAIN: 'muted', INCREASE: 'safe', REDUCE: 'manual', EXIT: 'danger',
+              ADD: 'safe', REPLACE_IN: 'safe', REPLACE_OUT: 'danger' }[action] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(action || '—') + '</span>';
+}
+
+function renderReallocationProposal(d) {
+  function setText(id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; }
+  function setHtml(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+  function show(id, on) { var el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; }
+  function chip(label, val, cls) {
+    return '<span class="cc-badge ' + (cls || 'muted') + '" title="' + escapeHtml(label)
+      + '">' + escapeHtml(label) + ': ' + escapeHtml(val == null ? '—' : String(val)) + '</span>';
+  }
+  var noteEl = document.getElementById('realloc-note');
+  var sumEl = document.getElementById('realloc-summary');
+  var tblEl = document.getElementById('realloc-table');
+  if (!d) {
+    if (noteEl) noteEl.textContent = 'The reallocation proposal is unavailable.';
+    if (sumEl) sumEl.innerHTML = '—'; if (tblEl) tblEl.innerHTML = '—';
+    show('cc-realloc-card', false); show('dw-realloc-card', false);
+    return;
+  }
+  var state = d.state || 'UNAVAILABLE';
+  var portfolio = d.portfolio || {};
+  var counts = d.action_counts || {};
+  var turnover = d.turnover || {};
+  var signal = d.signal || {};
+  var risk = d.risk || {};
+  var allocations = d.allocations || [];
+  var hocHash = (d.hoc_reference || {}).assessment_hash || null;
+  var hasProposal = !!(d.artifact || d.proposal_hash || (allocations && allocations.length));
+
+  // --- concise Command Center / Daily Workflow status -----------------------
+  var stateCls = { READY: 'safe', DEGRADED: 'manual', BLOCKED: 'danger',
+                   NOT_RUN: 'muted', NO_ACTIVE_BOOK: 'manual', UNAVAILABLE: 'manual' }[state] || 'muted';
+  var conciseHeadline, conciseExpl;
+  if (hasProposal && (state === 'READY' || state === 'DEGRADED')) {
+    conciseHeadline = 'Proposal ready — manual review required ('
+      + (portfolio.proposed_holding_count != null ? portfolio.proposed_holding_count : '—')
+      + ' proposed holdings).';
+    conciseExpl = 'Review-only proposed target portfolio. No orders, no target confirmation. '
+      + 'The Daily Close is a separate action.';
+  } else if (state === 'NOT_RUN') {
+    conciseHeadline = 'No reallocation proposal yet.';
+    conciseExpl = 'The first proposal is produced by the next completed Daily Research Cycle.';
+  } else if (state === 'BLOCKED') {
+    conciseHeadline = 'Reallocation proposal blocked.';
+    conciseExpl = 'A trustworthy target portfolio could not be constructed for this session.';
+  } else {
+    conciseHeadline = 'Reallocation proposal ' + state.toLowerCase() + '.';
+    conciseExpl = '';
+  }
+  ['cc', 'dw'].forEach(function (px) {
+    show(px + '-realloc-card', true);
+    var b = document.getElementById(px + '-realloc-badge');
+    if (b) { b.textContent = state; b.className = 'cc-badge ' + stateCls; }
+    setText(px + '-realloc-headline', conciseHeadline);
+    setText(px + '-realloc-explanation', conciseExpl);
+  });
+
+  // --- Portfolio Manager full card ------------------------------------------
+  if (!tblEl) return;
+  if (!hasProposal) {
+    if (noteEl) noteEl.textContent = (state === 'NOT_RUN')
+      ? 'Not yet run for the current eligible session. The proposal is produced by the Daily Research Cycle.'
+      : ('Reallocation proposal state: ' + state + '.');
+    if (sumEl) sumEl.innerHTML = chip('State', state, stateCls);
+    tblEl.innerHTML = '—';
+    return;
+  }
+  if (noteEl) noteEl.textContent = d.message || 'Current reallocation proposal — manual review required.';
+
+  var chips = [];
+  chips.push(chip('State', state, stateCls));
+  chips.push(chip('Source HOC', hocHash ? String(hocHash).slice(0, 12) : '—', 'muted'));
+  chips.push(chip('Proposal', d.proposal_hash ? String(d.proposal_hash).slice(0, 12) : '—', 'muted'));
+  chips.push(chip('Holdings', (portfolio.current_holding_count != null ? portfolio.current_holding_count : '—')
+    + ' → ' + (portfolio.proposed_holding_count != null ? portfolio.proposed_holding_count : '—'), 'muted'));
+  chips.push(chip('Retain', counts.RETAIN != null ? counts.RETAIN : 0, 'muted'));
+  chips.push(chip('Increase', counts.INCREASE != null ? counts.INCREASE : 0, 'safe'));
+  chips.push(chip('Reduce', counts.REDUCE != null ? counts.REDUCE : 0, 'manual'));
+  chips.push(chip('Exit', counts.EXIT != null ? counts.EXIT : 0, 'danger'));
+  chips.push(chip('Replace', counts.REPLACE_IN != null ? counts.REPLACE_IN : 0, 'manual'));
+  chips.push(chip('Add', counts.ADD != null ? counts.ADD : 0, 'safe'));
+  chips.push(chip('Turnover (1-way)', _mhzPct(turnover.one_way_turnover, 1), 'muted'));
+  chips.push(chip('Est. cost', '$' + _mhzNum(turnover.estimated_transaction_cost, 2)
+    + ' (' + _mhzPct(turnover.cost_pct_nav, 3) + ' NAV)', 'muted'));
+  chips.push(chip('Switching cost', '$' + _mhzNum(turnover.switching_costs, 2), 'muted'));
+  chips.push(chip('Score', _mhzNum(signal.score_before, 3) + ' → ' + _mhzNum(signal.score_after, 3)
+    + ' (Δ ' + _mhzNum(signal.score_improvement, 3) + ')',
+    (signal.improves_after_cost === true ? 'safe' : (signal.improves_after_cost === false ? 'manual' : 'muted'))));
+  chips.push(chip('Net of cost', _mhzNum(signal.score_improvement_net_of_cost, 3), 'muted'));
+  chips.push(chip('Expected return', (signal.expected_return_state || 'NOT_CALIBRATED'), 'manual'));
+  chips.push(chip('Concentration', _mhzNum(risk.concentration_before, 3) + ' → ' + _mhzNum(risk.concentration_after, 3), 'muted'));
+  chips.push(chip('Largest position', _mhzPct(risk.largest_position_before, 1) + ' → ' + _mhzPct(risk.largest_position_after, 1), 'muted'));
+  chips.push(chip('Sector conc.', _mhzPct(risk.sector_concentration_before, 1) + ' → ' + _mhzPct(risk.sector_concentration_after, 1), 'muted'));
+  var volB = (risk.portfolio_volatility_before == null) ? 'n/a' : _mhzPct(risk.portfolio_volatility_before, 1);
+  var volA = (risk.portfolio_volatility_after == null) ? 'n/a' : _mhzPct(risk.portfolio_volatility_after, 1);
+  chips.push(chip('Volatility', volB + ' → ' + volA, 'muted'));
+  var gaps = (d.data_gaps || []).filter(function (g) { return !g.by_design; });
+  if (gaps.length) chips.push(chip('Data gaps', gaps.length, 'manual'));
+  if (sumEl) sumEl.innerHTML = chips.join(' ');
+
+  // allocation table — Ticker | Current % | Proposed % | Delta | Action | Reason.
+  // Ordered by a fixed action priority then proposed weight (no arithmetic in JS).
+  var order = { REPLACE_IN: 0, ADD: 1, INCREASE: 2, RETAIN: 3, REDUCE: 4, REPLACE_OUT: 5, EXIT: 6 };
+  var rows = allocations.slice().sort(function (a, b) {
+    var oa = order[a.action] != null ? order[a.action] : 9;
+    var ob = order[b.action] != null ? order[b.action] : 9;
+    if (oa !== ob) return oa - ob;
+    if ((b.proposed_weight || 0) !== (a.proposed_weight || 0)) return (b.proposed_weight || 0) - (a.proposed_weight || 0);
+    return (a.ticker || '').localeCompare(b.ticker || '');
+  });
+  var head = '<tr>'
+    + '<th style="text-align:left;padding:3px 6px;">Ticker</th>'
+    + '<th style="text-align:left;padding:3px 6px;">Current %</th>'
+    + '<th style="text-align:left;padding:3px 6px;">Proposed %</th>'
+    + '<th style="text-align:left;padding:3px 6px;">Delta</th>'
+    + '<th style="text-align:left;padding:3px 6px;">Action</th>'
+    + '<th style="text-align:left;padding:3px 6px;">Reason</th></tr>';
+  var body = rows.map(function (r) {
+    var reason = (r.reason_codes || []).join(', ');
+    if (r.replacement_relationship && r.replacement_relationship.counterparty) {
+      reason += (reason ? ' · ' : '') + r.replacement_relationship.role + ' ' + r.replacement_relationship.counterparty;
+    }
+    return '<tr>'
+      + '<td style="padding:3px 6px;white-space:nowrap;"><b>' + escapeHtml(r.ticker) + '</b></td>'
+      + '<td style="padding:3px 6px;">' + _mhzPct(r.current_weight, 1) + '</td>'
+      + '<td style="padding:3px 6px;">' + _mhzPct(r.proposed_weight, 1) + '</td>'
+      + '<td style="padding:3px 6px;">' + _mhzPct(r.delta_weight, 1) + '</td>'
+      + '<td style="padding:3px 6px;">' + _reallocActionBadge(r.action) + '</td>'
+      + '<td style="padding:3px 6px;max-width:280px;white-space:normal;color:var(--label);">'
+      + escapeHtml(reason || (r.source_hoc_recommendation || '')) + '</td></tr>';
+  }).join('');
+  tblEl.innerHTML = '<table style="border-collapse:collapse;width:100%;font-size:10px;">'
+    + '<thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+}
+window.renderReallocationProposal = renderReallocationProposal;
+
 function renderPortfolioState(d) {
   var ok = !!(d && d.state && d.state !== 'PORTFOLIO_STATE_UNAVAILABLE' && d.state !== 'NO_ACTIVE_BOOK');
   var cap = (d && d.capital) || {};
@@ -24541,7 +24756,7 @@ function renderPortfolioState(d) {
   if (lbl) {
     if (ok && a.is_preliminary_proposal) {
       lbl.style.display = '';
-      lbl.textContent = a.preliminary_proposal_label || 'HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED';
+      lbl.textContent = a.preliminary_proposal_label || 'REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED (REVIEW ONLY, NO ORDERS)';
     } else { lbl.style.display = 'none'; lbl.textContent = ''; }
     lbl.setAttribute('data-ps-owned', '1');
   }

@@ -722,6 +722,62 @@
   Slice 7 (Reallocation Proposal, Milestone 3) remains next; the Persistent Alpha Research
   Agent (Slice 8, Milestone 4) remains planned; cadence remains disabled.
 
+### D-18 — Canonical Reallocation Proposal engine (Slice 7, Milestone 3) — CONFIRMED (LANDED)
+- **Decision:** the Milestone-3 reallocation engine has TWO canonical owners: a pure
+  deterministic calculation kernel `engine/reallocation_proposal.py` (the SOLE
+  allocation-math owner, no I/O) and a composition / validation / immutable-artifact /
+  read owner `api/reallocation_proposal.py` (the SOLE API owner). From the canonical
+  CURRENT portfolio state and the Slice 6 Holding Opportunity-Cost assessment the kernel
+  builds ONE coherent paper-only proposed target portfolio and emits per-ticker actions
+  (RETAIN / INCREASE / REDUCE / EXIT / ADD / REPLACE_OUT / REPLACE_IN), turnover,
+  transaction + switching cost, before/after portfolio score, concentration and
+  volatility, and hard-constraint validation, producing a state from the frozen vocabulary
+  READY / DEGRADED / BLOCKED / NO_ACTIVE_BOOK (read layer adds NOT_RUN / UNAVAILABLE).
+- **Deterministic allocation policy:** HOLD/REDUCE retained, EXIT zeroed, each REPLACE
+  swapped to a specific traceable eligible non-held candidate that clears the net-of-cost
+  hurdle (an unmatched REPLACE is retained, NEVER a silent exit-to-cash), ADD candidates
+  filling the remaining slots by rank; equal-weight `min(1/N, name_cap)`, residual as cash,
+  sector count-cap `int(sector_cap · N)`. It **reuses** (never forks) the
+  `api.multi_horizon_engine` construction constants (book size N / name cap / sector cap /
+  liquidity floor) and the `api.paper_trading_desk.COST_RATE_PER_SIDE` transaction-cost
+  model via one versioned allocation policy (`reallocation_allocation_policy.v1`), and
+  reuses the Slice-6 covariance primitive for before/after portfolio volatility.
+- **Data-integrity (Principle 4, D-8 upheld):** expected return is NEVER fabricated — no
+  validated forecast model exists, so `expected_return_before/after/improvement` are always
+  null with an explicit `EXPECTED_RETURN_NOT_CALIBRATED` gap (by-design, not degrading);
+  the improvement is a signal-SCORE comparison net of a modelled turnover cost. A DEGRADED
+  HOC input does not BLOCK Slice 7; each carried source gap is classified by the analytic
+  it affects (allocation / risk / expected-return / informational). Portfolio volatility is
+  reported only when an authoritative covariance supports it, else null with an explicit
+  gap — no fabricated covariance or diversification effect.
+- **One orchestration path (D-13 / Principle 2):** the sole normal execution path is the
+  Daily Research Cycle — a new `BUILD_REALLOCATION_PROPOSAL` step runs AFTER
+  `ASSESS_HOLDING_OPPORTUNITY_COST` and before the portfolio-assessment step, persists an
+  immutable artifact under `PAPER_TRADER_REALLOC_DIR` (atomic, indexed, idempotent identical
+  rerun; a DIFFERENT source HOC assessment hash for the same date SUPERSEDES — never
+  silently reuses — the stale proposal, keeping every artifact immutable). The read endpoint
+  `GET /v1/operations/reallocation-proposal` is GET-only and never runs the engine (NOT_RUN
+  before a proposal exists); there is deliberately NO create / apply / confirm-target /
+  rebalance / order endpoint.
+- **Separation of concerns (Principle 3, D-7 upheld):** `api.workflow_state` exposes the
+  proposal state as an INFORMATIONAL review action (a separate operator-state vocabulary
+  that never enters `OVERALL_STATES`); the Daily Close remains an independent operational
+  action whose gating never depends on a proposal existing, and a proposal-review
+  requirement never fabricates an order requirement. The Daily Action Gate delegates to
+  `load_proposal_summary` and flips its banner from "REALLOCATION ENGINE NOT YET
+  IMPLEMENTED" to a review-only "MANUAL REVIEW REQUIRED", `reallocation_engine_implemented =
+  True`, while `decision_authority` stays NONE and `execution_available` stays false.
+- **Evidence:** the static guard `check_reallocation_proposal_ownership` confirms the sole
+  calculation + API owners, delegation, the GET-only route, no create/apply/confirm-target/
+  rebalance/order route, the DRC as the sole execution path, no order / fill / target / NAV /
+  holdings mutation in either owner, kernel purity, ONE UI loader with no allocation
+  computation, immutable/idempotent artifacts, and that Slice 8 remains future; audit
+  inventory drift = 0. Deterministic tests inject every input, so no provider / prediction /
+  real cycle / ledger write occurs.
+- **Consequence:** Charter Milestone 3 is delivered, review-only. Slice 8 (Persistent Alpha
+  Research Agent, Milestone 4) remains not begun; automatic model promotion remains
+  prohibited; cadence remains disabled.
+
 ## Rejected alternatives
 
 - **R-1 — Rewrite the backend from scratch.** Rejected: violates Principle 8;

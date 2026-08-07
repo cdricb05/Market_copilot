@@ -50,7 +50,7 @@ defect to be migrated, not a new owner to be blessed.
 | Model registry / champion governance | `model_registry` (unify `alpha_registry` + tournament) | 2 challenger registries (phase20/21), dead phase18 wire |
 | Portfolio state (NAV, cash, holdings) | `api/portfolio_state` (**LANDED, Slice 5**; read owner composing the active `operational_book` + `data_freshness` dates + `paper_trading_desk` performance + `daily_action_gate` + `forward_prediction_skill`; LIVE NAV authority = `paper_trading_desk.book_nav`, `portfolio_valuation` = explicitly-scoped legacy DB archive) | resolved at the read layer; `engine/portfolio.cached_total_value`/`current_alpha_book`/`_collect_positions` remain research/legacy writers scoped for Slices 8/11 |
 | Holding opportunity-cost | `engine/holding_opportunity_cost` (kernel) + `api/holding_opportunity_cost` (composition/read) (**LANDED, Slice 6**; Milestone 2; reuses `multi_horizon_engine` constants + `paper_trading_desk` cost model; runs inside the Daily Research Cycle; read at `GET /v1/operations/holding-opportunity-cost`) | resolved; the prior ad-hoc rank/deterioration logic in `portfolio_manager` is superseded (review-only) |
-| Portfolio proposal / target | `portfolio_proposal` (`alpha_target` + `operational_book`) | operational snapshot vs frozen champion book |
+| Portfolio proposal / target | `engine/reallocation_proposal` (kernel) + `api/reallocation_proposal` (composition/read) (**LANDED, Slice 7**; Milestone 3; consumes `portfolio_state` + `holding_opportunity_cost`; reuses `multi_horizon_engine` constants + `paper_trading_desk` cost model; runs inside the Daily Research Cycle; read at `GET /v1/operations/reallocation-proposal`) | resolved (review-only); no order/target authority is created |
 | Risk and cost evaluation | `risk_cost_service` (unify `engine/risk` + cap families) | duplicated top-N-sector-cap + name-cap code |
 | Forward evidence | `forward_evidence` (+ `forward_prediction_skill`) | already coherent — keep |
 | Operational daily close | `daily_close.run_daily_close` | World A/B split; standalone refresh bypass |
@@ -286,14 +286,32 @@ responsibilities, candidate existing modules, and migration approach.
   its summary; the review banner reads `HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION
   ENGINE NOT YET IMPLEMENTED` (Slice 7 not implemented).
 
-### Portfolio Proposal
-- **Responsibility:** a complete paper-only target with full before/after
-  explanation (Milestone 3).
-- **Inputs:** opportunity-cost, risk/cost.
-- **Outputs:** target portfolio + turnover/cost/risk deltas.
-- **Owned state:** confirmed snapshot ledger.
-- **Forbidden:** creating orders without manual approval.
-- **Candidates:** `alpha_target`, `operational_book`, `current_alpha_book`.
+### Portfolio Proposal (LANDED — Slice 7, Phase 29H)
+- **Responsibility:** a complete paper-only proposed target portfolio with full
+  before/after explanation (Milestone 3). Two owners: the pure kernel
+  `engine/reallocation_proposal.py` (sole allocation-math owner) and
+  `api/reallocation_proposal.py` (composition / validation / immutable artifact / read).
+- **Inputs:** the current portfolio state (`api.portfolio_state`) and the Slice 6
+  Holding Opportunity-Cost assessment (`api.holding_opportunity_cost`), plus the
+  eligible universe ranking (`api.universe_scoring`) and owned returns
+  (`api.price_panel`); reuses the `api.multi_horizon_engine` construction constants +
+  the `api.paper_trading_desk` cost model via one versioned allocation policy.
+- **Outputs:** ONE coherent proposed target portfolio (RETAIN/INCREASE/REDUCE/EXIT/ADD/
+  REPLACE_OUT/REPLACE_IN), turnover, transaction + switching cost, before/after portfolio
+  SCORE (expected return NEVER fabricated — null/`NOT_CALIBRATED`), concentration and
+  volatility before/after, hard-constraint validation, and a deterministic `proposal_hash`;
+  persisted as an immutable artifact under `PAPER_TRADER_REALLOC_DIR`; read at
+  `GET /v1/operations/reallocation-proposal`.
+- **Owned state:** immutable reallocation-proposal artifacts (research / decision-evidence
+  root; a different source HOC hash for the same date supersedes, never silently reuses).
+- **Forbidden:** creating an operational or alpha target, an order/fill, any holdings/cash/
+  NAV mutation, broker execution, model promotion, or a create/apply/confirm/rebalance
+  endpoint. The sole execution path is the Daily Research Cycle's
+  `BUILD_REALLOCATION_PROPOSAL` step; the read endpoint is GET-only (NOT_RUN before a
+  proposal exists).
+- **Status:** review-only, preview-first, paper-only, manual review mandatory. The Daily
+  Action Gate delegates to `load_proposal_summary`; `api.workflow_state` exposes the
+  proposal state as an informational review action that never gates the Daily Close.
 
 ### Risk and Cost Evaluation
 - **Responsibility:** volatility, drawdown, concentration, caps, switching cost.

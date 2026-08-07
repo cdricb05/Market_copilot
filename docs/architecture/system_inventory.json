@@ -1,11 +1,11 @@
 {
   "schema_version": "1.0",
   "generated_for": {
-    "head": "03c8802",
+    "head": "b9f6543",
     "branch": "main",
-    "phase": "29G.3"
+    "phase": "29H"
   },
-  "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete. Phase 29G.2 (Slice 6 residual hard cutover + first-live operator gates): the Holding Opportunity-Cost Review is the SOLE primary portfolio-decision card on all three operator surfaces (Command Center / Daily Workflow / Portfolio Manager); the canonical operator state is HOLDING_OPPORTUNITY_COST_NOT_RUN before the first production artifact (no fabricated counts). The residual Daily Action Gate card no longer presents 'LATEST PORTFOLIO ASSESSMENT' / 'PROPOSAL READY' / 'PORTFOLIO CHANGES PROPOSED' / 'Review Proposed Changes'; the legacy rank-membership comparison is a collapsed, read-only LEGACY MEMBERSHIP-COMPARISON SUMMARY (compatibility-only) carrying explicit classification (compatibility_only / decision_authority=NONE / execution_available=false / canonical_decision_owner=api.holding_opportunity_cost / legacy_membership_comparison); the raw gate outcome/target-state vocabulary is preserved for historical consumers only. Two read-only GET-only operator scripts (pre_drc_readiness.ps1, post_drc_acceptance.ps1) gate the first live cycle. Guarded by check_slice6_residual_cutover_ownership. Prior (Phase 29G.1): SERVICE vs WORKFLOW readiness distinct; the Daily Research Cycle is the sole Slice 6 execution path. No target/rebalance/order route was added; Slice 7 next; Persistent Alpha Research Agent (Slice 8/Milestone 4) planned; cadence disabled. Phase 29G.3 (first-live Slice 6 recovery): the first real Daily Research Cycle (2026-08-06) persisted a COMPLETE run manifest + immutable Holding Opportunity-Cost artifact but GET status read NOT_STARTED because the status reader gated reuse on the raw input_contract_hash, which the cycle itself mutates by refreshing its fast daily inputs (a status/downstream split-brain). Fix: the status reader now REFLECTS a persisted terminal manifest verbatim (never NOT_STARTED) and returns INCONSISTENT / TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST when a downstream HOC artifact exists without a manifest; a new session-stable identity (eligible + book + strategy + universe + slow inputs) keys reuse/recovery so a same-session rerun REUSES the immutable outputs (no duplicate evidence/HOC, no order/fill, no target confirmation, no ledger mutation) while a genuinely different slow-input contract is still refused (DIFFERENT_CONTRACT_SAME_DATE); a terminal COMPLETE is validated + read back before it is trusted (never COMPLETE on an unverified persist — MANIFEST_PERSISTENCE_UNVERIFIED / MANIFEST_CONTRACT_INCOMPLETE). portfolio_state classifies the expected one-session pre-close valuation gap as PENDING_DAILY_CLOSE / EXPECTED_PRE_CLOSE_GAP (STATE_READY_WITH_PENDING_CLOSE), never corruption, while genuine gaps (>1 session, future-dated, behind, NAV/benchmark/active-book mismatch) stay INCONSISTENT. workflow_state treats a completed cycle + current HOC assessment as a satisfied reassessment (READY_FOR_DAILY_CLOSE, no separate reassessment control) and preserves the honest HOC DEGRADED data gaps. No evidence is fabricated; no order/target authority is added. Guarded by check_drc_manifest_recovery; cadence stays disabled; Slice 7 next; Persistent Alpha Research Agent (Slice 8/Milestone 4) remains planned.",
+  "note": "Read-only architecture inventory. Static analysis does not prove runtime behavior; classifications are leads to confirm, never authorization to delete. Phase 29G.2 (Slice 6 residual hard cutover + first-live operator gates): the Holding Opportunity-Cost Review is the SOLE primary portfolio-decision card on all three operator surfaces (Command Center / Daily Workflow / Portfolio Manager); the canonical operator state is HOLDING_OPPORTUNITY_COST_NOT_RUN before the first production artifact (no fabricated counts). The residual Daily Action Gate card no longer presents 'LATEST PORTFOLIO ASSESSMENT' / 'PROPOSAL READY' / 'PORTFOLIO CHANGES PROPOSED' / 'Review Proposed Changes'; the legacy rank-membership comparison is a collapsed, read-only LEGACY MEMBERSHIP-COMPARISON SUMMARY (compatibility-only) carrying explicit classification (compatibility_only / decision_authority=NONE / execution_available=false / canonical_decision_owner=api.holding_opportunity_cost / legacy_membership_comparison); the raw gate outcome/target-state vocabulary is preserved for historical consumers only. Two read-only GET-only operator scripts (pre_drc_readiness.ps1, post_drc_acceptance.ps1) gate the first live cycle. Guarded by check_slice6_residual_cutover_ownership. Prior (Phase 29G.1): SERVICE vs WORKFLOW readiness distinct; the Daily Research Cycle is the sole Slice 6 execution path. No target/rebalance/order route was added; cadence disabled. Phase 29G.3 (first-live Slice 6 recovery): the first real Daily Research Cycle (2026-08-06) persisted a COMPLETE run manifest + immutable Holding Opportunity-Cost artifact but GET status read NOT_STARTED because the status reader gated reuse on the raw input_contract_hash, which the cycle itself mutates by refreshing its fast daily inputs (a status/downstream split-brain). Fix: the status reader now REFLECTS a persisted terminal manifest verbatim (never NOT_STARTED) and returns INCONSISTENT / TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST when a downstream HOC artifact exists without a manifest; a new session-stable identity (eligible + book + strategy + universe + slow inputs) keys reuse/recovery so a same-session rerun REUSES the immutable outputs (no duplicate evidence/HOC, no order/fill, no target confirmation, no ledger mutation) while a genuinely different slow-input contract is still refused (DIFFERENT_CONTRACT_SAME_DATE); a terminal COMPLETE is validated + read back before it is trusted (never COMPLETE on an unverified persist — MANIFEST_PERSISTENCE_UNVERIFIED / MANIFEST_CONTRACT_INCOMPLETE). portfolio_state classifies the expected one-session pre-close valuation gap as PENDING_DAILY_CLOSE / EXPECTED_PRE_CLOSE_GAP (STATE_READY_WITH_PENDING_CLOSE), never corruption, while genuine gaps (>1 session, future-dated, behind, NAV/benchmark/active-book mismatch) stay INCONSISTENT. workflow_state treats a completed cycle + current HOC assessment as a satisfied reassessment (READY_FOR_DAILY_CLOSE, no separate reassessment control) and preserves the honest HOC DEGRADED data gaps. No evidence is fabricated; no order/target authority is added. Guarded by check_drc_manifest_recovery; cadence stays disabled. Phase 29H (Slice 7 Reallocation Proposal engine, Milestone 3, LANDED): two canonical owners — the pure kernel engine/reallocation_proposal.py (sole allocation-math owner) and api/reallocation_proposal.py (sole composition/persistence/read owner). From the current portfolio state + the Slice 6 Holding Opportunity-Cost assessment it builds ONE coherent paper-only proposed target portfolio (RETAIN/INCREASE/REDUCE/EXIT/ADD/REPLACE_OUT/REPLACE_IN) with turnover, transaction + switching cost, before/after portfolio SCORE (expected return never fabricated -> null/NOT_CALIBRATED), concentration and volatility, and hard-constraint validation; states READY/DEGRADED/BLOCKED/NO_ACTIVE_BOOK/NOT_RUN. The sole execution path is the Daily Research Cycle's BUILD_REALLOCATION_PROPOSAL step (after ASSESS_HOLDING_OPPORTUNITY_COST); GET /v1/operations/reallocation-proposal is read-only (NOT_RUN before a proposal exists); NO create/apply/confirm-target/rebalance/order endpoint. Immutable idempotent artifacts under PAPER_TRADER_REALLOC_DIR (a different source HOC hash for the same date SUPERSEDES, never silently reuses). The Daily Action Gate delegates to load_proposal_summary; workflow_state exposes the proposal state as an informational review action (never an order/close requirement, Daily Close stays independent). Review-only, manual review mandatory: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. Guarded by check_reallocation_proposal_ownership; inventory drift zero. Slice 8 (Persistent Alpha Research Agent, Milestone 4) remains the next planned milestone.",
   "systems": {
     "operational_alpha_book": "System 1 (Phase 27/28, LIVE): file-based chain-hashed JSON desk ledgers, owned-EODHD marks, Alpha Paper Book #1. No Postgres.",
     "legacy_db_engine": "System 2 (Phase 14-15 + engine/): Postgres ORM, yfinance/FRED, remote prediction; the only order/fill (execution) code — conflicts with the preview-only mandate.",
@@ -268,6 +268,11 @@
     {
       "prefix": "/v1/operations/holding-opportunity-cost",
       "owner": "api/holding_opportunity_cost.py",
+      "system": "infrastructure"
+    },
+    {
+      "prefix": "/v1/operations/reallocation-proposal",
+      "owner": "api/reallocation_proposal.py",
       "system": "infrastructure"
     },
     {
@@ -616,7 +621,7 @@
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "The ONE authoritative read model of the operational portfolio state (Consolidation Roadmap Slice 5). Resolves the portfolio_nav_valuation CONFLICT at the read layer: the LIVE NAV authority is paper_trading_desk.book_nav (ledger replay, via operational_book) and portfolio_valuation.py is the explicitly-scoped legacy DB archive that is never selected as the active book. Owns the frozen portfolio-state vocabulary (PORTFOLIO_STATE_READY / PORTFOLIO_STATE_DEGRADED / PORTFOLIO_STATE_INCONSISTENT / NO_ACTIVE_BOOK / PORTFOLIO_STATE_UNAVAILABLE) and the consistency vocabulary (CONSISTENT/DEGRADED/INCONSISTENT/UNAVAILABLE) with 12 read-only cross-source checks; never silently repairs. Exposes state_hash + source_hashes (generated_at excluded). The preliminary reassessment proposal it references is review-only and unapproved (Holding Opportunity-Cost engine Slice 6 and Reallocation Proposal engine Slice 7 not implemented). One UI loader (loadPortfolioState) owns the valuation nodes; the UI computes no NAV/totals/active-book selection/valuation date/pending count. Read-only: no provider/prediction call, no Daily Close, no research refresh, no reassessment, no write."
+      "notes": "The ONE authoritative read model of the operational portfolio state (Consolidation Roadmap Slice 5). Resolves the portfolio_nav_valuation CONFLICT at the read layer: the LIVE NAV authority is paper_trading_desk.book_nav (ledger replay, via operational_book) and portfolio_valuation.py is the explicitly-scoped legacy DB archive that is never selected as the active book. Owns the frozen portfolio-state vocabulary (PORTFOLIO_STATE_READY / PORTFOLIO_STATE_DEGRADED / PORTFOLIO_STATE_INCONSISTENT / NO_ACTIVE_BOOK / PORTFOLIO_STATE_UNAVAILABLE) and the consistency vocabulary (CONSISTENT/DEGRADED/INCONSISTENT/UNAVAILABLE) with 12 read-only cross-source checks; never silently repairs. Exposes state_hash + source_hashes (generated_at excluded). The preliminary reassessment proposal it references is review-only and unapproved; the canonical portfolio decision is now the Holding Opportunity-Cost review (Slice 6, LANDED) and the Reallocation Proposal (Slice 7, LANDED), both review-only. One UI loader (loadPortfolioState) owns the valuation nodes; the UI computes no NAV/totals/active-book selection/valuation date/pending count. Read-only: no provider/prediction call, no Daily Close, no research refresh, no reassessment, no write."
     },
     {
       "path": "engine/holding_opportunity_cost.py",
@@ -638,7 +643,7 @@
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Charter Milestone 2 (Consolidation Roadmap Slice 6). The SOLE holding-recommendation calculation owner; reuses (never forks) the api.multi_horizon_engine construction constants (entry rank / exit buffer / sector cap / name cap / liquidity floor) and the api.paper_trading_desk transaction-cost constant, injected via the versioned decision policy. Deterministic assessment_hash (generated_at excluded). Produces no target weights, no NAV, no universe score, no order/fill. Review-only; the Reallocation Proposal engine (Slice 7) is not implemented."
+      "notes": "Charter Milestone 2 (Consolidation Roadmap Slice 6). The SOLE holding-recommendation calculation owner; reuses (never forks) the api.multi_horizon_engine construction constants (entry rank / exit buffer / sector cap / name cap / liquidity floor) and the api.paper_trading_desk transaction-cost constant, injected via the versioned decision policy. Deterministic assessment_hash (generated_at excluded). Produces no target weights, no NAV, no universe score, no order/fill. Review-only; its output feeds the Reallocation Proposal engine (Slice 7, LANDED)."
     },
     {
       "path": "api/holding_opportunity_cost.py",
@@ -670,7 +675,60 @@
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Charter Milestone 2 (Consolidation Roadmap Slice 6). The SOLE composition/read/persistence owner over the pure engine.holding_opportunity_cost kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run); there is deliberately NO separate manual opportunity-cost execution endpoint (the read endpoint is GET-only). The Daily Action Gate delegates to load_assessment_summary for its opportunity_cost_* compatibility fields; the review-only proposal banner reads HOLDING OPPORTUNITY-COST REVIEW - REALLOCATION ENGINE NOT YET IMPLEMENTED. Preview-first, paper-only, review-only: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. The Reallocation Proposal engine (Slice 7) and the Persistent Alpha Research Agent (Slice 8 / Milestone 4) are not implemented."
+      "notes": "Charter Milestone 2 (Consolidation Roadmap Slice 6). The SOLE composition/read/persistence owner over the pure engine.holding_opportunity_cost kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run); there is deliberately NO separate manual opportunity-cost execution endpoint (the read endpoint is GET-only). The Daily Action Gate delegates to load_assessment_summary for its opportunity_cost_* compatibility fields. Preview-first, paper-only, review-only: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. Its assessment feeds the Reallocation Proposal engine (Slice 7, LANDED). The Persistent Alpha Research Agent (Slice 8 / Milestone 4) remains planned."
+    },
+    {
+      "path": "engine/reallocation_proposal.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 7 (Phase 29H) CANONICAL Reallocation Proposal calculation kernel (Milestone 3): the ONE pure, deterministic portfolio-reallocation engine and sole allocation-math owner. From one immutable reallocation-input contract (current portfolio state + the Slice 6 Holding Opportunity-Cost recommendations + the eligible universe ranking + owned returns) it builds ONE coherent paper-only proposed target portfolio: HOLD/REDUCE retained, EXIT zeroed, REPLACE swapped to a traceable net-of-cost-positive candidate, ADD candidates filling remaining slots, equal-weight min(1/N, name_cap) with residual cash, sector count-cap. It computes per-ticker actions (RETAIN/INCREASE/REDUCE/EXIT/ADD/REPLACE_OUT/REPLACE_IN), turnover, transaction + switching cost, before/after portfolio SCORE (expected return is never fabricated -> null/NOT_CALIBRATED), concentration and portfolio volatility (reusing the Slice-6 covariance primitive), and hard-constraint validation. No I/O; never mutates inputs; review-only.",
+      "classification": "KEEP",
+      "target_owner": "engine/reallocation_proposal.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "pure kernel: consumes only the immutable input_contract dict supplied by api.reallocation_proposal (no file/db/network/provider/prediction access); reuses engine.holding_opportunity_cost.compute_risk_contributions for the before/after covariance volatility"
+      ],
+      "direct_writes": [
+        "read-only (pure function; no file/ledger/db/order/fill/NAV/target write)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_slice7_reallocation_proposal.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Charter Milestone 3 (Consolidation Roadmap Slice 7). The SOLE allocation-math owner; reuses (never forks) the api.multi_horizon_engine construction constants (book size N / name cap / sector cap / liquidity floor) and the api.paper_trading_desk transaction-cost constant, injected via the versioned allocation policy (reallocation_allocation_policy.v1). Deterministic proposal_hash (generated_at excluded). Produces no operational/alpha target, no order/fill, no NAV mutation. Review-only, manual review mandatory."
+    },
+    {
+      "path": "api/reallocation_proposal.py",
+      "system": "infrastructure",
+      "responsibility": "Slice 7 (Phase 29H) CANONICAL Reallocation Proposal composition / persistence / read owner (Milestone 3). Sources the immutable point-in-time reallocation-input contract from the authoritative owners (portfolio_state holdings/weights/NAV/cash/sectors; holding_opportunity_cost per-holding recommendations/replacements/switching costs; universe_scoring eligible candidate ranking/eligibility/adv_dollar; price_panel owned returns for the union of current + candidate names), runs the pure engine.reallocation_proposal kernel, persists a completed production proposal as an immutable artifact (atomic write, index/manifest, idempotent identical rerun; a proposal from a DIFFERENT source HOC assessment hash for the same date SUPERSEDES the stale proposal, never silently reuses it) under a dedicated research root (PAPER_TRADER_REALLOC_DIR), and exposes the read contract + a compact summary the Daily Action Gate / workflow state read. Never writes an operational ledger / PostgreSQL / operational target / alpha target / order / fill / holding / cash / NAV.",
+      "classification": "KEEP",
+      "target_owner": "api/reallocation_proposal.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "portfolio_state.load_portfolio_state (active book / positions / weights / NAV / cash / sectors / dates / state_hash)",
+        "holding_opportunity_cost assessment (per-holding recommendation / replacement / switching cost / drawdown / liquidity) + load_latest_artifact",
+        "universe_scoring.build_universe_scoring (rankings / scores / eligibility / adv_dollar / output_hash)",
+        "price_panel.load_price_panel + asof_index (owned PIT returns for before/after covariance)",
+        "multi_horizon_engine constants (book size / name / sector / liquidity — reused, not forked)",
+        "paper_trading_desk.COST_RATE_PER_SIDE / COST_BPS_PER_SIDE (transaction-cost model — reused)"
+      ],
+      "direct_writes": [
+        "immutable reallocation-proposal artifacts + index under PAPER_TRADER_REALLOC_DIR (a research / decision-evidence root, atomic; NOT the operational ledger root). No PostgreSQL / order / fill / target / holding / cash / NAV write."
+      ],
+      "endpoints": [
+        "/v1/operations/reallocation-proposal"
+      ],
+      "ui_consumers": [
+        "loadReallocationProposal"
+      ],
+      "tests": [
+        "tests/test_slice7_reallocation_proposal.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Charter Milestone 3 (Consolidation Roadmap Slice 7). The SOLE composition/read/persistence owner over the pure engine.reallocation_proposal kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run) via the BUILD_REALLOCATION_PROPOSAL step (after ASSESS_HOLDING_OPPORTUNITY_COST); there is deliberately NO create/apply/confirm-target/rebalance/order endpoint (the read endpoint is GET-only). The Daily Action Gate delegates to load_proposal_summary for its reallocation_proposal_* fields; workflow_state exposes the proposal state as an informational review action (never an order/close requirement). Preview-first, paper-only, review-only, manual review mandatory: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. The Persistent Alpha Research Agent (Slice 8 / Milestone 4) remains planned."
     },
     {
       "path": "api/daily_research_cycle.py",

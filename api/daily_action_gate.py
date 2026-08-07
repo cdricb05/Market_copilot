@@ -57,11 +57,12 @@ from paper_trader.api import paper_trading_desk as desk
 
 PHASE = "27D"
 
-# Slice 6 (Phase 29G): the reassessment proposal is now backed by the canonical
-# Holding Opportunity-Cost review, but remains review-only — the Reallocation Proposal
-# engine (Slice 7) is not implemented, so it is never an approved reallocation.
+# Slice 7 (Phase 29H): the reassessment is backed by the canonical Holding
+# Opportunity-Cost review (Slice 6) and the Reallocation Proposal engine (Slice 7,
+# LANDED). It remains REVIEW ONLY — a research proposal that confirms no target and
+# creates no order; manual review is mandatory.
 PROPOSAL_REVIEW_LABEL = (
-    "HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET IMPLEMENTED")
+    "REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED (REVIEW ONLY, NO ORDERS)")
 
 # Phase 29G.2 residual hard cutover: the daily action gate's target-versus-actual
 # rank-membership comparison is NOT the canonical portfolio decision. It is a legacy,
@@ -1116,6 +1117,18 @@ def _default_opportunity_cost_loader(*, active_book_id: Optional[str] = None,
                                        eligible_market_date=eligible_market_date)
 
 
+def _default_reallocation_loader(*, active_book_id: Optional[str] = None,
+                                 eligible_market_date: Optional[str] = None) -> dict:
+    """Slice 7 (Phase 29H): the canonical Reallocation Proposal summary the gate
+    delegates to. Read-only and degrade-safe (available=False when no artifact). Like
+    the opportunity-cost summary, it is a PURE artifact reader for the exact book+date
+    the gate already owns — it never loads portfolio state, never runs the engine and
+    never calls a provider/prediction."""
+    from paper_trader.api import reallocation_proposal as rp
+    return rp.load_proposal_summary(active_book_id=active_book_id,
+                                    eligible_market_date=eligible_market_date)
+
+
 def _default_freshness_loader(operational: Optional[dict] = None) -> dict:
     """The authoritative eligible-market-date owner (``api.data_freshness``, built on
     ``engine.market_session``). Passing the already-loaded operational book avoids a
@@ -1132,6 +1145,7 @@ def _default_freshness_loader(operational: Optional[dict] = None) -> dict:
 _ENGINE_CURRENT_LOADER = _default_engine_current
 _OPERATIONAL_BOOK_LOADER = _default_operational_loader
 _OPPORTUNITY_COST_LOADER = _default_opportunity_cost_loader
+_REALLOCATION_LOADER = _default_reallocation_loader
 _FRESHNESS_LOADER = _default_freshness_loader
 
 
@@ -1214,7 +1228,8 @@ def _signals_from_recs(current: dict, held: set, size: int) -> tuple[dict, dict,
 
 def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dict] = None,
                            operational: Optional[dict] = None,
-                           opportunity_cost: Optional[dict] = None) -> dict:
+                           opportunity_cost: Optional[dict] = None,
+                           reallocation: Optional[dict] = None) -> dict:
     """Assemble and evaluate the canonical daily action gate. Read-only; degrades to
     ``DATA_NOT_READY`` (never a stack trace) when the owned model inputs are absent.
 
@@ -1342,11 +1357,41 @@ def load_daily_action_gate(*, today: Optional[str] = None, current: Optional[dic
     result["opportunity_cost_hold_count"] = int(oc.get("opportunity_cost_hold_count") or 0)
     result["opportunity_cost_add_count"] = int(oc.get("opportunity_cost_add_count") or 0)
     result["opportunity_cost_data_gaps"] = list(oc.get("opportunity_cost_data_gaps") or [])
-    # The proposal is a review-only opportunity-cost review; the Reallocation Proposal
-    # engine (Slice 7) is not implemented, so it is NEVER an approved reallocation.
+    # --- Slice 7 (Phase 29H) Reallocation Proposal compatibility summary --------- #
+    # The gate ALSO delegates to the canonical reallocation-proposal summary (never
+    # computes it) — a PURE artifact read for the same (active_book_id, eligible_date)
+    # context. This surfaces the proposal state to the workflow owner through the ONE
+    # shared gate path; it grants NO execution authority and creates no order/target.
+    if reallocation is not None:
+        rp = reallocation
+    else:
+        rp = {}
+        try:
+            rp = _REALLOCATION_LOADER(active_book_id=ob_book.get("book_id"),
+                                      eligible_market_date=hoc_eligible_market_date
+                                      if opportunity_cost is None else None)
+        except Exception as exc:  # noqa: BLE001 — degrade, never crash the gate
+            rp = {}
+            warnings.append("Reallocation proposal summary unavailable: %s" % str(exc)[:160])
+    result["reallocation_proposal_available"] = bool(rp.get("reallocation_proposal_available"))
+    result["reallocation_proposal_state"] = rp.get("reallocation_proposal_state")
+    result["reallocation_proposal_hash"] = rp.get("reallocation_proposal_hash")
+    result["reallocation_proposal_id"] = rp.get("reallocation_proposal_id")
+    result["reallocation_action_counts"] = rp.get("reallocation_action_counts") or {}
+    result["reallocation_score_improvement"] = rp.get("reallocation_score_improvement")
+    result["reallocation_score_improvement_net_of_cost"] = (
+        rp.get("reallocation_score_improvement_net_of_cost"))
+    result["reallocation_one_way_turnover"] = rp.get("reallocation_one_way_turnover")
+    result["reallocation_estimated_transaction_cost"] = (
+        rp.get("reallocation_estimated_transaction_cost"))
+    result["reallocation_proposed_holding_count"] = rp.get("reallocation_proposed_holding_count")
+    result["reallocation_data_gaps"] = list(rp.get("reallocation_data_gaps") or [])
+    # Slice 7 (Phase 29H) is LANDED: the reallocation proposal exists and remains
+    # REVIEW ONLY — it is a research proposal that confirms no target and creates no
+    # order. It never becomes execution authority (Daily Close stays independent).
     result["proposal_label"] = PROPOSAL_REVIEW_LABEL
     result["proposal_review_only"] = True
-    result["reallocation_engine_implemented"] = False
+    result["reallocation_engine_implemented"] = True
     # --- Phase 29G.2 residual hard cutover: explicit compatibility classification ---- #
     # The gate result is the LEGACY rank-membership comparison. It carries NO decision
     # authority and is NEVER executable: the canonical portfolio decision is the Holding

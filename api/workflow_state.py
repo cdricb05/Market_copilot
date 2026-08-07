@@ -152,6 +152,11 @@ ACTION_REVIEW_PENDING_ORDERS = "REVIEW_PENDING_PAPER_ORDERS"
 # REVIEWS it (read-only) before the Daily Close. This is a review/routing action only —
 # it is NEVER a separate reassessment/proposal/rebalance/order execution control.
 ACTION_REVIEW_HOC = "REVIEW_HOLDING_OPPORTUNITY_COST"
+# Phase 29H (Slice 7): after a reallocation proposal exists, the operator REVIEWS it
+# (read-only, manual review). Like ACTION_REVIEW_HOC this is a review/routing action
+# only — NEVER an apply/rebalance/confirm-target/order-execution control; the Daily
+# Close remains a separate operational action governed by its own requirements.
+ACTION_REVIEW_REALLOCATION = "REVIEW_REALLOCATION_PROPOSAL"
 
 # Daily-close status vocabulary mirror (a FROZEN subset of api.daily_close's
 # tested contract). Kept as literals so this module stays importable/pure without
@@ -327,6 +332,27 @@ COS_UNAVAILABLE = "HOLDING_OPPORTUNITY_COST_UNAVAILABLE"
 CANONICAL_OPERATOR_STATES = (COS_NOT_RUN, COS_AVAILABLE, COS_DEGRADED, COS_BLOCKED,
                              COS_NO_ACTIVE_BOOK, COS_UNAVAILABLE)
 
+# Slice 7 (Phase 29H) reallocation-proposal operator-state tokens (a SEPARATE,
+# informational review state — it never enters the frozen OVERALL_STATES vocabulary
+# and never gates the Daily Close).
+RP_TITLE = "REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED"
+RP_CANONICAL_OWNER = "api.reallocation_proposal"
+RPS_NOT_RUN = "REALLOCATION_PROPOSAL_NOT_RUN"
+RPS_READY = "REALLOCATION_PROPOSAL_READY"
+RPS_DEGRADED = "REALLOCATION_PROPOSAL_DEGRADED"
+RPS_BLOCKED = "REALLOCATION_PROPOSAL_BLOCKED"
+RPS_NO_ACTIVE_BOOK = "REALLOCATION_PROPOSAL_NO_ACTIVE_BOOK"
+RPS_UNAVAILABLE = "REALLOCATION_PROPOSAL_UNAVAILABLE"
+REALLOCATION_OPERATOR_STATES = (RPS_NOT_RUN, RPS_READY, RPS_DEGRADED, RPS_BLOCKED,
+                                RPS_NO_ACTIVE_BOOK, RPS_UNAVAILABLE)
+# Reallocation read-summary states (mirror of api.reallocation_proposal READ_STATE_VOCAB).
+_RP_READY = "READY"
+_RP_DEGRADED = "DEGRADED"
+_RP_BLOCKED = "BLOCKED"
+_RP_NO_ACTIVE_BOOK = "NO_ACTIVE_BOOK"
+_RP_NOT_RUN = "NOT_RUN"
+_RP_UNAVAILABLE = "UNAVAILABLE"
+
 # HOC read-summary states (mirror of api.holding_opportunity_cost READ_STATE_VOCAB) —
 # kept as literals so this module stays importable/pure without importing the owner.
 _HOC_READY = "READY"
@@ -481,8 +507,8 @@ def build_holding_opportunity_cost_presentation(
                        recommendations_label, gap_txt))
         explanation = ("Review-only per-holding opportunity-cost assessment produced by "
                        "the Daily Research Cycle. No target weights, no orders, no "
-                       "confirmation. The Reallocation Proposal engine (Slice 7) is not "
-                       "implemented.")
+                       "confirmation. It feeds the Reallocation Proposal engine "
+                       "(Slice 7), which is review-only and creates no order or target.")
 
     return {
         "title": title,
@@ -507,6 +533,95 @@ def build_holding_opportunity_cost_presentation(
         "execution_available": False,
         "creates_orders": False,
         "canonical_decision_owner": HOC_CANONICAL_OWNER,
+        "sole_execution_path": "POST /v1/operations/daily-research-cycle/run",
+    }
+
+
+# Reallocation read-summary state → (canonical operator state, badge, severity).
+_RP_STATE_MAP = {
+    _RP_READY: (RPS_READY, "READY — MANUAL REVIEW", SEV_INFO),
+    _RP_DEGRADED: (RPS_DEGRADED, "READY — DATA GAPS", SEV_ATTENTION),
+    _RP_BLOCKED: (RPS_BLOCKED, "BLOCKED", SEV_BLOCKED),
+    _RP_NO_ACTIVE_BOOK: (RPS_NO_ACTIVE_BOOK, "NO ACTIVE BOOK", SEV_ATTENTION),
+    _RP_NOT_RUN: (RPS_NOT_RUN, "NOT_RUN", SEV_INFO),
+    _RP_UNAVAILABLE: (RPS_UNAVAILABLE, "UNAVAILABLE", SEV_ATTENTION),
+}
+
+
+def build_reallocation_proposal_presentation(
+        *, state: Any, available: bool, eligible_date: Any,
+        action_counts: Optional[dict] = None, proposal_hash: Any = None,
+        proposed_holding_count: Any = None, score_improvement: Any = None,
+        one_way_turnover: Any = None, estimated_transaction_cost: Any = None,
+        data_gaps: Optional[list] = None) -> dict[str, Any]:
+    """Slice 7 (Phase 29H) reallocation-proposal presentation, rendered VERBATIM by the
+    UI (like the HOC presentation). Review-only, manual-review: it exposes the proposal
+    state as INFORMATION and NEVER as an order/apply/confirm requirement. It never gates
+    the Daily Close."""
+    rp_state = str(state) if state else _RP_NOT_RUN
+    if rp_state not in _RP_STATE_MAP:
+        rp_state = _RP_NOT_RUN if not available else _RP_READY
+    canonical_state, badge, severity = _RP_STATE_MAP[rp_state]
+    date_txt = _iso(_coerce_date(eligible_date)) or (
+        str(eligible_date) if eligible_date else None)
+    title = RP_TITLE
+    title_with_date = ("%s — %s" % (title, date_txt)) if date_txt else title
+    counts = action_counts or {}
+    gaps = list(data_gaps or [])
+    has_proposal = bool(available and rp_state in (_RP_READY, _RP_DEGRADED))
+
+    if not has_proposal:
+        headline = ("No reallocation proposal has been produced for the current active "
+                    "book and eligible session yet.")
+        explanation = ("The first proposal will be generated by the next completed Daily "
+                       "Research Cycle (after the Holding Opportunity-Cost step). "
+                       "Review-only: manual review required, no orders, no target.")
+        summary_label = "NONE YET"
+    else:
+        def _c(k):
+            try:
+                return int(counts.get(k, 0) or 0)
+            except (TypeError, ValueError):
+                return 0
+        summary_label = ("%d retain / %d increase / %d reduce / %d exit / %d add / "
+                         "%d replace"
+                         % (_c("RETAIN"), _c("INCREASE"), _c("REDUCE"), _c("EXIT"),
+                            _c("ADD"), _c("REPLACE_IN")))
+        gap_txt = (" · %d data gap(s)" % len(gaps)) if gaps else ""
+        headline = ("Reallocation proposal%s: %s proposed holdings, %s.%s"
+                    % ((" — %s" % date_txt) if date_txt else "",
+                       proposed_holding_count, summary_label, gap_txt))
+        explanation = ("Review-only proposed target portfolio produced by the Daily "
+                       "Research Cycle. Manual review is mandatory. It confirms no "
+                       "operational or alpha target, creates no order/fill and changes "
+                       "no holding/cash/NAV. The Daily Close is a separate action.")
+
+    return {
+        "title": title,
+        "title_with_date": title_with_date,
+        "badge": badge,
+        "headline": headline,
+        "explanation": explanation,
+        "severity": severity,
+        "state": rp_state,
+        "canonical_operator_state": canonical_state,
+        "available": bool(has_proposal),
+        "has_proposal": has_proposal,
+        "eligible_market_date": date_txt,
+        "action_counts": dict(counts) if has_proposal else {},
+        "summary_label": summary_label,
+        "proposal_hash": proposal_hash if has_proposal else None,
+        "proposed_holding_count": proposed_holding_count if has_proposal else None,
+        "score_improvement": score_improvement if has_proposal else None,
+        "one_way_turnover": one_way_turnover if has_proposal else None,
+        "estimated_transaction_cost": estimated_transaction_cost if has_proposal else None,
+        "data_gaps": gaps if has_proposal else [],
+        "is_primary_decision": False,
+        "decision_authority": "REVIEW_ONLY",
+        "execution_available": False,
+        "creates_orders": False,
+        "review_only": True,
+        "canonical_owner": RP_CANONICAL_OWNER,
         "sole_execution_path": "POST /v1/operations/daily-research-cycle/run",
     }
 
@@ -803,6 +918,7 @@ def _queued_actions(*, primary_code: str, research_current: bool,
                     has_confirmed_eligible: bool, evidence_gap: bool,
                     manual_review_required: bool, pending_orders: int,
                     cycle_active: bool = False, hoc_available: bool = False,
+                    reallocation_available: bool = False,
                     reassessment_satisfied: bool = False) -> list[dict]:
     q: list[dict[str, Any]] = []
 
@@ -841,6 +957,15 @@ def _queued_actions(*, primary_code: str, research_current: bool,
             SEV_INFO, DEST_PORTFOLIO_MANAGER,
             "A Holding Opportunity-Cost assessment is available for the eligible session; "
             "review it (read-only) before the Daily Close. No orders, no confirmation.")
+    if reallocation_available:
+        # Slice 7 (Phase 29H): after a reallocation proposal exists the operator REVIEWS
+        # it (read-only, manual review). Review/routing only — NEVER an apply / rebalance
+        # / confirm-target / order-execution control. It never gates the Daily Close.
+        add(ACTION_REVIEW_REALLOCATION, "Review the reallocation proposal",
+            SEV_INFO, DEST_PORTFOLIO_MANAGER,
+            "A reallocation proposal is available for the eligible session; review it "
+            "(read-only, manual review) — no orders, no confirmation, no target change. "
+            "The Daily Close remains a separate action.")
     if has_confirmed_eligible and not eligible_session_closed:
         add(ACTION_RUN_DAILY_CLOSE, "Run the Daily Close", SEV_ATTENTION,
             DEST_DAILY_WORKFLOW,
@@ -1134,6 +1259,16 @@ def load_workflow_state(
     hoc_hash = (gate or {}).get("opportunity_cost_assessment_hash")
     hoc_gaps = (gate or {}).get("opportunity_cost_data_gaps") or []
 
+    # --- Slice 7 (Phase 29H) reallocation-proposal state (same shared gate path;
+    #     the gate delegates to api.reallocation_proposal.load_proposal_summary). The
+    #     workflow owner only EXPOSES the proposal state as an informational review —
+    #     it never creates a proposal and never turns it into an order/close requirement.
+    rp_available = bool((gate or {}).get("reallocation_proposal_available"))
+    rp_state = (gate or {}).get("reallocation_proposal_state") or _RP_NOT_RUN
+    rp_counts = (gate or {}).get("reallocation_action_counts") or {}
+    rp_hash = (gate or {}).get("reallocation_proposal_hash")
+    rp_gaps = (gate or {}).get("reallocation_data_gaps") or []
+
     # --- Evidence facts (documented gap, never fabricated). -------------------- #
     latest_snapshot_date = (forward_status or {}).get("latest_snapshot_date")
     snap_d = _coerce_date(latest_snapshot_date)
@@ -1171,6 +1306,7 @@ def load_workflow_state(
         has_confirmed_eligible=has_confirmed_eligible, evidence_gap=evidence_gap,
         manual_review_required=manual_review_required, pending_orders=pending_orders,
         cycle_active=(cycle_running or cycle_blocked), hoc_available=hoc_available,
+        reallocation_available=rp_available,
         reassessment_satisfied=reassessment_satisfied)
 
     # --- Blockers + warnings (Workstream C.12/13). ----------------------------- #
@@ -1249,6 +1385,17 @@ def load_workflow_state(
         active_book_label=(freshness.get("active_book") or {}).get("active_book_name"),
         recommendation_counts=hoc_counts, assessment_hash=hoc_hash, data_gaps=hoc_gaps)
     canonical_operator_state = holding_opportunity_cost_presentation["canonical_operator_state"]
+    # Slice 7 (Phase 29H) reallocation-proposal presentation, rendered verbatim by the UI
+    # as an informational review card (never a primary decision, never an order/close gate).
+    reallocation_proposal_presentation = build_reallocation_proposal_presentation(
+        state=rp_state, available=rp_available, eligible_date=eligible_date,
+        action_counts=rp_counts, proposal_hash=rp_hash,
+        proposed_holding_count=(gate or {}).get("reallocation_proposed_holding_count"),
+        score_improvement=(gate or {}).get("reallocation_score_improvement"),
+        one_way_turnover=(gate or {}).get("reallocation_one_way_turnover"),
+        estimated_transaction_cost=(gate or {}).get("reallocation_estimated_transaction_cost"),
+        data_gaps=rp_gaps)
+    reallocation_operator_state = reallocation_proposal_presentation["canonical_operator_state"]
     # The PRIMARY card payload is the HOC presentation (owned by the UI's
     # renderWorkflowState canonical nodes) — it never carries the legacy "LATEST
     # PORTFOLIO ASSESSMENT" / "PROPOSAL READY" / "PORTFOLIO CHANGES PROPOSED" wording.
@@ -1411,6 +1558,12 @@ def load_workflow_state(
         "canonical_operator_state": canonical_operator_state,
         "canonical_operator_state_vocabulary": list(CANONICAL_OPERATOR_STATES),
         "canonical_decision_owner": HOC_CANONICAL_OWNER,
+        # Slice 7 (Phase 29H) reallocation proposal — informational review state (a
+        # SEPARATE vocabulary; never part of OVERALL_STATES; never an order/close gate).
+        "reallocation_proposal_presentation": reallocation_proposal_presentation,
+        "reallocation_operator_state": reallocation_operator_state,
+        "reallocation_operator_state_vocabulary": list(REALLOCATION_OPERATOR_STATES),
+        "reallocation_proposal_owner": RP_CANONICAL_OWNER,
         "legacy_membership_comparison": legacy_membership_comparison,
         "evidence_presentation": evidence_presentation,
         "completed_summary": completed_summary,

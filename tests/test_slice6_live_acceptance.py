@@ -378,7 +378,8 @@ def test_71_strict_audit_exit_zero_and_slice7_absent():
     audit = _load_audit()
     rep = audit.run_audit()
     ho = rep["holding_opportunity_cost_ownership"]
-    assert ho["slice7_present_modules"] == [] and ho["slice7_present_routes"] == []
+    assert ho["slice7_missing_modules"] == [] and ho["slice7_missing_route"] == []
+    assert ho["slice7_forbidden_present"] == []     # Slice 7 LANDED, no forbidden route
     assert ho["slice8_present_modules"] == []       # Persistent Alpha Research Agent planned
     assert ho["cadence_enabled"] is False
     assert rep["inventory_drift"]["status"] == "OK"

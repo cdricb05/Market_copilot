@@ -536,9 +536,10 @@ def test_43_inventory_drift_zero():
     assert d["on_disk_not_in_inventory"] == [] and d["in_inventory_not_on_disk"] == []
 
 
-def test_44_slice7_remains_absent():
+def test_44_slice7_landed():
     mr = _load_audit().run_audit()["drc_manifest_recovery"]
-    assert mr["slice7_present_modules"] == [] and mr["slice7_present_routes"] == []
+    assert mr["slice7_missing_modules"] == [] and mr["slice7_missing_route"] == []
+    assert mr["slice7_forbidden_present"] == []
 
 
 def test_45_persistent_alpha_research_agent_remains_planned():

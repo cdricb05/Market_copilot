@@ -520,6 +520,50 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
 - **Rollback:** proposal view feature-flagged.
 - **Completion gate:** one proposal payload; no order is ever created.
 - **Principle:** 1, 3. **Milestone:** 3.
+- **Status — LANDED (Phase 29H).** Two canonical owners: the pure deterministic
+  calculation kernel `engine/reallocation_proposal.py` (the SOLE allocation-math owner)
+  and the composition / validation / immutable-artifact / read owner
+  `api/reallocation_proposal.py` (the SOLE API owner). From the canonical CURRENT
+  portfolio state (`api.portfolio_state`) and the Slice 6 Holding Opportunity-Cost
+  assessment (`api.holding_opportunity_cost`) the kernel builds ONE coherent paper-only
+  proposed target portfolio: HOLD/REDUCE retained, EXIT zeroed, each REPLACE swapped to a
+  traceable eligible non-held candidate that clears the net-of-cost hurdle (unmatched
+  REPLACEs are retained, never a silent exit-to-cash), and ADD candidates filling the
+  remaining slots by rank — equal-weight `min(1/N, name_cap)` with the residual as cash and
+  a sector count-cap `int(sector_cap · N)`. It **reuses** (never forks) the
+  `api.multi_horizon_engine` construction constants (book size N / name cap / sector cap /
+  liquidity floor) and the `api.paper_trading_desk.COST_RATE_PER_SIDE` transaction-cost
+  model via one versioned allocation policy (`reallocation_allocation_policy.v1`), and
+  reuses the Slice-6 covariance primitive for before/after portfolio volatility. It emits
+  per-ticker actions (RETAIN/INCREASE/REDUCE/EXIT/ADD/REPLACE_OUT/REPLACE_IN), turnover,
+  transaction + switching cost, before/after portfolio SCORE (expected return is NEVER
+  fabricated — no validated forecast model exists, so it is null / `NOT_CALIBRATED` with an
+  explicit `EXPECTED_RETURN_NOT_CALIBRATED` gap), concentration and portfolio volatility
+  before/after, and hard-constraint validation, producing a state from the frozen
+  vocabulary **READY / DEGRADED / BLOCKED / NO_ACTIVE_BOOK** (read layer adds NOT_RUN /
+  UNAVAILABLE). A DEGRADED HOC input does not BLOCK Slice 7; the exact source gaps are
+  carried forward and classified by the analytic they affect. New surface:
+  `GET /v1/operations/reallocation-proposal` (authenticated, GET-only, read-only, NOT_RUN
+  before a proposal exists) rendered by ONE UI loader `loadReallocationProposal()` (a
+  first-class "REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED" Portfolio-Manager card plus
+  concise Command Center / Daily Workflow status; no JS allocation math). The **sole
+  execution path is the Daily Research Cycle** — a new `BUILD_REALLOCATION_PROPOSAL` step
+  runs after `ASSESS_HOLDING_OPPORTUNITY_COST` and before the portfolio-assessment step,
+  persists an immutable artifact under a research root (`PAPER_TRADER_REALLOC_DIR`; atomic,
+  indexed, idempotent identical rerun; a proposal from a DIFFERENT source HOC assessment
+  hash for the same date SUPERSEDES — never silently reuses — the stale proposal, keeping
+  every artifact immutable). The Daily Action Gate delegates to `load_proposal_summary`;
+  `api.workflow_state` exposes the proposal state as an INFORMATIONAL review action (a
+  separate operator-state vocabulary that never enters `OVERALL_STATES` and never gates the
+  Daily Close, which stays independent). Static guard
+  `check_reallocation_proposal_ownership` enforces the sole calculation + API owners,
+  delegation, the GET-only route, no create/apply/confirm-target/rebalance/order route, the
+  DRC as the sole execution path, no order / fill / target / NAV / holdings mutation, kernel
+  purity, one UI loader with no allocation computation, immutable/idempotent artifacts, and
+  that Slice 8 remains future; inventory drift = 0. Review-only, preview-first, paper-only,
+  manual review mandatory: confirms no operational or alpha target, creates no order / fill,
+  changes no holding / cash / NAV, promotes no model, enables no cadence. **Not begun:**
+  Slice 8 (Persistent Alpha Research Agent, Milestone 4); cadence remains disabled.
 
 ## Slice 8 — Persistent Alpha Research Agent (unify registries)
 
