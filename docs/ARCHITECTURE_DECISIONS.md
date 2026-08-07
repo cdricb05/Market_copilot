@@ -673,6 +673,55 @@
   Proposal, Milestone 3) is next; the Persistent Alpha Research Agent (Slice 8, Milestone
   4) remains planned; cadence remains disabled.
 
+### D-17.2 — DRC terminal-manifest persistence/read-back + safe recovery + pre-close consistency (Phase 29G.3) — CONFIRMED (LANDED)
+- **Defect (first real Slice 6 run, 2026-08-06):** the first live Daily Research Cycle
+  persisted a COMPLETE run manifest and an immutable Holding Opportunity-Cost artifact, but
+  `GET .../daily-research-cycle/status` returned `NOT_STARTED`. Root cause: the status
+  reader loaded the run by eligible date but gated "reuse a completed run" on
+  `input_contract_hash` equality, and that hash is derived from the current input as-of
+  dates — including the FAST daily inputs the cycle ITSELF refreshes to the eligible session
+  (`price_score_refresh`, `target_calc`). A status read after the run's refresh therefore
+  recomputed a different hash than was persisted, the completed manifest was skipped, and
+  the reader fell through to `NOT_STARTED` (a status/downstream split-brain). Separately,
+  `portfolio_state` reported `INCONSISTENT` only because the valuation sat one eligible
+  session ahead of the latest Daily Close before the August 6 close.
+- **Decision (terminal persistence/read-back):** a terminal `COMPLETE` /
+  `COMPLETE_WITH_EVIDENCE_GAP` requires manifest-contract validation, an atomic manifest +
+  index write, and a READ-BACK that confirms the same durable record BEFORE the terminal
+  response is returned. A validation/read-back failure never returns COMPLETE; it downgrades
+  to `INCONSISTENT` (`MANIFEST_CONTRACT_INCOMPLETE` / `MANIFEST_PERSISTENCE_UNVERIFIED`) with
+  the durable downstream references preserved for recovery.
+- **Decision (status reader):** a persisted terminal manifest for the eligible session is
+  REFLECTED verbatim (never NOT_STARTED under a benign recomputed-hash drift). When
+  downstream terminal artifacts exist for the session without a run manifest, status returns
+  `INCONSISTENT` with `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` and a safe
+  idempotent recovery action; it never synthesises COMPLETE from downstream artifacts.
+- **Decision (safe idempotent recovery):** a `session_contract_hash` — eligible date +
+  active book + strategy + universe + the SLOW monthly/fundamental inputs, EXCLUDING the
+  fast inputs the cycle refreshes — keys reuse/recovery, so a same-date rerun through the
+  normal run endpoint REUSES the immutable outputs (no re-scoring, no duplicate evidence /
+  HOC artifact, no order / fill / target confirmation / operational-ledger mutation) while a
+  genuinely different slow-input contract for the same date is still refused
+  (`DIFFERENT_CONTRACT_SAME_DATE`). Recovery is normal idempotent execution — there is NO
+  "mark complete" endpoint and no separate recovery entry. The raw `input_contract_hash`
+  (and the concurrency contract) is unchanged.
+- **Decision (pre-close consistency):** a valuation exactly one eligible session ahead of
+  the latest Daily Close, with the current session SESSION_READY and its close due-but-not-
+  run, is classified `PENDING_DAILY_CLOSE` / `EXPECTED_PRE_CLOSE_GAP` (state
+  `PORTFOLIO_STATE_READY_WITH_PENDING_CLOSE`), not corruption. Genuine gaps (>1 session,
+  future-dated valuation, valuation behind the close, NAV / benchmark / active-book
+  mismatch) remain `INCONSISTENT`. After the Daily Close, valuation and latest close align
+  and the state returns `CONSISTENT` / `READY`.
+- **Decision (workflow / HOC):** a completed cycle plus a current HOC assessment SATISFIES
+  the portfolio reassessment (`READY_FOR_DAILY_CLOSE`, no separate reassessment control)
+  even when the legacy gate date lags the pending close; a DRC `INCONSISTENT` surfaces an
+  explicit recovery blocker (never "the assessment has not run"). The honest HOC `DEGRADED`
+  state and its documented gaps remain visible and are never upgraded to pass a gate.
+- **Guard:** `scripts/audit_architecture.py:check_drc_manifest_recovery`.
+- **Consequence:** no evidence is fabricated and no order / target authority is added.
+  Slice 7 (Reallocation Proposal, Milestone 3) remains next; the Persistent Alpha Research
+  Agent (Slice 8, Milestone 4) remains planned; cadence remains disabled.
+
 ## Rejected alternatives
 
 - **R-1 — Rewrite the backend from scratch.** Rejected: violates Principle 8;

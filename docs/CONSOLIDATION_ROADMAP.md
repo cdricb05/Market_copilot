@@ -484,6 +484,27 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   by `check_slice6_residual_cutover_ownership`. The Daily Research Cycle remains the sole
   HOC execution path; no order or target authority is added; cadence remains disabled.
 
+- **First-live DRC terminal-manifest persistence + pre-close consistency (Phase 29G.3):**
+  the first real Daily Research Cycle (2026-08-06) persisted a COMPLETE manifest and an
+  immutable Holding Opportunity-Cost artifact, but `GET .../daily-research-cycle/status`
+  returned `NOT_STARTED` because the reader gated reuse on the raw `input_contract_hash`,
+  which the cycle mutates by refreshing its own fast daily inputs (a status/downstream
+  split-brain). Fix: (a) a terminal `COMPLETE` now requires a validated + read-back manifest
+  (never COMPLETE on an unverified persist — `MANIFEST_PERSISTENCE_UNVERIFIED` /
+  `MANIFEST_CONTRACT_INCOMPLETE`); (b) the status reader REFLECTS a persisted terminal
+  manifest verbatim (never NOT_STARTED) and returns `INCONSISTENT` /
+  `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` for downstream artifacts without a
+  manifest; (c) a new `session_contract_hash` keys safe idempotent recovery so a same-date
+  rerun REUSES the immutable outputs (no duplicate evidence / HOC, no order / fill / target
+  confirmation / ledger mutation) while a genuinely different slow-input contract for the
+  same date is still refused; (d) `portfolio_state` classifies the expected one-session
+  pre-close valuation gap as `PENDING_DAILY_CLOSE` / `READY_WITH_PENDING_CLOSE` (genuine
+  gaps stay `INCONSISTENT`); (e) `workflow_state` treats a completed cycle + current HOC as a
+  satisfied reassessment (`READY_FOR_DAILY_CLOSE`, no separate reassessment control) and
+  preserves the honest HOC `DEGRADED` gaps. Recovery is normal idempotent execution (no
+  "mark complete" endpoint). Guarded by `check_drc_manifest_recovery`. No evidence is
+  fabricated; no order/target authority is added; cadence remains disabled.
+
 ## Slice 7 — Portfolio reallocation proposal engine
 
 - **Objective:** a complete paper-only target with full before/after explanation.

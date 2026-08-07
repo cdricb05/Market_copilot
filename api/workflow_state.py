@@ -566,10 +566,15 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
                     owned_data_lag: bool, research_current: bool,
                     assessment_status: str, manual_review_required: bool,
                     evidence_gap: bool, cycle_running: bool = False,
-                    cycle_blocked: bool = False) -> str:
-    # P1 — an inconsistent authoritative state takes highest priority.
+                    cycle_blocked: bool = False, cycle_inconsistent: bool = False,
+                    cycle_complete: bool = False, hoc_current: bool = False) -> str:
+    # P1 — an inconsistent authoritative state takes highest priority. Phase 29G.3: a Daily
+    #      Research Cycle status of INCONSISTENT (e.g. terminal downstream artifacts exist but
+    #      the run manifest is missing → a safe idempotent recovery is required) is a genuine
+    #      inconsistency and is surfaced here — never masked as NOT_STARTED / "assessment not
+    #      run".
     if inconsistent or session_status == msession.INCONSISTENT_FUTURE_DATA \
-            or assessment_status == ASSESS_INCONSISTENT:
+            or assessment_status == ASSESS_INCONSISTENT or cycle_inconsistent:
         return INCONSISTENT_STATE
 
     # P2 — the current market session has not closed AND the latest eligible
@@ -604,8 +609,15 @@ def _decide_overall(*, inconsistent: bool, session_status: str,
         return RESEARCH_CYCLE_REQUIRED
 
     # P5 — research current but the portfolio assessment is missing/due/overdue/
-    #      stale → run a portfolio reassessment.
-    if assessment_status in _ASSESS_NEEDS_ACTION:
+    #      stale → run a portfolio reassessment. Phase 29G.3 (Workstream G): the portfolio
+    #      reassessment is PRODUCED by the Daily Research Cycle's Holding Opportunity-Cost
+    #      step. When that cycle has COMPLETED for the eligible session AND a current HOC
+    #      assessment exists, the reassessment is SATISFIED even if the legacy daily-action-
+    #      gate assessment date lags the still-pending Daily Close — the operator proceeds to
+    #      review the Holding Opportunity-Cost assessment and then run the Daily Close. There
+    #      is NO separate reassessment control.
+    reassessment_satisfied = bool(cycle_complete and hoc_current)
+    if assessment_status in _ASSESS_NEEDS_ACTION and not reassessment_satisfied:
         return PORTFOLIO_REASSESSMENT_REQUIRED
 
     # P6 — research and assessment current but the eligible session's close is
@@ -790,7 +802,8 @@ def _queued_actions(*, primary_code: str, research_current: bool,
                     assessment_status: str, eligible_session_closed: bool,
                     has_confirmed_eligible: bool, evidence_gap: bool,
                     manual_review_required: bool, pending_orders: int,
-                    cycle_active: bool = False, hoc_available: bool = False) -> list[dict]:
+                    cycle_active: bool = False, hoc_available: bool = False,
+                    reassessment_satisfied: bool = False) -> list[dict]:
     q: list[dict[str, Any]] = []
 
     def add(action_code, label, severity, destination, reason, *,
@@ -807,9 +820,12 @@ def _queued_actions(*, primary_code: str, research_current: bool,
             SEV_ATTENTION, DEST_DAILY_WORKFLOW,
             "Required research inputs are stale or missing.",
             execution_available=True, safe_to_execute=False)
-    if assessment_status in _ASSESS_NEEDS_ACTION:
+    if assessment_status in _ASSESS_NEEDS_ACTION and not reassessment_satisfied:
         # Phase 29G.1: the reassessment is produced by the Daily Research Cycle (the sole
-        # execution path), not a separate obsolete placeholder control.
+        # execution path), not a separate obsolete placeholder control. Phase 29G.3: once
+        # the cycle has completed for the eligible session and a current Holding
+        # Opportunity-Cost assessment exists, the reassessment is SATISFIED and no
+        # reassessment follow-up is queued (the operator reviews the HOC assessment instead).
         add(ACTION_RUN_PORTFOLIO_REASSESSMENT,
             "Reassess the portfolio by running the Daily Research Cycle",
             SEV_ATTENTION, DEST_DAILY_WORKFLOW,
@@ -1082,6 +1098,11 @@ def load_workflow_state(
     cycle_running = drc_state in _DRC_RUNNING_STATES
     cycle_blocked = drc_state in _DRC_BLOCKED_STATES
     cycle_complete = drc_state in _DRC_COMPLETE_STATES
+    # Phase 29G.3: a DRC status of INCONSISTENT means a safe idempotent recovery is required
+    # (e.g. terminal downstream artifacts without a run manifest); it is a genuine
+    # inconsistency, never masked as NOT_STARTED / "assessment not run".
+    cycle_inconsistent = (drc_state == INCONSISTENT)
+    drc_blockers = list((research_cycle or {}).get("blockers") or [])
 
     # --- Assessment currency (Workstream F). ----------------------------------- #
     latest_assessment_date = (gate or {}).get("latest_completed_market_date")
@@ -1126,6 +1147,7 @@ def load_workflow_state(
     # --- Overall workflow state (deterministic priority policy). --------------- #
     fresh_consistency = freshness.get("consistency_status")
     inconsistent_inputs = (fresh_consistency == INCONSISTENT)
+    reassessment_satisfied = bool(cycle_complete and hoc_available)
     overall = _decide_overall(
         inconsistent=inconsistent_inputs, session_status=session_status,
         has_confirmed_eligible=has_confirmed_eligible,
@@ -1133,7 +1155,9 @@ def load_workflow_state(
         owned_data_lag=owned_data_lag, research_current=research_current,
         assessment_status=assessment_status,
         manual_review_required=manual_review_required, evidence_gap=evidence_gap,
-        cycle_running=cycle_running, cycle_blocked=cycle_blocked)
+        cycle_running=cycle_running, cycle_blocked=cycle_blocked,
+        cycle_inconsistent=cycle_inconsistent, cycle_complete=cycle_complete,
+        hoc_current=hoc_available)
 
     primary = _primary_action(overall, {
         "eligible_date": eligible_date,
@@ -1146,10 +1170,23 @@ def load_workflow_state(
         eligible_session_closed=eligible_session_closed,
         has_confirmed_eligible=has_confirmed_eligible, evidence_gap=evidence_gap,
         manual_review_required=manual_review_required, pending_orders=pending_orders,
-        cycle_active=(cycle_running or cycle_blocked), hoc_available=hoc_available)
+        cycle_active=(cycle_running or cycle_blocked), hoc_available=hoc_available,
+        reassessment_satisfied=reassessment_satisfied)
 
     # --- Blockers + warnings (Workstream C.12/13). ----------------------------- #
     blockers: list[dict[str, Any]] = []
+    if cycle_inconsistent:
+        # Phase 29G.3 recovery: surface the DRC's exact reason (e.g. terminal downstream
+        # artifacts without a run manifest) and the safe idempotent recovery action — never
+        # a "the assessment has not run" / NOT_STARTED message.
+        for b in drc_blockers:
+            blockers.append({**b, "surface": "daily_research_cycle",
+                             "recovery_required": True})
+        if not drc_blockers:
+            blockers.append({"code": "DAILY_RESEARCH_CYCLE_INCONSISTENT",
+                             "surface": "daily_research_cycle", "recovery_required": True,
+                             "detail": "The Daily Research Cycle status is INCONSISTENT; a "
+                                       "safe idempotent recovery is required."})
     if overall == WAITING_FOR_OWNED_DATA:
         blockers.append({"code": "OWNED_DATA_NOT_CONFIRMED",
                          "detail": session.get("reason") or "Owned market data is "

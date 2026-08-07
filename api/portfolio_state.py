@@ -64,12 +64,21 @@ SCHEMA_VERSION = "portfolio_state.v1"
 # Frozen top-level portfolio-state vocabulary (part of the tested contract).
 # --------------------------------------------------------------------------- #
 STATE_READY = "PORTFOLIO_STATE_READY"
+STATE_READY_WITH_PENDING_CLOSE = "PORTFOLIO_STATE_READY_WITH_PENDING_CLOSE"
 STATE_DEGRADED = "PORTFOLIO_STATE_DEGRADED"
 STATE_INCONSISTENT = "PORTFOLIO_STATE_INCONSISTENT"
 STATE_NO_ACTIVE_BOOK = "NO_ACTIVE_BOOK"
 STATE_UNAVAILABLE = "PORTFOLIO_STATE_UNAVAILABLE"
-PORTFOLIO_STATES = (STATE_READY, STATE_DEGRADED, STATE_INCONSISTENT,
-                    STATE_NO_ACTIVE_BOOK, STATE_UNAVAILABLE)
+PORTFOLIO_STATES = (STATE_READY, STATE_READY_WITH_PENDING_CLOSE, STATE_DEGRADED,
+                    STATE_INCONSISTENT, STATE_NO_ACTIVE_BOOK, STATE_UNAVAILABLE)
+
+# Phase 29G.3 (Workstream E) explicit pre-close classification. A valuation that is
+# exactly ONE eligible session ahead of the latest Daily Close — while the current
+# session is SESSION_READY and its close is simply due and not yet run — is the EXPECTED
+# operational state after an owned-data refresh and before the Daily Close. It is
+# classified PENDING_DAILY_CLOSE (attention-level), NEVER a corrupted/INCONSISTENT state.
+PENDING_DAILY_CLOSE = "PENDING_DAILY_CLOSE"
+EXPECTED_PRE_CLOSE_GAP = "EXPECTED_PRE_CLOSE_GAP"
 
 # Frozen consistency-verdict vocabulary (Workstream D).
 CONSISTENT = "CONSISTENT"
@@ -247,6 +256,65 @@ def _import_fps():
     return forward_prediction_skill
 
 
+def _previous_trading_day_iso(iso_date: Optional[str]) -> Optional[str]:
+    """The immediately-preceding trading session for an ISO date, via the authoritative
+    calendar owner (``engine.market_session.previous_trading_day``). Degrade-safe: returns
+    None if the date is unparseable or the calendar owner is unavailable."""
+    if not iso_date:
+        return None
+    try:
+        from paper_trader.engine import market_session as ms
+        return ms.previous_trading_day(date.fromisoformat(iso_date)).isoformat()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _valuation_vs_close_check(*, valuation: Any, latest_close: Any,
+                              eligible: Any) -> dict:
+    """Classified valuation-vs-Daily-Close consistency check (Workstream E).
+
+    * PASS                     — valuation aligned with the latest completed Daily Close.
+    * PASS + EXPECTED_PRE_CLOSE_GAP — valuation is exactly ONE eligible session ahead of the
+      latest close AND the current session is SESSION_READY (valuation == eligible): the
+      Daily Close for the current session is due and not yet complete. Attention-level, not
+      a corruption; carries ``pending_daily_close: True``.
+    * FAIL                     — valuation BEHIND the latest close, a valuation dated AHEAD of
+      the current eligible session (future-dated), a gap larger than one eligible session,
+      or a missing close while a valuation exists. Genuine inconsistency, never hidden.
+    * UNKNOWN                  — a side is unavailable.
+    """
+    owners = ["api.operational_book", "api.daily_close"]
+    v = _coerce_iso(valuation)
+    c = _coerce_iso(latest_close)
+    e = _coerce_iso(eligible)
+    base = {"code": "VALUATION_VS_DAILY_CLOSE", "concept": "valuation_vs_daily_close",
+            "value_a": v, "value_b": c, "eligible_market_date": e,
+            "authoritative_owners": owners}
+    if v is None or c is None:
+        return {**base, "result": CHECK_UNKNOWN, "detail": "One side is unavailable."}
+    if v == c:
+        return {**base, "result": CHECK_PASS,
+                "detail": "Valuation is aligned with the latest completed Daily Close."}
+    if v < c:
+        return {**base, "result": CHECK_FAIL,
+                "detail": "Valuation is BEHIND the latest completed Daily Close."}
+    if e is not None and v > e:
+        return {**base, "result": CHECK_FAIL, "future_dated": True,
+                "detail": "Valuation is dated AHEAD of the current eligible session."}
+    one_session_gap = (_previous_trading_day_iso(v) == c)
+    session_ready = (e is not None and v == e)
+    if one_session_gap and session_ready:
+        return {**base, "result": CHECK_PASS,
+                "classification": EXPECTED_PRE_CLOSE_GAP,
+                "pending_daily_close": True,
+                "detail": ("Valuation is exactly one eligible session ahead of the latest "
+                           "Daily Close; the current session is SESSION_READY and its Daily "
+                           "Close is due and not yet complete (expected pre-close state).")}
+    return {**base, "result": CHECK_FAIL,
+            "detail": ("Valuation is more than one eligible session ahead of the latest "
+                       "Daily Close (not an expected single pending close).")}
+
+
 # --------------------------------------------------------------------------- #
 # Active-book selection (Workstream C). The ACTIVE operational book is resolved
 # through the authoritative policy (api.operational_book / data_freshness). The
@@ -403,7 +471,7 @@ def _build_consistency(*, active_book: dict, capital: dict, dates: dict,
                 [{"code": "NO_ACTIVE_BOOK", "concept": "active_book",
                   "result": CHECK_UNKNOWN,
                   "detail": "No initialized active operational book is resolvable."}],
-                {"pass": 0, "fail": 0, "unknown": 1})
+                {"pass": 0, "fail": 0, "unknown": 1}, False)
 
     checks: list[dict] = []
 
@@ -411,11 +479,14 @@ def _build_consistency(*, active_book: dict, capital: dict, dates: dict,
     checks.append(_cmp_date("VALUATION_VS_DESK_MARK", "valuation_vs_desk_mark",
                             dates.get("valuation_date"), dates.get("desk_mark_date"),
                             "api.operational_book", "api.paper_trading_desk"))
-    # 2. Operational valuation date vs latest valid Daily Close.
-    checks.append(_cmp_date("VALUATION_VS_DAILY_CLOSE", "valuation_vs_daily_close",
-                            dates.get("valuation_date"),
-                            dates.get("latest_daily_close_date"),
-                            "api.operational_book", "api.daily_close"))
+    # 2. Operational valuation date vs latest valid Daily Close. Phase 29G.3 (Workstream E):
+    #    an expected single pending close (valuation one eligible session ahead of the latest
+    #    close, current session SESSION_READY) is classified PENDING_DAILY_CLOSE, not FAIL; a
+    #    larger gap, a future-dated valuation, or a valuation behind the close stays a FAIL.
+    checks.append(_valuation_vs_close_check(
+        valuation=dates.get("valuation_date"),
+        latest_close=dates.get("latest_daily_close_date"),
+        eligible=dates.get("eligible_market_date")))
     # 3. Benchmark date vs valuation date.
     checks.append(_cmp_date("BENCHMARK_VS_VALUATION", "benchmark_vs_valuation",
                             dates.get("benchmark_date"), dates.get("valuation_date"),
@@ -510,6 +581,7 @@ def _build_consistency(*, active_book: dict, capital: dict, dates: dict,
     n_fail = sum(1 for c in checks if c["result"] == CHECK_FAIL)
     n_unknown = sum(1 for c in checks if c["result"] == CHECK_UNKNOWN)
     n_pass = sum(1 for c in checks if c["result"] == CHECK_PASS)
+    pending_daily_close = any(c.get("pending_daily_close") for c in checks)
     if n_fail:
         verdict = INCONSISTENT
     elif n_unknown:
@@ -517,7 +589,7 @@ def _build_consistency(*, active_book: dict, capital: dict, dates: dict,
     else:
         verdict = CONSISTENT
     counts = {"pass": n_pass, "fail": n_fail, "unknown": n_unknown}
-    return verdict, checks, counts
+    return verdict, checks, counts, pending_daily_close
 
 
 # --------------------------------------------------------------------------- #
@@ -748,7 +820,7 @@ def _compose(*, operational: dict, freshness: Optional[dict],
     }
 
     # --- Consistency engine (Workstream D). ------------------------------------ #
-    consistency_status, checks, counts = _build_consistency(
+    consistency_status, checks, counts, pending_daily_close = _build_consistency(
         active_book=active_book, capital=capital, dates=dates, positions=positions,
         orders=orders, fills=fills_block, target=target, assessment=assessment,
         operational=operational, freshness=freshness, performance=performance,
@@ -758,13 +830,24 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "vocabulary": list(CONSISTENCY_VOCAB),
         "checks": checks,
         "counts": counts,
+        # Workstream E: the expected pre-close condition is surfaced explicitly and is NOT a
+        # corruption (the Daily Close for the current session is simply due and not yet run).
+        "pending_daily_close": bool(pending_daily_close),
+        "pending_close_reason": (EXPECTED_PRE_CLOSE_GAP if pending_daily_close else None),
         "inherited_freshness_consistency": (freshness or {}).get("consistency_status"),
     }
     if consistency_status == INCONSISTENT:
         warnings.append("Portfolio-state consistency found %d failing check(s); see "
                         "consistency.checks." % counts["fail"])
+    if pending_daily_close:
+        warnings.append("The current session is SESSION_READY and its Daily Close is due "
+                        "and not yet complete (expected pre-close state); this is not a "
+                        "portfolio inconsistency.")
 
-    # --- Top-level portfolio state. -------------------------------------------- #
+    # --- Top-level portfolio state (Workstream E). ----------------------------- #
+    # A genuine inconsistency / degradation always wins. When the ONLY deviation from a
+    # fully-aligned book is the expected pending Daily Close, the state is the explicit,
+    # readable READY_WITH_PENDING_CLOSE — never INCONSISTENT (corruption).
     if not active_book.get("initialized") or not active_book.get("book_id"):
         state = STATE_NO_ACTIVE_BOOK
     elif consistency_status == UNAVAILABLE:
@@ -773,6 +856,8 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         state = STATE_INCONSISTENT
     elif consistency_status == DEGRADED:
         state = STATE_DEGRADED
+    elif pending_daily_close:
+        state = STATE_READY_WITH_PENDING_CLOSE
     else:
         state = STATE_READY
 
@@ -872,9 +957,10 @@ def _compose(*, operational: dict, freshness: Optional[dict],
 
 __all__ = [
     "PHASE", "SCHEMA_VERSION",
-    "STATE_READY", "STATE_DEGRADED", "STATE_INCONSISTENT",
-    "STATE_NO_ACTIVE_BOOK", "STATE_UNAVAILABLE", "PORTFOLIO_STATES",
+    "STATE_READY", "STATE_READY_WITH_PENDING_CLOSE", "STATE_DEGRADED",
+    "STATE_INCONSISTENT", "STATE_NO_ACTIVE_BOOK", "STATE_UNAVAILABLE", "PORTFOLIO_STATES",
     "CONSISTENT", "DEGRADED", "INCONSISTENT", "UNAVAILABLE", "CONSISTENCY_VOCAB",
+    "PENDING_DAILY_CLOSE", "EXPECTED_PRE_CLOSE_GAP",
     "PRELIMINARY_PROPOSAL_LABEL", "LEGACY_BOOK_ID",
     "load_portfolio_state",
 ]

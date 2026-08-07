@@ -348,6 +348,20 @@ responsibilities, candidate existing modules, and migration approach.
   decision. Two read-only first-live operator gates (`pre_drc_readiness.ps1`,
   `post_drc_acceptance.ps1`) precede the first live cycle and the Daily Close. Guarded by
   `check_slice6_residual_cutover_ownership`; cadence remains disabled.
+- **Durable DRC terminal state + safe idempotent recovery** (Phase 29G.3): a terminal
+  `COMPLETE` is validated + read back before it is trusted (never COMPLETE on an unverified
+  persist); read-only status REFLECTS a persisted terminal manifest verbatim (never
+  NOT_STARTED under the benign hash drift caused by the cycle refreshing its own fast inputs)
+  and returns `INCONSISTENT` / `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` for
+  downstream artifacts without a manifest. A session-stable identity keys reuse/recovery so a
+  same-date rerun through the normal run endpoint reuses the immutable outputs (no duplicate
+  evidence / HOC artifact, no order / fill / target confirmation / ledger mutation) while a
+  genuinely different slow-input contract for the same date is refused. The expected
+  one-session pre-close valuation gap is `PENDING_DAILY_CLOSE` (`READY_WITH_PENDING_CLOSE`),
+  not corruption; genuine gaps stay `INCONSISTENT`. A completed cycle + current HOC assessment
+  satisfies the portfolio reassessment (`READY_FOR_DAILY_CLOSE`); the honest HOC `DEGRADED`
+  gaps stay visible. Guarded by `check_drc_manifest_recovery`. No evidence fabrication, no
+  order/target authority.
 - Paper-only, preview-first, manual-review, no-automation boundaries.
 - Remote prediction at `:9000`; no local prediction.
 - The clean `db/session.py` boundary — the model for the future store service.

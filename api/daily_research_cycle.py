@@ -106,6 +106,19 @@ _RUNNING = frozenset({PLANNING, REFRESHING_REQUIRED_INPUTS, VALIDATING_INPUT_ALI
 # Completion states that carry usable research outputs.
 _COMPLETED = frozenset({COMPLETE, COMPLETE_WITH_EVIDENCE_GAP})
 
+# Frozen inconsistency / persistence reason codes (Phase 29G.3 — Workstream B/C).
+#   * A terminal COMPLETE run whose manifest cannot be validated or durably read back is
+#     NEVER returned as COMPLETE; it is downgraded to INCONSISTENT with these codes while
+#     the durable downstream-artifact references (evidence / HOC artifact) are preserved.
+#   * When terminal downstream artifacts (an immutable Holding Opportunity-Cost artifact)
+#     exist for the eligible session but the DRC run manifest is missing, STATUS reports
+#     INCONSISTENT with this exact code (never NOT_STARTED) and a safe idempotent recovery
+#     action — it never silently synthesises COMPLETE from downstream artifacts.
+MANIFEST_CONTRACT_INCOMPLETE = "MANIFEST_CONTRACT_INCOMPLETE"
+MANIFEST_PERSISTENCE_UNVERIFIED = "MANIFEST_PERSISTENCE_UNVERIFIED"
+TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST = (
+    "TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST")
+
 # --------------------------------------------------------------------------- #
 # Frozen ordered step vocabulary (Workstream B / C). One step_result per step.
 # --------------------------------------------------------------------------- #
@@ -171,6 +184,13 @@ _RUNS_SUBDIR = "runs"
 _INDEX_FILE = "index.json"
 _LOCK_FILE = "research_cycle.lock"
 _LOCK_STALE_MINUTES = 45
+
+# Read-only downstream-artifact root (Phase 29G.3 — Workstream C). Used ONLY to detect
+# whether an immutable Holding Opportunity-Cost artifact already exists for an eligible
+# session whose DRC run manifest is missing (the split-brain recovery signal). The DRC
+# never writes here; it composes the canonical HOC read owner.
+HOC_DIR_ENV = "PAPER_TRADER_HOC_DIR"
+_DEFAULT_HOC_DIR = Path(r"D:\Stock_Prediction_app_data\holding_opportunity_cost")
 
 # Deterministic clock seam (tests / explicit callers).
 NOW_ENV = "PAPER_TRADER_DRC_NOW"
@@ -382,6 +402,78 @@ def _input_contract_hash(dates: dict) -> str:
             "price_score_refresh_date", "monthly_input_date", "fundamental_date",
             "target_calc_date")
     return _hash({k: dates.get(k) for k in keys})
+
+
+# Session-stable identity (Phase 29G.3 — Workstream C/D). The idempotency key and the
+# raw ``input_contract_hash`` above depend on the FAST daily inputs the cycle itself
+# refreshes to the eligible session (price_score_refresh / target_calc) — so a status
+# read AFTER a run refreshed those inputs recomputes a DIFFERENT hash than the run
+# persisted, which previously reset a COMPLETE run to NOT_STARTED (the split-brain).
+# This hash keys ONLY the identity that is invariant across the cycle's own refresh:
+# the eligible session, the active book, the frozen strategy / universe, and the
+# SLOW-cadence inputs the cycle does NOT refresh (the monthly momentum month and the
+# fundamental as-of quarter). Two runs for the same eligible session with the same slow
+# inputs share this hash even when their fast inputs advanced; a genuinely different
+# slow-input contract for the same date does NOT (first-write-wins is still enforced).
+def _session_contract_hash(*, eligible: Any, active_book_id: Any, dates: dict) -> str:
+    return _hash({
+        "eligible_market_date": _iso(_coerce_date(eligible)),
+        "active_book_id": active_book_id,
+        "strategy_version": STRATEGY_VERSION, "universe_id": UNIVERSE_ID,
+        "monthly_input_date": dates.get("monthly_input_date"),
+        "fundamental_date": dates.get("fundamental_date")})
+
+
+# --------------------------------------------------------------------------- #
+# Read-only downstream-artifact probe (Workstream C). Detects whether an immutable
+# Holding Opportunity-Cost artifact already exists for (active book, eligible session)
+# WITHOUT a DRC run manifest — the split-brain recovery signal. Composes the canonical
+# HOC read owner (never re-reads its store schema, never runs the engine, never writes).
+# --------------------------------------------------------------------------- #
+def _default_downstream_probe(*, active_book_id: Any, eligible: Any, hoc_dir=None) -> dict:
+    from paper_trader.api import holding_opportunity_cost as hoc
+    summ = hoc.load_assessment_summary(active_book_id=active_book_id,
+                                       eligible_market_date=eligible, hoc_dir=hoc_dir) or {}
+    return {
+        "present": bool(summ.get("opportunity_cost_available")),
+        "kind": "holding_opportunity_cost",
+        "owner": "api.holding_opportunity_cost",
+        "assessment_hash": summ.get("opportunity_cost_assessment_hash"),
+        "state": summ.get("opportunity_cost_state"),
+        "recommendation_counts": summ.get("opportunity_cost_recommendation_counts") or {},
+        "data_gaps": list(summ.get("opportunity_cost_data_gaps") or []),
+    }
+
+
+# Required manifest fields for a TERMINAL-COMPLETE run (Workstream B rule 2). A COMPLETE
+# manifest that omits any of these — or whose opportunity-cost step ran OK without an
+# artifact reference — is NOT durable and must never be returned as COMPLETE.
+_REQUIRED_TERMINAL_FIELDS = (
+    "run_id", "idempotency_key", "session_contract_hash", "active_book_id",
+    "eligible_market_date", "started_at", "completed_at", "state",
+    "input_contract_hash")
+
+
+def _validate_terminal_manifest(rec: dict) -> list:
+    """Return a list of contract problems for a terminal COMPLETE manifest (empty ⇒ OK)."""
+    problems: list[str] = []
+    for f in _REQUIRED_TERMINAL_FIELDS:
+        if rec.get(f) in (None, ""):
+            problems.append("missing %s" % f)
+    if not rec.get("completed_steps"):
+        problems.append("no completed_steps")
+    if not rec.get("step_results"):
+        problems.append("no step_results")
+    # If the Holding Opportunity-Cost step actually RAN (S_OK), a COMPLETE manifest must
+    # carry its immutable artifact reference (id + assessment hash). A hermetically SKIPPED
+    # HOC step (sandboxed run without canonical scoring) is exempt.
+    hoc_step = next((s for s in (rec.get("step_results") or [])
+                     if s.get("step_id") == STEP_HOLDING_OPP_COST), None)
+    if hoc_step and hoc_step.get("status") == S_OK:
+        if not rec.get("opportunity_cost_artifact_id") \
+                or not rec.get("opportunity_cost_assessment_hash"):
+            problems.append("opportunity-cost step OK but artifact reference missing")
+    return problems
 
 
 def compute_idempotency_key(*, eligible_market_date: Any, active_book_id: Any,
@@ -813,6 +905,8 @@ def _facts(freshness: dict) -> dict:
         eligible_market_date=eligible, active_book_id=ab.get("active_book_id"),
         strategy_version=STRATEGY_VERSION, universe_id=UNIVERSE_ID,
         input_contract_hash=ich)
+    session_hash = _session_contract_hash(
+        eligible=eligible, active_book_id=ab.get("active_book_id"), dates=dates)
     return {
         "session_status": session.get("session_status") or msession.NO_CONFIRMED_DATA,
         "eligible": eligible,
@@ -822,6 +916,7 @@ def _facts(freshness: dict) -> dict:
         "consistency_status": freshness.get("consistency_status"),
         "consistency_violations": freshness.get("consistency_violations") or [],
         "dates": dates, "input_contract_hash": ich, "idempotency_key": key,
+        "session_contract_hash": session_hash,
         "owned_data_confirmed": bool(session.get("latest_confirmed_owned_data_date")),
         "session_operator_action": session.get("operator_action"),
     }
@@ -886,6 +981,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "input_results": (plan or {}).get("refresh_results")
         if plan else None,
         "input_contract_hash": facts.get("input_contract_hash"),
+        "session_contract_hash": facts.get("session_contract_hash"),
         "strategy_id": STRATEGY_ID,
         "strategy_version": STRATEGY_VERSION,
         "universe_id": UNIVERSE_ID,
@@ -1104,6 +1200,40 @@ def _pre_run_state(facts: dict) -> Optional[str]:
     return None
 
 
+def _reflect_completed_run(prior: dict, facts: dict, warnings: list) -> dict:
+    """Reflect a persisted TERMINAL-COMPLETE manifest for the current eligible session
+    (Workstream C). The stored contract (run_id, idempotency_key, hashes, completed
+    steps, opportunity-cost artifact reference) is surfaced VERBATIM; the run is the
+    authoritative research for the session. A benign fast-input drift (the cycle refreshed
+    the inputs the raw hash is derived from) is annotated but NEVER resets the run."""
+    out = dict(prior)
+    out["reused_existing_run"] = True
+    out["resumed_existing_run"] = False
+    out["evaluated_at"] = _now_iso()
+    out["executable"] = False
+    out["state_vocabulary"] = list(RUN_STATES)
+    ow = list(out.get("warnings") or [])
+    prior_session = prior.get("session_contract_hash")
+    cur_session = facts.get("session_contract_hash")
+    fast_drift = (facts.get("input_contract_hash")
+                  and prior.get("input_contract_hash")
+                  and facts["input_contract_hash"] != prior["input_contract_hash"])
+    session_stable = (prior_session is None or cur_session is None
+                      or prior_session == cur_session)
+    if fast_drift and session_stable:
+        msg = ("Owned daily inputs advanced since the completed run for %s; the persisted "
+               "research (scoring / target / evidence / opportunity-cost) remains "
+               "authoritative for this eligible session and is reused (not recomputed)."
+               % facts.get("eligible"))
+        if msg not in ow:
+            ow.append(msg)
+    for w in warnings:
+        if w not in ow:
+            ow.append(w)
+    out["warnings"] = ow
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Public: read-only STATUS (Workstream C/N). Plans deterministically; reflects the
 # latest persisted run; NEVER executes a step, refreshes an input, scores, captures
@@ -1118,6 +1248,7 @@ def load_daily_research_cycle_status(
     daily_status: Optional[dict] = None, desk_marks: Optional[dict] = None,
     close_progress: Optional[dict] = None, forward_status: Optional[dict] = None,
     date_overrides: Optional[dict] = None, active_book_override: Any = None,
+    downstream_artifacts_fn: Optional[Callable] = None,
 ) -> dict:
     warnings: list[str] = []
     # Resolve the canonical monthly-adapter availability when the caller did not pin
@@ -1176,19 +1307,49 @@ def load_daily_research_cycle_status(
                          warnings=warnings + ["A Daily Research Cycle run is in progress."],
                          monthly_owner=monthly_owner, executable=False)
 
-    if prior and prior.get("input_contract_hash") == facts["input_contract_hash"] \
-            and prior.get("state") in _COMPLETED:
-        out = dict(prior)
-        out["reused_existing_run"] = True
-        out["evaluated_at"] = _now_iso()
-        out["executable"] = False
-        out["state_vocabulary"] = list(RUN_STATES)
-        return out
+    # Workstream C: a persisted TERMINAL-COMPLETE manifest for this eligible session is
+    # authoritative and is REFLECTED verbatim — never masked by a recomputed input-contract
+    # hash. The cycle refreshes the very fast inputs the raw ``input_contract_hash`` is
+    # derived from, so a post-run status read recomputes a DIFFERENT raw hash than the run
+    # persisted; that benign drift must NEVER reset a COMPLETE run to NOT_STARTED. The
+    # stored idempotency_key / hashes / HOC artifact reference are surfaced as-is.
+    if prior and prior.get("state") in _COMPLETED:
+        return _reflect_completed_run(prior, facts, warnings)
 
-    if prior and prior.get("state") == INCONSISTENT \
-            and prior.get("input_contract_hash") != facts["input_contract_hash"]:
-        warnings.append("A prior run for %s used a different input contract."
-                        % facts["eligible"])
+    # Workstream C: downstream TERMINAL artifacts (an immutable Holding Opportunity-Cost
+    # artifact) exist for the eligible session but the DRC run manifest is missing → an
+    # explicit INCONSISTENT recovery state (NEVER NOT_STARTED, and NEVER a silently
+    # synthesised COMPLETE). The operator resumes through the normal idempotent DRC path.
+    if prior is None and facts["eligible"] and facts["active_book_id"]:
+        hoc_dir = (str(Path(drc_dir) / "holding_opportunity_cost") if drc_dir else None)
+        probe = downstream_artifacts_fn or _default_downstream_probe
+        ds = _safe(lambda: probe(active_book_id=facts["active_book_id"],
+                                 eligible=facts["eligible"], hoc_dir=hoc_dir),
+                   warnings, "Downstream-artifact probe") or {}
+        if ds.get("present"):
+            hoc_block = {"available": True, "owner": "api.holding_opportunity_cost",
+                         "state": ds.get("state"),
+                         "assessment_hash": ds.get("assessment_hash"),
+                         "recommendation_counts": ds.get("recommendation_counts") or {},
+                         "data_gaps": list(ds.get("data_gaps") or []),
+                         "holding_count": None}
+            return _contract(
+                state=INCONSISTENT, facts=facts, plan=plan,
+                warnings=warnings + [
+                    "An immutable Holding Opportunity-Cost artifact exists for %s but the "
+                    "Daily Research Cycle run manifest is missing; the run must be durably "
+                    "recorded through a safe idempotent recovery (no evidence is fabricated "
+                    "and the existing artifact is reused)." % facts["eligible"]],
+                blockers=[{"code": TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST,
+                           "detail": "Terminal downstream artifacts without a DRC manifest.",
+                           "downstream": ds}],
+                required_actions=[{"gate": "daily_research_cycle",
+                    "action": ("Resume the Daily Research Cycle to durably record the run "
+                               "manifest for the existing downstream artifacts (safe "
+                               "idempotent recovery; reuses the immutable evidence / "
+                               "opportunity-cost artifact)."),
+                    "confirmation_required": EXECUTE_CONFIRMATION, "recovery": True}],
+                holding_opp_cost=hoc_block, monthly_owner=monthly_owner, executable=True)
 
     if plan["plan_blocked"]:
         return _contract(state=BLOCKED, facts=facts, plan=plan, warnings=warnings,
@@ -1321,6 +1482,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
 
     key = facts["idempotency_key"]
     ich = facts["input_contract_hash"]
+    session_hash = facts["session_contract_hash"]
     run_id = "drc_%s_%s" % (facts["eligible"], key[:12])
 
     # --- Concurrency (Workstream L): classify the persisted lock first. ------- #
@@ -1350,21 +1512,43 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
     resumed = False
     prior_steps: dict[str, dict] = {}
     if prior:
-        if prior.get("input_contract_hash") == ich and prior.get("state") in _COMPLETED:
-            out = dict(prior)
-            out["reused_existing_run"] = True
-            out["evaluated_at"] = _now_iso()
-            return out
-        if prior.get("input_contract_hash") != ich and prior.get("state") in _COMPLETED:
+        if prior.get("state") in _COMPLETED:
+            # Workstream D — safe idempotent recovery: a completed run for this eligible
+            # session is REUSED verbatim (never recomputed, never overwritten; creates no
+            # duplicate evidence / HOC artifact). Reuse holds when EITHER the exact input
+            # contract matches (normal idempotency), OR the SESSION-STABLE identity matches
+            # (the fast daily inputs the cycle refreshes advanced, but the session + slow
+            # inputs are identical), OR the prior manifest predates the session-hash field
+            # (a legacy COMPLETE manifest is date-authoritative for recovery). Only a
+            # genuinely DIFFERENT slow-input contract for the same date is refused.
+            prior_session = prior.get("session_contract_hash")
+            same_contract = (prior.get("input_contract_hash") == ich)
+            same_session = (prior_session is not None and prior_session == session_hash)
+            legacy_no_session = (prior_session is None)
+            if same_contract or same_session or legacy_no_session:
+                out = dict(prior)
+                out["reused_existing_run"] = True
+                out["evaluated_at"] = _now_iso()
+                if not same_contract:
+                    w = list(out.get("warnings") or [])
+                    msg = ("Owned daily inputs advanced since the completed run; the "
+                           "persisted research for %s is reused, not recomputed (safe "
+                           "idempotent recovery)." % facts["eligible"])
+                    if msg not in w:
+                        w.append(msg)
+                    out["warnings"] = w
+                return out
             return _contract(state=INCONSISTENT, facts=facts, plan=plan,
                              warnings=["A completed run for %s used a DIFFERENT input "
-                                       "contract; refusing to overwrite the immutable "
-                                       "outputs (bundle first-write-wins)."
-                                       % facts["eligible"]],
+                                       "contract (slow inputs differ); refusing to "
+                                       "overwrite the immutable outputs (bundle "
+                                       "first-write-wins)." % facts["eligible"]],
                              blockers=[{"code": "DIFFERENT_CONTRACT_SAME_DATE",
                                         "prior_hash": prior.get("input_contract_hash"),
-                                        "current_hash": ich}],
-                             executable=False)
+                                        "current_hash": ich,
+                                        "prior_session_hash": prior_session,
+                                        "current_session_hash": session_hash}],
+                             monthly_owner=monthly_owner_block, executable=False)
         if prior.get("input_contract_hash") == ich and prior.get("state") not in _TERMINAL:
             resumed = True
             run_id = prior.get("run_id") or run_id
@@ -1378,16 +1562,63 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
     step_results: list[dict] = []
     performed_write = False
 
+    def _build(state, extra_warnings=None, **kw):
+        return _contract(state=state, facts=facts, run_id=run_id, plan=plan,
+                         step_results=step_results, started_at=started_at,
+                         resumed=resumed,
+                         warnings=(warnings + list(extra_warnings or [])),
+                         monthly_owner=monthly_owner_block,
+                         performed_write=performed_write, **kw)
+
     def _persist(state, **kw):
-        rec = _contract(state=state, facts=facts, run_id=run_id, plan=plan,
-                        step_results=step_results, started_at=started_at,
-                        resumed=resumed, warnings=warnings,
-                        monthly_owner=monthly_owner_block,
-                        performed_write=performed_write, **kw)
+        # Workstream B — terminal persistence/read-back contract. For a TERMINAL-COMPLETE
+        # run: (1) VALIDATE the manifest contract; (2) atomically persist the manifest;
+        # (3) atomically update the run index; (4) READ BACK and verify the same manifest
+        # is durable. A manifest that fails validation or read-back is NEVER returned as
+        # COMPLETE — it is downgraded to INCONSISTENT with a precise code while the durable
+        # downstream-artifact references (scoring / target / evidence / HOC artifact) are
+        # PRESERVED for recovery.
+        rec = _build(state, **kw)
+        refs = {k: kw[k] for k in ("alignment", "scoring", "target", "evidence",
+                                   "assessment", "holding_opp_cost", "completed_at")
+                if k in kw}
+        if state in _COMPLETED:
+            problems = _validate_terminal_manifest(rec)
+            if problems:
+                rec = _build(INCONSISTENT,
+                             extra_warnings=["Terminal manifest failed validation: "
+                                             + "; ".join(problems)],
+                             blockers=[{"code": MANIFEST_CONTRACT_INCOMPLETE,
+                                        "detail": problems}], **refs)
+                state = INCONSISTENT
         _save_run(rec, drc_dir)
         _update_index(eligible_date=facts["eligible"], idempotency_key=key,
                       input_contract_hash=ich, run_id=run_id, state=state,
                       drc_dir=drc_dir)
+        # Read-back verification (Workstream B rule 7): the SAME manifest + index entry must
+        # be durably readable back before a terminal completion is trusted.
+        verify = _load_run(run_id, drc_dir)
+        idx_back = _load_index(drc_dir).get(facts["eligible"]) or {}
+        durable = bool(verify and verify.get("run_id") == run_id
+                       and verify.get("state") == state
+                       and verify.get("opportunity_cost_assessment_hash")
+                       == rec.get("opportunity_cost_assessment_hash")
+                       and idx_back.get("run_id") == run_id
+                       and idx_back.get("state") == state)
+        if not durable and state in _COMPLETED:
+            fail = _build(INCONSISTENT,
+                          extra_warnings=["Terminal manifest read-back failed; the completed "
+                                          "research is preserved for recovery but the run is "
+                                          "not durably recorded."],
+                          blockers=[{"code": MANIFEST_PERSISTENCE_UNVERIFIED}], **refs)
+            try:
+                _save_run(fail, drc_dir)
+                _update_index(eligible_date=facts["eligible"], idempotency_key=key,
+                              input_contract_hash=ich, run_id=run_id, state=INCONSISTENT,
+                              drc_dir=drc_dir)
+            except Exception:  # noqa: BLE001
+                pass
+            return fail
         return rec
 
     def _reuse_or(step_id):
@@ -1752,6 +1983,8 @@ __all__ = [
     "COMPLETE", "COMPLETE_WITH_EVIDENCE_GAP", "BLOCKED", "FAILED", "INCONSISTENT",
     "RUN_IN_PROGRESS", "RUN_STATES", "STEP_SEQUENCE", "ALIGNMENT_VOCAB",
     "MONTHLY_EMITTER_ACTION", "STRATEGY_ID", "STRATEGY_VERSION", "UNIVERSE_ID",
+    "MANIFEST_CONTRACT_INCOMPLETE", "MANIFEST_PERSISTENCE_UNVERIFIED",
+    "TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST",
     "build_execution_plan", "evaluate_alignment", "compute_idempotency_key",
     "load_daily_research_cycle_status", "load_status", "run_daily_research_cycle",
 ]

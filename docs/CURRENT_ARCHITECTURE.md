@@ -769,3 +769,68 @@ flowchart LR
   DRC is the sole execution path, and no reassessment/rebalance/order route exists. Slice 7
   remains next; the Persistent Alpha Research Agent (Slice 8 / Milestone 4) remains
   planned; cadence remains disabled.
+
+### First-live DRC terminal-manifest persistence + pre-close consistency (Phase 29G.3)
+
+- **First real Slice 6 run (2026-08-06).** The first live Daily Research Cycle for
+  2026-08-06 produced authoritative downstream artifacts — an eligible-date scoring, a
+  target calculation, a TRUE_FORWARD evidence snapshot, and an immutable Holding
+  Opportunity-Cost artifact (`hoc_2026-08-06_alpha_paper_book_1_5b12669a330f`, 25 holdings
+  evaluated, DEGRADED). It also persisted a COMPLETE run manifest and index entry
+  (`drc_2026-08-06_b85134043b87`).
+- **Defect (status/downstream split-brain).** `GET .../daily-research-cycle/status` returned
+  `NOT_STARTED` even though the COMPLETE manifest existed. Root cause: the status reader
+  loaded the run by eligible date but gated "reuse a completed run" on
+  `input_contract_hash` equality. That hash is derived from the current input as-of dates,
+  including the FAST daily inputs the cycle itself refreshes (`price_score_refresh`,
+  `target_calc`) to the eligible session — so a status read AFTER the run's refresh
+  recomputed a DIFFERENT hash than was persisted, the completed manifest was skipped, and
+  the reader fell through to `NOT_STARTED`. The portfolio state was separately marked
+  `INCONSISTENT` solely because the valuation (2026-08-06) sat one eligible session ahead
+  of the latest Daily Close (2026-08-05) before the August 6 close.
+- **Terminal persistence / read-back contract.** A terminal `COMPLETE` /
+  `COMPLETE_WITH_EVIDENCE_GAP` now REQUIRES: the manifest contract is validated (all
+  identity / step / opportunity-cost-artifact fields present), the manifest and run index
+  are atomically persisted, and the SAME record is READ BACK and verified before the
+  terminal response is returned. A validation or read-back failure NEVER returns COMPLETE —
+  it downgrades to `INCONSISTENT` (`MANIFEST_CONTRACT_INCOMPLETE` /
+  `MANIFEST_PERSISTENCE_UNVERIFIED`) while PRESERVING the durable downstream references
+  (scoring / target / evidence / HOC artifact) for recovery.
+- **Status reader (never NOT_STARTED over a terminal manifest).** A persisted terminal
+  manifest for the eligible session is now REFLECTED verbatim (`_reflect_completed_run`)
+  regardless of a benign recomputed-hash drift; the stored run id / idempotency key / hashes
+  / HOC artifact reference are surfaced as-is. When downstream terminal artifacts exist for
+  the session but the run manifest is missing, status returns `INCONSISTENT` with reason
+  `TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST` and a safe idempotent recovery action
+  — it never synthesises COMPLETE from downstream artifacts and never says "NOT_STARTED".
+- **Safe idempotent recovery (session-stable identity).** A new `session_contract_hash`
+  keys reuse/recovery on the identity that is INVARIANT across the cycle's own refresh
+  (eligible date + active book + strategy + universe + the slow monthly / fundamental
+  inputs). A same-date rerun through the normal `POST .../daily-research-cycle/run` REUSES
+  the existing COMPLETE manifest and its immutable outputs (no re-scoring, no duplicate
+  evidence / HOC artifact, no order / fill / target confirmation / operational-ledger
+  mutation; `reused_existing_run=true`), while a genuinely DIFFERENT slow-input contract for
+  the same date is still refused (`DIFFERENT_CONTRACT_SAME_DATE`). The raw
+  `input_contract_hash` is unchanged, preserving the concurrency contract.
+- **Pre-close portfolio consistency.** `portfolio_state` now classifies a valuation exactly
+  one eligible session ahead of the latest Daily Close — with the current session
+  SESSION_READY and its close due-but-not-run — as `PENDING_DAILY_CLOSE` /
+  `EXPECTED_PRE_CLOSE_GAP` (state `PORTFOLIO_STATE_READY_WITH_PENDING_CLOSE`), not a
+  corruption. Genuine gaps are still protected as `INCONSISTENT`: a gap larger than one
+  session, a future-dated valuation, a valuation behind the close, and NAV / benchmark /
+  active-book mismatches. After the August 6 Daily Close, valuation and latest close align
+  and the state returns `CONSISTENT` / `READY`.
+- **Workflow + HOC.** A completed cycle plus a current Holding Opportunity-Cost assessment
+  SATISFIES the portfolio reassessment (overall `READY_FOR_DAILY_CLOSE`, queued
+  `REVIEW_HOLDING_OPPORTUNITY_COST`, no separate reassessment control) even when the legacy
+  Daily-Action-Gate assessment date lags the pending close. A DRC status of `INCONSISTENT`
+  surfaces an explicit recovery blocker (never "the assessment has not run"). The honest HOC
+  `DEGRADED` state and its documented gaps (`PRIOR_RANK_UNAVAILABLE`,
+  `LIQUIDITY_UNAVAILABLE`) remain visible and are never upgraded to pass a gate.
+- **Static guard:** `scripts/audit_architecture.py:check_drc_manifest_recovery` proves the
+  sole DRC orchestrator, the terminal persistence + read-back tokens, that no "mark
+  complete" endpoint/function or separate recovery entry exists, a single configured
+  artifact root, the status reflection / recovery-code tokens, no order / target-confirm /
+  Daily-Close call path, the pre-close and genuine-inconsistency classification tokens,
+  explicit HOC data gaps, Slice 7 absent, Slice 8 (Persistent Alpha Research Agent) planned,
+  and cadence disabled. No evidence is fabricated and no order / target authority is added.

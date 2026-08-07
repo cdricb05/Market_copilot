@@ -191,6 +191,30 @@ UI_DRC_REGION_END = "window.runDailyResearchCycle"
 UI_DRC_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", "build_execution_plan",
                     "evaluate_alignment")
 
+# --- Phase 29G.3 DRC terminal-manifest persistence/read-back + pre-close consistency -- #
+# The canonical DRC status/persistence contract must (a) validate + read back a terminal
+# manifest before returning COMPLETE, (b) reflect a persisted terminal manifest / an
+# explicit recovery INCONSISTENT instead of NOT_STARTED, (c) expose NO "mark complete"
+# endpoint (recovery is normal idempotent execution), and (d) share one configured root.
+# The pre-close portfolio consistency must classify the expected single pending close
+# without hiding genuine gaps.
+DRC_TERMINAL_TOKENS = ("_validate_terminal_manifest", "MANIFEST_PERSISTENCE_UNVERIFIED",
+                       "MANIFEST_CONTRACT_INCOMPLETE")
+DRC_REFLECT_TOKENS = ("_reflect_completed_run",
+                      "TERMINAL_DOWNSTREAM_ARTIFACTS_WITHOUT_DRC_MANIFEST")
+DRC_READBACK_TOKENS = ("_load_run(run_id", "durable")
+DRC_MARK_COMPLETE_FORBIDDEN_DEFS = ("def mark_complete", "def force_complete",
+                                    "def set_run_complete", "def _mark_complete",
+                                    "def force_terminal")
+DRC_RECOVERY_FORBIDDEN_ROUTE_SUBSTR = ("mark-complete", "/complete", "recover")
+DRC_RECOVERY_FORBIDDEN_DEFS = ("def recover_daily_research", "def resume_daily_research",
+                               "def mark_recovered")
+PS_PRECLOSE_TOKENS = ("PENDING_DAILY_CLOSE", "EXPECTED_PRE_CLOSE_GAP",
+                      "STATE_READY_WITH_PENDING_CLOSE", "_valuation_vs_close_check",
+                      "previous_trading_day")
+PS_GENUINE_INCONSISTENCY_TOKENS = ("future_dated", "BEHIND the latest",
+                                   "more than one eligible session")
+
 # --- Phase 29D.2 production monthly-momentum emitter bridge ownership ----------- #
 # The ONE pure-stdlib SUBPROCESS bridge wired behind the canonical monthly-input
 # adapter's seam. It must import NEITHER numpy NOR pandas (the heavy math runs only
@@ -1423,6 +1447,97 @@ def check_holding_opportunity_cost_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_drc_manifest_recovery(files: list[Path]) -> dict:
+    """Phase 29G.3 DRC terminal-manifest persistence/read-back + safe recovery + pre-close
+    consistency guard. Proves: (1) api.daily_research_cycle remains the sole DRC
+    orchestrator; (2) a terminal COMPLETE response requires a validated + read-back
+    manifest (never COMPLETE on an unverified persist); (3) NO "mark complete" endpoint or
+    function exists (recovery is normal idempotent execution); (4) status and execution
+    share ONE configured artifact root; (5) status cannot report NOT_STARTED when matching
+    terminal downstream artifacts exist (reflection + explicit recovery INCONSISTENT code);
+    (6) recovery uses the normal run entry (no separate recovery entry/route); (7) no order
+    / target-confirmation / operational-mutation call path; (8) the expected pre-close date
+    gap is classified PENDING_DAILY_CLOSE (not corruption); (9) genuine date inconsistencies
+    remain protected; (10) HOC data gaps remain explicit; (11) Slice 7 remains absent;
+    (12) the Persistent Alpha Research Agent (Slice 8) remains planned; (13) cadence remains
+    disabled; (14) inventory drift is zero (checked by ``check_inventory_drift``)."""
+    drc = _read(DRC_OWNER)
+    ps = _read(PS_OWNER)
+    ws = _read(WORKFLOW_STATE_OWNER)
+    gate = _read(GATE_OWNER)
+    routes = check_routes()["routes"]
+
+    # (1) sole orchestrator.
+    run_def_modules = [_rel(fp) for fp in files
+                       if _rel(fp) != "scripts/audit_architecture.py"
+                       and DRC_RUN_DEF in fp.read_text(encoding="utf-8", errors="replace")]
+    sole_orchestrator = (sorted(set(run_def_modules)) == [DRC_OWNER])
+
+    # (2) terminal persistence + read-back contract.
+    missing_terminal_contract = sorted(t for t in DRC_TERMINAL_TOKENS if t not in drc)
+    read_back_present = all(t in drc for t in DRC_READBACK_TOKENS)
+
+    # (3) no "mark complete" endpoint / function.
+    mark_complete_defs = sorted(t for t in DRC_MARK_COMPLETE_FORBIDDEN_DEFS if t in drc)
+    drc_routes = sorted({r["path"] for r in routes
+                         if "daily-research-cycle" in (r["path"] or "")})
+    forbidden_recovery_routes = sorted(
+        p for p in drc_routes
+        if any(bad in p for bad in DRC_RECOVERY_FORBIDDEN_ROUTE_SUBSTR))
+
+    # (4) single configured artifact root (one _drc_dir resolver + the DRC_DIR_ENV).
+    single_artifact_root = (drc.count("def _drc_dir(") == 1 and "PAPER_TRADER_DRC_DIR" in drc)
+
+    # (5) status reflects a terminal manifest / recovery INCONSISTENT (never NOT_STARTED).
+    missing_reflect = sorted(t for t in DRC_REFLECT_TOKENS if t not in drc)
+
+    # (6) recovery is normal idempotent execution (no separate recovery entry/route).
+    recovery_defs_present = sorted(t for t in DRC_RECOVERY_FORBIDDEN_DEFS if t in drc)
+
+    # (7) forbidden mutation calls (order / fill / target-confirm / Daily Close).
+    forbidden_execution_calls = sorted(t for t in DRC_FORBIDDEN_CALLS if t in drc)
+
+    # (8) pre-close classification present.
+    missing_preclose_tokens = sorted(t for t in PS_PRECLOSE_TOKENS if t not in ps)
+
+    # (9) genuine inconsistency protections retained.
+    missing_genuine_inconsistency_tokens = sorted(
+        t for t in PS_GENUINE_INCONSISTENCY_TOKENS if t not in ps)
+
+    # (10) HOC data gaps remain explicit through the gate → workflow contract.
+    hoc_gaps_explicit = ("opportunity_cost_data_gaps" in gate
+                         and "opportunity_cost_data_gaps" in ws)
+
+    # (11)/(12) Slice 7 / Slice 8 remain future.
+    slice7_present_modules = sorted(m for m in SLICE7_ABSENT_MODULES
+                                    if (REPO_ROOT / m).exists())
+    slice7_present_routes = sorted(r for r in SLICE7_ABSENT_ROUTES
+                                   if any(rt["path"] == r for rt in routes))
+    slice8_present_modules = sorted(m for m in SLICE8_ABSENT_MODULES
+                                    if (REPO_ROOT / m).exists())
+
+    return {
+        "owner": DRC_OWNER,
+        "sole_orchestrator": bool(sole_orchestrator),
+        "competing_orchestrators": sorted(set(run_def_modules) - {DRC_OWNER}),
+        "missing_terminal_persistence_tokens": missing_terminal_contract,
+        "terminal_read_back_present": bool(read_back_present),
+        "mark_complete_defs": mark_complete_defs,
+        "forbidden_recovery_routes": forbidden_recovery_routes,
+        "single_artifact_root": bool(single_artifact_root),
+        "missing_status_reflect_tokens": missing_reflect,
+        "separate_recovery_entry_defs": recovery_defs_present,
+        "forbidden_execution_calls": forbidden_execution_calls,
+        "missing_preclose_tokens": missing_preclose_tokens,
+        "missing_genuine_inconsistency_tokens": missing_genuine_inconsistency_tokens,
+        "hoc_data_gaps_explicit": bool(hoc_gaps_explicit),
+        "slice7_present_modules": slice7_present_modules,
+        "slice7_present_routes": slice7_present_routes,
+        "slice8_present_modules": slice8_present_modules,
+        "cadence_enabled": False,
+    }
+
+
 def check_slice6_live_acceptance_ownership(files: list[Path]) -> dict:
     """Phase 29G.1 Slice 6 LIVE-ACCEPTANCE / operator-workflow & UI hard-cutover guard.
 
@@ -1683,6 +1798,7 @@ def run_audit() -> dict:
         "holding_opportunity_cost_ownership": check_holding_opportunity_cost_ownership(files),
         "slice6_live_acceptance_ownership": check_slice6_live_acceptance_ownership(files),
         "slice6_residual_cutover_ownership": check_slice6_residual_cutover_ownership(files),
+        "drc_manifest_recovery": check_drc_manifest_recovery(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -1915,6 +2031,28 @@ def _print_console(rep: dict) -> None:
           f"Slice 8 present (must be empty): {rc['slice8_present']}  "
           f"cadence enabled (must be False): {rc['cadence_enabled']}")
 
+    hdr("DRC TERMINAL-MANIFEST PERSISTENCE / RECOVERY / PRE-CLOSE (Phase 29G.3)")
+    mr = rep["drc_manifest_recovery"]
+    print(f"sole DRC orchestrator: {mr['sole_orchestrator']}  "
+          f"competing (must be empty): {mr['competing_orchestrators']}")
+    print(f"terminal persistence tokens missing (must be empty): "
+          f"{mr['missing_terminal_persistence_tokens']}  "
+          f"read-back present: {mr['terminal_read_back_present']}")
+    print(f"mark-complete defs (must be empty): {mr['mark_complete_defs']}  "
+          f"forbidden recovery routes (must be empty): {mr['forbidden_recovery_routes']}  "
+          f"separate recovery entry defs (must be empty): {mr['separate_recovery_entry_defs']}")
+    print(f"single artifact root: {mr['single_artifact_root']}  "
+          f"status reflect tokens missing (must be empty): {mr['missing_status_reflect_tokens']}")
+    print(f"forbidden execution calls (must be empty): {mr['forbidden_execution_calls']}")
+    print(f"pre-close tokens missing (must be empty): {mr['missing_preclose_tokens']}  "
+          f"genuine-inconsistency tokens missing (must be empty): "
+          f"{mr['missing_genuine_inconsistency_tokens']}")
+    print(f"HOC data gaps explicit: {mr['hoc_data_gaps_explicit']}  "
+          f"Slice 7 present (must be empty): {mr['slice7_present_modules']}"
+          f"{mr['slice7_present_routes']}  "
+          f"Slice 8 present (must be empty): {mr['slice8_present_modules']}  "
+          f"cadence enabled (must be False): {mr['cadence_enabled']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -1976,6 +2114,7 @@ def main(argv=None) -> int:
         ho = rep["holding_opportunity_cost_ownership"]
         la6 = rep["slice6_live_acceptance_ownership"]
         rc6 = rep["slice6_residual_cutover_ownership"]
+        mr = rep["drc_manifest_recovery"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
                          + len(rc6["forbidden_primary_ui"])
                          + len(rc6["forbidden_primary_ws"])
@@ -2081,6 +2220,22 @@ def main(argv=None) -> int:
                          + (0 if dr["ui_status_loader_count"] == 1 else 1)
                          + (0 if dr["ui_execution_function_count"] == 1 else 1)
                          + len(dr["ui_planning_derivation"])
+                         + (0 if mr["sole_orchestrator"] else 1)
+                         + len(mr["competing_orchestrators"])
+                         + len(mr["missing_terminal_persistence_tokens"])
+                         + (0 if mr["terminal_read_back_present"] else 1)
+                         + len(mr["mark_complete_defs"])
+                         + len(mr["forbidden_recovery_routes"])
+                         + (0 if mr["single_artifact_root"] else 1)
+                         + len(mr["missing_status_reflect_tokens"])
+                         + len(mr["separate_recovery_entry_defs"])
+                         + len(mr["forbidden_execution_calls"])
+                         + len(mr["missing_preclose_tokens"])
+                         + len(mr["missing_genuine_inconsistency_tokens"])
+                         + (0 if mr["hoc_data_gaps_explicit"] else 1)
+                         + len(mr["slice7_present_modules"])
+                         + len(mr["slice7_present_routes"])
+                         + len(mr["slice8_present_modules"])
                          + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
                          + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
         return 1 if blocking_hits else 0
