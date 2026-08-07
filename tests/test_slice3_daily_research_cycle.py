@@ -176,12 +176,30 @@ class Fakes:
                 "persistence": {"status": "CREATED", "proposal_id": "realloc_stub",
                                 "persisted": True, "superseded_proposal_id": None}}
 
+    def research_agent(self, *, scoring=None, reallocation=None, research_agent_dir=None,
+                       hoc_dir=None, reallocation_dir=None, desk_dir=None):
+        # Slice 8: hermetic stub of the Persistent Alpha Research Agent seam (no I/O).
+        self.calls["research_agent"] = self.calls.get("research_agent", 0) + 1
+        return {"assessment": {"research_state": "INSUFFICIENT_EVIDENCE",
+                               "assessment_hash": "ra_stub_hash",
+                               "eligible_market_date": "2026-08-05",
+                               "evidence_quality": {"state": "INSUFFICIENT"},
+                               "degradation": {"categories": []},
+                               "recalibration": {"state": "INSUFFICIENT_EVIDENCE",
+                                                 "recommended": False},
+                               "challenger": {"state": "NOT_EVALUATED"},
+                               "research_opportunities": [],
+                               "data_gaps": []},
+                "persistence": {"status": "CREATED", "assessment_id": "ra_stub",
+                                "persisted": True, "superseded_assessment_id": None}}
+
     def kw(self):
         return dict(daily_refresh_fn=self.refresh, scoring_fn=self.score,
                     target_loader=self.target, evidence_capture_fn=self.capture,
                     evidence_registry=self.registry, assessment_loader=self.assess,
                     holding_opp_cost_fn=self.holding_opp,
                     reallocation_proposal_fn=self.reallocation,
+                    research_agent_fn=self.research_agent,
                     refresh_confirm_token="CONFIRM_ALPHA_TARGET_REFRESH",
                     monthly_emitter_fn=(self.monthly_emit if self.monthly else None))
 
@@ -283,7 +301,8 @@ def test_11_complete_successful_cycle(tmp_path):
     assert r["state"] == drc.COMPLETE
     assert r["completed_steps"] == list(drc.STEP_SEQUENCE)
     assert f.calls == {"refresh": 1, "monthly": 0, "score": 1, "target": 1,
-                       "evidence": 1, "assess": 1, "holding_opp": 1, "reallocation": 1}
+                       "evidence": 1, "assess": 1, "holding_opp": 1, "reallocation": 1,
+                       "research_agent": 1}
 
 
 def test_12_successful_cycle_with_monthly_source_due(tmp_path):

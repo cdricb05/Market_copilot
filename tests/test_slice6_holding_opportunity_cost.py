@@ -824,8 +824,13 @@ def test_82_slice7_landed():
         assert absent not in _route_paths(), absent
 
 
-def test_83_research_agent_remains_planned():
+def test_83_research_agent_landed_no_second_registry():
+    # Slice 8 (Persistent Alpha Research Agent, Milestone 4) has LANDED as its two canonical
+    # owners; a second/unified model registry (api/model_registry.py) is NOT created — the
+    # Research Agent reads the existing champion/challenger registries, it never forks them.
     assert not (ROOT / "api" / "model_registry.py").exists()
+    assert (ROOT / "engine" / "research_agent.py").exists()
+    assert (ROOT / "api" / "research_agent.py").exists()
 
 
 def test_84_cadence_remains_disabled():

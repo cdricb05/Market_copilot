@@ -402,6 +402,20 @@ def _full_cycle(tmp_path):
                                "data_quality": {"data_gaps": []}},
                 "persistence": {"status": "CREATED", "artifact_id": "hoc_stub",
                                 "persisted": True}}
+
+    def research_agent(*, scoring=None, reallocation=None, research_agent_dir=None,
+                       hoc_dir=None, reallocation_dir=None, desk_dir=None):
+        # Slice 8: hermetic stub of the Persistent Alpha Research Agent seam (no I/O).
+        return {"assessment": {"research_state": "INSUFFICIENT_EVIDENCE",
+                               "assessment_hash": "ra_stub", "eligible_market_date": D1,
+                               "evidence_quality": {"state": "INSUFFICIENT"},
+                               "degradation": {"categories": []},
+                               "recalibration": {"state": "INSUFFICIENT_EVIDENCE",
+                                                 "recommended": False},
+                               "challenger": {"state": "NOT_EVALUATED"},
+                               "research_opportunities": [], "data_gaps": []},
+                "persistence": {"status": "CREATED", "assessment_id": "ra_stub",
+                                "persisted": True, "superseded_assessment_id": None}}
     # Session ready at D-1 (both desk and SPY at D-1); a stale daily price/score input
     # is refreshed to D-1 (so the refresh step runs), momentum current for the month.
     return drc.run_daily_research_cycle(
@@ -415,7 +429,7 @@ def _full_cycle(tmp_path):
         daily_refresh_fn=refresh, scoring_fn=score, target_loader=target,
         evidence_capture_fn=capture, evidence_registry=[("m", "b", 25, "ACTIVE")],
         assessment_loader=assess, holding_opp_cost_fn=holding_opp,
-        reallocation_proposal_fn=realloc,
+        reallocation_proposal_fn=realloc, research_agent_fn=research_agent,
         refresh_confirm_token="CONFIRM_ALPHA_TARGET_REFRESH",
         monthly_emitter_fn=None)
 
@@ -608,24 +622,29 @@ def test_a55_no_scheduler_change():
     assert "ScheduledTask" not in src and "schtasks" not in src
 
 
-def test_a56_slice5_6_7_landed():
-    # Slice 5 (Phase 29F), Slice 6 (Phase 29G) and Slice 7 (Reallocation Proposal engine,
-    # Phase 29H) have LANDED. The boundary has advanced: the NEXT slice — Slice 8
-    # (Persistent Alpha Research Agent) — is NOT started.
+def test_a56_slice5_6_7_8_landed():
+    # Slice 5 (Phase 29F), Slice 6 (Phase 29G), Slice 7 (Reallocation Proposal, Phase 29H)
+    # and Slice 8 (Persistent Alpha Research Agent, Phase 29I) have LANDED. The boundary has
+    # advanced: the NEXT slice — Slice 9 (Paid-data integration) — is NOT started.
     roadmap = (ROOT / "docs" / "CONSOLIDATION_ROADMAP.md").read_text(encoding="utf-8")
     s5 = roadmap.index("## Slice 5")
     s6 = roadmap.index("## Slice 6")
     s7 = roadmap.index("## Slice 7")
     s8 = roadmap.index("## Slice 8")
     s9 = roadmap.index("## Slice 9")
+    s10 = roadmap.index("## Slice 10")
     assert "LANDED (Phase 29F)" in roadmap[s5:s6]
     assert "LANDED (Phase 29G)" in roadmap[s6:s7]
     assert "LANDED (Phase 29H)" in roadmap[s7:s8]
-    assert "LANDED" not in roadmap[s8:s9]
-    # The Slice 6 and Slice 7 owners exist.
+    assert "LANDED (Phase 29I)" in roadmap[s8:s9]
+    assert "LANDED" not in roadmap[s9:s10]
+    # The Slice 6, 7 and 8 owners exist.
     assert (ROOT / "engine" / "holding_opportunity_cost.py").exists()
     assert (ROOT / "engine" / "reallocation_proposal.py").exists()
+    assert (ROOT / "engine" / "research_agent.py").exists()
+    assert (ROOT / "api" / "research_agent.py").exists()
     assert not (ROOT / "api" / "portfolio_proposal.py").exists()
+    assert not (ROOT / "api" / "model_registry.py").exists()
 
 
 def test_frozen_monthly_status_vocabulary_stable():

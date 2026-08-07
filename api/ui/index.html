@@ -3361,6 +3361,7 @@
              Diagnostics & Archive. -->
         <div class="pt-nav" id="ra-nav" role="navigation" aria-label="Research and audit sections">
           <a id="ra-nav-overview" data-rasub="" onclick="navigateToRoute('research-audit')" title="Champion identity, current mark, decision">Champion Overview</a>
+          <a id="ra-nav-research-agent" data-rasub="research-agent" onclick="navigateToRoute('research-audit/research-agent')" title="Persistent Alpha Research Agent (Slice 8, Milestone 4): is the current research/model stack still trustworthy? Evidence sufficiency, champion-health components, model-degradation categories, HOC/reallocation feedback, challenger classification, recalibration recommendation and a ranked queue of bounded research opportunities. Research governance only — read-only, manual review, no model promotion, no portfolio mutation, no orders, automation off.">Research Agent</a>
           <a id="ra-nav-performance" data-rasub="performance" onclick="navigateToRoute('research-audit/performance')" title="Top25 / Top50 / SPY performance + historical evidence">Performance</a>
           <a id="ra-nav-daily-operations" data-rasub="daily-operations" onclick="navigateToRoute('research-audit/daily-operations')" title="Current mark, action counts, rebalance simulator">Daily Operations</a>
           <a id="ra-nav-paper-books" data-rasub="paper-books" onclick="navigateToRoute('research-audit/paper-books')" title="Active paper book, coverage, PnL history">Paper Books</a>
@@ -3381,6 +3382,89 @@
           <span class="cc-badge">NO BROKER EXECUTION</span>
           <span class="cc-badge">AUTOMATION OFF</span>
           <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+        </div>
+
+        <!-- ===================== Phase 29I SLICE 8 PERSISTENT ALPHA RESEARCH AGENT ===================== -->
+        <!-- The ONE first-class Research Agent panel (Milestone 4). It reads the immutable
+             backend assessment from GET /v1/research/research-agent and renders it verbatim.
+             It performs NO research calculation in the browser — every state, component
+             health, degradation category, evidence count, challenger classification,
+             recalibration recommendation and opportunity is read from the backend engine.
+             Research governance only: no model promotion, no portfolio mutation, no orders,
+             automation off. -->
+        <div class="card" id="rag-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Persistent Alpha Research Agent
+              <span class="cc-badge muted" title="Consolidation Roadmap Slice 8 / Charter Milestone 4.">MILESTONE 4</span>
+              <span class="cc-badge" id="rag-state" title="The current research-state classification read from the backend.">&mdash;</span>
+            </span>
+            <button class="btn-sm" id="rag-refresh" onclick="loadResearchAgent()" title="Reload the read-only research-agent assessment.">&#8635; Refresh</button>
+          </div>
+
+          <div id="rag-banner" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:2px 0 10px;font-weight:800;letter-spacing:.03em;font-size:11px;">
+            PERSISTENT ALPHA RESEARCH AGENT &mdash; RESEARCH GOVERNANCE ONLY &middot; MANUAL REVIEW REQUIRED
+          </div>
+
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge">NO MODEL PROMOTION</span>
+            <span class="cc-badge">NO PORTFOLIO MUTATION</span>
+            <span class="cc-badge">NO ORDERS</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+          </div>
+
+          <div id="rag-note" style="font-size:12px;margin:0 0 10px;color:var(--muted,#8b98b0);">Loading the read-only research-agent assessment&hellip;</div>
+
+          <!-- State summary + champion + evidence sufficiency. -->
+          <div id="rag-summary" style="font-size:12px;margin:0 0 12px;">&mdash;</div>
+
+          <!-- Champion-health component grid (backend-provided states). -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Champion Health &mdash; Component States
+              <span class="cc-badge" style="font-size:9px;">EXPLAINED, NOT A SINGLE SCORE</span></div>
+            <div id="rag-health" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- Forward performance / ranking-quality / benchmark-relative / turnover / drawdown / regime / sector states. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Evidence &amp; Model Degradation</div>
+            <div id="rag-degradation" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- HOC + reallocation diagnostic feedback. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">HOC &amp; Reallocation Diagnostics
+              <span class="cc-badge" style="font-size:9px;">SLICE 6 / SLICE 7 FEEDBACK</span></div>
+            <div id="rag-feedback" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- Challenger classification + recalibration recommendation. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Challenger &amp; Recalibration
+              <span class="cc-badge manual" style="font-size:9px;">MANUAL MODEL REVIEW</span>
+              <span class="cc-badge" style="font-size:9px;">NO AUTO-PROMOTION</span></div>
+            <div id="rag-challenger" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- Ranked queue of bounded research opportunities. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Research Opportunity Queue
+              <span class="cc-badge" style="font-size:9px;">BOUNDED &middot; SPECIFICATION ONLY</span>
+              <span class="cc-badge manual" style="font-size:9px;">MANUAL APPROVAL REQUIRED</span></div>
+            <div id="rag-opportunities" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- Data gaps + next checkpoint. -->
+          <div id="rag-gaps" style="font-size:12px;margin:0 0 10px;color:var(--muted,#8b98b0);">&mdash;</div>
+
+          <!-- Expandable evidence / reason-code detail. -->
+          <details id="rag-detail-wrap" style="margin:0 0 4px;">
+            <summary style="cursor:pointer;font-weight:700;font-size:12px;">Evidence window, reason codes &amp; provenance</summary>
+            <div id="rag-detail" style="font-size:11px;margin:8px 0 0;font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;">&mdash;</div>
+          </details>
+
+          <div style="font-size:10px;margin:8px 0 0;color:var(--muted,#8b98b0);">Evidence sufficiency, champion-health states, degradation categories, challenger classification, the recalibration recommendation and every opportunity are produced by the backend research-agent engine, never in the browser. Research governance only &mdash; no model is promoted, no portfolio is changed, no order is created.</div>
         </div>
 
         <!-- ===================== Phase 28A FORWARD EVIDENCE (RESEARCH) ===================== -->
@@ -22368,6 +22452,7 @@ window._ptHighlightNav = _ptHighlightNav;
 // Phase 15-B: Research & Audit workspace — one section active at a time.
 var _RA_SECTIONS = {
   '':                 { panels: [], champion: true },
+  'research-agent':   { panels: ['rag-panel'], champion: false },
   'performance':      { panels: ['cap-panel'], champion: false },
   'daily-operations': { panels: ['cao-panel'], champion: false },
   'paper-books':      { panels: ['cab-panel'], champion: false },
@@ -22381,7 +22466,7 @@ var _RA_SECTIONS = {
   'stage13a':         { panels: ['s13a-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -22423,6 +22508,7 @@ window._raApplySection = _raApplySection;
 // Best-effort, read-only data load for the active Research & Audit section.
 function _raLoadSection(sub) {
   var loaders = {
+    'research-agent': ['loadResearchAgent'],
     'performance': ['loadPaperPerformanceHistory'],
     'daily-operations': ['loadDailyAlphaStatus'],
     'paper-books': ['loadActiveBook'],
@@ -24662,6 +24748,180 @@ function renderReallocationProposal(d) {
     + '<thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
 }
 window.renderReallocationProposal = renderReallocationProposal;
+
+// ---------------------------------------------------------------------------
+// Phase 29I Slice 8 — Persistent Alpha Research Agent (the ONE canonical loader).
+// It reads GET /v1/research/research-agent and renders the Research & Audit panel.
+// It performs NO research math — every state, component health, degradation category,
+// evidence count, challenger classification, recalibration recommendation and research
+// opportunity is read verbatim from the backend engine. Research governance only:
+// no model promotion, no portfolio mutation, no orders, automation off.
+// ---------------------------------------------------------------------------
+function loadResearchAgent() {
+  if (window._researchAgentInFlight) return window._researchAgentInFlight;
+  var note = document.getElementById('rag-note');
+  if (note) note.textContent = 'Loading the read-only research-agent assessment…';
+  var p = _mhzGet('/v1/research/research-agent').then(function (d) {
+    window._researchAgentInFlight = null;
+    window._researchAgentData = d;
+    renderResearchAgent(d);
+    return d;
+  }).catch(function () {
+    window._researchAgentInFlight = null; renderResearchAgent(null); return null;
+  });
+  window._researchAgentInFlight = p;
+  return p;
+}
+window.loadResearchAgent = loadResearchAgent;
+
+function _ragStateBadge(state) {
+  var cls = { HEALTHY: 'safe', WATCH: 'manual', INVESTIGATE: 'manual',
+              RECALIBRATION_DUE: 'danger', CHALLENGER_PROMISING: 'manual',
+              INSUFFICIENT_EVIDENCE: 'muted', BLOCKED: 'danger', NOT_RUN: 'muted',
+              NO_ACTIVE_BOOK: 'manual', UNAVAILABLE: 'manual' }[state] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(state || '—') + '</span>';
+}
+
+function _ragHealthBadge(state) {
+  var cls = { HEALTHY: 'safe', WATCH: 'manual', WEAK: 'danger', UNKNOWN: 'muted' }[state] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(state || '—') + '</span>';
+}
+
+function renderResearchAgent(d) {
+  function chip(label, val, cls) {
+    return '<span class="cc-badge ' + (cls || 'muted') + '" title="' + escapeHtml(label)
+      + '">' + escapeHtml(label) + ': ' + escapeHtml(val == null ? '—' : String(val)) + '</span>';
+  }
+  var stateEl = document.getElementById('rag-state');
+  var noteEl = document.getElementById('rag-note');
+  if (!d) {
+    if (stateEl) { stateEl.textContent = 'UNAVAILABLE'; stateEl.className = 'cc-badge manual'; }
+    if (noteEl) noteEl.textContent = 'The research-agent assessment is unavailable.';
+    _setHtml('rag-summary', '—'); _setHtml('rag-health', '—');
+    _setHtml('rag-degradation', '—'); _setHtml('rag-feedback', '—');
+    _setHtml('rag-challenger', '—'); _setHtml('rag-opportunities', '—');
+    _setHtml('rag-gaps', '—'); _setHtml('rag-detail', '—');
+    return;
+  }
+  var state = d.state || (d.research_state) || 'UNAVAILABLE';
+  if (stateEl) {
+    var cls = { HEALTHY: 'safe', WATCH: 'manual', INVESTIGATE: 'manual',
+                RECALIBRATION_DUE: 'danger', CHALLENGER_PROMISING: 'manual',
+                INSUFFICIENT_EVIDENCE: 'muted', BLOCKED: 'danger', NOT_RUN: 'muted',
+                NO_ACTIVE_BOOK: 'manual', UNAVAILABLE: 'manual' }[state] || 'muted';
+    stateEl.textContent = state; stateEl.className = 'cc-badge ' + cls;
+  }
+  if (noteEl) noteEl.textContent = d.message || '';
+
+  var champ = d.champion || {};
+  var evq = d.evidence_quality || {};
+  var win = d.evidence_window || {};
+  var summary = [];
+  summary.push(chip('Champion', champ.model_id, 'muted'));
+  summary.push(chip('Active model', champ.primary_model_id, 'muted'));
+  summary.push(chip('Evidence', evq.state, evq.state === 'SUFFICIENT' ? 'safe' : 'manual'));
+  summary.push(chip('Forward obs', win.forward_observation_count, 'muted'));
+  summary.push(chip('Sessions', win.eligible_session_count, 'muted'));
+  summary.push(chip('Ranking obs', win.ranking_observation_count, 'muted'));
+  summary.push('<span class="cc-badge safe">NO MODEL PROMOTION</span>');
+  _setHtml('rag-summary', summary.join(' '));
+
+  // Champion-health components (backend states rendered verbatim).
+  var health = d.champion_health || {};
+  var comps = health.components || [];
+  var hrows = [];
+  comps.forEach(function (c) {
+    hrows.push('<div style="margin:2px 0;">' + _ragHealthBadge(c.state) + ' <b>'
+      + escapeHtml(c.component || '') + '</b> '
+      + (c.value == null ? '' : '<span style="color:var(--muted,#8b98b0);">(' + escapeHtml(String(c.value)) + ')</span> ')
+      + '<span style="color:var(--muted,#8b98b0);font-size:11px;">' + escapeHtml((c.reason_codes || []).join(', ')) + '</span></div>');
+  });
+  _setHtml('rag-health', hrows.length ? hrows.join('') : '—');
+
+  // Evidence + degradation.
+  var deg = d.degradation || {};
+  var rq = d.ranking_quality || {};
+  var perf = d.forward_performance || {};
+  var bench = d.benchmark_relative || {};
+  var dd = d.drawdown || {};
+  var trn = d.turnover_cost || {};
+  var dg = [];
+  dg.push('<div style="margin:2px 0;">' + chip('Degradation categories',
+    (deg.categories && deg.categories.length ? deg.categories.join(', ') : 'none'),
+    (deg.categories && deg.categories.length ? 'manual' : 'safe')) + '</div>');
+  dg.push('<div style="margin:2px 0;">'
+    + chip('Rank IC (mean)', rq.rank_ic_mean, 'muted') + ' '
+    + chip('IC positive %', rq.rank_ic_positive_rate_pct, 'muted') + ' '
+    + chip('Decile spread pp', rq.decile_spread_pp, 'muted') + '</div>');
+  dg.push('<div style="margin:2px 0;">'
+    + chip('Excess vs bench pp', bench.excess_pct_points, 'muted') + ' '
+    + chip('Max drawdown %', dd.max_drawdown_pct, 'muted') + ' '
+    + chip('Avg turnover', trn.avg_daily_turnover, 'muted') + '</div>');
+  _setHtml('rag-degradation', dg.join(''));
+
+  // HOC + reallocation diagnostics.
+  var hoc = d.hoc_diagnostics || {};
+  var real = d.reallocation_diagnostics || {};
+  var fb = [];
+  fb.push('<div style="margin:2px 0;"><b>HOC:</b> ' + chip('exit/replace rate', hoc.exit_replace_rate, 'muted')
+    + ' <span style="color:var(--muted,#8b98b0);font-size:11px;">' + escapeHtml(hoc.interpretation || '') + '</span></div>');
+  fb.push('<div style="margin:2px 0;"><b>Reallocation:</b> ' + chip('avg turnover', real.avg_one_way_turnover, 'muted')
+    + ' ' + chip('avg net improvement', real.avg_score_improvement_net_of_cost, 'muted')
+    + ' <span style="color:var(--muted,#8b98b0);font-size:11px;">' + escapeHtml(real.interpretation || '') + '</span></div>');
+  _setHtml('rag-feedback', fb.join(''));
+
+  // Challenger + recalibration.
+  var ch = d.challenger || {};
+  var recal = d.recalibration || {};
+  var cr = [];
+  cr.push('<div style="margin:2px 0;">' + chip('Challenger', ch.state,
+    (ch.state === 'PROMISING' || ch.state === 'SUPERIOR_CANDIDATE') ? 'manual' : 'muted')
+    + ' ' + chip('Best excess pp', ch.best_excess_pp, 'muted')
+    + ' ' + chip('Obs', ch.observation_count, 'muted')
+    + (ch.manual_model_review_required ? ' <span class="cc-badge manual">MANUAL MODEL REVIEW REQUIRED</span>' : '')
+    + '</div>');
+  cr.push('<div style="margin:2px 0;">' + chip('Recalibration', recal.state,
+    recal.state === 'RECOMMENDED' ? 'danger' : 'muted')
+    + ' <span class="cc-badge safe">NO AUTO-PROMOTION</span> <span class="cc-badge safe">NO AUTO-RETRAINING</span>'
+    + ' <span style="color:var(--muted,#8b98b0);font-size:11px;">next checkpoint at '
+    + escapeHtml(String(recal.next_checkpoint_forward_observation_count == null ? '—' : recal.next_checkpoint_forward_observation_count))
+    + ' forward obs</span></div>');
+  _setHtml('rag-challenger', cr.join(''));
+
+  // Research opportunity queue (already ranked by the backend).
+  var opps = d.research_opportunities || [];
+  var orows = [];
+  opps.forEach(function (o) {
+    var exp = o.proposed_experiment || {};
+    orows.push('<div style="border-top:1px solid var(--border,#2a3550);padding:6px 0;">'
+      + '<b>#' + escapeHtml(String(o.priority == null ? '—' : o.priority)) + '</b> '
+      + '<span class="cc-badge muted">' + escapeHtml(o.category || '') + '</span> '
+      + '<span class="cc-badge">' + escapeHtml(o.expected_research_value || '') + '</span> '
+      + '<b>' + escapeHtml(o.opportunity_id || '') + '</b>'
+      + '<span class="cc-badge manual" style="margin-left:6px;">MANUAL APPROVAL</span>'
+      + '<div style="color:var(--muted,#8b98b0);font-size:11px;margin:3px 0 0;">' + escapeHtml(o.hypothesis || '') + '</div>'
+      + '<div style="color:var(--muted,#8b98b0);font-size:10px;margin:2px 0 0;">Experiment: ' + escapeHtml(exp.experiment_type || '—')
+      + ' &middot; ' + escapeHtml(exp.estimated_computational_scope || '') + ' &middot; SHADOW ONLY</div>'
+      + '</div>');
+  });
+  _setHtml('rag-opportunities', orows.length ? orows.join('') : '<span style="color:var(--muted,#8b98b0);">No research opportunities queued.</span>');
+
+  // Data gaps + reason codes detail.
+  var gaps = d.data_gaps || [];
+  var gapCodes = [];
+  gaps.forEach(function (g) { gapCodes.push(g.code + (g.by_design ? ' (by design)' : '')); });
+  _setHtml('rag-gaps', 'Data gaps: ' + escapeHtml(gapCodes.length ? gapCodes.join(', ') : 'none')
+    + '  ·  State reasons: ' + escapeHtml((d.state_reason_codes || []).join(', ') || 'none'));
+
+  var detail = {
+    research_state: d.research_state, state_reason_codes: d.state_reason_codes,
+    evidence_window: d.evidence_window, evidence_quality_gates: (evq.gates || []),
+    regime: d.regime, sector: d.sector, provenance: d.provenance,
+    assessment_hash: d.assessment_hash, artifact: d.artifact, safety: d.safety
+  };
+  _setHtml('rag-detail', escapeHtml(JSON.stringify(detail, null, 2)));
+}
+window.renderResearchAgent = renderResearchAgent;
 
 function renderPortfolioState(d) {
   var ok = !!(d && d.state && d.state !== 'PORTFOLIO_STATE_UNAVAILABLE' && d.state !== 'NO_ACTIVE_BOOK');

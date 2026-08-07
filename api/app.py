@@ -204,6 +204,7 @@ from paper_trader.api import daily_research_cycle as _drc
 from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
+from paper_trader.api import research_agent as _research_agent
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
     load_alpha_registry,
@@ -6394,6 +6395,43 @@ def operations_reallocation_proposal() -> dict:
     before a proposal exists and remains readable (HTTP 200) in DEGRADED / BLOCKED states.
     """
     return _realloc.load_reallocation_proposal()
+
+
+@app.get(
+    "/v1/research/research-agent",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_research_agent() -> dict:
+    """Slice 8 (Phase 29I) canonical Persistent Alpha Research Agent (Milestone 4).
+
+    The ONE authoritative read model of whether the current research / model stack remains
+    trustworthy and whether bounded research experiments should be run, for the active
+    Alpha Paper Book and current eligible session. Assembled by ``api.research_agent`` from
+    the authoritative research/model evidence owners (``api.universe_scoring`` champion /
+    challenger identity + ranking coverage; ``api.forward_prediction_skill`` matured
+    TRUE_FORWARD rank IC / decile spread / observation counts; ``api.paper_trading_desk`` +
+    ``api.forward_evidence`` realized return / benchmark excess / drawdown / turnover / cost;
+    ``api.current_alpha_tournament`` challenger evidence; ``api.current_alpha_decision_gate``
+    minimum forward-observation threshold; the Slice 6 ``api.holding_opportunity_cost`` and
+    Slice 7 ``api.reallocation_proposal`` immutable histories; ``api.portfolio_state`` active
+    book / eligible session / sector) and evaluated by the pure ``engine.research_agent``
+    kernel. It reports evidence sufficiency, explained champion-health components, model
+    degradation categories, HOC / reallocation feedback, challenger classification, a
+    controlled recalibration recommendation, and a ranked queue of bounded research
+    opportunities with fully-specified experiments.
+
+    STRICTLY READ-ONLY and RESEARCH GOVERNANCE ONLY: it never runs the engine (the sole
+    execution path is the Daily Research Cycle, ``POST /v1/operations/daily-research-cycle/run``,
+    via the RUN_RESEARCH_AGENT step), returns the current immutable persisted assessment,
+    and promotes no model, recalibrates / retrains no model, writes no champion pointer,
+    changes no target weight / holding / cash / NAV, creates no order / fill, performs no
+    broker execution and enables no automation. Manual approval remains mandatory for every
+    recommended action. It returns NOT_RUN before an assessment exists and remains readable
+    (HTTP 200) in INSUFFICIENT_EVIDENCE / WATCH / BLOCKED states. A short negative live P&L
+    run legitimately yields WATCH / INSUFFICIENT_EVIDENCE, never a premature RECALIBRATION_DUE.
+    """
+    return _research_agent.load_research_agent()
 
 
 @app.get(

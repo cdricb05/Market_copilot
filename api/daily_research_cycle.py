@@ -132,13 +132,14 @@ STEP_PREPARE_TARGET = "PREPARE_TARGET"
 STEP_CAPTURE_EVIDENCE = "CAPTURE_FORWARD_EVIDENCE"
 STEP_HOLDING_OPP_COST = "ASSESS_HOLDING_OPPORTUNITY_COST"
 STEP_BUILD_REALLOCATION = "BUILD_REALLOCATION_PROPOSAL"
+STEP_RUN_RESEARCH_AGENT = "RUN_RESEARCH_AGENT"
 STEP_RUN_ASSESSMENT = "RUN_PORTFOLIO_ASSESSMENT"
 
 STEP_SEQUENCE = (
     STEP_RESOLVE_SESSION, STEP_VALIDATE_CONSISTENCY, STEP_PLAN, STEP_REFRESH_INPUTS,
     STEP_VALIDATE_ALIGNMENT, STEP_SCORE_UNIVERSE, STEP_PREPARE_TARGET,
     STEP_CAPTURE_EVIDENCE, STEP_HOLDING_OPP_COST, STEP_BUILD_REALLOCATION,
-    STEP_RUN_ASSESSMENT,
+    STEP_RUN_RESEARCH_AGENT, STEP_RUN_ASSESSMENT,
 )
 
 # Frozen step-status vocabulary.
@@ -491,6 +492,15 @@ def _validate_terminal_manifest(rec: dict) -> list:
         if not rec.get("reallocation_proposal_id") \
                 or not rec.get("reallocation_proposal_hash"):
             problems.append("reallocation step OK but proposal reference missing")
+    # Slice 8 (Phase 29I): if the Research Agent step actually RAN (S_OK), a COMPLETE
+    # manifest must carry its immutable assessment reference (id + assessment hash). A
+    # hermetically SKIPPED / BLOCKED research-agent step (no canonical scoring / no active
+    # book) is exempt.
+    ra_step = next((s for s in (rec.get("step_results") or [])
+                    if s.get("step_id") == STEP_RUN_RESEARCH_AGENT), None)
+    if ra_step and ra_step.get("status") == S_OK:
+        if not rec.get("research_agent_id") or not rec.get("research_agent_hash"):
+            problems.append("research-agent step OK but assessment reference missing")
     return problems
 
 
@@ -786,6 +796,28 @@ def _default_reallocation_fn(*, scoring=None, hoc_assessment=None, reallocation_
                               reallocation_dir=reallocation_dir, hoc_dir=hoc_dir)
 
 
+def _default_research_agent_fn(*, scoring=None, reallocation=None, research_agent_dir=None,
+                               hoc_dir=None, reallocation_dir=None, desk_dir=None):
+    """The canonical Persistent Alpha Research Agent (Slice 8, Milestone 4).
+
+    Delegates to ``api.research_agent.run_and_persist`` — the sole composition/persistence
+    owner — which sources the immutable research-evidence contract from the authoritative
+    evidence owners (champion/challenger identity, matured forward rank IC / decile spread,
+    realized benchmark-relative performance / drawdown / turnover, the Slice-6 HOC and
+    Slice-7 reallocation immutable histories, regime evidence), runs the pure
+    ``engine.research_agent`` kernel and persists the immutable research-assessment artifact.
+    The DRC evaluates no research state itself. ``scoring`` (the canonical universe-scoring
+    contract the cycle already built) is reused for the champion identity + ranking
+    coverage; ``hoc_dir`` / ``reallocation_dir`` locate the Slice-6/7 histories the agent
+    reads; ``research_agent_dir`` isolates the artifact root for a sandboxed run.
+    RESEARCH GOVERNANCE ONLY: it recommends bounded research actions but promotes / mutates
+    nothing and creates no order."""
+    from paper_trader.api import research_agent as ra
+    return ra.run_and_persist(scoring=scoring, reallocation=reallocation,
+                              research_agent_dir=research_agent_dir, hoc_dir=hoc_dir,
+                              reallocation_dir=reallocation_dir, desk_dir=desk_dir)
+
+
 def _default_refresh_confirm_token() -> str:
     from paper_trader.api import alpha_target as at
     return at.REFRESH_CONFIRM_TOKEN
@@ -974,6 +1006,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
               started_at: Optional[str] = None, completed_at: Optional[str] = None,
               monthly_owner: Optional[dict] = None, holding_opp_cost: Optional[dict] = None,
               reallocation_proposal: Optional[dict] = None,
+              research_agent: Optional[dict] = None,
               performed_write: bool = False, executable: bool = False) -> dict:
     step_results = step_results or []
     done_ids = [s["step_id"] for s in step_results
@@ -992,6 +1025,8 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
     hoc_available = bool(hoc.get("available"))
     rp = reallocation_proposal or {}
     rp_available = bool(rp.get("available"))
+    ra = research_agent or {}
+    ra_available = bool(ra.get("available"))
     return {
         "status": "OK",
         "phase": PHASE,
@@ -1076,6 +1111,20 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "reallocation_score_improvement_net_of_cost": rp.get("score_improvement_net_of_cost"),
         "reallocation_data_gaps": rp.get("data_gaps"),
         "reallocation_proposal": reallocation_proposal,
+        # --- Slice 8 (Phase 29I) Persistent Alpha Research Agent (Milestone 4) ----- #
+        "research_agent_owner": "api.research_agent",
+        "research_agent_state": ra.get("state"),
+        "research_agent_required": True,
+        "research_agent_selected": ra_available,
+        "research_agent_id": ra.get("assessment_id"),
+        "research_agent_hash": ra.get("assessment_hash"),
+        "research_agent_evidence_quality": ra.get("evidence_quality"),
+        "research_agent_degradation_categories": ra.get("degradation_categories"),
+        "research_agent_recalibration_state": ra.get("recalibration_state"),
+        "research_agent_challenger_state": ra.get("challenger_state"),
+        "research_agent_top_opportunity": ra.get("top_opportunity"),
+        "research_agent_data_gaps": ra.get("data_gaps"),
+        "research_agent": research_agent,
         "milestone2_limitation": (
             "The Milestone-2 Holding Opportunity-Cost engine (Slice 6) is implemented and "
             "runs inside this cycle (per-holding rank / deterioration / performance / risk / "
@@ -1279,6 +1328,46 @@ def _extract_reallocation(built: Optional[dict], eligible: Optional[str]) -> dic
         "estimated_transaction_cost": turnover.get("estimated_transaction_cost"),
         "score_improvement": signal.get("score_improvement"),
         "score_improvement_net_of_cost": signal.get("score_improvement_net_of_cost"),
+        "data_gaps": list(gaps),
+    }
+
+
+def _extract_research_agent(built: Optional[dict], eligible: Optional[str]) -> dict:
+    """Normalize the Persistent Alpha Research Agent output (Slice 8) for the DRC contract.
+    ``built`` is the ``api.research_agent.run_and_persist`` result
+    ``{"assessment": <kernel result>, "persistence": {...}}``. Purely descriptive — the DRC
+    evaluates no research state, promotes no model, and creates no order/target."""
+    b = built or {}
+    assessment = b.get("assessment") or {}
+    persistence = b.get("persistence") or {}
+    state = assessment.get("research_state")
+    degradation = assessment.get("degradation") or {}
+    recal = assessment.get("recalibration") or {}
+    challenger = assessment.get("challenger") or {}
+    evq = assessment.get("evidence_quality") or {}
+    opps = assessment.get("research_opportunities") or []
+    gaps = [g.get("code") for g in (assessment.get("data_gaps") or []) if not g.get("by_design")]
+    # Persistable (durable id+hash) only for a non-BLOCKED assessment that was actually
+    # persisted; a BLOCKED / not-persisted assessment carries no immutable reference.
+    persisted = bool(persistence.get("persisted")) and state != "BLOCKED"
+    available = bool(assessment) and persisted
+    return {
+        "available": available,
+        "owner": "api.research_agent",
+        "calculation_owner": "engine.research_agent",
+        "state": state,
+        "eligible_market_date": assessment.get("eligible_market_date") or eligible,
+        "assessment_hash": assessment.get("assessment_hash"),
+        "assessment_id": persistence.get("assessment_id"),
+        "persistence_status": persistence.get("status"),
+        "superseded_assessment_id": persistence.get("superseded_assessment_id"),
+        "evidence_quality": evq.get("state"),
+        "degradation_categories": degradation.get("categories") or [],
+        "recalibration_state": recal.get("state"),
+        "recalibration_recommended": bool(recal.get("recommended")),
+        "challenger_state": challenger.get("state"),
+        "top_opportunity": (opps[0].get("opportunity_id") if opps else None),
+        "opportunity_count": len(opps),
         "data_gaps": list(gaps),
     }
 
@@ -1500,6 +1589,7 @@ def run_daily_research_cycle(
     assessment_loader: Optional[Callable] = None,
     holding_opp_cost_fn: Optional[Callable] = None,
     reallocation_proposal_fn: Optional[Callable] = None,
+    research_agent_fn: Optional[Callable] = None,
     refresh_confirm_token: Optional[str] = None,
     operational: Optional[dict] = None, inputs: Optional[dict] = None,
     daily_status: Optional[dict] = None, desk_marks: Optional[dict] = None,
@@ -1535,6 +1625,7 @@ def run_daily_research_cycle(
             evidence_capture_fn=evidence_capture_fn, evidence_registry=evidence_registry,
             assessment_loader=assessment_loader, holding_opp_cost_fn=holding_opp_cost_fn,
             reallocation_proposal_fn=reallocation_proposal_fn,
+            research_agent_fn=research_agent_fn,
             refresh_confirm_token=refresh_confirm_token,
             operational=operational, inputs=inputs, daily_status=daily_status,
             desk_marks=desk_marks, close_progress=close_progress,
@@ -1548,7 +1639,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                 downloader, freshness, freshness_loader, daily_refresh_fn,
                 monthly_emitter_fn, scoring_fn, target_loader, evidence_capture_fn,
                 evidence_registry, assessment_loader, holding_opp_cost_fn,
-                reallocation_proposal_fn,
+                reallocation_proposal_fn, research_agent_fn,
                 refresh_confirm_token,
                 operational, inputs, daily_status, desk_marks, close_progress,
                 forward_status, date_overrides, active_book_override) -> dict:
@@ -1685,7 +1776,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         rec = _build(state, **kw)
         refs = {k: kw[k] for k in ("alignment", "scoring", "target", "evidence",
                                    "assessment", "holding_opp_cost", "reallocation_proposal",
-                                   "completed_at")
+                                   "research_agent", "completed_at")
                 if k in kw}
         if state in _COMPLETED:
             problems = _validate_terminal_manifest(rec)
@@ -1710,6 +1801,8 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                        == rec.get("opportunity_cost_assessment_hash")
                        and verify.get("reallocation_proposal_hash")
                        == rec.get("reallocation_proposal_hash")
+                       and verify.get("research_agent_hash")
+                       == rec.get("research_agent_hash")
                        and idx_back.get("run_id") == run_id
                        and idx_back.get("state") == state)
         if not durable and state in _COMPLETED:
@@ -2038,12 +2131,12 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         _rp_skipped = {"available": False, "owner": "api.reallocation_proposal",
                        "state": "SKIPPED", "action_counts": {}, "data_gaps": [],
                        "proposed_holding_count": 0}
+        raw_reallocation = None
+        realloc_subdir = (str(Path(drc_dir) / "reallocation_proposals") if drc_dir else None)
         if _reuse_or(STEP_BUILD_REALLOCATION) and prior.get("reallocation_proposal"):
             reallocation = prior["reallocation_proposal"]
             step_results.append(prior_steps[STEP_BUILD_REALLOCATION])
         else:
-            realloc_subdir = (str(Path(drc_dir) / "reallocation_proposals")
-                              if drc_dir else None)
             run_engine = (reallocation_proposal_fn is not None or drc_dir is None
                           or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
             if run_engine and holding_opp.get("available"):
@@ -2052,6 +2145,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                     lambda: rp_fn(scoring=raw_scoring, hoc_assessment=raw_hoc_assessment,
                                   reallocation_dir=realloc_subdir, hoc_dir=hoc_subdir),
                     warnings, "Reallocation Proposal engine")
+                raw_reallocation = (rp_built or {}).get("proposal")
                 reallocation = _extract_reallocation(rp_built, facts["eligible"])
                 step_results.append(_step(STEP_BUILD_REALLOCATION,
                     S_OK if reallocation.get("available") else S_FAILED,
@@ -2077,6 +2171,57 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                     owner="api.reallocation_proposal",
                     reason="Canonical universe scoring not available in this sandboxed run; "
                            "reallocation proposal skipped (no sourcing / no write)."))
+
+        # STEP: Persistent Alpha Research Agent (Slice 8 / Milestone 4) — AFTER the
+        # reallocation step and BEFORE the portfolio-assessment bridge. It consumes the
+        # canonical scoring the cycle already built (champion identity + ranking coverage),
+        # the just-produced Slice-6 HOC and Slice-7 reallocation immutable histories, and the
+        # forward / performance / challenger evidence, runs the pure kernel and persists ONE
+        # immutable research-assessment artifact under an isolated research root. RESEARCH
+        # GOVERNANCE ONLY: it recommends bounded research actions but promotes / recalibrates /
+        # mutates nothing and creates no order. Its findings never block the cycle.
+        _ra_skipped = {"available": False, "owner": "api.research_agent", "state": "SKIPPED",
+                       "degradation_categories": [], "data_gaps": []}
+        if _reuse_or(STEP_RUN_RESEARCH_AGENT) and prior.get("research_agent"):
+            research_agent = prior["research_agent"]
+            step_results.append(prior_steps[STEP_RUN_RESEARCH_AGENT])
+        else:
+            ra_subdir = (str(Path(drc_dir) / "research_agent") if drc_dir else None)
+            run_engine = (research_agent_fn is not None or drc_dir is None
+                          or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
+            if run_engine:
+                ra_fn = research_agent_fn or _default_research_agent_fn
+                ra_built = _safe(
+                    lambda: ra_fn(scoring=raw_scoring, reallocation=raw_reallocation,
+                                  research_agent_dir=ra_subdir, hoc_dir=hoc_subdir,
+                                  reallocation_dir=realloc_subdir),
+                    warnings, "Persistent Alpha Research Agent")
+                research_agent = _extract_research_agent(ra_built, facts["eligible"])
+                step_results.append(_step(STEP_RUN_RESEARCH_AGENT,
+                    S_OK if research_agent.get("available") else S_FAILED,
+                    owner="api.research_agent.run_and_persist",
+                    as_of_date=research_agent.get("eligible_market_date"),
+                    output_hash=research_agent.get("assessment_hash"),
+                    reason=("Research-agent assessment produced (state=%s; evidence=%s; "
+                            "recalibration=%s); research governance only, no model promoted "
+                            "and no order created."
+                            % (research_agent.get("state"),
+                               research_agent.get("evidence_quality"),
+                               research_agent.get("recalibration_state")))
+                    if research_agent.get("available")
+                    else ("The Research Agent produced no persistable assessment (state=%s); "
+                          "the research outputs and prior-slice reviews remain valid."
+                          % research_agent.get("state"))))
+                if not research_agent.get("available"):
+                    warnings.append("The Persistent Alpha Research Agent did not persist an "
+                                    "assessment; the research outputs, opportunity-cost review "
+                                    "and reallocation proposal remain valid.")
+            else:
+                research_agent = _ra_skipped
+                step_results.append(_step(STEP_RUN_RESEARCH_AGENT, S_SKIPPED,
+                    owner="api.research_agent",
+                    reason="Canonical universe scoring not available in this sandboxed run; "
+                           "Research Agent skipped (no sourcing / no write)."))
 
         # STEP: portfolio-assessment bridge (Daily Action Gate for the eligible session).
         # It consumes the just-persisted opportunity-cost summary for its compatibility fields.
@@ -2106,7 +2251,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         return _persist(final, alignment=alignment, scoring=scoring, target=target,
                         evidence=evidence, assessment=assessment,
                         holding_opp_cost=holding_opp, reallocation_proposal=reallocation,
-                        completed_at=_now_iso())
+                        research_agent=research_agent, completed_at=_now_iso())
     except Exception as exc:  # noqa: BLE001
         warnings.append("Daily Research Cycle failed: %s" % str(exc)[:200])
         step_results.append(_step("UNCAUGHT", S_FAILED, error_code="UNCAUGHT_EXCEPTION",

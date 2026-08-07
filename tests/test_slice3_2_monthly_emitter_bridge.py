@@ -579,11 +579,27 @@ def _realloc_stub(*, scoring=None, hoc_assessment=None, reallocation_dir=None, h
                             "persisted": True, "superseded_proposal_id": None}}
 
 
+def _ra_stub(*, scoring=None, reallocation=None, research_agent_dir=None, hoc_dir=None,
+             reallocation_dir=None, desk_dir=None):
+    # Slice 8: hermetic stub of the Persistent Alpha Research Agent seam (no I/O).
+    return {"assessment": {"research_state": "INSUFFICIENT_EVIDENCE",
+                           "assessment_hash": "ra_stub", "eligible_market_date": D,
+                           "evidence_quality": {"state": "INSUFFICIENT"},
+                           "degradation": {"categories": []},
+                           "recalibration": {"state": "INSUFFICIENT_EVIDENCE",
+                                             "recommended": False},
+                           "challenger": {"state": "NOT_EVALUATED"},
+                           "research_opportunities": [], "data_gaps": []},
+            "persistence": {"status": "CREATED", "assessment_id": "ra_stub",
+                            "persisted": True, "superseded_assessment_id": None}}
+
+
 def _run_drc(tmp, *, inputs=None, monthly_emitter_fn=None):
     score, target, capture, refresh, assess = _fakes()
     return drc.run_daily_research_cycle(
         confirm=drc.EXECUTE_CONFIRMATION, drc_dir=str(tmp), now=NOW_AFTER_CUTOFF_D,
         holding_opp_cost_fn=_hoc_stub, reallocation_proposal_fn=_realloc_stub,
+        research_agent_fn=_ra_stub,
         operational=_op(), inputs=(inputs if inputs is not None else _inputs()),
         daily_status=dict(_DAILY), desk_marks=_desk(), close_progress=dict(_CLOSE),
         forward_status=copy.deepcopy(_FWD), daily_refresh_fn=refresh, scoring_fn=score,
@@ -702,21 +718,26 @@ def test_42_no_separate_monthly_execution_endpoint():
     assert "activate_production_emitter" in src  # app wires the resolver, adds no route
 
 
-def test_43_slice5_6_7_landed():
-    # Slice 5 (Phase 29F), Slice 6 (Phase 29G) and Slice 7 (Reallocation Proposal engine,
-    # Phase 29H) have LANDED; the NEXT slice (Slice 8, Research Agent) is NOT started.
+def test_43_slice5_6_7_8_landed():
+    # Slice 5 (Phase 29F), Slice 6 (Phase 29G), Slice 7 (Reallocation Proposal, Phase 29H)
+    # and Slice 8 (Persistent Alpha Research Agent, Phase 29I) have LANDED; the NEXT slice
+    # (Slice 9, Paid-data integration) is NOT started.
     roadmap = (ROOT / "docs" / "CONSOLIDATION_ROADMAP.md").read_text(encoding="utf-8")
     s5 = roadmap.index("## Slice 5")
     s6 = roadmap.index("## Slice 6")
     s7 = roadmap.index("## Slice 7")
     s8 = roadmap.index("## Slice 8")
     s9 = roadmap.index("## Slice 9")
+    s10 = roadmap.index("## Slice 10")
     assert "LANDED (Phase 29F)" in roadmap[s5:s6]
     assert "LANDED (Phase 29G)" in roadmap[s6:s7]
     assert "LANDED (Phase 29H)" in roadmap[s7:s8]
-    assert "LANDED" not in roadmap[s8:s9]
+    assert "LANDED (Phase 29I)" in roadmap[s8:s9]
+    assert "LANDED" not in roadmap[s9:s10]
     assert (ROOT / "engine" / "reallocation_proposal.py").exists()
+    assert (ROOT / "engine" / "research_agent.py").exists()
     assert not (ROOT / "api" / "portfolio_proposal.py").exists()
+    assert not (ROOT / "api" / "model_registry.py").exists()
 
 
 def test_44_no_new_scheduler_or_cadence_enabled():

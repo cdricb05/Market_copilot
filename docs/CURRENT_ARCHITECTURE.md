@@ -691,11 +691,11 @@ flowchart LR
   enforces the sole calculation + API owners, delegation, the GET-only route, no separate
   manual execution endpoint, no second recommendation engine, no order / fill /
   target-weight / NAV / universe-score in either owner, kernel purity, ONE UI loader with
-  no computation, the gate delegation, and that Slice 7 / Slice 8 remain future; inventory
-  drift = 0. Review-only, preview-first, paper-only: confirms no target, creates no order
-  / fill, changes no holding / cash / NAV, promotes no model. Its assessment feeds the
-  Reallocation Proposal engine (Slice 7, LANDED); the Persistent Alpha Research Agent
-  (Slice 8 / Milestone 4) remains planned; cadence remains disabled.
+  no computation, the gate delegation, and that no second/unified model registry exists;
+  inventory drift = 0. Review-only, preview-first, paper-only: confirms no target, creates
+  no order / fill, changes no holding / cash / NAV, promotes no model. Its assessment feeds
+  the Reallocation Proposal engine (Slice 7, LANDED); the Persistent Alpha Research Agent
+  (Slice 8 / Milestone 4) has LANDED (Phase 29I); cadence remains disabled.
 
 ### Canonical Reallocation Proposal engine (Slice 7, LANDED — Phase 29H, Milestone 3)
 - **Two owners.** The pure deterministic calculation kernel
@@ -731,9 +731,59 @@ flowchart LR
   enforces the sole calculation + API owners, delegation, the GET-only route, no create/
   apply/confirm-target/rebalance/order route, the DRC as the sole execution path, no order /
   fill / target / NAV / holdings mutation, kernel purity, ONE UI loader with no allocation
-  computation, immutable/idempotent artifacts, and that Slice 8 remains future; inventory
-  drift = 0. Review-only, preview-first, paper-only, manual review mandatory. The Persistent
-  Alpha Research Agent (Slice 8 / Milestone 4) is next; cadence remains disabled.
+  computation, immutable/idempotent artifacts, and that no second/unified model registry
+  exists; inventory drift = 0. Review-only, preview-first, paper-only, manual review
+  mandatory. The Persistent Alpha Research Agent (Slice 8 / Milestone 4) has LANDED (below).
+
+### Canonical Persistent Alpha Research Agent (Slice 8, LANDED — Phase 29I, Milestone 4)
+- **Two owners.** The pure deterministic evaluation kernel `engine/research_agent.py`
+  (`evaluate`, no I/O) is the SOLE research-state calculation owner; `api/research_agent.py`
+  (`load_research_agent` / `run_and_persist` / `persist_assessment` / `load_research_agent_summary`)
+  is the SOLE composition / persistence / read owner. It continuously answers *whether the
+  current research/model stack remains trustworthy and whether bounded research experiments
+  should be run*.
+- **Reused evidence (never forked).** The API owner assembles one immutable point-in-time
+  research-evidence contract by READING each metric from its existing owner: champion /
+  challenger identity (`api.universe_scoring` / `api.current_alpha_tournament`), matured
+  TRUE_FORWARD rank IC / decile spread / observation counts (`api.forward_prediction_skill`),
+  realized benchmark-relative return / drawdown / turnover / cost (`api.paper_trading_desk` +
+  `api.forward_evidence`), the minimum-forward-observation threshold
+  (`api.current_alpha_decision_gate.MIN_FORWARD_OBS`, injected so no threshold is forked), the
+  Slice-6 HOC and Slice-7 reallocation immutable artifact histories (enumerated from each
+  `index.json` — a pure evidence read), and the active book / eligible session / sector
+  (`api.portfolio_state`). It does NOT create a second/unified model registry and never moves
+  champion-promotion authority.
+- **Evaluation.** Evidence sufficiency (a short negative live P&L run yields
+  INSUFFICIENT_EVIDENCE / WATCH, never a premature RECALIBRATION_DUE), explained
+  champion-health components with reason codes (never one opaque score), model-degradation
+  categories (PERFORMANCE_WEAKNESS / SIGNAL_DEGRADATION / RANKING_DEGRADATION / REGIME_DRIFT /
+  SECTOR_INSTABILITY / TURNOVER_INEFFICIENCY / PORTFOLIO_STALENESS / DATA_QUALITY_DEGRADATION /
+  INSUFFICIENT_EVIDENCE), HOC + reallocation diagnostic feedback (distinguishing portfolio
+  staleness / governance latency from model weakness), challenger classification (NOT_EVALUATED
+  / INSUFFICIENT_EVIDENCE / UNDERPERFORMING / COMPETITIVE / PROMISING / SUPERIOR_CANDIDATE —
+  never PROMOTED), a controlled recalibration recommendation gated on evidence, and a
+  deterministic ranked queue of bounded research opportunities with fully-specified SHADOW-only
+  experiments. Thresholds are one versioned policy (`research_agent_policy.v1`). Research state:
+  HEALTHY / WATCH / INVESTIGATE / RECALIBRATION_DUE / CHALLENGER_PROMISING /
+  INSUFFICIENT_EVIDENCE / BLOCKED (read layer adds NOT_RUN / NO_ACTIVE_BOOK / UNAVAILABLE).
+- **Orchestration.** The sole execution path is the Daily Research Cycle's
+  `RUN_RESEARCH_AGENT` step (after `BUILD_REALLOCATION_PROPOSAL`, before the
+  portfolio-assessment step), persisting an immutable artifact under
+  `PAPER_TRADER_RESEARCH_AGENT_DIR` (atomic, indexed, idempotent identical rerun; a different
+  evidence hash for the same date supersedes, never silently reuses). `GET
+  /v1/research/research-agent` is GET-only (NOT_RUN before an assessment exists); ONE UI loader
+  `loadResearchAgent()` renders a first-class Research Agent panel in the Research & Audit
+  workspace with no JS research math. The step is non-blocking — research recommendation !=
+  operational action; the Daily Close stays independent.
+- **Static guard:** `scripts/audit_architecture.py:check_research_agent_ownership` enforces the
+  sole calculation + API owners, delegation, the GET-only route, no promote/recalibrate/
+  retrain/apply route, the DRC as the sole execution path, no champion-pointer / order / fill /
+  target / NAV / holdings mutation, kernel purity, ONE UI loader with no research computation,
+  immutable/idempotent artifacts, no second/unified model registry, and that Slice 9 remains
+  future; inventory drift = 0. Research governance only, manual approval mandatory: promotes /
+  recalibrates / retrains / replaces no model, writes no champion pointer, confirms no target,
+  creates no order / fill, changes no holding / cash / NAV, executes no experiment, enables no
+  cadence. Slice 9 (Paid-data integration, Milestone 5) is next; cadence remains disabled.
 
 ### Service vs workflow readiness + Slice 6 operator workflow (Phase 29G.1)
 

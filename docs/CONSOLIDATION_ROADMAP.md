@@ -560,28 +560,86 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   delegation, the GET-only route, no create/apply/confirm-target/rebalance/order route, the
   DRC as the sole execution path, no order / fill / target / NAV / holdings mutation, kernel
   purity, one UI loader with no allocation computation, immutable/idempotent artifacts, and
-  that Slice 8 remains future; inventory drift = 0. Review-only, preview-first, paper-only,
-  manual review mandatory: confirms no operational or alpha target, creates no order / fill,
-  changes no holding / cash / NAV, promotes no model, enables no cadence. **Not begun:**
-  Slice 8 (Persistent Alpha Research Agent, Milestone 4); cadence remains disabled.
+  that no second/unified model registry exists; inventory drift = 0. Review-only,
+  preview-first, paper-only, manual review mandatory: confirms no operational or alpha
+  target, creates no order / fill, changes no holding / cash / NAV, promotes no model,
+  enables no cadence. Slice 8 (Persistent Alpha Research Agent, Milestone 4) has since
+  LANDED (Phase 29I, below); cadence remains disabled.
 
-## Slice 8 — Persistent Alpha Research Agent (unify registries)
+## Slice 8 — Persistent Alpha Research Agent (monitoring & governance)
 
-- **Objective:** one model registry + champion/challenger governance; monitor
-  freshness/degradation/experiments; never auto-promote.
-- **Existing modules:** `alpha_registry`, `multi_horizon_registry`, `alpha_factory`,
-  `price_alpha_factory`, `current_alpha_tournament_sync`, dead phase18 wire,
-  `alpha_agent/*`.
-- **Target owner:** `model_registry` (unified).
-- **Files likely affected:** merge the two factory registries; remove the dead
-  `run_current_alpha_tournament_refresh` import; fold the factory cores.
-- **Dependencies:** Slice 4.
-- **Migration method:** shared factory core; one registry schema; retire the
-  frozen Phase 13/16/17/18 `current_alpha_*` viewers as their questions close.
-- **Tests required:** governance gate tests; "no auto-promotion" invariant.
-- **Rollback:** keep the second registry until parity proven.
-- **Completion gate:** one registry; `champion_challenger_registry` writers = 1.
-- **Principle:** 7, 8. **Milestone:** 4.
+- **Objective:** continuously evaluate whether the research/model stack remains
+  trustworthy; monitor freshness/degradation/challenger evidence; recommend bounded
+  research; never auto-promote, auto-recalibrate or auto-retrain.
+- **Existing modules:** `universe_scoring` (champion identity), `forward_prediction_skill`
+  (rank IC / decile spread), `paper_trading_desk` + `forward_evidence` (realized
+  performance), `current_alpha_tournament` (challenger), `current_alpha_decision_gate`
+  (thresholds), Slice-6 `holding_opportunity_cost` + Slice-7 `reallocation_proposal`
+  histories, `alpha_registry` / `alpha_factory` / `price_alpha_factory` (existing
+  registries — READ, never forked), `alpha_agent/*`.
+- **Target owner:** `engine/research_agent` (pure evaluation kernel) +
+  `api/research_agent` (composition/persistence/read). The Research Agent READS the
+  existing champion/challenger registries; it does NOT create a second/unified
+  `model_registry` and never moves champion-promotion authority (registry unification is a
+  deferred, separate consolidation, not part of Milestone 4).
+- **Files likely affected:** two new owners; one `RUN_RESEARCH_AGENT` DRC step; one GET
+  route; one UI panel + loader.
+- **Dependencies:** Slices 4, 5, 6, 7.
+- **Migration method:** monitoring/governance layer over the existing evidence owners
+  behind tests; no metric is re-derived; the sole scheduled path is the Daily Research
+  Cycle; a generated bounded-experiment specification is sufficient (no automatic
+  experiment execution yet).
+- **Tests required:** evidence-sufficiency gates; "insufficient evidence prevents premature
+  recalibration"; "no auto-promotion / no auto-retraining" invariants; challenger
+  governance; deterministic opportunity ranking; persistence idempotency/supersede; DRC
+  ordering; strict ownership guard.
+- **Rollback:** the DRC step and GET route are additive and non-blocking (research
+  recommendation != operational action); the panel is section-gated.
+- **Completion gate:** two canonical owners; one GET route; one UI loader; no
+  promote/recalibrate/retrain/apply route; `check_research_agent_ownership` green;
+  inventory drift = 0.
+- **Principle:** 3, 4, 7, 8. **Milestone:** 4.
+- **Status — LANDED (Phase 29I).** Two canonical owners: the pure deterministic evaluation
+  kernel `engine/research_agent.py` (the SOLE research-state calculation owner) and the
+  composition / persistence / read owner `api/research_agent.py` (the SOLE API owner). From
+  an immutable point-in-time research-evidence contract — champion/challenger identity
+  (`api.universe_scoring` / `api.current_alpha_tournament`), matured TRUE_FORWARD rank IC /
+  decile spread / observation counts (`api.forward_prediction_skill`), realized
+  benchmark-relative return / drawdown / turnover / cost (`api.paper_trading_desk` +
+  `api.forward_evidence`), the Slice-6 HOC and Slice-7 reallocation immutable histories, and
+  regime evidence — the kernel evaluates **evidence sufficiency** (a short negative live P&L
+  run yields INSUFFICIENT_EVIDENCE / WATCH, never a premature RECALIBRATION_DUE), **explained
+  champion-health components** with reason codes (never one opaque score), **model-degradation
+  categories** (PERFORMANCE_WEAKNESS / SIGNAL_DEGRADATION / RANKING_DEGRADATION / REGIME_DRIFT
+  / SECTOR_INSTABILITY / TURNOVER_INEFFICIENCY / PORTFOLIO_STALENESS / DATA_QUALITY_DEGRADATION
+  / INSUFFICIENT_EVIDENCE), **HOC + reallocation diagnostic feedback** (distinguishing
+  portfolio staleness / governance latency from model weakness), **challenger classification**
+  (NOT_EVALUATED / INSUFFICIENT_EVIDENCE / UNDERPERFORMING / COMPETITIVE / PROMISING /
+  SUPERIOR_CANDIDATE — never PROMOTED), a **controlled recalibration recommendation** gated on
+  evidence, and a deterministic ranked **queue of bounded research opportunities** each with a
+  hypothesis, supporting evidence, gaps, priority and a fully-specified SHADOW-only experiment.
+  The evidence-sufficiency and health thresholds are one versioned policy
+  (`research_agent_policy.v1`); the decision-gate `MIN_FORWARD_OBS` is injected so no
+  governance threshold is silently forked. It **reuses** (never re-derives) every metric from
+  its existing owner and does NOT create a second/unified model registry. New surface:
+  `GET /v1/research/research-agent` (authenticated, GET-only, read-only, NOT_RUN before an
+  assessment exists) rendered by ONE UI loader `loadResearchAgent()` (a first-class Research
+  Agent panel in the Research & Audit workspace; no JS research math). The **sole execution
+  path is the Daily Research Cycle** — a new `RUN_RESEARCH_AGENT` step runs after
+  `BUILD_REALLOCATION_PROPOSAL` and before the portfolio-assessment step, persists an
+  immutable artifact under a research root (`PAPER_TRADER_RESEARCH_AGENT_DIR`; atomic, indexed,
+  idempotent identical rerun; a DIFFERENT evidence hash for the same date SUPERSEDES — never
+  silently reuses — the stale assessment). The research-agent step is non-blocking (research
+  recommendation != operational action; the Daily Close stays independent). Static guard
+  `check_research_agent_ownership` enforces the sole calculation + API owners, delegation, the
+  GET-only route, no promote/recalibrate/retrain/apply route, the DRC as the sole execution
+  path, no champion-pointer / order / fill / target / NAV / holdings mutation, kernel purity,
+  one UI loader with no research computation, immutable/idempotent artifacts, no second/unified
+  model registry, and that Slice 9 remains future; inventory drift = 0. Research governance
+  only, manual approval mandatory: promotes / recalibrates / retrains / replaces no model,
+  writes no champion pointer, confirms no target, creates no order / fill, changes no holding /
+  cash / NAV, executes no experiment, enables no cadence. **Not begun:** Slice 9 (Paid-data
+  integration, Data Expansion, Milestone 5); cadence remains disabled.
 
 ## Slice 9 — Paid-data integration (Data Expansion)
 

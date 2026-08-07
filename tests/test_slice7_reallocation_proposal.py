@@ -782,10 +782,15 @@ def test_69_inventory_drift_zero():
     assert drift["in_inventory_not_on_disk"] == []
 
 
-def test_70_slice8_remains_planned():
+def test_70_slice8_research_agent_landed_no_second_registry():
+    # Slice 8 (Persistent Alpha Research Agent, Milestone 4) has LANDED as its two canonical
+    # owners; `slice8_present_modules` now guards that NO second/unified model registry was
+    # created (the Research Agent reads the existing registries; it never forks them).
     _, rp = _audit()
-    assert rp["slice8_present_modules"] == []
+    assert rp["slice8_present_modules"] == []          # no second/unified model registry
     assert not (ROOT / "api" / "model_registry.py").exists()
+    assert (ROOT / "engine" / "research_agent.py").exists()
+    assert (ROOT / "api" / "research_agent.py").exists()
 
 
 def test_71_cadence_disabled():

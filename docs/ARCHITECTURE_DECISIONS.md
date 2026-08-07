@@ -771,12 +771,73 @@
   calculation + API owners, delegation, the GET-only route, no create/apply/confirm-target/
   rebalance/order route, the DRC as the sole execution path, no order / fill / target / NAV /
   holdings mutation in either owner, kernel purity, ONE UI loader with no allocation
-  computation, immutable/idempotent artifacts, and that Slice 8 remains future; audit
-  inventory drift = 0. Deterministic tests inject every input, so no provider / prediction /
-  real cycle / ledger write occurs.
+  computation, immutable/idempotent artifacts, and that no second/unified model registry
+  exists; audit inventory drift = 0. Deterministic tests inject every input, so no provider /
+  prediction / real cycle / ledger write occurs.
 - **Consequence:** Charter Milestone 3 is delivered, review-only. Slice 8 (Persistent Alpha
-  Research Agent, Milestone 4) remains not begun; automatic model promotion remains
+  Research Agent, Milestone 4) has since LANDED (D-19); automatic model promotion remains
   prohibited; cadence remains disabled.
+
+### D-19 — Canonical Persistent Alpha Research Agent (Slice 8, Milestone 4) — CONFIRMED (LANDED)
+- **Decision:** the Milestone-4 Persistent Alpha Research Agent has TWO canonical owners: a
+  pure deterministic evaluation kernel `engine/research_agent.py` (the SOLE research-state
+  calculation owner, no I/O) and a composition / persistence / read owner
+  `api/research_agent.py` (the SOLE API owner). It continuously evaluates whether the current
+  research/model stack remains trustworthy and whether bounded research experiments should be
+  run, producing a research state from the frozen vocabulary HEALTHY / WATCH / INVESTIGATE /
+  RECALIBRATION_DUE / CHALLENGER_PROMISING / INSUFFICIENT_EVIDENCE / BLOCKED (read layer adds
+  NOT_RUN / NO_ACTIVE_BOOK / UNAVAILABLE). It is a monitoring & governance layer: it is NOT a
+  second/unified model registry (the roadmap's earlier `model_registry` framing is a deferred,
+  separate consolidation) and it never moves champion-promotion authority.
+- **Evidence sufficiency (Principle 4, D-8 upheld):** the agent evaluates ONLY point-in-time
+  evidence actually available at the evaluation timestamp; it never reconstructs old
+  TRUE_FORWARD evidence from current snapshots, backfills missing predictions, or uses future
+  outcomes. Forward-observation sufficiency is the DOMINANT gate: a short negative live P&L run
+  yields INSUFFICIENT_EVIDENCE / WATCH (never a premature RECALIBRATION_DUE); realized-
+  performance weakness on insufficient evidence is a documented symptom, capped, never proof of
+  model degradation. Missing evidence remains an explicit gap. Thresholds are one versioned
+  policy (`research_agent_policy.v1`); the authoritative decision-gate `MIN_FORWARD_OBS` is
+  injected so no governance threshold is silently forked.
+- **Reuse, never fork (Principle 1):** every metric is READ from its existing owner —
+  champion / challenger identity (`api.universe_scoring` / `api.current_alpha_tournament`),
+  rank IC / decile spread (`api.forward_prediction_skill`), realized performance
+  (`api.paper_trading_desk` + `api.forward_evidence`), the Slice-6 HOC and Slice-7 reallocation
+  immutable histories (enumerated from each `index.json`), and portfolio state
+  (`api.portfolio_state`). The kernel defines none of those calculations. Champion health is a
+  set of EXPLAINED components with reason codes (never one opaque score); degradation is
+  categorized (PERFORMANCE_WEAKNESS / SIGNAL_DEGRADATION / RANKING_DEGRADATION / REGIME_DRIFT /
+  SECTOR_INSTABILITY / TURNOVER_INEFFICIENCY / PORTFOLIO_STALENESS / DATA_QUALITY_DEGRADATION /
+  INSUFFICIENT_EVIDENCE); HOC + reallocation history distinguish portfolio staleness /
+  governance latency from model weakness.
+- **No automatic promotion (Principle 7, R-3 / D-3 upheld):** the agent classifies a
+  challenger (NOT_EVALUATED / INSUFFICIENT_EVIDENCE / UNDERPERFORMING / COMPETITIVE / PROMISING
+  / SUPERIOR_CANDIDATE) and may recommend a CONTROLLED recalibration study when evidence gates
+  pass, but SUPERIOR_CANDIDATE != PROMOTED. It promotes / recalibrates / retrains / replaces no
+  model, writes no champion pointer, and executes no experiment — a generated bounded-experiment
+  SPECIFICATION is the deliverable; every recommended action requires explicit manual approval.
+- **One orchestration path (D-13 / Principle 2):** the sole scheduled execution path is the
+  Daily Research Cycle — a new `RUN_RESEARCH_AGENT` step runs AFTER `BUILD_REALLOCATION_PROPOSAL`
+  and before the portfolio-assessment step, persists an immutable artifact under
+  `PAPER_TRADER_RESEARCH_AGENT_DIR` (atomic, indexed, idempotent identical rerun; a DIFFERENT
+  evidence hash for the same date SUPERSEDES — never silently reuses — the stale assessment). The
+  read endpoint `GET /v1/research/research-agent` is GET-only and never runs the engine (NOT_RUN
+  before an assessment exists); there is deliberately NO promote / recalibrate / retrain / apply
+  endpoint.
+- **Separation of concerns (Principle 3, D-7 upheld):** research findings are informational
+  research governance; the research-agent step is non-blocking and the Daily Close stays
+  independent (research recommendation != operational action). A research weakness never
+  becomes an operational-close failure.
+- **Evidence:** the static guard `check_research_agent_ownership` confirms the sole calculation
+  + API owners, delegation, the GET-only route, no promote/recalibrate/retrain/apply route, the
+  DRC as the sole execution path, no champion-pointer / order / fill / target / NAV / holdings
+  mutation in either owner, kernel purity, ONE UI loader with no research computation,
+  immutable/idempotent artifacts, no second/unified model registry, and that Slice 9 remains
+  future; audit inventory drift = 0. Deterministic tests inject every input, so no provider /
+  prediction / real cycle / ledger / real research-agent artifact write occurs.
+- **Consequence:** Charter Milestone 4's monitoring/governance mandate is delivered, research
+  governance only. Slice 9 (Paid-data integration, Data Expansion, Milestone 5) remains not
+  begun; automatic model promotion / recalibration / retraining remains prohibited; cadence
+  remains disabled.
 
 ## Rejected alternatives
 

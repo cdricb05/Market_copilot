@@ -47,7 +47,8 @@ defect to be migrated, not a new owner to be blessed.
 | Feature production | `feature_service` (extract from `multi_horizon_engine` inputs) | scattered CSV input builders |
 | Universe scoring / rankings | `api/universe_scoring` (**LANDED, Slice 4**; composition & read owner over the `multi_horizon_engine.compute_scores` kernel) | ≥8 z-score/rank reimplementations (legacy copies retire with the DB screener, Slice 11) |
 | Research cycle orchestration | `api/daily_research_cycle` (**LANDED, Slice 3**; composes session/freshness + `alpha_target.run_refresh` + `multi_horizon_engine` scoring + `forward_prediction_skill` evidence + `daily_action_gate` bridge) | Daily Alpha Run vs alpha-target vs close-embedded refresh; hidden month-boundary prerequisite |
-| Model registry / champion governance | `model_registry` (unify `alpha_registry` + tournament) | 2 challenger registries (phase20/21), dead phase18 wire |
+| Model registry / champion governance | `model_registry` (unify `alpha_registry` + tournament) — DEFERRED, separate consolidation; NOT part of Milestone 4. The Slice 8 Research Agent READS these registries (never forks or unifies them) | 2 challenger registries (phase20/21), dead phase18 wire |
+| Research-state monitoring / governance | `engine/research_agent` (kernel) + `api/research_agent` (composition/read) (**LANDED, Slice 8**; Milestone 4; READS champion identity `universe_scoring`, rank IC `forward_prediction_skill`, realized performance `paper_trading_desk`+`forward_evidence`, challenger `current_alpha_tournament`, thresholds `current_alpha_decision_gate`, Slice-6 HOC + Slice-7 reallocation histories; runs inside the Daily Research Cycle; read at `GET /v1/research/research-agent`) | resolved (research governance only); no model promotion / recalibration / retraining, no champion pointer, no order/target/NAV authority is created |
 | Portfolio state (NAV, cash, holdings) | `api/portfolio_state` (**LANDED, Slice 5**; read owner composing the active `operational_book` + `data_freshness` dates + `paper_trading_desk` performance + `daily_action_gate` + `forward_prediction_skill`; LIVE NAV authority = `paper_trading_desk.book_nav`, `portfolio_valuation` = explicitly-scoped legacy DB archive) | resolved at the read layer; `engine/portfolio.cached_total_value`/`current_alpha_book`/`_collect_positions` remain research/legacy writers scoped for Slices 8/11 |
 | Holding opportunity-cost | `engine/holding_opportunity_cost` (kernel) + `api/holding_opportunity_cost` (composition/read) (**LANDED, Slice 6**; Milestone 2; reuses `multi_horizon_engine` constants + `paper_trading_desk` cost model; runs inside the Daily Research Cycle; read at `GET /v1/operations/holding-opportunity-cost`) | resolved; the prior ad-hoc rank/deterioration logic in `portfolio_manager` is superseded (review-only) |
 | Portfolio proposal / target | `engine/reallocation_proposal` (kernel) + `api/reallocation_proposal` (composition/read) (**LANDED, Slice 7**; Milestone 3; consumes `portfolio_state` + `holding_opportunity_cost`; reuses `multi_horizon_engine` constants + `paper_trading_desk` cost model; runs inside the Daily Research Cycle; read at `GET /v1/operations/reallocation-proposal`) | resolved (review-only); no order/target authority is created |
@@ -312,6 +313,42 @@ responsibilities, candidate existing modules, and migration approach.
 - **Status:** review-only, preview-first, paper-only, manual review mandatory. The Daily
   Action Gate delegates to `load_proposal_summary`; `api.workflow_state` exposes the
   proposal state as an informational review action that never gates the Daily Close.
+
+### Persistent Alpha Research Agent (LANDED — Slice 8, Phase 29I)
+- **Responsibility:** continuously evaluate whether the current research/model stack remains
+  trustworthy and whether bounded research experiments should be run (Milestone 4). Two
+  owners: the pure kernel `engine/research_agent.py` (sole research-state calculation owner)
+  and `api/research_agent.py` (composition / persistence / read). It is a monitoring &
+  governance layer; it does NOT create a second/unified model registry and never moves
+  champion-promotion authority.
+- **Inputs:** an immutable point-in-time research-evidence contract READ from the existing
+  owners (never re-derived): champion / challenger identity (`api.universe_scoring` /
+  `api.current_alpha_tournament`), matured TRUE_FORWARD rank IC / decile spread / observation
+  counts (`api.forward_prediction_skill`), realized benchmark-relative return / drawdown /
+  turnover / cost (`api.paper_trading_desk` + `api.forward_evidence`), the minimum-
+  forward-observation threshold (`api.current_alpha_decision_gate.MIN_FORWARD_OBS`, injected),
+  the Slice-6 HOC + Slice-7 reallocation immutable histories, and the active book / eligible
+  session / sector (`api.portfolio_state`). Thresholds are one versioned policy
+  (`research_agent_policy.v1`).
+- **Outputs:** evidence sufficiency (a short negative live P&L run yields INSUFFICIENT_EVIDENCE
+  / WATCH, never a premature RECALIBRATION_DUE), explained champion-health components with
+  reason codes, model-degradation categories, HOC + reallocation diagnostic feedback,
+  challenger classification (never PROMOTED), a controlled recalibration recommendation, and a
+  deterministic ranked queue of bounded SHADOW-only research opportunities; a deterministic
+  `assessment_hash`; persisted as an immutable artifact under `PAPER_TRADER_RESEARCH_AGENT_DIR`;
+  read at `GET /v1/research/research-agent`. Research state HEALTHY / WATCH / INVESTIGATE /
+  RECALIBRATION_DUE / CHALLENGER_PROMISING / INSUFFICIENT_EVIDENCE / BLOCKED.
+- **Owned state:** immutable research-agent assessment artifacts (research / decision-evidence
+  root; a different evidence hash for the same date supersedes, never silently reuses).
+- **Forbidden:** promoting / recalibrating / retraining / replacing a model, writing a
+  champion pointer, confirming a target, creating an order/fill, any holdings/cash/NAV
+  mutation, broker execution, executing an experiment, enabling cadence, or a
+  promote/recalibrate/retrain/apply endpoint. The sole execution path is the Daily Research
+  Cycle's `RUN_RESEARCH_AGENT` step; the read endpoint is GET-only (NOT_RUN before an
+  assessment exists).
+- **Status:** research governance only, manual approval mandatory. Findings never block a
+  valid Daily Close (research recommendation != operational action). Guarded by
+  `check_research_agent_ownership`; cadence remains disabled.
 
 ### Risk and Cost Evaluation
 - **Responsibility:** volatility, drawdown, concentration, caps, switching cost.

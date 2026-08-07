@@ -363,8 +363,19 @@ SLICE7_FORBIDDEN_ROUTES = ("/v1/operations/portfolio-proposal",
                            "/v1/operations/reallocation-proposal/create-orders",
                            "/v1/operations/rebalance",
                            "/v1/operations/apply-reallocation")
-# Slice 8 (Persistent Alpha Research Agent, Milestone 4) remains future.
-SLICE8_ABSENT_MODULES = ("api/model_registry.py",)
+# Slice 8 (Persistent Alpha Research Agent, Milestone 4) is LANDED — its two owners + the
+# read route MUST exist. A SECOND / unified model registry must NOT be created: the
+# Research Agent READS the existing champion/challenger registries (it never forks or
+# unifies them) and it never moves champion-promotion authority into itself.
+SLICE8_LANDED_MODULES = ("engine/research_agent.py", "api/research_agent.py")
+SLICE8_LANDED_ROUTE = "/v1/research/research-agent"
+SLICE8_FORBIDDEN_MODULES = ("api/model_registry.py",)
+# Back-compat: the Slice-6/7 guards emit ``slice8_present_modules`` as the set of FORBIDDEN
+# second-registry modules present (must stay EMPTY). Landing Slice 8 as the Research Agent
+# does not create such a registry, so this stays empty and those guards stay honest.
+SLICE8_ABSENT_MODULES = SLICE8_FORBIDDEN_MODULES
+# Slice 9 (Paid-data integration, Data Expansion) remains future.
+SLICE9_ABSENT_MODULES = ("api/paid_data_registry.py",)
 
 # --- Slice 7 (Phase 29H) Reallocation Proposal ownership contract ---------------- #
 RP_KERNEL = "engine/reallocation_proposal.py"
@@ -397,6 +408,49 @@ UI_RP_FETCH = "/v1/operations/reallocation-proposal"
 UI_RP_REGION_END = "window.renderReallocationProposal"
 UI_RP_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".reduce(", "Math.",
                    "cost_rate", "COST_BPS", "compute")
+
+# --- Slice 8 (Phase 29I) Persistent Alpha Research Agent ownership contract ------- #
+RA_KERNEL = "engine/research_agent.py"
+RA_OWNER = "api/research_agent.py"
+RA_ROUTE = "/v1/research/research-agent"
+RA_KERNEL_EVAL_DEF = "def evaluate("
+RA_OWNER_LOAD_DEF = "def load_research_agent("
+RA_OWNER_PERSIST_DEF = "def persist_assessment("
+# The composition owner MUST compose (read from) these authoritative evidence owners.
+RA_MUST_DELEGATE = ("universe_scoring", "forward_prediction_skill", "paper_trading_desk",
+                    "forward_evidence", "current_alpha_tournament",
+                    "current_alpha_decision_gate", "holding_opportunity_cost",
+                    "reallocation_proposal", "portfolio_state")
+# Neither owner may promote / recalibrate / retrain / replace a model, write a champion
+# pointer, confirm an operational or alpha target, mutate NAV/holdings/cash, create an
+# order/fill, run the Daily Close, or call a provider/prediction/broker. NO automatic model
+# promotion is the crux of Slice 8 governance.
+RA_FORBIDDEN_CALLS = ("promote_model(", "replace_champion(", "recalibrate_model(",
+                      "retrain_model(", "retrain(", "confirm_target(", "confirm_snapshot(",
+                      "place_order(", "submit_order(", "create_order(", "route_order(",
+                      "run_fill_cycle(", "settle_due_orders(", "run_daily_close(",
+                      "run_refresh(", "requests.get(", "requests.post(", "urlopen(",
+                      "httpx.", "predict(", "book_nav(")
+# The kernel is PURE — no file/network/db I/O.
+RA_KERNEL_FORBIDDEN = ("open(", "requests.", "httpx.", "urlopen(", "sqlalchemy",
+                       "sessionmaker", "predict(", "os.environ", "Path(")
+# The DRC delegates to the owner (sole scheduled execution path); there is NO separate
+# promote/recalibrate/retrain/apply route.
+DRC_RA_DELEGATE_TOKEN = "research_agent"
+DRC_RA_STEP = "RUN_RESEARCH_AGENT"
+# A second/unified model registry, and any promote/recalibrate/retrain/apply route, MUST
+# remain ABSENT (Slice 8 is monitoring/governance only — no champion-pointer authority).
+SLICE8_FORBIDDEN_ROUTES = ("/v1/research/research-agent/promote",
+                           "/v1/research/research-agent/recalibrate",
+                           "/v1/research/research-agent/retrain",
+                           "/v1/research/research-agent/apply",
+                           "/v1/research/research-agent/run",
+                           "/v1/research/model-registry/promote")
+# UI: EXACTLY one loader; the region computes no research metric in JS.
+UI_RA_LOADER = "function loadResearchAgent"
+UI_RA_FETCH = "/v1/research/research-agent"
+UI_RA_REGION_END = "window.renderResearchAgent"
+UI_RA_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".reduce(", "Math.", "compute")
 
 
 def _slice7_landed_status(routes: list) -> dict:
@@ -1720,6 +1774,134 @@ def check_reallocation_proposal_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_research_agent_ownership(files: list[Path]) -> dict:
+    """Slice 8 (Phase 29I) strict semantic ownership guard for the Persistent Alpha Research
+    Agent (Milestone 4). Proves: (1) engine/research_agent.py is the SOLE research-state
+    calculation owner; (2) api/research_agent.py is the SOLE composition / persistence /
+    read owner; (3) the GET read route exists exactly once; (4) NO promote / recalibrate /
+    retrain / apply route exists; (5) the Daily Research Cycle is the sole scheduled
+    execution path (the RUN_RESEARCH_AGENT step delegates to the API owner); (6) the API
+    owner composes the authoritative evidence owners (never forks a metric); (7) no champion
+    pointer write; (8) no model promotion; (9) no model recalibration / retraining; (10) no
+    operational target / holdings / cash / NAV mutation; (11) no order / fill creation; (12)
+    no broker / prediction / provider call; (13) the UI performs no research calculation;
+    (14) exactly ONE UI loader; (15) immutable / idempotent artifact ownership; (16) Slice 6
+    (HOC) and Slice 7 (reallocation) remain their own owners (composed, not forked); (17) NO
+    second / unified model registry exists; (18) Slice 9 remains planned; (19) cadence
+    disabled and NO automatic model promotion; (20) inventory drift zero (checked by
+    ``check_inventory_drift``)."""
+    kernel_src = _read(RA_KERNEL)
+    owner_src = _read(RA_OWNER)
+    drc_src = _read(DRC_OWNER)
+    ui = _read(UI_FILE)
+
+    kernel_present = (REPO_ROOT / RA_KERNEL).exists()
+    owner_present = (REPO_ROOT / RA_OWNER).exists()
+
+    # (1) sole research-state calculation owner: evaluate() defined ONLY in the kernel.
+    calc_def_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel in ("scripts/audit_architecture.py", RA_OWNER):
+            continue
+        if RA_KERNEL_EVAL_DEF in fp.read_text(encoding="utf-8", errors="replace"):
+            calc_def_modules.append(rel)
+    second_calculation_owner = sorted(set(calc_def_modules) - {RA_KERNEL})
+
+    # (2) sole composition/read owner: load_research_agent only in the owner.
+    read_def_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel == "scripts/audit_architecture.py":
+            continue
+        if RA_OWNER_LOAD_DEF in fp.read_text(encoding="utf-8", errors="replace"):
+            read_def_modules.append(rel)
+    second_composition_owner = sorted(set(read_def_modules) - {RA_OWNER})
+
+    # (6) the owner composes the authoritative evidence owners.
+    delegates = {tok: (tok in owner_src) for tok in RA_MUST_DELEGATE}
+    missing_delegation = sorted(k for k, v in delegates.items() if not v)
+    # (7)-(12) neither owner promotes / recalibrates / retrains / mutates / executes / calls
+    # a provider-prediction-broker.
+    owner_forbidden = sorted(t for t in RA_FORBIDDEN_CALLS if t in owner_src)
+    kernel_forbidden = sorted(t for t in RA_KERNEL_FORBIDDEN if t in kernel_src)
+
+    # (3)/(4) routes: the GET read route exists exactly once; no promote/recalibrate/apply.
+    routes = check_routes()["routes"]
+    ra_route_entries = [r for r in routes if r["path"] == RA_ROUTE]
+    route_get_count = sum(1 for r in ra_route_entries if r["method"] == "GET")
+    ra_route_methods = sorted({r["method"] for r in ra_route_entries})
+    forbidden_route_methods = (ra_route_methods != ["GET"] and ra_route_methods != [])
+    forbidden_routes_present = sorted(r for r in SLICE8_FORBIDDEN_ROUTES
+                                      if any(rt["path"] == r for rt in routes))
+
+    # (5) DRC is the sole scheduled execution path: the step + delegation token are present.
+    drc_delegates = DRC_RA_DELEGATE_TOKEN in drc_src and "run_and_persist" in drc_src
+    drc_step_present = DRC_RA_STEP in drc_src
+
+    # (15) immutable/idempotent artifact ownership: persist + atomic write + index.
+    persist_present = RA_OWNER_PERSIST_DEF in owner_src
+    atomic_persist_present = ("os.replace(" in owner_src and "index" in owner_src.lower())
+
+    # (13)/(14) UI: exactly one loader; region computes no research metric.
+    ui_loader_count = ui.count(UI_RA_LOADER)
+    ui_fetch_count = ui.count(UI_RA_FETCH)
+    ui_region_hits = []
+    start = ui.find(UI_RA_LOADER)
+    end = ui.find(UI_RA_REGION_END)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_RA_FORBIDDEN:
+            if pat in region:
+                ui_region_hits.append(pat)
+
+    # (16) Slice 6 (HOC) + Slice 7 (reallocation) + scoring remain their own owners: the
+    # research-agent kernel must not define any of their calculations.
+    kernel_forks_hoc = "def build_assessment(" in kernel_src
+    kernel_forks_reallocation = "def build_proposal(" in kernel_src
+    kernel_forks_scoring = ("def compute_scores(" in kernel_src
+                            or "def compute_combined(" in kernel_src)
+
+    # (17) NO second / unified model registry; (18) Slice 9 remains planned.
+    second_registry_present_modules = sorted(m for m in SLICE8_FORBIDDEN_MODULES
+                                             if (REPO_ROOT / m).exists())
+    slice9_present_modules = sorted(m for m in SLICE9_ABSENT_MODULES
+                                    if (REPO_ROOT / m).exists())
+    landed_modules_missing = sorted(m for m in SLICE8_LANDED_MODULES
+                                    if not (REPO_ROOT / m).exists())
+
+    return {
+        "kernel": RA_KERNEL, "owner": RA_OWNER,
+        "kernel_present": kernel_present, "owner_present": owner_present,
+        "landed_modules_missing": landed_modules_missing,
+        "second_calculation_owner_modules": second_calculation_owner,
+        "second_composition_owner_modules": second_composition_owner,
+        "delegates": delegates, "missing_delegation": missing_delegation,
+        "owner_forbidden_calls": owner_forbidden,
+        "kernel_forbidden_calls": kernel_forbidden,
+        "route_get_count": route_get_count,
+        "research_agent_route_methods": ra_route_methods,
+        "forbidden_route_methods_present": bool(forbidden_route_methods),
+        "forbidden_routes_present": forbidden_routes_present,
+        "drc_delegates": bool(drc_delegates),
+        "drc_step_present": bool(drc_step_present),
+        "persist_present": bool(persist_present),
+        "atomic_idempotent_persist_present": bool(atomic_persist_present),
+        "ui_loader_count": ui_loader_count,
+        "ui_fetch_count": ui_fetch_count,
+        "ui_metric_computation": sorted(set(ui_region_hits)),
+        "kernel_forks_hoc": bool(kernel_forks_hoc),
+        "kernel_forks_reallocation": bool(kernel_forks_reallocation),
+        "kernel_forks_scoring": bool(kernel_forks_scoring),
+        "second_registry_present_modules": second_registry_present_modules,
+        "slice9_present_modules": slice9_present_modules,
+        "automatic_model_promotion_allowed": False,
+        "automatic_model_recalibration_allowed": False,
+        "automatic_model_retraining_allowed": False,
+        "cadence_enabled": False,
+    }
+
+
 def check_slice6_live_acceptance_ownership(files: list[Path]) -> dict:
     """Phase 29G.1 Slice 6 LIVE-ACCEPTANCE / operator-workflow & UI hard-cutover guard.
 
@@ -1983,6 +2165,7 @@ def run_audit() -> dict:
         "slice6_residual_cutover_ownership": check_slice6_residual_cutover_ownership(files),
         "drc_manifest_recovery": check_drc_manifest_recovery(files),
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
+        "research_agent_ownership": check_research_agent_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -2261,6 +2444,30 @@ def _print_console(rep: dict) -> None:
           f"Slice 8 present (must be empty): {rp['slice8_present_modules']}  "
           f"cadence enabled (must be False): {rp['cadence_enabled']}")
 
+    hdr("PERSISTENT ALPHA RESEARCH AGENT OWNERSHIP (Slice 8, Phase 29I, Milestone 4)")
+    ra = rep["research_agent_ownership"]
+    print(f"kernel present: {ra['kernel_present']}  owner present: {ra['owner_present']}  "
+          f"landed modules missing (must be empty): {ra['landed_modules_missing']}")
+    print(f"second calculation owner (must be empty): {ra['second_calculation_owner_modules']}  "
+          f"second composition owner (must be empty): {ra['second_composition_owner_modules']}")
+    print(f"missing delegation (must be empty): {ra['missing_delegation']}")
+    print(f"owner forbidden calls (must be empty): {ra['owner_forbidden_calls']}  "
+          f"kernel forbidden calls (must be empty): {ra['kernel_forbidden_calls']}")
+    print(f"GET route count (must be 1): {ra['route_get_count']}  "
+          f"route methods: {ra['research_agent_route_methods']}  "
+          f"forbidden route methods present (must be False): {ra['forbidden_route_methods_present']}")
+    print(f"forbidden routes present (must be empty): {ra['forbidden_routes_present']}")
+    print(f"DRC delegates: {ra['drc_delegates']}  step present: {ra['drc_step_present']}")
+    print(f"persist present: {ra['persist_present']}  "
+          f"atomic/idempotent persist: {ra['atomic_idempotent_persist_present']}")
+    print(f"UI loaders (must be 1): {ra['ui_loader_count']}  "
+          f"UI metric computation (must be empty): {ra['ui_metric_computation']}")
+    print(f"kernel forks HOC/realloc/scoring (must be False): "
+          f"{ra['kernel_forks_hoc']}/{ra['kernel_forks_reallocation']}/{ra['kernel_forks_scoring']}")
+    print(f"second registry present (must be empty): {ra['second_registry_present_modules']}  "
+          f"Slice 9 present (must be empty): {ra['slice9_present_modules']}  "
+          f"cadence enabled (must be False): {ra['cadence_enabled']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -2324,6 +2531,7 @@ def main(argv=None) -> int:
         rc6 = rep["slice6_residual_cutover_ownership"]
         mr = rep["drc_manifest_recovery"]
         rp = rep["reallocation_proposal_ownership"]
+        ra = rep["research_agent_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
                          + len(rc6["forbidden_primary_ui"])
                          + len(rc6["forbidden_primary_ws"])
@@ -2468,6 +2676,29 @@ def main(argv=None) -> int:
                          + (0 if not rp["kernel_forks_hoc"] else 1)
                          + (0 if not rp["kernel_forks_scoring"] else 1)
                          + len(rp["slice8_present_modules"])
+                         # --- Slice 8 (Phase 29I) research-agent ownership ------------ #
+                         + (0 if ra["kernel_present"] else 1)
+                         + (0 if ra["owner_present"] else 1)
+                         + len(ra["landed_modules_missing"])
+                         + len(ra["second_calculation_owner_modules"])
+                         + len(ra["second_composition_owner_modules"])
+                         + len(ra["missing_delegation"])
+                         + len(ra["owner_forbidden_calls"])
+                         + len(ra["kernel_forbidden_calls"])
+                         + (0 if ra["route_get_count"] == 1 else 1)
+                         + (0 if not ra["forbidden_route_methods_present"] else 1)
+                         + len(ra["forbidden_routes_present"])
+                         + (0 if ra["drc_delegates"] else 1)
+                         + (0 if ra["drc_step_present"] else 1)
+                         + (0 if ra["persist_present"] else 1)
+                         + (0 if ra["atomic_idempotent_persist_present"] else 1)
+                         + (0 if ra["ui_loader_count"] == 1 else 1)
+                         + len(ra["ui_metric_computation"])
+                         + (0 if not ra["kernel_forks_hoc"] else 1)
+                         + (0 if not ra["kernel_forks_reallocation"] else 1)
+                         + (0 if not ra["kernel_forks_scoring"] else 1)
+                         + len(ra["second_registry_present_modules"])
+                         + len(ra["slice9_present_modules"])
                          + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
                          + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
         return 1 if blocking_hits else 0
