@@ -1592,11 +1592,12 @@
         "api/ui/pt_charts.js (shared interactive PTC chart toolkit)"
       ],
       "tests": [
-        "tests/test_phase29j3_portfolio_analytics.py"
+        "tests/test_phase29j3_portfolio_analytics.py",
+        "tests/test_phase29j3a_portfolio_visual_integration.py"
       ],
-      "migration_priority": "n/a",
+      "migration_priority": 0,
       "risk": "low",
-      "notes": "Read-only composition owner; no allocation/return math is forked from the canonical owners. Paper only; no broker; no automation; no order/target/model mutation. Both the inline Portfolio charts and the standalone analytics.html detail view consume this single payload."
+      "notes": "Read-only composition owner; no allocation/return math is forked from the canonical owners. Paper only; no broker; no automation; no order/target/model mutation. Both the inline Portfolio charts (primary #portfolio-manager route) and the standalone analytics.html detail view consume this single payload."
     },
     {
       "path": "api/forward_prediction_skill.py",

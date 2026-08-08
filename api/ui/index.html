@@ -1796,6 +1796,20 @@
     .ptc-dbar-track{position:relative;height:13px;background:rgba(122,143,176,.08);border-radius:3px;}
     .ptc-dbar-mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--cc-border-strong,#2c4a78);}
     .ptc-dbar-fill{position:absolute;top:0;bottom:0;border-radius:3px;}
+    /* ---- Phase 29J.3A: primary-route KPI hero + compact decision bar ---- */
+    .pa-hero{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:2px 0 10px;}
+    @media (max-width:1040px){ .pa-hero{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    .pa-hero .kpi{background:var(--cc-panel,#101a34);border:1px solid var(--cc-border,#243b63);border-radius:var(--r-2,6px);padding:8px 12px;min-width:0;}
+    .pa-hero .kpi .k{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--label,#7a8fb0);white-space:nowrap;}
+    .pa-hero .kpi .v{font-size:20px;font-weight:900;margin-top:2px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary,#e0e0ff);}
+    .pa-hero .kpi .s{font-size:10px;color:var(--label,#7a8fb0);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .pa-pos{color:var(--ok,#22c55e);} .pa-neg{color:var(--danger,#ef4444);}
+    .pa-decision{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;border:1px solid var(--cc-border,#243b63);border-left:3px solid var(--info,#3b82f6);border-radius:6px;padding:9px 14px;margin:0 0 10px;}
+    .pa-decision .grp{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;}
+    .pa-decision .grp-lab{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--label,#7a8fb0);}
+    .pa-decision .spacer{flex:1;min-width:8px;}
+    .pa-decision .pa-btn{background:var(--cc-elevated,#16223f);border:1px solid var(--info,#3b82f6);color:var(--text-accent,#a8b8d8);border-radius:5px;font-size:11px;font-weight:800;padding:5px 12px;cursor:pointer;white-space:nowrap;letter-spacing:.02em;}
+    .pa-decision .pa-btn:hover{background:var(--info,#3b82f6);color:#04121f;}
   </style>
   <!-- Phase 29J.3 — shared interactive chart toolkit (PTC). Self-contained; defines
        window.PTC used by the Portfolio interactive charts + the drill-down detail view. -->
@@ -2641,65 +2655,11 @@
           </details>
         </div>
 
-        <!-- ===================== Phase 29J.2 PORTFOLIO ANALYTICS (VISUAL) =====================
-             Read-only performance + P&L trend visuals for Alpha Paper Book #1, filled by
-             loadPortfolioAnalytics() from GET /v1/paper-desk/performance (dated NAV + SPY
-             benchmark) and GET /v1/evidence/attribution-history (dated daily / cumulative
-             P&L). The UI renders the backend series verbatim as inline SVG — it computes no
-             NAV, P&L, benchmark, or return. Paper only; read-only; degrades gracefully. -->
-        <div class="pt-panel" id="pdash-perf-charts" style="border-left:3px solid var(--info,#3b82f6);margin-bottom:8px;display:none;">
-          <div class="cc-preview-hd" style="align-items:center;">
-            <span class="dw-hd-title">Portfolio Analytics</span>
-            <span class="cc-badge safe">READ ONLY</span>
-            <span class="cc-badge">PAPER ONLY</span>
-            <span class="cc-badge">NO ORDERS</span>
-            <span class="va-spacer" style="flex:1;"></span>
-            <span class="va-sub" id="pdash-perf-charts-asof">&mdash;</span>
-            <span class="va-sub" style="opacity:.8;">Hover for exact values &middot; click &#8599; to expand</span>
-          </div>
-          <!-- Phase 29J.3: six interactive charts bound to ONE /v1/portfolio/analytics
-               payload. Every card supports a hover crosshair/tooltip (exact date +
-               value) and an Expand control opening the dedicated drill-down detail
-               view (/ui/analytics.html) in its own window. Read-only; paper only. -->
-          <div class="va-grid-3" style="margin-top:8px;">
-            <div class="ptc-card">
-              <div class="ptc-card-hd"><span class="ptc-card-title">Performance vs SPY</span>
-                <button class="ptc-expand" onclick="PTC.openDetail('performance')" title="Open the expanded performance detail view in its own window.">&#8599; Expand</button></div>
-              <div class="ptc-legend" id="pa-perf-legend"></div>
-              <div class="ptc-card-body" id="pa-perf-chart"><div class="ptc-empty">Loading&hellip;</div></div>
-            </div>
-            <div class="ptc-card">
-              <div class="ptc-card-hd"><span class="ptc-card-title">Daily &amp; Cumulative P&amp;L</span>
-                <button class="ptc-expand" onclick="PTC.openDetail('pnl')" title="Open the expanded P&amp;L detail view in its own window.">&#8599; Expand</button></div>
-              <div class="ptc-legend" id="pa-pnl-legend"></div>
-              <div class="ptc-card-body" id="pa-pnl-chart"><div class="ptc-empty">Loading&hellip;</div></div>
-            </div>
-            <div class="ptc-card">
-              <div class="ptc-card-hd"><span class="ptc-card-title">Drawdown</span>
-                <button class="ptc-expand" onclick="PTC.openDetail('drawdown')" title="Open the expanded drawdown detail view in its own window.">&#8599; Expand</button></div>
-              <div class="ptc-legend" id="pa-dd-legend"></div>
-              <div class="ptc-card-body" id="pa-dd-chart"><div class="ptc-empty">Loading&hellip;</div></div>
-            </div>
-            <div class="ptc-card">
-              <div class="ptc-card-hd"><span class="ptc-card-title">Allocation &amp; Concentration</span>
-                <button class="ptc-expand" onclick="PTC.openDetail('allocation')" title="Open the expanded allocation detail view in its own window.">&#8599; Expand</button></div>
-              <div class="ptc-legend" id="pa-alloc-legend"></div>
-              <div class="ptc-card-body" id="pa-alloc-chart"><div class="ptc-empty">Loading&hellip;</div></div>
-            </div>
-            <div class="ptc-card">
-              <div class="ptc-card-hd"><span class="ptc-card-title">Contributors / Detractors</span>
-                <button class="ptc-expand" onclick="PTC.openDetail('contributors')" title="Open the expanded contributors detail view in its own window.">&#8599; Expand</button></div>
-              <div class="ptc-legend" id="pa-contrib-legend"></div>
-              <div class="ptc-card-body" id="pa-contrib-chart"><div class="ptc-empty">Loading&hellip;</div></div>
-            </div>
-            <div class="ptc-card">
-              <div class="ptc-card-hd"><span class="ptc-card-title">Drift vs Target</span>
-                <button class="ptc-expand" onclick="PTC.openDetail('drift')" title="Open the expanded drift detail view in its own window.">&#8599; Expand</button></div>
-              <div class="ptc-legend" id="pa-drift-legend"></div>
-              <div class="ptc-card-body" id="pa-drift-chart"><div class="ptc-empty">Loading&hellip;</div></div>
-            </div>
-          </div>
-        </div>
+        <!-- Phase 29J.3A: the interactive Portfolio Analytics grid (#pdash-perf-charts)
+             was RELOCATED to the PRIMARY operator route (#tab-portfolio-manager) so the
+             sidebar "Portfolio" item lands directly on the visual dashboard. The ids and
+             the loadPortfolioAnalytics()/renderPortfolioAnalytics() owner are unchanged.
+             This secondary "Holdings detail" route keeps its own holdings visuals below. -->
 
         <!-- ===================== Phase 27E DAILY PERFORMANCE — ALPHA PAPER BOOK #1 ===================== -->
         <!-- The forward daily-mark performance of the operational book, from the ONE
@@ -2934,6 +2894,83 @@
             <span class="cc-badge">NO LIVE PROMOTION</span>
           </div>
           <div id="pm-load-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only portfolio-manager decision view&hellip;</div>
+          <!-- ===================== Phase 29J.3A PRIMARY PORTFOLIO VISUALS =====================
+               The interactive Portfolio Analytics (6 charts) + a compact KPI hero and a
+               decision bar are the FIRST thing the operator sees on the primary Portfolio
+               route. The hero and charts read the SAME read-only /v1/portfolio/chart-analytics
+               payload (renderPortfolioAnalytics); the browser computes no NAV / P&L / return.
+               The decision bar mirrors the canonical HOC + Reallocation owners and deep-links
+               to their review cards. Read-only; paper only; no orders; no automation. -->
+          <div class="pa-hero" id="pa-hero">
+            <div class="kpi"><div class="k">NAV</div><div class="v" id="pa-hero-nav">&mdash;</div><div class="s" id="pa-hero-nav-sub">Alpha Paper Book #1</div></div>
+            <div class="kpi"><div class="k">Today</div><div class="v" id="pa-hero-today">&mdash;</div><div class="s" id="pa-hero-today-sub">daily P&amp;L</div></div>
+            <div class="kpi"><div class="k">Cum return</div><div class="v" id="pa-hero-cum">&mdash;</div><div class="s" id="pa-hero-cum-sub">since baseline</div></div>
+            <div class="kpi"><div class="k">Vs SPY</div><div class="v" id="pa-hero-excess">&mdash;</div><div class="s" id="pa-hero-excess-sub">cumulative excess</div></div>
+            <div class="kpi"><div class="k">Drawdown</div><div class="v" id="pa-hero-dd">&mdash;</div><div class="s" id="pa-hero-dd-sub">from peak</div></div>
+          </div>
+          <div class="pt-panel" id="pdash-perf-charts" style="border-left:3px solid var(--info,#3b82f6);margin-bottom:10px;display:none;">
+            <div class="cc-preview-hd" style="align-items:center;">
+              <span class="dw-hd-title">Portfolio Analytics</span>
+              <span class="cc-badge safe">READ ONLY</span>
+              <span class="cc-badge">PAPER ONLY</span>
+              <span class="cc-badge">NO ORDERS</span>
+              <span class="va-spacer" style="flex:1;"></span>
+              <span class="va-sub" id="pdash-perf-charts-asof">&mdash;</span>
+              <span class="va-sub" style="opacity:.8;">Hover for exact values &middot; click &#8599; to expand</span>
+            </div>
+            <!-- Phase 29J.3: six interactive charts bound to ONE /v1/portfolio/chart-analytics
+                 payload. Every card supports a hover crosshair/tooltip (exact date + value)
+                 and an Expand control opening the dedicated drill-down detail view
+                 (/ui/analytics.html) in its own window. Read-only; paper only. -->
+            <div class="va-grid-3" style="margin-top:8px;">
+              <div class="ptc-card">
+                <div class="ptc-card-hd"><span class="ptc-card-title">Performance vs SPY</span>
+                  <button class="ptc-expand" onclick="PTC.openDetail('performance')" title="Open the expanded performance detail view in its own window.">&#8599; Expand</button></div>
+                <div class="ptc-legend" id="pa-perf-legend"></div>
+                <div class="ptc-card-body" id="pa-perf-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+              </div>
+              <div class="ptc-card">
+                <div class="ptc-card-hd"><span class="ptc-card-title">Daily &amp; Cumulative P&amp;L</span>
+                  <button class="ptc-expand" onclick="PTC.openDetail('pnl')" title="Open the expanded P&amp;L detail view in its own window.">&#8599; Expand</button></div>
+                <div class="ptc-legend" id="pa-pnl-legend"></div>
+                <div class="ptc-card-body" id="pa-pnl-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+              </div>
+              <div class="ptc-card">
+                <div class="ptc-card-hd"><span class="ptc-card-title">Drawdown</span>
+                  <button class="ptc-expand" onclick="PTC.openDetail('drawdown')" title="Open the expanded drawdown detail view in its own window.">&#8599; Expand</button></div>
+                <div class="ptc-legend" id="pa-dd-legend"></div>
+                <div class="ptc-card-body" id="pa-dd-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+              </div>
+              <div class="ptc-card">
+                <div class="ptc-card-hd"><span class="ptc-card-title">Allocation &amp; Concentration</span>
+                  <button class="ptc-expand" onclick="PTC.openDetail('allocation')" title="Open the expanded allocation detail view in its own window.">&#8599; Expand</button></div>
+                <div class="ptc-legend" id="pa-alloc-legend"></div>
+                <div class="ptc-card-body" id="pa-alloc-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+              </div>
+              <div class="ptc-card">
+                <div class="ptc-card-hd"><span class="ptc-card-title">Contributors / Detractors</span>
+                  <button class="ptc-expand" onclick="PTC.openDetail('contributors')" title="Open the expanded contributors detail view in its own window.">&#8599; Expand</button></div>
+                <div class="ptc-legend" id="pa-contrib-legend"></div>
+                <div class="ptc-card-body" id="pa-contrib-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+              </div>
+              <div class="ptc-card">
+                <div class="ptc-card-hd"><span class="ptc-card-title">Drift vs Target</span>
+                  <button class="ptc-expand" onclick="PTC.openDetail('drift')" title="Open the expanded drift detail view in its own window.">&#8599; Expand</button></div>
+                <div class="ptc-legend" id="pa-drift-legend"></div>
+                <div class="ptc-card-body" id="pa-drift-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+              </div>
+            </div>
+          </div>
+          <!-- Compact PORTFOLIO DECISION bar: mirrors the canonical Holding Opportunity-Cost
+               and Reallocation Proposal owners (window._hocData / window._reallocData) and
+               deep-links to their full review cards. Review only; no orders; no automation. -->
+          <div class="pa-decision" id="pa-decision">
+            <div class="grp"><span class="grp-lab">HOC</span><span id="pa-dec-hoc"><span class="cc-badge muted">loading&hellip;</span></span></div>
+            <div class="grp"><span class="grp-lab">Reallocation</span><span id="pa-dec-realloc"><span class="cc-badge muted">loading&hellip;</span></span></div>
+            <span class="spacer"></span>
+            <button class="pa-btn" id="pa-dec-hoc-btn" onclick="navigateToRoute('portfolio-manager/opportunity-cost')" title="Review the canonical Holding Opportunity-Cost decision (read-only).">Review Holding Opportunity-Cost &rarr;</button>
+            <button class="pa-btn" id="pa-dec-realloc-btn" onclick="navigateToRoute('portfolio-manager/reallocation')" title="Review the canonical whole-portfolio Reallocation Proposal (read-only, manual review).">Review Reallocation Proposal &rarr;</button>
+          </div>
           <!-- ===================== Phase 27E DAILY CLOSE — DECISION WORKSPACE ===================== -->
           <!-- The Portfolio Manager is a decision workspace around the ONE canonical
                daily-close status. Documented HOLD -> the recorded review + P&L, no
@@ -3270,12 +3307,13 @@
              review, evidence/methodology/audit, legacy manual flow, health, safety)
              is preserved byte-for-byte below, collapsed so it never interrupts the
              operational approval path above. -->
-        <!-- Phase 29J.1: the canonical portfolio DECISION (Holding Opportunity-Cost review +
-             Reallocation Proposal) is first-class on the Portfolio screen — this section is
-             OPEN by default so the operator sees the decision without expanding anything, and
-             the review deep-links land on a visible card. Raw diagnostics remain in their own
-             nested collapsed disclosures below. -->
-        <details class="card" id="pm-advanced" style="margin-top:14px;" open>
+        <!-- Phase 29J.3A: the canonical portfolio DECISION is now surfaced ABOVE by the
+             interactive analytics + KPI hero and the compact decision bar (HOC + Reallocation
+             summary with Review deep-links), so this full detail section is COLLAPSED by
+             default to keep the primary route visual rather than a text stack. The Review
+             deep-links (_applySubsection) still force this open and scroll to the exact card,
+             so nothing is lost. Raw diagnostics remain in their own nested disclosures below. -->
+        <details class="card" id="pm-advanced" style="margin-top:14px;">
           <summary style="cursor:pointer;font-weight:700;">Portfolio decision detail &mdash; Holding Opportunity-Cost &amp; Reallocation Proposal <span style="font-weight:500;color:var(--label);">(health &amp; audit below)</span></summary>
           <div style="margin-top:10px;">
           <!-- Phase 27B.2 / 29J.1: the legacy-date/value KPI strip (archived legacy book) is
@@ -6283,6 +6321,11 @@ window._switchTab = function(tabName, opts) {
     // Phase 27A/27A.1: the alpha-book implementation plan + paper trading desk
     // bands refresh on every visit (read-only GETs).
     try { if (typeof loadPaperDesk === 'function') loadPaperDesk(); } catch (e) {}
+    // Phase 29J.3A: the interactive Portfolio Analytics (6 charts + KPI hero) are the
+    // primary visual on this route — refresh on every visit (GET /v1/portfolio/chart-analytics).
+    try { if (typeof loadPortfolioAnalytics === 'function') loadPortfolioAnalytics(); } catch (e) {}
+    // Keep the compact decision bar in sync with the canonical HOC + Reallocation owners.
+    try { if (typeof renderPmDecisionBar === 'function') renderPmDecisionBar(); } catch (e) {}
   }
 
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
@@ -6314,9 +6357,9 @@ window._switchTab = function(tabName, opts) {
     try { loadOperationalBook(); } catch (e) {}
     // Phase 28A: the read-only Today's Review + Why P&L Moved forward-evidence card.
     try { loadForwardEvidence(); } catch (e) {}
-    // Phase 29J.2: read-only NAV/SPY + cumulative/daily P&L performance charts
-    // (GET /v1/paper-desk/performance + /v1/evidence/attribution-history).
-    try { if (typeof loadPortfolioAnalytics === 'function') loadPortfolioAnalytics(); } catch (e) {}
+    // Phase 29J.3A: the interactive Portfolio Analytics grid was relocated to the PRIMARY
+    // Portfolio route (#portfolio-manager); this secondary "Holdings detail" route keeps
+    // its own holdings/allocation visuals and no longer owns that grid.
   }
 
   // Phase 14-B: single-nav highlight + contextual action rail + hash sync so the
@@ -24734,6 +24777,7 @@ function loadHoldingOpportunityCost() {
     window._hocInFlight = null;
     window._hocData = d;
     renderHoldingOpportunityCost(d);
+    try { renderPmDecisionBar(); } catch (e) {}   // Phase 29J.3A: mirror HOC into the decision bar
     return d;
   }).catch(function () {
     window._hocInFlight = null; renderHoldingOpportunityCost(null); return null;
@@ -24973,6 +25017,7 @@ function loadReallocationProposal() {
     window._reallocInFlight = null;
     window._reallocData = d;
     renderReallocationProposal(d);
+    try { renderPmDecisionBar(); } catch (e) {}   // Phase 29J.3A: mirror reallocation into the decision bar
     return d;
   }).catch(function () {
     window._reallocInFlight = null; renderReallocationProposal(null); return null;
@@ -29162,8 +29207,44 @@ function _paLeg(color, text, dash) {
   return '<span><span class="sw' + (dash ? ' dash' : '') + '" style="' + (dash ? 'color:' + color + ';' : 'background:' + color + ';') + '"></span>' + escapeHtml(text) + '</span>';
 }
 function _paSet(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+function _paTxt(id, txt, cls) {
+  var el = document.getElementById(id); if (!el) return;
+  el.textContent = (txt == null || txt === '') ? '—' : txt;
+  if (cls !== undefined) el.className = 'v' + (cls ? (' ' + cls) : '');
+}
+function _paSigned(v, fmt) {
+  // Signed formatter with pos/neg class — the browser does NO math, only formats a
+  // value the backend already computed. Returns { txt, cls }.
+  if (v == null || isNaN(v)) return { txt: '—', cls: '' };
+  var n = Number(v);
+  return { txt: (n > 0 ? '+' : '') + fmt(n), cls: (n > 0 ? 'pa-pos' : (n < 0 ? 'pa-neg' : '')) };
+}
+/* Phase 29J.3A: the primary-route KPI hero. Reads the SAME chart-analytics payload the
+   six charts use — nav / today P&L / cum return / vs-SPY excess / drawdown — and only
+   formats it. No NAV, P&L, benchmark or return is computed in the browser. */
+function _paHero(d) {
+  var hasP = (typeof PTC !== 'undefined');
+  var money = hasP ? PTC.money : function (x) { return x == null ? '—' : '$' + Number(x).toLocaleString(); };
+  var pctf = hasP ? function (x, dp) { return PTC.pct(x, dp); } : function (x, dp) { return x == null ? '—' : Number(x).toFixed(dp || 2) + '%'; };
+  var alloc = (d && d.allocation) || {}, perf = ((d && d.performance) || {}), pnl = ((d && d.pnl) || {});
+  var pl = perf.last || null, nl = pnl.last || null;
+  _paTxt('pa-hero-nav', (alloc.nav != null ? money(alloc.nav) : '—'), '');
+  var today = _paSigned(nl ? nl.daily_pnl : null, function (x) { return money(x); });
+  _paTxt('pa-hero-today', today.txt, today.cls);
+  _paSet('pa-hero-today-sub', (nl && nl.daily_return_pct != null) ? _paSigned(nl.daily_return_pct, function (x) { return pctf(x, 2); }).txt : 'daily P&L');
+  var cum = _paSigned(pl ? pl.cum_return_pct : null, function (x) { return pctf(x, 2); });
+  _paTxt('pa-hero-cum', cum.txt, cum.cls);
+  var exc = _paSigned(pl ? pl.excess_pp : null, function (x) { return pctf(x, 2) + ' pp'; });
+  _paTxt('pa-hero-excess', exc.txt, exc.cls);
+  var dd = (pl && pl.drawdown_pct != null) ? { txt: pctf(pl.drawdown_pct, 2), cls: (pl.drawdown_pct < 0 ? 'pa-neg' : '') } : { txt: '—', cls: '' };
+  _paTxt('pa-hero-dd', dd.txt, dd.cls);
+  var f = (d && d.freshness) || {};
+  _paSet('pa-hero-nav-sub', (f.valuation_date ? ('as-of ' + _vaShortDate(f.valuation_date) + (f.n_sessions != null ? ' · ' + f.n_sessions + ' sessions' : '')) : 'Alpha Paper Book #1'));
+}
 function renderPortfolioAnalytics(d) {
   var wrap = document.getElementById('pdash-perf-charts'); if (!wrap) return;
+  try { _paHero(d); } catch (e) {}           // KPI hero is filled even if the charts degrade
+  try { renderPmDecisionBar(); } catch (e) {} // keep the decision bar current on each render
   var hasPTC = (typeof PTC !== 'undefined');
   var sections = d ? [d.performance, d.pnl, d.allocation, d.contributors, d.drift] : [];
   var anyAvail = sections.some(function (s) { return s && s.available; });
@@ -29261,6 +29342,69 @@ function renderPortfolioAnalytics(d) {
     });
   } else { PTC.empty('pa-drift-chart', 'No target drift yet.'); _paSet('pa-drift-legend', ''); }
 }
+
+/* ---- Portfolio: compact PRIMARY-route decision bar (Phase 29J.3A) ----------- */
+/* Mirrors the canonical Holding Opportunity-Cost and Reallocation Proposal owners
+   (window._hocData / window._reallocData, loaded by loadPortfolioManager). The browser
+   computes NOTHING here — it only formats counts / state the backend engines produced,
+   and provides deep-links to the full review cards. Review-only; no orders. */
+function _paDecChip(label, val, cls) {
+  return '<span class="cc-badge ' + (cls || 'muted') + '" style="font-size:10px;">'
+    + escapeHtml(label) + (val !== undefined && val !== null && val !== '' ? ' ' + escapeHtml(String(val)) : '') + '</span>';
+}
+function renderPmDecisionBar() {
+  var hasP = (typeof PTC !== 'undefined');
+  var money = hasP ? PTC.money : function (x) { return x == null ? '—' : '$' + Number(x).toLocaleString(); };
+  // ---- HOC group ----------------------------------------------------------
+  var hocEl = document.getElementById('pa-dec-hoc');
+  if (hocEl) {
+    var h = window._hocData;
+    if (!h) { hocEl.innerHTML = _paDecChip('Loading…', null, 'muted'); }
+    else {
+      var reviews = h.holding_reviews || [];
+      var hasAssessment = !!(h.artifact || h.assessment_hash || (reviews && reviews.length));
+      if (!hasAssessment) {
+        hocEl.innerHTML = _paDecChip('State', h.state || 'UNAVAILABLE', 'manual');
+      } else {
+        var rc = h.recommendation_counts || {};
+        var order = [['HOLD', 'safe'], ['REDUCE', 'warn'], ['EXIT', 'danger'], ['REPLACE', 'muted'], ['ADD', 'safe']];
+        var chips = order.filter(function (o) { return (rc[o[0]] || 0) > 0 || o[0] === 'HOLD'; })
+          .map(function (o) { return _paDecChip(o[0], (rc[o[0]] || 0), o[1]); }).join('');
+        var dq = h.data_quality || {};
+        var gaps = (dq.holdings_missing_inputs != null) ? dq.holdings_missing_inputs
+                 : (dq.data_gap_count != null ? dq.data_gap_count : null);
+        if (gaps) chips += _paDecChip('data gaps', gaps, 'warn');
+        hocEl.innerHTML = chips || _paDecChip('State', h.state || '—', 'manual');
+      }
+    }
+  }
+  // ---- Reallocation group -------------------------------------------------
+  var rEl = document.getElementById('pa-dec-realloc');
+  if (rEl) {
+    var r = window._reallocData;
+    var allocations = (r && r.allocations) || [];
+    var hasProposal = !!(r && (r.artifact || r.proposal_hash || (allocations && allocations.length)));
+    if (!r) { rEl.innerHTML = _paDecChip('Loading…', null, 'muted'); }
+    else if (!hasProposal) { rEl.innerHTML = _paDecChip('State', r.state || 'UNAVAILABLE', 'manual'); }
+    else {
+      var state = r.state || 'UNAVAILABLE';
+      var stCls = state === 'READY' ? 'safe' : (state === 'DEGRADED' ? 'warn' : 'danger');
+      var t = r.turnover || {}, sig = r.signal || {};
+      var gaps2 = (r.data_gaps || []).filter(function (g) { return !g.by_design; }).length;
+      var netTxt = (sig.score_improvement_net_of_cost != null)
+        ? ((sig.score_improvement_net_of_cost >= 0 ? '+' : '') + (typeof _vaNum === 'function' ? _vaNum(sig.score_improvement_net_of_cost, 3) : sig.score_improvement_net_of_cost))
+        : '—';
+      rEl.innerHTML =
+        _paDecChip('State', state, stCls)
+        + _paDecChip('Proposed', allocations.length + ' names', 'muted')
+        + _paDecChip('Turnover', (t.one_way_turnover != null ? (typeof _vaPctU === 'function' ? _vaPctU(t.one_way_turnover * 100, 1) : (t.one_way_turnover * 100).toFixed(1) + '%') : '—'), 'muted')
+        + _paDecChip('Cost', money(t.estimated_transaction_cost), 'muted')
+        + _paDecChip('Net score', netTxt, (sig.improves_after_cost === true ? 'safe' : (sig.improves_after_cost === false ? 'danger' : 'muted')))
+        + _paDecChip('gaps', gaps2, gaps2 ? 'warn' : 'safe');
+    }
+  }
+}
+window.renderPmDecisionBar = renderPmDecisionBar;
 
 /* ---- Portfolio: allocation / winners-losers / drift summary charts --------- */
 function _vaRenderPortfolioSummary(ps, hd, nav) {
