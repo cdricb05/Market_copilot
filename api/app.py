@@ -18108,7 +18108,8 @@ def get_market_indicators() -> MarketIndicatorsResponse:
     Fetch latest market indicators (read-only).
 
     yfinance indicators: S&P 500, Nasdaq, Dow, VIX, EUR/USD, Gold, Brent, WTI.
-    FRED macro indicators: US 10Y (DGS10), US 2Y (DGS2), CPI (CPIAUCSL), Fed Funds, SOFR.
+    FRED macro indicators: US 10Y (DGS10), US 2Y (DGS2), USD Broad (DTWEXBGS —
+    Nominal Broad U.S. Dollar Index), CPI (CPIAUCSL), Fed Funds, SOFR.
 
     FRED cards require PAPER_TRADER_FRED_API_KEY; if absent, they show available=False
     with reason "FRED API key missing". yfinance cards always populate independently.
@@ -18128,6 +18129,14 @@ def get_market_indicators() -> MarketIndicatorsResponse:
     _FRED_SERIES = {
         "us10y":     ("US 10Y",     "DGS10"),
         "us2y":      ("US 2Y",      "DGS2"),
+        # Phase 29J.3B: the dead "US Dollar (DXY)" tile (no owned source) is replaced by
+        # the Federal Reserve Nominal Broad U.S. Dollar Index (DTWEXBGS), served through
+        # the SAME owned FRED integration already used for US 10Y / US 2Y — no new
+        # provider, no direct-from-JS call. It carries the same latest value + change vs
+        # prior observation + as-of / freshness semantics as the other FRED cards. When
+        # the FRED key is absent it degrades to an honest UNAVAILABLE tile, never a
+        # fabricated number.
+        "usd_broad": ("USD Broad",  "DTWEXBGS"),
         "cpi_latest":("CPI Latest", "CPIAUCSL"),
         "fed_funds": ("Fed Funds",  "FEDFUNDS"),
         "sofr":      ("SOFR",       "SOFR"),

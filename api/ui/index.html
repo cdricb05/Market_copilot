@@ -1849,53 +1849,99 @@
 <!-- Independent inline status check -->
 <script>
 (function() {
-  async function quickStatusCheck() {
+  // Phase 29J.3B — ONE service-health probe owner (SERVICE readiness only; the daily-
+  // WORKFLOW state is shown separately and never flips this badge). A SINGLE transient
+  // probe timeout must NOT present the whole service as unavailable while authoritative
+  // health is actually good — during a heavy page load the unauthenticated /v1/health
+  // and /v1/ready probes can queue behind the browser's per-host connection cap and hit
+  // the 5s abort even though the backend is serving fine. So a timeout is treated as a
+  // TRANSIENT/DEGRADED "re-checking" state and auto-retried with backoff; only after the
+  // bounded retries are exhausted do we settle on Timeout / Offline. A genuine failure
+  // (health non-OK, /v1/ready reporting a real dependency reason, or connection refused
+  // after retries) is still surfaced — never hidden. Preferred semantics: READY /
+  // DEGRADED (re-checking) / UNAVAILABLE.
+  var MAX_TRANSIENT_RETRIES = 3;   // retries AFTER the first probe, on a transient timeout
+  var RETRY_DELAY_MS = 1500;
+  var _gen = 0;                     // generation guard: only the latest run may write
+
+  function _set(cls, text, dbg) {
+    var light = document.getElementById('health-light');
+    var t = document.getElementById('health-status');
+    var d = document.getElementById('health-debug');
+    if (light) light.className = 'status-light ' + cls;
+    if (t) t.textContent = text;
+    if (d) d.textContent = dbg || '';
+  }
+  function _sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  async function _abortFetch(url) {
+    var c = new AbortController();
+    var id = setTimeout(function () { c.abort(); }, 5000);
+    try { return await fetch(url, { signal: c.signal }); }
+    finally { clearTimeout(id); }
+  }
+  // Reuse the canonical /v1/ready reader (checkServiceReady) once it is parsed; fall back
+  // to an inline equivalent during the very first bootstrap probe. Never masks a genuine
+  // not-ready reason as "ok".
+  async function _readyCheck() {
+    if (typeof checkServiceReady === 'function') return checkServiceReady();
     try {
-      const light = document.getElementById('health-light');
-      const text = document.getElementById('health-status');
-      const debug = document.getElementById('health-debug');
-      if (!light || !text) return;
-      try {
-        const healthController = new AbortController();
-        const healthTimeout = setTimeout(() => healthController.abort(), 5000);
-        const healthResp = await fetch('/v1/health', { signal: healthController.signal });
-        clearTimeout(healthTimeout);
-        if (!healthResp.ok) throw new Error('health');
-        const readyController = new AbortController();
-        const readyTimeout = setTimeout(() => readyController.abort(), 5000);
-        const readyResp = await fetch('/v1/ready', { signal: readyController.signal });
-        clearTimeout(readyTimeout);
-        if (!readyResp.ok) {
-          // SERVICE readiness genuinely failed — surface the EXACT reason from the
-          // owner (/v1/ready), never a masked "ok". This is service-only; the daily
-          // workflow state is shown separately and is not affected.
-          let reason = '/v1/ready ' + readyResp.status;
-          try { const rb = await readyResp.json(); if (rb && rb.detail && rb.detail.reason) reason = rb.detail.reason; } catch (e2) {}
-          light.className = 'status-light err';
-          text.textContent = 'Not Ready';
-          if (debug) debug.textContent = 'service not ready — ' + reason;
-          return;
-        }
-        light.className = 'status-light ok';
-        text.textContent = 'Ready';
-        if (debug) debug.textContent = 'service ready (/v1/health, /v1/ready)';
-      } catch (e) {
-        light.className = 'status-light err';
-        let msg = 'Offline';
-        let debugMsg = 'service offline';
-        if (e.name === 'AbortError') {
-          msg = 'Timeout';
-          debugMsg = 'service probe timeout';
-        }
-        text.textContent = msg;
-        if (debug) debug.textContent = debugMsg;
+      var r = await _abortFetch('/v1/ready');
+      if (!r.ok) {
+        var reason = '/v1/ready ' + r.status;
+        try { var rb = await r.json(); if (rb && rb.detail && rb.detail.reason) reason = rb.detail.reason; } catch (e2) {}
+        return { ready: false, reason: reason };
       }
-    } catch (outerErr) {
-      const text = document.getElementById('health-status');
-      if (text) text.textContent = 'Offline';
+      var b = await r.json();
+      return { ready: b.database === 'ok', reason: (b && b.reason) || null };
+    } catch (e) {
+      return { ready: false, reason: (e && e.name === 'AbortError') ? 'service probe timeout' : 'service unreachable' };
     }
   }
-  quickStatusCheck();
+  // One probe -> {state:'ready'|'notready'|'transient', timeout?, dbg?}.
+  async function _probeOnce() {
+    var h;
+    try {
+      h = (typeof fetchWithTimeout === 'function') ? await fetchWithTimeout('/v1/health', 5000)
+                                                   : await _abortFetch('/v1/health');
+    } catch (e) {
+      return { state: 'transient', timeout: !!(e && e.name === 'AbortError') };
+    }
+    if (!h.ok) return { state: 'notready', dbg: 'service not ready — /v1/health ' + h.status };
+    var svc = await _readyCheck();
+    if (svc && svc.ready) return { state: 'ready', dbg: 'service ready (/v1/health, /v1/ready)' };
+    var reason = (svc && svc.reason) || '/v1/ready failed';
+    // A probe timeout / unreachable is TRANSIENT (retryable); any other reason is a
+    // genuine dependency failure and is surfaced immediately.
+    if (/timeout|unreachable/i.test(reason)) return { state: 'transient', timeout: /timeout/i.test(reason) };
+    return { state: 'notready', dbg: 'service not ready — ' + reason };
+  }
+  // Fire-and-forget: callers never block on the retry loop; the generation guard makes
+  // the newest invocation win so a stale in-flight retry can never overwrite a fresh
+  // authoritative result.
+  window.__serviceHealthProbe = function serviceHealthProbe() {
+    var myGen = ++_gen;
+    (async function loop() {
+      for (var attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
+        var res;
+        try { res = await _probeOnce(); } catch (e) { res = { state: 'transient', timeout: false }; }
+        if (myGen !== _gen) return;                     // superseded by a newer probe
+        if (res.state === 'ready') { _set('ok', 'Ready', res.dbg); return; }
+        if (res.state === 'notready') { _set('err', 'Not Ready', res.dbg); return; }  // genuine — surfaced
+        // transient timeout / unreachable: re-check before declaring unavailable.
+        if (attempt < MAX_TRANSIENT_RETRIES) {
+          _set('neutral', 'Checking…', 'service probe slow — re-checking (' + (attempt + 1) + '/' + MAX_TRANSIENT_RETRIES + ')');
+          await _sleep(RETRY_DELAY_MS);
+          if (myGen !== _gen) return;
+          continue;
+        }
+        // retries exhausted — surface the genuine problem (never hidden).
+        _set('err', res.timeout ? 'Timeout' : 'Offline',
+             (res.timeout ? 'service probe timeout' : 'service unreachable') + ' (after ' + MAX_TRANSIENT_RETRIES + ' retries)');
+        return;
+      }
+    })();
+  };
+  window.__serviceHealthProbe();   // initial bootstrap probe
 })();
 </script>
 
@@ -2138,9 +2184,11 @@
                GET /v1/market/indicators (remote free providers: Yahoo Finance for equities/FX/
                commodities, FRED for rates). The UI performs NO market math and calls NO provider
                directly; each tile shows the backend value, an as-of / last-close label and an
-               explicit STALE / UNAVAILABLE state. Series with no owned/available source (US Dollar
-               Index / DXY has no owned source; US rates are UNAVAILABLE when the FRED key is absent)
-               render an explicit UNAVAILABLE tile — never a fabricated number. -->
+               explicit STALE / UNAVAILABLE state. The US-dollar tile is the Federal Reserve
+               Nominal Broad U.S. Dollar Index (FRED DTWEXBGS) — the SAME owned FRED owner as
+               US 10Y / US 2Y, not a new provider and never a direct-from-JS call. Series with
+               no owned/available source (US rates and USD Broad are UNAVAILABLE when the FRED
+               key is absent) render an explicit UNAVAILABLE tile — never a fabricated number. -->
           <div id="cc-market-context" class="ov-market-section" style="margin:0 0 12px;">
             <div class="ov-market-section-hdr">
               <span class="ov-mkt-section-title">Market Context</span>
@@ -2172,7 +2220,7 @@
                 <div class="ov-mkt-group-cards">
                   <div class="ov-market-card" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
                   <div class="ov-market-card" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="dxy"><div class="ov-mkt-label">US Dollar (DXY)</div><div class="ov-mkt-value">Unavailable</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge unavailable">UNAVAILABLE</div><div class="ov-mkt-status">No owned data source</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="usd_broad"><div class="ov-mkt-label">USD Broad</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
                 </div>
               </div>
             </div>
@@ -11346,37 +11394,33 @@ async function fetchWithTimeout(url, timeoutMs = 5000) {
 }
 
 async function loadHealth() {
+  // Phase 29J.3B: the header SERVICE badge is owned by the single retrying probe
+  // (window.__serviceHealthProbe, defined in the header bootstrap script). loadHealth /
+  // refresh just re-trigger a fresh, generation-guarded probe so one transient timeout
+  // during a load burst self-heals instead of sticking on a false "Timeout". This is
+  // non-blocking on purpose — dashboard load never waits on the retry loop. The probe
+  // reuses checkServiceReady (below) as the canonical /v1/ready reader.
+  try {
+    if (typeof window.__serviceHealthProbe === 'function') { window.__serviceHealthProbe(); return; }
+  } catch (e) { /* fall through to the one-shot fallback below */ }
+  // Fallback one-shot probe (only if the canonical probe is unavailable).
   const light = document.getElementById('health-light');
   const text = document.getElementById('health-status');
   const debug = document.getElementById('health-debug');
   try {
     const r = await fetchWithTimeout('/v1/health', 5000);
-    if (!r.ok) {
-      throw new Error(`HTTP ${r.status}`);
-    }
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const b = await r.json();
-    // SERVICE readiness only: /v1/health liveness AND /v1/ready DB probe. This is
-    // independent of WORKFLOW readiness (shown separately in the header); a waiting
-    // workflow never flips this to "Not Ready".
     const svc = await checkServiceReady();
     const ok = b.status === 'ok' && svc.ready;
-    light.className = 'status-light ' + (ok ? 'ok' : 'err');
-    text.textContent = ok ? 'Ready' : 'Not Ready';
+    if (light) light.className = 'status-light ' + (ok ? 'ok' : 'err');
+    if (text) text.textContent = ok ? 'Ready' : 'Not Ready';
     if (debug) debug.textContent = ok ? 'service ready (/v1/health, /v1/ready)'
       : ('service not ready — ' + (svc.reason || '/v1/ready failed'));
   } catch (e) {
-    light.className = 'status-light err';
-    let msg = 'Offline';
-    let debugMsg = '';
-    if (e.name === 'AbortError') {
-      msg = 'Timeout';
-      debugMsg = 'service probe timeout';
-    } else {
-      msg = 'Offline';
-      debugMsg = 'service unreachable';
-    }
-    text.textContent = msg;
-    if (debug) debug.textContent = debugMsg;
+    if (light) light.className = 'status-light err';
+    if (text) text.textContent = (e.name === 'AbortError') ? 'Timeout' : 'Offline';
+    if (debug) debug.textContent = (e.name === 'AbortError') ? 'service probe timeout' : 'service unreachable';
   }
 }
 
@@ -11921,7 +11965,8 @@ function formatShortDate(iso) {
 function formatFredValue(key, value) {
   const val = parseFloat(value);
   if (isNaN(val)) return String(value);
-  if (key === 'cpi_latest') return val.toFixed(2);
+  // Index levels (CPI, the Broad U.S. Dollar Index) are plain numbers, not percentages.
+  if (key === 'cpi_latest' || key === 'usd_broad') return val.toFixed(2);
   return val.toFixed(2) + '%';
 }
 
@@ -26769,6 +26814,39 @@ function _dcReadinessText(d) {
   return parts.join('  ·  ');
 }
 
+// Phase 29J.3B: the legacy rank-membership comparison is compatibility-only and must not
+// dominate the primary daily-close card. When the daily-close status is that legacy
+// summary, render its headline + explanation as COLLAPSED progressive disclosure (a
+// native <details>, closed by default) instead of a large orange headline — every word
+// stays reachable on expand, and the compatibility badge still labels the state. All
+// other close statuses render the normal headline. Presentation only: no daily-close,
+// workflow, NAV or backend change.
+function _dcIsLegacyCompat(d) {
+  return !!d && (d.close_status === 'REBALANCE_PROPOSAL_READY'
+    || /LEGACY MEMBERSHIP-COMPARISON/i.test(String(d.close_status_label || '') + ' ' + String(d.headline || '')));
+}
+function _dcApplyHeadline(prefix, d, color) {
+  var hl = document.getElementById(prefix + '-dc-headline');
+  var ex = document.getElementById(prefix + '-dc-explanation');
+  if (_dcIsLegacyCompat(d)) {
+    if (hl) {
+      hl.style.color = 'var(--label, #94a3b8)';
+      hl.innerHTML = '<details class="dc-legacy-compat">'
+        + '<summary style="cursor:pointer;font-size:11px;font-weight:800;letter-spacing:.02em;color:var(--label,#94a3b8);">'
+        + 'Legacy membership comparison &mdash; compatibility only</summary>'
+        + '<div style="margin-top:6px;font-size:11px;font-weight:700;color:var(--label,#94a3b8);">' + escapeHtml(d.headline || '') + '</div>'
+        + '<div style="margin-top:4px;font-size:11px;font-weight:400;color:var(--label,#94a3b8);">' + escapeHtml(d.explanation || '') + '</div>'
+        + '</details>';
+    }
+    if (ex) { ex.textContent = ''; ex.style.display = 'none'; }
+  } else {
+    _dcSet(prefix + '-dc-headline', d.headline);
+    if (hl) hl.style.color = color;
+    _dcSet(prefix + '-dc-explanation', d.explanation);
+    if (ex) ex.style.display = '';
+  }
+}
+
 function renderDailyClose(d) {
   var ok = d && d.close_status;
   ['cc-dc-card', 'dw-dc-card', 'pm-dc-card', 'dc-perf-panel'].forEach(function (id) {
@@ -26786,9 +26864,7 @@ function renderDailyClose(d) {
     _dcSet(p + '-dc-badge', d.close_status_label);
     var badge = document.getElementById(p + '-dc-badge');
     if (badge) { badge.style.borderColor = color; badge.style.color = color; }
-    _dcSet(p + '-dc-headline', d.headline);
-    var hl = document.getElementById(p + '-dc-headline'); if (hl) hl.style.color = color;
-    _dcSet(p + '-dc-explanation', d.explanation);
+    _dcApplyHeadline(p, d, color);
     _dcSet(p + '-dc-latest', d.latest_eligible_market_date);
     _dcSet(p + '-dc-processed', processed);
     var card = document.getElementById(p + '-dc-card'); if (card) card.style.borderLeftColor = color;
@@ -26842,9 +26918,7 @@ function renderDailyClosePm(d, color) {
   _dcSet('pm-dc-badge', d.close_status_label);
   var badge = document.getElementById('pm-dc-badge');
   if (badge) { badge.style.borderColor = color; badge.style.color = color; }
-  _dcSet('pm-dc-headline', d.headline);
-  var hl = document.getElementById('pm-dc-headline'); if (hl) hl.style.color = color;
-  _dcSet('pm-dc-explanation', d.explanation);
+  _dcApplyHeadline('pm', d, color);
   _dcSet('pm-dc-latest', d.latest_eligible_market_date);
   _dcSet('pm-dc-processed', d.last_processed_market_date || '—');
   _dcSet('pm-dc-valdate', d.current_valuation_date);
@@ -29390,13 +29464,22 @@ function renderPmDecisionBar() {
       var state = r.state || 'UNAVAILABLE';
       var stCls = state === 'READY' ? 'safe' : (state === 'DEGRADED' ? 'warn' : 'danger');
       var t = r.turnover || {}, sig = r.signal || {};
+      // Phase 29J.3B: "Proposed names" means the number of POSITIVE-WEIGHT proposed
+      // holdings — the canonical backend metric portfolio.proposed_holding_count
+      // (engine.reallocation_proposal counts weights > 0). It must NOT count the
+      // allocation ROWS, because the allocation set also carries zero-weight EXIT /
+      // REPLACE_OUT rows, which would inflate the figure (e.g. 25 held + 8 exits = 33).
+      // No allocation math is done here; the value is read straight from the owner.
+      var reallocPortfolio = r.portfolio || {};
+      var proposedNames = (reallocPortfolio.proposed_holding_count != null)
+        ? reallocPortfolio.proposed_holding_count : '—';
       var gaps2 = (r.data_gaps || []).filter(function (g) { return !g.by_design; }).length;
       var netTxt = (sig.score_improvement_net_of_cost != null)
         ? ((sig.score_improvement_net_of_cost >= 0 ? '+' : '') + (typeof _vaNum === 'function' ? _vaNum(sig.score_improvement_net_of_cost, 3) : sig.score_improvement_net_of_cost))
         : '—';
       rEl.innerHTML =
         _paDecChip('State', state, stCls)
-        + _paDecChip('Proposed', allocations.length + ' names', 'muted')
+        + _paDecChip('Proposed', proposedNames + ' names', 'muted')
         + _paDecChip('Turnover', (t.one_way_turnover != null ? (typeof _vaPctU === 'function' ? _vaPctU(t.one_way_turnover * 100, 1) : (t.one_way_turnover * 100).toFixed(1) + '%') : '—'), 'muted')
         + _paDecChip('Cost', money(t.estimated_transaction_cost), 'muted')
         + _paDecChip('Net score', netTxt, (sig.improves_after_cost === true ? 'safe' : (sig.improves_after_cost === false ? 'danger' : 'muted')))
