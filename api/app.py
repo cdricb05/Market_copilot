@@ -234,6 +234,7 @@ from paper_trader.api import daily_action_gate as _dag
 from paper_trader.api import daily_close as _dclose
 from paper_trader.api import calibration_study as _calib
 from paper_trader.api import forward_evidence as _fe
+from paper_trader.api import portfolio_analytics as _pa
 from paper_trader.api import forward_prediction_skill as _fps
 from paper_trader.api.multi_horizon_ledger import CONFIRM_TOKEN as _MHZ_CONFIRM_TOKEN
 
@@ -662,6 +663,57 @@ class MarketIndicatorsResponse(BaseModel):
     as_of: str | None
     indicators: list[MarketIndicator]
     placeholders: list[MarketIndicatorPlaceholder]
+
+
+# --- Phase 29J.2: read-only market CONTEXT (trend history + descriptive regime) ---
+# Reference/context only. Derived exclusively from observed prices/rates already used
+# by /v1/market/indicators. NEVER a signal, forecast, recommendation, or order path.
+class MarketTrendPoint(BaseModel):
+    date: str
+    close: float
+
+
+class MarketTrendSeries(BaseModel):
+    key: str
+    label: str
+    symbol: str
+    available: bool
+    points: list[MarketTrendPoint] = []
+    first_close: float | None = None
+    last_close: float | None = None
+    change_pct_window: float | None = None
+    day_change_pct: float | None = None
+    as_of: str | None = None
+    reason: str | None = None
+
+
+class MarketRegimeDimension(BaseModel):
+    dimension: str
+    label: str
+    tone: str
+    detail: str
+    available: bool
+    basis: str
+
+
+class MarketContextResponse(BaseModel):
+    status: str
+    source: str
+    as_of: str | None
+    lookback_days: int
+    disclaimer: str
+    history: list[MarketTrendSeries]
+    regime: list[MarketRegimeDimension]
+    # Safety contract (mirrors the read-only posture of every operator surface).
+    read_only: bool = True
+    reference_only: bool = True
+    is_signal: bool = False
+    is_prediction: bool = False
+    is_recommendation: bool = False
+    creates_orders: bool = False
+    creates_signals: bool = False
+    mutates_state: bool = False
+    automation_enabled: bool = False
 
 
 class StrategyRunRequest(BaseModel):
@@ -5651,6 +5703,20 @@ def evidence_sector_contributions(market_date: str | None = None) -> dict:
     return _fe.load_sector_contributions(market_date=market_date)
 
 
+@app.get("/v1/portfolio/chart-analytics", status_code=status.HTTP_200_OK,
+         dependencies=[Depends(_verify_api_key)])
+def portfolio_chart_analytics() -> dict:
+    """Phase 29J.3 — ONE read-only chart-ready analytics bundle for the interactive
+    Portfolio charts and the dedicated drill-down detail view. Composes the canonical
+    forward performance (NAV / cumulative return / SPY benchmark / drawdown), daily &
+    cumulative P&L, allocation (cash/invested, sector exposure, top-holding
+    concentration), contribution-aware winners/losers and current-vs-target drift.
+    Distinct from the legacy /v1/portfolio/analytics risk roll-up. Introduces no new
+    portfolio math; creates/reads no order, signal, or model; writes nothing. Always
+    HTTP 200 — every section degrades to an explicit empty state."""
+    return _pa.build_portfolio_analytics()
+
+
 # --------------------------------------------------------------------------- #
 # Alpha Agent — Evidence Observatory (Stage 7).
 #
@@ -6328,8 +6394,9 @@ def operations_portfolio_state() -> dict:
     available (HTTP 200) in a DEGRADED / INCONSISTENT consistency state; a failing
     non-critical dependency degrades to a ``warnings[]`` entry. The preliminary
     reassessment proposal it references is review-only and unapproved — the Holding
-    Opportunity-Cost engine (Slice 6) and the Reallocation Proposal engine
-    (Slice 7) are not implemented yet.
+    Opportunity-Cost engine (Slice 6) and the Reallocation Proposal engine (Slice 7)
+    are implemented and produce it as a manual-review, no-orders, no-automation
+    proposal that is never auto-approved.
     """
     return _pstate.load_portfolio_state()
 
@@ -18187,6 +18254,230 @@ def get_market_indicators() -> MarketIndicatorsResponse:
         indicators=indicators,
         placeholders=placeholders,
     )
+
+
+# Phase 29J.2: small in-process TTL cache so repeated Today-page opens do not re-download
+# the ~1-month history batch. Read-only, best-effort; a miss just re-fetches. No DB.
+_MARKET_CONTEXT_CACHE: dict[int, tuple[float, "MarketContextResponse"]] = {}
+_MARKET_CONTEXT_TTL_SECONDS = 300.0
+
+
+def _fmt_signed_pct(v: float | None) -> str:
+    if v is None:
+        return "n/a"
+    return ("+" if v >= 0 else "") + f"{v:.2f}%"
+
+
+def _derive_market_regime(
+    latest: dict[str, dict], fred: dict[str, dict | None]
+) -> list[MarketRegimeDimension]:
+    """
+    Build a DESCRIPTIVE market-regime summary from observed prices/rates only.
+
+    Every tone is a factual classification of what the data did (day change sign,
+    absolute VIX level, yield-curve slope) — never a forecast, signal, or
+    recommendation. Missing inputs degrade to an explicit UNAVAILABLE tile.
+    """
+    dims: list[MarketRegimeDimension] = []
+
+    def _day_chg(entry: dict | None) -> float | None:
+        if not entry:
+            return None
+        last, prev = entry.get("last"), entry.get("prev")
+        if last is None or prev in (None, 0):
+            return None
+        return (last - prev) / prev * 100.0
+
+    # Equity tone — S&P 500 day change + position vs its recent window average.
+    eq = latest.get("sp500")
+    day = _day_chg(eq)
+    if eq and eq.get("last") is not None:
+        mean = eq.get("mean")
+        vs_avg = "at"
+        if mean:
+            vs_avg = "above" if eq["last"] > mean else ("below" if eq["last"] < mean else "at")
+        tone = "FLAT"
+        if day is not None:
+            tone = "UP" if day > 0.15 else ("DOWN" if day < -0.15 else "FLAT")
+        dims.append(MarketRegimeDimension(
+            dimension="equity", label="Equity tone", tone=tone,
+            detail=f"S&P 500 {_fmt_signed_pct(day)} on the day; {vs_avg} its recent average.",
+            available=True, basis="S&P 500 (^GSPC) daily close"))
+    else:
+        dims.append(MarketRegimeDimension(
+            dimension="equity", label="Equity tone", tone="UNAVAILABLE",
+            detail="S&P 500 history unavailable.", available=False,
+            basis="S&P 500 (^GSPC) daily close"))
+
+    # Volatility tone — absolute VIX level (conventional bands) + day change.
+    vix = latest.get("vix")
+    if vix and vix.get("last") is not None:
+        lvl = vix["last"]
+        tone = "LOW" if lvl < 15 else ("MODERATE" if lvl < 20 else ("ELEVATED" if lvl < 30 else "HIGH"))
+        vday = _day_chg(vix)
+        vtxt = "" if vday is None else f" {('+' if vday >= 0 else '')}{vday:.1f}% on the day."
+        dims.append(MarketRegimeDimension(
+            dimension="volatility", label="Volatility tone", tone=tone,
+            detail=f"VIX {lvl:.1f} — {tone.lower()}.{vtxt}".rstrip(),
+            available=True, basis="CBOE VIX (^VIX) level"))
+    else:
+        dims.append(MarketRegimeDimension(
+            dimension="volatility", label="Volatility tone", tone="UNAVAILABLE",
+            detail="VIX history unavailable.", available=False, basis="CBOE VIX (^VIX) level"))
+
+    # Rates tone — 2s10s slope from the latest FRED observations.
+    t10, t2 = fred.get("us10y"), fred.get("us2y")
+    try:
+        v10 = float(t10["value"]) if t10 and t10.get("value") is not None else None
+        v2 = float(t2["value"]) if t2 and t2.get("value") is not None else None
+    except (TypeError, ValueError):
+        v10 = v2 = None
+    if v10 is not None and v2 is not None:
+        slope = v10 - v2
+        tone = "NORMAL" if slope > 0.1 else ("INVERTED" if slope < -0.1 else "FLAT")
+        dims.append(MarketRegimeDimension(
+            dimension="rates", label="Rates tone", tone=tone,
+            detail=f"10Y {v10:.2f}% / 2Y {v2:.2f}%; curve {('+' if slope >= 0 else '')}{slope:.2f}pp ({tone.lower()}).",
+            available=True, basis="FRED DGS10 / DGS2 latest observations"))
+    else:
+        dims.append(MarketRegimeDimension(
+            dimension="rates", label="Rates tone", tone="UNAVAILABLE",
+            detail="US Treasury rates unavailable (FRED key or data missing).",
+            available=False, basis="FRED DGS10 / DGS2 latest observations"))
+
+    # Commodities tone — WTI + Gold day change.
+    wti_d, gold_d = _day_chg(latest.get("wti")), _day_chg(latest.get("gold"))
+    if wti_d is not None or gold_d is not None:
+        ups = sum(1 for x in (wti_d, gold_d) if x is not None and x > 0.1)
+        downs = sum(1 for x in (wti_d, gold_d) if x is not None and x < -0.1)
+        tone = "UP" if ups > downs else ("DOWN" if downs > ups else "MIXED")
+        dims.append(MarketRegimeDimension(
+            dimension="commodities", label="Commodities tone", tone=tone,
+            detail=f"WTI crude {_fmt_signed_pct(wti_d)}, gold {_fmt_signed_pct(gold_d)} on the day.",
+            available=True, basis="WTI (CL=F) & Gold (GC=F) daily close"))
+    else:
+        dims.append(MarketRegimeDimension(
+            dimension="commodities", label="Commodities tone", tone="UNAVAILABLE",
+            detail="Commodity history unavailable.", available=False,
+            basis="WTI (CL=F) & Gold (GC=F) daily close"))
+
+    # FX tone — EUR/USD day change described as US-dollar direction.
+    eur_d = _day_chg(latest.get("eurusd"))
+    if eur_d is not None:
+        tone = "USD_WEAKER" if eur_d > 0.1 else ("USD_STRONGER" if eur_d < -0.1 else "FLAT")
+        usd = "weaker" if eur_d > 0.1 else ("stronger" if eur_d < -0.1 else "little changed")
+        dims.append(MarketRegimeDimension(
+            dimension="fx", label="FX tone", tone=tone,
+            detail=f"EUR/USD {_fmt_signed_pct(eur_d)} on the day — US dollar {usd}.",
+            available=True, basis="EUR/USD (EURUSD=X) daily close"))
+    else:
+        dims.append(MarketRegimeDimension(
+            dimension="fx", label="FX tone", tone="UNAVAILABLE",
+            detail="EUR/USD history unavailable.", available=False,
+            basis="EUR/USD (EURUSD=X) daily close"))
+
+    return dims
+
+
+@app.get(
+    "/v1/market/context",
+    response_model=MarketContextResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_market_context(lookback_days: int = 30) -> MarketContextResponse:
+    """
+    Read-only market CONTEXT: compact trend history + a descriptive regime summary.
+
+    Reuses the exact remote sources already behind /v1/market/indicators — yfinance
+    (`fetch_historical_prices`) for the six trend symbols and FRED (`_batch_fred_with_prior`)
+    for 10Y/2Y — so no new dependency, provider, or data is introduced. Every value is an
+    observed price/rate; the regime tones are factual classifications (day change, VIX
+    level, curve slope), NOT signals, forecasts, or recommendations. Fails gracefully per
+    series (missing → available=False). No DB writes, no orders, no automation, no
+    prediction service.
+    """
+    import time
+    from datetime import timedelta
+
+    lookback = max(5, min(int(lookback_days or 30), 120))
+
+    cached = _MARKET_CONTEXT_CACHE.get(lookback)
+    if cached is not None:
+        ts, payload = cached
+        if (time.time() - ts) < _MARKET_CONTEXT_TTL_SECONDS:
+            return payload
+
+    trend_config = [
+        ("sp500", "S&P 500", "^GSPC"),
+        ("nasdaq", "Nasdaq", "^IXIC"),
+        ("vix", "VIX", "^VIX"),
+        ("wti", "WTI Crude", "CL=F"),
+        ("gold", "Gold", "GC=F"),
+        ("eurusd", "EUR/USD", "EURUSD=X"),
+    ]
+
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=lookback + 10)  # weekend/holiday slack
+    symbols = [c[2] for c in trend_config]
+    try:
+        series_map, _failures = fetch_historical_prices(symbols, start, end)
+    except Exception:
+        series_map, _failures = {}, {}
+
+    history: list[MarketTrendSeries] = []
+    latest: dict[str, dict] = {}
+    for key, label, symbol in trend_config:
+        raw = series_map.get(symbol) or []
+        raw = raw[-lookback:] if len(raw) > lookback else raw
+        pts: list[MarketTrendPoint] = []
+        for item in raw:
+            try:
+                md = item["market_date"]
+                pts.append(MarketTrendPoint(
+                    date=md.isoformat() if hasattr(md, "isoformat") else str(md),
+                    close=round(float(item["price"]), 4),
+                ))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if pts:
+            first_c = pts[0].close
+            last_c = pts[-1].close
+            prev_c = pts[-2].close if len(pts) >= 2 else None
+            mean_c = round(sum(p.close for p in pts) / len(pts), 4)
+            win = ((last_c - first_c) / first_c * 100.0) if first_c else None
+            day = ((last_c - prev_c) / prev_c * 100.0) if prev_c else None
+            history.append(MarketTrendSeries(
+                key=key, label=label, symbol=symbol, available=True, points=pts,
+                first_close=first_c, last_close=last_c,
+                change_pct_window=round(win, 4) if win is not None else None,
+                day_change_pct=round(day, 4) if day is not None else None,
+                as_of=pts[-1].date,
+            ))
+            latest[key] = {"last": last_c, "prev": prev_c, "first": first_c, "mean": mean_c}
+        else:
+            history.append(MarketTrendSeries(
+                key=key, label=label, symbol=symbol, available=False, points=[],
+                reason="No history available",
+            ))
+
+    fred = _batch_fred_with_prior({"us10y": "DGS10", "us2y": "DGS2"}, get_settings().fred_api_key)
+    regime = _derive_market_regime(latest, fred)
+
+    payload = MarketContextResponse(
+        status="ok",
+        source="yfinance+fred",
+        as_of=datetime.now(timezone.utc).isoformat(),
+        lookback_days=lookback,
+        disclaimer=(
+            "Descriptive market context derived from observed prices and rates only. "
+            "Reference only — not a signal, forecast, or recommendation."
+        ),
+        history=history,
+        regime=regime,
+    )
+    _MARKET_CONTEXT_CACHE[lookback] = (time.time(), payload)
+    return payload
 
 
 @app.post(

@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Portfolio Analytics — Alpha Paper Book #1</title>
+<!-- Phase 29J.3 — dedicated read-only drill-down detail view for the Portfolio
+     interactive charts. Opens in its own tab/window. Reads ONE read-only
+     /v1/portfolio/analytics payload and renders a large interactive chart with the
+     same hover crosshair/tooltip + timeframe controls + freshness labelling. NO
+     mutation controls, NO order behaviour, NO automation. -->
+<style>
+  :root{
+    --bg:#070b1e; --panel:#101a34; --elevated:#16223f; --border:#243b63;
+    --border-soft:rgba(122,143,176,.16); --text:#e0e0ff; --accent:#a8b8d8;
+    --label:#7a8fb0; --ok:#22c55e; --danger:#ef4444; --info:#3b82f6; --warn:#f59e0b;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{background:var(--bg);color:var(--text);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  a{color:var(--info);}
+  .wrap{display:grid;grid-template-columns:210px 1fr;grid-template-rows:auto 1fr;height:100vh;}
+  /* top bar */
+  .top{grid-column:1 / -1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+       padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel);}
+  .top h1{font-size:15px;font-weight:800;margin:0;letter-spacing:.02em;}
+  .spacer{flex:1;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;
+         letter-spacing:.04em;background:rgba(59,130,246,.14);color:#8fb3ff;white-space:nowrap;}
+  .badge.safe{background:rgba(34,197,94,.14);color:#4ade80;}
+  .badge.warn{background:rgba(245,158,11,.14);color:#fbbf24;}
+  .fresh{font-size:11px;color:var(--label);}
+  /* left rail */
+  .rail{border-right:1px solid var(--border);background:var(--panel);padding:10px 8px;overflow-y:auto;}
+  .rail .grp{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--label);margin:6px 8px 4px;}
+  .navbtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:transparent;border:1px solid transparent;
+          color:var(--accent);border-radius:6px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:3px;}
+  .navbtn:hover{background:var(--elevated);}
+  .navbtn.active{background:var(--elevated);border-color:var(--border);color:var(--text);}
+  .navbtn .dot{width:8px;height:8px;border-radius:2px;flex:none;}
+  /* main */
+  .main{padding:14px 18px;overflow-y:auto;}
+  .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .toolbar .ttl{font-size:16px;font-weight:800;}
+  .toolbar .sub{font-size:11px;color:var(--label);}
+  .tf{display:inline-flex;gap:2px;background:var(--elevated);border:1px solid var(--border);border-radius:7px;padding:2px;}
+  .tf button{background:transparent;border:none;color:var(--accent);font-size:11px;font-weight:700;padding:4px 10px;border-radius:5px;cursor:pointer;}
+  .tf button.active{background:var(--info);color:#04121f;}
+  .tf.hidden{display:none;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px;}
+  .card h2{font-size:12px;font-weight:800;letter-spacing:.03em;margin:0 0 8px;color:var(--text);}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--accent);margin-bottom:6px;}
+  .legend .sw{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;vertical-align:middle;}
+  .kpirow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px;}
+  .kpi{background:var(--elevated);border:1px solid var(--border-soft);border-radius:8px;padding:8px 11px;}
+  .kpi .k{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--label);}
+  .kpi .v{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px;}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;}
+  .pos{color:var(--ok);} .neg{color:var(--danger);}
+  table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums;}
+  thead th{position:sticky;top:0;background:var(--elevated);color:var(--label);font-weight:700;text-align:right;padding:6px 9px;white-space:nowrap;border-bottom:1px solid var(--border);}
+  thead th.lft{text-align:left;}
+  tbody td{padding:5px 9px;text-align:right;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,.04);}
+  tbody td.lft{text-align:left;}
+  tbody tr:hover{background:rgba(255,255,255,.03);}
+  .tbl-scroll{max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:8px;}
+  .ptc-empty{font-size:12px;color:var(--label);font-style:italic;padding:22px 0;text-align:center;}
+  /* PTC bar primitives (mirror index styling) */
+  .ptc-hbars{display:flex;flex-direction:column;gap:5px;}
+  .ptc-hbar,.ptc-dbar{display:grid;grid-template-columns:110px 1fr 72px;align-items:center;gap:9px;font-size:11px;}
+  .ptc-hbar-name{color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;}
+  .ptc-hbar-track{position:relative;height:14px;background:rgba(122,143,176,.10);border-radius:3px;overflow:hidden;}
+  .ptc-hbar-fill{position:absolute;top:0;bottom:0;left:0;border-radius:3px;}
+  .ptc-hbar-val{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);}
+  .ptc-dbar-track{position:relative;height:14px;background:rgba(122,143,176,.08);border-radius:3px;}
+  .ptc-dbar-mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(122,143,176,.5);}
+  .ptc-dbar-fill{position:absolute;top:0;bottom:0;border-radius:3px;}
+  .banner{padding:9px 12px;border-radius:8px;font-size:12px;margin-bottom:12px;border:1px solid var(--border);background:var(--elevated);}
+  .banner.err{border-color:var(--danger);color:#fca5a5;background:rgba(239,68,68,.08);}
+  .footnote{font-size:11px;color:var(--label);margin-top:10px;line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>Portfolio Analytics</h1>
+    <span class="badge">Alpha Paper Book #1</span>
+    <span class="fresh" id="fresh">—</span>
+    <span class="spacer"></span>
+    <span class="badge safe">READ ONLY</span>
+    <span class="badge safe">PAPER ONLY</span>
+    <span class="badge warn">NO ORDERS</span>
+    <span class="badge">AUTOMATION OFF</span>
+  </div>
+  <nav class="rail" id="rail">
+    <div class="grp">Time series</div>
+    <button class="navbtn" data-chart="performance"><span class="dot" style="background:#3b82f6;"></span>Performance vs SPY</button>
+    <button class="navbtn" data-chart="pnl"><span class="dot" style="background:#22c55e;"></span>Daily &amp; Cumulative P&amp;L</button>
+    <button class="navbtn" data-chart="drawdown"><span class="dot" style="background:#ef4444;"></span>Drawdown</button>
+    <div class="grp">Snapshot</div>
+    <button class="navbtn" data-chart="allocation"><span class="dot" style="background:#f59e0b;"></span>Allocation &amp; Concentration</button>
+    <button class="navbtn" data-chart="contributors"><span class="dot" style="background:#a855f7;"></span>Contributors / Detractors</button>
+    <button class="navbtn" data-chart="drift"><span class="dot" style="background:#14b8a6;"></span>Drift vs Target</button>
+    <div class="grp" style="margin-top:14px;">Session</div>
+    <button class="navbtn" onclick="loadData(true)" title="Reload the read-only analytics payload."><span class="dot" style="background:#8aa0c0;"></span>Refresh data</button>
+  </nav>
+  <main class="main">
+    <div id="banner" class="banner" style="display:none;"></div>
+    <div class="toolbar">
+      <span class="ttl" id="chart-title">—</span>
+      <span class="sub" id="chart-sub"></span>
+      <span class="spacer"></span>
+      <span class="tf" id="tf">
+        <button data-tf="30D">30D</button>
+        <button data-tf="MTD">MTD</button>
+        <button data-tf="3M">3M</button>
+        <button data-tf="ALL" class="active">All</button>
+      </span>
+    </div>
+    <div id="view"></div>
+    <div class="footnote" id="footnote"></div>
+  </main>
+</div>
+
+<script src="./pt_charts.js"></script>
+<script>
+(function () {
+  'use strict';
+  var Q = new URLSearchParams(location.search);
+  var state = { chart: (Q.get('chart') || 'performance'), tf: (Q.get('tf') || 'ALL').toUpperCase(), data: null };
+  var TS_CHARTS = { performance: 1, pnl: 1, drawdown: 1 };
+  var TITLES = {
+    performance: 'Portfolio Performance vs SPY',
+    pnl: 'Daily & Cumulative P&L',
+    drawdown: 'Drawdown Path',
+    allocation: 'Allocation & Concentration',
+    contributors: 'Contributors / Detractors',
+    drift: 'Drift vs Target Weight'
+  };
+
+  function apiKey() {
+    try { return localStorage.getItem('apiKey') || localStorage.getItem('paper_trader_api_key') || ''; }
+    catch (e) { return ''; }
+  }
+  function banner(msg, isErr) {
+    var b = document.getElementById('banner');
+    if (!msg) { b.style.display = 'none'; return; }
+    b.style.display = ''; b.className = 'banner' + (isErr ? ' err' : ''); b.textContent = msg;
+  }
+  function el(id) { return document.getElementById(id); }
+
+  function loadData(force) {
+    banner('Loading analytics…', false);
+    fetch('/v1/portfolio/chart-analytics', { headers: { 'X-API-Key': apiKey() } })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) throw new Error('AUTH');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (d) { state.data = d; banner(null); applyFreshness(d); render(); })
+      .catch(function (e) {
+        state.data = null;
+        if (String(e.message) === 'AUTH')
+          banner('Not authorized. Open the main dashboard (http://127.0.0.1:8001/ui/) and connect with your API key first, then reopen this window.', true);
+        else banner('Analytics unavailable (' + (e.message || 'error') + ').', true);
+        render();
+      });
+  }
+  window.loadData = loadData;
+
+  function applyFreshness(d) {
+    var f = (d && d.freshness) || {};
+    var parts = [];
+    if (f.valuation_date) parts.push('Valued ' + PTC.shortDate(f.valuation_date));
+    if (f.performance_through) parts.push('Perf through ' + PTC.shortDate(f.performance_through));
+    if (f.n_sessions != null) parts.push(f.n_sessions + ' sessions');
+    el('fresh').textContent = parts.join(' · ') || '—';
+  }
+
+  /* ---- timeframe filtering (time-series charts only) --------------------- */
+  function daysAgo(lastDate, n) {
+    var dt = new Date(lastDate + 'T00:00:00Z'); dt.setUTCDate(dt.getUTCDate() - n);
+    return dt.toISOString().slice(0, 10);
+  }
+  function filterPoints(points) {
+    if (!points || !points.length || state.tf === 'ALL') return points || [];
+    var last = points[points.length - 1].date;
+    var cut;
+    if (state.tf === '30D') cut = daysAgo(last, 30);
+    else if (state.tf === '3M') cut = daysAgo(last, 92);
+    else if (state.tf === 'MTD') cut = last.slice(0, 7) + '-01';
+    else return points;
+    return points.filter(function (p) { return p.date >= cut; });
+  }
+
+  /* ---- renderers --------------------------------------------------------- */
+  function moneyCell(v) { return '<td class="' + (v < 0 ? 'neg' : (v > 0 ? 'pos' : '')) + '">' + PTC.money(v) + '</td>'; }
+  function pctCell(v) { return '<td class="' + (v < 0 ? 'neg' : (v > 0 ? 'pos' : '')) + '">' + PTC.pct(v) + '</td>'; }
+
+  function renderPerformance(v) {
+    var pts = filterPoints((state.data.performance || {}).points);
+    if (!pts.length) { v.innerHTML = '<div class="card"><div class="ptc-empty">No performance sessions yet. Run the daily close to record forward marks.</div></div>'; return; }
+    var last = pts[pts.length - 1];
+    v.innerHTML =
+      '<div class="kpirow">'
+      + kpi('Book cumulative', PTC.pct(last.cum_return_pct), last.cum_return_pct)
+      + kpi('SPY cumulative', PTC.pct(last.spy_cum_return_pct), last.spy_cum_return_pct)
+      + kpi('Excess vs SPY (pp)', PTC.pct(last.excess_pp), last.excess_pp)
+      + kpi('NAV', PTC.money(last.nav))
+      + '</div>'
+      + '<div class="card"><div class="legend"><span><span class="sw" style="background:#3b82f6;"></span>Book</span>'
+      + '<span><span class="sw" style="background:#8aa0c0;"></span>SPY</span>'
+      + '<span><span class="sw" style="background:#f59e0b;"></span>Excess (pp)</span></div>'
+      + '<div id="c-main" style="height:360px;"></div></div>'
+      + '<div class="card"><h2>Sessions</h2><div class="tbl-scroll"><table>'
+      + '<thead><tr><th class="lft">Date</th><th>NAV</th><th>Book Cum %</th><th>SPY Cum %</th><th>Excess pp</th><th>Drawdown %</th></tr></thead><tbody>'
+      + pts.slice().reverse().map(function (p) {
+        return '<tr><td class="lft">' + PTC.shortDate(p.date) + '</td><td>' + PTC.money(p.nav) + '</td>'
+          + pctCell(p.cum_return_pct) + pctCell(p.spy_cum_return_pct) + pctCell(p.excess_pp)
+          + '<td class="neg">' + PTC.pct(p.drawdown_pct) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+    PTC.timeSeries('c-main', {
+      height: 360, dates: pts.map(function (p) { return p.date; }), baseline: 0,
+      yFmt: function (x) { return PTC.pct(x, 1); }, valFmt: function (x) { return PTC.pct(x, 2); },
+      series: [
+        { name: 'Book', color: '#3b82f6', fill: true, values: pts.map(function (p) { return p.cum_return_pct; }) },
+        { name: 'SPY', color: '#8aa0c0', dash: true, values: pts.map(function (p) { return p.spy_cum_return_pct; }) },
+        { name: 'Excess (pp)', color: '#f59e0b', width: 1.5, values: pts.map(function (p) { return p.excess_pp; }) }
+      ]
+    });
+  }
+
+  function renderPnl(v) {
+    var pts = filterPoints((state.data.pnl || {}).points);
+    if (!pts.length) { v.innerHTML = '<div class="card"><div class="ptc-empty">No daily P&L history yet.</div></div>'; return; }
+    var last = pts[pts.length - 1];
+    v.innerHTML =
+      '<div class="kpirow">'
+      + kpi('Latest daily P&L', PTC.money(last.daily_pnl), last.daily_pnl)
+      + kpi('Cumulative P&L', PTC.money(last.cumulative_pnl), last.cumulative_pnl)
+      + kpi('Latest daily return', PTC.pct(last.daily_return_pct), last.daily_return_pct)
+      + '</div>'
+      + '<div class="card"><h2>Cumulative P&amp;L</h2><div id="c-cum" style="height:220px;"></div></div>'
+      + '<div class="card"><h2>Daily P&amp;L</h2><div id="c-bars" style="height:180px;"></div></div>'
+      + '<div class="card"><h2>Sessions</h2><div class="tbl-scroll"><table>'
+      + '<thead><tr><th class="lft">Date</th><th>Daily P&amp;L</th><th>Cumulative P&amp;L</th><th>Daily Ret %</th></tr></thead><tbody>'
+      + pts.slice().reverse().map(function (p) {
+        return '<tr><td class="lft">' + PTC.shortDate(p.date) + '</td>' + moneyCell(p.daily_pnl)
+          + moneyCell(p.cumulative_pnl) + pctCell(p.daily_return_pct) + '</tr>';
+      }).join('') + '</tbody></table></div></div>';
+    PTC.timeSeries('c-cum', {
+      height: 220, dates: pts.map(function (p) { return p.date; }), baseline: 0,
+      yFmt: function (x) { return PTC.money(x); }, valFmt: function (x) { return PTC.moneyc(x); },
+      series: [{ name: 'Cumulative P&L', color: '#3b82f6', fill: true, values: pts.map(function (p) { return p.cumulative_pnl; }) }]
+    });
+    PTC.bars('c-bars', { height: 180, dates: pts.map(function (p) { return p.date; }), values: pts.map(function (p) { return p.daily_pnl; }), valFmt: function (x) { return PTC.moneyc(x); } });
+  }
+
+  function renderDrawdown(v) {
+    var pts = filterPoints((state.data.performance || {}).points);
+    var have = pts.filter(function (p) { return p.drawdown_pct != null; });
+    if (!have.length) { v.innerHTML = '<div class="card"><div class="ptc-empty">No drawdown history yet.</div></div>'; return; }
+    var worst = have.reduce(function (a, p) { return (p.drawdown_pct < a.drawdown_pct ? p : a); }, have[0]);
+    var last = have[have.length - 1];
+    v.innerHTML =
+      '<div class="kpirow">'
+      + kpi('Current drawdown', PTC.pct(last.drawdown_pct), last.drawdown_pct)
+      + kpi('Max drawdown (window)', PTC.pct(worst.drawdown_pct), worst.drawdown_pct)
+      + kpi('Worst on', PTC.shortDate(worst.date))
+      + '</div>'
+      + '<div class="card"><h2>Drawdown from peak</h2><div id="c-main" style="height:340px;"></div></div>'
+      + '<div class="card"><h2>Sessions</h2><div class="tbl-scroll"><table>'
+      + '<thead><tr><th class="lft">Date</th><th>Drawdown %</th><th>NAV</th></tr></thead><tbody>'
+      + have.slice().reverse().map(function (p) {
+        return '<tr><td class="lft">' + PTC.shortDate(p.date) + '</td><td class="neg">' + PTC.pct(p.drawdown_pct) + '</td><td>' + PTC.money(p.nav) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+    PTC.timeSeries('c-main', {
+      height: 340, dates: have.map(function (p) { return p.date; }), baseline: 0,
+      yFmt: function (x) { return PTC.pct(x, 1); }, valFmt: function (x) { return PTC.pct(x, 2); },
+      series: [{ name: 'Drawdown', color: '#ef4444', fill: true, values: have.map(function (p) { return p.drawdown_pct; }) }]
+    });
+  }
+
+  function renderAllocation(v) {
+    var a = state.data.allocation || {};
+    if (!a.available) { v.innerHTML = '<div class="card"><div class="ptc-empty">No allocation snapshot available.</div></div>'; return; }
+    v.innerHTML =
+      '<div class="kpirow">'
+      + kpi('NAV', PTC.money(a.nav))
+      + kpi('Invested', PTC.money(a.invested_value), null, a.invested_weight != null ? PTC.wpct(a.invested_weight) + ' of NAV' : '')
+      + kpi('Cash', PTC.money(a.cash), null, a.cash_weight != null ? PTC.wpct(a.cash_weight) + ' of NAV' : '')
+      + kpi('Holdings', (a.n_holdings != null ? a.n_holdings : '—'))
+      + kpi('Concentration HHI', PTC.num(a.hhi, 3), null, 'lower = more diversified')
+      + kpi('Top-5 weight', PTC.wpct(a.concentration_top5))
+      + '</div>'
+      + '<div class="grid2">'
+      + '<div class="card"><h2>Cash vs Invested</h2><div id="c-donut" style="height:150px;"></div></div>'
+      + '<div class="card"><h2>Sector Exposure</h2><div id="c-sectors"></div></div>'
+      + '</div>'
+      + '<div class="card"><h2>Top Holdings by Weight</h2><div id="c-top"></div></div>'
+      + '<div class="card"><h2>Holdings</h2><div class="tbl-scroll"><table>'
+      + '<thead><tr><th class="lft">Ticker</th><th class="lft">Sector</th><th>Weight %</th><th>Market Value</th></tr></thead><tbody>'
+      + (a.top_holdings || []).map(function (h) {
+        return '<tr><td class="lft">' + PTC.esc(h.ticker) + '</td><td class="lft">' + PTC.esc(h.sector || '—') + '</td><td>' + PTC.wpct(h.weight) + '</td><td>' + PTC.money(h.market_value) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+    PTC.donut('c-donut', {
+      height: 150, centerTop: PTC.wpct(a.invested_weight), centerBottom: 'invested',
+      segments: [
+        { label: 'Invested', value: a.invested_weight, color: '#3b82f6', sub: PTC.money(a.invested_value) },
+        { label: 'Cash', value: a.cash_weight, color: '#556080', sub: PTC.money(a.cash) }
+      ]
+    });
+    PTC.hbars('c-sectors', { label: 'Weight', fmt: function (x) { return PTC.wpct(x); },
+      items: (a.sectors || []).map(function (s) { return { name: s.sector, value: s.weight }; }) });
+    PTC.hbars('c-top', { label: 'Weight', color: '#22c55e', fmt: function (x) { return PTC.wpct(x); },
+      items: (a.top_holdings || []).map(function (h) { return { name: h.ticker, value: h.weight, sub: (h.sector || '') + ' · ' + PTC.money(h.market_value) }; }) });
+  }
+
+  function renderContributors(v) {
+    var c = state.data.contributors || {};
+    var top = c.top || [], bottom = c.bottom || [];
+    if (!top.length && !bottom.length) { v.innerHTML = '<div class="card"><div class="ptc-empty">No contribution data yet — a completed close is required.</div></div>'; return; }
+    var isContrib = c.source === 'holding_contributions';
+    var sub = isContrib ? ('Daily P&L contribution' + (c.as_of ? ' · ' + PTC.shortDate(c.as_of) : '')) : 'Unrealized return (no processed close yet)';
+    var items = top.concat(bottom).map(function (r) {
+      return {
+        name: r.ticker, sub: r.sector,
+        value: isContrib ? r.contribution_usd : r.return_pct,
+        valTxt: isContrib ? PTC.money(r.contribution_usd) : PTC.pct(r.return_pct),
+        lines: isContrib
+          ? [['$ contribution', PTC.moneyc(r.contribution_usd)], ['Contribution pp', PTC.pct(r.contribution_pp)], ['Return', PTC.pct(r.return_pct)]]
+          : [['Unrealized return', PTC.pct(r.return_pct)], ['Unrealized $', PTC.money(r.contribution_usd)]]
+      };
+    });
+    v.innerHTML =
+      '<div class="card"><h2>Contributors &amp; Detractors <span style="color:var(--label);font-weight:600;">— ' + PTC.esc(sub) + '</span></h2>'
+      + '<div id="c-contrib"></div></div>'
+      + '<div class="grid2">'
+      + tableCard('Top contributors', top, isContrib)
+      + tableCard('Top detractors', bottom, isContrib)
+      + '</div>';
+    PTC.diverging('c-contrib', {
+      items: items, fmt: function (x) { return isContrib ? PTC.money(x) : PTC.pct(x); }
+    });
+  }
+
+  function tableCard(title, rows, isContrib) {
+    var head = isContrib
+      ? '<th>$ Contrib</th><th>Contrib pp</th><th>Return %</th>'
+      : '<th>Unrealized $</th><th>Return %</th>';
+    var body = (rows || []).map(function (r) {
+      var cells = isContrib
+        ? (moneyCell(r.contribution_usd) + pctCell(r.contribution_pp) + pctCell(r.return_pct))
+        : (moneyCell(r.contribution_usd) + pctCell(r.return_pct));
+      return '<tr><td class="lft">' + PTC.esc(r.ticker) + '</td><td class="lft">' + PTC.esc(r.sector || '—') + '</td>' + cells + '</tr>';
+    }).join('');
+    return '<div class="card"><h2>' + title + '</h2><div class="tbl-scroll"><table><thead><tr><th class="lft">Ticker</th><th class="lft">Sector</th>'
+      + head + '</tr></thead><tbody>' + (body || '<tr><td class="lft" colspan="5" style="color:var(--label);">None</td></tr>') + '</tbody></table></div></div>';
+  }
+
+  function renderDrift(v) {
+    var d = state.data.drift || {};
+    var hs = d.holdings || [];
+    if (!hs.length) { v.innerHTML = '<div class="card"><div class="ptc-empty">No target drift available (a confirmed target is required).</div></div>'; return; }
+    v.innerHTML =
+      '<div class="kpirow">'
+      + kpi('Max abs drift', PTC.wpct(d.max_abs_drift))
+      + kpi('Names ≥1% off target', (d.names_off_target != null ? d.names_off_target : '—'))
+      + kpi('Holdings', hs.length)
+      + '</div>'
+      + '<div class="card"><h2>Weight drift (current − target)</h2><div id="c-drift"></div></div>'
+      + '<div class="card"><h2>Holdings</h2><div class="tbl-scroll"><table>'
+      + '<thead><tr><th class="lft">Ticker</th><th class="lft">Sector</th><th>Current %</th><th>Target %</th><th>Drift %</th></tr></thead><tbody>'
+      + hs.map(function (h) {
+        return '<tr><td class="lft">' + PTC.esc(h.ticker) + '</td><td class="lft">' + PTC.esc(h.sector || '—') + '</td><td>' + PTC.wpct(h.current_weight) + '</td><td>' + PTC.wpct(h.target_weight) + '</td>'
+          + '<td class="' + (h.weight_drift < 0 ? 'neg' : 'pos') + '">' + PTC.pct(h.weight_drift * 100, 2) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+    PTC.diverging('c-drift', {
+      items: hs.map(function (h) {
+        return {
+          name: h.ticker, sub: h.sector, value: h.weight_drift,
+          valTxt: PTC.pct(h.weight_drift * 100, 2),
+          lines: [['Current wt', PTC.wpct(h.current_weight)], ['Target wt', PTC.wpct(h.target_weight)], ['Drift', PTC.pct(h.weight_drift * 100, 2)]]
+        };
+      }),
+      fmt: function (x) { return PTC.pct(x * 100, 2); }
+    });
+  }
+
+  function kpi(k, val, tone, sub) {
+    var cls = (tone == null || !isFinite(Number(tone))) ? '' : (Number(tone) < 0 ? 'neg' : (Number(tone) > 0 ? 'pos' : ''));
+    return '<div class="kpi"><div class="k">' + PTC.esc(k) + '</div><div class="v ' + cls + '">' + val + '</div>'
+      + (sub ? '<div class="k" style="margin-top:2px;text-transform:none;letter-spacing:0;">' + PTC.esc(sub) + '</div>' : '') + '</div>';
+  }
+
+  var RENDERERS = {
+    performance: renderPerformance, pnl: renderPnl, drawdown: renderDrawdown,
+    allocation: renderAllocation, contributors: renderContributors, drift: renderDrift
+  };
+
+  function render() {
+    // nav active state
+    Array.prototype.forEach.call(document.querySelectorAll('.navbtn[data-chart]'), function (b) {
+      b.classList.toggle('active', b.getAttribute('data-chart') === state.chart);
+    });
+    el('chart-title').textContent = TITLES[state.chart] || 'Analytics';
+    document.title = (TITLES[state.chart] || 'Portfolio Analytics') + ' — Alpha Paper Book #1';
+    // timeframe visibility
+    el('tf').className = 'tf' + (TS_CHARTS[state.chart] ? '' : ' hidden');
+    Array.prototype.forEach.call(document.querySelectorAll('#tf button'), function (b) {
+      b.classList.toggle('active', b.getAttribute('data-tf') === state.tf);
+    });
+    var v = el('view');
+    PTC.hideTip();
+    if (!state.data) { v.innerHTML = '<div class="card"><div class="ptc-empty">Waiting for data…</div></div>'; el('footnote').textContent = ''; return; }
+    (RENDERERS[state.chart] || renderPerformance)(v);
+    var f = state.data.freshness || {};
+    el('chart-sub').textContent = TS_CHARTS[state.chart] ? ('window: ' + (state.tf === 'ALL' ? 'all sessions' : state.tf)) : ('as of ' + (PTC.shortDate(f.valuation_date) || '—'));
+    el('footnote').innerHTML = 'Read-only paper analytics. Source: ' + PTC.esc((f.sources || []).join(', '))
+      + '. No orders, no automation, no portfolio mutation. Values are rendered verbatim from the backend.';
+  }
+
+  // wire nav + timeframe
+  document.getElementById('rail').addEventListener('click', function (ev) {
+    var b = ev.target.closest('.navbtn[data-chart]'); if (!b) return;
+    state.chart = b.getAttribute('data-chart');
+    var u = new URL(location.href); u.searchParams.set('chart', state.chart); history.replaceState(null, '', u);
+    render();
+  });
+  document.getElementById('tf').addEventListener('click', function (ev) {
+    var b = ev.target.closest('button[data-tf]'); if (!b) return;
+    state.tf = b.getAttribute('data-tf');
+    var u = new URL(location.href); u.searchParams.set('tf', state.tf); history.replaceState(null, '', u);
+    render();
+  });
+  window.addEventListener('resize', function () { PTC.hideTip(); });
+
+  loadData();
+})();
+</script>
+</body>
+</html>

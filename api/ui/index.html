@@ -1711,6 +1711,95 @@
       .pt-kpi-row { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
+  <!-- ===================== Phase 29J.2 VISUAL ANALYTICS STYLES =====================
+       Compact, theme-aware chart chrome for the hand-rolled inline-SVG toolkit
+       (_va* helpers). No external library. Colors use the existing semantic tokens:
+       --ok (positive/up), --danger (negative/down), --info (primary/neutral series),
+       --warning (caution/degraded). Text always wears text tokens, never a series hue. -->
+  <style id="va-styles">
+    .va-section{margin:0 0 12px;}
+    .va-card{background:var(--cc-panel,#101a34);border:1px solid var(--cc-border,#243b63);border-radius:var(--r-2,6px);padding:10px 12px;}
+    .va-card-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 6px;}
+    .va-card-title{font-size:12px;font-weight:800;letter-spacing:.02em;color:var(--text-primary,#e0e0ff);}
+    .va-sub{font-size:9px;color:var(--label,#7a8fb0);letter-spacing:.02em;}
+    .va-spacer{flex:1;}
+    .va-grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:10px;}
+    /* --- trend sparkline cards (Today) --- */
+    .va-spark-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;}
+    .va-spark-card{background:var(--cc-elevated,#16223f);border:1px solid var(--cc-border-soft,rgba(122,143,176,.16));border-radius:6px;padding:7px 9px;min-width:0;}
+    .va-spark-top{display:flex;justify-content:space-between;align-items:baseline;gap:6px;}
+    .va-spark-lab{font-size:10px;font-weight:700;letter-spacing:.03em;color:var(--text-accent,#a8b8d8);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .va-spark-val{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--text-primary,#e0e0ff);}
+    .va-spark-svg{width:100%;height:34px;display:block;margin:3px 0 2px;}
+    .va-spark-foot{display:flex;justify-content:space-between;font-size:9px;color:var(--label,#7a8fb0);font-variant-numeric:tabular-nums;}
+    /* --- regime tiles --- */
+    .va-regime-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;}
+    .va-regime-tile{background:var(--cc-elevated,#16223f);border:1px solid var(--cc-border-soft,rgba(122,143,176,.16));border-left:3px solid var(--cc-text-dim,#6a7fa0);border-radius:6px;padding:7px 10px;}
+    .va-regime-tile.up{border-left-color:var(--ok,#22c55e);}
+    .va-regime-tile.down{border-left-color:var(--danger,#ef4444);}
+    .va-regime-tile.warn{border-left-color:var(--warning,#f59e0b);}
+    .va-regime-tile.na{border-left-color:var(--cc-text-dim,#6a7fa0);opacity:.7;}
+    .va-regime-hd{display:flex;align-items:center;gap:6px;}
+    .va-regime-lab{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text-accent,#a8b8d8);}
+    .va-regime-tone{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.02em;}
+    .va-regime-detail{font-size:11px;color:var(--label,#9fb0c0);margin-top:3px;line-height:1.4;}
+    /* --- KPI stat tiles --- */
+    .va-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;}
+    .va-kpi{background:var(--cc-elevated,#16223f);border:1px solid var(--cc-border-soft,rgba(122,143,176,.16));border-radius:6px;padding:7px 10px;}
+    .va-kpi .lab{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--label,#7a8fb0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .va-kpi .val{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--text-primary,#e0e0ff);margin-top:2px;}
+    .va-kpi .sub{font-size:10px;color:var(--label,#7a8fb0);margin-top:1px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    /* --- legend --- */
+    .va-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text-accent,#a8b8d8);}
+    .va-legend-item{display:inline-flex;align-items:center;gap:5px;}
+    .va-swatch{width:11px;height:3px;border-radius:2px;display:inline-block;}
+    .va-swatch.dash{height:0;border-top:2px dashed currentColor;width:13px;}
+    /* --- shared chart svg + horizontal-bar rows --- */
+    .va-chart{width:100%;display:block;}
+    .va-bars{display:flex;flex-direction:column;gap:4px;}
+    .va-bar-row{display:grid;grid-template-columns:78px 1fr 54px;align-items:center;gap:7px;font-size:10px;}
+    .va-bar-row .name{color:var(--text-accent,#a8b8d8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;}
+    .va-bar-track{position:relative;height:12px;background:rgba(127,143,176,.10);border-radius:3px;overflow:hidden;}
+    .va-bar-fill{position:absolute;top:0;bottom:0;border-radius:3px;}
+    .va-bar-val{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-primary,#e0e0ff);font-weight:700;}
+    /* diverging: zero centered */
+    .va-dbar-row{display:grid;grid-template-columns:74px 1fr 58px;align-items:center;gap:7px;font-size:10px;}
+    .va-dbar-track{position:relative;height:12px;}
+    .va-dbar-mid{position:absolute;left:50%;top:-1px;bottom:-1px;width:1px;background:var(--cc-border-strong,#2c4a78);}
+    .va-dbar-fill{position:absolute;top:1px;bottom:1px;border-radius:3px;}
+    .va-pos{color:var(--ok,#22c55e);} .va-neg{color:var(--danger,#ef4444);} .va-flat{color:var(--label,#9fb0c0);}
+    .va-empty{font-size:11px;color:var(--label,#7a8fb0);font-style:italic;padding:4px 0;}
+    @media (max-width:1500px){ .va-grid-2{grid-template-columns:1fr;} }
+
+    /* ---- Phase 29J.3 interactive analytics grid + PTC chart primitives ---- */
+    .va-grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+    @media (max-width:1500px){ .va-grid-3{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    @media (max-width:1040px){ .va-grid-3{grid-template-columns:1fr;} }
+    .ptc-card{background:var(--cc-panel,#101a34);border:1px solid var(--cc-border,#243b63);border-radius:var(--r-2,6px);padding:10px 12px;min-width:0;display:flex;flex-direction:column;}
+    .ptc-card-hd{display:flex;align-items:center;gap:8px;margin:0 0 6px;}
+    .ptc-card-title{font-size:12px;font-weight:800;letter-spacing:.02em;color:var(--text-primary,#e0e0ff);}
+    .ptc-card-body{flex:1;min-height:0;}
+    .ptc-expand{margin-left:auto;background:var(--cc-elevated,#16223f);border:1px solid var(--cc-border,#243b63);color:var(--text-accent,#a8b8d8);
+                border-radius:5px;font-size:10px;font-weight:700;padding:3px 8px;cursor:pointer;white-space:nowrap;letter-spacing:.02em;}
+    .ptc-expand:hover{background:var(--info,#3b82f6);color:#04121f;border-color:var(--info,#3b82f6);}
+    .ptc-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--text-accent,#a8b8d8);margin-bottom:4px;}
+    .ptc-legend .sw{display:inline-block;width:11px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle;}
+    .ptc-legend .sw.dash{height:0;border-top:2px dashed currentColor;}
+    .ptc-svg{width:100%;display:block;}
+    .ptc-empty{font-size:11px;color:var(--label,#7a8fb0);font-style:italic;padding:14px 0;text-align:center;}
+    .ptc-hbars{display:flex;flex-direction:column;gap:4px;}
+    .ptc-hbar,.ptc-dbar{display:grid;grid-template-columns:82px 1fr 62px;align-items:center;gap:7px;font-size:10px;}
+    .ptc-hbar-name{color:var(--text-accent,#a8b8d8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;}
+    .ptc-hbar-track{position:relative;height:13px;background:rgba(122,143,176,.10);border-radius:3px;overflow:hidden;}
+    .ptc-hbar-fill{position:absolute;top:0;bottom:0;left:0;border-radius:3px;}
+    .ptc-hbar-val{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text-primary,#e0e0ff);}
+    .ptc-dbar-track{position:relative;height:13px;background:rgba(122,143,176,.08);border-radius:3px;}
+    .ptc-dbar-mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--cc-border-strong,#2c4a78);}
+    .ptc-dbar-fill{position:absolute;top:0;bottom:0;border-radius:3px;}
+  </style>
+  <!-- Phase 29J.3 — shared interactive chart toolkit (PTC). Self-contained; defines
+       window.PTC used by the Portfolio interactive charts + the drill-down detail view. -->
+  <script src="/ui/pt_charts.js?cb=29j3"></script>
 </head>
 <body>
 
@@ -1952,17 +2041,29 @@
 
 <div class="app-container">
   <div class="sidebar">
+    <!-- Phase 29J.1 OPERATOR UX CONSOLIDATION: the primary navigation is FOUR
+         operator-oriented areas — Today / Portfolio / Research / System · Audit —
+         instead of six architecture-centric views. Legacy/detail surfaces are kept
+         reachable but DEMOTED under "Advanced views" so they never compete with the
+         daily operating workflow. Every old route still resolves (aliases below). -->
     <div class="sidebar-section">
       <div class="sidebar-label">Operate</div>
-      <a class="sidebar-link" id="nav-command-center" data-route="command-center" onclick="navigateToRoute('command-center');">Command Center</a>
-      <a class="sidebar-link" id="nav-portfolio" data-route="portfolio" onclick="navigateToRoute('portfolio');" title="Portfolio — the ONE operational portfolio: the active 25 Alpha Paper Book #1 holdings, NAV, P&amp;L and drift.">Portfolio</a>
-      <a class="sidebar-link" id="nav-daily-workflow" data-route="daily-workflow" onclick="navigateToRoute('daily-workflow');" title="Daily Workflow — today's completed data date, the canonical daily action gate, and the one primary action.">Daily Workflow</a>
-      <a class="sidebar-link" id="nav-portfolio-manager" data-route="portfolio-manager" onclick="navigateToRoute('portfolio-manager');" title="Portfolio Manager — today's daily action gate: proposed changes when applicable, or NO PORTFOLIO CHANGE REQUIRED. Paper only; read only.">Portfolio Manager</a>
+      <a class="sidebar-link" id="nav-command-center" data-route="command-center" onclick="navigateToRoute('command-center');" title="Today — market context, portfolio performance, system status, what changed, and the one next action. The default operator screen.">Today</a>
+      <a class="sidebar-link" id="nav-portfolio-manager" data-route="portfolio-manager" onclick="navigateToRoute('portfolio-manager');" title="Portfolio — the active Alpha Paper Book #1 holdings, the Holding Opportunity-Cost review and the review-only Reallocation Proposal. Paper only; read only; no orders.">Portfolio</a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Research</div>
-      <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');" title="Model Target — the current model target and research portfolio (50/50 ensemble book, sleeves, recommendations). NOT the executed holdings; creates no orders.">Model Target</a>
-      <a class="sidebar-link" id="nav-research-audit" data-route="research-audit" onclick="navigateToRoute('research-audit');">Research &amp; Audit</a>
+      <a class="sidebar-link" id="nav-research" data-route="research" onclick="navigateToRoute('research');" title="Research — the Persistent Alpha Research Agent, champion/challenger health, evidence sufficiency, research opportunities and Data Expansion. Research governance only; no auto promotion.">Research</a>
+      <a class="sidebar-link" id="nav-system-audit" data-route="system-audit" onclick="navigateToRoute('system-audit');" title="System · Audit — diagnostics, data-freshness detail, provenance, decision-gate evidence and advanced technical state.">System &middot; Audit</a>
+    </div>
+    <div class="sidebar-section">
+      <details id="sidebar-advanced-views">
+        <summary class="sidebar-label" style="cursor:pointer;list-style:none;">ADVANCED VIEWS</summary>
+        <div style="font-size:9px;color:var(--label);margin:2px 0 4px;padding-left:2px;">Legacy / detail surfaces &mdash; not the primary operator workflow.</div>
+        <a class="sidebar-link" id="nav-daily-workflow" data-route="daily-workflow" onclick="navigateToRoute('daily-workflow');" title="Daily Workflow — the operational lifecycle detail for the daily cycle.">Daily Workflow</a>
+        <a class="sidebar-link" id="nav-multi-horizon" data-route="multi-horizon" onclick="navigateToRoute('multi-horizon');" title="Model Target — the research/model target portfolio (NOT executed holdings; creates no orders).">Model Target</a>
+        <a class="sidebar-link" id="nav-portfolio" data-route="portfolio" onclick="navigateToRoute('portfolio');" title="Holdings detail — the operational holdings dashboard for the active book.">Holdings detail</a>
+      </details>
     </div>
     <div class="sidebar-section">
       <!-- Phase 27E: generic technical refresh actions are diagnostics — collapsed under
@@ -2003,16 +2104,99 @@
             <span class="cc-status-pill"><span id="cc-dot-conn" class="cc-dot"></span><span id="cc-status-conn">Disconnected</span></span>
             <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;" title="Operational desk valuation date of Alpha Paper Book #1 (the current operating mark). Research dates live only in Research & Audit.">Operational mark: <span id="cc-status-mark" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
             <span class="cc-spacer"></span>
-            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <!-- Phase 29J.1: the ONE persistent operator safety strip. Backend safety
+                 contracts are unchanged; this is the canonical visible set. -->
             <span class="cc-badge safe">PAPER ONLY</span>
-            <span class="cc-badge">NO BROKER EXECUTION</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
             <span class="cc-badge">AUTOMATION OFF</span>
+            <span class="cc-badge">NO BROKER EXECUTION</span>
             <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+            <span class="cc-badge">NO MODEL PROMOTION</span>
             <button id="cc-open-pm-btn" class="cc-btn primary" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — today's portfolio decision, proposed changes, health and the manual review flow.">Open Portfolio Manager</button>
             <button id="cc-refresh-btn" class="cc-btn ghost" onclick="refreshCommandCenter(this)" title="Refresh authentication, the command-center endpoint, and visible detail panels.">&#8635; Refresh</button>
           </div>
 
           <div id="cc-error" class="cc-error" style="display:none;"></div>
+
+          <!-- ===================== Phase 29J.1 MARKET CONTEXT (restored) =====================
+               Reference context only — NEVER an alpha signal and NEVER a BUY/SELL. Filled by the
+               single loadMarketDashboard() loader from the ONE authoritative backend owner
+               GET /v1/market/indicators (remote free providers: Yahoo Finance for equities/FX/
+               commodities, FRED for rates). The UI performs NO market math and calls NO provider
+               directly; each tile shows the backend value, an as-of / last-close label and an
+               explicit STALE / UNAVAILABLE state. Series with no owned/available source (US Dollar
+               Index / DXY has no owned source; US rates are UNAVAILABLE when the FRED key is absent)
+               render an explicit UNAVAILABLE tile — never a fabricated number. -->
+          <div id="cc-market-context" class="ov-market-section" style="margin:0 0 12px;">
+            <div class="ov-market-section-hdr">
+              <span class="ov-mkt-section-title">Market Context</span>
+              <span style="font-size:9px;color:var(--label);letter-spacing:.02em;">Reference only &mdash; not a signal, not a recommendation. As-of per tile.</span>
+              <span class="cc-spacer" style="flex:1;"></span>
+              <span class="ov-mkt-load-status" id="mkt-load-status">&mdash;</span>
+            </div>
+            <div class="ov-market-groups">
+              <div class="ov-mkt-group">
+                <div class="ov-mkt-group-label">Equity</div>
+                <div class="ov-mkt-group-cards">
+                  <div class="ov-market-card" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                </div>
+              </div>
+              <div class="ov-mkt-group">
+                <div class="ov-mkt-group-label">FX &amp; Commodities</div>
+                <div class="ov-mkt-group-cards">
+                  <div class="ov-market-card" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="wti"><div class="ov-mkt-label">WTI Crude</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                </div>
+              </div>
+              <div class="ov-mkt-group rates-group">
+                <div class="ov-mkt-group-label">Rates &amp; Dollar</div>
+                <div class="ov-mkt-group-cards">
+                  <div class="ov-market-card" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card" data-key="dxy"><div class="ov-mkt-label">US Dollar (DXY)</div><div class="ov-mkt-value">Unavailable</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge unavailable">UNAVAILABLE</div><div class="ov-mkt-status">No owned data source</div><div class="ov-mkt-compare-date"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===================== Phase 29J.2 MARKET CONTEXT VISUALS =====================
+               Compact recent-trend sparklines + a DESCRIPTIVE market-regime summary,
+               filled by loadMarketContext() from the read-only GET /v1/market/context
+               (yfinance + FRED — the same authoritative sources as the tiles above).
+               Reference/context only: the UI performs NO market math and this is NEVER a
+               signal, forecast, or recommendation. Degrades to per-series UNAVAILABLE. -->
+          <div id="cc-market-visuals" class="va-section" style="display:none;">
+            <div class="va-card">
+              <div class="va-card-hd">
+                <span class="va-card-title">Market Trend</span>
+                <span class="cc-badge muted" id="cc-mv-lookback">1M</span>
+                <span class="va-sub">Recent daily closes &mdash; reference only, not a signal.</span>
+                <span class="va-spacer"></span>
+                <span class="va-sub" id="cc-mv-status">&mdash;</span>
+                <!-- Phase 29J.3: compact jump to the interactive Portfolio Analytics
+                     detail view (read-only; opens in its own window). -->
+                <button class="cc-btn ghost" style="font-size:10px;padding:2px 8px;margin-left:8px;"
+                        onclick="if(typeof PTC!=='undefined')PTC.openDetail('performance')"
+                        title="Open the interactive Portfolio Analytics detail view (read-only) in its own window.">Portfolio Analytics &#8599;</button>
+              </div>
+              <div class="va-spark-grid" id="cc-mv-spark-grid"></div>
+            </div>
+            <div class="va-card" style="margin-top:10px;">
+              <div class="va-card-hd">
+                <span class="va-card-title">Market Regime &mdash; Descriptive Context</span>
+                <span class="cc-badge safe">REFERENCE ONLY</span>
+                <span class="cc-badge">NOT A SIGNAL</span>
+                <span class="va-sub">Factual classification of observed prices/rates &mdash; no forecast, no recommendation.</span>
+              </div>
+              <div class="va-regime-grid" id="cc-mv-regime"></div>
+              <div class="va-sub" id="cc-mv-disclaimer" style="margin-top:6px;"></div>
+            </div>
+          </div>
 
           <!-- ===================== Slice 1 (Phase 29B) DATA FRESHNESS & MARKET SESSION =====================
                ONE connected read-only strip, filled by the single loadDataFreshness() loader from
@@ -2455,6 +2639,66 @@
             <summary style="cursor:pointer;font-size:11px;color:var(--muted,#9fb0c0);">Advanced diagnostics</summary>
             <div id="pdash-adv-diag-body" class="pdash-note mono" style="margin-top:4px;white-space:pre-wrap;"></div>
           </details>
+        </div>
+
+        <!-- ===================== Phase 29J.2 PORTFOLIO ANALYTICS (VISUAL) =====================
+             Read-only performance + P&L trend visuals for Alpha Paper Book #1, filled by
+             loadPortfolioAnalytics() from GET /v1/paper-desk/performance (dated NAV + SPY
+             benchmark) and GET /v1/evidence/attribution-history (dated daily / cumulative
+             P&L). The UI renders the backend series verbatim as inline SVG — it computes no
+             NAV, P&L, benchmark, or return. Paper only; read-only; degrades gracefully. -->
+        <div class="pt-panel" id="pdash-perf-charts" style="border-left:3px solid var(--info,#3b82f6);margin-bottom:8px;display:none;">
+          <div class="cc-preview-hd" style="align-items:center;">
+            <span class="dw-hd-title">Portfolio Analytics</span>
+            <span class="cc-badge safe">READ ONLY</span>
+            <span class="cc-badge">PAPER ONLY</span>
+            <span class="cc-badge">NO ORDERS</span>
+            <span class="va-spacer" style="flex:1;"></span>
+            <span class="va-sub" id="pdash-perf-charts-asof">&mdash;</span>
+            <span class="va-sub" style="opacity:.8;">Hover for exact values &middot; click &#8599; to expand</span>
+          </div>
+          <!-- Phase 29J.3: six interactive charts bound to ONE /v1/portfolio/analytics
+               payload. Every card supports a hover crosshair/tooltip (exact date +
+               value) and an Expand control opening the dedicated drill-down detail
+               view (/ui/analytics.html) in its own window. Read-only; paper only. -->
+          <div class="va-grid-3" style="margin-top:8px;">
+            <div class="ptc-card">
+              <div class="ptc-card-hd"><span class="ptc-card-title">Performance vs SPY</span>
+                <button class="ptc-expand" onclick="PTC.openDetail('performance')" title="Open the expanded performance detail view in its own window.">&#8599; Expand</button></div>
+              <div class="ptc-legend" id="pa-perf-legend"></div>
+              <div class="ptc-card-body" id="pa-perf-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+            </div>
+            <div class="ptc-card">
+              <div class="ptc-card-hd"><span class="ptc-card-title">Daily &amp; Cumulative P&amp;L</span>
+                <button class="ptc-expand" onclick="PTC.openDetail('pnl')" title="Open the expanded P&amp;L detail view in its own window.">&#8599; Expand</button></div>
+              <div class="ptc-legend" id="pa-pnl-legend"></div>
+              <div class="ptc-card-body" id="pa-pnl-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+            </div>
+            <div class="ptc-card">
+              <div class="ptc-card-hd"><span class="ptc-card-title">Drawdown</span>
+                <button class="ptc-expand" onclick="PTC.openDetail('drawdown')" title="Open the expanded drawdown detail view in its own window.">&#8599; Expand</button></div>
+              <div class="ptc-legend" id="pa-dd-legend"></div>
+              <div class="ptc-card-body" id="pa-dd-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+            </div>
+            <div class="ptc-card">
+              <div class="ptc-card-hd"><span class="ptc-card-title">Allocation &amp; Concentration</span>
+                <button class="ptc-expand" onclick="PTC.openDetail('allocation')" title="Open the expanded allocation detail view in its own window.">&#8599; Expand</button></div>
+              <div class="ptc-legend" id="pa-alloc-legend"></div>
+              <div class="ptc-card-body" id="pa-alloc-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+            </div>
+            <div class="ptc-card">
+              <div class="ptc-card-hd"><span class="ptc-card-title">Contributors / Detractors</span>
+                <button class="ptc-expand" onclick="PTC.openDetail('contributors')" title="Open the expanded contributors detail view in its own window.">&#8599; Expand</button></div>
+              <div class="ptc-legend" id="pa-contrib-legend"></div>
+              <div class="ptc-card-body" id="pa-contrib-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+            </div>
+            <div class="ptc-card">
+              <div class="ptc-card-hd"><span class="ptc-card-title">Drift vs Target</span>
+                <button class="ptc-expand" onclick="PTC.openDetail('drift')" title="Open the expanded drift detail view in its own window.">&#8599; Expand</button></div>
+              <div class="ptc-legend" id="pa-drift-legend"></div>
+              <div class="ptc-card-body" id="pa-drift-chart"><div class="ptc-empty">Loading&hellip;</div></div>
+            </div>
+          </div>
         </div>
 
         <!-- ===================== Phase 27E DAILY PERFORMANCE — ALPHA PAPER BOOK #1 ===================== -->
@@ -3026,12 +3270,19 @@
              review, evidence/methodology/audit, legacy manual flow, health, safety)
              is preserved byte-for-byte below, collapsed so it never interrupts the
              operational approval path above. -->
-        <details class="card" id="pm-advanced" style="margin-top:14px;">
-          <summary style="cursor:pointer;font-weight:700;">Advanced / Audit &mdash; decision detail, health &amp; diagnostics</summary>
+        <!-- Phase 29J.1: the canonical portfolio DECISION (Holding Opportunity-Cost review +
+             Reallocation Proposal) is first-class on the Portfolio screen — this section is
+             OPEN by default so the operator sees the decision without expanding anything, and
+             the review deep-links land on a visible card. Raw diagnostics remain in their own
+             nested collapsed disclosures below. -->
+        <details class="card" id="pm-advanced" style="margin-top:14px;" open>
+          <summary style="cursor:pointer;font-weight:700;">Portfolio decision detail &mdash; Holding Opportunity-Cost &amp; Reallocation Proposal <span style="font-weight:500;color:var(--label);">(health &amp; audit below)</span></summary>
           <div style="margin-top:10px;">
-          <!-- Phase 27B.2: the legacy-date/value KPI strip is diagnostics — it lives
-               in Advanced / Audit, never on the primary operator path. -->
-          <div id="pm-statusbar" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 10px;">
+          <!-- Phase 27B.2 / 29J.1: the legacy-date/value KPI strip (archived legacy book) is
+               diagnostics — kept in its OWN nested collapsed disclosure so the archived-book
+               values never read as a competing interpretation of the active Alpha Paper Book #1. -->
+          <details style="margin:0 0 10px;"><summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.02em;">LEGACY / DIAGNOSTIC DATES &amp; ARCHIVED BOOK &mdash; compatibility only</summary>
+          <div id="pm-statusbar" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:8px 0 0;">
             <span title="Current alpha calculation market date (owned research store).">Alpha market <b id="pm-sb-alpha-date">&mdash;</b></span>
             <span title="Fundamental data as-of date (frozen owned panel).">Fundamental as-of <b id="pm-sb-fund-date">&mdash;</b></span>
             <span title="Portfolio EOD valuation date (executed paper portfolio mark).">Valuation EOD <b id="pm-sb-val-date">&mdash;</b></span>
@@ -3045,6 +3296,7 @@
             <span title="25 bps round-trip assumption.">Est. cost <b id="pm-sb-cost">&mdash;</b></span>
             <span>Review due <b id="pm-sb-review">&mdash;</b></span>
           </div>
+          </details>
         <!-- MAIN COCKPIT (left) + DECISION / SAFETY PANEL (right).
              Flex bases chosen so the two columns stay side-by-side at 1440x900
              (health + manual flow remain above the fold at both resolutions). -->
@@ -3111,7 +3363,31 @@
               </div>
               <div id="realloc-banner" style="border:1px solid rgba(245,158,11,.55);background:rgba(245,158,11,.10);color:var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">REALLOCATION PROPOSAL &mdash; MANUAL REVIEW REQUIRED &middot; PAPER ONLY &middot; REVIEW ONLY &middot; NO ORDERS &middot; NO AUTOMATION</div>
               <div id="realloc-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only reallocation proposal&hellip;</div>
-              <div id="realloc-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
+              <!-- Phase 29J.2: reallocation review visuals (read-only). State/degraded,
+                   turnover/score KPIs, proposed action mix and before/after sector
+                   allocation — all bound to the SAME read-only proposal payload; the
+                   browser computes nothing. The chip wall below is retained as a
+                   collapsed full-metric reference. -->
+              <div id="realloc-visuals" style="display:none;margin:0 0 8px;">
+                <div id="realloc-state-viz" class="va-card" style="margin-bottom:8px;"></div>
+                <div class="va-kpi-grid" id="realloc-kpis" style="margin-bottom:8px;"></div>
+                <div class="va-grid-2">
+                  <div class="va-card">
+                    <div class="va-card-hd"><span class="va-card-title">Proposed action mix</span>
+                      <span class="va-spacer"></span><span class="va-sub">count by action</span></div>
+                    <div id="realloc-actionmix"></div>
+                  </div>
+                  <div class="va-card">
+                    <div class="va-card-hd"><span class="va-card-title">Sector allocation &mdash; before &rarr; after</span>
+                      <span class="va-spacer"></span><span class="va-legend" id="realloc-sector-legend"></span></div>
+                    <div id="realloc-sector-chart"></div>
+                  </div>
+                </div>
+              </div>
+              <details id="realloc-metrics-detail" style="display:none;margin:0 0 8px;">
+                <summary style="cursor:pointer;font-size:10px;font-weight:800;color:var(--label);letter-spacing:.03em;text-transform:uppercase;">All proposal metrics (full detail)</summary>
+                <div id="realloc-summary" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 0;font-size:11px;">&mdash;</div>
+              </details>
               <div class="card-title" style="margin-top:6px;font-size:12px;">Proposed Allocation
                 <span class="cc-badge muted" title="Ticker | Current % | Proposed % | Delta | Action | Reason — all computed by the backend engine.">BEFORE / AFTER</span>
               </div>
@@ -6022,6 +6298,12 @@ window._switchTab = function(tabName, opts) {
   // whenever it is opened while connected.
   if (tabName === 'overview' && window._appState?.connected) {
     try { if (typeof loadCommandCenter === 'function') loadCommandCenter(); } catch (e) {}
+    // Phase 29J.1: restore the Market Context strip on the Today landing (async,
+    // non-blocking; GET /v1/market/indicators only; degrades to per-tile UNAVAILABLE).
+    try { if (typeof loadMarketDashboard === 'function') loadMarketDashboard(); } catch (e) {}
+    // Phase 29J.2: restore the Market Trend sparklines + descriptive regime block
+    // (async, non-blocking; GET /v1/market/context only; degrades to UNAVAILABLE).
+    try { if (typeof loadMarketContext === 'function') loadMarketContext(); } catch (e) {}
   }
 
   // Phase 14-A/B: connected detail sections must render their real (empty/loaded)
@@ -6032,6 +6314,9 @@ window._switchTab = function(tabName, opts) {
     try { loadOperationalBook(); } catch (e) {}
     // Phase 28A: the read-only Today's Review + Why P&L Moved forward-evidence card.
     try { loadForwardEvidence(); } catch (e) {}
+    // Phase 29J.2: read-only NAV/SPY + cumulative/daily P&L performance charts
+    // (GET /v1/paper-desk/performance + /v1/evidence/attribution-history).
+    try { if (typeof loadPortfolioAnalytics === 'function') loadPortfolioAnalytics(); } catch (e) {}
   }
 
   // Phase 14-B: single-nav highlight + contextual action rail + hash sync so the
@@ -22447,6 +22732,14 @@ var _ROUTE_TO_TAB = {
   'alpha-portfolio': 'multi-horizon',
   // Phase 26: the Portfolio Manager decision workstation.
   'portfolio-manager': 'portfolio-manager',
+  // Phase 29J.1 OPERATOR UX CONSOLIDATION: the four operator-facing primary routes.
+  // "today" is an alias of the Command Center landing; "research" and "system-audit"
+  // both open the Research & Audit workspace at a different canonical default section
+  // (Research → research-agent, System · Audit → diagnostics). Old routes above still
+  // resolve, so no deep link is broken.
+  'today': 'overview',
+  'research': 'audit-advanced',
+  'system-audit': 'audit-advanced',
 };
 function _parseRoute() {
   var h = (location.hash || '').replace(/^#/, '');
@@ -22478,6 +22771,8 @@ function navigateToRoute(route) {
 window.navigateToRoute = navigateToRoute;
 function _highlightNav(base) {
   if (base === 'alpha-portfolio') base = 'multi-horizon';  // Phase 25B route alias
+  if (base === 'today') base = 'command-center';           // Phase 29J.1: Today primary uses the command-center route
+  if (base === 'research-audit') base = 'research';        // Phase 29J.1: the canonical audit route highlights the Research primary
   var links = document.querySelectorAll('.sidebar-link[data-route]');
   Array.prototype.forEach.call(links, function (a) {
     if (a.getAttribute('data-route') === base) a.classList.add('active');
@@ -22488,6 +22783,12 @@ window._highlightNav = _highlightNav;
 var _PT_SUB_TARGET = {
   '': 'pdash-kpis', 'positions': 'pdash-table', 'holdings': 'pdash-table',
   'summary': 'pdash-summary',
+};
+// Portfolio Manager in-tab deep-link targets (Phase 29J): a review action carrying a
+// `focus` subsection lands directly on its review surface inside the (long) Portfolio
+// Manager tab instead of the tab top. Scroll-focus only — no state change, no write.
+var _PM_SUB_TARGET = {
+  '': null, 'reallocation': 'realloc-card', 'opportunity-cost': 'hoc-card',
 };
 function _ptHighlightNav(sub) {
   var links = document.querySelectorAll('#pt-nav a[data-ptsub]');
@@ -22578,11 +22879,19 @@ function _raLoadSection(sub) {
 }
 
 function _applySubsection(base, sub) {
+  // Phase 29J.1: the Research and System · Audit operator entries resolve to the shared
+  // Research & Audit workspace with a canonical default section (Research → research-agent,
+  // System · Audit → diagnostics). Normalise so all existing section logic applies unchanged.
+  if (base === 'research' || base === 'system-audit') {
+    if (!sub) sub = (base === 'system-audit') ? 'diagnostics' : 'research-agent';
+    base = 'research-audit';
+  }
   // Always keep the Portfolio internal navigator in sync, even at the overview.
   if (base === 'portfolio') { try { _ptHighlightNav(sub || ''); } catch (e) {} }
   // Keep the Research & Audit workspace in sync — one section active at a time.
   if (base === 'research-audit') { try { _raApplySection(sub || ''); } catch (e) {} }
   if (!sub && base !== 'portfolio' && base !== 'research-audit') return;
+  if (base === 'portfolio-manager' && !_PM_SUB_TARGET[sub || '']) return;
   // Focus the active workbench stage or the relevant portfolio / research section.
   setTimeout(function () {
     if (base === 'research-audit') {
@@ -22607,6 +22916,16 @@ function _applySubsection(base, sub) {
       var id = _PT_SUB_TARGET[sub || ''] || 'pdash-kpis';
       var el = document.getElementById(id) || document.getElementById('pdash-kpis');
       if (el && el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
+    } else if (base === 'portfolio-manager') {
+      // Phase 29J: a review action's `focus` subsection scroll-focuses its exact review
+      // surface (e.g. the Reallocation Proposal card) inside the long Portfolio Manager
+      // tab, so "Review the reallocation proposal" lands ON the proposal, not the top.
+      // Phase 29J.1: the decision detail is open by default, but defensively re-open it so
+      // the deep-link always lands on a VISIBLE card even if the operator collapsed it.
+      try { var pmAdv = document.getElementById('pm-advanced'); if (pmAdv) pmAdv.open = true; } catch (e) {}
+      var pmid = _PM_SUB_TARGET[sub || ''];
+      var pmel = pmid ? document.getElementById(pmid) : null;
+      if (pmel && pmel.scrollIntoView) { try { pmel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { pmel.scrollIntoView(); } }
     }
   }, 80);
 }
@@ -22629,6 +22948,10 @@ function _initRailTags() {
   var det = adv && adv.closest ? adv.closest('details') : null; if (det) det.setAttribute('data-rail-view', 'portfolio daily-workflow');
 }
 function renderActionRail(view) {
+  // Phase 29J.1: operator-facing route aliases share their canonical rail-view so the
+  // persistent right rail (current task · next action · safety) renders on every area.
+  if (view === 'today') view = 'command-center';
+  if (view === 'research' || view === 'system-audit') view = 'research-audit';
   _initRailTags();
   var panel = document.querySelector('.right-panel');
   if (!panel) return;
@@ -24680,6 +25003,7 @@ function renderReallocationProposal(d) {
     if (noteEl) noteEl.textContent = 'The reallocation proposal is unavailable.';
     if (sumEl) sumEl.innerHTML = '—'; if (tblEl) tblEl.innerHTML = '—';
     show('cc-realloc-card', false); show('dw-realloc-card', false);
+    try { _vaRenderReallocVisuals(null); } catch (e) {}
     return;
   }
   var state = d.state || 'UNAVAILABLE';
@@ -24728,6 +25052,7 @@ function renderReallocationProposal(d) {
       : ('Reallocation proposal state: ' + state + '.');
     if (sumEl) sumEl.innerHTML = chip('State', state, stateCls);
     tblEl.innerHTML = '—';
+    try { _vaRenderReallocVisuals(d); } catch (e) {}
     return;
   }
   if (noteEl) noteEl.textContent = d.message || 'Current reallocation proposal — manual review required.';
@@ -24796,6 +25121,9 @@ function renderReallocationProposal(d) {
   }).join('');
   tblEl.innerHTML = '<table style="border-collapse:collapse;width:100%;font-size:10px;">'
     + '<thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+
+  // Phase 29J.2: render the read-only reallocation review visuals from the SAME payload.
+  try { _vaRenderReallocVisuals(d); } catch (e) {}
 }
 window.renderReallocationProposal = renderReallocationProposal;
 
@@ -25519,6 +25847,14 @@ function _wsEsc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
   });
 }
+// Compose a canonical hash route from a server destination + optional in-tab focus
+// subsection. The destination stays one of the six sidebar routes; `focus` (server-
+// provided) deep-links to the exact review surface inside it. Navigation only.
+function _wsRoute(dest, focus) {
+  if (!dest) return '';
+  return focus ? (dest + '/' + focus) : dest;
+}
+window._wsRoute = _wsRoute;
 // Compose the canonical banner HTML STRICTLY from the server payload fields.
 // No stage, currency, overdue, next-action, evidence-severity or "today" logic
 // is computed here — those are all read from the canonical contract.
@@ -25531,10 +25867,18 @@ function _wsBannerHtml(d) {
   var ev = d.evidence_state || {};
   var sevc = _wsSevColor(pa.severity);
   var chips = (d.queued_actions || []).map(function (q) {
-    return '<span style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; padding:1px 7px; margin:2px 3px 0 0;">' + _wsEsc(q.label) + '</span>';
+    // Each queued follow-up is a navigable action: make it a clickable deep-link to its
+    // canonical destination (+ focus subsection), so e.g. "Review the reallocation
+    // proposal" lands directly on the Reallocation Proposal review surface. Nav only.
+    var qRoute = _wsRoute(q.destination, q.focus);
+    var qCur = qRoute ? 'cursor:pointer;' : '';
+    var qAct = qRoute
+      ? ' role="button" tabindex="0" title="Open: ' + _wsEsc(q.label) + '" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(qRoute) + '\');"'
+      : '';
+    return '<span' + qAct + ' style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; padding:1px 7px; margin:2px 3px 0 0;' + qCur + '">' + _wsEsc(q.label) + '</span>';
   }).join('');
   var btn = pa.destination
-    ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(pa.destination) + '\');">' + _wsEsc(pa.label) + '</button>'
+    ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(_wsRoute(pa.destination, pa.focus)) + '\');">' + _wsEsc(pa.label) + '</button>'
     : '';
   return ''
     + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
@@ -25604,7 +25948,7 @@ function _wsApplyRightPanel(d) {
   _wsOwnSet('right-next-action', pa.label);
   var btn = _wsOwnSet('right-primary-action-btn', pa.label);
   if (btn && pa.destination) {
-    btn.onclick = function (ev) { if (ev) ev.stopPropagation(); navigateToRoute(pa.destination); };
+    btn.onclick = function (ev) { if (ev) ev.stopPropagation(); navigateToRoute(_wsRoute(pa.destination, pa.focus)); };
   }
   // Factual latest completed-close chip (state, not interpretation).
   var dcCol = os.operational_close_valid ? 'var(--ok,#22c55e)' : 'var(--warning,#f59e0b)';
@@ -27295,6 +27639,11 @@ function renderPortfolioDashboard(d) {
          '<div class="row"><span>Names &ge; 1% off target</span><span>' + (ds.names_off_target != null ? ds.names_off_target : '—') + '</span></div>')
       : '<span class="pdash-note">—</span>';
   }
+
+  // Phase 29J.2: replace the six text summary cards with compact visuals (bound to
+  // the SAME portfolio_summary payload; the browser aggregates nothing). Falls back
+  // to the text rows above if data is missing or the chart helpers are unavailable.
+  try { _vaRenderPortfolioSummary(ps, hd, nav); } catch (e) {}
 }
 window.renderPortfolioDashboard = renderPortfolioDashboard;
 
@@ -28568,6 +28917,434 @@ window.abCancelBox = abCancelBox;
 window.abGeneratePlan = abGeneratePlan;
 window.abShowBlocked = abShowBlocked;
 window.abShowPolicy = abShowPolicy;
+
+/* ============================================================================
+   Phase 29J.2 — VISUAL ANALYTICS TOOLKIT + READ-ONLY LOADERS
+   Hand-rolled, theme-aware inline-SVG / CSS-bar chart helpers (_va*) plus the
+   read-only loaders for the Today market-context, Portfolio performance/
+   allocation, and Portfolio-Manager reallocation visuals. NO external chart
+   library. Every widget renders backend data VERBATIM — the browser performs no
+   portfolio or market math, and no widget mutates state, creates a signal, or
+   places an order. All charts degrade gracefully to an explicit empty state.
+   ========================================================================== */
+var _VAC = {
+  pos: 'var(--ok,#22c55e)', neg: 'var(--danger,#ef4444)', info: 'var(--info,#3b82f6)',
+  warn: 'var(--warning,#f59e0b)', spy: '#8aa0c0', muted2: '#556080',
+  zero: 'rgba(127,143,176,.45)'
+};
+function _vaSet(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+function _vaFin(v) { v = Number(v); return isFinite(v) ? v : null; }
+function _vaPct(v, nd) { if (v == null || !isFinite(Number(v))) return '—'; nd = (nd == null ? 2 : nd); v = Number(v); return (v >= 0 ? '+' : '') + v.toFixed(nd) + '%'; }
+function _vaPctU(v, nd) { if (v == null || !isFinite(Number(v))) return '—'; nd = (nd == null ? 1 : nd); return Number(v).toFixed(nd) + '%'; }
+function _vaNum(v, nd) { if (v == null || !isFinite(Number(v))) return '—'; nd = (nd == null ? 2 : nd); return Number(v).toFixed(nd); }
+function _vaMoney(v) { if (v == null || !isFinite(Number(v))) return '—'; var n = Number(v); return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+function _vaShortDate(s) { try { if (typeof formatShortDate === 'function' && s) return formatShortDate(String(s).slice(0, 10)); } catch (e) {} return s ? String(s).slice(0, 10) : ''; }
+function _vaLeg(color, text, dash) {
+  return '<span class="va-legend-item"' + (dash ? ' style="color:' + color + ';"' : '') + '>'
+    + '<span class="va-swatch' + (dash ? ' dash' : '') + '"' + (dash ? '' : ' style="background:' + color + ';"') + '></span>'
+    + escapeHtml(text) + '</span>';
+}
+
+/* ---- SVG primitives -------------------------------------------------------- */
+function _vaSparkSvg(values, opts) {
+  opts = opts || {};
+  var vals = (values || []).map(Number).filter(function (v) { return isFinite(v); });
+  if (vals.length < 2) return '<div class="va-empty" style="height:34px;">—</div>';
+  var W = 240, H = 40, padY = 4;
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (hi === lo) { hi = lo + 1; lo = lo - 1; }
+  var n = vals.length;
+  var xAt = function (i) { return i * W / (n - 1); };
+  var yAt = function (v) { return padY + (H - 2 * padY) * (1 - (v - lo) / (hi - lo)); };
+  var pts = vals.map(function (v, i) { return xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1); });
+  var color = opts.color || _VAC.info;
+  return '<svg class="va-spark-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">'
+    + '<polygon points="0,' + H + ' ' + pts.join(' ') + ' ' + W + ',' + H + '" fill="' + color + '" fill-opacity="0.12"/>'
+    + '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>'
+    + '<circle cx="' + xAt(n - 1).toFixed(1) + '" cy="' + yAt(vals[n - 1]).toFixed(1) + '" r="2.2" fill="' + color + '"/></svg>';
+}
+function _vaLineSvg(seriesList, opts) {
+  opts = opts || {};
+  var H = opts.h || 150, W = 600, padY = 8;
+  var all = [];
+  seriesList.forEach(function (s) { (s.values || []).forEach(function (v) { v = Number(v); if (isFinite(v)) all.push(v); }); });
+  if (!all.length) return '<div class="va-empty">No data.</div>';
+  var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all);
+  lo = Math.min(lo, 0); hi = Math.max(hi, 0);
+  if (hi === lo) hi = lo + 1;
+  var n = Math.max.apply(null, seriesList.map(function (s) { return (s.values || []).length; }));
+  var xAt = function (i) { return n <= 1 ? W / 2 : i * W / (n - 1); };
+  var yAt = function (v) { return padY + (H - 2 * padY) * (1 - (v - lo) / (hi - lo)); };
+  var zeroY = yAt(0).toFixed(1);
+  var svg = '<line x1="0" y1="' + zeroY + '" x2="' + W + '" y2="' + zeroY + '" stroke="' + _VAC.zero + '" stroke-width="1" stroke-dasharray="4,3"/>';
+  seriesList.forEach(function (s) {
+    var vals = s.values || [], poly = [];
+    vals.forEach(function (v, i) { v = Number(v); if (isFinite(v)) poly.push(xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1)); });
+    if (!poly.length) return;
+    if (s.fill) svg += '<polygon points="' + xAt(0).toFixed(1) + ',' + zeroY + ' ' + poly.join(' ') + ' ' + xAt(vals.length - 1).toFixed(1) + ',' + zeroY + '" fill="' + s.color + '" fill-opacity="0.12"/>';
+    svg += '<polyline points="' + poly.join(' ') + '" fill="none" stroke="' + s.color + '" stroke-width="' + (s.width || 2) + '" stroke-linejoin="round" stroke-linecap="round"' + (s.dash ? ' stroke-dasharray="6,4"' : '') + '/>';
+  });
+  return '<svg class="va-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" style="height:' + H + 'px;">' + svg + '</svg>';
+}
+function _vaVBarsSvg(values, opts) {
+  opts = opts || {};
+  var H = opts.h || 44, W = 600, padY = 3;
+  var vals = (values || []).map(function (v) { return isFinite(Number(v)) ? Number(v) : null; });
+  var fin = vals.filter(function (v) { return v != null; });
+  if (!fin.length) return '<div class="va-empty">No daily P&amp;L.</div>';
+  var maxAbs = Math.max.apply(null, fin.map(function (v) { return Math.abs(v); }));
+  if (!(maxAbs > 0)) maxAbs = 1;
+  var n = vals.length, midY = H / 2, gap = W / n, bw = Math.max(1, gap * 0.7), bars = '';
+  vals.forEach(function (v, i) {
+    if (v == null) return;
+    var x = i * gap + (gap - bw) / 2;
+    var h = Math.abs(v) / maxAbs * (H / 2 - padY);
+    var y = v >= 0 ? (midY - h) : midY;
+    bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0.6, h).toFixed(1) + '" fill="' + (v >= 0 ? _VAC.pos : _VAC.neg) + '"/>';
+  });
+  bars += '<line x1="0" y1="' + midY + '" x2="' + W + '" y2="' + midY + '" stroke="' + _VAC.zero + '" stroke-width="0.8"/>';
+  return '<svg class="va-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" style="height:' + H + 'px;">' + bars + '</svg>';
+}
+
+/* ---- CSS-bar primitives ---------------------------------------------------- */
+function _vaHBars(elId, items, opts) {
+  var el = document.getElementById(elId); if (!el) return;
+  opts = opts || {};
+  items = (items || []).filter(function (it) { return it && isFinite(Number(it.value)); });
+  if (!items.length) return;   // leave existing content as graceful fallback
+  var max = opts.max != null ? opts.max : Math.max.apply(null, items.map(function (it) { return Math.abs(Number(it.value)); }));
+  if (!(max > 0)) max = 1;
+  el.innerHTML = '<div class="va-bars">' + items.map(function (it) {
+    var v = Number(it.value);
+    var pct = Math.max(2, Math.abs(v) / max * 100);
+    var color = it.color || opts.color || _VAC.info;
+    var valTxt = it.valTxt != null ? it.valTxt : (opts.fmt ? opts.fmt(v) : String(v));
+    return '<div class="va-bar-row" title="' + escapeHtml((it.name || '') + ': ' + valTxt) + '">'
+      + '<span class="name">' + escapeHtml(it.name || '') + '</span>'
+      + '<span class="va-bar-track"><span class="va-bar-fill" style="left:0;width:' + pct.toFixed(1) + '%;background:' + color + ';"></span></span>'
+      + '<span class="va-bar-val">' + escapeHtml(valTxt) + '</span></div>';
+  }).join('') + '</div>';
+}
+function _vaDivBars(elId, items, opts) {
+  var el = document.getElementById(elId); if (!el) return;
+  opts = opts || {};
+  items = (items || []).filter(function (it) { return it && isFinite(Number(it.value)); });
+  if (!items.length) return;
+  var maxAbs = opts.maxAbs != null ? opts.maxAbs : Math.max.apply(null, items.map(function (it) { return Math.abs(Number(it.value)); }));
+  if (!(maxAbs > 0)) maxAbs = 1;
+  el.innerHTML = '<div class="va-bars">' + items.map(function (it) {
+    var v = Number(it.value);
+    var half = Math.abs(v) / maxAbs * 50;
+    var color = v >= 0 ? (opts.posColor || _VAC.pos) : (opts.negColor || _VAC.neg);
+    var style = v >= 0 ? ('left:50%;width:' + half.toFixed(1) + '%;') : ('left:' + (50 - half).toFixed(1) + '%;width:' + half.toFixed(1) + '%;');
+    var valTxt = it.valTxt != null ? it.valTxt : (opts.fmt ? opts.fmt(v) : String(v));
+    return '<div class="va-dbar-row" title="' + escapeHtml((it.name || '') + ': ' + valTxt) + '">'
+      + '<span class="name" style="color:var(--text-accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;">' + escapeHtml(it.name || '') + '</span>'
+      + '<span class="va-dbar-track" style="background:rgba(127,143,176,.08);border-radius:3px;"><span class="va-dbar-mid"></span><span class="va-dbar-fill" style="' + style + 'background:' + color + ';"></span></span>'
+      + '<span class="va-bar-val ' + (v >= 0 ? 'va-pos' : 'va-neg') + '">' + escapeHtml(valTxt) + '</span></div>';
+  }).join('') + '</div>';
+}
+function _vaStackBar(elId, segments, opts) {
+  var el = document.getElementById(elId); if (!el) return;
+  opts = opts || {};
+  segments = (segments || []).filter(function (s) { return s && isFinite(Number(s.value)) && Number(s.value) > 0; });
+  if (!segments.length) return;
+  var total = segments.reduce(function (a, s) { return a + Number(s.value); }, 0) || 1;
+  var bar = '<div style="display:flex;height:16px;border-radius:4px;overflow:hidden;gap:2px;">'
+    + segments.map(function (s) {
+      var w = Number(s.value) / total * 100;
+      return '<span title="' + escapeHtml(s.label + ': ' + (opts.fmtPct ? _vaPctU(Number(s.value) * 100, 1) : String(s.value))) + '" style="width:' + w.toFixed(1) + '%;background:' + s.color + ';display:block;"></span>';
+    }).join('') + '</div>';
+  el.innerHTML = bar + segments.map(function (s) {
+    return '<div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px;">'
+      + '<span style="color:var(--text-accent);"><span class="va-swatch" style="background:' + s.color + ';margin-right:5px;"></span>' + escapeHtml(s.label) + '</span>'
+      + '<span style="font-variant-numeric:tabular-nums;color:var(--text-primary);">' + escapeHtml((s.sub != null ? s.sub + ' · ' : '') + (opts.fmtPct ? _vaPctU(Number(s.value) * 100, 1) : String(s.value))) + '</span></div>';
+  }).join('');
+}
+function _vaPairedBars(elId, items, opts) {
+  var el = document.getElementById(elId); if (!el) return;
+  opts = opts || {};
+  items = (items || []).filter(Boolean);
+  if (!items.length) { el.innerHTML = '<div class="va-empty">No data.</div>'; return; }
+  var max = opts.max != null ? opts.max : Math.max.apply(null, items.map(function (it) { return Math.max(Math.abs(Number(it.before) || 0), Math.abs(Number(it.after) || 0)); }));
+  if (!(max > 0)) max = 1;
+  var bc = opts.beforeColor || _VAC.muted2, ac = opts.afterColor || _VAC.info;
+  var fmt = opts.fmt || function (v) { return _vaPctU((Number(v) || 0) * 100, 1); };
+  function bar(v, color) {
+    var w = Math.max(1, Math.abs(Number(v) || 0) / max * 100);
+    return '<div style="display:flex;align-items:center;gap:6px;">'
+      + '<span class="va-bar-track" style="flex:1;"><span class="va-bar-fill" style="left:0;width:' + w.toFixed(1) + '%;background:' + color + ';"></span></span>'
+      + '<span class="va-bar-val" style="width:52px;">' + escapeHtml(fmt(v)) + '</span></div>';
+  }
+  el.innerHTML = '<div class="va-bars">' + items.map(function (it) {
+    return '<div style="display:grid;grid-template-columns:96px 1fr;gap:7px;align-items:center;font-size:10px;">'
+      + '<span class="name" style="color:var(--text-accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;" title="' + escapeHtml(it.name) + '">' + escapeHtml(it.name) + '</span>'
+      + '<div style="display:flex;flex-direction:column;gap:2px;">' + bar(it.before, bc) + bar(it.after, ac) + '</div></div>';
+  }).join('') + '</div>';
+}
+
+/* ---- Today: market context (trend + descriptive regime) -------------------- */
+function loadMarketContext() {
+  if (window._mvInFlight) return window._mvInFlight;
+  var st = document.getElementById('cc-mv-status'); if (st) st.textContent = 'loading…';
+  var p = _mhzGet('/v1/market/context?lookback_days=30').then(function (d) {
+    window._mvInFlight = null; window._mvData = d; renderMarketContext(d); return d;
+  }).catch(function () { window._mvInFlight = null; renderMarketContext(null); return null; });
+  window._mvInFlight = p; return p;
+}
+window.loadMarketContext = loadMarketContext;
+function _vaSparkVal(h) {
+  var v = h.last_close; if (v == null) return '—';
+  if (h.key === 'eurusd') return Number(v).toFixed(4);
+  if (h.key === 'vix') return Number(v).toFixed(2);
+  return Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+function _vaToneArrow(tone) { return tone === 'UP' ? '▲' : (tone === 'DOWN' ? '▼' : '●'); }
+function _vaToneText(tone) {
+  if (tone === 'USD_STRONGER') return 'USD stronger';
+  if (tone === 'USD_WEAKER') return 'USD weaker';
+  return String(tone || '').replace(/_/g, ' ');
+}
+function _vaRegimeCls(tone, avail) {
+  if (!avail) return 'na';
+  if (tone === 'UP') return 'up';
+  if (tone === 'DOWN') return 'down';
+  if (tone === 'INVERTED' || tone === 'ELEVATED' || tone === 'HIGH') return 'warn';
+  return '';
+}
+function _vaToneColor(tone) { return tone === 'UP' ? 'va-pos' : (tone === 'DOWN' ? 'va-neg' : 'va-flat'); }
+function renderMarketContext(d) {
+  var wrap = document.getElementById('cc-market-visuals'); if (!wrap) return;
+  if (!d || d.status !== 'ok') { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  var hist = d.history || [];
+  var okc = hist.filter(function (h) { return h.available; }).length;
+  var st = document.getElementById('cc-mv-status');
+  if (st) st.textContent = okc + ' of ' + hist.length + ' series · as-of ' + _vaShortDate(d.as_of);
+  var lb = document.getElementById('cc-mv-lookback'); if (lb) lb.textContent = (d.lookback_days || 30) + 'D';
+  _vaSet('cc-mv-spark-grid', hist.map(function (h) {
+    var vals = (h.points || []).map(function (p) { return p.close; });
+    if (h.available && vals.length) {
+      var chg = h.change_pct_window;
+      var chgCls = (chg == null) ? 'va-flat' : (chg > 0 ? 'va-pos' : (chg < 0 ? 'va-neg' : 'va-flat'));
+      return '<div class="va-spark-card">'
+        + '<div class="va-spark-top"><span class="va-spark-lab">' + escapeHtml(h.label) + '</span><span class="va-spark-val">' + _vaSparkVal(h) + '</span></div>'
+        + _vaSparkSvg(vals, { color: _VAC.info })
+        + '<div class="va-spark-foot"><span>' + escapeHtml(_vaShortDate((h.points[0] || {}).date)) + '</span>'
+        + '<span class="' + chgCls + '">' + _vaPct(chg, 1) + '</span></div></div>';
+    }
+    return '<div class="va-spark-card"><div class="va-spark-top"><span class="va-spark-lab">' + escapeHtml(h.label)
+      + '</span><span class="va-spark-val" style="font-size:11px;color:var(--label);">Unavailable</span></div>'
+      + '<div class="va-empty" style="height:34px;">no history</div></div>';
+  }).join(''));
+  _vaSet('cc-mv-regime', (d.regime || []).map(function (r) {
+    return '<div class="va-regime-tile ' + _vaRegimeCls(r.tone, r.available) + '">'
+      + '<div class="va-regime-hd"><span class="va-regime-lab">' + escapeHtml(r.label) + '</span>'
+      + '<span class="va-regime-tone ' + _vaToneColor(r.tone) + '">' + _vaToneArrow(r.tone) + ' ' + escapeHtml(_vaToneText(r.tone)) + '</span></div>'
+      + '<div class="va-regime-detail">' + escapeHtml(r.detail || '') + '</div></div>';
+  }).join(''));
+  var dc = document.getElementById('cc-mv-disclaimer'); if (dc) dc.textContent = d.disclaimer || '';
+}
+
+/* ---- Portfolio: interactive analytics grid (Phase 29J.3) ------------------- */
+/* ONE read-only /v1/portfolio/analytics payload drives six interactive charts,
+   each with a hover crosshair/tooltip and an Expand control opening the dedicated
+   drill-down detail view. The browser performs no portfolio/P&L/return math. */
+function loadPortfolioAnalytics() {
+  if (window._paInFlight) return window._paInFlight;
+  var p = _mhzGet('/v1/portfolio/chart-analytics').then(function (d) {
+    window._paInFlight = null; window._paData = d; renderPortfolioAnalytics(d); return d;
+  }).catch(function () { window._paInFlight = null; renderPortfolioAnalytics(null); return null; });
+  window._paInFlight = p; return p;
+}
+window.loadPortfolioAnalytics = loadPortfolioAnalytics;
+function _paLeg(color, text, dash) {
+  return '<span><span class="sw' + (dash ? ' dash' : '') + '" style="' + (dash ? 'color:' + color + ';' : 'background:' + color + ';') + '"></span>' + escapeHtml(text) + '</span>';
+}
+function _paSet(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+function renderPortfolioAnalytics(d) {
+  var wrap = document.getElementById('pdash-perf-charts'); if (!wrap) return;
+  var hasPTC = (typeof PTC !== 'undefined');
+  var sections = d ? [d.performance, d.pnl, d.allocation, d.contributors, d.drift] : [];
+  var anyAvail = sections.some(function (s) { return s && s.available; });
+  if (!d || !hasPTC || !anyAvail) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  var f = d.freshness || {};
+  _paSet('pdash-perf-charts-asof', (f.n_sessions != null)
+    ? ('as-of ' + _vaShortDate(f.valuation_date) + ' · ' + f.n_sessions + ' sessions')
+    : (f.valuation_date ? ('as-of ' + _vaShortDate(f.valuation_date)) : ''));
+
+  // 1. Performance vs SPY (cumulative return %).
+  var perf = d.performance || {}, pp = perf.points || [];
+  if (perf.available && pp.length) {
+    var last = perf.last || pp[pp.length - 1];
+    _paSet('pa-perf-legend', _paLeg(PTC.COLORS.book, 'Book ' + PTC.pct(last.cum_return_pct)) + _paLeg(PTC.COLORS.spy, 'SPY ' + PTC.pct(last.spy_cum_return_pct), true));
+    PTC.timeSeries('pa-perf-chart', {
+      height: 150, expandKey: 'performance', baseline: 0,
+      dates: pp.map(function (p) { return p.date; }),
+      yFmt: function (x) { return PTC.pct(x, 1); }, valFmt: function (x) { return PTC.pct(x, 2); },
+      series: [
+        { name: 'Book', color: PTC.COLORS.book, fill: true, values: pp.map(function (p) { return p.cum_return_pct; }) },
+        { name: 'SPY', color: PTC.COLORS.spy, dash: true, values: pp.map(function (p) { return p.spy_cum_return_pct; }) }
+      ]
+    });
+  } else { PTC.empty('pa-perf-chart', 'No performance sessions yet.'); _paSet('pa-perf-legend', ''); }
+
+  // 2. Daily & cumulative P&L.
+  var pnl = d.pnl || {}, np = pnl.points || [];
+  if (pnl.available && np.length) {
+    var lp = pnl.last || np[np.length - 1];
+    _paSet('pa-pnl-legend', _paLeg(PTC.COLORS.book, 'Cum ' + PTC.money(lp.cumulative_pnl)) + _paLeg(PTC.COLORS.pos, 'gain') + _paLeg(PTC.COLORS.neg, 'loss'));
+    var body = document.getElementById('pa-pnl-chart');
+    if (body) body.innerHTML = '<div id="pa-pnl-cum" style="height:92px;"></div><div id="pa-pnl-bars" style="height:52px;margin-top:2px;"></div>';
+    PTC.timeSeries('pa-pnl-cum', {
+      height: 92, expandKey: 'pnl', baseline: 0, dates: np.map(function (p) { return p.date; }),
+      yFmt: function (x) { return PTC.money(x); }, valFmt: function (x) { return PTC.moneyc(x); },
+      series: [{ name: 'Cumulative P&L', color: PTC.COLORS.book, fill: true, values: np.map(function (p) { return p.cumulative_pnl; }) }]
+    });
+    PTC.bars('pa-pnl-bars', { height: 52, expandKey: 'pnl', dates: np.map(function (p) { return p.date; }), values: np.map(function (p) { return p.daily_pnl; }), valFmt: function (x) { return PTC.moneyc(x); } });
+  } else { PTC.empty('pa-pnl-chart', 'No daily P&L history yet.'); _paSet('pa-pnl-legend', ''); }
+
+  // 3. Drawdown.
+  var ddp = pp.filter(function (p) { return p.drawdown_pct != null; });
+  if (perf.available && ddp.length) {
+    var wr = ddp.reduce(function (a, p) { return (p.drawdown_pct < a.drawdown_pct ? p : a); }, ddp[0]);
+    _paSet('pa-dd-legend', _paLeg(PTC.COLORS.neg, 'Current ' + PTC.pct(ddp[ddp.length - 1].drawdown_pct)) + _paLeg(PTC.COLORS.muted, 'Max ' + PTC.pct(wr.drawdown_pct)));
+    PTC.timeSeries('pa-dd-chart', {
+      height: 150, expandKey: 'drawdown', baseline: 0, dates: ddp.map(function (p) { return p.date; }),
+      yFmt: function (x) { return PTC.pct(x, 1); }, valFmt: function (x) { return PTC.pct(x, 2); },
+      series: [{ name: 'Drawdown', color: PTC.COLORS.neg, fill: true, values: ddp.map(function (p) { return p.drawdown_pct; }) }]
+    });
+  } else { PTC.empty('pa-dd-chart', 'No drawdown history yet.'); _paSet('pa-dd-legend', ''); }
+
+  // 4. Allocation & concentration (sector exposure; hover exact weights).
+  var a = d.allocation || {};
+  if (a.available && (a.sectors || []).length) {
+    _paSet('pa-alloc-legend', _paLeg(PTC.COLORS.info, 'HHI ' + PTC.num(a.hhi, 3)) + _paLeg(PTC.COLORS.pos, 'Top-5 ' + PTC.wpct(a.concentration_top5)) + _paLeg(PTC.COLORS.muted2, 'Cash ' + PTC.wpct(a.cash_weight)));
+    PTC.hbars('pa-alloc-chart', {
+      label: 'Weight', expandKey: 'allocation', color: PTC.COLORS.info, fmt: function (x) { return PTC.wpct(x); },
+      items: (a.sectors || []).map(function (s) { return { name: s.sector, value: s.weight }; })
+    });
+  } else { PTC.empty('pa-alloc-chart', 'No allocation snapshot.'); _paSet('pa-alloc-legend', ''); }
+
+  // 5. Contributors / detractors (contribution-aware when a close exists).
+  var c = d.contributors || {};
+  var ctop = c.top || [], cbot = c.bottom || [];
+  if (c.available && (ctop.length || cbot.length)) {
+    var isC = c.source === 'holding_contributions';
+    _paSet('pa-contrib-legend', _paLeg(PTC.COLORS.pos, 'contributors') + _paLeg(PTC.COLORS.neg, 'detractors') + '<span style="color:var(--label);">' + (isC ? 'daily $ contribution' : 'unrealized return') + '</span>');
+    var citems = ctop.concat(cbot).map(function (r) {
+      return {
+        name: r.ticker, sub: r.sector,
+        value: isC ? r.contribution_usd : r.return_pct,
+        valTxt: isC ? PTC.money(r.contribution_usd) : PTC.pct(r.return_pct),
+        lines: isC
+          ? [['$ contribution', PTC.moneyc(r.contribution_usd)], ['Contribution pp', PTC.pct(r.contribution_pp)]]
+          : [['Unrealized return', PTC.pct(r.return_pct)], ['Unrealized $', PTC.money(r.contribution_usd)]]
+      };
+    });
+    PTC.diverging('pa-contrib-chart', { items: citems, expandKey: 'contributors', fmt: function (x) { return isC ? PTC.money(x) : PTC.pct(x); } });
+  } else { PTC.empty('pa-contrib-chart', 'No contribution data yet.'); _paSet('pa-contrib-legend', ''); }
+
+  // 6. Drift vs target.
+  var dr = d.drift || {}, dh = (dr.holdings || []).slice(0, 10);
+  if (dr.available && dh.length) {
+    _paSet('pa-drift-legend', _paLeg(PTC.COLORS.pos, 'over target') + _paLeg(PTC.COLORS.neg, 'under target') + '<span style="color:var(--label);">max ' + PTC.wpct(dr.max_abs_drift) + '</span>');
+    PTC.diverging('pa-drift-chart', {
+      expandKey: 'drift', fmt: function (x) { return PTC.pct(x * 100, 2); },
+      items: dh.map(function (h) {
+        return {
+          name: h.ticker, sub: h.sector, value: h.weight_drift, valTxt: PTC.pct(h.weight_drift * 100, 2),
+          lines: [['Current wt', PTC.wpct(h.current_weight)], ['Target wt', PTC.wpct(h.target_weight)], ['Drift', PTC.pct(h.weight_drift * 100, 2)]]
+        };
+      })
+    });
+  } else { PTC.empty('pa-drift-chart', 'No target drift yet.'); _paSet('pa-drift-legend', ''); }
+}
+
+/* ---- Portfolio: allocation / winners-losers / drift summary charts --------- */
+function _vaRenderPortfolioSummary(ps, hd, nav) {
+  if (!ps) return;
+  if (ps.cash_weight != null && ps.invested_weight != null) {
+    _vaStackBar('pdash-sum-cashinv', [
+      { label: 'Invested', value: ps.invested_weight, color: _VAC.info, sub: _vaMoney(ps.invested_value) },
+      { label: 'Cash', value: ps.cash_weight, color: _VAC.muted2, sub: _vaMoney(ps.cash) }
+    ], { fmtPct: true });
+  }
+  var se = ps.sector_exposure || [];
+  if (se.length) _vaHBars('pdash-sum-sector', se.map(function (s) { return { name: s.sector, value: s.weight }; }), { fmt: function (v) { return _vaPctU(v * 100, 1); }, color: _VAC.info });
+  var lg = ps.largest_positions || [];
+  if (lg.length) _vaHBars('pdash-sum-largest', lg.map(function (r) { return { name: r.ticker, value: r.current_weight }; }), { fmt: function (v) { return _vaPctU(v * 100, 1); }, color: _VAC.info });
+  var best = ps.best_performers || [];
+  if (best.length && best.some(function (r) { return r.unrealized_pnl_pct != null && r.unrealized_pnl_pct > 0; })) {
+    _vaHBars('pdash-sum-best', best.map(function (r) { return { name: r.ticker, value: Math.abs(r.unrealized_pnl_pct || 0), valTxt: _vaPct((r.unrealized_pnl_pct || 0) * 100, 1) }; }), { color: _VAC.pos });
+  }
+  var worst = ps.worst_performers || [];
+  if (worst.length) _vaHBars('pdash-sum-worst', worst.map(function (r) { return { name: r.ticker, value: Math.abs(r.unrealized_pnl_pct || 0), valTxt: _vaPct((r.unrealized_pnl_pct || 0) * 100, 1) }; }), { color: _VAC.neg });
+  if (hd && hd.length) {
+    var drift = hd.filter(function (h) { return h.weight_drift != null; })
+      .slice().sort(function (a, b) { return Math.abs(b.weight_drift) - Math.abs(a.weight_drift); })
+      .slice(0, 8).map(function (h) { return { name: h.ticker, value: h.weight_drift, valTxt: _vaPct(h.weight_drift * 100, 2) }; });
+    if (drift.length) _vaDivBars('pdash-sum-drift', drift, {});
+  }
+}
+window._vaRenderPortfolioSummary = _vaRenderPortfolioSummary;
+
+/* ---- Portfolio Manager: reallocation review visuals ------------------------ */
+function _vaGapLabel(code) { return String(code || '').replace(/^HOC_/, '').replace(/_/g, ' '); }
+function _vaRenderReallocVisuals(d) {
+  var wrap = document.getElementById('realloc-visuals');
+  var det = document.getElementById('realloc-metrics-detail');
+  if (!wrap) return;
+  if (det) det.style.display = '';   // the full-metric chip wall stays available (collapsed)
+  var allocations = (d && d.allocations) || [];
+  var hasProposal = !!(d && (d.artifact || d.proposal_hash || (allocations && allocations.length)));
+  if (!d || !hasProposal) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  var state = d.state || 'UNAVAILABLE';
+  var counts = d.action_counts || {}, turnover = d.turnover || {}, signal = d.signal || {}, risk = d.risk || {};
+  var gaps = (d.data_gaps || []).filter(function (g) { return !g.by_design; });
+  var usable = (state === 'READY' || state === 'DEGRADED');
+  var stateColor = state === 'READY' ? _VAC.pos : (state === 'DEGRADED' ? _VAC.warn : _VAC.neg);
+  var sv = document.getElementById('realloc-state-viz');
+  if (sv) {
+    var gapChips = gaps.length
+      ? gaps.map(function (g) { return '<span class="cc-badge warn" title="' + escapeHtml(g.detail || '') + '">' + escapeHtml(_vaGapLabel(g.code)) + '</span>'; }).join(' ')
+      : '<span class="cc-badge safe">No non-structural data gaps</span>';
+    var volB = risk.volatility_before_state, volA = risk.volatility_after_state;
+    var volChip = (volB || volA) ? '<span class="cc-badge ' + (volB === 'AVAILABLE' && volA === 'AVAILABLE' ? 'safe' : 'muted') + '" title="Portfolio volatility analytic coverage.">Volatility: ' + escapeHtml(volB || '—') + ' → ' + escapeHtml(volA || '—') + '</span>' : '';
+    sv.innerHTML = '<div class="va-card-hd" style="margin-bottom:6px;">'
+      + '<span class="va-card-title">Proposal status</span>'
+      + '<span class="cc-badge" style="background:' + stateColor + ';color:#04121f;font-weight:800;">' + escapeHtml(state) + '</span>'
+      + '<span class="cc-badge ' + (usable ? 'safe' : 'danger') + '">' + (usable ? 'REVIEW-ONLY · USABLE' : 'NOT USABLE') + '</span>'
+      + '<span class="va-spacer"></span><span class="va-sub">' + escapeHtml(usable ? 'Fully reviewable — honor the analytic gaps below.' : 'No reviewable proposal for this session.') + '</span></div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + gapChips + ' ' + volChip + '</div>';
+  }
+  var kp = document.getElementById('realloc-kpis');
+  if (kp) {
+    function tile(lab, val, sub, cls) { return '<div class="va-kpi"><div class="lab">' + escapeHtml(lab) + '</div><div class="val ' + (cls || '') + '">' + val + '</div><div class="sub">' + (sub || '') + '</div></div>'; }
+    var si = signal.score_improvement;
+    var scoreCls = (signal.improves_after_cost === true) ? 'va-pos' : (signal.improves_after_cost === false ? 'va-neg' : '');
+    kp.innerHTML = [
+      tile('Turnover (1-way)', _vaPctU((turnover.one_way_turnover || 0) * 100, 1), '2-way ' + _vaPctU((turnover.two_way_turnover || 0) * 100, 1)),
+      tile('Est. cost', _vaMoney(turnover.estimated_transaction_cost), _vaPctU((turnover.cost_pct_nav || 0) * 100, 3) + ' of NAV'),
+      tile('Score', _vaNum(signal.score_before, 3) + ' → ' + _vaNum(signal.score_after, 3), (si != null ? (si >= 0 ? '+' : '') + _vaNum(si, 3) : '—') + ' Δ · net ' + _vaNum(signal.score_improvement_net_of_cost, 3), scoreCls),
+      tile('Largest position', _vaPctU((risk.largest_position_before || 0) * 100, 1) + ' → ' + _vaPctU((risk.largest_position_after || 0) * 100, 1), 'name concentration'),
+      tile('Concentration (HHI)', _vaNum(risk.concentration_before, 3) + ' → ' + _vaNum(risk.concentration_after, 3), 'lower = more diversified'),
+      tile('Expected return', escapeHtml(signal.expected_return_state || 'NOT_CALIBRATED'), 'never fabricated', 'va-flat')
+    ].join('');
+  }
+  var AM = [['ADD', _VAC.pos], ['INCREASE', _VAC.pos], ['RETAIN', _VAC.muted2], ['REDUCE', _VAC.warn], ['EXIT', _VAC.neg], ['REPLACE_IN', _VAC.info], ['REPLACE_OUT', _VAC.info]];
+  var amItems = AM.map(function (a) { return { name: a[0].replace('_', ' '), value: (counts[a[0]] || 0), color: a[1], valTxt: String(counts[a[0]] || 0) }; }).filter(function (x) { return x.value > 0; });
+  if (amItems.length) _vaHBars('realloc-actionmix', amItems, { max: Math.max.apply(null, amItems.map(function (x) { return x.value; })) });
+  else _vaSet('realloc-actionmix', '<div class="va-empty">No proposed actions.</div>');
+  var sb = risk.sector_weights_before || {}, sa = risk.sector_weights_after || {};
+  var sectors = Object.keys(sb).concat(Object.keys(sa)).filter(function (v, i, arr) { return arr.indexOf(v) === i; });
+  var sitems = sectors.map(function (s) { return { name: s, before: (sb[s] || 0), after: (sa[s] || 0) }; }).sort(function (a, b) { return b.after - a.after; });
+  _vaPairedBars('realloc-sector-chart', sitems, {});
+  _vaSet('realloc-sector-legend', _vaLeg(_VAC.muted2, 'before') + _vaLeg(_VAC.info, 'after'));
+}
+window._vaRenderReallocVisuals = _vaRenderReallocVisuals;
 
 // ---- Boot: apply the initial route + wire back/forward ----------------------
 window.addEventListener('hashchange', function () { try { applyRoute(); } catch (e) {} });
