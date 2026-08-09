@@ -205,6 +205,7 @@ from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
 from paper_trader.api import research_agent as _research_agent
+from paper_trader.api import research_bridge as _research_bridge
 from paper_trader.api import data_expansion as _data_expansion
 from paper_trader.api.alpha_factory import (
     load_alpha_factory,
@@ -6500,6 +6501,38 @@ def research_research_agent() -> dict:
     run legitimately yields WATCH / INSUFFICIENT_EVIDENCE, never a premature RECALIBRATION_DUE.
     """
     return _research_agent.load_research_agent()
+
+
+@app.get(
+    "/v1/research/research-bridge",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def research_research_bridge() -> dict:
+    """Controlled Autonomous Research Execution Bridge — read-only read model.
+
+    The ONE authoritative read model of the bridge that lets the Persistent Alpha Research
+    Agent (the research GOVERNOR) commission BOUNDED research from the existing AlphaAgent
+    research lab (``alpha_agent`` ResearchQueue + tournament + gates). Assembled by
+    ``api.research_bridge`` over the pure ``engine.research_bridge`` kernel, it reports, for
+    the current mandate: the triggering Research Opportunity (category / degradation / reason
+    / affected model / priority / evidence), the Controlled Research Mandate (lifecycle,
+    allowed hypothesis families, economically-coherent 1/5/20/63-session horizons, experiment
+    budget, dispatch identity), the alpha-discovery status (candidates proposed / tested /
+    KEEP_FOR_RESEARCH / rejected / DATA_HOLD / FDR survivors / best challenger / explicit
+    NO_DEFENSIBLE_ALPHA), the evidence (OOS / IC / spread / cost / turnover / robustness /
+    orthogonality / data gaps) and governance (champion unchanged, promotion disabled, manual
+    review required).
+
+    STRICTLY READ-ONLY and RESEARCH GOVERNANCE ONLY: no GET recomputes, dispatches or
+    executes anything (the bounded commissioning path is the operator-run
+    ``scripts/run_research_bridge_campaign.py``); it returns NOT_RUN before a mandate exists.
+    The bridge REUSES the existing queue / tournament / gate (never a second one), promotes /
+    recalibrates / retrains no model, changes no target / holding / cash / NAV, creates no
+    order / fill, purchases no data and enables no cadence. NO_DEFENSIBLE_ALPHA and DATA_HOLD
+    are valid successful conclusions; manual model review remains mandatory.
+    """
+    return _research_bridge.load_research_bridge()
 
 
 @app.get(

@@ -281,6 +281,11 @@
       "system": "infrastructure"
     },
     {
+      "prefix": "/v1/research/research-bridge",
+      "owner": "api/research_bridge.py",
+      "system": "infrastructure"
+    },
+    {
       "prefix": "/v1/research/data-expansion",
       "owner": "api/data_expansion.py",
       "system": "infrastructure"
@@ -793,6 +798,57 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "Charter Milestone 4 (Consolidation Roadmap Slice 8). The SOLE composition/read/persistence owner over the pure engine.research_agent kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run) via the RUN_RESEARCH_AGENT step (after BUILD_REALLOCATION_PROPOSAL, before RUN_PORTFOLIO_ASSESSMENT); there is deliberately NO promote/recalibrate/retrain/apply endpoint (the read endpoint is GET-only). It does NOT create a second/unified model registry: it READS the existing champion/challenger registries and never moves champion-promotion authority into itself. A short negative live P&L run legitimately yields WATCH / INSUFFICIENT_EVIDENCE, never a premature RECALIBRATION_DUE. Research governance only, manual approval mandatory: promotes/recalibrates/retrains no model, writes no champion pointer, confirms no target, creates no order/fill, changes no holding/cash/NAV, executes no experiment, enables no cadence. Its findings never block a valid Daily Close (research recommendation != operational action)."
+    },
+    {
+      "path": "engine/research_bridge.py",
+      "system": "infrastructure",
+      "responsibility": "Controlled Autonomous Research Execution Bridge CANONICAL pure kernel: the ONE deterministic bridge calculation owner connecting the Persistent Alpha Research Agent (governor) to the existing alpha_agent research lab (queue/tournament/gates). No I/O / RNG / clock. Owns (1) Research Opportunity normalization (wraps an existing engine.research_agent opportunity in a provenance-complete contract; never forks the concept), (2) Controlled Research Mandate construction (bounded hypothesis families / owned data families / economically-coherent horizons / candidate-experiment-generation-compute budgets / minimum-sample-PIT-cost-FDR-robustness-regime-orthogonality REQUIREMENTS mirrored from the Stage 9 tournament gate config; never the answer), (3) multi-horizon economic coherence ({5,20,63} forward-label vocabulary, 1 = execution/label-maturity lag, 1/5/20/63 = forward-prediction maturation; deterministic per-family eligibility), (4) immutable research-result envelope shaping (references canonical candidate/experiment evidence, never duplicates it) + the ONE canonical Alpha Strength Gate that DELEGATES to the injected alpha_agent.tournament.classify_evidence + Benjamini-Hochberg FDR + champion orthogonality (terminal outcomes DATA_HOLD / KEEP_FOR_RESEARCH / READY_FOR_MANUAL_REVIEW / REJECTED / NO_DEFENSIBLE_ALPHA — existing constants only; never forces a challenger), and (5) the Research Agent re-assessment verdict. Promotes / recalibrates / retrains / replaces no model; changes no holding/target/order/cash/NAV; enables no cadence; permits no paid data.",
+      "classification": "KEEP",
+      "target_owner": "engine/research_bridge.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "pure kernel: consumes only immutable dicts (normalized opportunity / mandate / candidate evidence) + an injected classify_fn (alpha_agent.tournament.classify_evidence) and gate cfg supplied by api.research_bridge (no file/db/network/provider/prediction access)"
+      ],
+      "direct_writes": [
+        "read-only (pure function; no file/ledger/db/queue/order/fill/NAV/target/model-pointer write)"
+      ],
+      "endpoints": [],
+      "ui_consumers": [],
+      "tests": [
+        "tests/test_research_bridge.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Controlled Autonomous Research Execution Bridge (functional name; historical numbering 29J.2 deliberately NOT depended on). The SOLE bridge calculation owner; reuses (never forks) the alpha_agent gate thresholds (stage9_tournament.json injected), the research-opportunity concept (engine.research_agent), and the horizon vocabularies. The Alpha Strength Gate is a thin decision wrapper over the injected canonical classify_evidence; NO_DEFENSIBLE_ALPHA is a valid scientific outcome and DATA_HOLD a valid safety outcome; a challenger is never forced. Research governance only; manual model review mandatory."
+    },
+    {
+      "path": "api/research_bridge.py",
+      "system": "infrastructure",
+      "responsibility": "Controlled Autonomous Research Execution Bridge CANONICAL composition / idempotent-dispatch / persistence / read owner over the pure engine.research_bridge kernel. READS the latest immutable Research Agent assessment (api.research_agent) and selects the top eligible dispatchable opportunity; BUILDS + persists a bounded Controlled Research Mandate immutably under a dedicated research root (PAPER_TRADER_RESEARCH_BRIDGE_DIR; idempotent by mandate hash, a different opportunity/evidence hash SUPERSEDES); DISPATCHES the mandate IDEMPOTENTLY into the EXISTING alpha_agent durable ResearchQueue (enqueue deduplicated by the deterministic dispatch identity — never a second queue/campaign/tournament/registry, never manufactures candidate results); recovery reuses the queue's own requeue_stale; INGESTS returned canonical evidence into an immutable research-result envelope, runs the ONE Alpha Strength Gate (delegating to alpha_agent.tournament.classify_evidence + selection_controls Benjamini-Hochberg FDR + champion orthogonality) and produces the Research Agent re-assessment; exposes GET /v1/research/research-bridge (read-only, NOT_RUN before a mandate exists — no GET recomputes or dispatches). Writes ONLY to its own research root and enqueues into the existing alpha_agent research DBs on D:; NEVER an operational ledger / PostgreSQL / champion pointer / operational-or-alpha target / order / fill / holding / cash / NAV; promotes / recalibrates / retrains no model; enables no cadence; purchases no data.",
+      "classification": "KEEP",
+      "target_owner": "api/research_bridge.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "research_agent.load_latest_artifact (latest immutable Research Agent assessment: champion identity / ranked research opportunities / degradation categories / evidence hash — reused, never re-derived)",
+        "alpha_agent.tournament.classify_evidence + configs/alpha_agent/stage9_tournament.json (the canonical KEEP/REJECT/DATA_HOLD Alpha Strength Gate + thresholds — injected into the kernel, never forked)",
+        "alpha_agent.selection_controls.benjamini_hochberg + signal_evaluation.approx_two_sided_pvalue (FDR q-values — reused)",
+        "alpha_agent.autonomous_research.ResearchQueue via runtime.build_autonomy_queue + configs/alpha_agent/stage8_autonomy.json (idempotent enqueue / requeue_stale into the EXISTING durable queue — reused, never a second queue)"
+      ],
+      "direct_writes": [
+        "immutable Controlled Research Mandate + research-result envelope artifacts + index under PAPER_TRADER_RESEARCH_BRIDGE_DIR (a research root on D:, atomic; NOT the operational ledger root); idempotent enqueue rows in the EXISTING alpha_agent autonomy queue. No PostgreSQL / champion pointer / order / fill / target / holding / cash / NAV write."
+      ],
+      "endpoints": [
+        "/v1/research/research-bridge"
+      ],
+      "ui_consumers": [
+        "loadResearchBridge"
+      ],
+      "tests": [
+        "tests/test_research_bridge.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Controlled Autonomous Research Execution Bridge. The SOLE composition/dispatch/read owner over the pure engine.research_bridge kernel. The NORMAL commissioning path is the bounded operator-run scripts/run_research_bridge_campaign.py (real canonical entrypoint, owned data only, operational-ledger before/after fingerprint); the web surface is GET-only (mirrors the Research Agent read-only route + token-gated DRC discipline) — there is deliberately NO dispatch/promote/recalibrate/retrain/apply endpoint. Dispatch enqueues into the EXISTING ResearchQueue and is deduplicated by the deterministic dispatch identity so repeated dispatch never duplicates a job/campaign/experiment; result ingestion is idempotent by envelope hash. Research governance only; manual model review mandatory; NO_DEFENSIBLE_ALPHA / DATA_HOLD are valid successful conclusions."
     },
     {
       "path": "engine/data_expansion_gate.py",

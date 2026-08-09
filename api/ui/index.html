@@ -3724,6 +3724,7 @@
         <div class="pt-nav" id="ra-nav" role="navigation" aria-label="Research and audit sections">
           <a id="ra-nav-overview" data-rasub="" onclick="navigateToRoute('research-audit')" title="Champion identity, current mark, decision">Champion Overview</a>
           <a id="ra-nav-research-agent" data-rasub="research-agent" onclick="navigateToRoute('research-audit/research-agent')" title="Persistent Alpha Research Agent (Slice 8, Milestone 4): is the current research/model stack still trustworthy? Evidence sufficiency, champion-health components, model-degradation categories, HOC/reallocation feedback, challenger classification, recalibration recommendation and a ranked queue of bounded research opportunities. Research governance only — read-only, manual review, no model promotion, no portfolio mutation, no orders, automation off.">Research Agent</a>
+          <a id="ra-nav-research-bridge" data-rasub="research-bridge" onclick="navigateToRoute('research-audit/research-bridge')" title="Controlled Autonomous Research Execution Bridge: the Research Agent commissions BOUNDED research from the existing AlphaAgent research lab (queue + tournament + gates). Triggering research opportunity, the controlled research mandate (hypothesis families, 1/5/20/63-session horizons, experiment budget, dispatch identity, lifecycle), alpha-discovery status (candidates tested / KEEP / rejected / DATA_HOLD / FDR survivors / best challenger / NO_DEFENSIBLE_ALPHA), evidence and governance. Research governance only — read-only, manual model review, no model promotion, no portfolio mutation, no orders, automation off.">Research Bridge</a>
           <a id="ra-nav-performance" data-rasub="performance" onclick="navigateToRoute('research-audit/performance')" title="Top25 / Top50 / SPY performance + historical evidence">Performance</a>
           <a id="ra-nav-daily-operations" data-rasub="daily-operations" onclick="navigateToRoute('research-audit/daily-operations')" title="Current mark, action counts, rebalance simulator">Daily Operations</a>
           <a id="ra-nav-paper-books" data-rasub="paper-books" onclick="navigateToRoute('research-audit/paper-books')" title="Active paper book, coverage, PnL history">Paper Books</a>
@@ -3828,6 +3829,84 @@
           </details>
 
           <div style="font-size:10px;margin:8px 0 0;color:var(--muted,#8b98b0);">Evidence sufficiency, champion-health states, degradation categories, challenger classification, the recalibration recommendation and every opportunity are produced by the backend research-agent engine, never in the browser. Research governance only &mdash; no model is promoted, no portfolio is changed, no order is created.</div>
+        </div>
+
+        <!-- ============ CONTROLLED AUTONOMOUS RESEARCH EXECUTION BRIDGE ============ -->
+        <!-- The ONE first-class Research Bridge panel. It reads the immutable backend read
+             model from GET /v1/research/research-bridge and renders it verbatim. NO bridge
+             calculation runs in the browser — the research opportunity, mandate, horizons,
+             alpha-discovery status, evidence and governance are all read from the backend.
+             Research governance only: no model promotion, no portfolio mutation, no orders,
+             automation off; the bridge REUSES the existing queue / tournament / gate. -->
+        <div class="card" id="rbridge-panel" style="margin-bottom:14px; display:none;">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <span>Controlled Autonomous Research Execution Bridge
+              <span class="cc-badge muted" title="Research Agent commissions bounded research from the existing AlphaAgent lab.">RESEARCH GOVERNOR</span>
+              <span class="cc-badge" id="rbridge-state" title="The current bridge / mandate lifecycle state read from the backend.">&mdash;</span>
+            </span>
+            <button class="btn-sm" id="rbridge-refresh" onclick="loadResearchBridge()" title="Reload the read-only research-bridge read model.">&#8635; Refresh</button>
+          </div>
+
+          <div id="rbridge-banner" style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:10px 14px;margin:2px 0 10px;font-weight:800;letter-spacing:.03em;font-size:11px;">
+            RESEARCH AGENT &rarr; CONTROLLED MANDATE &rarr; ALPHAAGENT LAB &rarr; IMMUTABLE EVIDENCE &rarr; RE-ASSESSMENT &mdash; RESEARCH GOVERNANCE ONLY &middot; MANUAL MODEL REVIEW
+          </div>
+
+          <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
+            <span class="cc-badge safe">RESEARCH ONLY</span>
+            <span class="cc-badge manual">MANUAL REVIEW</span>
+            <span class="cc-badge">NO MODEL PROMOTION</span>
+            <span class="cc-badge">NO PORTFOLIO MUTATION</span>
+            <span class="cc-badge">NO ORDERS</span>
+            <span class="cc-badge">OWNED DATA ONLY</span>
+            <span class="cc-badge">AUTOMATION OFF</span>
+          </div>
+
+          <div id="rbridge-note" style="font-size:12px;margin:0 0 10px;color:var(--muted,#8b98b0);">Loading the read-only research-bridge read model&hellip;</div>
+
+          <div id="rbridge-summary" style="font-size:12px;margin:0 0 12px;">&mdash;</div>
+
+          <!-- Triggering research opportunity. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Current Research Opportunity
+              <span class="cc-badge" style="font-size:9px;">EVIDENCE-GROUNDED</span></div>
+            <div id="rbridge-opportunity" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- Controlled research mandate. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Controlled Research Mandate
+              <span class="cc-badge" style="font-size:9px;">BOUNDED &middot; WHAT MAY BE INVESTIGATED</span>
+              <span class="cc-badge" style="font-size:9px;">1 / 5 / 20 / 63-SESSION HORIZONS</span></div>
+            <div id="rbridge-mandate" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- Alpha discovery status. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Alpha Discovery Status
+              <span class="cc-badge manual" style="font-size:9px;">MANUAL MODEL REVIEW</span>
+              <span class="cc-badge" style="font-size:9px;">NO AUTO-PROMOTION</span></div>
+            <div id="rbridge-discovery" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- Evidence (OOS / IC / spread / cost / turnover / robustness / orthogonality / gaps). -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Research Evidence
+              <span class="cc-badge" style="font-size:9px;">REFERENCES CANONICAL EVIDENCE</span></div>
+            <div id="rbridge-evidence" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <!-- Re-assessment + governance. -->
+          <div style="border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 12px;">
+            <div class="card-title" style="border:none;margin:0 0 6px;padding:0;">Research Agent Re-assessment &amp; Governance</div>
+            <div id="rbridge-governance" style="font-size:12px;">&mdash;</div>
+          </div>
+
+          <details id="rbridge-detail-wrap" style="margin:0 0 4px;">
+            <summary style="cursor:pointer;font-weight:700;font-size:12px;">Mandate, dispatch identity, per-candidate evidence &amp; provenance</summary>
+            <div id="rbridge-detail" style="font-size:11px;margin:8px 0 0;font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;">&mdash;</div>
+          </details>
+
+          <div style="font-size:10px;margin:8px 0 0;color:var(--muted,#8b98b0);">The research opportunity, controlled mandate, horizons, alpha-discovery status, evidence and re-assessment are produced by the backend bridge, never in the browser. The bridge REUSES the existing AlphaAgent queue / tournament / gate. NO_DEFENSIBLE_ALPHA and DATA_HOLD are valid successful conclusions. Research governance only &mdash; no model is promoted, no portfolio is changed, no order is created, no data is purchased.</div>
         </div>
 
         <!-- ===================== Phase 29J SLICE 9 DATA EXPANSION (RESEARCH) ===================== -->
@@ -22890,6 +22969,7 @@ window._ptHighlightNav = _ptHighlightNav;
 var _RA_SECTIONS = {
   '':                 { panels: [], champion: true },
   'research-agent':   { panels: ['rag-panel'], champion: false },
+  'research-bridge':  { panels: ['rbridge-panel'], champion: false },
   'performance':      { panels: ['cap-panel'], champion: false },
   'daily-operations': { panels: ['cao-panel'], champion: false },
   'paper-books':      { panels: ['cab-panel'], champion: false },
@@ -22904,7 +22984,7 @@ var _RA_SECTIONS = {
   'data-expansion':   { panels: ['dex-panel'], champion: false },
   'diagnostics':      { panels: ['cp-panel', 'ca-panel', 'cdg-panel'], champion: false },
 };
-var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'dex-panel'];
+var _RA_ALL_PANELS = ['cp-panel', 'ca-panel', 'cao-panel', 'cab-panel', 'cdg-panel', 'cap-panel', 'crv-panel', 'ctr-panel', 'af-panel', 'paf-panel', 'aao-panel', 's11-panel', 's12-panel', 's13a-panel', 'rag-panel', 'rbridge-panel', 'dex-panel'];
 function _raHighlightNav(sub) {
   var links = document.querySelectorAll('#ra-nav a[data-rasub]');
   Array.prototype.forEach.call(links, function (a) {
@@ -22947,6 +23027,7 @@ window._raApplySection = _raApplySection;
 function _raLoadSection(sub) {
   var loaders = {
     'research-agent': ['loadResearchAgent'],
+    'research-bridge': ['loadResearchBridge'],
     'performance': ['loadPaperPerformanceHistory'],
     'daily-operations': ['loadDailyAlphaStatus'],
     'paper-books': ['loadActiveBook'],
@@ -25390,6 +25471,174 @@ function renderResearchAgent(d) {
   _setHtml('rag-detail', escapeHtml(JSON.stringify(detail, null, 2)));
 }
 window.renderResearchAgent = renderResearchAgent;
+
+// ---------------------------------------------------------------------------
+// Controlled Autonomous Research Execution Bridge (the ONE canonical loader).
+// It reads GET /v1/research/research-bridge and renders the Research & Audit panel.
+// It performs NO bridge math — the research opportunity, controlled mandate, horizons,
+// alpha-discovery status, evidence and re-assessment are read verbatim from the backend.
+// Research governance only: no model promotion, no portfolio mutation, no orders,
+// automation off; the bridge REUSES the existing AlphaAgent queue / tournament / gate.
+// ---------------------------------------------------------------------------
+function loadResearchBridge() {
+  if (window._researchBridgeInFlight) return window._researchBridgeInFlight;
+  var note = document.getElementById('rbridge-note');
+  if (note) note.textContent = 'Loading the read-only research-bridge read model…';
+  var p = _mhzGet('/v1/research/research-bridge').then(function (d) {
+    window._researchBridgeInFlight = null;
+    window._researchBridgeData = d;
+    renderResearchBridge(d);
+    return d;
+  }).catch(function () {
+    window._researchBridgeInFlight = null; renderResearchBridge(null); return null;
+  });
+  window._researchBridgeInFlight = p;
+  return p;
+}
+window.loadResearchBridge = loadResearchBridge;
+
+function _rbridgeStateBadge(state) {
+  var cls = { DRAFTED: 'muted', DISPATCHED: 'manual', IN_PROGRESS: 'manual',
+              COMPLETED: 'safe', DATA_HOLD: 'manual', FAILED: 'danger',
+              SUPERSEDED: 'muted', NOT_RUN: 'muted',
+              NO_DISPATCHABLE_OPPORTUNITY: 'muted', UNAVAILABLE: 'manual' }[state] || 'muted';
+  return '<span class="cc-badge ' + cls + '">' + escapeHtml(state || '—') + '</span>';
+}
+
+function renderResearchBridge(d) {
+  function chip(label, val, cls) {
+    return '<span class="cc-badge ' + (cls || 'muted') + '" title="' + escapeHtml(label)
+      + '">' + escapeHtml(label) + ': ' + escapeHtml(val == null ? '—' : String(val)) + '</span>';
+  }
+  var stateEl = document.getElementById('rbridge-state');
+  var noteEl = document.getElementById('rbridge-note');
+  if (!d) {
+    if (stateEl) { stateEl.textContent = 'UNAVAILABLE'; stateEl.className = 'cc-badge manual'; }
+    if (noteEl) noteEl.textContent = 'The research-bridge read model is unavailable.';
+    _setHtml('rbridge-summary', '—'); _setHtml('rbridge-opportunity', '—');
+    _setHtml('rbridge-mandate', '—'); _setHtml('rbridge-discovery', '—');
+    _setHtml('rbridge-evidence', '—'); _setHtml('rbridge-governance', '—');
+    _setHtml('rbridge-detail', '—');
+    return;
+  }
+  var state = d.state || 'UNAVAILABLE';
+  if (stateEl) {
+    var cls = { DRAFTED: 'muted', DISPATCHED: 'manual', IN_PROGRESS: 'manual',
+                COMPLETED: 'safe', DATA_HOLD: 'manual', FAILED: 'danger',
+                SUPERSEDED: 'muted', NOT_RUN: 'muted',
+                NO_DISPATCHABLE_OPPORTUNITY: 'muted', UNAVAILABLE: 'manual' }[state] || 'muted';
+    stateEl.textContent = state; stateEl.className = 'cc-badge ' + cls;
+  }
+  if (noteEl) noteEl.textContent = d.message || '';
+
+  var champ = d.champion || {};
+  var summary = [];
+  summary.push(chip('Bridge state', state, 'muted'));
+  summary.push(chip('Champion', champ.model_id, 'muted'));
+  summary.push(chip('Eligible date', d.eligible_market_date, 'muted'));
+  summary.push('<span class="cc-badge safe">CHAMPION UNCHANGED</span>');
+  summary.push('<span class="cc-badge safe">NO MODEL PROMOTION</span>');
+  _setHtml('rbridge-summary', summary.join(' '));
+
+  if (state === 'NOT_RUN') {
+    _setHtml('rbridge-opportunity', 'No research mandate has been dispatched yet.');
+    _setHtml('rbridge-mandate', '—'); _setHtml('rbridge-discovery', '—');
+    _setHtml('rbridge-evidence', '—');
+  }
+
+  // Triggering research opportunity.
+  var opp = d.research_opportunity || {};
+  var oh = [];
+  oh.push(chip('Opportunity', opp.opportunity_id, 'muted'));
+  oh.push(chip('Category', opp.category, 'muted'));
+  if (opp.degradation_category && opp.degradation_category.length)
+    oh.push(chip('Degradation', opp.degradation_category.join(', '), 'manual'));
+  oh.push(chip('Affected', opp.affected_family, 'muted'));
+  oh.push(chip('Priority', opp.priority, 'muted'));
+  if (opp.reason) oh.push('<div style="margin-top:6px;color:var(--muted,#8b98b0);">' + escapeHtml(opp.reason) + '</div>');
+  if (opp.opportunity_id) _setHtml('rbridge-opportunity', oh.join(' '));
+
+  // Controlled research mandate.
+  var m = d.mandate || {};
+  var hz = (m.horizons || {});
+  var mh = [];
+  mh.push(chip('Mandate', m.mandate_id, 'muted'));
+  mh.push(chip('Lifecycle', m.lifecycle_state, 'muted'));
+  mh.push(chip('Hypothesis families', (m.allowed_hypothesis_families || []).join(', '), 'muted'));
+  mh.push(chip('Owned data', (m.allowed_data_families || []).join(', '), 'muted'));
+  mh.push(chip('Horizons (sessions)', (hz.horizons || []).join(' / '), 'muted'));
+  mh.push(chip('Forward-label horizons', (hz.forward_label_horizons || []).join(' / '), 'muted'));
+  mh.push(chip('Execution lag', hz.execution_lag_sessions, 'muted'));
+  if (m.bounds) {
+    mh.push(chip('Max candidates', m.bounds.max_candidates, 'muted'));
+    mh.push(chip('Max experiments', m.bounds.max_experiments, 'muted'));
+  }
+  if (m.mandate_id) _setHtml('rbridge-mandate', mh.join(' '));
+
+  // Alpha discovery status.
+  var ad = d.alpha_discovery;
+  if (ad) {
+    var c = ad.counts || {};
+    var dh = [];
+    var outCls = (ad.outcome === 'READY_FOR_MANUAL_REVIEW') ? 'manual'
+      : (ad.outcome === 'KEEP_FOR_RESEARCH') ? 'safe'
+      : (ad.outcome === 'DATA_HOLD') ? 'manual' : 'muted';
+    dh.push(chip('Outcome', ad.outcome, outCls));
+    dh.push(chip('Candidates', c.candidates_evaluated, 'muted'));
+    dh.push(chip('Keep-for-research', c.keep_for_research, 'muted'));
+    dh.push(chip('Rejected', c.rejected, 'muted'));
+    dh.push(chip('DATA_HOLD', c.data_hold, 'muted'));
+    dh.push(chip('FDR survivors', c.fdr_survivors, 'muted'));
+    dh.push(chip('Manual-review eligible', c.manual_review_eligible, 'muted'));
+    if (ad.no_defensible_alpha)
+      dh.push('<span class="cc-badge">NO DEFENSIBLE ALPHA &mdash; HONEST SCIENTIFIC NULL</span>');
+    if (ad.best_challenger)
+      dh.push(chip('Best challenger', (ad.best_challenger.candidate_id || '—'), 'muted'));
+    _setHtml('rbridge-discovery', dh.join(' '));
+  } else {
+    _setHtml('rbridge-discovery', 'No alpha-discovery evidence has been ingested yet.');
+  }
+
+  // Evidence (references canonical candidate evidence).
+  var ev = d.evidence;
+  if (ev) {
+    var camp = ev.campaign || {};
+    var eh = [];
+    eh.push(chip('Entrypoint', camp.entrypoint, 'muted'));
+    eh.push(chip('Experiments executed', camp.experiments_executed, 'muted'));
+    eh.push(chip('Terminal token', camp.terminal_token, 'muted'));
+    eh.push(chip('Candidate rows', (ev.candidate_evidence || []).length, 'muted'));
+    if (ev.data_gaps && ev.data_gaps.length)
+      eh.push(chip('Data gaps', ev.data_gaps.join(', '), 'manual'));
+    var lf = ev.operational_ledger_fingerprint || {};
+    if (lf.unchanged === true) eh.push('<span class="cc-badge safe">OPERATIONAL LEDGER UNCHANGED</span>');
+    _setHtml('rbridge-evidence', eh.join(' '));
+  } else {
+    _setHtml('rbridge-evidence', 'No research evidence has been ingested yet.');
+  }
+
+  // Re-assessment + governance.
+  var ra = d.reassessment || {};
+  var gv = d.governance || {};
+  var gh = [];
+  if (ra.verdict) gh.push(chip('Re-assessment verdict', ra.verdict,
+    (ra.verdict === 'CHALLENGER_MEETS_GATE_FOR_MANUAL_MODEL_REVIEW') ? 'manual' : 'muted'));
+  gh.push('<span class="cc-badge safe">CHAMPION UNCHANGED</span>');
+  gh.push('<span class="cc-badge">PROMOTION DISABLED</span>');
+  gh.push('<span class="cc-badge manual">MANUAL MODEL REVIEW REQUIRED</span>');
+  gh.push(chip('Gate owner', gv.gate_owner, 'muted'));
+  gh.push(chip('Queue owner', gv.queue_owner, 'muted'));
+  _setHtml('rbridge-governance', gh.join(' '));
+
+  // Detail (verbatim, read-only).
+  var detail = {
+    mandate: d.mandate, dispatch: d.dispatch, alpha_discovery: d.alpha_discovery,
+    reassessment: d.reassessment, evidence: d.evidence, envelope_id: d.envelope_id
+  };
+  try { _setHtml('rbridge-detail', escapeHtml(JSON.stringify(detail, null, 2))); }
+  catch (e) { _setHtml('rbridge-detail', '—'); }
+}
+window.renderResearchBridge = renderResearchBridge;
 
 // Phase 29J Slice 9 — Data Expansion Purchase-Gate (the ONE canonical loader).
 // It reads GET /v1/research/data-expansion and renders the Research & Audit panel.
