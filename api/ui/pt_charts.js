@@ -488,6 +488,279 @@
     render();
   };
 
+  /* ======================================================================== */
+  /* COMPACT SPARKLINE (market trend) with hover dot + guide + tooltip         */
+  /* cfg = { dates:[str], values:[num|null], color, height, valFmt(v),         */
+  /*         emptyMsg }. Renders backend observations VERBATIM; hover maps to   */
+  /* the NEAREST REAL observation only (no interpolation). The card-level click */
+  /* / keyboard affordance is wired by the caller (openMarketDetail).          */
+  /* ======================================================================== */
+  PTC.sparkline = function (container, cfg) {
+    if (typeof container === 'string') container = document.getElementById(container);
+    if (!container) return;
+    cfg = cfg || {};
+    var dates = cfg.dates || [];
+    var values = (cfg.values || []).map(function (v) { return isNum(v) ? Number(v) : null; });
+    var height = cfg.height || 40;
+    var color = cfg.color || PTC.COLORS.info;
+    var valFmt = cfg.valFmt || function (v) { return PTC.num(v, 2); };
+
+    function render() {
+      var fin = values.filter(isNum);
+      if (fin.length < 2) { empty(container, cfg.emptyMsg || '—'); return; }
+      var W = widthOf(container, cfg.fallbackWidth || 220), H = height;
+      var padX = 2, padY = 4;
+      var plotW = Math.max(10, W - padX * 2), plotH = Math.max(6, H - padY * 2);
+      var n = values.length;
+      var lo = Math.min.apply(null, fin), hi = Math.max.apply(null, fin);
+      if (hi === lo) { hi = lo + 1; lo = lo - 1; }
+      var xAt = function (i) { return padX + (n <= 1 ? plotW / 2 : i * plotW / (n - 1)); };
+      var yAt = function (v) { return padY + plotH * (1 - (v - lo) / (hi - lo)); };
+
+      var pts = [], first = null, last = null;
+      values.forEach(function (v, i) {
+        if (isNum(v)) { pts.push(xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1)); if (first == null) first = i; last = i; }
+      });
+      var svg = svgEl(W, H);
+      svg += '<polygon points="' + xAt(first).toFixed(1) + ',' + H + ' ' + pts.join(' ') + ' '
+        + xAt(last).toFixed(1) + ',' + H + '" fill="' + color + '" fill-opacity="0.12"/>';
+      svg += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + color
+        + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
+      svg += '<circle cx="' + xAt(last).toFixed(1) + '" cy="' + yAt(values[last]).toFixed(1)
+        + '" r="2.1" fill="' + color + '"/>';
+      // hover crosshair group (guide + dot), hidden until pointer enters.
+      svg += '<g class="ptc-spk-cross" style="display:none;">'
+        + '<line x1="0" y1="' + padY + '" x2="0" y2="' + (padY + plotH) + '" stroke="' + PTC.COLORS.crosshair
+        + '" stroke-width="1" stroke-dasharray="3,3"/>'
+        + '<circle r="2.8" fill="' + color + '" stroke="#0b1424" stroke-width="1.4" cx="-99" cy="-99"/></g>';
+      svg += '<rect class="ptc-spk-hit" x="0" y="0" width="' + W + '" height="' + H
+        + '" fill="transparent" style="cursor:pointer;"/>';
+      svg += '</svg>';
+      container.innerHTML = svg;
+
+      var svgNode = container.querySelector('svg');
+      var hit = container.querySelector('.ptc-spk-hit');
+      var cross = container.querySelector('.ptc-spk-cross');
+      var crossLine = cross.querySelector('line');
+      var dot = cross.querySelector('circle');
+
+      function nearestIdx(ev) {
+        var rect = svgNode.getBoundingClientRect();
+        var scale = W / (rect.width || W);
+        var xv = (ev.clientX - rect.left) * scale;
+        var frac = (xv - padX) / plotW;
+        var i = Math.round(frac * (n - 1));
+        i = Math.max(0, Math.min(n - 1, i));
+        // snap to the nearest REAL (non-null) observation — never interpolate.
+        if (!isNum(values[i])) {
+          var lo2 = i, hi2 = i;
+          while (lo2 >= 0 && !isNum(values[lo2])) lo2--;
+          while (hi2 < n && !isNum(values[hi2])) hi2++;
+          if (lo2 < 0) i = hi2; else if (hi2 >= n) i = lo2;
+          else i = (i - lo2 <= hi2 - i) ? lo2 : hi2;
+        }
+        return i;
+      }
+      function move(ev) {
+        var i = nearestIdx(ev);
+        if (!isNum(values[i])) return;
+        var cx = xAt(i);
+        cross.style.display = '';
+        crossLine.setAttribute('x1', cx.toFixed(1));
+        crossLine.setAttribute('x2', cx.toFixed(1));
+        dot.setAttribute('cx', cx.toFixed(1));
+        dot.setAttribute('cy', yAt(values[i]).toFixed(1));
+        // change from the previous REAL observation (no fabricated deltas).
+        var prev = null;
+        for (var j = i - 1; j >= 0; j--) { if (isNum(values[j])) { prev = values[j]; break; } }
+        var rows = '<div style="display:flex;justify-content:space-between;gap:14px;">'
+          + '<span>' + PTC.swatch(color) + 'Value</span>'
+          + '<span style="font-variant-numeric:tabular-nums;font-weight:700;">' + esc(valFmt(values[i])) + '</span></div>';
+        if (prev != null) {
+          var d = values[i] - prev;
+          var dc = d > 0 ? PTC.COLORS.pos : (d < 0 ? PTC.COLORS.neg : PTC.COLORS.muted);
+          rows += '<div style="display:flex;justify-content:space-between;gap:14px;">'
+            + '<span style="color:' + PTC.COLORS.muted + ';">Change</span>'
+            + '<span style="font-variant-numeric:tabular-nums;font-weight:700;color:' + dc + ';">'
+            + (d >= 0 ? '+' : '−') + esc(valFmt(Math.abs(d))) + '</span></div>';
+        }
+        var html = '<div style="font-weight:800;margin-bottom:4px;">' + esc(PTC.shortDate(dates[i])) + '</div>' + rows;
+        showTip(html, ev.clientX, ev.clientY);
+      }
+      hit.addEventListener('pointermove', move);
+      hit.addEventListener('pointerenter', move);
+      hit.addEventListener('pointerleave', function () { cross.style.display = 'none'; hideTip(); });
+    }
+    register(container, render);
+    render();
+  };
+
+  /* ======================================================================== */
+  /* SHARED MARKET DETAIL — one reusable drawer/dialog for ALL instruments     */
+  /* Opens over the current page (does NOT navigate away). Fetches the read-only */
+  /* GET /v1/market/history owner and renders it with PTC.timeSeries (the SAME  */
+  /* crosshair/tooltip machinery the Portfolio charts use). 30D/90D/1Y windows; */
+  /* honest "unavailable" state; provider + as-of + reference disclaimer.       */
+  /* Accessible: role=dialog, Escape, focus trap + restore, no alert/confirm.   */
+  /* ======================================================================== */
+  PTC.marketFetch = null;               // host sets this to an authenticated GET(path)->Promise(json)
+  function _mfetch(path) {
+    if (typeof PTC.marketFetch === 'function') { try { return Promise.resolve(PTC.marketFetch(path)); } catch (e) {} }
+    return fetch(path).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+  }
+  function _mdStyle() {
+    if (document.getElementById('ptc-md-style')) return;
+    var s = document.createElement('style');
+    s.id = 'ptc-md-style';
+    s.textContent =
+      '.ptc-md-backdrop{position:fixed;inset:0;z-index:100000;display:none;background:rgba(4,9,20,.62);'
+      + 'backdrop-filter:blur(2px);align-items:center;justify-content:center;padding:24px;}'
+      + '.ptc-md-backdrop.open{display:flex;}'
+      + '.ptc-md{background:#0e1626;border:1px solid #2c4a78;border-radius:10px;width:min(760px,96vw);'
+      + 'max-height:92vh;overflow:auto;box-shadow:0 18px 60px rgba(0,0,0,.6);color:#e6edf7;}'
+      + '.ptc-md-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px 6px;}'
+      + '.ptc-md-title{font-size:17px;font-weight:800;letter-spacing:.01em;}'
+      + '.ptc-md-sub{font-size:12px;margin-top:3px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;}'
+      + '.ptc-md-value{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;}'
+      + '.ptc-md-change{font-weight:800;font-variant-numeric:tabular-nums;}'
+      + '.ptc-md-change.pos{color:#22c55e;}.ptc-md-change.neg{color:#ef4444;}.ptc-md-change.neutral{color:#9fb0c0;}'
+      + '.ptc-md-asof{color:#8aa0c0;font-weight:600;}'
+      + '.ptc-md-actions{display:flex;align-items:center;gap:10px;}'
+      + '.ptc-md-windows{display:inline-flex;border:1px solid #2c4a78;border-radius:6px;overflow:hidden;}'
+      + '.ptc-md-windows button{background:transparent;border:0;color:#a8b8d8;font:700 11px/1 Segoe UI,sans-serif;'
+      + 'padding:6px 10px;cursor:pointer;letter-spacing:.04em;}'
+      + '.ptc-md-windows button+button{border-left:1px solid #2c4a78;}'
+      + '.ptc-md-windows button.active{background:rgba(59,130,246,.22);color:#e8eefc;}'
+      + '.ptc-md-close{background:transparent;border:1px solid #2c4a78;border-radius:6px;color:#a8b8d8;'
+      + 'font-size:14px;line-height:1;padding:6px 9px;cursor:pointer;}'
+      + '.ptc-md-close:hover{color:#e8eefc;border-color:#3b82f6;}'
+      + '.ptc-md-windows button:focus-visible,.ptc-md-close:focus-visible{outline:2px solid #3b82f6;outline-offset:1px;}'
+      + '.ptc-md-chart{padding:6px 12px 2px;min-height:180px;}'
+      + '.ptc-md-meta{padding:2px 16px 6px;font-size:11px;color:#8aa0c0;display:flex;gap:12px;flex-wrap:wrap;}'
+      + '.ptc-md-disc{padding:0 16px 14px;font-size:9px;letter-spacing:.06em;color:#7a8fb0;text-transform:uppercase;font-weight:700;}';
+    document.head.appendChild(s);
+  }
+  var _md = { el: null, prevFocus: null, key: null, opts: null, window: '90D', onKey: null };
+  function _mdEnsure() {
+    _mdStyle();
+    if (_md.el) return _md.el;
+    var wrap = document.createElement('div');
+    wrap.className = 'ptc-md-backdrop';
+    wrap.id = 'ptc-market-modal';
+    wrap.innerHTML =
+      '<div class="ptc-md" role="dialog" aria-modal="true" aria-labelledby="ptc-md-title">'
+      + '<div class="ptc-md-hd"><div>'
+      + '<div class="ptc-md-title" id="ptc-md-title">Market Detail</div>'
+      + '<div class="ptc-md-sub"><span class="ptc-md-value" id="ptc-md-value">—</span>'
+      + '<span class="ptc-md-change" id="ptc-md-change"></span>'
+      + '<span class="ptc-md-asof" id="ptc-md-asof"></span></div></div>'
+      + '<div class="ptc-md-actions"><div class="ptc-md-windows" role="group" aria-label="Time window">'
+      + '<button type="button" data-win="30D">30D</button>'
+      + '<button type="button" data-win="90D">90D</button>'
+      + '<button type="button" data-win="1Y">1Y</button></div>'
+      + '<button type="button" class="ptc-md-close" id="ptc-md-close" aria-label="Close Market Detail">✕</button>'
+      + '</div></div>'
+      + '<div class="ptc-md-chart" id="ptc-md-chart"></div>'
+      + '<div class="ptc-md-meta" id="ptc-md-meta"></div>'
+      + '<div class="ptc-md-disc">Reference only — not a signal or recommendation.</div>'
+      + '</div>';
+    document.body.appendChild(wrap);
+    _md.el = wrap;
+    wrap.addEventListener('mousedown', function (ev) { if (ev.target === wrap) PTC.closeMarketDetail(); });
+    wrap.querySelector('#ptc-md-close').addEventListener('click', PTC.closeMarketDetail);
+    Array.prototype.forEach.call(wrap.querySelectorAll('.ptc-md-windows button'), function (b) {
+      b.addEventListener('click', function () { _mdSetWindow(b.getAttribute('data-win')); });
+    });
+    return wrap;
+  }
+  function _mdSetWindow(win) {
+    _md.window = win;
+    Array.prototype.forEach.call(_md.el.querySelectorAll('.ptc-md-windows button'), function (b) {
+      var on = b.getAttribute('data-win') === win;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    _mdLoad();
+  }
+  function _mdLoad() {
+    var chart = _md.el.querySelector('#ptc-md-chart');
+    var meta = _md.el.querySelector('#ptc-md-meta');
+    var fmt = (_md.opts && _md.opts.fmt) || function (v) { return PTC.num(v, 2); };
+    empty(chart, 'Loading…');
+    meta.textContent = '';
+    var reqKey = _md.key, reqWin = _md.window;
+    _mfetch('/v1/market/history?key=' + encodeURIComponent(reqKey) + '&window=' + encodeURIComponent(reqWin))
+      .then(function (d) {
+        if (_md.key !== reqKey || _md.window !== reqWin) return;  // superseded
+        if (!d || d.status !== 'ok' || !d.available || !(d.points || []).length) {
+          empty(chart, (d && d.reason) || 'Historical series unavailable for this window.');
+          _mdHeader(null, fmt);
+          meta.innerHTML = (d && d.source_label)
+            ? esc('Source: ' + d.source_label) : 'No authoritative history for this window.';
+          return;
+        }
+        _mdHeader(d, fmt);
+        var dates = d.points.map(function (p) { return p.date; });
+        var vals = d.points.map(function (p) { return p.close; });
+        PTC.timeSeries(chart, {
+          height: 200, dates: dates,
+          yFmt: function (x) { return fmt(x); }, valFmt: function (x) { return fmt(x); },
+          series: [{ name: d.label || reqKey, color: PTC.COLORS.book, fill: true, values: vals }]
+        });
+        var bits = [];
+        if (d.source_label) bits.push('Source: ' + d.source_label);
+        if (d.as_of) bits.push('Latest observation ' + PTC.shortDate(d.as_of));
+        bits.push(d.points.length + ' observations');
+        meta.innerHTML = bits.map(function (b) { return '<span>' + esc(b) + '</span>'; }).join('');
+      });
+  }
+  function _mdHeader(d, fmt) {
+    var valEl = _md.el.querySelector('#ptc-md-value');
+    var chgEl = _md.el.querySelector('#ptc-md-change');
+    var asofEl = _md.el.querySelector('#ptc-md-asof');
+    if (!d) { valEl.textContent = '—'; chgEl.textContent = ''; asofEl.textContent = ''; return; }
+    valEl.textContent = (d.last_close != null) ? fmt(d.last_close) : '—';
+    if (d.change != null) {
+      var c = Number(d.change);
+      var cls = c > 0 ? 'pos' : (c < 0 ? 'neg' : 'neutral');
+      var arrow = c > 0 ? '▲' : (c < 0 ? '▼' : '●');
+      var pct = (d.change_pct != null) ? ' (' + (Number(d.change_pct) >= 0 ? '+' : '') + Number(d.change_pct).toFixed(2) + '%)' : '';
+      chgEl.className = 'ptc-md-change ' + cls;
+      chgEl.textContent = arrow + ' ' + (c >= 0 ? '+' : '−') + fmt(Math.abs(c)) + pct;
+    } else { chgEl.textContent = ''; }
+    asofEl.textContent = d.as_of ? ('as-of ' + PTC.shortDate(d.as_of)) : '';
+  }
+  function _mdTrapFocus(ev) {
+    if (ev.key === 'Escape') { ev.preventDefault(); PTC.closeMarketDetail(); return; }
+    if (ev.key !== 'Tab') return;
+    var f = _md.el.querySelectorAll('button');
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+  }
+  PTC.openMarketDetail = function (key, opts) {
+    if (!key) return;
+    _mdEnsure();
+    _md.key = String(key); _md.opts = opts || {};
+    _md.window = (opts && opts.window) || '90D';
+    _md.prevFocus = document.activeElement;
+    _md.el.querySelector('#ptc-md-title').textContent = (opts && opts.label) || String(key);
+    _md.el.classList.add('open');
+    _md.onKey = _mdTrapFocus;
+    document.addEventListener('keydown', _md.onKey, true);
+    try { _md.el.querySelector('#ptc-md-close').focus(); } catch (e) {}
+    _mdSetWindow(_md.window);
+  };
+  PTC.closeMarketDetail = function () {
+    if (!_md.el) return;
+    _md.el.classList.remove('open');
+    hideTip();
+    if (_md.onKey) { document.removeEventListener('keydown', _md.onKey, true); _md.onKey = null; }
+    try { if (_md.prevFocus && _md.prevFocus.focus) _md.prevFocus.focus(); } catch (e) {}
+    _md.key = null;
+  };
+
   /* ---- drill-down: open the dedicated detail view in a new tab/window ----- */
   PTC.detailBase = 'analytics.html';   // resolved relative to /ui/
   PTC.openDetail = function (chartKey, params) {

@@ -717,6 +717,48 @@ class MarketContextResponse(BaseModel):
     automation_enabled: bool = False
 
 
+# --- Market Interaction UX: read-only per-instrument market HISTORY (drill-down) ---
+# One shared Market Detail drill-down owner. It reuses the EXACT same authoritative
+# sources already behind /v1/market/indicators and /v1/market/context — yfinance
+# (`fetch_historical_prices`) for equities/FX/commodities and FRED (`_fred_history`,
+# the range variant of the existing `_batch_fred_with_prior` owner) for rates / the
+# USD Broad index. No new provider, no market math beyond first/last/change framing,
+# NEVER a signal / forecast / recommendation / order / automation surface. Windows are
+# only reported when authoritative data supports them; missing history degrades to an
+# explicit unavailable state (no fabricated observations).
+class MarketHistoryResponse(BaseModel):
+    status: str
+    key: str
+    label: str | None = None
+    symbol: str | None = None
+    source: str | None = None
+    source_label: str | None = None
+    window: str
+    lookback_days: int
+    available: bool
+    points: list[MarketTrendPoint] = []
+    first_close: float | None = None
+    last_close: float | None = None
+    change: float | None = None
+    change_pct: float | None = None
+    as_of: str | None = None
+    reason: str | None = None
+    disclaimer: str = (
+        "Descriptive historical series derived from observed prices/rates only. "
+        "Reference only — not a signal, forecast, or recommendation."
+    )
+    # Safety contract (mirrors the read-only posture of every operator surface).
+    read_only: bool = True
+    reference_only: bool = True
+    is_signal: bool = False
+    is_prediction: bool = False
+    is_recommendation: bool = False
+    creates_orders: bool = False
+    creates_signals: bool = False
+    mutates_state: bool = False
+    automation_enabled: bool = False
+
+
 class StrategyRunRequest(BaseModel):
     idempotency_key: str
     market_date: date | None = Field(
@@ -18519,6 +18561,184 @@ def get_market_context(lookback_days: int = 30) -> MarketContextResponse:
         regime=regime,
     )
     _MARKET_CONTEXT_CACHE[lookback] = (time.time(), payload)
+    return payload
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/market/history — read-only per-instrument drill-down series
+# --------------------------------------------------------------------------- #
+# Supported instruments and their canonical owner. yfinance instruments reuse
+# `fetch_historical_prices`; FRED instruments reuse the FRED integration through the
+# `_fred_history` range helper. This is the SAME set of authoritative sources already
+# behind /v1/market/indicators and /v1/market/context — no new provider is introduced.
+_MARKET_HISTORY_YF: dict[str, tuple[str, str]] = {
+    "sp500": ("S&P 500", "^GSPC"),
+    "nasdaq": ("Nasdaq", "^IXIC"),
+    "dow": ("Dow", "^DJI"),
+    "vix": ("VIX", "^VIX"),
+    "eurusd": ("EUR/USD", "EURUSD=X"),
+    "gold": ("Gold", "GC=F"),
+    "brent": ("Brent", "BZ=F"),
+    "wti": ("WTI Crude", "CL=F"),
+}
+_MARKET_HISTORY_FRED: dict[str, tuple[str, str]] = {
+    "us10y": ("US 10Y", "DGS10"),
+    "us2y": ("US 2Y", "DGS2"),
+    "usd_broad": ("USD Broad", "DTWEXBGS"),
+}
+_MARKET_HISTORY_WINDOWS: dict[str, int] = {"30D": 30, "90D": 90, "1Y": 365}
+
+# Small in-process TTL cache so repeated window toggles do not re-download history.
+_MARKET_HISTORY_CACHE: dict[tuple[str, str], tuple[float, "MarketHistoryResponse"]] = {}
+_MARKET_HISTORY_TTL_SECONDS = 300.0
+
+
+def _fred_history(
+    series_id: str, start_date: date, end_date: date, api_key: str | None
+) -> list[dict]:
+    """Fetch a FRED observation series over a date range (ascending).
+
+    Range variant of `_batch_fred_with_prior`, reusing the SAME owned FRED integration
+    and stdlib urllib (no new dependency, no new provider). Returns
+    [{date: 'YYYY-MM-DD', close: float}, ...]. Gracefully returns [] on missing key,
+    network error, or no valid observations — never raises, never fabricates a value.
+    """
+    if not api_key:
+        return []
+    import json as _json
+    import urllib.parse as _urlparse
+    import urllib.request as _urlreq
+    try:
+        params = _urlparse.urlencode({
+            "series_id": series_id,
+            "api_key": api_key,
+            "file_type": "json",
+            "observation_start": start_date.isoformat(),
+            "observation_end": end_date.isoformat(),
+            "sort_order": "asc",
+        })
+        url = f"https://api.stlouisfed.org/fred/series/observations?{params}"
+        req = _urlreq.Request(url)
+        with _urlreq.urlopen(req, timeout=12) as resp:
+            payload = _json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return []
+    points: list[dict] = []
+    for obs in payload.get("observations", []):
+        val_str = obs.get("value", ".")
+        if not val_str or val_str == ".":
+            continue
+        try:
+            points.append({"date": obs.get("date", "")[:10], "close": round(float(val_str), 6)})
+        except (ValueError, TypeError):
+            continue
+    return points
+
+
+@app.get(
+    "/v1/market/history",
+    response_model=MarketHistoryResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def get_market_history(key: str, window: str = "90D") -> MarketHistoryResponse:
+    """Read-only per-instrument historical series for the shared Market Detail view.
+
+    Reuses the exact authoritative owners already behind /v1/market/indicators and
+    /v1/market/context — yfinance (`fetch_historical_prices`) and FRED (`_fred_history`)
+    — for the supported Market Context instruments. Every value is an observed price/rate;
+    this endpoint performs no signal/forecast/recommendation math and never writes state,
+    creates orders, or runs automation. Windows (30D/90D/1Y) are only populated when
+    authoritative data supports them; missing history returns available=False with an
+    explicit reason (no fabricated observations). Fails gracefully per instrument.
+    """
+    import time
+    from datetime import timedelta
+
+    win = (window or "90D").upper()
+    if win not in _MARKET_HISTORY_WINDOWS:
+        win = "90D"
+    lookback = _MARKET_HISTORY_WINDOWS[win]
+    ikey = (key or "").strip().lower()
+
+    cache_key = (ikey, win)
+    cached = _MARKET_HISTORY_CACHE.get(cache_key)
+    if cached is not None:
+        ts, payload = cached
+        if (time.time() - ts) < _MARKET_HISTORY_TTL_SECONDS:
+            return payload
+
+    end = datetime.now(timezone.utc).date()
+
+    def _unavailable(reason: str, label=None, symbol=None, source=None, source_label=None):
+        return MarketHistoryResponse(
+            status="unavailable", key=ikey, label=label, symbol=symbol,
+            source=source, source_label=source_label, window=win, lookback_days=lookback,
+            available=False, points=[], reason=reason,
+        )
+
+    points: list[MarketTrendPoint] = []
+    if ikey in _MARKET_HISTORY_YF:
+        label, symbol = _MARKET_HISTORY_YF[ikey]
+        source, source_label = "yfinance", "Yahoo Finance"
+        start = end - timedelta(days=lookback + 12)  # weekend/holiday slack
+        try:
+            series_map, _failures = fetch_historical_prices([symbol], start, end)
+        except Exception:
+            series_map = {}
+        raw = series_map.get(symbol) or series_map.get(symbol.upper()) or []
+        cutoff = (end - timedelta(days=lookback)).isoformat()
+        for item in raw:
+            try:
+                md = item["market_date"]
+                d = md.isoformat() if hasattr(md, "isoformat") else str(md)
+                if d < cutoff:
+                    continue
+                points.append(MarketTrendPoint(date=d, close=round(float(item["price"]), 4)))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if not points:
+            payload = _unavailable(
+                "Historical series unavailable for this window.",
+                label=label, symbol=symbol, source=source, source_label=source_label)
+            _MARKET_HISTORY_CACHE[cache_key] = (time.time(), payload)
+            return payload
+    elif ikey in _MARKET_HISTORY_FRED:
+        label, series_id = _MARKET_HISTORY_FRED[ikey]
+        source, source_label, symbol = "fred", "FRED (Federal Reserve)", series_id
+        start = end - timedelta(days=lookback)
+        raw = _fred_history(series_id, start, end, get_settings().fred_api_key)
+        for r in raw:
+            try:
+                points.append(MarketTrendPoint(date=r["date"], close=float(r["close"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if not points:
+            reason = ("FRED API key missing." if not get_settings().fred_api_key
+                      else "Historical series unavailable for this window.")
+            payload = _unavailable(
+                reason, label=label, symbol=series_id, source=source, source_label=source_label)
+            _MARKET_HISTORY_CACHE[cache_key] = (time.time(), payload)
+            return payload
+    else:
+        payload = _unavailable("Unsupported instrument.")
+        _MARKET_HISTORY_CACHE[cache_key] = (time.time(), payload)
+        return payload
+
+    first_c = points[0].close
+    last_c = points[-1].close
+    prev_c = points[-2].close if len(points) >= 2 else None
+    change = round(last_c - prev_c, 6) if prev_c is not None else None
+    change_pct = round((last_c - prev_c) / prev_c * 100.0, 6) if prev_c else None
+
+    payload = MarketHistoryResponse(
+        status="ok", key=ikey, label=label, symbol=symbol,
+        source=source, source_label=source_label, window=win, lookback_days=lookback,
+        available=True, points=points,
+        first_close=first_c, last_close=last_c, change=change, change_pct=change_pct,
+        as_of=points[-1].date,
+    )
+    _MARKET_HISTORY_CACHE[cache_key] = (time.time(), payload)
     return payload
 
 

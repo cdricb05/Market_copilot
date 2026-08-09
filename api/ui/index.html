@@ -1384,13 +1384,26 @@
       background: rgba(34,197,94,.05);
     }
     .ov-market-card.available .ov-mkt-value { color: var(--text-primary); }
+    /* Clickable tiles → shared Market Detail. Pointer affordance + visible focus. */
+    .ov-market-card.mkt-clickable { cursor: pointer; position: relative; transition: border-color .12s, transform .12s, box-shadow .12s; }
+    .ov-market-card.mkt-clickable:hover { border-color: var(--info, #3b82f6); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+    .ov-market-card.mkt-clickable:focus-visible { outline: 2px solid var(--info, #3b82f6); outline-offset: 2px; }
+    .ov-market-card.mkt-clickable::after {
+      content: "\2922"; position: absolute; top: 8px; right: 9px; font-size: 11px;
+      color: var(--text-accent, #8aa0c8); opacity: 0; transition: opacity .12s;
+    }
+    .ov-market-card.mkt-clickable:hover::after,
+    .ov-market-card.mkt-clickable:focus-visible::after { opacity: .85; }
+    /* Instrument identity is now immediately scannable (larger, heavier, higher contrast),
+       clearly separated from the value while the value stays prominent. */
     .ov-mkt-label {
-      font-size: 10px;
+      font-size: 13px;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--label);
-      font-weight: 600;
-      margin-bottom: 4px;
+      letter-spacing: 0.04em;
+      color: var(--text-primary, #e8eefc);
+      font-weight: 800;
+      margin-bottom: 6px;
+      line-height: 1.15;
     }
     .ov-mkt-value {
       font-size: 18px;
@@ -1673,6 +1686,26 @@
     .pt-nav a { font-size: var(--fs-0, 10px); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-accent, #8aa0c8); padding: 4px 10px; border: 1px solid var(--cc-border, #243b63); border-radius: var(--r-2, 5px); cursor: pointer; background: var(--cc-panel, rgba(255,255,255,.03)); }
     .pt-nav a:hover { color: var(--text-primary, #e8eefc); border-color: var(--info, #3b82f6); }
     .pt-nav a.active { color: var(--text-primary, #e8eefc); border-color: var(--info, #3b82f6); background: rgba(59,130,246,.12); }
+    /* Research nav consolidation: primary items stay inline; the expert/technical
+       surfaces collapse under one "Advanced Research" disclosure (default closed).
+       The links keep their existing ids/data-rasub/handlers, so every deep link and
+       highlight still resolves — this only changes DOM grouping + visibility. */
+    .ra-advanced { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    /* Setting display on <details> overrides the UA collapse, so hide the child links
+       explicitly when closed; they reappear (as wrapping pills) only when expanded. */
+    .ra-advanced:not([open]) > a { display: none; }
+    .ra-advanced[open] { flex-basis: 100%; margin-top: 2px; padding: 4px; border: 1px dashed var(--cc-border, #243b63); border-radius: var(--r-2, 5px); }
+    .ra-advanced > summary { list-style: none; font-size: var(--fs-0, 10px); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-accent, #8aa0c8); padding: 4px 10px; border: 1px solid var(--cc-border, #243b63); border-radius: var(--r-2, 5px); cursor: pointer; background: var(--cc-panel, rgba(255,255,255,.03)); user-select: none; }
+    .ra-advanced > summary::-webkit-details-marker { display: none; }
+    .ra-advanced > summary::before { content: '▸'; margin-right: 5px; display: inline-block; transition: transform .15s; }
+    .ra-advanced[open] > summary::before { transform: rotate(90deg); }
+    .ra-advanced > summary:hover { color: var(--text-primary, #e8eefc); border-color: var(--info, #3b82f6); }
+    .ra-advanced > summary:focus-visible { outline: 2px solid var(--info, #3b82f6); outline-offset: 1px; }
+    /* Compact read-only Research Bridge status strip on the Research Agent view. */
+    #rag-bridge-strip { border: 1px solid var(--border, #2a3550); border-left: 3px solid var(--info, #3b82f6); border-radius: 8px; padding: 8px 12px; margin: 0 0 10px; }
+    .rag-bridge-hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+    .rag-bridge-title { font-weight: 800; font-size: 12px; letter-spacing: .02em; }
+    .rag-bridge-chips { display: flex; gap: 5px; flex-wrap: wrap; }
     .pt-advanced-details { margin-top: 12px; border: 1px solid var(--cc-border, #243b63); border-radius: var(--r-2, 5px); }
     .pt-advanced-summary { cursor: pointer; padding: 10px 14px; font-size: var(--fs-1, 11px); font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--text-secondary, #a8b8d8); list-style: none; display: flex; align-items: center; gap: 8px; }
     .pt-advanced-summary::-webkit-details-marker { display: none; }
@@ -1727,21 +1760,36 @@
     /* --- trend sparkline cards (Today) --- */
     .va-spark-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;}
     .va-spark-card{background:var(--cc-elevated,#16223f);border:1px solid var(--cc-border-soft,rgba(122,143,176,.16));border-radius:6px;padding:7px 9px;min-width:0;}
+    /* Interactive (clickable → shared Market Detail) trend cards. */
+    .va-spark-card.va-spark-click{cursor:pointer;transition:border-color .12s,transform .12s,background .12s;}
+    .va-spark-card.va-spark-click:hover{border-color:var(--info,#3b82f6);transform:translateY(-1px);background:rgba(59,130,246,.06);}
+    .va-spark-card.va-spark-click:focus-visible{outline:2px solid var(--info,#3b82f6);outline-offset:2px;}
+    .va-spark-expand{opacity:.55;font-weight:700;margin-left:4px;}
+    .va-spark-card.va-spark-click:hover .va-spark-expand{opacity:1;}
+    .va-spark-line{width:100%;height:38px;display:block;margin:3px 0 2px;}
     .va-spark-top{display:flex;justify-content:space-between;align-items:baseline;gap:6px;}
     .va-spark-lab{font-size:10px;font-weight:700;letter-spacing:.03em;color:var(--text-accent,#a8b8d8);text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .va-spark-val{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--text-primary,#e0e0ff);}
     .va-spark-svg{width:100%;height:34px;display:block;margin:3px 0 2px;}
     .va-spark-foot{display:flex;justify-content:space-between;font-size:9px;color:var(--label,#7a8fb0);font-variant-numeric:tabular-nums;}
-    /* --- regime tiles --- */
+    /* --- regime tiles: ONE deterministic semantic-state color system --- */
     .va-regime-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;}
     .va-regime-tile{background:var(--cc-elevated,#16223f);border:1px solid var(--cc-border-soft,rgba(122,143,176,.16));border-left:3px solid var(--cc-text-dim,#6a7fa0);border-radius:6px;padding:7px 10px;}
-    .va-regime-tile.up{border-left-color:var(--ok,#22c55e);}
-    .va-regime-tile.down{border-left-color:var(--danger,#ef4444);}
-    .va-regime-tile.warn{border-left-color:var(--warning,#f59e0b);}
+    .va-regime-tile.up{border-left-color:var(--ok,#22c55e);}          /* UP */
+    .va-regime-tile.down{border-left-color:var(--danger,#ef4444);}    /* DOWN */
+    .va-regime-tile.warn{border-left-color:var(--warning,#f59e0b);}   /* HIGH / ELEVATED / INVERTED */
+    .va-regime-tile.cool{border-left-color:#22d3ee;}                  /* LOW */
+    .va-regime-tile.info{border-left-color:#3b82f6;}                  /* NORMAL / MODERATE */
+    .va-regime-tile.neutral{border-left-color:#6a7fa0;}              /* FLAT / MIXED / USD_* */
     .va-regime-tile.na{border-left-color:var(--cc-text-dim,#6a7fa0);opacity:.7;}
     .va-regime-hd{display:flex;align-items:center;gap:6px;}
     .va-regime-lab{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text-accent,#a8b8d8);}
-    .va-regime-tone{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.02em;}
+    .va-regime-tone{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.02em;display:inline-flex;align-items:center;gap:5px;}
+    .va-tone-dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block;flex:0 0 auto;}
+    .va-tone-up{color:var(--ok,#22c55e);} .va-tone-down{color:var(--danger,#ef4444);}
+    .va-tone-warn{color:var(--warning,#f59e0b);} .va-tone-cool{color:#22d3ee;}
+    .va-tone-info{color:#3b82f6;} .va-tone-neutral{color:var(--label,#9fb0c0);}
+    .va-tone-na{color:var(--cc-text-dim,#6a7fa0);}
     .va-regime-detail{font-size:11px;color:var(--label,#9fb0c0);margin-top:3px;line-height:1.4;}
     /* --- KPI stat tiles --- */
     .va-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;}
@@ -2200,27 +2248,27 @@
               <div class="ov-mkt-group">
                 <div class="ov-mkt-group-label">Equity</div>
                 <div class="ov-mkt-group-cards">
-                  <div class="ov-market-card" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="sp500"><div class="ov-mkt-label">S&amp;P 500</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="nasdaq"><div class="ov-mkt-label">Nasdaq</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="dow"><div class="ov-mkt-label">Dow</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="vix"><div class="ov-mkt-label">VIX</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
                 </div>
               </div>
               <div class="ov-mkt-group">
                 <div class="ov-mkt-group-label">FX &amp; Commodities</div>
                 <div class="ov-mkt-group-cards">
-                  <div class="ov-market-card" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="wti"><div class="ov-mkt-label">WTI Crude</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="eurusd"><div class="ov-mkt-label">EUR/USD</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="gold"><div class="ov-mkt-label">Gold</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="wti"><div class="ov-mkt-label">WTI Crude</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="brent"><div class="ov-mkt-label">Brent</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
                 </div>
               </div>
               <div class="ov-mkt-group rates-group">
                 <div class="ov-mkt-group-label">Rates &amp; Dollar</div>
                 <div class="ov-mkt-group-cards">
-                  <div class="ov-market-card" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
-                  <div class="ov-market-card" data-key="usd_broad"><div class="ov-mkt-label">USD Broad</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="us10y"><div class="ov-mkt-label">US 10Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="us2y"><div class="ov-mkt-label">US 2Y</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
+                  <div class="ov-market-card mkt-clickable" data-key="usd_broad"><div class="ov-mkt-label">USD Broad</div><div class="ov-mkt-value">&mdash;</div><div class="ov-mkt-change neutral"></div><div class="ov-mkt-badge pending">LOADING</div><div class="ov-mkt-status">loading&hellip;</div><div class="ov-mkt-compare-date"></div></div>
                 </div>
               </div>
             </div>
@@ -3721,11 +3769,21 @@
              Performance / Daily Operations / Paper Books are first-class sections;
              raw candidate tables, decision-gate detail and archived research live under
              Diagnostics & Archive. -->
+        <!-- Research navigation consolidation: five primary operator choices —
+             Overview, Research Agent, Performance, Data Expansion and one collapsed
+             "Advanced Research" disclosure holding the expert/technical surfaces. Every
+             link keeps its exact id / data-rasub / navigateToRoute handler, so
+             _raHighlightNav, _raApplySection and every existing deep link resolve
+             unchanged. Nothing is deleted; Research Bridge is DEMOTED here (its authoritative
+             state is summarized on the Research Agent view) but remains fully reachable. -->
         <div class="pt-nav" id="ra-nav" role="navigation" aria-label="Research and audit sections">
-          <a id="ra-nav-overview" data-rasub="" onclick="navigateToRoute('research-audit')" title="Champion identity, current mark, decision">Champion Overview</a>
+          <a id="ra-nav-overview" data-rasub="" onclick="navigateToRoute('research-audit')" title="Champion Overview — champion identity, current mark, decision">Overview</a>
           <a id="ra-nav-research-agent" data-rasub="research-agent" onclick="navigateToRoute('research-audit/research-agent')" title="Persistent Alpha Research Agent (Slice 8, Milestone 4): is the current research/model stack still trustworthy? Evidence sufficiency, champion-health components, model-degradation categories, HOC/reallocation feedback, challenger classification, recalibration recommendation and a ranked queue of bounded research opportunities. Research governance only — read-only, manual review, no model promotion, no portfolio mutation, no orders, automation off.">Research Agent</a>
-          <a id="ra-nav-research-bridge" data-rasub="research-bridge" onclick="navigateToRoute('research-audit/research-bridge')" title="Controlled Autonomous Research Execution Bridge: the Research Agent commissions BOUNDED research from the existing AlphaAgent research lab (queue + tournament + gates). Triggering research opportunity, the controlled research mandate (hypothesis families, 1/5/20/63-session horizons, experiment budget, dispatch identity, lifecycle), alpha-discovery status (candidates tested / KEEP / rejected / DATA_HOLD / FDR survivors / best challenger / NO_DEFENSIBLE_ALPHA), evidence and governance. Research governance only — read-only, manual model review, no model promotion, no portfolio mutation, no orders, automation off.">Research Bridge</a>
           <a id="ra-nav-performance" data-rasub="performance" onclick="navigateToRoute('research-audit/performance')" title="Top25 / Top50 / SPY performance + historical evidence">Performance</a>
+          <a id="ra-nav-data-expansion" data-rasub="data-expansion" onclick="navigateToRoute('research-audit/data-expansion')" title="Data Expansion Purchase-Gate (Slice 9, Milestone 5): is an external dataset worth acquiring / integrating? Sixteen-dimension gate — point-in-time integrity, historical depth, inactive/delisted coverage, universe breadth, effective sample, revision history, freshness, identifiers, survivorship risk, restatement/backfill, licensing, cost, incremental information, measured lift, implementation complexity, operational reliability — with blockers, gaps and one explicit recommendation. Research governance only — read-only, manual purchase approval, no auto-purchase, no provider activation, no portfolio mutation, automation off.">Data Expansion</a>
+          <details id="ra-advanced" class="ra-advanced">
+            <summary title="Advanced / expert research surfaces — Research Bridge, Daily Operations, Paper Books, Revalidation, Tournament, Alpha Factory, Price Alpha Lab, Alpha Agent Observatory, Stage 11 / 12 / 13A and Diagnostics &amp; Archive. Collapsed by default; nothing here is deleted and every deep link still resolves.">Advanced Research</summary>
+          <a id="ra-nav-research-bridge" data-rasub="research-bridge" onclick="navigateToRoute('research-audit/research-bridge')" title="Controlled Autonomous Research Execution Bridge: the Research Agent commissions BOUNDED research from the existing AlphaAgent research lab (queue + tournament + gates). Triggering research opportunity, the controlled research mandate (hypothesis families, 1/5/20/63-session horizons, experiment budget, dispatch identity, lifecycle), alpha-discovery status (candidates tested / KEEP / rejected / DATA_HOLD / FDR survivors / best challenger / NO_DEFENSIBLE_ALPHA), evidence and governance. Research governance only — read-only, manual model review, no model promotion, no portfolio mutation, no orders, automation off.">Research Bridge</a>
           <a id="ra-nav-daily-operations" data-rasub="daily-operations" onclick="navigateToRoute('research-audit/daily-operations')" title="Current mark, action counts, rebalance simulator">Daily Operations</a>
           <a id="ra-nav-paper-books" data-rasub="paper-books" onclick="navigateToRoute('research-audit/paper-books')" title="Active paper book, coverage, PnL history">Paper Books</a>
           <a id="ra-nav-revalidation" data-rasub="revalidation" onclick="navigateToRoute('research-audit/revalidation')" title="Sector-repaired revalidation: champion vs repaired challenger, side-by-side metrics">Revalidation</a>
@@ -3736,8 +3794,8 @@
           <a id="ra-nav-stage11" data-rasub="stage11" onclick="navigateToRoute('research-audit/stage11')" title="Stage 11 Multi-Factor Research: signal factory, two-stage funnel, multiple-testing/FDR, orthogonal ensembles and the SHADOW-ONLY portfolio. Read-only, research use only, no orders, no automatic promotion.">Stage 11 Multi-Factor</a>
           <a id="ra-nav-stage12" data-rasub="stage12" onclick="navigateToRoute('research-audit/stage12')" title="Stage 12 Alpha Failure Autopsy &amp; Event-Driven Discovery: Stage 11 failure taxonomy, effective-hypothesis-count, owned-data power inventory, sample-power, a frozen pre-registered hypothesis registry, and the focused tournament. Read-only, research only, no live broker orders, no auto-promotion.">Stage 12 Autopsy</a>
           <a id="ra-nav-stage13a" data-rasub="stage13a" onclick="navigateToRoute('research-audit/stage13a')" title="Stage 13A Analyst-Revision Data Purchase-Evaluation Framework: provider-neutral normalized contract, point-in-time integrity, frozen 6-hypothesis registry, adequacy gate, power/confidence model, cost and purchase gate, and vendor comparison. Research only, no purchase executed, manual approval required, no auto-promotion.">Stage 13A Revisions</a>
-          <a id="ra-nav-data-expansion" data-rasub="data-expansion" onclick="navigateToRoute('research-audit/data-expansion')" title="Data Expansion Purchase-Gate (Slice 9, Milestone 5): is an external dataset worth acquiring / integrating? Sixteen-dimension gate — point-in-time integrity, historical depth, inactive/delisted coverage, universe breadth, effective sample, revision history, freshness, identifiers, survivorship risk, restatement/backfill, licensing, cost, incremental information, measured lift, implementation complexity, operational reliability — with blockers, gaps and one explicit recommendation. Research governance only — read-only, manual purchase approval, no auto-purchase, no provider activation, no portfolio mutation, automation off.">Data Expansion</a>
           <a id="ra-nav-diagnostics" data-rasub="diagnostics" onclick="navigateToRoute('research-audit/diagnostics')" title="Candidate tables, decision-gate detail, archived research">Diagnostics &amp; Archive</a>
+          </details>
         </div>
         <!-- One page-level safety strip for the Research & Audit workspace. -->
         <div class="ra-safety-strip" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px;">
@@ -3779,6 +3837,18 @@
           </div>
 
           <div id="rag-note" style="font-size:12px;margin:0 0 10px;color:var(--muted,#8b98b0);">Loading the read-only research-agent assessment&hellip;</div>
+
+          <!-- Compact read-only Research Bridge status. Research Bridge is demoted from
+               top-level navigation; the operator understands its authoritative state THROUGH
+               the Research Agent view here — is research warranted, is a mandate active, is
+               AlphaAgent researching, what did it conclude, is manual review required — with a
+               deep-link to the full bridge detail. Filled from the SAME immutable bridge read
+               model (window._researchBridgeData); no bridge calculation runs in the browser. -->
+          <div id="rag-bridge-strip">
+            <div class="rag-bridge-hd"><span class="rag-bridge-title">Research Bridge</span>
+              <span class="cc-badge muted">RESEARCH GOVERNANCE ONLY</span></div>
+            <div class="rag-bridge-chips" id="rag-bridge-chips"><span class="cc-badge muted">Loading bridge status&hellip;</span></div>
+          </div>
 
           <!-- State summary + champion + evidence sufficiency. -->
           <div id="rag-summary" style="font-size:12px;margin:0 0 12px;">&mdash;</div>
@@ -6474,6 +6544,9 @@ window._switchTab = function(tabName, opts) {
     // Phase 29J.2: restore the Market Trend sparklines + descriptive regime block
     // (async, non-blocking; GET /v1/market/context only; degrades to UNAVAILABLE).
     try { if (typeof loadMarketContext === 'function') loadMarketContext(); } catch (e) {}
+    // Market Interaction UX: make the Market Context tiles clickable (delegated; attaches
+    // once) so any supported tile opens the ONE shared read-only Market Detail drill-down.
+    try { if (typeof _initMarketTileClicks === 'function') _initMarketTileClicks(); } catch (e) {}
   }
 
   // Phase 14-A/B: connected detail sections must render their real (empty/loaded)
@@ -22991,6 +23064,13 @@ function _raHighlightNav(sub) {
     if ((a.getAttribute('data-rasub') || '') === (sub || '')) a.classList.add('active');
     else a.classList.remove('active');
   });
+  // Auto-reveal the collapsed "Advanced Research" disclosure when a deep link lands on
+  // one of the demoted expert surfaces, so the active item is always visible.
+  var adv = document.getElementById('ra-advanced');
+  if (adv) {
+    var primarySubs = ['', 'research-agent', 'performance', 'data-expansion'];
+    if (sub && primarySubs.indexOf(sub) === -1) adv.open = true;
+  }
 }
 window._raHighlightNav = _raHighlightNav;
 function _raApplySection(sub) {
@@ -23026,7 +23106,7 @@ window._raApplySection = _raApplySection;
 // Best-effort, read-only data load for the active Research & Audit section.
 function _raLoadSection(sub) {
   var loaders = {
-    'research-agent': ['loadResearchAgent'],
+    'research-agent': ['loadResearchAgent', 'loadResearchBridge'],
     'research-bridge': ['loadResearchBridge'],
     'performance': ['loadPaperPerformanceHistory'],
     'daily-operations': ['loadDailyAlphaStatus'],
@@ -25505,7 +25585,42 @@ function _rbridgeStateBadge(state) {
   return '<span class="cc-badge ' + cls + '">' + escapeHtml(state || '—') + '</span>';
 }
 
+// Compact read-only Research Bridge status for the Research Agent view. Answers the five
+// operator questions (research warranted? mandate active? AlphaAgent researching? concluded?
+// manual review required?) from the SAME immutable bridge read model, with a deep-link to the
+// full bridge detail. No bridge calculation runs in the browser — it only selects fields.
+function _renderRagBridgeStrip(d) {
+  var el = document.getElementById('rag-bridge-chips'); if (!el) return;
+  function chip(label, val, cls) {
+    return '<span class="cc-badge ' + (cls || 'muted') + '" title="' + escapeHtml(label) + '">'
+      + escapeHtml(label) + ': ' + escapeHtml(val == null ? '—' : String(val)) + '</span>';
+  }
+  if (!d) { el.innerHTML = chip('Bridge', 'UNAVAILABLE', 'manual'); return; }
+  var state = d.state || 'UNAVAILABLE';
+  var opp = d.research_opportunity || {};
+  var m = d.mandate || {};
+  var ad = d.alpha_discovery || {};
+  var counts = ad.counts || {};
+  var warranted = opp.opportunity_id ? 'Yes'
+    : ((state === 'NOT_RUN' || state === 'NO_DISPATCHABLE_OPPORTUNITY') ? 'No' : '—');
+  var mandate = m.mandate_id ? (m.lifecycle_state || 'ACTIVE') : '—';
+  var researching = (state === 'DISPATCHED' || state === 'IN_PROGRESS') ? 'Yes'
+    : (state === 'COMPLETED' ? 'Complete' : state);
+  var concluded = ad.outcome ? ad.outcome : (ad.no_defensible_alpha ? 'NO DEFENSIBLE ALPHA' : '—');
+  var manual = (ad.outcome === 'READY_FOR_MANUAL_REVIEW'
+    || (counts.manual_review_eligible != null && counts.manual_review_eligible > 0)) ? 'Required' : '—';
+  el.innerHTML =
+    chip('Research warranted', warranted, warranted === 'Yes' ? 'manual' : 'muted')
+    + chip('Mandate', mandate, m.mandate_id ? 'manual' : 'muted')
+    + chip('AlphaAgent', researching, researching === 'Yes' ? 'manual' : (researching === 'Complete' ? 'safe' : 'muted'))
+    + chip('Concluded', concluded, ad.outcome === 'READY_FOR_MANUAL_REVIEW' ? 'manual' : 'muted')
+    + chip('Manual review', manual, manual === 'Required' ? 'manual' : 'muted')
+    + ' <button class="btn-sm" style="margin-left:4px;" onclick="navigateToRoute(\'research-audit/research-bridge\')" title="Open the full Controlled Autonomous Research Execution Bridge detail (read-only).">Open Research Bridge &rarr;</button>';
+}
+window._renderRagBridgeStrip = _renderRagBridgeStrip;
+
 function renderResearchBridge(d) {
+  try { _renderRagBridgeStrip(d); } catch (e) {}   // keep the Research Agent bridge strip in sync
   function chip(label, val, cls) {
     return '<span class="cc-badge ' + (cls || 'muted') + '" title="' + escapeHtml(label)
       + '">' + escapeHtml(label) + ': ' + escapeHtml(val == null ? '—' : String(val)) + '</span>';
@@ -29473,14 +29588,76 @@ function _vaToneText(tone) {
   if (tone === 'USD_WEAKER') return 'USD weaker';
   return String(tone || '').replace(/_/g, ' ');
 }
-function _vaRegimeCls(tone, avail) {
-  if (!avail) return 'na';
-  if (tone === 'UP') return 'up';
-  if (tone === 'DOWN') return 'down';
-  if (tone === 'INVERTED' || tone === 'ELEVATED' || tone === 'HIGH') return 'warn';
-  return '';
+// ONE deterministic semantic-state mapping for every ACTUAL regime tone. It drives the
+// tile accent, the tone badge color and the state dot with the SAME class. Unknown tones
+// are NEVER green — they degrade to neutral. Descriptive text stays neutral/readable.
+function _regimeSemantic(tone, avail) {
+  if (!avail || tone === 'UNAVAILABLE') return 'na';
+  switch (tone) {
+    case 'UP': return 'up';                                  // green
+    case 'DOWN': return 'down';                              // red
+    case 'HIGH': case 'ELEVATED': case 'INVERTED': return 'warn';   // amber
+    case 'LOW': return 'cool';                               // cyan
+    case 'NORMAL': case 'MODERATE': return 'info';           // blue
+    case 'FLAT': case 'MIXED':
+    case 'USD_STRONGER': case 'USD_WEAKER': return 'neutral'; // gray (descriptive, non-valenced)
+    default: return 'neutral';                               // unknown → neutral, never green
+  }
 }
-function _vaToneColor(tone) { return tone === 'UP' ? 'va-pos' : (tone === 'DOWN' ? 'va-neg' : 'va-flat'); }
+// Per-instrument value formatter shared by the trend sparklines, the tiles and the
+// Market Detail drill-down. Pure formatting — the browser performs no market math.
+function _mktFmt(key) {
+  return function (v) {
+    if (v == null || !isFinite(Number(v))) return '—';
+    v = Number(v);
+    if (key === 'eurusd') return v.toFixed(4);
+    if (key === 'vix') return v.toFixed(2);
+    if (key === 'gold' || key === 'brent' || key === 'wti')
+      return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (key === 'us10y' || key === 'us2y') return v.toFixed(2) + '%';
+    if (key === 'usd_broad') return v.toFixed(2);
+    return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  };
+}
+// Open the ONE shared Market Detail drill-down for a clickable card/tile element.
+function _openMarketDetailFromEl(el) {
+  if (!el || typeof PTC === 'undefined' || !PTC.openMarketDetail) return;
+  if (typeof PTC.marketFetch !== 'function') { try { PTC.marketFetch = _mhzGet; } catch (e) {} }
+  var key = el.getAttribute('data-mkey') || el.getAttribute('data-key');
+  if (!key) return;
+  var lab = el.getAttribute('data-mlabel');
+  if (!lab) { var l = el.querySelector('.ov-mkt-label'); lab = l ? l.textContent.trim() : key; }
+  PTC.openMarketDetail(key, { label: lab, fmt: _mktFmt(key) });
+}
+window._openMarketDetailFromEl = _openMarketDetailFromEl;
+// Delegated click/keyboard wiring for the static Market Context tiles. Attaches ONCE and
+// gives each clickable tile an explicit accessible name. Read-only: opens Market Detail.
+function _initMarketTileClicks() {
+  var host = document.getElementById('cc-market-context'); if (!host) return;
+  Array.prototype.forEach.call(host.querySelectorAll('.ov-market-card.mkt-clickable'), function (card) {
+    // Give each clickable tile its button role, keyboard focusability and an explicit
+    // accessible name (kept in JS so the static tile markup stays compact).
+    card.setAttribute('role', 'button');
+    if (!card.hasAttribute('tabindex')) card.setAttribute('tabindex', '0');
+    if (card.getAttribute('aria-label')) return;
+    var l = card.querySelector('.ov-mkt-label');
+    var name = l ? l.textContent.trim() : (card.getAttribute('data-key') || 'instrument');
+    card.setAttribute('aria-label', name + ' — open Market Detail');
+    card.setAttribute('title', 'Open Market Detail for ' + name);
+  });
+  if (host.__mktWired) return;
+  host.__mktWired = true;
+  host.addEventListener('click', function (ev) {
+    var c = ev.target.closest ? ev.target.closest('.ov-market-card.mkt-clickable') : null;
+    if (c) _openMarketDetailFromEl(c);
+  });
+  host.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+    var c = ev.target.closest ? ev.target.closest('.ov-market-card.mkt-clickable') : null;
+    if (c) { ev.preventDefault(); _openMarketDetailFromEl(c); }
+  });
+}
+window._initMarketTileClicks = _initMarketTileClicks;
 function renderMarketContext(d) {
   var wrap = document.getElementById('cc-market-visuals'); if (!wrap) return;
   if (!d || d.status !== 'ok') { wrap.style.display = 'none'; return; }
@@ -29490,29 +29667,66 @@ function renderMarketContext(d) {
   var st = document.getElementById('cc-mv-status');
   if (st) st.textContent = okc + ' of ' + hist.length + ' series · as-of ' + _vaShortDate(d.as_of);
   var lb = document.getElementById('cc-mv-lookback'); if (lb) lb.textContent = (d.lookback_days || 30) + 'D';
-  _vaSet('cc-mv-spark-grid', hist.map(function (h) {
-    var vals = (h.points || []).map(function (p) { return p.close; });
-    if (h.available && vals.length) {
-      var chg = h.change_pct_window;
-      var chgCls = (chg == null) ? 'va-flat' : (chg > 0 ? 'va-pos' : (chg < 0 ? 'va-neg' : 'va-flat'));
-      return '<div class="va-spark-card">'
-        + '<div class="va-spark-top"><span class="va-spark-lab">' + escapeHtml(h.label) + '</span><span class="va-spark-val">' + _vaSparkVal(h) + '</span></div>'
-        + _vaSparkSvg(vals, { color: _VAC.info })
-        + '<div class="va-spark-foot"><span>' + escapeHtml(_vaShortDate((h.points[0] || {}).date)) + '</span>'
-        + '<span class="' + chgCls + '">' + _vaPct(chg, 1) + '</span></div></div>';
-    }
-    return '<div class="va-spark-card"><div class="va-spark-top"><span class="va-spark-lab">' + escapeHtml(h.label)
-      + '</span><span class="va-spark-val" style="font-size:11px;color:var(--label);">Unavailable</span></div>'
-      + '<div class="va-empty" style="height:34px;">no history</div></div>';
-  }).join(''));
+  renderMarketTrendGrid(hist);
   _vaSet('cc-mv-regime', (d.regime || []).map(function (r) {
-    return '<div class="va-regime-tile ' + _vaRegimeCls(r.tone, r.available) + '">'
+    var sem = _regimeSemantic(r.tone, r.available);
+    return '<div class="va-regime-tile ' + sem + '">'
       + '<div class="va-regime-hd"><span class="va-regime-lab">' + escapeHtml(r.label) + '</span>'
-      + '<span class="va-regime-tone ' + _vaToneColor(r.tone) + '">' + _vaToneArrow(r.tone) + ' ' + escapeHtml(_vaToneText(r.tone)) + '</span></div>'
+      + '<span class="va-regime-tone va-tone-' + sem + '"><span class="va-tone-dot"></span>'
+      + _vaToneArrow(r.tone) + ' ' + escapeHtml(_vaToneText(r.tone)) + '</span></div>'
       + '<div class="va-regime-detail">' + escapeHtml(r.detail || '') + '</div></div>';
   }).join(''));
   var dc = document.getElementById('cc-mv-disclaimer'); if (dc) dc.textContent = d.disclaimer || '';
 }
+
+/* Interactive Market Trend grid: each available series is an interactive sparkline
+   (hover dot + guide + tooltip via the SHARED PTC owner, no interpolation) and the whole
+   card opens the ONE shared Market Detail drill-down. Backend series rendered VERBATIM. */
+function renderMarketTrendGrid(hist) {
+  var grid = document.getElementById('cc-mv-spark-grid'); if (!grid) return;
+  var hasPTC = (typeof PTC !== 'undefined');
+  grid.innerHTML = (hist || []).map(function (h) {
+    if (h.available && (h.points || []).length) {
+      var chg = h.change_pct_window;
+      var chgCls = (chg == null) ? 'va-flat' : (chg > 0 ? 'va-pos' : (chg < 0 ? 'va-neg' : 'va-flat'));
+      return '<div class="va-spark-card va-spark-click" role="button" tabindex="0"'
+        + ' data-mkey="' + escapeHtml(h.key) + '" data-mlabel="' + escapeHtml(h.label) + '"'
+        + ' aria-label="' + escapeHtml(h.label) + ' — open Market Detail"'
+        + ' title="Open Market Detail for ' + escapeHtml(h.label) + '">'
+        + '<div class="va-spark-top"><span class="va-spark-lab">' + escapeHtml(h.label) + '</span>'
+        + '<span class="va-spark-val">' + _vaSparkVal(h) + '</span></div>'
+        + '<div class="va-spark-line" id="cc-spk-' + escapeHtml(h.key) + '"></div>'
+        + '<div class="va-spark-foot"><span>' + escapeHtml(_vaShortDate((h.points[0] || {}).date)) + '</span>'
+        + '<span class="' + chgCls + '">' + _vaPct(chg, 1) + '<span class="va-spark-expand" aria-hidden="true"> ⤢</span></span></div></div>';
+    }
+    return '<div class="va-spark-card"><div class="va-spark-top"><span class="va-spark-lab">' + escapeHtml(h.label)
+      + '</span><span class="va-spark-val" style="font-size:11px;color:var(--label);">Unavailable</span></div>'
+      + '<div class="va-empty" style="height:34px;">no history</div></div>';
+  }).join('');
+  if (hasPTC) {
+    (hist || []).forEach(function (h) {
+      if (!(h.available && (h.points || []).length)) return;
+      PTC.sparkline('cc-spk-' + h.key, {
+        dates: h.points.map(function (p) { return p.date; }),
+        values: h.points.map(function (p) { return p.close; }),
+        color: '#3b82f6', height: 38, valFmt: _mktFmt(h.key)
+      });
+    });
+  }
+  if (!grid.__mktWired) {
+    grid.__mktWired = true;
+    grid.addEventListener('click', function (ev) {
+      var c = ev.target.closest ? ev.target.closest('.va-spark-click') : null;
+      if (c) _openMarketDetailFromEl(c);
+    });
+    grid.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      var c = ev.target.closest ? ev.target.closest('.va-spark-click') : null;
+      if (c) { ev.preventDefault(); _openMarketDetailFromEl(c); }
+    });
+  }
+}
+window.renderMarketTrendGrid = renderMarketTrendGrid;
 
 /* ---- Portfolio: interactive analytics grid (Phase 29J.3) ------------------- */
 /* ONE read-only /v1/portfolio/analytics payload drives six interactive charts,
