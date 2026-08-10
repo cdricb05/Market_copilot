@@ -159,8 +159,15 @@ def test_holding_review_is_review_only_no_fake_approve(ui):
 
 def test_proposed_portfolio_is_review_only_no_apply(ui):
     view = _region(ui, "function renderProposedPortfolioView(d)", "window.renderProposedPortfolioView")
-    assert "REVIEW ONLY" in view
-    assert "no confirmation" in view
+    # Operator-clarity polish (final tranche): the review-only safety context is ONE quiet
+    # chip in the dedicated hero (informational, not a CTA). The render function no longer
+    # paints a second, large REVIEW ONLY status pill that duplicated it, so the header shows
+    # exactly one review-only treatment.
+    tab = _region(ui, 'id="tab-proposed-portfolio"', 'id="tab-multi-horizon"')
+    assert tab.count("REVIEW ONLY") == 1
+    assert "NO ORDERS" in tab
+    # the render function must not repaint the duplicate large status pill.
+    assert "'REVIEW ONLY'; stateEl.className = 'opx-state ok'" not in view
     # the five-part story
     for section in ("What would change", "Why", "What it would cost",
                     "What we don", "What the portfolio would look like"):

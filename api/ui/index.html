@@ -3819,9 +3819,11 @@
           <div class="opx-hero-row">
             <h1 class="opx-title">Proposed Portfolio</h1>
             <span class="opx-hero-badges">
-              <span class="cc-badge safe">REVIEW ONLY</span>
-              <span class="cc-badge">NO ORDERS</span>
-              <span class="opx-state muted" id="pp-state">&mdash;</span>
+              <!-- Operator-clarity polish: ONE quiet review-only safety chip (informational,
+                   not a CTA). The large #pp-state status pill is shown only for real
+                   non-proposal states (UNAVAILABLE / NO PROPOSAL YET), never as a duplicate. -->
+              <span class="cc-badge safe" title="Informational only &mdash; manual review, no orders, no confirmation.">REVIEW ONLY &middot; NO ORDERS</span>
+              <span class="opx-state muted" id="pp-state" style="display:none;">&mdash;</span>
             </span>
           </div>
           <div class="opx-summary" id="pp-summary">Loading the reallocation proposal&hellip;</div>
@@ -25948,7 +25950,7 @@ function renderProposedPortfolioView(d) {
   var body = document.getElementById('pp-body');
   if (!body) return;
   if (!d) {
-    if (stateEl) { stateEl.textContent = 'UNAVAILABLE'; stateEl.className = 'opx-state muted'; }
+    if (stateEl) { stateEl.style.display = ''; stateEl.textContent = 'UNAVAILABLE'; stateEl.className = 'opx-state muted'; }
     if (sumEl) sumEl.textContent = 'The reallocation proposal is currently unavailable.';
     body.innerHTML = '';
     return;
@@ -25958,7 +25960,7 @@ function renderProposedPortfolioView(d) {
   var signal = d.signal || {}, risk = d.risk || {}, allocations = d.allocations || [];
   var hasProposal = !!(d.artifact || d.proposal_hash || (allocations && allocations.length));
   if (!hasProposal) {
-    if (stateEl) { stateEl.textContent = (state === 'NOT_RUN') ? 'NO PROPOSAL YET' : state; stateEl.className = 'opx-state muted'; }
+    if (stateEl) { stateEl.style.display = ''; stateEl.textContent = (state === 'NOT_RUN') ? 'NO PROPOSAL YET' : state; stateEl.className = 'opx-state muted'; }
     if (sumEl) sumEl.textContent = (state === 'NOT_RUN')
       ? 'No reallocation proposal yet. The first proposal is produced by the next completed Daily Research Cycle. Read-only — no orders.'
       : ('Reallocation proposal state: ' + state + '.');
@@ -25966,11 +25968,12 @@ function renderProposedPortfolioView(d) {
     return;
   }
 
-  if (stateEl) { stateEl.textContent = 'REVIEW ONLY'; stateEl.className = 'opx-state ok'; }
+  // Operator-clarity polish: the safety context is the ONE quiet hero chip; do not paint a
+  // second, large "REVIEW ONLY" status pill that duplicated it and read like a CTA.
+  if (stateEl) { stateEl.style.display = 'none'; }
   if (sumEl) {
     sumEl.innerHTML = '<b>' + (portfolio.proposed_holding_count != null ? portfolio.proposed_holding_count : '—')
-      + ' proposed holdings</b> &nbsp;&mdash;&nbsp; as of ' + escapeHtml(d.eligible_market_date || '—')
-      + ' · review-only, manual review · no orders, no confirmation.';
+      + ' proposed holdings</b> &middot; as of ' + escapeHtml(d.eligible_market_date || '—');
   }
 
   var html = '';
@@ -26028,7 +26031,12 @@ function renderProposedPortfolioView(d) {
     +   _hrMetric('Sector concentration', _ppArrow(_opxPct(risk.sector_concentration_before, 1), _opxPct(risk.sector_concentration_after, 1)))
     + '</div>'
     + '<details style="margin-top:14px;"><summary class="opx-section-title" style="cursor:pointer;list-style:none;">'
-    + 'Full proposed allocation (' + allocations.length + ' rows)</summary>'
+    + 'Allocation transition &mdash; ' + allocations.length + ' rows</summary>'
+    // The detail is the transition/change ledger, NOT the final target: rows include the
+    // carried/current, added, increased, reduced and exited names. The final target count is
+    // the canonical positive-weight proposed_holding_count (e.g. 25), never allocations.length.
+    + '<div style="margin:8px 0 0; font-size:11px; color:var(--label);">Includes current, added, increased, reduced, and exited positions &mdash; not the final '
+    +   (portfolio.proposed_holding_count != null ? portfolio.proposed_holding_count : '—') + '-holding target.</div>'
     + '<div style="margin-top:12px;">' + _ppAllocTable(allocations) + '</div></details></div>';
 
   body.innerHTML = html;
@@ -26999,11 +27007,31 @@ function _wsBannerHtml(d) {
     'REVIEW_HOLDING_OPPORTUNITY_COST': { label: 'View holding changes', route: 'holding-review' },
     'REVIEW_REALLOCATION_PROPOSAL': { label: 'View proposed portfolio', route: 'proposed-portfolio' }
   };
+  // Operator-clarity polish (final tranche): future-action presentation. When the canonical
+  // primary action is a no-op (monitor / wait, nothing executable), a queued FUTURE action
+  // that is ITSELF not executable must read as what comes NEXT, never a clickable CTA. The
+  // timing phrase is read from the canonical primary action_code (never client dates).
+  var _wsUpNextLabel = {
+    'RUN_PORTFOLIO_REASSESSMENT': 'Portfolio reassessment',
+    'RUN_RESEARCH_CYCLE': 'Daily Research Cycle',
+    'RUN_DAILY_CLOSE': 'Daily Close'
+  };
+  var _wsWhenNext = (pa.action_code === 'WAIT_FOR_SESSION_CLOSE') ? 'After session close'
+    : (pa.action_code === 'MONITOR_PORTFOLIO') ? 'After the next eligible session'
+    : '';
+  var upNext = [];
   var chips = (d.queued_actions || []).map(function (q) {
     var fm = _wsReviewMap[q.action_code];
     // Density dedup: in a no-action state the OPTIONAL review analyses appear once, adjacent
     // in the Today hero — the right rail / banners must not duplicate those optional links.
     if (fm && _wsNoAction) return '';
+    // Passive future action: in a no-op state a non-executable queued item is shown under
+    // "Up next" (not a chip) so it never reads as a click-now CTA. execution_available===true
+    // queued items keep their chip (a genuinely executable action may still be surfaced).
+    if (_wsNoAction && !fm && q.execution_available !== true) {
+      upNext.push(_wsUpNextLabel[q.action_code] || q.label);
+      return '';
+    }
     var qLabel = fm ? fm.label : q.label;
     var qRoute = fm ? fm.route : _wsRoute(q.destination, q.focus);
     var qCur = qRoute ? 'cursor:pointer;' : '';
@@ -27012,6 +27040,15 @@ function _wsBannerHtml(d) {
       : '';
     return '<span' + qAct + ' style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; padding:1px 7px; margin:2px 3px 0 0;' + qCur + '">' + _wsEsc(qLabel) + '</span>';
   }).join('');
+  // Passive "Up next" block — muted, non-clickable; the operator reads it as what comes next.
+  var upNextHtml = upNext.length
+    ? '<div style="margin-top:5px; display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;">'
+      + '<span style="font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--label);">Up next</span>'
+      + '<span style="font-size:10px; color:var(--text-secondary);">'
+      +   (_wsWhenNext ? (_wsEsc(_wsWhenNext) + ' &middot; ') : '')
+      +   upNext.map(function (t) { return _wsEsc(t); }).join(' &middot; ')
+      + '</span></div>'
+    : '';
   var btn = (pa.destination && !_wsNoAction)
     ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(_wsRoute(pa.destination, pa.focus)) + '\');">' + _wsEsc(pa.label) + '</button>'
     : '';
@@ -27028,6 +27065,7 @@ function _wsBannerHtml(d) {
     +   ' &middot; Evidence: ' + _wsEsc(ev.gap_severity || '—') + (ev.documented_gap ? ' (gap)' : '')
     + '</div>'
     + (chips ? '<div style="margin-top:4px;">' + chips + '</div>' : '')
+    + upNextHtml
     + btn;
 }
 // Fan the ONE payload out to every primary surface + the Action/Safety panel.
