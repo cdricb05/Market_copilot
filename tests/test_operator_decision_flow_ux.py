@@ -86,7 +86,9 @@ def test_today_hero_owned_by_canonical_renderer(ui):
     assert "function _wsRenderTodayHero(d)" in ui
     # rendered from the ONE canonical renderWorkflowState (call site present).
     assert "try { _wsRenderTodayHero(d); } catch (e) {}" in ui
-    assert "YOU'RE ALL SET" in ui
+    # Adaptive-density refinement: the routine no-action confirmation uses quiet Title
+    # Case ("You're all set") in the COMPACT hero rather than a shouting all-caps banner.
+    assert "You&rsquo;re all set" in ui
 
 
 def test_hero_no_action_keys_off_canonical_state_not_dates(ui):

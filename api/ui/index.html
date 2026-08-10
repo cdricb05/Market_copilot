@@ -1897,6 +1897,30 @@
     .th-link:hover{border-color:var(--info,#3b82f6);background:rgba(59,130,246,.08);}
     .th-link .t{font-size:13px;font-weight:800;color:var(--text-primary,#e0e0ff);}
     .th-link .d{font-size:11px;color:var(--label,#7a8fb0);}
+    /* -- Today hero: ADAPTIVE DENSITY (density scales with urgency).
+       Compact confirmation strip for a no-action / optional-review state; the
+       expanded markup above is used only when a real action / blocker exists. -- */
+    .today-hero.th-compact{padding:14px 20px;border-left-width:3px;
+      background:linear-gradient(180deg,rgba(22,34,63,.32),rgba(16,26,52,.20));}
+    .thc-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+    .thc-check{flex:0 0 auto;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,.16);
+      color:var(--ok,#22c55e);display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;line-height:1;}
+    .thc-lead{display:flex;flex-direction:column;gap:2px;min-width:190px;}
+    .thc-title{font-size:23px;font-weight:800;letter-spacing:.005em;line-height:1.12;color:var(--text-primary,#e0e0ff);}
+    .thc-sub{font-size:12.5px;color:var(--label,#7a8fb0);line-height:1.4;}
+    .thc-meta{display:flex;gap:30px;flex-wrap:wrap;margin-left:auto;}
+    .thc-mi{display:flex;flex-direction:column;gap:2px;}
+    .thc-mi .k{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--label,#7a8fb0);}
+    .thc-mi .v{font-size:13px;font-weight:700;color:var(--text-primary,#e0e0ff);}
+    .thc-links{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:10px;
+      border-top:1px solid rgba(255,255,255,.06);}
+    .thc-links-lab{font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--label,#7a8fb0);}
+    .thc-link{font-size:12.5px;font-weight:700;color:var(--text-accent,#a8b8d8);text-decoration:none;cursor:pointer;
+      display:inline-flex;align-items:center;gap:5px;}
+    .thc-link:hover{color:var(--info,#3b82f6);}
+    .thc-link .arw{color:var(--label,#7a8fb0);font-weight:800;}
+    @media (max-width:1180px){ .thc-meta{margin-left:0;width:100%;gap:24px;} }
+    @media (max-width:1040px){ .thc-title{font-size:20px;} .today-hero.th-compact{padding:13px 16px;} }
     /* -- Consolidated safety chrome -- */
     .safety-line{font-size:11px;color:var(--label,#7a8fb0);letter-spacing:.02em;}
     .safety-line b{color:var(--text-accent,#a8b8d8);font-weight:700;}
@@ -25594,44 +25618,85 @@ function _wsRenderTodayHero(d) {
   var pa = d.primary_action;
   var cs = d.current_session || {};
   var sev = pa.severity;
-  // A genuine no-action state: monitor / wait, and nothing is executable.
+  // A genuine no-action state: monitor / wait, and nothing is executable (canonical —
+  // never client dates). This ALSO sets the density: the less the operator must do, the
+  // less space the status consumes. noAction -> COMPACT; every real action -> EXPANDED.
   var noAction = (pa.execution_available !== true)
     && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE');
 
-  var stateClass, mark, stateText, ctaClass;
-  if (noAction) {
-    stateClass = 'state-ok'; mark = '✓'; stateText = "YOU'RE ALL SET"; ctaClass = 'ok';
-  } else if (sev === 'BLOCKED' || sev === 'ERROR') {
-    stateClass = 'state-danger'; mark = '⚠'; stateText = 'NEEDS ATTENTION'; ctaClass = 'danger';
-  } else if (sev === 'ATTENTION') {
-    stateClass = 'state-warn'; mark = '●'; stateText = '1 ACTION NEEDS YOUR ATTENTION'; ctaClass = 'warn';
-  } else {
-    stateClass = 'state-info'; mark = '●'; stateText = _wsEsc(d.headline || 'IN PROGRESS'); ctaClass = '';
-  }
-
-  var sub = noAction
-    ? 'The portfolio is being monitored. No action is required right now.'
-    : (pa.explanation || pa.label || d.current_task || '');
+  // Secondary, OPTIONAL analyses (review-only, non-required) from queued actions — the
+  // same map in both densities; presence is what distinguishes NO_ACTION from REVIEW_AVAILABLE.
+  var reviewMap = {
+    'REVIEW_HOLDING_OPPORTUNITY_COST': { route: 'holding-review', t: 'View holding changes', d: 'Per-holding recommendations' },
+    'REVIEW_REALLOCATION_PROPOSAL': { route: 'proposed-portfolio', t: 'View proposed portfolio', d: 'A proposed target and its trade-offs' }
+  };
+  var reviews = (d.queued_actions || []).filter(function (q) { return reviewMap[q.action_code]; });
 
   var latest = cs.latest_eligible_completed_market_date || '—';
   var nextTxt = (pa.action_code === 'WAIT_FOR_SESSION_CLOSE')
     ? "after today's market session closes"
     : 'after the next eligible market session';
 
+  // The small canonical banner is redundant with the hero on Today — hide it here only.
+  var wfcc = document.getElementById('wf-cc');
+  if (wfcc) wfcc.style.display = 'none';
+
+  // ---- COMPACT mode (NO_ACTION / REVIEW_AVAILABLE): one quiet confirmation strip ----
+  if (noAction) {
+    var opStateC = reviews.length ? 'REVIEW_AVAILABLE' : 'NO_ACTION';
+    // Optional analyses become quiet inline text links — never a primary action; the right
+    // rail no longer repeats them (see _wsBannerHtml), so they appear exactly once here.
+    var linksHtml = '';
+    if (reviews.length) {
+      var clinks = reviews.map(function (q) {
+        var m = reviewMap[q.action_code];
+        return '<a class="thc-link" role="button" tabindex="0" title="' + _wsEsc(m.d)
+          + '" onclick="navigateToRoute(\'' + m.route + '\')">' + m.t + ' <span class="arw">&rarr;</span></a>';
+      }).join('');
+      // "optional" retained as a quiet, honest cue — these analyses are never required.
+      linksHtml = '<div class="thc-links"><span class="thc-links-lab">Optional</span>' + clinks + '</div>';
+    }
+    host.className = 'today-hero state-ok th-compact';
+    host.setAttribute('data-density', 'compact');
+    host.setAttribute('data-op-state', opStateC);
+    host.innerHTML = ''
+      + '<div class="thc-row">'
+      +   '<span class="thc-check" aria-hidden="true">&#10003;</span>'
+      +   '<div class="thc-lead">'
+      +     '<div class="thc-title">You&rsquo;re all set</div>'
+      +     '<div class="thc-sub">Portfolio monitoring is active &middot; No action required</div>'
+      +   '</div>'
+      +   '<div class="thc-meta">'
+      +     '<div class="thc-mi"><span class="k">Latest session</span><span class="v">' + _wsEsc(latest) + '</span></div>'
+      +     '<div class="thc-mi"><span class="k">Next reassessment</span><span class="v">' + _wsEsc(nextTxt) + '</span></div>'
+      +   '</div>'
+      + '</div>'
+      + linksHtml;
+    host.style.display = '';
+    return;
+  }
+
+  // ---- EXPANDED mode: a real action / blocker / in-progress state — density scales up ----
+  var stateClass, mark, stateText, ctaClass, opState;
+  if (sev === 'BLOCKED' || sev === 'ERROR') {
+    stateClass = 'state-danger'; mark = '⚠'; stateText = 'NEEDS ATTENTION'; ctaClass = 'danger'; opState = 'BLOCKED';
+  } else if (sev === 'ATTENTION') {
+    stateClass = 'state-warn'; mark = '●'; stateText = '1 ACTION NEEDS YOUR ATTENTION'; ctaClass = 'warn';
+    opState = (pa.action_code && /REVIEW/.test(pa.action_code)) ? 'REVIEW_REQUIRED' : 'ACTION_REQUIRED';
+  } else {
+    stateClass = 'state-info'; mark = '●'; stateText = _wsEsc(d.headline || 'IN PROGRESS'); ctaClass = '';
+    opState = (pa.action_code && /REVIEW/.test(pa.action_code)) ? 'REVIEW_REQUIRED' : 'ACTION_REQUIRED';
+  }
+  var sub = pa.explanation || pa.label || d.current_task || '';
+
   // Exactly one primary CTA — only when there is a real action.
   var ctaHtml = '';
-  if (!noAction && pa.destination) {
+  if (pa.destination) {
     var route = (window._wsRoute ? window._wsRoute(pa.destination, pa.focus) : pa.destination) || pa.destination;
     ctaHtml = '<button class="th-cta ' + ctaClass + '" onclick="navigateToRoute(\'' + _wsEsc(route)
       + '\')">' + _wsEsc(pa.label || 'Continue') + '</button>';
   }
 
-  // Secondary, OPTIONAL analyses (review-only, non-required) from queued actions.
-  var reviewMap = {
-    'REVIEW_HOLDING_OPPORTUNITY_COST': { route: 'holding-review', t: 'View holding changes', d: 'Per-holding recommendations' },
-    'REVIEW_REALLOCATION_PROPOSAL': { route: 'proposed-portfolio', t: 'View proposed portfolio', d: 'A proposed target and its trade-offs' }
-  };
-  var reviews = (d.queued_actions || []).filter(function (q) { return reviewMap[q.action_code]; });
   var secHtml = '';
   if (reviews.length) {
     var links = reviews.map(function (q) {
@@ -25645,7 +25710,9 @@ function _wsRenderTodayHero(d) {
       + '<div class="th-links">' + links + '</div></div>';
   }
 
-  host.className = 'today-hero ' + stateClass;
+  host.className = 'today-hero th-expanded ' + stateClass;
+  host.setAttribute('data-density', 'expanded');
+  host.setAttribute('data-op-state', opState);
   host.innerHTML = ''
     + '<div class="th-eyebrow">What needs your attention?</div>'
     + '<div class="th-headline"><span class="th-mark">' + mark + '</span><h1 class="th-state">' + stateText + '</h1></div>'
@@ -25657,9 +25724,6 @@ function _wsRenderTodayHero(d) {
     + (ctaHtml ? ('<div class="th-cta-row">' + ctaHtml + '</div>') : '')
     + secHtml;
   host.style.display = '';
-  // The small canonical banner is redundant with the hero on Today — hide it here only.
-  var wfcc = document.getElementById('wf-cc');
-  if (wfcc) wfcc.style.display = 'none';
 }
 window._wsRenderTodayHero = _wsRenderTodayHero;
 
@@ -26923,6 +26987,12 @@ function _wsBannerHtml(d) {
   var pas = d.portfolio_assessment_state || {};
   var ev = d.evidence_state || {};
   var sevc = _wsSevColor(pa.severity);
+  // Suppress a prominent action button when the canonical action is a no-op (monitor / wait,
+  // nothing executable) — the state pill + task line already say everything, and a green
+  // "Monitor the portfolio" button reads as a task to perform when there is nothing to do.
+  // The SAME no-op flag also drives the density dedup below.
+  var _wsNoAction = (pa.execution_available !== true)
+    && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE');
   // Operator Decision Flow: review-only follow-ups get a human label and open their
   // dedicated full-screen review experience; other queued items keep their canonical route.
   var _wsReviewMap = {
@@ -26931,6 +27001,9 @@ function _wsBannerHtml(d) {
   };
   var chips = (d.queued_actions || []).map(function (q) {
     var fm = _wsReviewMap[q.action_code];
+    // Density dedup: in a no-action state the OPTIONAL review analyses appear once, adjacent
+    // in the Today hero — the right rail / banners must not duplicate those optional links.
+    if (fm && _wsNoAction) return '';
     var qLabel = fm ? fm.label : q.label;
     var qRoute = fm ? fm.route : _wsRoute(q.destination, q.focus);
     var qCur = qRoute ? 'cursor:pointer;' : '';
@@ -26939,11 +27012,6 @@ function _wsBannerHtml(d) {
       : '';
     return '<span' + qAct + ' style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; padding:1px 7px; margin:2px 3px 0 0;' + qCur + '">' + _wsEsc(qLabel) + '</span>';
   }).join('');
-  // Suppress a prominent action button when the canonical action is a no-op (monitor / wait,
-  // nothing executable) — the state pill + task line already say everything, and a green
-  // "Monitor the portfolio" button reads as a task to perform when there is nothing to do.
-  var _wsNoAction = (pa.execution_available !== true)
-    && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE');
   var btn = (pa.destination && !_wsNoAction)
     ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(_wsRoute(pa.destination, pa.focus)) + '\');">' + _wsEsc(pa.label) + '</button>'
     : '';
