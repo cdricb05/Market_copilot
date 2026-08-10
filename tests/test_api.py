@@ -26972,9 +26972,10 @@ class TestMarketIndicatorsEndpoint:
         assert sp500["value"] == "5432.10"
         assert sp500["source"] == "yfinance"
 
-        # Check placeholders
+        # Check placeholders (six FRED macro cards: us10y, us2y, usd_broad, cpi_latest,
+        # fed_funds, sofr — usd_broad/DTWEXBGS replaced the dead DXY tile in Phase 29J.3B)
         placeholders = data["placeholders"]
-        assert len(placeholders) == 5
+        assert len(placeholders) == 6
         us10y = next((p for p in placeholders if p["key"] == "us10y"), None)
         assert us10y is not None
         assert us10y["label"] == "US 10Y"
@@ -27091,17 +27092,17 @@ class TestMarketIndicatorsEndpoint:
 
         data = resp.json()
         placeholders = data["placeholders"]
-        assert len(placeholders) == 5
+        assert len(placeholders) == 6
 
         for p in placeholders:
             assert p["available"] is False
             assert "FRED" in p["reason"]
 
         keys = {p["key"] for p in placeholders}
-        assert keys == {"us10y", "us2y", "cpi_latest", "fed_funds", "sofr"}
+        assert keys == {"us10y", "us2y", "usd_broad", "cpi_latest", "fed_funds", "sofr"}
 
     def test_response_keys_match_ui_data_keys(self, seeded_client: TestClient, monkeypatch) -> None:
-        """All 13 keys expected by the UI data-key attributes are present in the response."""
+        """All 14 keys expected by the UI data-key attributes are present in the response."""
         def mock_fetch_latest_prices(tickers):
             return [], [{"ticker": t, "reason": "No data"} for t in tickers]
 
@@ -27120,7 +27121,7 @@ class TestMarketIndicatorsEndpoint:
         all_keys = {i["key"] for i in data["indicators"]} | {p["key"] for p in data["placeholders"]}
 
         ui_data_keys = {"sp500", "nasdaq", "dow", "vix", "eurusd", "gold", "brent", "wti",
-                        "us10y", "us2y", "cpi_latest", "fed_funds", "sofr"}
+                        "us10y", "us2y", "usd_broad", "cpi_latest", "fed_funds", "sofr"}
         assert ui_data_keys == all_keys
 
     def test_fred_api_key_missing_macro_cards_unavailable(self, seeded_client: TestClient, monkeypatch) -> None:
@@ -27164,7 +27165,7 @@ class TestMarketIndicatorsEndpoint:
 
         # FRED macro cards unavailable with clear reason
         placeholders = data["placeholders"]
-        assert len(placeholders) == 5
+        assert len(placeholders) == 6
         for p in placeholders:
             assert p["available"] is False
             assert "FRED" in p["reason"]
@@ -27193,6 +27194,7 @@ class TestMarketIndicatorsEndpoint:
             return {
                 "us10y":     {"value": "4.23",   "as_of": "2026-06-05", "status": "FRED latest observation 2026-06-05"},
                 "us2y":      {"value": "4.71",   "as_of": "2026-06-05", "status": "FRED latest observation 2026-06-05"},
+                "usd_broad": {"value": "122.15", "as_of": "2026-06-05", "status": "FRED latest observation 2026-06-05"},
                 "cpi_latest":{"value": "315.61", "as_of": "2026-04-01", "status": "FRED latest observation 2026-04-01"},
                 "fed_funds": {"value": "5.33",   "as_of": "2026-05-01", "status": "FRED latest observation 2026-05-01"},
                 "sofr":      {"value": "5.31",   "as_of": "2026-06-05", "status": "FRED latest observation 2026-06-05"},
@@ -27208,7 +27210,7 @@ class TestMarketIndicatorsEndpoint:
 
         data = resp.json()
         placeholders = data["placeholders"]
-        assert len(placeholders) == 5
+        assert len(placeholders) == 6
         assert all(p["available"] is True for p in placeholders)
 
         us10y = next(p for p in placeholders if p["key"] == "us10y")
@@ -27258,7 +27260,7 @@ class TestMarketIndicatorsEndpoint:
         assert all(i["available"] is True for i in indicators)
         # FRED macro cards unavailable (but response still 200)
         placeholders = data["placeholders"]
-        assert len(placeholders) == 5
+        assert len(placeholders) == 6
         for p in placeholders:
             assert p["available"] is False
             assert p["value"] is None

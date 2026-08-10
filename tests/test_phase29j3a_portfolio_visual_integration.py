@@ -97,9 +97,21 @@ def test_b1_decision_bar_present_with_hoc_and_reallocation_groups():
 
 def test_b2_review_buttons_deeplink_to_canonical_review_cards():
     pm = _pm_tab()
-    assert "navigateToRoute('portfolio-manager/opportunity-cost')" in pm
-    assert "navigateToRoute('portfolio-manager/reallocation')" in pm
-    # the deep-link targets remain the canonical cards.
+    # Operator Decision Flow: the compact decision-bar review buttons now open the
+    # DEDICATED full-screen review routes instead of the old nested Portfolio
+    # brick-jumps (navigateToRoute('portfolio-manager/opportunity-cost'|'/reallocation')).
+    assert "navigateToRoute('holding-review')" in pm        # "View holding changes"
+    assert "navigateToRoute('proposed-portfolio')" in pm    # "View proposed portfolio"
+    # the dedicated routes are real: registered in the route map + present as in-app tab
+    # sections, and keep the Portfolio sidebar item active (they live UNDER Portfolio).
+    assert "'holding-review': 'holding-review'" in UI
+    assert "'proposed-portfolio': 'proposed-portfolio'" in UI
+    assert 'id="tab-holding-review"' in UI
+    assert 'id="tab-proposed-portfolio"' in UI
+    assert "base === 'holding-review' || base === 'proposed-portfolio'" in UI
+    assert "Back to Portfolio" in UI                        # browser/back navigation preserved
+    # backward compatibility: the legacy nested deep-links still resolve to the canonical
+    # cards (nothing auditable was deleted).
     assert "'reallocation': 'realloc-card'" in UI
     assert "'opportunity-cost': 'hoc-card'" in UI
 

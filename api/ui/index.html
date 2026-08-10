@@ -1858,6 +1858,119 @@
     .pa-decision .spacer{flex:1;min-width:8px;}
     .pa-decision .pa-btn{background:var(--cc-elevated,#16223f);border:1px solid var(--info,#3b82f6);color:var(--text-accent,#a8b8d8);border-radius:5px;font-size:11px;font-weight:800;padding:5px 12px;cursor:pointer;white-space:nowrap;letter-spacing:.02em;}
     .pa-decision .pa-btn:hover{background:var(--info,#3b82f6);color:#04121f;}
+
+    /* ====================== Operator Decision Flow UX (Phase OPX) ======================
+       Apple-like operator surfaces: one obvious state, one obvious action, human copy,
+       strong hierarchy, whitespace, progressive disclosure. Dark identity retained. All
+       values are rendered by JS from canonical read-only backend contracts. */
+    /* Clip page-level horizontal overflow from pre-existing off-canvas overlays (e.g. the
+       slide-in ticker-detail drawer), so no horizontal scrollbar appears at 1920/1440/1366.
+       Wide tables keep their OWN .opx-detail-wrap{overflow-x:auto} scroll container. */
+    html, body { overflow-x: hidden; max-width: 100%; }
+    /* -- Today hero (the ONE current-state answer) -- */
+    .today-hero{border:1px solid var(--cc-border,#243b63);border-left:4px solid var(--info,#3b82f6);
+      border-radius:12px;background:linear-gradient(180deg,rgba(22,34,63,.55),rgba(16,26,52,.35));
+      padding:26px 30px;margin:0 0 16px;}
+    .today-hero.state-ok{border-left-color:var(--ok,#22c55e);}
+    .today-hero.state-warn{border-left-color:var(--warning,#f59e0b);}
+    .today-hero.state-danger{border-left-color:var(--danger,#ef4444);}
+    .today-hero.state-info{border-left-color:var(--info,#3b82f6);}
+    .th-eyebrow{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--label,#7a8fb0);margin-bottom:10px;}
+    .th-headline{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+    .th-mark{font-size:30px;line-height:1;}
+    .th-state{font-size:30px;font-weight:800;letter-spacing:.01em;color:var(--text-primary,#e0e0ff);margin:0;}
+    .th-sub{font-size:15px;color:var(--text-accent,#a8b8d8);line-height:1.55;margin:12px 0 0;max-width:70ch;}
+    .th-meta{display:flex;gap:36px;flex-wrap:wrap;margin:18px 0 0;}
+    .th-meta .k{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--label,#7a8fb0);margin-bottom:3px;}
+    .th-meta .v{font-size:15px;font-weight:700;color:var(--text-primary,#e0e0ff);}
+    .th-cta-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:22px 0 0;}
+    .th-cta{font-size:14px;font-weight:800;letter-spacing:.01em;border:none;border-radius:9px;
+      padding:12px 22px;cursor:pointer;background:var(--info,#3b82f6);color:#061225;}
+    .th-cta.ok{background:var(--ok,#22c55e);color:#04210f;}
+    .th-cta.warn{background:var(--warning,#f59e0b);color:#231604;}
+    .th-cta.danger{background:var(--danger,#ef4444);color:#2a0808;}
+    .th-secondary{border-top:1px solid rgba(255,255,255,.07);margin-top:22px;padding-top:16px;}
+    .th-secondary-lab{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--label,#7a8fb0);margin-bottom:10px;}
+    .th-links{display:flex;gap:12px;flex-wrap:wrap;}
+    .th-link{display:inline-flex;flex-direction:column;gap:2px;text-decoration:none;border:1px solid var(--cc-border,#243b63);
+      border-radius:9px;padding:11px 16px;background:rgba(255,255,255,.02);cursor:pointer;min-width:190px;}
+    .th-link:hover{border-color:var(--info,#3b82f6);background:rgba(59,130,246,.08);}
+    .th-link .t{font-size:13px;font-weight:800;color:var(--text-primary,#e0e0ff);}
+    .th-link .d{font-size:11px;color:var(--label,#7a8fb0);}
+    /* -- Consolidated safety chrome -- */
+    .safety-line{font-size:11px;color:var(--label,#7a8fb0);letter-spacing:.02em;}
+    .safety-line b{color:var(--text-accent,#a8b8d8);font-weight:700;}
+    /* -- Dedicated full-screen operator views (Holding Review / Proposed Portfolio) -- */
+    .opx-topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:0 0 14px;}
+    .opx-back{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--text-accent,#a8b8d8);
+      background:none;border:1px solid var(--cc-border,#243b63);border-radius:8px;padding:7px 13px;cursor:pointer;}
+    .opx-back:hover{border-color:var(--info,#3b82f6);color:var(--text-primary,#e0e0ff);}
+    .opx-topbar .safety-line{margin-left:auto;}
+    .opx-hero{border:1px solid var(--cc-border,#243b63);border-radius:12px;background:rgba(16,26,52,.4);padding:22px 26px;margin:0 0 18px;}
+    .opx-title{font-size:26px;font-weight:800;letter-spacing:.01em;color:var(--text-primary,#e0e0ff);margin:0;}
+    .opx-hero-row{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;}
+    .opx-hero-badges{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;}
+    .opx-summary{font-size:14px;color:var(--text-accent,#a8b8d8);margin:12px 0 0;line-height:1.5;}
+    .opx-state{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:5px 12px;}
+    .opx-state.ok{background:rgba(34,197,94,.16);color:#7ee2a8;}
+    .opx-state.warn{background:rgba(245,158,11,.16);color:#f6c667;}
+    .opx-state.muted{background:rgba(255,255,255,.06);color:var(--text-accent,#a8b8d8);}
+    .opx-section{margin:0 0 20px;}
+    .opx-section-title{font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--label,#7a8fb0);
+      margin:0 0 12px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.06);}
+    /* Holding Review cards */
+    .hr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;}
+    .hr-card{border:1px solid var(--cc-border,#243b63);border-radius:11px;background:var(--card-bg,#16213e);padding:16px 18px;}
+    .hr-card.rec-EXIT{border-left:3px solid var(--danger,#ef4444);}
+    .hr-card.rec-REPLACE{border-left:3px solid var(--warning,#f59e0b);}
+    .hr-card.rec-REDUCE{border-left:3px solid var(--warning,#f59e0b);}
+    .hr-card.rec-HOLD{border-left:3px solid rgba(255,255,255,.10);}
+    .hr-card-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+    .hr-ticker{font-size:19px;font-weight:800;letter-spacing:.02em;color:var(--text-primary,#e0e0ff);}
+    .hr-rec{font-size:11px;font-weight:800;letter-spacing:.06em;border-radius:6px;padding:4px 10px;}
+    .hr-rec.EXIT{background:rgba(239,68,68,.18);color:#f4a1a1;}
+    .hr-rec.REPLACE{background:rgba(245,158,11,.18);color:#f6c667;}
+    .hr-rec.REDUCE{background:rgba(245,158,11,.15);color:#f6c667;}
+    .hr-rec.HOLD{background:rgba(34,197,94,.14);color:#7ee2a8;}
+    .hr-rec.ADD{background:rgba(59,130,246,.16);color:#8fb8f6;}
+    .hr-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 12px;margin-bottom:12px;}
+    .hr-metric .k{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--label,#7a8fb0);margin-bottom:2px;}
+    .hr-metric .v{font-size:14px;font-weight:700;color:var(--text-primary,#e0e0ff);}
+    .hr-metric .v.pos{color:var(--ok,#22c55e);}
+    .hr-metric .v.neg{color:var(--danger,#ef4444);}
+    .hr-block{margin-bottom:10px;}
+    .hr-block .lab{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--label,#7a8fb0);margin-bottom:2px;}
+    .hr-block .txt{font-size:12px;color:var(--text-accent,#a8b8d8);line-height:1.5;}
+    .hr-alt{font-size:13px;font-weight:700;color:var(--text-primary,#e0e0ff);}
+    .hr-details-link{font-size:11px;font-weight:700;color:var(--info,#3b82f6);cursor:pointer;background:none;border:none;padding:4px 0 0;}
+    .hr-details-link:hover{text-decoration:underline;}
+    .hr-chips{display:flex;gap:8px;flex-wrap:wrap;}
+    .hr-chip{border:1px solid var(--cc-border,#243b63);border-radius:8px;padding:8px 12px;background:rgba(59,130,246,.05);}
+    .hr-chip .t{font-size:13px;font-weight:800;color:var(--text-primary,#e0e0ff);}
+    .hr-chip .d{font-size:10px;color:var(--label,#7a8fb0);}
+    /* Proposed Portfolio */
+    .pp-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 20px;}
+    .pp-metric{border:1px solid var(--cc-border,#243b63);border-radius:11px;background:var(--card-bg,#16213e);padding:15px 18px;}
+    .pp-metric .k{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--label,#7a8fb0);margin-bottom:6px;}
+    .pp-metric .v{font-size:20px;font-weight:800;color:var(--text-primary,#e0e0ff);}
+    .pp-metric .v .arrow{color:var(--label,#7a8fb0);font-weight:600;margin:0 6px;}
+    .pp-actionlist{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;}
+    .pp-actcol{border:1px solid var(--cc-border,#243b63);border-radius:10px;padding:12px 14px;}
+    .pp-actcol .hd{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;}
+    .pp-actcol.add .hd{color:#8fb8f6;} .pp-actcol.increase .hd{color:#7ee2a8;}
+    .pp-actcol.reduce .hd{color:#f6c667;} .pp-actcol.exit .hd{color:#f4a1a1;}
+    .pp-actcol .row{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;color:var(--text-accent,#a8b8d8);}
+    .pp-actcol .row b{color:var(--text-primary,#e0e0ff);}
+    .pp-gap{border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.06);border-radius:9px;padding:11px 14px;margin-bottom:8px;}
+    .pp-gap .t{font-size:13px;font-weight:700;color:#f6c667;}
+    .pp-gap .d{font-size:11px;color:var(--text-accent,#a8b8d8);margin-top:2px;line-height:1.45;}
+    .opx-detail-table{width:100%;border-collapse:collapse;font-size:11px;}
+    .opx-detail-table th{position:sticky;top:0;background:var(--cc-panel,#101a34);text-align:left;padding:6px 8px;font-size:10px;
+      letter-spacing:.04em;text-transform:uppercase;color:var(--label,#7a8fb0);border-bottom:1px solid var(--cc-border,#243b63);}
+    .opx-detail-table td{padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.04);white-space:nowrap;}
+    .opx-detail-wrap{overflow-x:auto;border:1px solid var(--cc-border,#243b63);border-radius:9px;}
+    @media (max-width:1200px){ .hr-grid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));} }
+    @media (max-width:1040px){ .today-hero{padding:20px;} .th-state,.th-mark{font-size:24px;} .opx-title{font-size:22px;} .th-meta{gap:22px;} }
   </style>
   <!-- Phase 29J.3 — shared interactive chart toolkit (PTC). Self-contained; defines
        window.PTC used by the Portfolio interactive charts + the drill-down detail view. -->
@@ -2199,6 +2312,14 @@
       <!-- TAB 0: OVERVIEW (DEFAULT) -->
       <div id="tab-overview" class="tab-content active">
 
+        <!-- ===================== Operator Decision Flow: TODAY HERO =====================
+             The ONE answer to "what needs your attention?" — rendered by _wsRenderTodayHero()
+             from the SAME canonical GET /v1/operations/workflow-state payload as every other
+             operator surface (single owner: renderWorkflowState). One obvious state, at most
+             one primary action, human copy. Review links appear only as OPTIONAL secondary
+             analyses (they are review-only, non-required). No client date/priority math. -->
+        <div id="today-hero" class="today-hero state-info" style="display:none;"></div>
+
         <!-- ===================== Phase 14-A COMMAND CENTER START ===================== -->
         <div id="cc-root">
 
@@ -2212,14 +2333,22 @@
             <span class="cc-status-pill"><span id="cc-dot-conn" class="cc-dot"></span><span id="cc-status-conn">Disconnected</span></span>
             <span class="cc-status-pill" style="color: var(--text-accent); font-weight:600;" title="Operational desk valuation date of Alpha Paper Book #1 (the current operating mark). Research dates live only in Research & Audit.">Operational mark: <span id="cc-status-mark" style="color: var(--text-primary); font-weight:700; margin-left:4px;">—</span></span>
             <span class="cc-spacer"></span>
-            <!-- Phase 29J.1: the ONE persistent operator safety strip. Backend safety
-                 contracts are unchanged; this is the canonical visible set. -->
-            <span class="cc-badge safe">PAPER ONLY</span>
-            <span class="cc-badge manual">MANUAL REVIEW</span>
-            <span class="cc-badge">AUTOMATION OFF</span>
-            <span class="cc-badge">NO BROKER EXECUTION</span>
-            <span class="cc-badge">NO LIVE BROKER ORDERS</span>
-            <span class="cc-badge">NO MODEL PROMOTION</span>
+            <!-- Phase OPX: consolidated operator safety chrome. ONE persistent line is the
+                 visible context; the full canonical badge set (backend contracts unchanged) is
+                 retained under a quiet disclosure and in System · Audit. No safety control is
+                 removed — only the redundant visual presentation is reduced. -->
+            <span class="safety-line" title="Paper-only, manual-review, automation-off operating mode. Full safety state under Safety details and System · Audit."><b>Paper mode</b> &middot; <b>Manual review</b> &middot; <b>Automation off</b></span>
+            <details style="display:inline-block; margin:0;">
+              <summary style="cursor:pointer; font-size:10px; color:var(--label); list-style:none; user-select:none;" title="Full safety badge set.">Safety details</summary>
+              <span style="display:inline-flex; gap:4px; flex-wrap:wrap; margin-top:4px;">
+                <span class="cc-badge safe">PAPER ONLY</span>
+                <span class="cc-badge manual">MANUAL REVIEW</span>
+                <span class="cc-badge">AUTOMATION OFF</span>
+                <span class="cc-badge">NO BROKER EXECUTION</span>
+                <span class="cc-badge">NO LIVE BROKER ORDERS</span>
+                <span class="cc-badge">NO MODEL PROMOTION</span>
+              </span>
+            </details>
             <button id="cc-open-pm-btn" class="cc-btn primary" onclick="navigateToRoute('portfolio-manager')" title="Open the Portfolio Manager — today's portfolio decision, proposed changes, health and the manual review flow.">Open Portfolio Manager</button>
             <button id="cc-refresh-btn" class="cc-btn ghost" onclick="refreshCommandCenter(this)" title="Refresh authentication, the command-center endpoint, and visible detail panels.">&#8635; Refresh</button>
           </div>
@@ -3064,8 +3193,8 @@
             <div class="grp"><span class="grp-lab">HOC</span><span id="pa-dec-hoc"><span class="cc-badge muted">loading&hellip;</span></span></div>
             <div class="grp"><span class="grp-lab">Reallocation</span><span id="pa-dec-realloc"><span class="cc-badge muted">loading&hellip;</span></span></div>
             <span class="spacer"></span>
-            <button class="pa-btn" id="pa-dec-hoc-btn" onclick="navigateToRoute('portfolio-manager/opportunity-cost')" title="Review the canonical Holding Opportunity-Cost decision (read-only).">Review Holding Opportunity-Cost &rarr;</button>
-            <button class="pa-btn" id="pa-dec-realloc-btn" onclick="navigateToRoute('portfolio-manager/reallocation')" title="Review the canonical whole-portfolio Reallocation Proposal (read-only, manual review).">Review Reallocation Proposal &rarr;</button>
+            <button class="pa-btn" id="pa-dec-hoc-btn" onclick="navigateToRoute('holding-review')" title="Open the dedicated full-screen Holding Review (read-only). No orders, no confirmation.">View holding changes &rarr;</button>
+            <button class="pa-btn" id="pa-dec-realloc-btn" onclick="navigateToRoute('proposed-portfolio')" title="Open the dedicated full-screen Proposed Portfolio (read-only, manual review). No orders, no confirmation.">View proposed portfolio &rarr;</button>
           </div>
           <!-- ===================== Phase 27E DAILY CLOSE — DECISION WORKSPACE ===================== -->
           <!-- The Portfolio Manager is a decision workspace around the ONE canonical
@@ -3625,6 +3754,56 @@
 
       </div>
       <!-- ===================== Phase 26 PORTFOLIO MANAGER END ===================== -->
+
+      <!-- ===================== Operator Decision Flow: HOLDING REVIEW (dedicated full screen)
+           A dedicated in-app full-width experience (NO new browser tab) for the canonical
+           Holding Opportunity-Cost review. Parent = Portfolio (the sidebar keeps Portfolio
+           active). Rendered by renderHoldingReviewView() from window._hocData
+           (GET /v1/operations/holding-opportunity-cost). Read-only; review-only; no orders;
+           no acknowledgement/approve action exists. ============================================ -->
+      <div id="tab-holding-review" class="tab-content">
+        <div class="opx-topbar">
+          <button class="opx-back" onclick="navigateToRoute('portfolio-manager')" title="Return to the Portfolio page.">&#8592; Back to Portfolio</button>
+          <span class="safety-line"><b>Paper mode</b> &middot; <b>Manual review</b> &middot; <b>Automation off</b></span>
+        </div>
+        <div class="opx-hero">
+          <div class="opx-hero-row">
+            <h1 class="opx-title">Holding Review</h1>
+            <span class="opx-hero-badges">
+              <span class="cc-badge safe">REVIEW ONLY</span>
+              <span class="cc-badge">NO ORDERS</span>
+              <span class="opx-state muted" id="hr-state">&mdash;</span>
+            </span>
+          </div>
+          <div class="opx-summary" id="hr-summary">Loading the Holding Opportunity-Cost review&hellip;</div>
+        </div>
+        <div id="hr-body"></div>
+      </div>
+
+      <!-- ===================== Operator Decision Flow: PROPOSED PORTFOLIO (dedicated full screen)
+           A dedicated in-app full-width experience (NO new browser tab) for the canonical
+           whole-portfolio Reallocation Proposal. Parent = Portfolio. Rendered by
+           renderProposedPortfolioView() from window._reallocData
+           (GET /v1/operations/reallocation-proposal). Read-only; review-only; no orders; no
+           apply/confirm/rebalance action exists (there is no decision owner to record one). == -->
+      <div id="tab-proposed-portfolio" class="tab-content">
+        <div class="opx-topbar">
+          <button class="opx-back" onclick="navigateToRoute('portfolio-manager')" title="Return to the Portfolio page.">&#8592; Back to Portfolio</button>
+          <span class="safety-line"><b>Paper mode</b> &middot; <b>Manual review</b> &middot; <b>Automation off</b></span>
+        </div>
+        <div class="opx-hero">
+          <div class="opx-hero-row">
+            <h1 class="opx-title">Proposed Portfolio</h1>
+            <span class="opx-hero-badges">
+              <span class="cc-badge safe">REVIEW ONLY</span>
+              <span class="cc-badge">NO ORDERS</span>
+              <span class="opx-state muted" id="pp-state">&mdash;</span>
+            </span>
+          </div>
+          <div class="opx-summary" id="pp-summary">Loading the reallocation proposal&hellip;</div>
+        </div>
+        <div id="pp-body"></div>
+      </div>
 
       <div id="tab-multi-horizon" class="tab-content">
         <div class="card" style="margin-bottom:12px;">
@@ -6523,6 +6702,16 @@ window._switchTab = function(tabName, opts) {
     try { if (typeof loadPortfolioAnalytics === 'function') loadPortfolioAnalytics(); } catch (e) {}
     // Keep the compact decision bar in sync with the canonical HOC + Reallocation owners.
     try { if (typeof renderPmDecisionBar === 'function') renderPmDecisionBar(); } catch (e) {}
+  }
+
+  // Operator Decision Flow: dedicated full-screen review experiences. Each reuses the
+  // SINGLE canonical loader (loadHoldingOpportunityCost / loadReallocationProposal) — never
+  // a second fetch owner — then renders its full-width view from the stored payload.
+  if (tabName === 'holding-review') {
+    try { if (typeof window.loadHoldingReviewView === 'function') window.loadHoldingReviewView(); } catch (e) {}
+  }
+  if (tabName === 'proposed-portfolio') {
+    try { if (typeof window.loadProposedPortfolioView === 'function') window.loadProposedPortfolioView(); } catch (e) {}
   }
 
   // Daily Plan: keep the always-visible Daily Review Control + durable Complete
@@ -22980,6 +23169,11 @@ var _ROUTE_TO_TAB = {
   'today': 'overview',
   'research': 'audit-advanced',
   'system-audit': 'audit-advanced',
+  // Operator Decision Flow: two dedicated full-screen review experiences whose PARENT is
+  // Portfolio (the sidebar keeps "Portfolio" active — see _highlightNav aliases). These are
+  // real hash routes so browser Back and deep links work; they never open a new browser tab.
+  'holding-review': 'holding-review',
+  'proposed-portfolio': 'proposed-portfolio',
 };
 function _parseRoute() {
   var h = (location.hash || '').replace(/^#/, '');
@@ -23013,6 +23207,7 @@ function _highlightNav(base) {
   if (base === 'alpha-portfolio') base = 'multi-horizon';  // Phase 25B route alias
   if (base === 'today') base = 'command-center';           // Phase 29J.1: Today primary uses the command-center route
   if (base === 'research-audit') base = 'research';        // Phase 29J.1: the canonical audit route highlights the Research primary
+  if (base === 'holding-review' || base === 'proposed-portfolio') base = 'portfolio-manager'; // Operator Decision Flow: full-screen reviews live UNDER Portfolio
   var links = document.querySelectorAll('.sidebar-link[data-route]');
   Array.prototype.forEach.call(links, function (a) {
     if (a.getAttribute('data-route') === base) a.classList.add('active');
@@ -25378,6 +25573,414 @@ function renderReallocationProposal(d) {
 }
 window.renderReallocationProposal = renderReallocationProposal;
 
+// ===========================================================================
+// Operator Decision Flow UX — Today hero + two dedicated full-screen review
+// experiences. This block is deliberately OUTSIDE the canonical workflow / HOC /
+// reallocation loader→render regions and reuses their SINGLE loaders and stored
+// payloads (window._wsData / window._hocData / window._reallocData). It renders
+// backend values verbatim: no client date math, no priority derivation, no scoring.
+// Read-only. Review-only. No orders. No confirmation/approve action is invented.
+// ===========================================================================
+function _opxPct(v, dec) { return (v == null) ? '—' : _mhzPct(v, dec); }
+function _opxNum(v, dec) { return (v == null) ? '—' : _mhzNum(v, dec); }
+function _opxSign(v) { return (v == null) ? '' : (v > 0 ? 'pos' : (v < 0 ? 'neg' : '')); }
+
+// ---- TODAY HERO: the ONE current-state answer -----------------------------
+// Rendered from the canonical workflow-state payload (same owner as every banner).
+function _wsRenderTodayHero(d) {
+  var host = document.getElementById('today-hero');
+  if (!host) return;
+  if (!d || !d.primary_action) { host.style.display = 'none'; return; }
+  var pa = d.primary_action;
+  var cs = d.current_session || {};
+  var sev = pa.severity;
+  // A genuine no-action state: monitor / wait, and nothing is executable.
+  var noAction = (pa.execution_available !== true)
+    && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE');
+
+  var stateClass, mark, stateText, ctaClass;
+  if (noAction) {
+    stateClass = 'state-ok'; mark = '✓'; stateText = "YOU'RE ALL SET"; ctaClass = 'ok';
+  } else if (sev === 'BLOCKED' || sev === 'ERROR') {
+    stateClass = 'state-danger'; mark = '⚠'; stateText = 'NEEDS ATTENTION'; ctaClass = 'danger';
+  } else if (sev === 'ATTENTION') {
+    stateClass = 'state-warn'; mark = '●'; stateText = '1 ACTION NEEDS YOUR ATTENTION'; ctaClass = 'warn';
+  } else {
+    stateClass = 'state-info'; mark = '●'; stateText = _wsEsc(d.headline || 'IN PROGRESS'); ctaClass = '';
+  }
+
+  var sub = noAction
+    ? 'The portfolio is being monitored. No action is required right now.'
+    : (pa.explanation || pa.label || d.current_task || '');
+
+  var latest = cs.latest_eligible_completed_market_date || '—';
+  var nextTxt = (pa.action_code === 'WAIT_FOR_SESSION_CLOSE')
+    ? "after today's market session closes"
+    : 'after the next eligible market session';
+
+  // Exactly one primary CTA — only when there is a real action.
+  var ctaHtml = '';
+  if (!noAction && pa.destination) {
+    var route = (window._wsRoute ? window._wsRoute(pa.destination, pa.focus) : pa.destination) || pa.destination;
+    ctaHtml = '<button class="th-cta ' + ctaClass + '" onclick="navigateToRoute(\'' + _wsEsc(route)
+      + '\')">' + _wsEsc(pa.label || 'Continue') + '</button>';
+  }
+
+  // Secondary, OPTIONAL analyses (review-only, non-required) from queued actions.
+  var reviewMap = {
+    'REVIEW_HOLDING_OPPORTUNITY_COST': { route: 'holding-review', t: 'View holding changes', d: 'Per-holding recommendations' },
+    'REVIEW_REALLOCATION_PROPOSAL': { route: 'proposed-portfolio', t: 'View proposed portfolio', d: 'A proposed target and its trade-offs' }
+  };
+  var reviews = (d.queued_actions || []).filter(function (q) { return reviewMap[q.action_code]; });
+  var secHtml = '';
+  if (reviews.length) {
+    var links = reviews.map(function (q) {
+      var m = reviewMap[q.action_code];
+      return '<a class="th-link" role="button" tabindex="0" onclick="navigateToRoute(\'' + m.route + '\')">'
+        + '<span class="t">' + m.t + ' →</span><span class="d">' + _wsEsc(m.d) + '</span></a>';
+    }).join('');
+    var lab = reviews.length + (reviews.length === 1 ? ' analysis available' : ' analyses available')
+      + ' · optional';
+    secHtml = '<div class="th-secondary"><div class="th-secondary-lab">' + lab + '</div>'
+      + '<div class="th-links">' + links + '</div></div>';
+  }
+
+  host.className = 'today-hero ' + stateClass;
+  host.innerHTML = ''
+    + '<div class="th-eyebrow">What needs your attention?</div>'
+    + '<div class="th-headline"><span class="th-mark">' + mark + '</span><h1 class="th-state">' + stateText + '</h1></div>'
+    + (sub ? '<p class="th-sub">' + _wsEsc(sub) + '</p>' : '')
+    + '<div class="th-meta">'
+    +   '<div><div class="k">Latest eligible session</div><div class="v">' + _wsEsc(latest) + '</div></div>'
+    +   '<div><div class="k">Next reassessment</div><div class="v">' + nextTxt + '</div></div>'
+    + '</div>'
+    + (ctaHtml ? ('<div class="th-cta-row">' + ctaHtml + '</div>') : '')
+    + secHtml;
+  host.style.display = '';
+  // The small canonical banner is redundant with the hero on Today — hide it here only.
+  var wfcc = document.getElementById('wf-cc');
+  if (wfcc) wfcc.style.display = 'none';
+}
+window._wsRenderTodayHero = _wsRenderTodayHero;
+
+// ---- HOLDING REVIEW (dedicated full screen) -------------------------------
+function loadHoldingReviewView() {
+  var render = function () { try { renderHoldingReviewView(window._hocData); } catch (e) {} };
+  if (window._hocData) render();
+  try {
+    if (typeof window.loadHoldingOpportunityCost === 'function') {
+      var p = window.loadHoldingOpportunityCost();
+      if (p && p.then) p.then(render); else render();
+    } else { render(); }
+  } catch (e) { render(); }
+}
+window.loadHoldingReviewView = loadHoldingReviewView;
+
+function _hrMetric(k, v, cls) {
+  return '<div class="hr-metric"><div class="k">' + escapeHtml(k) + '</div><div class="v'
+    + (cls ? ' ' + cls : '') + '">' + v + '</div></div>';
+}
+function _hrCard(r) {
+  var rec = r.recommendation || '';
+  var alt = r.strongest_replacement_ticker
+    ? (escapeHtml(r.strongest_replacement_ticker) + (r.replacement_rank != null ? (' (#' + r.replacement_rank + ')') : ''))
+    : '—';
+  return '<div class="hr-card rec-' + escapeHtml(rec) + '">'
+    + '<div class="hr-card-hd"><span class="hr-ticker">' + escapeHtml(r.ticker || '—') + '</span>'
+    +   '<span class="hr-rec ' + escapeHtml(rec) + '">' + escapeHtml(rec) + '</span></div>'
+    + '<div class="hr-metrics">'
+    +   _hrMetric('Rank', r.current_rank != null ? ('#' + r.current_rank) : '—')
+    +   _hrMetric('20-day return', _opxPct(r.return_20d, 1), _opxSign(r.return_20d))
+    +   _hrMetric('Drawdown', _opxPct(r.drawdown_60d, 1), 'neg')
+    + '</div>'
+    + '<div class="hr-block"><div class="lab">Why</div><div class="txt">' + escapeHtml(r.explanation || '—') + '</div></div>'
+    + '<div class="hr-metrics" style="grid-template-columns:1fr 1fr;">'
+    +   '<div class="hr-metric"><div class="k">Best alternative</div><div class="v"><span class="hr-alt">' + alt + '</span></div></div>'
+    +   _hrMetric('Expected improvement', _opxNum(r.net_improvement, 3))
+    + '</div>'
+    + '<button class="hr-details-link" onclick="_opxOpenDetail(\'hr-fulldetail\')">View details →</button>'
+    + '</div>';
+}
+function _hrFullTable(reviews) {
+  var cols = [
+    ['ticker', 'Ticker'], ['recommendation', 'Rec'], ['current_weight', 'Wt'], ['current_rank', 'Rank'],
+    ['rank_change', 'ΔRank'], ['signal_strength', 'Signal'], ['deterioration_state', 'Deterioration'],
+    ['return_20d', 'Ret 20d'], ['drawdown_60d', 'DD 60d'], ['risk_contribution_pct', 'Risk'],
+    ['liquidity_state', 'Liquidity'], ['strongest_replacement_ticker', 'Replacement'],
+    ['switching_cost_bps', 'Switch bps'], ['net_improvement', 'Net Impr'], ['explanation', 'Explanation']
+  ];
+  var pctKeys = { current_weight: 1, signal_strength: 0, return_20d: 1, drawdown_60d: 1, risk_contribution_pct: 1 };
+  var head = '<tr>' + cols.map(function (c) { return '<th>' + escapeHtml(c[1]) + '</th>'; }).join('') + '</tr>';
+  var body = reviews.map(function (r) {
+    return '<tr>' + cols.map(function (c) {
+      var k = c[0], v = r[k];
+      if (k === 'ticker') return '<td><b>' + escapeHtml(r.ticker || '—') + '</b></td>';
+      if (k === 'strongest_replacement_ticker') {
+        return '<td>' + (v ? escapeHtml(v) + (r.replacement_rank != null ? (' (#' + r.replacement_rank + ')') : '') : '—') + '</td>';
+      }
+      if (k === 'explanation') return '<td style="white-space:normal;max-width:320px;color:var(--label);">' + escapeHtml(v || '') + '</td>';
+      if (pctKeys[k] != null) return '<td>' + _opxPct(v, pctKeys[k]) + '</td>';
+      if (k === 'net_improvement') return '<td>' + _opxNum(v, 3) + '</td>';
+      return '<td>' + escapeHtml(v == null ? '—' : String(v)) + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
+  return '<div class="opx-detail-wrap"><table class="opx-detail-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+}
+function renderHoldingReviewView(d) {
+  var stateEl = document.getElementById('hr-state');
+  var sumEl = document.getElementById('hr-summary');
+  var body = document.getElementById('hr-body');
+  if (!body) return;
+  if (!d) {
+    if (stateEl) { stateEl.textContent = 'UNAVAILABLE'; stateEl.className = 'opx-state muted'; }
+    if (sumEl) sumEl.textContent = 'The Holding Opportunity-Cost review is currently unavailable.';
+    body.innerHTML = '';
+    return;
+  }
+  var state = d.state || 'UNAVAILABLE';
+  var reviews = d.holding_reviews || [];
+  var ab = d.active_book || {};
+  // Consume the canonical active-book label owned by the HOC read model — no local
+  // active-book identity fallback (the audited portfolio-state region computes nothing).
+  var bookName = ab.book_label || '—';
+  var hasAssessment = !!(d.artifact || d.assessment_hash || (reviews && reviews.length));
+  if (!hasAssessment) {
+    if (stateEl) { stateEl.textContent = 'NO ASSESSMENT YET'; stateEl.className = 'opx-state muted'; }
+    if (sumEl) sumEl.textContent = (state === 'NOT_RUN')
+      ? ('Not yet run for the current eligible session (' + (d.eligible_market_date || '—')
+         + ', book ' + bookName + '). The first assessment is produced by the next completed Daily Research Cycle. Read-only — no orders.')
+      : ('No Holding Opportunity-Cost assessment is available yet (state ' + state + ', book ' + bookName + ').');
+    body.innerHTML = '<div class="opx-section"><div class="hr-block"><div class="txt">No holdings are evaluated and no HOLD / REDUCE / EXIT / REPLACE / ADD counts exist until the assessment runs. This view is read-only and creates no orders.</div></div></div>';
+    return;
+  }
+
+  var exits = reviews.filter(function (r) { return r.recommendation === 'EXIT'; });
+  var replaces = reviews.filter(function (r) { return r.recommendation === 'REPLACE'; });
+  var reduces = reviews.filter(function (r) { return r.recommendation === 'REDUCE'; });
+  var holds = reviews.filter(function (r) { return r.recommendation === 'HOLD'; });
+  var attention = exits.concat(replaces).concat(reduces);
+  var adds = d.addition_candidates || [];
+
+  // HOC is review-only with NO acknowledgement/approve owner — never a required decision.
+  if (stateEl) { stateEl.textContent = 'NO ACTION REQUIRED'; stateEl.className = 'opx-state ok'; }
+  if (sumEl) {
+    var nA = attention.length, nH = holds.length, nI = adds.length;
+    sumEl.innerHTML = '<b>' + nA + (nA === 1 ? ' holding needs' : ' holdings need') + ' attention</b> · '
+      + nH + ' unchanged · ' + nI + ' ideas &nbsp;&mdash;&nbsp; as of ' + escapeHtml(d.eligible_market_date || '—')
+      + ' · book ' + escapeHtml(bookName) + ' · review-only, no confirmation step exists.';
+  }
+
+  var html = '';
+  // NEEDS ATTENTION (changed holdings first)
+  html += '<div class="opx-section"><div class="opx-section-title">Needs attention &mdash; '
+    + attention.length + '</div>';
+  html += attention.length
+    ? ('<div class="hr-grid">' + attention.map(_hrCard).join('') + '</div>')
+    : '<div class="hr-block"><div class="txt">No holdings currently recommend a change. Every holding is a Hold.</div></div>';
+  html += '</div>';
+
+  // UNCHANGED (collapsed by default)
+  html += '<div class="opx-section"><details><summary class="opx-section-title" style="cursor:pointer;list-style:none;">'
+    + 'Unchanged &mdash; ' + holds.length + ' hold' + (holds.length === 1 ? '' : 's') + ' (show)</summary>'
+    + (holds.length ? ('<div class="hr-grid" style="margin-top:12px;">' + holds.map(_hrCard).join('') + '</div>')
+                    : '<div class="hr-block" style="margin-top:12px;"><div class="txt">No holds.</div></div>')
+    + '</details></div>';
+
+  // IDEAS / REPLACEMENTS (add candidates — not current holdings)
+  html += '<div class="opx-section"><div class="opx-section-title">Ideas / replacements &mdash; add candidates ('
+    + adds.length + ')</div>';
+  html += adds.length
+    ? ('<div class="hr-chips">' + adds.map(function (a) {
+        return '<div class="hr-chip"><div class="t">' + escapeHtml(a.ticker || '—')
+          + (a.rank != null ? (' · #' + a.rank) : '') + '</div><div class="d">'
+          + escapeHtml(a.sector || '') + '</div></div>';
+      }).join('') + '</div>')
+    : '<div class="hr-block"><div class="txt">No eligible non-held addition candidates.</div></div>';
+  html += '</div>';
+
+  // FULL DETAIL (progressive disclosure — every raw quant field remains available)
+  html += '<div class="opx-section"><details id="hr-fulldetail"><summary class="opx-section-title" style="cursor:pointer;list-style:none;">'
+    + 'Full detail &mdash; all metrics (' + reviews.length + ' holdings)</summary>'
+    + '<div style="margin-top:12px;">' + _hrFullTable(reviews) + '</div></details></div>';
+
+  body.innerHTML = html;
+}
+window.renderHoldingReviewView = renderHoldingReviewView;
+
+// ---- PROPOSED PORTFOLIO (dedicated full screen) ---------------------------
+function loadProposedPortfolioView() {
+  var render = function () { try { renderProposedPortfolioView(window._reallocData); } catch (e) {} };
+  if (window._reallocData) render();
+  try {
+    if (typeof window.loadReallocationProposal === 'function') {
+      var p = window.loadReallocationProposal();
+      if (p && p.then) p.then(render); else render();
+    } else { render(); }
+  } catch (e) { render(); }
+}
+window.loadProposedPortfolioView = loadProposedPortfolioView;
+
+function _ppMetric(k, v) {
+  return '<div class="pp-metric"><div class="k">' + escapeHtml(k) + '</div><div class="v">' + v + '</div></div>';
+}
+function _ppArrow(a, b) { return escapeHtml(a) + '<span class="arrow">→</span>' + escapeHtml(b); }
+function _ppActionCol(cls, title, rows) {
+  var inner = rows.length
+    ? rows.map(function (r) {
+        return '<div class="row"><b>' + escapeHtml(r.ticker || '—') + '</b><span>' + _opxPct(r.delta_weight, 1) + '</span></div>';
+      }).join('')
+    : '<div class="row" style="color:var(--label);">none</div>';
+  return '<div class="pp-actcol ' + cls + '"><div class="hd">' + escapeHtml(title) + ' (' + rows.length + ')</div>' + inner + '</div>';
+}
+var _PP_GAP_TEXT = {
+  'EXPECTED_RETURN_NOT_CALIBRATED': ['Expected return is not calibrated',
+    'We do not forecast a dollar or percentage return for this proposal. The score comparison is a rank/percentile improvement, not a return prediction.'],
+  'PORTFOLIO_VOLATILITY_BEFORE_UNAVAILABLE': ['Current-portfolio volatility unavailable',
+    'A portfolio volatility for the current holdings could not be computed for this session.'],
+  'PORTFOLIO_VOLATILITY_AFTER_UNAVAILABLE': ['Proposed-portfolio volatility unavailable',
+    'A portfolio volatility for the proposed holdings could not be computed for this session.'],
+  'HOC_LIQUIDITY_UNAVAILABLE': ['Liquidity data unavailable for some names',
+    'Days-to-liquidate could not be estimated for part of the portfolio, so the liquidity of the change is not fully known.']
+};
+function _ppGapBlock(g) {
+  var m = _PP_GAP_TEXT[g.code];
+  var t = m ? m[0] : (g.code || 'Data gap').replace(/_/g, ' ');
+  var dsc = g.detail || (m ? m[1] : '');
+  return '<div class="pp-gap"><div class="t">' + escapeHtml(t) + '</div>'
+    + (dsc ? '<div class="d">' + escapeHtml(dsc) + '</div>' : '') + '</div>';
+}
+function _ppSectorTable(before, after) {
+  before = before || {}; after = after || {};
+  var keys = {}; Object.keys(before).forEach(function (k) { keys[k] = 1; }); Object.keys(after).forEach(function (k) { keys[k] = 1; });
+  var names = Object.keys(keys);
+  if (!names.length) return '<div class="hr-block"><div class="txt">Sector exposure unavailable.</div></div>';
+  var rows = names.map(function (s) {
+    var b = before[s], a = after[s];
+    return '<tr><td><b>' + escapeHtml(s) + '</b></td><td>' + _opxPct(b, 1) + '</td><td>' + _opxPct(a, 1) + '</td></tr>';
+  }).join('');
+  return '<div class="opx-detail-wrap"><table class="opx-detail-table"><thead><tr><th>Sector</th><th>Before</th><th>After</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+function _ppAllocTable(allocations) {
+  var order = { REPLACE_IN: 0, ADD: 1, INCREASE: 2, RETAIN: 3, REDUCE: 4, REPLACE_OUT: 5, EXIT: 6 };
+  var rows = allocations.slice().sort(function (a, b) {
+    var oa = order[a.action] != null ? order[a.action] : 9, ob = order[b.action] != null ? order[b.action] : 9;
+    if (oa !== ob) return oa - ob;
+    return (b.proposed_weight || 0) - (a.proposed_weight || 0);
+  });
+  var body = rows.map(function (r) {
+    var reason = (r.reason_codes || []).join(', ') || (r.source_hoc_recommendation || '');
+    return '<tr><td><b>' + escapeHtml(r.ticker || '—') + '</b></td>'
+      + '<td>' + _opxPct(r.current_weight, 1) + '</td>'
+      + '<td>' + _opxPct(r.proposed_weight, 1) + '</td>'
+      + '<td>' + _opxPct(r.delta_weight, 1) + '</td>'
+      + '<td>' + escapeHtml(r.action || '—') + '</td>'
+      + '<td style="white-space:normal;max-width:280px;color:var(--label);">' + escapeHtml(reason) + '</td></tr>';
+  }).join('');
+  return '<div class="opx-detail-wrap"><table class="opx-detail-table"><thead><tr><th>Ticker</th><th>Current %</th><th>Proposed %</th><th>Delta</th><th>Action</th><th>Reason</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+}
+function renderProposedPortfolioView(d) {
+  var stateEl = document.getElementById('pp-state');
+  var sumEl = document.getElementById('pp-summary');
+  var body = document.getElementById('pp-body');
+  if (!body) return;
+  if (!d) {
+    if (stateEl) { stateEl.textContent = 'UNAVAILABLE'; stateEl.className = 'opx-state muted'; }
+    if (sumEl) sumEl.textContent = 'The reallocation proposal is currently unavailable.';
+    body.innerHTML = '';
+    return;
+  }
+  var state = d.state || 'UNAVAILABLE';
+  var portfolio = d.portfolio || {}, counts = d.action_counts || {}, turnover = d.turnover || {};
+  var signal = d.signal || {}, risk = d.risk || {}, allocations = d.allocations || [];
+  var hasProposal = !!(d.artifact || d.proposal_hash || (allocations && allocations.length));
+  if (!hasProposal) {
+    if (stateEl) { stateEl.textContent = (state === 'NOT_RUN') ? 'NO PROPOSAL YET' : state; stateEl.className = 'opx-state muted'; }
+    if (sumEl) sumEl.textContent = (state === 'NOT_RUN')
+      ? 'No reallocation proposal yet. The first proposal is produced by the next completed Daily Research Cycle. Read-only — no orders.'
+      : ('Reallocation proposal state: ' + state + '.');
+    body.innerHTML = '';
+    return;
+  }
+
+  if (stateEl) { stateEl.textContent = 'REVIEW ONLY'; stateEl.className = 'opx-state ok'; }
+  if (sumEl) {
+    sumEl.innerHTML = '<b>' + (portfolio.proposed_holding_count != null ? portfolio.proposed_holding_count : '—')
+      + ' proposed holdings</b> &nbsp;&mdash;&nbsp; as of ' + escapeHtml(d.eligible_market_date || '—')
+      + ' · review-only, manual review · no orders, no confirmation.';
+  }
+
+  var html = '';
+  // KEY METRICS
+  html += '<div class="pp-metrics">'
+    + _ppMetric('Portfolio score', _ppArrow(_opxNum(signal.score_before, 3), _opxNum(signal.score_after, 3)))
+    + _ppMetric('One-way turnover', _opxPct(turnover.one_way_turnover, 1))
+    + _ppMetric('Est. switching cost', (turnover.estimated_transaction_cost != null ? ('$' + _mhzNum(turnover.estimated_transaction_cost, 0)) : '—'))
+    + _ppMetric('Largest position', _ppArrow(_opxPct(risk.largest_position_before, 1), _opxPct(risk.largest_position_after, 1)))
+    + '</div>';
+
+  // 1) WHAT WOULD CHANGE
+  var isAct = function (r, list) { return list.indexOf(r.action) !== -1; };
+  var addRows = allocations.filter(function (r) { return isAct(r, ['ADD', 'REPLACE_IN']); });
+  var incRows = allocations.filter(function (r) { return r.action === 'INCREASE'; });
+  var redRows = allocations.filter(function (r) { return r.action === 'REDUCE'; });
+  var exitRows = allocations.filter(function (r) { return isAct(r, ['EXIT', 'REPLACE_OUT']); });
+  html += '<div class="opx-section"><div class="opx-section-title">1 &middot; What would change</div>'
+    + '<div class="pp-actionlist">'
+    + _ppActionCol('add', 'Add', addRows) + _ppActionCol('increase', 'Increase', incRows)
+    + _ppActionCol('reduce', 'Reduce', redRows) + _ppActionCol('exit', 'Exit', exitRows)
+    + '</div></div>';
+
+  // 2) WHY
+  var impr = signal.score_improvement, net = signal.score_improvement_net_of_cost;
+  html += '<div class="opx-section"><div class="opx-section-title">2 &middot; Why</div>'
+    + '<div class="hr-metrics" style="grid-template-columns:repeat(3,1fr);max-width:640px;">'
+    +   _hrMetric('Score improvement', _opxNum(impr, 3), _opxSign(impr))
+    +   _hrMetric('Net of cost', _opxNum(net, 3), _opxSign(net))
+    +   _hrMetric('Concentration (HHI)', _ppArrow(_opxNum(risk.concentration_before, 3), _opxNum(risk.concentration_after, 3)))
+    + '</div>'
+    + '<div class="hr-block" style="margin-top:12px;"><div class="lab">Sector diversification (before → after)</div>'
+    + _ppSectorTable(risk.sector_weights_before, risk.sector_weights_after) + '</div></div>';
+
+  // 3) WHAT IT WOULD COST
+  html += '<div class="opx-section"><div class="opx-section-title">3 &middot; What it would cost</div>'
+    + '<div class="hr-metrics" style="grid-template-columns:repeat(3,1fr);max-width:640px;">'
+    +   _hrMetric('One-way turnover', _opxPct(turnover.one_way_turnover, 1))
+    +   _hrMetric('Est. transaction cost', (turnover.estimated_transaction_cost != null ? ('$' + _mhzNum(turnover.estimated_transaction_cost, 2)) : '—'))
+    +   _hrMetric('Switching cost', (turnover.switching_costs != null ? ('$' + _mhzNum(turnover.switching_costs, 2)) : '—'))
+    + '</div></div>';
+
+  // 4) WHAT WE DON'T KNOW (honest gaps, not urgent badges)
+  var gaps = (d.data_gaps || []);
+  html += '<div class="opx-section"><div class="opx-section-title">4 &middot; What we don’t know</div>';
+  html += gaps.length ? gaps.map(_ppGapBlock).join('')
+    : '<div class="hr-block"><div class="txt">No outstanding data gaps for this proposal.</div></div>';
+  html += '</div>';
+
+  // 5) WHAT THE PORTFOLIO WOULD LOOK LIKE
+  html += '<div class="opx-section"><div class="opx-section-title">5 &middot; What the portfolio would look like</div>'
+    + '<div class="hr-metrics" style="grid-template-columns:repeat(2,1fr);max-width:460px;">'
+    +   _hrMetric('Holdings', _ppArrow((portfolio.current_holding_count != null ? String(portfolio.current_holding_count) : '—'),
+                                       (portfolio.proposed_holding_count != null ? String(portfolio.proposed_holding_count) : '—')))
+    +   _hrMetric('Sector concentration', _ppArrow(_opxPct(risk.sector_concentration_before, 1), _opxPct(risk.sector_concentration_after, 1)))
+    + '</div>'
+    + '<details style="margin-top:14px;"><summary class="opx-section-title" style="cursor:pointer;list-style:none;">'
+    + 'Full proposed allocation (' + allocations.length + ' rows)</summary>'
+    + '<div style="margin-top:12px;">' + _ppAllocTable(allocations) + '</div></details></div>';
+
+  body.innerHTML = html;
+}
+window.renderProposedPortfolioView = renderProposedPortfolioView;
+
+// Progressive-disclosure helper shared by the full-screen views: open a <details>
+// (raw metrics) and scroll it into view. Navigation only; no state change, no write.
+function _opxOpenDetail(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  try { el.open = true; } catch (e) {}
+  if (el.scrollIntoView) { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }
+}
+window._opxOpenDetail = _opxOpenDetail;
+
 // ---------------------------------------------------------------------------
 // Phase 29I Slice 8 — Persistent Alpha Research Agent (the ONE canonical loader).
 // It reads GET /v1/research/research-agent and renders the Research & Audit panel.
@@ -26320,18 +26923,28 @@ function _wsBannerHtml(d) {
   var pas = d.portfolio_assessment_state || {};
   var ev = d.evidence_state || {};
   var sevc = _wsSevColor(pa.severity);
+  // Operator Decision Flow: review-only follow-ups get a human label and open their
+  // dedicated full-screen review experience; other queued items keep their canonical route.
+  var _wsReviewMap = {
+    'REVIEW_HOLDING_OPPORTUNITY_COST': { label: 'View holding changes', route: 'holding-review' },
+    'REVIEW_REALLOCATION_PROPOSAL': { label: 'View proposed portfolio', route: 'proposed-portfolio' }
+  };
   var chips = (d.queued_actions || []).map(function (q) {
-    // Each queued follow-up is a navigable action: make it a clickable deep-link to its
-    // canonical destination (+ focus subsection), so e.g. "Review the reallocation
-    // proposal" lands directly on the Reallocation Proposal review surface. Nav only.
-    var qRoute = _wsRoute(q.destination, q.focus);
+    var fm = _wsReviewMap[q.action_code];
+    var qLabel = fm ? fm.label : q.label;
+    var qRoute = fm ? fm.route : _wsRoute(q.destination, q.focus);
     var qCur = qRoute ? 'cursor:pointer;' : '';
     var qAct = qRoute
-      ? ' role="button" tabindex="0" title="Open: ' + _wsEsc(q.label) + '" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(qRoute) + '\');"'
+      ? ' role="button" tabindex="0" title="Open: ' + _wsEsc(qLabel) + '" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(qRoute) + '\');"'
       : '';
-    return '<span' + qAct + ' style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; padding:1px 7px; margin:2px 3px 0 0;' + qCur + '">' + _wsEsc(q.label) + '</span>';
+    return '<span' + qAct + ' style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; padding:1px 7px; margin:2px 3px 0 0;' + qCur + '">' + _wsEsc(qLabel) + '</span>';
   }).join('');
-  var btn = pa.destination
+  // Suppress a prominent action button when the canonical action is a no-op (monitor / wait,
+  // nothing executable) — the state pill + task line already say everything, and a green
+  // "Monitor the portfolio" button reads as a task to perform when there is nothing to do.
+  var _wsNoAction = (pa.execution_available !== true)
+    && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE');
+  var btn = (pa.destination && !_wsNoAction)
     ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(_wsRoute(pa.destination, pa.focus)) + '\');">' + _wsEsc(pa.label) + '</button>'
     : '';
   return ''
@@ -26386,6 +26999,9 @@ function renderWorkflowState(d) {
   _wsApplyRightPanel(d);
   _wsApplyAssessmentFraming(d);
   _wsApplyEvidence(d);
+  // Operator Decision Flow: the Today hero is the ONE current-state answer, rendered from
+  // this SAME canonical payload (single owner). Defined outside this region; call only.
+  try { _wsRenderTodayHero(d); } catch (e) {}
 }
 window.renderWorkflowState = renderWorkflowState;
 
@@ -26399,10 +27015,22 @@ function _wsApplyRightPanel(d) {
   var os = d.operational_state || {};
   var ap = d.assessment_presentation || {};
   _wsOwnSet('right-current-task', d.current_task);
-  _wsOwnSet('right-next-action', pa.label);
+  // Operator Decision Flow: summarise the SAME canonical state — never a second, conflicting
+  // instruction. When the canonical action is a no-op (monitor / wait, nothing executable),
+  // say "No action required" and hide the action button rather than restating the task twice.
+  var noAction = (pa.execution_available !== true)
+    && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE');
+  _wsOwnSet('right-next-action', noAction ? 'No action required right now.' : pa.label);
   var btn = _wsOwnSet('right-primary-action-btn', pa.label);
-  if (btn && pa.destination) {
-    btn.onclick = function (ev) { if (ev) ev.stopPropagation(); navigateToRoute(_wsRoute(pa.destination, pa.focus)); };
+  if (btn) {
+    if (noAction) {
+      btn.style.display = 'none';
+    } else {
+      btn.style.display = '';
+      if (pa.destination) {
+        btn.onclick = function (ev) { if (ev) ev.stopPropagation(); navigateToRoute(_wsRoute(pa.destination, pa.focus)); };
+      }
+    }
   }
   // Factual latest completed-close chip (state, not interpretation).
   var dcCol = os.operational_close_valid ? 'var(--ok,#22c55e)' : 'var(--warning,#f59e0b)';

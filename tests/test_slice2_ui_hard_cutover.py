@@ -333,9 +333,16 @@ def test_25_to_31_all_surfaces_use_canonical_holding_opportunity_cost(harness):
 
 
 def test_30_right_rail_uses_canonical_holding_opportunity_cost(harness):
+    # Operator Decision Flow contract change: the right rail answers "do I need to do
+    # something right now?". For the canonical MONITOR / no-immediate-action state
+    # (gate NO_ACTION_TODAY, action_required False, current session still open) the
+    # next-action is an explicit "no action required right now"; the market-session wait
+    # is demoted to secondary context (never an urgent Review CTA). The HOC state
+    # (NOT_RUN, never "NO ACTION TODAY") and the factual completed close remain the
+    # canonical right-rail safety facts.
     c = harness["orders"]["ws_then_gate"]["canonical"]
-    assert c["right-current-task"] == "Wait for the current market session to close."
-    assert c["right-next-action"] == "Wait for the market session to close"
+    assert c["right-next-action"] == "No action required right now."   # no immediate action
+    assert "session to close" in c["right-current-task"].lower()       # secondary explanation kept
     assert c["right-dag-badge"] == "NOT_RUN"           # HOC state, never "NO ACTION TODAY"
     assert c["right-dc-badge"].startswith("VALID")     # factual completed close
 
