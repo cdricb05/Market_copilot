@@ -78,6 +78,7 @@ ESTIMATE_TYPES = ("EPS", "REVENUE")
 FISCAL_PERIOD_TYPES = ("QUARTERLY", "ANNUAL")
 REVISION_DIRECTIONS = ("UP", "DOWN", "UNCHANGED")
 SECURITY_STATUSES = ("ACTIVE", "INACTIVE", "DELISTED", "ACQUIRED", "MERGED")
+FORWARD_OUTCOME_STATUSES = ("MATURED", "UNAVAILABLE")
 
 HORIZONS = (5, 20, 63)
 PRIMARY_HORIZON = 63
@@ -134,7 +135,11 @@ def _sha16(obj: Any) -> str:
 _STR, _NUM, _INT, _BOOL, _TS = "str", "number", "int", "bool", "timestamp"
 
 SCHEMAS: Dict[str, List[Tuple[str, str, bool]]] = {
+    # NOTE: every schema declares an OPTIONAL record_id — the store assigns one
+    # on append, so a record read back from the store re-validates cleanly (and
+    # an explicit id can be provided for deterministic identity).
     "SECURITY_IDENTITY": [
+        ("record_id", _STR, False),
         ("provider_security_id", _STR, True),
         ("stable_assetid", _STR, False),
         ("cik", _STR, False),
@@ -170,6 +175,7 @@ SCHEMAS: Dict[str, List[Tuple[str, str, bool]]] = {
         ("raw_source_reference", _STR, False),
     ],
     "CONSENSUS_SNAPSHOT": [
+        ("record_id", _STR, False),
         ("security_id", _STR, True),
         ("estimate_type", _STR, True),
         ("fiscal_period_end", _TS, True),
@@ -187,8 +193,45 @@ SCHEMAS: Dict[str, List[Tuple[str, str, bool]]] = {
         ("prior_week_consensus", _NUM, False),
         ("prior_month_consensus", _NUM, False),
         ("prior_quarter_consensus", _NUM, False),
+        # Measured on the live Intrinio/Zacks trial (2026-08-10): a Q4 estimate and
+        # an FY estimate can share the SAME fiscal_period_end, so the period type is
+        # required to disambiguate the horizon. Optional for back-compat.
+        ("fiscal_period_type", _STR, False),
+    ],
+    # -- Stage 13B prospective forward-evidence records ----------------------- #
+    # A formation is the immutable fact "signal X ranked security S at value V on
+    # snapshot D, formed from data available at T". Outcomes are appended LATER,
+    # one record per (formation, horizon); PENDING is always DERIVED (absence of
+    # an outcome record), never stored, so nothing in the ledger ever mutates.
+    "PROSPECTIVE_SIGNAL_FORMATION": [
+        ("record_id", _STR, False),            # deterministic: compute_formation_id
+        ("security_id", _STR, True),
+        ("signal_family", _STR, True),
+        ("signal_value", _NUM, True),
+        ("formation_rank", _INT, True),
+        ("breadth", _INT, True),
+        ("snapshot_date", _STR, True),
+        ("formation_timestamp", _TS, True),
+        ("source_availability_timestamp", _TS, True),
+        ("fiscal_period_end", _TS, False),
+        ("fiscal_period_type", _STR, False),
+        ("provider", _STR, True),
+    ],
+    "FORWARD_OUTCOME": [
+        ("record_id", _STR, False),            # deterministic: compute_outcome_id
+        ("formation_record_id", _STR, True),
+        ("security_id", _STR, True),
+        ("signal_family", _STR, True),
+        ("snapshot_date", _STR, True),
+        ("horizon_sessions", _INT, True),
+        ("status", _STR, True),                # MATURED / UNAVAILABLE only
+        ("entry_session", _TS, False),
+        ("exit_session", _TS, False),
+        ("forward_return", _NUM, False),
+        ("computed_timestamp", _TS, True),
     ],
     "ACTUAL_EVENT": [
+        ("record_id", _STR, False),
         ("security_id", _STR, True),
         ("estimate_type", _STR, True),
         ("fiscal_period_end", _TS, True),
@@ -199,6 +242,7 @@ SCHEMAS: Dict[str, List[Tuple[str, str, bool]]] = {
         ("surprise_percentage", _NUM, False),
     ],
     "PROVIDER_CAPABILITY": [
+        ("record_id", _STR, False),
         ("source_provider", _STR, True),
         ("available_history_start", _TS, False),
         ("available_history_end", _TS, False),
@@ -267,6 +311,12 @@ def validate_record(schema_name: str, rec: Mapping[str, Any]) -> List[str]:
     if schema_name == "SECURITY_IDENTITY" and st is not None \
             and str(st).upper() not in SECURITY_STATUSES:
         problems.append("SECURITY_IDENTITY: bad status %s" % st)
+    if schema_name == "FORWARD_OUTCOME" and st is not None \
+            and str(st).upper() not in FORWARD_OUTCOME_STATUSES:
+        # PENDING is intentionally NOT storable: pending-ness is the ABSENCE of an
+        # outcome record; storing it would invite mutation of ledger state.
+        problems.append("FORWARD_OUTCOME: bad status %s (PENDING is derived, "
+                        "never stored)" % st)
     return problems
 
 
@@ -285,6 +335,28 @@ def compute_record_id(rec: Mapping[str, Any]) -> str:
         "revised_estimate": rec.get("revised_estimate"),
     }
     return "rev_" + _sha16(key)
+
+
+def compute_formation_id(rec: Mapping[str, Any]) -> str:
+    """Deterministic id for a PROSPECTIVE_SIGNAL_FORMATION. Includes the source
+    availability stamp so a SECOND same-day provider snapshot (changed state)
+    forms NEW records instead of colliding with the earlier genuine observation."""
+    return "psf_" + _sha16({
+        "security_id": rec.get("security_id"),
+        "signal_family": rec.get("signal_family"),
+        "snapshot_date": rec.get("snapshot_date"),
+        "source_availability_timestamp": rec.get("source_availability_timestamp"),
+    })
+
+
+def compute_outcome_id(rec: Mapping[str, Any]) -> str:
+    """Deterministic id for a FORWARD_OUTCOME: one outcome per (formation,
+    horizon). Excludes computed_timestamp so a re-run that would REVISE a stored
+    outcome trips the immutability guard instead of silently duplicating."""
+    return "fwd_" + _sha16({
+        "formation_record_id": rec.get("formation_record_id"),
+        "horizon_sessions": rec.get("horizon_sessions"),
+    })
 
 
 # -- typed, immutable (frozen) record dataclasses --------------------------- #
@@ -352,22 +424,40 @@ class RawObservationStore:
         return self.root / ("%s.jsonl" % schema_name.lower())
 
     def append(self, schema_name: str, rec: Mapping[str, Any]) -> str:
-        problems = validate_record(schema_name, rec)
-        if problems:
-            raise ValueError("record contract violation: %s" % "; ".join(problems))
-        rec = dict(rec)
-        rid = rec.get("record_id") or ("id_" + _sha16(rec))
-        rec["record_id"] = rid
+        res = self.append_many(schema_name, [rec])
+        return res["record_ids"][0]
+
+    def append_many(self, schema_name: str, recs) -> Dict[str, Any]:
+        """Batched append with IDENTICAL semantics to per-record append (validate,
+        first-write-wins idempotency, immutability guard) but ONE read of the
+        existing file — required for real snapshot volumes (10k+ rows/day)."""
         existing = self._by_id(schema_name)
-        if rid in existing:
-            if _canonical_json(existing[rid]) != _canonical_json(rec):
-                raise RevisionImmutabilityError(
-                    "record_id %s already stored with different content "
-                    "(a revision must be a NEW record_id, never an overwrite)" % rid)
-            return rid
+        appended = idempotent = 0
+        rids: List[str] = []
         with self._path(schema_name).open("a", encoding="utf-8") as fh:
-            fh.write(_canonical_json(rec) + "\n")
-        return rid
+            for rec in recs:
+                problems = validate_record(schema_name, rec)
+                if problems:
+                    raise ValueError("record contract violation: %s"
+                                     % "; ".join(problems))
+                rec = dict(rec)
+                rid = rec.get("record_id") or ("id_" + _sha16(rec))
+                rec["record_id"] = rid
+                prev = existing.get(rid)
+                if prev is not None:
+                    if _canonical_json(prev) != _canonical_json(rec):
+                        raise RevisionImmutabilityError(
+                            "record_id %s already stored with different content "
+                            "(a revision must be a NEW record_id, never an "
+                            "overwrite)" % rid)
+                    idempotent += 1
+                else:
+                    fh.write(_canonical_json(rec) + "\n")
+                    existing[rid] = rec
+                    appended += 1
+                rids.append(rid)
+        return {"appended": appended, "idempotent": idempotent,
+                "record_ids": rids}
 
     def _by_id(self, schema_name: str) -> Dict[str, dict]:
         out: Dict[str, dict] = {}

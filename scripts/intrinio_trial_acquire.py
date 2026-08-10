@@ -187,10 +187,12 @@ def _load_checkpoint(path: Path) -> dict:
 # Zacks full-cross-section snapshot
 # --------------------------------------------------------------------------- #
 def run_zacks_snapshot(c: IntrinioCollector, key: str, root: Path, as_of: str,
-                       *, force: bool = False, max_pages: int = 80) -> dict:
+                       *, force: bool = False, max_pages: int = 80,
+                       feeds: tuple = tuple(ZACKS_FEEDS)) -> dict:
     out_summary = {}
     window = _estimate_window(as_of)
-    for feed, (tmpl, list_key, dedupe_last) in ZACKS_FEEDS.items():
+    for feed, (tmpl, list_key, dedupe_last) in (
+            (f, ZACKS_FEEDS[f]) for f in feeds):
         snap_dir = root / "zacks_snapshots" / feed
         manifest_path = snap_dir / ("%s.manifest.json" % as_of)
         if manifest_path.is_file() and not force:
@@ -284,14 +286,22 @@ def run_zacks_snapshot(c: IntrinioCollector, key: str, root: Path, as_of: str,
 # rows in ONE call — the correct bounded shape for the operating universe and
 # for idempotent 30-day forward captures.
 # --------------------------------------------------------------------------- #
+ESTIMATE_UNIVERSE_FEEDS = {
+    "eps": ("eps_estimates_universe",
+            "/zacks/eps_estimates?identifier=%s&page_size=1000", "estimates"),
+    "sales": ("sales_estimates_universe",
+              "/zacks/sales_estimates?identifier=%s&page_size=1000", "estimates"),
+}
+
+
 def run_zacks_estimates_universe(c: IntrinioCollector, key: str, root: Path,
-                                 as_of: str, *, force: bool = False) -> dict:
+                                 as_of: str, *, force: bool = False,
+                                 feeds: tuple = ("eps", "sales")) -> dict:
     store = IdentityStore(IDENTITY_DB)
     members = [u for u in _universe(store) if u["is_current"]]
     out = {}
     for feed, path_tmpl, list_key in (
-            ("eps_estimates_universe", "/zacks/eps_estimates?identifier=%s&page_size=1000", "estimates"),
-            ("sales_estimates_universe", "/zacks/sales_estimates?identifier=%s&page_size=1000", "estimates")):
+            ESTIMATE_UNIVERSE_FEEDS[f] for f in feeds):
         snap_dir = root / "zacks_snapshots" / feed
         manifest_path = snap_dir / ("%s.manifest.json" % as_of)
         if manifest_path.is_file() and not force:
@@ -550,6 +560,15 @@ def main() -> int:
     ap.add_argument("--status", action="store_true")
     ap.add_argument("--as-of", default=None, help="snapshot business date (default: today UTC)")
     ap.add_argument("--force", action="store_true", help="supersede an existing same-day snapshot")
+    ap.add_argument("--feeds", default="eps,sales",
+                    help="estimate-universe feed subset: comma list of eps,sales "
+                         "(lets one feed be re-captured after a breaker trip "
+                         "without overwriting the other feed's same-day snapshot)")
+    ap.add_argument("--snapshot-feeds", default=",".join(ZACKS_FEEDS),
+                    help="global-snapshot feed subset (comma list of %s); e.g. "
+                         "the daily operator capture restricts to the surprise "
+                         "feeds because the global estimate walks are 401-depth-"
+                         "walled and vintage-inflated" % ",".join(ZACKS_FEEDS))
     ap.add_argument("--rate", type=float, default=0.25,
                     help="min seconds between requests (default 0.25; raise if rate-limited)")
     ap.add_argument("--max-companies", type=int, default=None)
@@ -588,12 +607,26 @@ def main() -> int:
     if args.zacks_snapshot:
         ran = True
         print("== Zacks full-cross-section snapshot as_of=%s ==" % as_of)
-        summary = run_zacks_snapshot(c, key, root, as_of, force=args.force)
+        snap_feeds = tuple(f.strip() for f in args.snapshot_feeds.split(",")
+                           if f.strip())
+        bad = [f for f in snap_feeds if f not in ZACKS_FEEDS]
+        if bad or not snap_feeds:
+            print("INVALID --snapshot-feeds %r (allowed: %s)"
+                  % (args.snapshot_feeds, ",".join(ZACKS_FEEDS)))
+            return 2
+        summary = run_zacks_snapshot(c, key, root, as_of, force=args.force,
+                                     feeds=snap_feeds)
         print(json.dumps(summary, indent=1, sort_keys=True))
     if args.zacks_estimates_universe:
         ran = True
         print("== Zacks per-member estimates snapshot as_of=%s ==" % as_of)
-        summary = run_zacks_estimates_universe(c, key, root, as_of, force=args.force)
+        feeds = tuple(f.strip() for f in args.feeds.split(",") if f.strip())
+        bad = [f for f in feeds if f not in ESTIMATE_UNIVERSE_FEEDS]
+        if bad or not feeds:
+            print("INVALID --feeds %r (allowed: eps,sales)" % (args.feeds,))
+            return 2
+        summary = run_zacks_estimates_universe(c, key, root, as_of,
+                                               force=args.force, feeds=feeds)
         print(json.dumps(summary, indent=1, sort_keys=True))
     if args.fundamentals_metadata:
         ran = True

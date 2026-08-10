@@ -51,6 +51,16 @@ def test_fundamental_tags_are_bounded_registered_set():
         "purchaseofplantpropertyandequipment"}
 
 
+def test_feed_subset_flags_cover_exactly_the_known_feeds():
+    # Stage 13B: per-feed re-capture must never invent a feed name
+    assert set(acq.ESTIMATE_UNIVERSE_FEEDS) == {"eps", "sales"}
+    assert acq.ESTIMATE_UNIVERSE_FEEDS["eps"][0] == "eps_estimates_universe"
+    assert acq.ESTIMATE_UNIVERSE_FEEDS["sales"][0] == "sales_estimates_universe"
+    import inspect
+    sig = inspect.signature(acq.run_zacks_snapshot)
+    assert tuple(sig.parameters["feeds"].default) == tuple(acq.ZACKS_FEEDS)
+
+
 def test_zacks_feeds_declare_pit_honesty():
     # estimates dedupe vintages (no vintage timestamp exists); surprises do not
     assert acq.ZACKS_FEEDS["eps_estimates"][2] is True

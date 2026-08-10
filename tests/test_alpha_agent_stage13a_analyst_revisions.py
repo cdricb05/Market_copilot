@@ -21,10 +21,13 @@ from paper_trader.alpha_agent import analyst_revisions as AR
 # --------------------------------------------------------------------------- #
 # Workstream A -- schemas / contract validation / immutable append-only store.
 # --------------------------------------------------------------------------- #
-def test_five_schemas_present_with_required_fields():
+def test_schemas_present_with_required_fields():
+    # Stage 13A's five provider schemas plus Stage 13B's two prospective
+    # forward-evidence schemas (formation + outcome).
     assert set(AR.SCHEMA_NAMES) == {
         "SECURITY_IDENTITY", "ESTIMATE_REVISION_EVENT", "CONSENSUS_SNAPSHOT",
-        "ACTUAL_EVENT", "PROVIDER_CAPABILITY"}
+        "ACTUAL_EVENT", "PROVIDER_CAPABILITY",
+        "PROSPECTIVE_SIGNAL_FORMATION", "FORWARD_OUTCOME"}
     # every schema declares at least one required field
     for name in AR.SCHEMA_NAMES:
         assert AR.required_fields(name), name
@@ -479,7 +482,8 @@ def test_command_center_missing_price_is_none():
 
 def test_contract_completeness_counts():
     cc = AR.contract_completeness()
-    assert cc["n_schemas"] == 5
+    # 5 Stage-13A provider schemas + 2 Stage-13B prospective evidence schemas
+    assert cc["n_schemas"] == 7
     assert cc["n_pit_invariants"] == len(AR.PIT_INVARIANTS)
     assert cc["complete"] is True
 
