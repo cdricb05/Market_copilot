@@ -76,6 +76,10 @@ def _source_cfg(**over):
         "auth_mode": "bearer",
         "license_note": "Intrinio TRIAL - research-only; no redistribution; not operational.",
         "allowed_env_vars": ["INTRINIO_API_KEY", "PAPER_TRADER_INTRINIO_API_KEY"],
+        # Isolate tests from the machine's REAL DPAPI credential file: once the
+        # operator provisions the live trial, the default DPAPI fallback path
+        # exists and "no env key" no longer means "no credential".
+        "dpapi_credential_path": r"C:\nonexistent-paper-trader-test\intrinio_api_key.dpapi",
         "sample_symbols": ["AAPL"],
         "datasets": [
             {"dataset_key": "us_fundamentals", "data_category": "fundamentals",
