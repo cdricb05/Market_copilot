@@ -62,7 +62,44 @@ defensible out-of-sample alpha. That requires historical PIT revision data (the 
 `alpha_agent.analyst_revisions` framework already encodes this pre-data gate; a current-only
 trial stays `DATA_HOLD` for the historical-alpha question).
 
+## Credential / entitlement lane (now BUILT; still NOT activated)
+
+The credential-gated acquisition lane now exists so the evaluation runs the moment
+the operator provisions a trial key — nothing here calls, subscribes to, or pays a
+provider:
+
+- `alpha_agent/collectors/intrinio.py` — `IntrinioCollector(BaseCollector)`
+  (`source_id="intrinio"`, `requires_credential=True`). Reuses the shared
+  `BaseCollector.fetch` machinery, the content-addressed immutable `RawArchive`,
+  and secret redaction. Credential resolves from an env var
+  (`INTRINIO_API_KEY` / `PAPER_TRADER_INTRINIO_API_KEY`) first, then a DPAPI file
+  (reusing `bea.dpapi_unprotect`); the key authenticates via an
+  `Authorization: Bearer` HEADER so it never enters a URL/fingerprint. With no
+  credential, `audit()` returns a controlled BLOCKED result and makes **zero**
+  network calls. `classify_probe` maps a probe to
+  ACTIVE / NOT_PROVISIONED / AUTH_FAILURE / ENDPOINT_NOT_ENTITLED / NETWORK_FAILURE /
+  RATE_LIMITED / UNKNOWN.
+- `configs/alpha_agent/intrinio_trial.json` — provider config: `license_state=TRIAL`,
+  `operational_use_allowed=false`, `research_use_only=true`, research root
+  `D:\Stock_Prediction_app_data\provider_trials\intrinio`, the two datasets
+  (US Fundamentals → `historical_pit_fundamentals_vendor`; Zacks current →
+  `analyst_estimate_revisions_history`), and the safety flag `not_wired_into_collect_drain`.
+- `scripts/configure_alpha_agent_intrinio.ps1` — DPAPI SecureString store (mirrors
+  the BEA configure script; never prints the key).
+- `scripts/intrinio_entitlement_probe.py` — runs `audit()` read-only, classifies
+  entitlement, runs the canonical Data-Expansion gate honestly
+  (no evidence → `INSUFFICIENT_EVIDENCE`) and the Stage-13A historical-Zacks gate
+  (`TRIAL_NOT_STARTED`), and writes a secret-free provenance JSON.
+
+**Cadence safety:** the collector is registered in `COLLECTOR_CLASSES` for explicit
+operator use only and is deliberately **absent** from
+`configs/alpha_agent/stage2_ingestion.json`, so the scheduled Collect cadence never
+runs it. Trial data is written ONLY to the research root on `D:` — never an
+operational ledger.
+
 ## Explicit non-actions
 
 No Intrinio/Zacks call made; no trial activated; no credential added; no provider
-subscribed; no data purchased; no owned data family added to any mandate in this build.
+subscribed; no data purchased; no owned data family added to any mandate in this
+build. The lane above is inert until the operator provisions a key and runs the
+probe.

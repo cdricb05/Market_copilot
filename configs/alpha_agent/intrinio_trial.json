@@ -1,0 +1,81 @@
+{
+  "config_owner": "alpha_agent.collectors.intrinio",
+  "purpose": "Credential-gated Intrinio TRIAL provider config (US Fundamentals + Zacks current-data). Research-only, preview-first, no operational use, no cadence. Contains NO secret: the API key is resolved at runtime from an env var or the DPAPI-protected credential file and is never written here.",
+  "provider": "Intrinio",
+  "license_state": "TRIAL",
+  "research_use_only": true,
+  "operational_use_allowed": false,
+  "portfolio_use_allowed": false,
+  "model_promotion_allowed": false,
+  "trial_days": 14,
+  "research_root": "D:\\Stock_Prediction_app_data\\provider_trials\\intrinio",
+  "run": {
+    "user_agent": "paper-trader-alpha-agent-research/1.0 (+trial-evaluation; contact operator)",
+    "limits": {
+      "max_retries": 2,
+      "backoff_base_seconds": 1.0,
+      "backoff_multiplier": 2.0,
+      "http_timeout_seconds": 30,
+      "circuit_breaker_threshold": 5,
+      "raw_object_max_bytes": 33554432
+    },
+    "secret_redaction": {
+      "redacted_query_params": ["api_key", "apikey", "api-key", "token", "access_token"],
+      "redaction_placeholder": "REDACTED"
+    }
+  },
+  "source": {
+    "source_id": "intrinio",
+    "enabled": true,
+    "requires_credential": true,
+    "base_url": "https://api-v2.intrinio.com",
+    "auth_mode": "bearer",
+    "min_interval_seconds": 1.0,
+    "license_note": "Intrinio TRIAL — research-only evaluation; no redistribution; not for operational/portfolio use.",
+    "allowed_env_vars": ["INTRINIO_API_KEY", "PAPER_TRADER_INTRINIO_API_KEY"],
+    "dpapi_credential_path": null,
+    "dpapi_credential_dir_name": "alpha_agent_intrinio",
+    "dpapi_credential_file": "intrinio_api_key.dpapi",
+    "secret_redaction": {
+      "redacted_query_params": ["api_key", "apikey", "api-key", "token", "access_token"],
+      "redaction_placeholder": "REDACTED"
+    },
+    "datasets": [
+      {
+        "dataset_key": "us_fundamentals",
+        "display_name": "Intrinio US Fundamentals",
+        "data_category": "fundamentals",
+        "data_expansion_dataset_id": "historical_pit_fundamentals_vendor",
+        "entitlement_probe_path": "/companies?page_size=1",
+        "entitlement_probe_note": "Smallest safe US-Fundamentals-entitlement probe (single company row). Confirm the exact entitled path against the live trial account at probe time; the classification logic does not depend on the specific path.",
+        "license_state": "TRIAL",
+        "operational_use_allowed": false,
+        "research_use_only": true
+      },
+      {
+        "dataset_key": "zacks_estimates",
+        "display_name": "Intrinio Zacks (current-data)",
+        "data_category": "analyst_revisions",
+        "data_expansion_dataset_id": "analyst_estimate_revisions_history",
+        "entitlement_probe_path": "/zacks/eps_estimates?page_size=1",
+        "entitlement_probe_note": "Smallest safe Zacks current-consensus entitlement probe. CURRENT DATA ONLY: this trial CANNOT establish historical point-in-time revision alpha; the historical-revision question stays DATA_HOLD in alpha_agent.analyst_revisions.",
+        "current_data_only": true,
+        "historical_revision_alpha_supported": false,
+        "license_state": "TRIAL",
+        "operational_use_allowed": false,
+        "research_use_only": true
+      }
+    ]
+  },
+  "safety": {
+    "preview_only": true,
+    "research_only": true,
+    "no_operational_use": true,
+    "no_cadence": true,
+    "no_orders": true,
+    "no_portfolio_mutation": true,
+    "no_model_promotion": true,
+    "not_wired_into_collect_drain": true,
+    "reachable_only_via_explicit_operator_probe": true
+  }
+}
