@@ -104,7 +104,9 @@ def test_2_future_action_visible_as_passive_up_next(ui):
 def test_3_executable_action_still_gets_one_primary_cta(ui):
     banner = _banner(ui)
     # the single canonical primary button is shown only when there IS a real action.
-    assert "var btn = (pa.destination && !_wsNoAction)" in banner
+    # (Operator Action Integrity: an executable primary also earns the CTA, and it
+    # dispatches through the ONE canonical dispatcher.)
+    assert "var btn = ((pa.destination || _wsExecutes) && !_wsNoAction)" in banner
     # executable queued items keep their clickable chip (gated on execution_available).
     assert "q.execution_available !== true" in banner
     panel = _right_panel(ui)
@@ -206,8 +208,9 @@ def test_11_no_backend_semantic_change_ui_reads_canonical(ui):
     # the up-next reads the canonical queued-action execution flag verbatim.
     assert "q.execution_available" in banner
     # it never fabricates a second next-action owner: the no-op flag is the shared
-    # canonical expression, and the primary action drives the one CTA.
-    assert "var btn = (pa.destination && !_wsNoAction)" in banner
+    # canonical expression, and the primary action drives the one CTA (through the
+    # ONE canonical dispatcher — Operator Action Integrity).
+    assert "var btn = ((pa.destination || _wsExecutes) && !_wsNoAction)" in banner
 
 
 def test_11b_workflow_state_owner_not_forked(ui):

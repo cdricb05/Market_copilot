@@ -332,11 +332,12 @@ _PRESENTATION = {
     # Phase 29G.1 hard cutover: the legacy rank-membership comparison (current holdings
     # vs the ranked names) is NOT a completed reallocation proposal. It is reclassified
     # as a read-only, compatibility-only membership-comparison summary. The canonical
-    # portfolio decision is the Holding Opportunity-Cost review (Slice 6); the
-    # Reallocation Proposal engine (Slice 7) is not implemented. The state KEY and
-    # primary_action_kind are preserved for historical/audit compatibility; only the
-    # operator-facing classification changes. It never says "Rebalance Proposal Ready",
-    # "Portfolio Changes Proposed", "approved proposal" or "ready to rebalance".
+    # portfolio decision now flows through the Holding Opportunity-Cost Review (Slice 6)
+    # and the review-only Reallocation Proposal (Slice 7) — both implemented — which
+    # supersede this legacy membership comparison. The state KEY and primary_action_kind
+    # are preserved for historical/audit compatibility; only the operator-facing
+    # classification changes. It never says "Rebalance Proposal Ready", "Portfolio
+    # Changes Proposed", "approved proposal" or "ready to rebalance".
     REBALANCE_PROPOSAL_READY: {
         "label": "LEGACY MEMBERSHIP-COMPARISON SUMMARY — COMPATIBILITY ONLY",
         "headline": "LEGACY MEMBERSHIP-COMPARISON SUMMARY — REVIEW-ONLY COMPATIBILITY",
@@ -347,9 +348,9 @@ _PRESENTATION = {
         "next_action": ("Read-only compatibility view. The legacy rank-membership "
                         "comparison of the current holdings against the ranked names is "
                         "NOT an approved reallocation and creates no paper orders. The "
-                        "canonical portfolio decision is the Holding Opportunity-Cost "
-                        "review (Slice 6); the Reallocation Proposal engine (Slice 7) is "
-                        "not implemented."),
+                        "canonical portfolio decision now flows through the Holding "
+                        "Opportunity-Cost Review (Slice 6) and the review-only "
+                        "Reallocation Proposal (Slice 7)."),
         "cycle_label": "LEGACY MEMBERSHIP COMPARISON",
     },
     PAPER_ORDERS_SUBMITTED: {
@@ -1799,7 +1800,11 @@ def _daily_cycle_stages(close_status: str) -> list[dict]:
     elif close_status == WAITING_FOR_MARKET_DATA:
         s = [P, P, P, P, P]
     elif close_status == REBALANCE_PROPOSAL_READY:
-        s = [C, C, C, N, P]
+        # Operator Action Integrity (Defect 4): the legacy membership comparison is
+        # compatibility-only and review-only — it is NOT required operator work, so
+        # stage 4 never claims NEEDS_ACTION after a completed close; monitoring is
+        # the active stage, exactly as for the other completed-close statuses.
+        s = [C, C, C, P, A]
     elif close_status == PAPER_ORDERS_SUBMITTED:
         s = [C, C, C, A, P]
     elif close_status in (CLOSE_COMPLETE_HOLD, ALREADY_PROCESSED, INITIAL_BASELINE_RECORDED):

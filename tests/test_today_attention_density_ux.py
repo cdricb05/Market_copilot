@@ -161,7 +161,8 @@ def test_9_right_rail_does_not_duplicate_optional_links_when_no_action(ui):
 def test_10_right_rail_surfaces_primary_action_when_required(ui):
     banner = _banner(ui)
     # the canonical primary button is shown when there IS a real action (not a no-op).
-    assert "pa.destination && !_wsNoAction" in banner
+    # (Operator Action Integrity: an executable primary also earns the CTA.)
+    assert "(pa.destination || _wsExecutes) && !_wsNoAction" in banner
     panel = _right_panel(ui)
     # the Action/Safety panel keeps the primary button and only hides it for a no-op.
     assert "right-primary-action-btn" in panel

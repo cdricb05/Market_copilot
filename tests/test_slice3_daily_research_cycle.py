@@ -754,7 +754,12 @@ def test_80_81_82_83_button_governed_by_backend_and_no_duplicate_submit():
     end = html.find("window.runDailyResearchCycle = runDailyResearchCycle")
     region = html[start:end]
     assert "window._drcRunning" in region       # duplicate-submission guard
-    assert "if (b && b.disabled) return;" in region
+    # Operator Action Integrity: the guard covers BOTH origins — the Daily Workflow
+    # run button (mirrors the backend `executable` flag) and a canonical CTA
+    # dispatched only when primary_action.execution_available is true. A disabled
+    # origin never submits.
+    assert "if (btn && btn.disabled) return;" in region
+    assert "if (!btn && b && b.disabled) return;" in region
     render_start = html.find("function renderDailyResearchCycle")
     render = html[render_start:start]
     assert "btn.disabled = !d.executable" in render

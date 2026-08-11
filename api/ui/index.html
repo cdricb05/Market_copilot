@@ -6546,6 +6546,21 @@
   <div id="dc-run-steps" class="mono" style="font-size:10.5px;color:var(--label,#94a3b8);margin-top:6px;line-height:1.6;"></div>
 </div>
 
+<!-- Operator Action Integrity: canonical primary-action confirmation panel (global,
+     styled, in-page — never a native dialog). It shows the SAME title / note /
+     confirmation token as the Paper Trading Desk action spec so the canonical
+     Today / right-rail CTA runs the EXISTING owned-data refresh owner under its
+     EXISTING confirmation contract (no second refresh implementation). -->
+<div id="ws-exec-confirm" style="display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9999;min-width:420px;max-width:640px;background:var(--bg-panel,#0f172a);border:1px solid var(--warning,#f59e0b);border-radius:10px;padding:12px 16px;box-shadow:0 8px 30px rgba(0,0,0,.45);">
+  <div style="font-weight:700;font-size:12px;" id="ws-exec-confirm-title">&mdash;</div>
+  <div class="cc-na-note" style="font-size:10px;margin-top:6px;" id="ws-exec-confirm-note">&mdash;</div>
+  <div class="mono" style="font-size:10px;margin-top:6px;">Confirmation phrase: <b id="ws-exec-confirm-phrase">&mdash;</b></div>
+  <div style="display:flex;gap:8px;margin-top:8px;">
+    <button class="btn-sm" id="ws-exec-confirm-yes" onclick="wsExecConfirmYes()" title="Run this ONE explicit manual action through its existing owner.">Run This Manual Action</button>
+    <button class="btn-sm" id="ws-exec-confirm-no" onclick="wsExecConfirmNo()" title="Close without doing anything.">Cancel</button>
+  </div>
+</div>
+
 <!-- Confirm Modal -->
 <!-- Daily Review Session confirm panel -->
 <div id="daily-session-panel" class="confirm-modal">
@@ -22545,6 +22560,38 @@ function _ccCapacityExplanation(pf) {
   return lead + enforced;
 }
 
+// Operator Action Integrity (Defect 4): the legacy Command-Center stage row must
+// never claim required work ("NEEDS ACTION") that contradicts the canonical
+// workflow. When the canonical primary action is the no-op monitor/wait state
+// (read VERBATIM from the workflow-state payload — no client derivation), the
+// legacy review/decide stages are OPTIONAL review context, not current required
+// actions. renderWorkflowState re-applies this framing after the canonical
+// payload loads, so the final state depends on ownership, not load order.
+function _ccApplyWorkflowStages(d) {
+  var alpha = (d && d.alpha) || {}, wf = (d && d.workflow) || {}, pf = (d && d.portfolio) || {};
+  var wsNoOp = _wsIsNoOpState();
+  var stale = alpha.available && alpha.mark_stale;
+  renderWorkflowStage('cc-stage-refresh',
+    !alpha.available ? 'NEEDS ACTION' : (stale ? 'NEEDS ACTION' : 'COMPLETE'),
+    !alpha.available ? 's-action' : (stale ? 's-action' : 's-complete'),
+    'Mark: ' + (alpha.latest_mark_date || '—'));
+  var rq = wf.review_queue_count || 0;
+  renderWorkflowStage('cc-stage-review',
+    rq > 0 ? (wsNoOp ? 'OPTIONAL REVIEW' : 'NEEDS ACTION') : 'READY',
+    rq > 0 ? (wsNoOp ? 's-ready' : 's-action') : 's-ready',
+    rq > 0 ? (rq + ' idea(s) to review' + (wsNoOp ? ' (optional)' : '')) : 'No pending ideas');
+  var actionable = (wf.approved_count || 0) + (wf.order_eligible_count || 0);
+  var blocked = wf.blocked_count || 0;
+  renderWorkflowStage('cc-stage-decide',
+    blocked > 0 ? 'BLOCKED' : (actionable > 0 ? (wsNoOp ? 'OPTIONAL REVIEW' : 'NEEDS ACTION') : 'READY'),
+    blocked > 0 ? 's-blocked' : (actionable > 0 ? (wsNoOp ? 's-ready' : 's-action') : 's-ready'),
+    blocked > 0 ? wf.current_blocker : (actionable + (wsNoOp ? ' available (optional)' : ' ready')));
+  renderWorkflowStage('cc-stage-monitor',
+    (pf.open_positions || 0) > 0 ? 'COMPLETE' : 'READY',
+    (pf.open_positions || 0) > 0 ? 's-complete' : 's-ready',
+    (pf.open_positions || 0) + ' open · ' + (pf.review_for_exit_count || 0) + ' review-for-exit');
+}
+
 function renderCommandCenter() {
   var d = window._commandCenter.data;
   var errEl = document.getElementById('cc-error');
@@ -22620,27 +22667,8 @@ function renderCommandCenter() {
       (pf.max_positions != null ? pf.max_positions : 'unknown') + '. ' + _capExplain);
   }
 
-  // ROW 2 workflow stages
-  var stale = alpha.available && alpha.mark_stale;
-  renderWorkflowStage('cc-stage-refresh',
-    !alpha.available ? 'NEEDS ACTION' : (stale ? 'NEEDS ACTION' : 'COMPLETE'),
-    !alpha.available ? 's-action' : (stale ? 's-action' : 's-complete'),
-    'Mark: ' + (alpha.latest_mark_date || '—'));
-  var rq = wf.review_queue_count || 0;
-  renderWorkflowStage('cc-stage-review',
-    rq > 0 ? 'NEEDS ACTION' : 'READY',
-    rq > 0 ? 's-action' : 's-ready',
-    rq > 0 ? (rq + ' idea(s) to review') : 'No pending ideas');
-  var actionable = (wf.approved_count || 0) + (wf.order_eligible_count || 0);
-  var blocked = wf.blocked_count || 0;
-  renderWorkflowStage('cc-stage-decide',
-    blocked > 0 ? 'BLOCKED' : (actionable > 0 ? 'NEEDS ACTION' : 'READY'),
-    blocked > 0 ? 's-blocked' : (actionable > 0 ? 's-action' : 's-ready'),
-    blocked > 0 ? wf.current_blocker : (actionable + ' ready'));
-  renderWorkflowStage('cc-stage-monitor',
-    (pf.open_positions || 0) > 0 ? 'COMPLETE' : 'READY',
-    (pf.open_positions || 0) > 0 ? 's-complete' : 's-ready',
-    (pf.open_positions || 0) + ' open · ' + (pf.review_for_exit_count || 0) + ' review-for-exit');
+  // ROW 2 workflow stages (canonical-aware — see _ccApplyWorkflowStages).
+  _ccApplyWorkflowStages(d);
 
   // ROW 3 current alpha — TOP50 prominent; full internal book_id only in tooltip.
   var apEl = document.getElementById('cc-alpha-primary');
@@ -23250,6 +23278,10 @@ var _PT_SUB_TARGET = {
 // Manager tab instead of the tab top. Scroll-focus only — no state change, no write.
 var _PM_SUB_TARGET = {
   '': null, 'reallocation': 'realloc-card', 'opportunity-cost': 'hoc-card',
+  // Operator Action Integrity: the owned-data refresh owner (Paper Trading Desk
+  // band) — the canonical WAITING_FOR_OWNED_DATA fallback navigation lands
+  // exactly on the owning control, never on the top of the tab.
+  'pd-band': 'pd-band',
 };
 function _ptHighlightNav(sub) {
   var links = document.querySelectorAll('#pt-nav a[data-ptsub]');
@@ -23393,6 +23425,9 @@ function _applySubsection(base, sub) {
       // Phase 29J.1: the decision detail is open by default, but defensively re-open it so
       // the deep-link always lands on a VISIBLE card even if the operator collapsed it.
       try { var pmAdv = document.getElementById('pm-advanced'); if (pmAdv) pmAdv.open = true; } catch (e) {}
+      // Operator Action Integrity: the Paper Trading Desk band lives inside the
+      // advanced/exec details — open it before focusing the owning control.
+      if (sub === 'pd-band') { try { pmOpenAdvExec(); } catch (e) {} }
       var pmid = _PM_SUB_TARGET[sub || ''];
       var pmel = pmid ? document.getElementById(pmid) : null;
       if (pmel && pmel.scrollIntoView) { try { pmel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { pmel.scrollIntoView(); } }
@@ -25691,12 +25726,25 @@ function _wsRenderTodayHero(d) {
   }
   var sub = pa.explanation || pa.label || d.current_task || '';
 
-  // Exactly one primary CTA — only when there is a real action.
+  // Exactly one primary CTA — only when there is a real action. Operator Action
+  // Integrity (Defects 1+2): the CTA goes through the ONE canonical dispatcher —
+  // an executable primary EXECUTES through its existing owner (owned-data refresh /
+  // Daily Research Cycle / Daily Close); everything else navigates to the canonical
+  // destination. When the primary executes, the navigation link beside it carries
+  // distinctly NAVIGATIONAL wording so routing is never disguised as execution.
   var ctaHtml = '';
-  if (pa.destination) {
-    var route = (window._wsRoute ? window._wsRoute(pa.destination, pa.focus) : pa.destination) || pa.destination;
-    ctaHtml = '<button class="th-cta ' + ctaClass + '" onclick="navigateToRoute(\'' + _wsEsc(route)
-      + '\')">' + _wsEsc(pa.label || 'Continue') + '</button>';
+  var thExecutes = (pa.execution_available === true) && !!pa.execution_kind;
+  if (pa.destination || thExecutes) {
+    ctaHtml = '<button class="th-cta ' + ctaClass + '" onclick="dispatchCanonicalPrimaryAction(this)">'
+      + _wsEsc(pa.label || 'Continue') + '</button>';
+    if (thExecutes && pa.destination) {
+      var thRoute = (window._wsRoute ? window._wsRoute(pa.destination, pa.focus) : pa.destination) || pa.destination;
+      var thViewLbl = (window._WS_VIEW_LABEL && window._WS_VIEW_LABEL[pa.destination]) || ('Open ' + pa.destination);
+      ctaHtml += '<a class="th-link" role="button" tabindex="0" style="margin-left:12px;"'
+        + ' title="Navigation only — opens the page; does not run anything."'
+        + ' onclick="navigateToRoute(\'' + _wsEsc(thRoute) + '\')">'
+        + '<span class="t">' + _wsEsc(thViewLbl) + ' &rarr;</span></a>';
+    }
   }
 
   var secHtml = '';
@@ -26827,27 +26875,41 @@ window.renderDailyResearchCycle = renderDailyResearchCycle;
 
 function runDailyResearchCycle(btn) {
   var b = document.getElementById('drc-run-btn');
-  if (b && b.disabled) return;           // never submit when the backend says not executable
+  // Backend-governed eligibility, one execution path (Operator Action Integrity):
+  // the Daily Workflow run button mirrors the DRC status `executable` flag in its
+  // disabled state; a canonical CTA reaches here ONLY through
+  // dispatchCanonicalPrimaryAction when the authoritative workflow payload says
+  // execution_available. Either origin refuses a disabled control and refuses to
+  // double-submit.
+  if (btn && btn.disabled) return;
+  if (!btn && b && b.disabled) return;
   if (window._drcRunning) return;        // prevent duplicate submission
   window._drcRunning = true;
+  // The canonical origin CTA (Today hero / right rail / banner) shows the same
+  // in-flight progress as the Daily Workflow run button.
+  var origin = (btn && btn !== b) ? btn : null;
+  var originText = origin ? origin.textContent : null;
   if (b) { b.disabled = true; b.textContent = 'DAILY RESEARCH CYCLE RUNNING…'; }
+  if (origin) { origin.disabled = true; origin.textContent = 'DAILY RESEARCH CYCLE RUNNING…'; }
   var res = document.getElementById('drc-action-result');
-  call('POST', '/v1/operations/daily-research-cycle/run', { confirmation: 'RUN_DAILY_RESEARCH_CYCLE' })
+  return call('POST', '/v1/operations/daily-research-cycle/run', { confirmation: 'RUN_DAILY_RESEARCH_CYCLE' })
     .then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, body: j }; });
     })
     .then(function (o) {
       window._drcRunning = false;
       if (b) b.textContent = 'RUN DAILY RESEARCH CYCLE';
+      if (origin) { origin.disabled = false; if (originText) origin.textContent = originText; }
       if (res) {
         res.style.display = 'block';
         res.textContent = 'Daily Research Cycle result: ' + ((o.body && o.body.state) || ('HTTP ' + o.status));
       }
-      return loadDailyResearchCycle().then(function () { try { loadWorkflowState(); } catch (e) {} });
+      return loadDailyResearchCycle().then(function () { try { return loadWorkflowState(); } catch (e) {} });
     })
     .catch(function () {
       window._drcRunning = false;
       if (b) b.textContent = 'RUN DAILY RESEARCH CYCLE';
+      if (origin) { origin.disabled = false; if (originText) origin.textContent = originText; }
       if (res) { res.style.display = 'block'; res.textContent = 'Could not run the Daily Research Cycle.'; }
     });
 }
@@ -26984,6 +27046,91 @@ function _wsRoute(dest, focus) {
   return focus ? (dest + '/' + focus) : dest;
 }
 window._wsRoute = _wsRoute;
+
+// ---- CANONICAL PRIMARY-ACTION DISPATCH (Operator Action Integrity) ------------
+// ONE shared dispatcher for the canonical workflow primary action, used by the
+// Today hero, the right Action/Safety panel and every canonical banner CTA. It
+// reads ONLY authoritative payload fields (action_code / execution_available /
+// execution_kind) and routes execution to the EXISTING owners:
+//   DAILY_RESEARCH_CYCLE → runDailyResearchCycle (POST /v1/operations/daily-research-cycle/run)
+//   DAILY_CLOSE          → runDailyClose        (POST /v1/operations/daily-close/execute)
+//   PAPER_DESK_REFRESH   → the Paper Desk manual refresh spec (_PD_ACTIONS.refresh →
+//                          POST /v1/paper-desk/refresh) behind the styled confirm panel.
+// Anything else NAVIGATES to the canonical destination (+focus). No second
+// writer, no client-side workflow recalculation, no browser-date eligibility.
+function dispatchCanonicalPrimaryAction(btn) {
+  var d = window._wsData;
+  if (!d || !d.primary_action) return;
+  var pa = d.primary_action;
+  if (pa.execution_available === true && pa.execution_kind) {
+    if (pa.execution_kind === 'DAILY_RESEARCH_CYCLE') { runDailyResearchCycle(btn); return; }
+    if (pa.execution_kind === 'DAILY_CLOSE') { runDailyClose(btn); return; }
+    if (pa.execution_kind === 'PAPER_DESK_REFRESH') { _wsExecuteOwnedDataRefresh(btn); return; }
+    // Unknown executor kinds fall through to safe navigation — never a blind POST.
+  }
+  if (pa.destination) navigateToRoute(_wsRoute(pa.destination, pa.focus));
+}
+window.dispatchCanonicalPrimaryAction = dispatchCanonicalPrimaryAction;
+
+// Distinct NAVIGATIONAL wording for the secondary view-link shown next to an
+// EXECUTING primary CTA — never visually/textually confusable with execution.
+var _WS_VIEW_LABEL = {
+  'daily-workflow': 'View Daily Workflow',
+  'portfolio-manager': 'Open Portfolio Manager',
+  'portfolio': 'Open Portfolio',
+  'command-center': 'Open Today',
+  'research-audit': 'Open Research & Audit'
+};
+
+// Run the EXISTING authoritative owned-data refresh owner (the Paper Desk manual
+// refresh) from a canonical CTA, behind the SAME title/note/token confirmation
+// contract as the desk band. pdDoAction() is the ONE executor — no duplicate
+// refresh implementation, no second writer.
+function _wsExecuteOwnedDataRefresh(btn) {
+  if (window._wsOwnedRefreshRunning) return;
+  var spec = _PD_ACTIONS.refresh;
+  window._wsExecOriginBtn = btn || null;
+  var t = document.getElementById('ws-exec-confirm-title');
+  var n = document.getElementById('ws-exec-confirm-note');
+  var p = document.getElementById('ws-exec-confirm-phrase');
+  if (t) t.textContent = spec.title;
+  if (n) n.textContent = spec.note;
+  if (p) p.textContent = spec.token;
+  var box = document.getElementById('ws-exec-confirm');
+  if (box) box.style.display = '';
+}
+function wsExecConfirmNo() {
+  var box = document.getElementById('ws-exec-confirm');
+  if (box) box.style.display = 'none';
+  window._wsExecOriginBtn = null;
+}
+function wsExecConfirmYes() {
+  var box = document.getElementById('ws-exec-confirm');
+  if (box) box.style.display = 'none';
+  if (window._wsOwnedRefreshRunning) return;
+  window._wsOwnedRefreshRunning = true;
+  var btn = window._wsExecOriginBtn || null;
+  var orig = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing owned market data…'; }
+  // The ONE existing executor: pdDoAction posts _PD_ACTIONS.refresh (path + token)
+  // and already renders the desk result + toast; afterwards the canonical workflow
+  // state is reloaded so the next canonical action renders (e.g. the session became
+  // eligible → Run the Daily Research Cycle).
+  window._pdPendingAction = 'refresh';
+  return Promise.resolve()
+    .then(function () { return pdDoAction(); })
+    .catch(function () {})
+    .then(function () {
+      window._wsOwnedRefreshRunning = false;
+      window._wsExecOriginBtn = null;
+      if (btn) { btn.disabled = false; if (orig) btn.textContent = orig; }
+      try { loadDataFreshness(); } catch (e) {}
+      try { loadDailyResearchCycle(); } catch (e) {}
+      try { return loadWorkflowState(); } catch (e) {}
+    });
+}
+window.wsExecConfirmYes = wsExecConfirmYes;
+window.wsExecConfirmNo = wsExecConfirmNo;
 // Compose the canonical banner HTML STRICTLY from the server payload fields.
 // No stage, currency, overdue, next-action, evidence-severity or "today" logic
 // is computed here — those are all read from the canonical contract.
@@ -27040,6 +27187,15 @@ function _wsBannerHtml(d) {
       : '';
     return '<span' + qAct + ' style="display:inline-block; font-size:9px; font-weight:700; background:rgba(255,255,255,.05); border:1px solid var(--border); border-radius:10px; padding:1px 7px; margin:2px 3px 0 0;' + qCur + '">' + _wsEsc(qLabel) + '</span>';
   }).join('');
+  // Operator Action Integrity (Defect 2): the ONE primary CTA goes through the ONE
+  // canonical dispatcher — an executable primary EXECUTES through its existing
+  // owner; everything else navigates. When the primary executes, a small,
+  // distinctly-worded NAVIGATIONAL link ("View Daily Workflow") is offered beside
+  // it so navigation is never disguised as execution (or vice versa).
+  var _wsExecutes = (pa.execution_available === true) && !!pa.execution_kind;
+  var viewLink = (_wsExecutes && pa.destination)
+    ? ' <a role="button" tabindex="0" style="font-size:9px; margin-left:8px; text-decoration:underline; cursor:pointer; color:var(--text-secondary);" title="Navigation only — opens the page; does not run anything." onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(_wsRoute(pa.destination, pa.focus)) + '\');">' + _wsEsc(_WS_VIEW_LABEL[pa.destination] || ('Open ' + pa.destination)) + '</a>'
+    : '';
   // Passive "Up next" block — muted, non-clickable; the operator reads it as what comes next.
   var upNextHtml = upNext.length
     ? '<div style="margin-top:5px; display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;">'
@@ -27049,8 +27205,8 @@ function _wsBannerHtml(d) {
       +   upNext.map(function (t) { return _wsEsc(t); }).join(' &middot; ')
       + '</span></div>'
     : '';
-  var btn = (pa.destination && !_wsNoAction)
-    ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(_wsRoute(pa.destination, pa.focus)) + '\');">' + _wsEsc(pa.label) + '</button>'
+  var btn = ((pa.destination || _wsExecutes) && !_wsNoAction)
+    ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); dispatchCanonicalPrimaryAction(this);">' + _wsEsc(pa.label) + '</button>' + viewLink
     : '';
   return ''
     + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
@@ -27108,6 +27264,19 @@ function renderWorkflowState(d) {
   // Operator Decision Flow: the Today hero is the ONE current-state answer, rendered from
   // this SAME canonical payload (single owner). Defined outside this region; call only.
   try { _wsRenderTodayHero(d); } catch (e) {}
+  // Operator Action Integrity (Defect 3): the Daily-Close panels obey the canonical
+  // daily_close_gate — re-apply their rendering now that the authoritative verdict
+  // is present, so their final state depends on OWNERSHIP, not load order.
+  try { if (window._dcData) renderDailyClose(window._dcData); } catch (e) {}
+  // Operator Action Integrity (Defect 4): the legacy Command-Center stage row is
+  // re-framed from the SAME canonical payload (required vs optional review).
+  try {
+    var _ccS = window._commandCenter;
+    if (_ccS && _ccS.data && typeof _ccApplyWorkflowStages === 'function') _ccApplyWorkflowStages(_ccS.data);
+  } catch (e) {}
+  // Defect 4: the operational lifecycle strips (Today + Daily Workflow) re-frame
+  // any NEEDS_ACTION stage as optional review context in a canonical no-op state.
+  try { if (typeof _obReframeStageStatuses === 'function') _obReframeStageStatuses(); } catch (e) {}
 }
 window.renderWorkflowState = renderWorkflowState;
 
@@ -27133,9 +27302,13 @@ function _wsApplyRightPanel(d) {
       btn.style.display = 'none';
     } else {
       btn.style.display = '';
-      if (pa.destination) {
-        btn.onclick = function (ev) { if (ev) ev.stopPropagation(); navigateToRoute(_wsRoute(pa.destination, pa.focus)); };
-      }
+      // Operator Action Integrity: the right-rail primary button uses the SAME
+      // canonical dispatcher as the Today hero and the banners — an executable
+      // primary executes through its existing owner; otherwise it navigates.
+      btn.onclick = function (ev) {
+        if (ev) ev.stopPropagation();
+        dispatchCanonicalPrimaryAction(btn);
+      };
     }
   }
   // Factual latest completed-close chip (state, not interpretation).
@@ -27923,9 +28096,43 @@ function _dcIsLegacyCompat(d) {
   return !!d && (d.close_status === 'REBALANCE_PROPOSAL_READY'
     || /LEGACY MEMBERSHIP-COMPARISON/i.test(String(d.close_status_label || '') + ' ' + String(d.headline || '')));
 }
+// Operator Action Integrity (Defect 3): the canonical Daily-Close availability
+// verdict, read VERBATIM from the authoritative workflow-state payload
+// (daily_close_gate). Secondary close surfaces obey it — before the canonical
+// payload arrives the gate is CLOSED (no execution affordance can appear that the
+// canonical workflow might forbid). Never recalculated client-side.
+function _wsDailyCloseGate() {
+  var d = window._wsData;
+  if (d && d.daily_close_gate) return d.daily_close_gate;
+  return { execution_allowed: false, passive_status: null, passive_badge: null, pending: true };
+}
+window._wsDailyCloseGate = _wsDailyCloseGate;
+// The canonical no-op verdict (monitor / wait, nothing executable) — read
+// VERBATIM from the authoritative workflow-state payload. The ONE shared flag
+// every legacy-surface re-framing (Defect 4) keys on; never derived from
+// client dates or a second priority engine.
+function _wsIsNoOpState() {
+  var d = window._wsData, pa = (d && d.primary_action) || {};
+  return !!d && (pa.execution_available !== true) &&
+    (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE');
+}
+window._wsIsNoOpState = _wsIsNoOpState;
 function _dcApplyHeadline(prefix, d, color) {
   var hl = document.getElementById(prefix + '-dc-headline');
   var ex = document.getElementById(prefix + '-dc-explanation');
+  var _dcPa = d.primary_action || {};
+  var _dcGate = _wsDailyCloseGate();
+  if (_dcPa.runs_daily_close && !_dcGate.execution_allowed) {
+    // Defect 3: an actionable "RUN DAILY CLOSE" headline is forbidden while the
+    // canonical workflow forbids the close — show the canonical passive status.
+    if (hl) {
+      hl.style.color = 'var(--label, #94a3b8)';
+      hl.textContent = _dcGate.passive_status
+        || 'Daily Close is not available yet — follow the canonical workflow action.';
+    }
+    if (ex) { ex.textContent = ''; ex.style.display = 'none'; }
+    return;
+  }
   if (_dcIsLegacyCompat(d)) {
     if (hl) {
       hl.style.color = 'var(--label, #94a3b8)';
@@ -27957,17 +28164,30 @@ function renderDailyClose(d) {
   var hasPnl = pnl && pnl.nav !== null && pnl.nav !== undefined;
   var processed = d.last_processed_market_date || '—';
 
+  // Operator Action Integrity (Defect 3): a close-EXECUTING affordance may render
+  // only when the canonical workflow gate allows the Daily Close; otherwise the
+  // panel shows the canonical passive status (badge + headline) and NO button.
+  var gate = _wsDailyCloseGate();
+  var closeForbidden = !!pa.runs_daily_close && !gate.execution_allowed;
+
   // ---- Command Center + Daily Workflow ----
   ['cc', 'dw'].forEach(function (p) {
-    _dcSet(p + '-dc-badge', d.close_status_label);
+    _dcSet(p + '-dc-badge', closeForbidden
+      ? (gate.passive_badge || 'WAITING') : d.close_status_label);
     var badge = document.getElementById(p + '-dc-badge');
-    if (badge) { badge.style.borderColor = color; badge.style.color = color; }
+    if (badge) {
+      var bCol = closeForbidden ? 'var(--label, #94a3b8)' : color;
+      badge.style.borderColor = bCol; badge.style.color = bCol;
+    }
     _dcApplyHeadline(p, d, color);
     _dcSet(p + '-dc-latest', d.latest_eligible_market_date);
     _dcSet(p + '-dc-processed', processed);
     var card = document.getElementById(p + '-dc-card'); if (card) card.style.borderLeftColor = color;
     var btn = document.getElementById(p + '-dc-btn');
-    if (btn) { btn.textContent = pa.label || 'View'; btn.style.display = pa.enabled === false ? 'none' : ''; }
+    if (btn) {
+      if (closeForbidden) { btn.style.display = 'none'; }
+      else { btn.textContent = pa.label || 'View'; btn.style.display = pa.enabled === false ? 'none' : ''; }
+    }
   });
   _dcSet('cc-dc-valdate', d.current_valuation_date);
   var ccK = document.getElementById('cc-dc-kpis');
@@ -27997,8 +28217,19 @@ function renderDailyClose(d) {
   // ---- Daily Workflow five-stage cycle ----
   var cyc = document.getElementById('dw-dc-cycle');
   if (cyc) {
-    cyc.innerHTML = _dcCycleHtml(d.daily_cycle_stages);
-    cyc.style.display = (d.daily_cycle_stages && d.daily_cycle_stages.length) ? 'flex' : 'none';
+    // Defect 4 (order-independence): under the canonical no-op state a stale
+    // close payload's NEEDS_ACTION stage renders as PENDING — the same verdict
+    // the canonical close owner emits for the compatibility-only review stage.
+    var cycStages = d.daily_cycle_stages || [];
+    if (_wsIsNoOpState()) {
+      cycStages = cycStages.map(function (s) {
+        return (s && s.status === 'NEEDS_ACTION')
+          ? { stage: s.stage, code: s.code, label: s.label, status: 'PENDING', detail: s.detail }
+          : s;
+      });
+    }
+    cyc.innerHTML = _dcCycleHtml(cycStages);
+    cyc.style.display = (cycStages && cycStages.length) ? 'flex' : 'none';
   }
 
   // ---- Portfolio Manager decision workspace ----
@@ -28013,9 +28244,18 @@ function renderDailyClose(d) {
 window.renderDailyClose = renderDailyClose;
 
 function renderDailyClosePm(d, color) {
-  _dcSet('pm-dc-badge', d.close_status_label);
+  // Defect 3: while the canonical gate forbids the close, this badge is the
+  // passive canonical status — never an actionable "CLOSE DUE"-style label.
+  var _pmPa = d.primary_action || {};
+  var _pmGate = _wsDailyCloseGate();
+  var _pmForbidden = !!_pmPa.runs_daily_close && !_pmGate.execution_allowed;
+  _dcSet('pm-dc-badge', _pmForbidden
+    ? (_pmGate.passive_badge || 'WAITING') : d.close_status_label);
   var badge = document.getElementById('pm-dc-badge');
-  if (badge) { badge.style.borderColor = color; badge.style.color = color; }
+  if (badge) {
+    var _pmCol = _pmForbidden ? 'var(--label, #94a3b8)' : color;
+    badge.style.borderColor = _pmCol; badge.style.color = _pmCol;
+  }
   _dcApplyHeadline('pm', d, color);
   _dcSet('pm-dc-latest', d.latest_eligible_market_date);
   _dcSet('pm-dc-processed', d.last_processed_market_date || '—');
@@ -28046,7 +28286,8 @@ function renderDailyClosePm(d, color) {
   }
   var btn = document.getElementById('pm-dc-btn'), pa = d.primary_action || {};
   if (btn) {
-    if (pa.enabled === false) btn.style.display = 'none';
+    // Defect 3: the canonical gate forbids a close-executing control here too.
+    if (pa.enabled === false || (pa.runs_daily_close && !_wsDailyCloseGate().execution_allowed)) btn.style.display = 'none';
     else { btn.textContent = pa.label; btn.style.display = ''; }
   }
 }
@@ -28058,7 +28299,11 @@ function renderDailyClosePerf(d) {
   var stEl = document.getElementById('dc-perf-status');
   if (stEl) { var c = _dcSevColor(d.severity); stEl.style.borderColor = c; stEl.style.color = c; }
   var btn = document.getElementById('dc-perf-btn'), pa = d.primary_action || {};
-  if (btn) { if (pa.runs_daily_close) { btn.textContent = pa.label; btn.style.display = ''; } else btn.style.display = 'none'; }
+  // Defect 3: this run button obeys the canonical Daily-Close gate as well.
+  if (btn) {
+    if (pa.runs_daily_close && _wsDailyCloseGate().execution_allowed) { btn.textContent = pa.label; btn.style.display = ''; }
+    else btn.style.display = 'none';
+  }
   _dcSet('dc-perf-nav', hasPnl ? _dcMoney(pnl.nav) : '—');
   _dcSet('dc-perf-valdate', pnl.valuation_date || d.current_valuation_date);
   _dcSet('dc-perf-dpnl', (hasPnl && pnl.daily_pnl_available) ? _dcMoney(pnl.daily_pnl) : (pnl.daily_pnl_display || 'Unavailable'));
@@ -28302,6 +28547,16 @@ function _dcShowRunOutcome(r) {
 }
 
 async function runDailyClose(btn) {
+  // Operator Action Integrity (Defect 3): the canonical workflow gate is the ONE
+  // authority on close availability — a stale or secondary control can never
+  // execute a close the canonical workflow forbids. Read verbatim; no client
+  // recalculation.
+  var _rdcGate = _wsDailyCloseGate();
+  if (!_rdcGate.execution_allowed) {
+    toast('The canonical workflow does not allow the Daily Close right now'
+      + (_rdcGate.passive_status ? (' — ' + _rdcGate.passive_status) : '.'), 'warning');
+    return;
+  }
   if (_dcRunInFlight) return;               // duplicate submission prevented client-side
   _dcRunInFlight = true;
   var btns = _dcRunButtons();
@@ -28864,6 +29119,57 @@ function renderPortfolioDashboard(d) {
 }
 window.renderPortfolioDashboard = renderPortfolioDashboard;
 
+// Operator Action Integrity (Defect 4): the operational lifecycle strips must
+// never claim required work that contradicts the canonical workflow. When the
+// canonical primary action is the no-op monitor/wait state (read VERBATIM from
+// the workflow-state payload — no client derivation), a NEEDS_ACTION lifecycle
+// stage (e.g. the manual model-target review READY_TO_CONFIRM) is OPTIONAL
+// review context, not a current required action. Nothing is auto-confirmed —
+// the stage and its controls stay reachable.
+function _obStageFraming(status) {
+  var wsNoOp = _wsIsNoOpState();
+  if (status === 'NEEDS_ACTION' && wsNoOp) {
+    return { label: 'OPTIONAL REVIEW', color: 'var(--label, #94a3b8)' };
+  }
+  return { label: String(status || '').replace(/_/g, ' '),
+           color: status === 'NEEDS_ACTION' ? 'var(--warning, #f59e0b)' :
+             status === 'BLOCKED' ? 'var(--danger, #ef4444)' :
+             (status === 'COMPLETE' || status === 'ACTIVE') ? 'var(--ok, #22c55e)' : '' };
+}
+// Re-frame the already-rendered stage statuses from the cached canonical stages
+// (called by renderWorkflowState so the final framing depends on OWNERSHIP, not
+// on whether the operational book or the workflow state loaded last).
+function _obReframeStageStatuses() {
+  var stages = window._obStagesCache || [];
+  var stageIds = {
+    'REFRESH_DESK_MARKS': 'dwob-step-refresh-data',
+    'VERIFY_ALPHA_TARGET': 'dwob-step-refresh-target',
+    'GENERATE_ORDER_PLAN': 'dwob-step-order-plan',
+    'CONFIRM_PAPER_ORDERS': 'dwob-step-review',
+    'MONITOR': 'dwob-step-monitor',
+  };
+  stages.forEach(function (row) {
+    var fr = _obStageFraming(row.status);
+    var el = document.getElementById(stageIds[row.code] || '');
+    if (el) {
+      var st = el.querySelector('[data-role="status"]');
+      if (st) {
+        st.textContent = fr.label + (row.detail ? (' — ' + row.detail) : '');
+        st.style.color = fr.color;
+      }
+    }
+    var ccStage = document.getElementById('cc-wf-stage-' + row.stage);
+    if (ccStage) {
+      var ccStatus = ccStage.querySelector('[data-role="status"]');
+      if (ccStatus) {
+        ccStatus.textContent = fr.label + (row.detail ? (' — ' + row.detail) : '');
+        ccStatus.style.color = fr.color;
+      }
+    }
+  });
+}
+window._obReframeStageStatuses = _obReframeStageStatuses;
+
 function renderOperationalBook(d) {
   var ob = (d && d.status === 'OPERATIONAL_BOOK_OK' && d.operational_book) ? d.operational_book : null;
   var t = (ob && ob.current_target) || null;
@@ -29030,6 +29336,9 @@ function renderOperationalBook(d) {
     'MONITOR': 'dwob-step-monitor',
   };
   var stages = (ob && ob.workflow_stages) || [];
+  // Defect 4: cache the canonical stages so renderWorkflowState can re-frame the
+  // strip once the authoritative workflow payload is present (ownership, not timing).
+  window._obStagesCache = stages;
   Object.keys(stageIds).forEach(function (code) {
     var el = document.getElementById(stageIds[code]);
     if (!el) return;
@@ -29038,10 +29347,9 @@ function renderOperationalBook(d) {
     var row = null;
     for (var i = 0; i < stages.length; i++) { if (stages[i].code === code) { row = stages[i]; break; } }
     if (!row) { st.textContent = '—'; return; }
-    st.textContent = row.status.replace(/_/g, ' ') + (row.detail ? (' — ' + row.detail) : '');
-    st.style.color = row.status === 'NEEDS_ACTION' ? 'var(--warning, #f59e0b)' :
-      row.status === 'BLOCKED' ? 'var(--danger, #ef4444)' :
-      (row.status === 'COMPLETE' || row.status === 'ACTIVE') ? 'var(--ok, #22c55e)' : '';
+    var fr = _obStageFraming(row.status);
+    st.textContent = fr.label + (row.detail ? (' — ' + row.detail) : '');
+    st.style.color = fr.color;
     // Phase 27B.5: completed stages visually recede — their buttons hide; the
     // ACTIVE stage carries the ONE canonical primary action.
     var sbtn = el.querySelector('button');
@@ -29059,17 +29367,17 @@ function renderOperationalBook(d) {
     }
   });
 
-  // Command Center five-stage strip — the SAME canonical stages (Phase 27B.2).
+  // Command Center five-stage strip — the SAME canonical stages (Phase 27B.2),
+  // framed through the same canonical-aware helper (Defect 4).
   for (var si = 0; si < stages.length; si++) {
     var ccStage = document.getElementById('cc-wf-stage-' + stages[si].stage);
     if (!ccStage) continue;
     var ccStatus = ccStage.querySelector('[data-role="status"]');
     if (!ccStatus) continue;
-    ccStatus.textContent = stages[si].status.replace(/_/g, ' ') +
+    var ccFr = _obStageFraming(stages[si].status);
+    ccStatus.textContent = ccFr.label +
       (stages[si].detail ? (' — ' + stages[si].detail) : '');
-    ccStatus.style.color = stages[si].status === 'NEEDS_ACTION' ? 'var(--warning, #f59e0b)' :
-      stages[si].status === 'BLOCKED' ? 'var(--danger, #ef4444)' :
-      (stages[si].status === 'COMPLETE' || stages[si].status === 'ACTIVE') ? 'var(--ok, #22c55e)' : '';
+    ccStatus.style.color = ccFr.color;
   }
 
   // Global header — operationally precise status derived from Alpha Book #1

@@ -125,8 +125,10 @@ def test_right_rail_says_no_action_and_hides_button_when_noop(ui):
 def test_canonical_banner_suppresses_noop_button_and_humanises_reviews(ui):
     banner = _region(ui, "function _wsBannerHtml(d)", "function _wsApplyRightPanel")
     # The prominent action button is suppressed for a no-op (monitor / wait) state.
+    # (Operator Action Integrity: an executable primary also earns the CTA, so the
+    # gate is (destination OR executable) AND not a no-op.)
     assert "_wsNoAction" in banner
-    assert "pa.destination && !_wsNoAction" in banner
+    assert "(pa.destination || _wsExecutes) && !_wsNoAction" in banner
     # Review-only follow-ups become human, full-screen links (never urgent "Review …").
     assert "'REVIEW_HOLDING_OPPORTUNITY_COST'" in banner
     assert "route: 'holding-review'" in banner

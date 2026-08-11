@@ -158,6 +158,40 @@ ACTION_REVIEW_HOC = "REVIEW_HOLDING_OPPORTUNITY_COST"
 # Close remains a separate operational action governed by its own requirements.
 ACTION_REVIEW_REALLOCATION = "REVIEW_REALLOCATION_PROPOSAL"
 
+# --------------------------------------------------------------------------- #
+# Canonical execution routing (Operator Action Integrity). The machine-readable
+# executor identity for the THREE real primary executions. The UI's ONE shared
+# dispatcher (dispatchCanonicalPrimaryAction) maps these to the EXISTING
+# execution owners — never a second writer, never a client-side priority engine:
+#   PAPER_DESK_REFRESH    → POST /v1/paper-desk/refresh
+#                           (api.paper_trading_desk — the ONE owned-EOD desk-mark writer)
+#   DAILY_RESEARCH_CYCLE  → POST /v1/operations/daily-research-cycle/run
+#                           (api.daily_research_cycle — the sole research execution path)
+#   DAILY_CLOSE           → POST /v1/operations/daily-close/execute
+#                           (api.daily_close — the ONLY close write path)
+# Paths/tokens are kept as literals so this module stays importable/pure without
+# the owner modules (same pattern as _DRC_EXECUTE_TOKEN); the contract tests
+# assert they equal the owners' constants and the real app routes.
+EXEC_PAPER_DESK_REFRESH = "PAPER_DESK_REFRESH"
+EXEC_DAILY_RESEARCH_CYCLE = "DAILY_RESEARCH_CYCLE"
+EXEC_DAILY_CLOSE = "DAILY_CLOSE"
+EXECUTION_KINDS = (EXEC_PAPER_DESK_REFRESH, EXEC_DAILY_RESEARCH_CYCLE,
+                   EXEC_DAILY_CLOSE)
+EXECUTION_CONTRACTS = {
+    EXEC_PAPER_DESK_REFRESH: {
+        "method": "POST", "path": "/v1/paper-desk/refresh",
+        "confirmation_field": "confirm",
+        "confirmation_token": "CONFIRM_PAPER_DESK_REFRESH"},
+    EXEC_DAILY_RESEARCH_CYCLE: {
+        "method": "POST", "path": "/v1/operations/daily-research-cycle/run",
+        "confirmation_field": "confirmation",
+        "confirmation_token": _DRC_EXECUTE_TOKEN},
+    EXEC_DAILY_CLOSE: {
+        "method": "POST", "path": "/v1/operations/daily-close/execute",
+        "confirmation_field": "confirmation",
+        "confirmation_token": "CONFIRM_ALPHA_DAILY_CLOSE"},
+}
+
 # Daily-close status vocabulary mirror (a FROZEN subset of api.daily_close's
 # tested contract). Kept as literals so this module stays importable/pure without
 # api.daily_close; the production path reads the real status via load_close_progress.
@@ -671,6 +705,47 @@ def build_evidence_presentation(*, operational_close_valid: bool, latest_close_d
     }
 
 
+def build_daily_close_gate(overall: str, *, eligible_date: Any = None,
+                           latest_close_date: Any = None) -> dict[str, Any]:
+    """Operator Action Integrity (Defect 3): the ONE canonical Daily-Close
+    availability verdict for every SECONDARY close surface. Only the canonical
+    READY_FOR_DAILY_CLOSE primary action may expose an executable Daily Close
+    control; in every other overall state a secondary panel shows the passive
+    status below and NEVER an executable-looking close button. This is pure
+    presentation over the already-decided overall state — no re-derivation, no
+    second priority engine, no write. An unknown state fails CLOSED."""
+    elig = _iso(_coerce_date(eligible_date)) or (
+        str(eligible_date) if eligible_date else None)
+    closed = _iso(_coerce_date(latest_close_date)) or (
+        str(latest_close_date) if latest_close_date else None)
+    allowed = (overall == READY_FOR_DAILY_CLOSE)
+    if allowed:
+        passive, badge = None, None
+    elif overall in (DAILY_CYCLE_COMPLETE, DAILY_CYCLE_COMPLETE_EVIDENCE_GAP,
+                     MANUAL_REVIEW_REQUIRED):
+        passive = ("Daily Close complete for %s."
+                   % (closed or elig or "the eligible session"))
+        badge = "COMPLETE"
+    elif overall == WAITING_FOR_SESSION_CLOSE:
+        passive = "Daily Close waiting for the next market session to close."
+        badge = "WAITING"
+    elif overall == WAITING_FOR_OWNED_DATA:
+        passive = "Daily Close waiting for owned market data confirmation."
+        badge = "WAITING"
+    elif overall in (RESEARCH_CYCLE_REQUIRED, RESEARCH_CYCLE_RUNNING,
+                     PORTFOLIO_REASSESSMENT_REQUIRED):
+        passive = "Daily Close waiting for the Daily Research Cycle."
+        badge = "WAITING"
+    elif overall == RESEARCH_CYCLE_BLOCKED:
+        passive = "Daily Close unavailable — resolve the named research blocker first."
+        badge = "BLOCKED"
+    else:  # INCONSISTENT_STATE and any unknown state
+        passive = "Daily Close unavailable — resolve the state inconsistency first."
+        badge = "BLOCKED"
+    return {"execution_allowed": allowed, "overall_state": overall,
+            "passive_status": passive, "passive_badge": badge}
+
+
 # --------------------------------------------------------------------------- #
 # Deterministic priority policy (Workstream E). Returns the single overall state.
 # First matching condition wins; the exact precedence is documented inline and in
@@ -783,16 +858,27 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                 "headline": "Waiting for the current session to close."}
 
     if overall == WAITING_FOR_OWNED_DATA:
+        # Operator Action Integrity (Defect 1): this primary action EXECUTES the
+        # existing authoritative owned-data refresh owner — the manual Paper Desk
+        # refresh (POST /v1/paper-desk/refresh) under its existing confirmation
+        # token — never a dead banner and never a second refresh implementation.
+        # The destination is the navigational fallback to the exact owning
+        # control (the Paper Trading Desk band inside Portfolio Manager).
         return {"action_code": ACTION_WAIT_FOR_OWNED_DATA,
-                "label": "Wait for or refresh owned market data",
+                "label": "Refresh owned market data",
                 "explanation": session_reason or (
                     "The expected completed session is not yet confirmed by owned "
-                    "market data."),
-                "severity": SEV_ATTENTION, "destination": DEST_COMMAND_CENTER,
-                "safe_to_execute": True, "execution_available": False,
-                "manual_confirmation_required": False, "slice3_pending": False,
-                "current_task": "Wait for / refresh the owned market data.",
-                "headline": "Waiting for owned market data confirmation."}
+                    "market data. Run the manual owned-data refresh (the existing "
+                    "Paper Desk refresh) to sync completed owned EOD closes."),
+                "severity": SEV_ATTENTION, "destination": DEST_PORTFOLIO_MANAGER,
+                "focus": "pd-band",
+                "safe_to_execute": False, "execution_available": True,
+                "manual_confirmation_required": True, "slice3_pending": False,
+                "confirmation_required": EXECUTION_CONTRACTS[
+                    EXEC_PAPER_DESK_REFRESH]["confirmation_token"],
+                "execution_kind": EXEC_PAPER_DESK_REFRESH,
+                "current_task": "Refresh the owned market data for the expected session.",
+                "headline": "Owned market data needs to be refreshed."}
 
     if overall == RESEARCH_CYCLE_REQUIRED:
         return {"action_code": ACTION_RUN_RESEARCH_CYCLE,
@@ -806,6 +892,7 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                 "safe_to_execute": False, "execution_available": True,
                 "manual_confirmation_required": True, "slice3_pending": False,
                 "confirmation_required": _DRC_EXECUTE_TOKEN,
+                "execution_kind": EXEC_DAILY_RESEARCH_CYCLE,
                 "current_task": "Run the Daily Research Cycle to refresh the stale inputs.",
                 "headline": "Research inputs are stale — run the Daily Research Cycle."}
 
@@ -868,6 +955,9 @@ def _primary_action(overall: str, ctx: dict) -> dict[str, Any]:
                 "severity": SEV_ATTENTION, "destination": DEST_DAILY_WORKFLOW,
                 "safe_to_execute": False, "execution_available": True,
                 "manual_confirmation_required": True, "slice3_pending": False,
+                "confirmation_required": EXECUTION_CONTRACTS[
+                    EXEC_DAILY_CLOSE]["confirmation_token"],
+                "execution_kind": EXEC_DAILY_CLOSE,
                 "current_task": "Run the operational Daily Close.",
                 "headline": "Ready for the Daily Close."}
 
@@ -923,13 +1013,20 @@ def _queued_actions(*, primary_code: str, research_current: bool,
     q: list[dict[str, Any]] = []
 
     def add(action_code, label, severity, destination, reason, *,
-            execution_available=False, safe_to_execute=True, slice3_pending=False):
+            execution_available=False, safe_to_execute=True, slice3_pending=False,
+            focus=None):
         if action_code == primary_code:
             return
+        # ``focus`` is an OPTIONAL in-tab subsection token (never a new route): the
+        # destination stays one of the six canonical sidebar routes, and ``focus``
+        # deep-links to the exact review surface inside it (e.g. the Reallocation
+        # Proposal card), so a review action lands directly on its subject rather than
+        # the top of a broad tab. Navigation only — never an execute/confirm/order path.
         q.append({"action_code": action_code, "label": label, "severity": severity,
                   "destination": destination, "reason": reason,
                   "execution_available": execution_available,
-                  "safe_to_execute": safe_to_execute, "slice3_pending": slice3_pending})
+                  "safe_to_execute": safe_to_execute, "slice3_pending": slice3_pending,
+                  "focus": focus})
 
     if not research_current and not cycle_active:
         add(ACTION_RUN_RESEARCH_CYCLE, "Run the Daily Research Cycle",
@@ -956,7 +1053,8 @@ def _queued_actions(*, primary_code: str, research_current: bool,
         add(ACTION_REVIEW_HOC, "Review the Holding Opportunity-Cost assessment",
             SEV_INFO, DEST_PORTFOLIO_MANAGER,
             "A Holding Opportunity-Cost assessment is available for the eligible session; "
-            "review it (read-only) before the Daily Close. No orders, no confirmation.")
+            "review it (read-only) before the Daily Close. No orders, no confirmation.",
+            focus="opportunity-cost")
     if reallocation_available:
         # Slice 7 (Phase 29H): after a reallocation proposal exists the operator REVIEWS
         # it (read-only, manual review). Review/routing only — NEVER an apply / rebalance
@@ -965,7 +1063,8 @@ def _queued_actions(*, primary_code: str, research_current: bool,
             SEV_INFO, DEST_PORTFOLIO_MANAGER,
             "A reallocation proposal is available for the eligible session; review it "
             "(read-only, manual review) — no orders, no confirmation, no target change. "
-            "The Daily Close remains a separate action.")
+            "The Daily Close remains a separate action.",
+            focus="reallocation")
     if has_confirmed_eligible and not eligible_session_closed:
         add(ACTION_RUN_DAILY_CLOSE, "Run the Daily Close", SEV_ATTENTION,
             DEST_DAILY_WORKFLOW,
@@ -1454,12 +1553,25 @@ def load_workflow_state(
         "primary_action": {
             "action_code": primary["action_code"], "label": primary["label"],
             "explanation": primary["explanation"], "severity": primary["severity"],
-            "destination": primary["destination"],
+            "destination": primary["destination"], "focus": primary.get("focus"),
             "safe_to_execute": primary["safe_to_execute"],
             "execution_available": primary["execution_available"],
             "manual_confirmation_required": primary["manual_confirmation_required"],
             "slice3_pending": primary.get("slice3_pending", False),
-            "confirmation_required": primary.get("confirmation_required")},
+            "confirmation_required": primary.get("confirmation_required"),
+            # Operator Action Integrity: the machine-readable executor identity
+            # (one of EXECUTION_KINDS) + its frozen contract, present EXACTLY for
+            # the three real executions; the UI dispatcher maps it to the
+            # EXISTING owner and never invents a second writer.
+            "execution_kind": primary.get("execution_kind"),
+            "execution_contract": (
+                dict(EXECUTION_CONTRACTS[primary["execution_kind"]])
+                if primary.get("execution_kind") in EXECUTION_CONTRACTS else None)},
+        # Operator Action Integrity (Defect 3): the canonical Daily-Close
+        # availability verdict every secondary close surface obeys verbatim.
+        "daily_close_gate": build_daily_close_gate(
+            overall, eligible_date=eligible_date,
+            latest_close_date=latest_close_date),
         "queued_actions": queued,
         "blockers": blockers,
         "warnings": uniq_warnings,

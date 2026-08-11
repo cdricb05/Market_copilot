@@ -54,7 +54,8 @@ function grabAssign(lhs) {
 
 const FUNCS = [
   '_wsIsCanonicalNode', '_wsOwnSet', '_wsOwnHtml', '_wsGuardedSet',
-  '_wsSevColor', '_wsBannerHtml',
+  '_wsSevColor', '_wsRoute', '_wsBannerHtml',
+  'dispatchCanonicalPrimaryAction', '_wsDailyCloseGate',
   'renderWorkflowState', '_wsApplyRightPanel', '_wsApplyAssessmentFraming', '_wsApplyEvidence',
   'renderDailyActionGate', '_dagApplySafeFraming',
   '_dagSet', '_dcSet', '_obSet', '_dagSevColor', '_dagPct', '_dagChangesHtml', '_dagTstate',
@@ -63,6 +64,9 @@ const FUNCS = [
 // lightweight extractor cannot brace-match; they only escape HTML, so the harness
 // provides equivalent stubs (the ownership assertions read textContent, not markup).
 let code = grabAssign('window.WS_CANONICAL_NODES =') + '\n';
+// Operator Action Integrity: _wsBannerHtml renders the navigational view-link
+// labels from this top-level map — extract it so the real code runs unmodified.
+code += grabAssign('var _WS_VIEW_LABEL =') + '\n';
 for (const f of FUNCS) code += grabFn(f) + '\n';
 
 // ---- minimal DOM shim -------------------------------------------------------- #
