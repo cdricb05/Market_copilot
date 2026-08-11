@@ -118,6 +118,86 @@ def iter_owned_market_bars(ingestion_root, *, sources: Iterable[str] = DEFAULT_S
                 continue
 
 
+def iter_owned_market_open_close(ingestion_root, *,
+                                 sources: Iterable[str] = DEFAULT_SOURCES,
+                                 date_start: Optional[str] = None,
+                                 date_end: Optional[str] = None,
+                                 max_files: Optional[int] = None):
+    """Yield ``(assetid, date, open, close)`` for every owned normalized
+    MARKET_BAR record from ``sources`` that carries BOTH an adjusted Open and an
+    adjusted Close (Norgate TOTALRETURN fields). Stage 14 additive reader: the
+    close-only ``iter_owned_market_bars`` contract is unchanged. A record
+    without a positive Open is skipped (never imputed) so overnight factors are
+    computed only from genuinely owned opens. Deterministic file order."""
+    base = Path(ingestion_root) / "normalized" / RT_MARKET_BAR
+    if not base.exists():
+        return
+    allow = set(sources)
+    files = sorted(base.rglob("*.jsonl"))
+    if max_files is not None:
+        files = files[:int(max_files)]
+    for f in files:
+        try:
+            text = f.read_text(encoding="utf-8-sig")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if allow and (rec.get("source_id") not in allow):
+                continue
+            assetid = rec.get("security_id")
+            if not assetid:
+                continue
+            pay = rec.get("normalized_payload") or {}
+            date = rec.get("effective_at") or pay.get("Date")
+            close = pay.get("Close", pay.get("close"))
+            opn = pay.get("Open", pay.get("open"))
+            if not date or close is None or opn is None:
+                continue
+            date = str(date)[:10]
+            if date_start and date < date_start:
+                continue
+            if date_end and date > date_end:
+                continue
+            try:
+                opn_f = float(opn)
+                close_f = float(close)
+            except (TypeError, ValueError):
+                continue
+            if opn_f <= 0 or close_f <= 0:
+                continue
+            yield str(assetid), date, opn_f, close_f
+
+
+def build_assetid_open_close_panel(ingestion_root, *,
+                                   sources: Iterable[str] = DEFAULT_SOURCES,
+                                   date_start: Optional[str] = None,
+                                   date_end: Optional[str] = None,
+                                   max_files: Optional[int] = None) -> dict:
+    """Stage 14 additive: the owned survivorship-safe OPEN+CLOSE panel keyed by
+    Norgate assetid: ``{assetid: [(date, adj_open, adj_close)]}`` sorted
+    ascending and de-duplicated (first record per date wins deterministically).
+    Reads the FULL owned MARKET_BAR history within the window; the existing
+    close-only panel contract is untouched."""
+    panel: dict = {}
+    for assetid, date, opn, close in iter_owned_market_open_close(
+            ingestion_root, sources=sources, date_start=date_start,
+            date_end=date_end, max_files=max_files):
+        panel.setdefault(assetid, {})
+        if date not in panel[assetid]:
+            panel[assetid][date] = (opn, close)
+    out: dict = {}
+    for a, by_date in panel.items():
+        out[a] = [(d, v[0], v[1]) for d, v in sorted(by_date.items())]
+    return out
+
+
 def build_assetid_price_panel(ingestion_root, *, sources: Iterable[str] = DEFAULT_SOURCES,
                               date_start: Optional[str] = None,
                               date_end: Optional[str] = None,
@@ -319,6 +399,7 @@ def per_rebalance_price_readiness(store, panel: dict, cik_to_assetid: dict,
 __all__ = [
     "RT_MARKET_BAR", "DEFAULT_SOURCES", "DEFAULT_PRICE_READINESS",
     "iter_owned_market_bars", "build_assetid_price_panel",
+    "iter_owned_market_open_close", "build_assetid_open_close_panel",
     "build_cik_to_assetid", "assetid_to_effective_ticker", "build_repaired_panel",
     "panel_coverage_signature", "panel_coverage_epoch",
     "per_rebalance_price_readiness",

@@ -297,8 +297,8 @@ def build_market_return_series(panel: dict) -> dict:
 
 def build_factor_cross_sections(panel: dict, *, feature: str,
                                 horizon_days: int, rebalance: str,
-                                min_names_for_regime: int = _REGIME_MIN_NAMES
-                                ) -> dict:
+                                min_names_for_regime: int = _REGIME_MIN_NAMES,
+                                value_fn=None) -> dict:
     """Deterministic per-rebalance ``(factor_vals, fwd_returns)`` cross-sections
     for a new price feature, plus the long-only top-decile book, turnover, the
     equal-weight benchmark, and per-period market features for regime
@@ -321,6 +321,8 @@ def build_factor_cross_sections(panel: dict, *, feature: str,
     turnovers: list[float] = []
     benchmark_returns: list[float] = []
     market_features: list[dict] = []
+    cross_section_names: list[list] = []   # Stage 14 additive: aligned names
+    formation_dates: list[str] = []        # Stage 14 additive: aligned dates
     prev_book: dict[str, float] = {}
     observations = 0
 
@@ -347,8 +349,17 @@ def build_factor_cross_sections(panel: dict, *, feature: str,
             base = closes[idx]
             if base is None or base <= 0:
                 continue
-            v = factor_value(feature, name_dates=tk_dates[t], name_closes=closes,
-                             idx=idx, mret_by_date=mret)
+            if value_fn is not None:
+                # Stage 14 additive hook: an externally-frozen calculator (e.g.
+                # an overnight factor needing owned opens) computes the value
+                # under the SAME leakage contract (inputs through ``idx`` only);
+                # ``name_key`` lets it join per-name auxiliary data. Default
+                # behaviour (value_fn=None) is byte-identical to before.
+                v = value_fn(feature, name_key=t, name_dates=tk_dates[t],
+                             name_closes=closes, idx=idx, mret_by_date=mret)
+            else:
+                v = factor_value(feature, name_dates=tk_dates[t],
+                                 name_closes=closes, idx=idx, mret_by_date=mret)
             if v is None or not ec._is_num(v):
                 continue
             fac_vals.append(float(v))
@@ -357,6 +368,8 @@ def build_factor_cross_sections(panel: dict, *, feature: str,
         if len(fac_vals) < 4:
             continue
         cross_sections.append((fac_vals, fwd_vals))
+        cross_section_names.append(list(names))
+        formation_dates.append(fd)
         observations += len(fac_vals)
         benchmark_returns.append(sum(fwd_vals) / len(fwd_vals))
         order = sorted(range(len(fac_vals)), key=lambda i: fac_vals[i])
@@ -376,7 +389,9 @@ def build_factor_cross_sections(panel: dict, *, feature: str,
             "portfolio_returns": portfolio_returns, "turnovers": turnovers,
             "benchmark_returns": benchmark_returns, "observations": observations,
             "periods": len(cross_sections), "universe": universe,
-            "market_features": market_features}
+            "market_features": market_features,
+            "cross_section_names": cross_section_names,
+            "formation_dates": formation_dates}
 
 
 def _market_features_at(fi: int, all_dates: list, mret_list: list,
@@ -423,7 +438,8 @@ def run_new_price_factor_campaign(panel: dict, *, features=None,
                                   rebalance: str = "monthly",
                                   cost_grid=None, cost_bps: float = 10.0,
                                   champion_returns=None,
-                                  min_periods: int = 12) -> dict:
+                                  min_periods: int = 12,
+                                  value_fn=None) -> dict:
     """Run the bounded, pre-registered NEW price factors deterministically and
     return per-feature Stage 5 metric rows (same shape as
     ``experiment_runner.run_price_factor_campaign`` results) plus honest
@@ -434,7 +450,7 @@ def run_new_price_factor_campaign(panel: dict, *, features=None,
     for feature in feats:
         built = build_factor_cross_sections(
             panel, feature=feature, horizon_days=horizon_days,
-            rebalance=rebalance)
+            rebalance=rebalance, value_fn=value_fn)
         if built["periods"] < min_periods:
             results.append({"feature": feature, "label": feature,
                             "periods": built["periods"], "rank_ic_t": None,
