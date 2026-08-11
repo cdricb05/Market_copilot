@@ -259,7 +259,7 @@ class BaseCollector:
               expect: str = "text", archive: bool = True,
               extension: str = "txt", license_note: Optional[str] = None,
               content_type: str = "text/plain",
-              allow_404: bool = False) -> dict:
+              allow_404: bool = False, allow_400: bool = False) -> dict:
         """Fetch one URL with rate limiting, bounded retries + backoff, breaker
         integration and response hygiene. Returns::
 
@@ -270,7 +270,7 @@ class BaseCollector:
         """
         result = {"ok": False, "status": None, "body": None, "raw": None,
                   "error": None, "rejected_reason": None, "retries": 0,
-                  "published_at": None, "not_found": False}
+                  "published_at": None, "not_found": False, "bad_request": False}
         if self.circuit_state == CB_OPEN:
             result["rejected_reason"] = "CIRCUIT_OPEN"
             self.record_error("CIRCUIT_OPEN",
@@ -331,6 +331,14 @@ class BaseCollector:
             # Expected gap: a not-yet-published dated file. FINRA's CDN and
             # some SEC paths answer 403 (S3-style AccessDenied), not 404.
             result["not_found"] = True
+            return result
+        if allow_400 and status == 400:
+            # Caller opts in to inspect a 400 body (e.g. ALFRED signalling
+            # "vintage dates exceed the maximum" or "series does not exist in
+            # ALFRED for this realtime window"). NOT a hard failure: the breaker
+            # is not tripped and the body is returned for the caller to classify.
+            result["bad_request"] = True
+            result["body"] = body
             return result
         if status == 404:
             result["not_found"] = True
