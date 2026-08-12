@@ -819,9 +819,12 @@ def test_82_slice7_landed():
         assert (root / present).exists(), present
     assert "/v1/operations/reallocation-proposal" in _route_paths()
     for absent in ("/v1/operations/portfolio-proposal",
-                   "/v1/operations/reallocation-proposal/apply",
-                   "/v1/operations/rebalance"):
+                   "/v1/operations/reallocation-proposal/apply"):
         assert absent not in _route_paths(), absent
+    # Stage-19 controlled-rebalance route IS present (governed by rebalance_execution.py);
+    # it is a controlled APPROVED-decision + second-confirmation bridge, not an auto route.
+    assert "/v1/operations/rebalance" in _route_paths()
+    assert "/v1/operations/rebalance/confirm-order-plan" in _route_paths()
 
 
 def test_83_research_agent_landed_no_second_registry():

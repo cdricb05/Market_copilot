@@ -361,7 +361,11 @@ SLICE7_FORBIDDEN_ROUTES = ("/v1/operations/portfolio-proposal",
                            "/v1/operations/reallocation-proposal/apply",
                            "/v1/operations/reallocation-proposal/confirm",
                            "/v1/operations/reallocation-proposal/create-orders",
-                           "/v1/operations/rebalance",
+                           # /v1/operations/rebalance is the Stage-19 CANONICAL controlled
+                           # route (APPROVED Stage-18 decision + a second manual confirmation
+                           # -> existing paper desk); it is governed by
+                           # check_controlled_rebalance_ownership and is intentionally NOT
+                           # forbidden. The auto-apply route below stays forbidden.
                            "/v1/operations/apply-reallocation")
 # Slice 8 (Persistent Alpha Research Agent, Milestone 4) is LANDED — its two owners + the
 # read route MUST exist. A SECOND / unified model registry must NOT be created: the
@@ -567,7 +571,10 @@ LA6_UI_HOC_COMPLETED_TOKEN = "completed assessment view"
 # (2)/(11)/(13) reassessment / rebalance / HOC-run / target-confirmation routes: FORBIDDEN.
 LA6_ABSENT_ROUTES = ("/v1/operations/portfolio-reassessment",
                      "/v1/operations/reassessment",
-                     "/v1/operations/rebalance",
+                     # Stage-19's controlled /v1/operations/rebalance is NOT an auto route
+                     # (APPROVED decision + second confirmation; governed by
+                     # check_controlled_rebalance_ownership). The auto proposal-execution
+                     # route "/v1/operations/rebalance-proposal" below stays forbidden.
                      "/v1/operations/rebalance-proposal",
                      "/v1/operations/holding-opportunity-cost/run",
                      "/v1/operations/confirm-target",
@@ -1823,6 +1830,95 @@ def check_reallocation_proposal_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_controlled_rebalance_ownership(files: list[Path]) -> dict:
+    """Stage 19 CONTROLLED PAPER-REBALANCE + CORPORATE-ACTION ownership guard (the Milestone
+    3 evolution). Encodes the canonical controlled route so it is ACCEPTED while every
+    automatic / direct / hindsight / second-owner path stays REJECTED. The reallocation
+    proposal remains an immutable REVIEW artifact and is NEVER itself an execution owner
+    (check_reallocation_proposal_ownership); api/portfolio_decision.py owns the explicit
+    manual APPROVE/REJECT/HOLD; api/rebalance_execution.py owns the controlled bridge from an
+    APPROVED immutable proposal to a read-only order plan gated by a SECOND explicit manual
+    confirmation; api/paper_trading_desk.py stays the SOLE paper-order lifecycle / NEXT_CLOSE
+    fill owner (no second fill simulator / order ledger / NAV owner); api/corporate_actions.py
+    is the SOLE split authority, confirm-gated and applied as a read-time projection that
+    never rewrites immutable evidence. No broker, no automatic execution, no automatic
+    approval, no same-close hindsight, no automatic model change."""
+    routes = check_routes()["routes"]
+    paths = {r["path"] for r in routes}
+    methods_by_path = {}
+    for r in routes:
+        methods_by_path.setdefault(r["path"], set()).add(r["method"])
+
+    reb_owner = "api/rebalance_execution.py"
+    ca_owner = "api/corporate_actions.py"
+    owner_present = (REPO_ROOT / reb_owner).exists() and (REPO_ROOT / ca_owner).exists()
+    reb_src = _read(reb_owner)
+    ca_src = _read(ca_owner)
+
+    # The canonical controlled routes are ACCEPTED (the crux of the Stage-19 evolution).
+    controlled_route_get = "GET" in methods_by_path.get("/v1/operations/rebalance", set())
+    confirm_route_post = "POST" in methods_by_path.get(
+        "/v1/operations/rebalance/confirm-order-plan", set())
+    corporate_action_routes_present = (
+        "GET" in methods_by_path.get("/v1/operations/corporate-actions", set())
+        and "POST" in methods_by_path.get("/v1/operations/corporate-actions/register", set()))
+
+    # Gate 1: an APPROVED Stage-18 portfolio decision is required (never auto-approved).
+    requires_stage18_approval = ("portfolio_decision" in reb_src
+                                 and "DECISION_APPROVE" in reb_src)
+    # Gate 2: a SEPARATE second explicit confirmation token is required.
+    requires_second_confirmation = (
+        "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN" in reb_src)
+    # Execution DELEGATES to the existing desk lifecycle + NEXT_CLOSE settlement (no hindsight).
+    delegates_to_existing_desk = ("paper_trading_desk" in reb_src
+                                  and "settle_due_orders" in reb_src)
+    # NO second fill simulator / order ledger / NAV owner is DEFINED here (it only CALLS the
+    # desk primitives; defining them would fork the canonical paper-desk owner).
+    second_execution_owner_defs = sorted(
+        d for d in ("def settle_due_orders(", "def book_nav(", "def _append_ledger(",
+                    "def verify_ledger(", "def run_fill_cycle(", "def _row_hash(")
+        if d in reb_src)
+    # NO automatic approval / rebalance / cadence tokens.
+    automatic_tokens_present = sorted(
+        t for t in ("auto_approve", "auto_confirm", "auto_rebalance", "AUTO_APPROVE",
+                    "schedule.every", "crontab")
+        if t in reb_src)
+
+    # Corporate action: confirm-gated + read-time projection that never rewrites evidence.
+    corporate_action_confirm_gated = "CONFIRM_CORPORATE_ACTION_ADJUSTMENT" in ca_src
+    corporate_action_read_time_projection = (
+        "adjust_fills" in ca_src and "rewrote_immutable_evidence" in ca_src
+        and not any(d in ca_src for d in ("def _append_ledger(", "def book_nav(")))
+
+    # Automatic / direct proposal-execution routes stay FORBIDDEN (must be empty).
+    forbidden_auto_routes = ("/v1/operations/rebalance-proposal",
+                             "/v1/operations/apply-reallocation",
+                             "/v1/operations/reallocation-proposal/apply",
+                             "/v1/operations/reallocation-proposal/confirm",
+                             "/v1/operations/reallocation-proposal/create-orders",
+                             "/v1/operations/portfolio-proposal")
+    forbidden_auto_execution_routes_present = sorted(
+        r for r in forbidden_auto_routes if r in paths)
+
+    return {
+        "owner_present": owner_present,
+        "controlled_route_get": controlled_route_get,
+        "confirm_route_post": confirm_route_post,
+        "corporate_action_routes_present": corporate_action_routes_present,
+        "requires_stage18_approval": requires_stage18_approval,
+        "requires_second_confirmation": requires_second_confirmation,
+        "delegates_to_existing_desk": delegates_to_existing_desk,
+        "second_execution_owner_defs": second_execution_owner_defs,
+        "corporate_action_confirm_gated": corporate_action_confirm_gated,
+        "corporate_action_read_time_projection": corporate_action_read_time_projection,
+        "forbidden_auto_execution_routes_present": forbidden_auto_execution_routes_present,
+        "automatic_tokens_present": automatic_tokens_present,
+        "broker_enabled": False,
+        "automatic_rebalance_allowed": False,
+        "cadence_enabled": False,
+    }
+
+
 def check_research_agent_ownership(files: list[Path]) -> dict:
     """Slice 8 (Phase 29I) strict semantic ownership guard for the Persistent Alpha Research
     Agent (Milestone 4). Proves: (1) engine/research_agent.py is the SOLE research-state
@@ -2350,6 +2446,7 @@ def run_audit() -> dict:
         "slice6_residual_cutover_ownership": check_slice6_residual_cutover_ownership(files),
         "drc_manifest_recovery": check_drc_manifest_recovery(files),
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
+        "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
         "research_agent_ownership": check_research_agent_ownership(files),
         "data_expansion_ownership": check_data_expansion_ownership(files),
         "inventory_drift": check_inventory_drift(files),
@@ -2630,6 +2727,24 @@ def _print_console(rep: dict) -> None:
           f"Slice 8 present (must be empty): {rp['slice8_present_modules']}  "
           f"cadence enabled (must be False): {rp['cadence_enabled']}")
 
+    hdr("CONTROLLED PAPER-REBALANCE + CORPORATE-ACTION OWNERSHIP (Stage 19, Milestone 3)")
+    cr = rep["controlled_rebalance_ownership"]
+    print(f"owners present (rebalance_execution + corporate_actions): {cr['owner_present']}")
+    print(f"controlled route GET /v1/operations/rebalance: {cr['controlled_route_get']}  "
+          f"second-confirmation POST .../confirm-order-plan: {cr['confirm_route_post']}  "
+          f"corporate-action routes present: {cr['corporate_action_routes_present']}")
+    print(f"gate 1 requires APPROVED Stage-18 decision: {cr['requires_stage18_approval']}  "
+          f"gate 2 requires second confirmation token: {cr['requires_second_confirmation']}")
+    print(f"delegates to existing paper desk + NEXT_CLOSE: {cr['delegates_to_existing_desk']}  "
+          f"second execution/fill/NAV owner defs (must be empty): {cr['second_execution_owner_defs']}")
+    print(f"corporate action confirm-gated: {cr['corporate_action_confirm_gated']}  "
+          f"read-time projection (no evidence rewrite): {cr['corporate_action_read_time_projection']}")
+    print(f"forbidden auto/direct execution routes (must be empty): {cr['forbidden_auto_execution_routes_present']}  "
+          f"automatic approval/rebalance tokens (must be empty): {cr['automatic_tokens_present']}")
+    print(f"broker enabled (must be False): {cr['broker_enabled']}  "
+          f"automatic rebalance allowed (must be False): {cr['automatic_rebalance_allowed']}  "
+          f"cadence enabled (must be False): {cr['cadence_enabled']}")
+
     hdr("PERSISTENT ALPHA RESEARCH AGENT OWNERSHIP (Slice 8, Phase 29I, Milestone 4)")
     ra = rep["research_agent_ownership"]
     print(f"kernel present: {ra['kernel_present']}  owner present: {ra['owner_present']}  "
@@ -2743,6 +2858,7 @@ def main(argv=None) -> int:
         rc6 = rep["slice6_residual_cutover_ownership"]
         mr = rep["drc_manifest_recovery"]
         rp = rep["reallocation_proposal_ownership"]
+        cr = rep["controlled_rebalance_ownership"]
         ra = rep["research_agent_ownership"]
         de = rep["data_expansion_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
@@ -2889,6 +3005,19 @@ def main(argv=None) -> int:
                          + (0 if not rp["kernel_forks_hoc"] else 1)
                          + (0 if not rp["kernel_forks_scoring"] else 1)
                          + len(rp["slice8_present_modules"])
+                         # --- Stage 19 controlled-rebalance ownership ----------------- #
+                         + (0 if cr["owner_present"] else 1)
+                         + (0 if cr["controlled_route_get"] else 1)
+                         + (0 if cr["confirm_route_post"] else 1)
+                         + (0 if cr["corporate_action_routes_present"] else 1)
+                         + (0 if cr["requires_stage18_approval"] else 1)
+                         + (0 if cr["requires_second_confirmation"] else 1)
+                         + (0 if cr["delegates_to_existing_desk"] else 1)
+                         + len(cr["second_execution_owner_defs"])
+                         + (0 if cr["corporate_action_confirm_gated"] else 1)
+                         + (0 if cr["corporate_action_read_time_projection"] else 1)
+                         + len(cr["forbidden_auto_execution_routes_present"])
+                         + len(cr["automatic_tokens_present"])
                          # --- Slice 8 (Phase 29I) research-agent ownership ------------ #
                          + (0 if ra["kernel_present"] else 1)
                          + (0 if ra["owner_present"] else 1)

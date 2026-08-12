@@ -3687,15 +3687,15 @@
                 <span>Controlled Paper Rebalance
                   <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Stage 19 — the controlled execution loop that turns an APPROVED reallocation proposal into paper orders through two manual gates.">STAGE 19</span>
                   <span class="cc-badge manual">MANUAL REVIEW</span>
-                  <span class="cc-badge safe">PAPER ONLY</span>
-                  <span class="cc-badge safe">NO LIVE ORDERS</span>
-                  <span class="cc-badge safe">NO BROKER</span>
+                  <span class="cc-badge safe">PAPER ORDERS ONLY</span>
+                  <span class="cc-badge safe">NO LIVE BROKER ORDERS</span>
+                  <span class="cc-badge safe">NO BROKER EXECUTION</span>
                   <span class="cc-badge safe">SECOND CONFIRMATION REQUIRED</span>
                   <span class="cc-badge safe">AUTOMATION OFF</span>
                 </span>
                 <button class="btn-sm" id="stage19-refresh" onclick="loadRebalanceLifecycle()" title="Reload the read-only rebalance lifecycle state.">&#8635; Refresh</button>
               </div>
-              <div id="stage19-banner" style="border:1px solid rgba(59,130,246,.55);background:rgba(59,130,246,.10);color:var(--info,#3b82f6);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">CONTROLLED PAPER REBALANCE &mdash; PAPER ONLY &middot; MANUAL REVIEW &middot; NO LIVE ORDERS &middot; NO BROKER &middot; NEXT_CLOSE, NO SAME-CLOSE HINDSIGHT FILL</div>
+              <div id="stage19-banner" style="border:1px solid rgba(59,130,246,.55);background:rgba(59,130,246,.10);color:var(--info,#3b82f6);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">CONTROLLED PAPER REBALANCE &mdash; PAPER ONLY &middot; MANUAL REVIEW &middot; PAPER ORDERS ONLY &middot; NO LIVE BROKER ORDERS &middot; SECOND CONFIRMATION REQUIRED &middot; NEXT_CLOSE, NO SAME-CLOSE HINDSIGHT FILL</div>
               <div id="stage19-state" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 8px;font-size:12px;font-weight:700;">&mdash;</div>
               <div id="stage19-primary" class="cc-na-note" style="font-size:11px;margin:0 0 8px;">Loading the read-only rebalance lifecycle&hellip;</div>
               <div id="stage19-plan-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>

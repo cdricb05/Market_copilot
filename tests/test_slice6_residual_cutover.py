@@ -239,10 +239,14 @@ def test_20_21_22_no_reassessment_rebalance_or_order_route():
     routes = audit.check_routes()["routes"]
     paths = {r["path"] for r in routes}
     for forbidden in ("/v1/operations/portfolio-reassessment", "/v1/operations/reassessment",
-                      "/v1/operations/rebalance", "/v1/operations/rebalance-proposal",
+                      "/v1/operations/rebalance-proposal",
                       "/v1/operations/holding-opportunity-cost/run",
                       "/v1/operations/confirm-target", "/v1/operations/target-confirmation"):
         assert forbidden not in paths
+    # Stage-19 controlled-rebalance IS present (APPROVED decision + second confirmation).
+    _m = lambda p: sorted({r["method"] for r in routes if r["path"] == p})
+    assert "GET" in _m("/v1/operations/rebalance")
+    assert "POST" in _m("/v1/operations/rebalance/confirm-order-plan")
     hoc_methods = sorted({r["method"] for r in routes
                           if r["path"] == "/v1/operations/holding-opportunity-cost"})
     assert hoc_methods == ["GET"]
