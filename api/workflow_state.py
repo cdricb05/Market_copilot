@@ -396,6 +396,25 @@ _HOC_NO_ACTIVE_BOOK = "NO_ACTIVE_BOOK"
 _HOC_NOT_RUN = "NOT_RUN"
 _HOC_UNAVAILABLE = "UNAVAILABLE"
 
+# --------------------------------------------------------------------------- #
+# Stage 18 — model-recalibration REVIEW trigger vocabulary (a SEPARATE lane from
+# the portfolio decision; never a retrainer, never automatic). A model REVIEW is
+# raised ONLY when a SIGNAL / RANKING degradation flag is *actionable* (evidence
+# sufficient) — never from a portfolio performance symptom (negative excess,
+# drawdown, cost-adjusted alpha) and never from realized P&L. Champion recalibration
+# stays a manually-approved controlled study; nothing here promotes or retrains.
+# --------------------------------------------------------------------------- #
+MODEL_HEALTHY = "MODEL_HEALTHY"
+MODEL_RECALIBRATION_REVIEW = "MODEL_RECALIBRATION_REVIEW"
+MODEL_REVIEW_STATES = (MODEL_HEALTHY, MODEL_RECALIBRATION_REVIEW)
+# The ONLY forward-evidence research-flag category that reflects signal/ranking
+# degradation (all other flags are portfolio symptoms — observation-only by design).
+_SIGNAL_DEGRADATION_FLAGS = frozenset({"RANK_IC_DEGRADATION"})
+
+# Stage 18 — separate portfolio-decision review lane action code (a REVIEW/routing
+# action only; the durable decision is recorded by api.portfolio_decision, never here).
+ACTION_REVIEW_PROPOSED_PORTFOLIO = "REVIEW_PROPOSED_PORTFOLIO"
+
 
 def _historical_result_text(outcome: Any, recommendation: Any) -> str:
     """Human, DATE-FREE statement of what the legacy membership comparison concluded.
@@ -744,6 +763,180 @@ def build_daily_close_gate(overall: str, *, eligible_date: Any = None,
         badge = "BLOCKED"
     return {"execution_allowed": allowed, "overall_state": overall,
             "passive_status": passive, "passive_badge": badge}
+
+
+# --------------------------------------------------------------------------- #
+# Stage 18 — model-recalibration REVIEW derivation (separate lane). A model REVIEW
+# is raised ONLY when a signal/ranking degradation research flag is *actionable*
+# (evidence sufficient). Performance symptoms (negative excess, drawdown, cost-
+# adjusted alpha) and realized P&L NEVER trigger it. Never a retrainer/promoter.
+# --------------------------------------------------------------------------- #
+def _derive_model_review(forward_status: Optional[dict]) -> dict[str, Any]:
+    flags = list((forward_status or {}).get("research_flags") or [])
+    triggering = [f for f in flags
+                  if isinstance(f, dict) and f.get("flag") in _SIGNAL_DEGRADATION_FLAGS
+                  and bool(f.get("actionable"))]
+    # Observation-only signal-degradation flags (present but not yet actionable — thin
+    # evidence) are surfaced as the missing-evidence reason, never as a trigger.
+    watching = [f for f in flags
+                if isinstance(f, dict) and f.get("flag") in _SIGNAL_DEGRADATION_FLAGS
+                and not bool(f.get("actionable"))]
+    insufficient = [f for f in flags
+                    if isinstance(f, dict) and f.get("flag") == "INSUFFICIENT_SAMPLE"]
+    state = MODEL_RECALIBRATION_REVIEW if triggering else MODEL_HEALTHY
+    reasons = [{"flag": f.get("flag"), "metric": f.get("metric"), "value": f.get("value"),
+                "threshold": f.get("threshold")} for f in triggering]
+    missing = None
+    if state == MODEL_HEALTHY and (watching or insufficient):
+        src = (insufficient or watching)[0]
+        missing = ("Signal-degradation evidence is not yet actionable: %s (%s)."
+                   % (src.get("threshold") or "evidence below interpretation floor",
+                      src.get("flag")))
+    return {
+        "model_review_state": state,
+        "model_review_state_vocabulary": list(MODEL_REVIEW_STATES),
+        "model_review_required": bool(triggering),
+        "review_only": True,
+        "automatic_retraining_allowed": False,
+        "automatic_promotion_allowed": False,
+        "triggering_flags": reasons,
+        "observation_only_signal_flags": [f.get("flag") for f in watching],
+        "missing_evidence": missing,
+        "basis": ("A model recalibration REVIEW is raised only by an actionable "
+                  "signal/ranking degradation flag; portfolio performance weakness and "
+                  "realized P&L never trigger it."),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Stage 18 — the backend-composed "Today" hero (three explicit lanes rendered
+# verbatim by the UI). This does NOT mutate overall_state / primary_action: it
+# composes the operational, portfolio-decision and model lanes into the single
+# headline + CTA the operator sees, so a completed operational close is never
+# conflated with "no capital-redeployment decision to make". When the operational
+# lane still needs action the hero mirrors the operational primary action; only
+# when the operational cycle is complete does the portfolio / model lane surface.
+# --------------------------------------------------------------------------- #
+_OPERATIONAL_COMPLETE_STATES = frozenset({DAILY_CYCLE_COMPLETE,
+                                          DAILY_CYCLE_COMPLETE_EVIDENCE_GAP})
+_PD_REVIEW_STATES = frozenset({"PROPOSAL_REVIEW_REQUIRED",
+                               "STALE_PROPOSAL_REVIEW_REQUIRED", "PROPOSAL_HELD"})
+
+
+def _build_today_hero(*, overall: str, primary: dict, eligible_date: Any,
+                      operational_close_valid: bool, latest_close_date: Any,
+                      portfolio_decision_lane: dict, model_review: dict) -> dict[str, Any]:
+    close_txt = _iso(_coerce_date(latest_close_date)) or (
+        str(latest_close_date) if latest_close_date else None)
+    operational_lane = {
+        "lane": "OPERATIONAL",
+        "state": overall,
+        "headline": primary.get("headline"),
+        "detail": primary.get("explanation"),
+        "severity": primary.get("severity"),
+        "complete": overall in _OPERATIONAL_COMPLETE_STATES,
+    }
+    pd_state = portfolio_decision_lane.get("portfolio_decision_state")
+    portfolio_lane = {
+        "lane": "PORTFOLIO",
+        "state": pd_state,
+        "label": portfolio_decision_lane.get("label"),
+        "requires_manual_review": bool(portfolio_decision_lane.get("requires_manual_review")),
+        "material": bool(portfolio_decision_lane.get("material")),
+        "one_way_turnover": portfolio_decision_lane.get("one_way_turnover"),
+        "proposed_holding_count": portfolio_decision_lane.get("proposed_holding_count"),
+        "decision": portfolio_decision_lane.get("decision"),
+    }
+    model_lane = {
+        "lane": "MODEL",
+        "state": model_review.get("model_review_state"),
+        "review_required": bool(model_review.get("model_review_required")),
+    }
+
+    # Choose the single hero focus. The operational lane wins while it still needs
+    # action; once complete, an unreviewed material portfolio proposal wins over
+    # plain monitoring; a model review is surfaced but never outranks the portfolio
+    # decision (both are shown as lanes regardless).
+    if overall not in _OPERATIONAL_COMPLETE_STATES:
+        focus_lane = "OPERATIONAL"
+        headline = primary.get("headline")
+        detail = primary.get("explanation")
+        severity = primary.get("severity")
+        cta_label = primary.get("label")
+        cta_action = primary.get("action_code")
+        cta_destination = primary.get("destination")
+        cta_focus = primary.get("focus")
+    elif pd_state in _PD_REVIEW_STATES:
+        focus_lane = "PORTFOLIO"
+        _verb = ("awaiting manual review" if pd_state == "PROPOSAL_REVIEW_REQUIRED"
+                 else ("changed since review — re-review required"
+                       if pd_state == "STALE_PROPOSAL_REVIEW_REQUIRED"
+                       else "held / deferred — decide to proceed"))
+        headline = ("Daily close complete for %s — portfolio proposal %s."
+                    % (close_txt or (eligible_date or "the eligible session"), _verb))
+        detail = ("The operational Daily Close is complete and valid, but the current "
+                  "reallocation proposal contains material capital-allocation changes "
+                  "(%s proposed holdings, %s one-way turnover) that have not been "
+                  "approved, rejected or deferred. Manual review is required — reviewing "
+                  "creates no order."
+                  % (portfolio_decision_lane.get("proposed_holding_count"),
+                     _fmt_pct(portfolio_decision_lane.get("one_way_turnover"))))
+        severity = SEV_ATTENTION
+        cta_label = "Review proposed portfolio"
+        cta_action = ACTION_REVIEW_PROPOSED_PORTFOLIO
+        cta_destination = DEST_PORTFOLIO_MANAGER
+        cta_focus = "realloc-card"
+    elif model_review.get("model_review_state") == MODEL_RECALIBRATION_REVIEW:
+        focus_lane = "MODEL"
+        headline = ("Daily close complete for %s — champion recalibration review due."
+                    % (close_txt or (eligible_date or "the eligible session")))
+        detail = ("The operational cycle is complete and no portfolio change is pending, "
+                  "but a signal/ranking degradation review threshold has been met. "
+                  "Recalibration is a manually-approved controlled study — nothing is "
+                  "retrained or promoted automatically.")
+        severity = SEV_ATTENTION
+        cta_label = "Review model evidence"
+        cta_action = "REVIEW_MODEL_RECALIBRATION"
+        cta_destination = DEST_RESEARCH_AUDIT
+        cta_focus = None
+    else:
+        focus_lane = "OPERATIONAL"
+        headline = primary.get("headline")
+        detail = primary.get("explanation")
+        severity = primary.get("severity")
+        cta_label = primary.get("label")
+        cta_action = primary.get("action_code")
+        cta_destination = primary.get("destination")
+        cta_focus = primary.get("focus")
+
+    return {
+        "focus_lane": focus_lane,
+        "headline": headline,
+        "detail": detail,
+        "severity": severity,
+        "cta_label": cta_label,
+        "cta_action_code": cta_action,
+        "cta_destination": cta_destination,
+        "cta_focus": cta_focus,
+        # The CTA is a REVIEW/routing control only; the portfolio decision itself is
+        # recorded by the dedicated owner under its own confirmation token.
+        "cta_execution_available": False,
+        "cta_creates_orders": False,
+        "operational_lane": operational_lane,
+        "portfolio_lane": portfolio_lane,
+        "model_lane": model_lane,
+        "lanes_are_independent": True,
+        "note": ("Operational close, portfolio decision and model governance are three "
+                 "independent lanes. A completed close never implies the portfolio "
+                 "proposal was reviewed or that a model review is or is not due."),
+    }
+
+
+def _fmt_pct(x: Any) -> str:
+    try:
+        return "%.1f%%" % (float(x) * 100.0)
+    except (TypeError, ValueError):
+        return "n/a"
 
 
 # --------------------------------------------------------------------------- #
@@ -1525,6 +1718,53 @@ def load_workflow_state(
         "manual_review_required": bool(manual_review_required),
         "automatic_promotion_allowed": False,
     }
+    # Stage 18 (Workstream J): the canonical model-recalibration REVIEW trigger — a
+    # SEPARATE lane from the portfolio decision, wired to the forward-evidence
+    # signal-degradation flags (never a retrainer, never automatic, never from P&L).
+    model_review = _derive_model_review(forward_status)
+    model_governance["model_review_state"] = model_review["model_review_state"]
+    model_governance["model_review_required"] = model_review["model_review_required"]
+    model_governance["model_review_triggering_flags"] = model_review["triggering_flags"]
+    model_governance["model_review_missing_evidence"] = model_review["missing_evidence"]
+
+    # --- Stage 18 (Workstream C/D/E): the SEPARATE portfolio-decision review lane.
+    #     Composed from the immutable reallocation-proposal summary (already loaded via
+    #     the shared gate path) + the durable manual decision recorded by the dedicated
+    #     owner (api.portfolio_decision). It NEVER enters OVERALL_STATES, NEVER gates the
+    #     Daily Close, and creates no order. Degrade-safe: any read failure leaves the
+    #     lane at its no-proposal default and never raises. --------------------------- #
+    rp_summary = {
+        "reallocation_proposal_available": rp_available,
+        "reallocation_proposal_state": rp_state,
+        "reallocation_proposal_hash": rp_hash,
+        "reallocation_proposal_id": (gate or {}).get("reallocation_proposal_id"),
+        "reallocation_action_counts": rp_counts,
+        "reallocation_proposed_holding_count": (gate or {}).get(
+            "reallocation_proposed_holding_count"),
+        "reallocation_one_way_turnover": (gate or {}).get("reallocation_one_way_turnover"),
+        "reallocation_estimated_transaction_cost": (gate or {}).get(
+            "reallocation_estimated_transaction_cost"),
+        "reallocation_score_improvement_net_of_cost": (gate or {}).get(
+            "reallocation_score_improvement_net_of_cost"),
+        "reallocation_data_gaps": rp_gaps,
+    }
+    active_book_id = (freshness.get("active_book") or {}).get("active_book_id")
+    decision_record = _safe(
+        lambda: _import_portfolio_decision().load_decision_record(
+            active_book_id=active_book_id, eligible_market_date=eligible_date),
+        warnings, "Portfolio decision record")
+    portfolio_decision_lane = _safe(
+        lambda: _import_portfolio_decision().derive_decision_state(
+            has_active_book=bool(active_book_id), proposal_summary=rp_summary,
+            decision_record=decision_record),
+        warnings, "Portfolio decision lane") or {
+            "portfolio_decision_state": "PORTFOLIO_DECISION_UNAVAILABLE",
+            "requires_manual_review": False, "material": False}
+
+    today_hero = _build_today_hero(
+        overall=overall, primary=primary, eligible_date=eligible_date,
+        operational_close_valid=operational_close_valid, latest_close_date=latest_close_date,
+        portfolio_decision_lane=portfolio_decision_lane, model_review=model_review)
 
     # --- Cross-surface consistency (Workstream K). ----------------------------- #
     consistency_status, consistency_violations = _build_consistency(
@@ -1661,6 +1901,14 @@ def load_workflow_state(
             "recovery_classification": (forward_status or {}).get("interpretation"),
         },
         "model_governance_state": model_governance,
+        "model_review_state": model_review["model_review_state"],
+        "model_review": model_review,
+        # Stage 18 (Workstream C/D/E/K): the SEPARATE portfolio-decision review lane and
+        # the backend-composed three-lane "Today" hero. These add to — and never mutate —
+        # overall_state / primary_action: a completed operational close is never rendered
+        # as "no action required" while a material reallocation proposal awaits review.
+        "portfolio_decision_state": portfolio_decision_lane,
+        "today_hero": today_hero,
         # Phase 29G.2: the PRIMARY portfolio-decision presentation is the Holding
         # Opportunity-Cost Review (assessment_presentation is an alias of it, retained so
         # the UI's canonical-node owner keeps painting the same DOM). The legacy rank-
@@ -1769,6 +2017,11 @@ def _import_drc():
     return daily_research_cycle
 
 
+def _import_portfolio_decision():
+    from paper_trader.api import portfolio_decision
+    return portfolio_decision
+
+
 __all__ = [
     "PHASE",
     "WAITING_FOR_SESSION_CLOSE", "WAITING_FOR_OWNED_DATA", "RESEARCH_CYCLE_REQUIRED",
@@ -1788,4 +2041,7 @@ __all__ = [
     "HOC_CANONICAL_OWNER", "HOC_PRIMARY_TITLE", "LEGACY_COMPARISON_TITLE",
     "COS_NOT_RUN", "COS_AVAILABLE", "COS_DEGRADED", "COS_BLOCKED",
     "COS_NO_ACTIVE_BOOK", "COS_UNAVAILABLE", "CANONICAL_OPERATOR_STATES",
+    "MODEL_HEALTHY", "MODEL_RECALIBRATION_REVIEW", "MODEL_REVIEW_STATES",
+    "ACTION_REVIEW_PROPOSED_PORTFOLIO",
+    "_derive_model_review", "_build_today_hero",
 ]

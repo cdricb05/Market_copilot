@@ -25678,6 +25678,41 @@ function _wsRenderTodayHero(d) {
   var wfcc = document.getElementById('wf-cc');
   if (wfcc) wfcc.style.display = 'none';
 
+  // ---- Stage 18: SEPARATE portfolio-decision (and model) review lane. When the
+  // operational cycle is COMPLETE but a MATERIAL reallocation proposal is unreviewed /
+  // held / stale (or a model-recalibration review is due), the backend today_hero focuses
+  // the PORTFOLIO (or MODEL) lane. Render it as an attention hero with a REVIEW-ONLY CTA
+  // (navigation to the existing proposal review card — never an apply / confirm / order
+  // control). Read VERBATIM from the backend: the UI derives no priority and does no
+  // portfolio math. This takes precedence over the "you're all set" compact strip so a
+  // completed close is never conflated with "no capital-redeployment decision to make".
+  var th = d.today_hero || null;
+  var thReviewLane = th && (th.focus_lane === 'PORTFOLIO' || th.focus_lane === 'MODEL')
+    && th.cta_action_code && th.cta_action_code !== 'MONITOR_PORTFOLIO';
+  if (thReviewLane) {
+    var thRoute2 = (th.focus_lane === 'PORTFOLIO') ? 'proposed-portfolio' : 'research-audit';
+    var thCtaHtml = th.cta_label
+      ? '<button class="th-cta warn" onclick="navigateToRoute(\'' + thRoute2 + '\')">'
+        + _wsEsc(th.cta_label) + '</button>'
+      : '';
+    host.className = 'today-hero th-expanded state-warn';
+    host.setAttribute('data-density', 'expanded');
+    host.setAttribute('data-op-state',
+      th.focus_lane === 'PORTFOLIO' ? 'PORTFOLIO_REVIEW_REQUIRED' : 'MODEL_REVIEW_REQUIRED');
+    host.innerHTML = ''
+      + '<div class="th-eyebrow">What needs your attention?</div>'
+      + '<div class="th-headline"><span class="th-mark">&#9679;</span><h1 class="th-state">'
+      +   _wsEsc(th.headline || 'Portfolio proposal awaiting manual review') + '</h1></div>'
+      + (th.detail ? '<p class="th-sub">' + _wsEsc(th.detail) + '</p>' : '')
+      + '<div class="th-meta">'
+      +   '<div><div class="k">Operational close</div><div class="v">Complete &middot; valid</div></div>'
+      +   '<div><div class="k">Latest eligible session</div><div class="v">' + _wsEsc(latest) + '</div></div>'
+      + '</div>'
+      + (thCtaHtml ? ('<div class="th-cta-row">' + thCtaHtml + '</div>') : '');
+    host.style.display = '';
+    return;
+  }
+
   // ---- COMPACT mode (NO_ACTION / REVIEW_AVAILABLE): one quiet confirmation strip ----
   if (noAction) {
     var opStateC = reviews.length ? 'REVIEW_AVAILABLE' : 'NO_ACTION';

@@ -204,6 +204,7 @@ from paper_trader.api import daily_research_cycle as _drc
 from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
+from paper_trader.api import portfolio_decision as _pdecision
 from paper_trader.api import research_agent as _research_agent
 from paper_trader.api import research_bridge as _research_bridge
 from paper_trader.api import data_expansion as _data_expansion
@@ -6506,6 +6507,88 @@ def operations_reallocation_proposal() -> dict:
     before a proposal exists and remains readable (HTTP 200) in DEGRADED / BLOCKED states.
     """
     return _realloc.load_reallocation_proposal()
+
+
+@app.get(
+    "/v1/operations/portfolio-decision",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_decision() -> dict:
+    """Stage 18 canonical manual PORTFOLIO-DECISION lane (read-only).
+
+    The SEPARATE authoritative portfolio-decision review state that sits between the
+    review-only Reallocation Proposal (Slice 7) and any future controlled paper-order
+    plan. It reports (a) whether the current proposal is materially actionable — derived
+    ONLY from the immutable proposal's action semantics, never from realized P&L or UI
+    code; (b) the durable manual decision (APPROVE_FOR_PAPER_REBALANCE / REJECT / HOLD)
+    recorded against the EXACT immutable proposal, or that none exists; (c) a
+    ``portfolio_decision_state`` from its own frozen vocabulary
+    (NO_MATERIAL_CHANGE / PROPOSAL_REVIEW_REQUIRED / PROPOSAL_APPROVED / PROPOSAL_REJECTED /
+    PROPOSAL_HELD / STALE_PROPOSAL_REVIEW_REQUIRED); and (d) when APPROVED, a read-only
+    paper-order-plan PREVIEW derived from the proposal's own allocations.
+
+    STRICTLY READ-ONLY: it creates no order/fill/target and changes no holding/cash/NAV.
+    It is a SEPARATE lane from the operational Daily Cycle and from model governance — a
+    completed operational close never implies this decision was made. Owned by
+    ``api.portfolio_decision``; the durable decision is recorded via
+    POST /v1/operations/portfolio-decision/record.
+    """
+    return _pdecision.load_portfolio_decision()
+
+
+class PortfolioDecisionRecordRequest(BaseModel):
+    """Stage 18 explicit manual portfolio-reallocation decision body.
+
+    ``decision`` must be one of APPROVE_FOR_PAPER_REBALANCE / REJECT / HOLD;
+    ``confirmation`` must equal the manual confirmation token; ``expected_proposal_hash``
+    (the proposal the operator reviewed) is verified against the server's CURRENT proposal
+    so a stale proposal can never be approved against a changed portfolio.
+    """
+
+    decision: str
+    confirmation: str
+    expected_proposal_hash: str | None = None
+    requested_by: str = "manual_ui"
+
+
+@app.post(
+    "/v1/operations/portfolio-decision/record",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_decision_record(body: PortfolioDecisionRecordRequest) -> dict:
+    """Record ONE durable, idempotent manual portfolio-reallocation decision, bound to the
+    EXACT current immutable proposal (Stage 18, Workstream E).
+
+    Requires ``{"decision": <APPROVE_FOR_PAPER_REBALANCE|REJECT|HOLD>,
+    "confirmation": "CONFIRM_PORTFOLIO_REBALANCE_DECISION"}``; any other confirmation value
+    or an unknown decision returns HTTP 400. The server resolves the active book + eligible
+    session and the CURRENT proposal itself (the client-supplied ``expected_proposal_hash``
+    is only used to reject a stale review). An identical decision on the same proposal is
+    idempotent (no duplicate record); a changed decision on the same proposal is preserved
+    as an immutable revision.
+
+    It creates NO order/fill/target and changes NO holding/cash/NAV; it never approves
+    automatically and never promotes/recalibrates a model. On success it returns the
+    recorded decision + its immutable binding hashes.
+    """
+    if body.decision not in _pdecision.DECISION_VOCAB:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Unknown decision. Send one of "
+                    f"{list(_pdecision.DECISION_VOCAB)}."),
+        )
+    if body.confirmation != _pdecision.CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit manual confirmation required. Send "
+                    f"{{'confirmation': '{_pdecision.CONFIRM_TOKEN}'}} to record a "
+                    f"portfolio decision."),
+        )
+    return _pdecision.record_decision(
+        decision=body.decision, confirm=body.confirmation,
+        expected_proposal_hash=body.expected_proposal_hash, actor=body.requested_by)
 
 
 @app.get(

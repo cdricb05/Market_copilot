@@ -276,6 +276,11 @@
       "system": "infrastructure"
     },
     {
+      "prefix": "/v1/operations/portfolio-decision",
+      "owner": "api/portfolio_decision.py",
+      "system": "infrastructure"
+    },
+    {
       "prefix": "/v1/research/research-agent",
       "owner": "api/research_agent.py",
       "system": "infrastructure"
@@ -743,7 +748,36 @@
       ],
       "migration_priority": 1,
       "risk": "low",
-      "notes": "Charter Milestone 3 (Consolidation Roadmap Slice 7). The SOLE composition/read/persistence owner over the pure engine.reallocation_proposal kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run) via the BUILD_REALLOCATION_PROPOSAL step (after ASSESS_HOLDING_OPPORTUNITY_COST); there is deliberately NO create/apply/confirm-target/rebalance/order endpoint (the read endpoint is GET-only). The Daily Action Gate delegates to load_proposal_summary for its reallocation_proposal_* fields; workflow_state exposes the proposal state as an informational review action (never an order/close requirement). Preview-first, paper-only, review-only, manual review mandatory: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. The Persistent Alpha Research Agent (Slice 8 / Milestone 4, LANDED) consumes this proposal's immutable history as diagnostic evidence."
+      "notes": "Charter Milestone 3 (Consolidation Roadmap Slice 7). The SOLE composition/read/persistence owner over the pure engine.reallocation_proposal kernel. The sole NORMAL execution path is the Daily Research Cycle (POST /v1/operations/daily-research-cycle/run) via the BUILD_REALLOCATION_PROPOSAL step (after ASSESS_HOLDING_OPPORTUNITY_COST); there is deliberately NO create/apply/confirm-target/rebalance/order endpoint (the read endpoint is GET-only). The Daily Action Gate delegates to load_proposal_summary for its reallocation_proposal_* fields; workflow_state exposes the proposal state as an informational review action (never an order/close requirement). Preview-first, paper-only, review-only, manual review mandatory: confirms no target, creates no order/fill, changes no holding/cash/NAV, promotes no model, enables no cadence. The Persistent Alpha Research Agent (Slice 8 / Milestone 4, LANDED) consumes this proposal's immutable history as diagnostic evidence. Stage 18 adds api.portfolio_decision as the SEPARATE manual portfolio-decision owner over this immutable proposal (materiality + durable APPROVE/REJECT/HOLD decision ledger + read-only order-plan preview); it never creates an order/fill and never mutates this proposal."
+    },
+    {
+      "path": "api/portfolio_decision.py",
+      "system": "infrastructure",
+      "responsibility": "Stage 18 CANONICAL manual Portfolio-Decision owner (Milestone 3 -> controlled paper rebalancing). The ONE owner of the manual portfolio-reallocation decision that sits between the review-only Reallocation Proposal (Slice 7 / api.reallocation_proposal) and any future controlled paper-order plan. It owns: (1) MATERIALITY derived ONLY from the immutable proposal's own action semantics (EXIT/ADD/REPLACE membership + engine-gated INCREASE/REDUCE resizes) — never from realized P&L or UI code; (2) a durable, append-only, IDEMPOTENT manual-decision ledger binding APPROVE_FOR_PAPER_REBALANCE / REJECT / HOLD to the EXACT immutable proposal (proposal_id + proposal_hash + the five bound input hashes) under its own decision-evidence root PAPER_TRADER_PORTFOLIO_DECISION_DIR (never the operational desk ledger root); an identical decision reuses the record (no duplicate), a changed decision is preserved as an immutable revision, and a stale proposal is refused (STALE_PROPOSAL_REVIEW_REQUIRED, no write); (3) the SEPARATE portfolio-decision review state (NO_MATERIAL_CHANGE / PROPOSAL_REVIEW_REQUIRED / PROPOSAL_APPROVED / PROPOSAL_REJECTED / PROPOSAL_HELD / STALE_PROPOSAL_REVIEW_REQUIRED) that workflow_state surfaces as its own lane so a completed operational Daily Close is never conflated with 'no capital-redeployment decision to make'; and (4) a READ-ONLY paper-order-plan PREVIEW derived from an APPROVED proposal's own allocations. Reuses api.reallocation_proposal (immutable proposal + hashes) and api.portfolio_state (active book / eligible date). Creates NO order/fill/target and mutates NO holding/cash/NAV; runs NO provider/prediction/engine; never approves automatically and never promotes/recalibrates a model.",
+      "classification": "KEEP",
+      "target_owner": "api/portfolio_decision.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "reallocation_proposal.load_latest_artifact / load_proposal_summary (immutable proposal artifact + hashes + action counts + allocations — reused, never forked)",
+        "portfolio_state.load_portfolio_state (active book / eligible market date)"
+      ],
+      "direct_writes": [
+        "append-only manual portfolio-decision records + index under PAPER_TRADER_PORTFOLIO_DECISION_DIR (a decision-evidence root, atomic; NOT the operational ledger root). No PostgreSQL / order / fill / target / holding / cash / NAV write."
+      ],
+      "endpoints": [
+        "/v1/operations/portfolio-decision",
+        "/v1/operations/portfolio-decision/record"
+      ],
+      "ui_consumers": [
+        "renderTodayHero",
+        "loadPortfolioDecision"
+      ],
+      "tests": [
+        "tests/test_stage18_portfolio_decision.py"
+      ],
+      "migration_priority": 1,
+      "risk": "low",
+      "notes": "Stage 18 (Active Portfolio Manager). Closes the decision gap between the review-only reallocation proposal and any future paper order: the operator can now durably APPROVE/REJECT/HOLD the exact immutable proposal, and the Today hero distinguishes OPERATIONAL close / PORTFOLIO decision / MODEL governance as three independent lanes. The record endpoint requires the explicit confirmation token CONFIRM_PORTFOLIO_REBALANCE_DECISION and binds to the server-side current proposal (a stale expected_proposal_hash is refused). The actual paper-order WRITE + NEXT_CLOSE execution + reconciliation remain the EXISTING paper-desk owner and are a separate future controlled slice; this module deliberately creates no order/fill. Review-only, preview-first, paper-only, manual review mandatory; cadence disabled; no broker; no automation. Guarded by tests/test_stage18_portfolio_decision.py."
     },
     {
       "path": "engine/research_agent.py",
