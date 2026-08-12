@@ -244,7 +244,13 @@ def _plan_orders(desk_dir=None) -> list[dict]:
 def build_holdings_detail(*, book: dict, valuation: dict, fills: list,
                           marks: dict, plan_orders: list,
                           target_weights: dict) -> tuple[list, Optional[str]]:
-    """Read-only per-holding valuation of the operational book (Phase 27B.8)."""
+    """Read-only per-holding valuation of the operational book (Phase 27B.8).
+
+    Stage 19.1 input contract: ``fills`` MUST be the CURRENT-state fill view
+    (``desk.current_fills`` — corporate-action corrected), matching the corrected share
+    counts in ``valuation``. Quantity and per-share basis always move together, so the
+    per-name cost basis stays invariant across a split. This function performs no
+    corporate-action arithmetic of its own."""
     book_id = book.get("book_id")
     qty_map = valuation.get("holdings") or {}
     as_of = valuation.get("as_of_date")
@@ -931,8 +937,12 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
     try:
         if book is not None and holdings:
             sdir = desk._desk_dir(desk_dir)
-            fills = [f for f in desk._fills(sdir)
-                     if f.get("book_id") == OPERATIONAL_BOOK_ID]
+            # Stage 19.1: the CURRENT-state fill view (corporate-action corrected). The
+            # per-name share count in `valuation` is corrected by desk.book_nav, so the
+            # BUY-fill replay behind average cost / cost basis MUST be corrected too —
+            # otherwise a split would double the reported cost basis of the split name.
+            # Empty registry -> byte-identical to the raw immutable fills.
+            fills = desk.current_fills(sdir, book_id=OPERATIONAL_BOOK_ID)
             marks = desk.read_marks(desk_dir)
             target_weights = book.get("frozen_target_weights") or {}
             holdings_detail, prev_date = build_holdings_detail(
@@ -1160,7 +1170,9 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "canonical_state": canonical_state,
         "single_source_of_truth": {
             "endpoint": "/v1/operational-book",
-            "value_producer": "paper_trading_desk.book_nav (append-only ledger replay)",
+            "value_producer": ("paper_trading_desk.book_nav (append-only ledger replay, "
+                               "corporate-action corrected via api.corporate_actions)"),
+            "corporate_action_correction_owner": "api.corporate_actions",
             "note": SINGLE_SOURCE_NOTE,
         },
         "other_books": {

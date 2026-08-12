@@ -198,6 +198,10 @@ def _binding_from_artifact(artifact: dict) -> dict:
         "active_book_id": ident.get("active_book_id") or ic.get("active_book_id"),
         "portfolio_state_hash": ident.get("portfolio_state_hash")
         or ic.get("portfolio_state_hash"),
+        # Stage 19.1 — the corporate-action registry state this proposal was computed
+        # against. Absent on artifacts written before the contract existed (== empty).
+        "corporate_actions_hash": ident.get("corporate_actions_hash")
+        or ic.get("corporate_actions_hash"),
         "hoc_assessment_hash": ident.get("hoc_assessment_hash")
         or ic.get("hoc_assessment_hash"),
         "universe_scoring_hash": ident.get("universe_scoring_hash")
@@ -318,6 +322,22 @@ def record_decision(*, decision: str, confirm: Optional[str],
                 "expected_proposal_hash": expected_proposal_hash,
                 "current_proposal_hash": current_hash, "binding": binding}
 
+    # Stage 19.1 corporate-action guard: a proposal computed BEFORE a corporate action was
+    # registered describes economic holdings that no longer exist. Its proposal_hash is
+    # unchanged (the artifact is immutable), so the hash check above cannot catch it — the
+    # registry fingerprint must. Backend-enforced: it can never be approved.
+    ca_stale = realloc.corporate_action_staleness(
+        artifact=artifact, active_book_id=binding.get("active_book_id"))
+    if ca_stale.get("stale"):
+        return {**base, "status": PDS_STALE,
+                "message": ("A corporate action has been registered since this proposal was "
+                            "produced, so it was computed against holdings that no longer "
+                            "describe the current portfolio. It cannot be approved. Run the "
+                            "Daily Research Cycle to produce a fresh proposal."),
+                "stale_reason": ca_stale.get("reason"),
+                "corporate_action_staleness": ca_stale,
+                "current_proposal_hash": current_hash, "binding": binding}
+
     # Idempotency: identical decision on the same proposal hash → reuse existing record.
     existing = load_decision_record(active_book_id=binding["active_book_id"],
                                     eligible_market_date=binding["eligible_market_date"],
@@ -384,7 +404,7 @@ _STATE_META = {
     PDS_APPROVED: ("Approved for paper rebalance", "INFO"),
     PDS_REJECTED: ("Proposal rejected", "INFO"),
     PDS_HELD: ("Proposal held / deferred", "ATTENTION"),
-    PDS_STALE: ("Proposal changed since review", "ATTENTION"),
+    PDS_STALE: ("Proposal superseded — fresh review required", "ATTENTION"),
     PDS_UNAVAILABLE: ("Portfolio-decision state unavailable", "ATTENTION"),
 }
 _DECISION_TO_STATE = {DECISION_APPROVE: PDS_APPROVED, DECISION_REJECT: PDS_REJECTED,
@@ -400,10 +420,16 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
     current_hash = summ.get("reallocation_proposal_hash")
     materiality = assess_materiality(summ)
 
+    # Stage 19.1: a proposal produced before a registered corporate action is stale
+    # regardless of any recorded decision — it describes holdings that no longer exist.
+    ca_stale = bool(summ.get("reallocation_proposal_stale"))
+
     if not has_active_book:
         state = PDS_NO_ACTIVE_BOOK
     elif not available:
         state = PDS_NO_PROPOSAL
+    elif ca_stale:
+        state = PDS_STALE
     elif not materiality["material"]:
         state = PDS_NO_MATERIAL_CHANGE
     else:
@@ -440,7 +466,13 @@ def derive_decision_state(*, has_active_book: bool, proposal_summary: dict,
         "decision_bound_proposal_hash": (decision_record or {}).get("proposal_hash"),
         "decision_recorded_at": (decision_record or {}).get("recorded_at"),
         "decision_is_current": bool(decision_record
-                                    and decision_record.get("proposal_hash") == current_hash),
+                                    and decision_record.get("proposal_hash") == current_hash
+                                    and not ca_stale),
+        # Stage 19.1 — the explicit approvability contract (backend-enforced; the UI
+        # renders it and never decides it).
+        "corporate_action_stale": ca_stale,
+        "corporate_action_stale_reason": summ.get("reallocation_proposal_stale_reason"),
+        "approvable": bool(available and materiality["material"] and not ca_stale),
         "owner": OWNER,
         "confirm_required_token": CONFIRM_TOKEN,
         "decision_vocabulary": list(DECISION_VOCAB),

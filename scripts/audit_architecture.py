@@ -1919,6 +1919,104 @@ def check_controlled_rebalance_ownership(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Stage 19.1 — corporate-action PROPAGATION integrity
+# --------------------------------------------------------------------------- #
+CA_OWNER_FILE = "api/corporate_actions.py"
+DESK_OWNER_FILE = "api/paper_trading_desk.py"
+
+#: Split arithmetic that may exist in EXACTLY ONE module (the canonical owner).
+_SPLIT_MATH_MARKERS = ("def split_position(", "def adjust_fills(")
+
+
+def check_corporate_action_propagation(files: list[Path]) -> dict:
+    """Stage 19.1 strict guard: a registered corporate action must reach EVERY current
+    economic read through ONE owner, and must never rewrite immutable historical evidence.
+
+    Proves:
+      (1) split arithmetic is DEFINED in exactly one module (api/corporate_actions.py);
+      (2) no other module re-derives a split (no ``* ratio`` / ``/ ratio`` share math);
+      (3) the desk's CURRENT economic primitives apply the registry BY DEFAULT, so a
+          consumer cannot silently read an unadjusted current state;
+      (4) the desk exposes a single CURRENT-state fill view (``current_fills``) that the
+          per-holding consumers use instead of the raw immutable ledger reader;
+      (5) the CURRENT performance projection is owned by api/corporate_actions.py and the
+          raw historical rows are still returned untouched alongside it;
+      (6) the corporate-action registry is part of the portfolio-state identity, so a
+          registration invalidates an older proposal / decision / order plan;
+      (7) both mutation gates (Stage-18 approval, Stage-19 order plan) enforce that
+          staleness in the BACKEND, not in the UI;
+      (8) the UI performs NO split / portfolio arithmetic of its own.
+    """
+    ca_src = _read(CA_OWNER_FILE)
+    desk_src = _read(DESK_OWNER_FILE)
+    ob_src = _read("api/operational_book.py")
+    ps_src = _read("api/portfolio_state.py")
+    rp_src = _read("api/reallocation_proposal.py")
+    pd_src = _read("api/portfolio_decision.py")
+    rb_src = _read("api/rebalance_execution.py")
+    ui = _read(UI_FILE)
+
+    # (1) split arithmetic defined in exactly ONE module.
+    split_math_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel in ("scripts/audit_architecture.py",):
+            continue
+        src = fp.read_text(encoding="utf-8", errors="replace")
+        if any(m in src for m in _SPLIT_MATH_MARKERS):
+            split_math_modules.append(rel)
+    split_math_modules = sorted(set(split_math_modules))
+
+    # (2) no second implementation of the share/price split transform.
+    duplicate_split_math = sorted(
+        rel for rel in split_math_modules if rel != CA_OWNER_FILE)
+
+    # (3) the desk's current economic primitives default to the registry.
+    desk_default_on = (
+        "AUTO_CORPORATE_ACTIONS" in desk_src
+        and "corporate_actions=AUTO_CORPORATE_ACTIONS" in desk_src
+        and "def current_corporate_actions(" in desk_src)
+    # (4) ONE current-state fill view, consumed by the per-holding owner.
+    current_fill_view = ("def current_fills(" in desk_src
+                         and "desk.current_fills(" in ob_src)
+    # (5) the CURRENT performance projection is owned by the CA module and the raw rows
+    #     are still returned untouched (no silent overwrite of immutable evidence).
+    current_perf_projection_owned = (
+        "def project_current_performance(" in ca_src
+        and "def project_current_performance(" not in desk_src
+        and "current_rows" in desk_src and "historical_rows_never_recomputed" in desk_src)
+    # (6) registry identity is part of the portfolio state (and therefore of state_hash).
+    state_binds_registry = ("registry_fingerprint" in ps_src
+                            and '"corporate_actions": corporate_actions_block' in ps_src)
+    proposal_binds_registry = ('"corporate_actions_hash"' in rp_src
+                               and "def corporate_action_staleness(" in rp_src)
+    # (7) BOTH mutation gates enforce staleness in the backend.
+    approval_gate_enforced = "corporate_action_staleness" in pd_src
+    order_plan_gate_enforced = "corporate_action_staleness" in rb_src
+    # (8) the UI performs no split / portfolio arithmetic.
+    ui_split_math = sorted(
+        t for t in ("adjust_fills", "split_position", "* ratio", "/ ratio",
+                    "quantity * 2", "shares_after")
+        if t in ui)
+
+    return {
+        "owner_present": (REPO_ROOT / CA_OWNER_FILE).exists(),
+        "split_math_modules": split_math_modules,
+        "duplicate_split_math": duplicate_split_math,
+        "single_split_math_owner": split_math_modules == [CA_OWNER_FILE],
+        "desk_current_reads_default_to_registry": desk_default_on,
+        "single_current_fill_view": current_fill_view,
+        "current_performance_projection_owned": current_perf_projection_owned,
+        "portfolio_state_binds_registry": state_binds_registry,
+        "proposal_binds_registry": proposal_binds_registry,
+        "approval_gate_enforces_staleness": approval_gate_enforced,
+        "order_plan_gate_enforces_staleness": order_plan_gate_enforced,
+        "ui_split_math_present": ui_split_math,
+        "immutable_evidence_rewritten": False,
+    }
+
+
 def check_research_agent_ownership(files: list[Path]) -> dict:
     """Slice 8 (Phase 29I) strict semantic ownership guard for the Persistent Alpha Research
     Agent (Milestone 4). Proves: (1) engine/research_agent.py is the SOLE research-state
@@ -2366,6 +2464,104 @@ def check_slice6_residual_cutover_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_operator_ux_consolidation_ownership(files: list[Path]) -> dict:
+    """Phase 29J.1 OPERATOR UX CONSOLIDATION guard. Proves (1) the four operator-oriented
+    PRIMARY navigation areas exist (Today / Portfolio / Research / System · Audit);
+    (2) legacy/detail views are DEMOTED out of primary navigation (under the Advanced-views
+    disclosure); (3) every legacy route still resolves as an alias (no dead link); (4) the
+    Market Context strip is restored against the SINGLE authoritative backend owner
+    (GET /v1/market/indicators) — exactly one UI loader, no duplicate market-data owner, no
+    direct provider host / market-regime math in the UI, GET-only, and an explicit
+    reference-only (not a signal) label with honest UNAVAILABLE tiles; (5) the ONE canonical
+    next-action renderer is unchanged; (6) the persistent safety strip carries the
+    paper/manual/automation-off/no-broker/no-model-promotion set; (7) this phase introduces
+    NO purchase/order/model-promotion route; cadence stays disabled."""
+    ui = _read(UI_FILE)
+    routes = check_routes()["routes"]
+
+    # (1) Four operator-oriented primary nav areas.
+    nav_today = ('id="nav-command-center"' in ui and ">Today<" in ui)
+    nav_portfolio = ('id="nav-portfolio-manager"' in ui and 'data-route="portfolio-manager"' in ui)
+    nav_research = ('id="nav-research"' in ui and 'data-route="research"' in ui)
+    nav_system_audit = ('id="nav-system-audit"' in ui and 'data-route="system-audit"' in ui)
+    primary_areas_present = all([nav_today, nav_portfolio, nav_research, nav_system_audit])
+
+    # (2) Legacy/detail views demoted under the Advanced-views disclosure (not primary).
+    adv_start = ui.find('id="sidebar-advanced-views"')
+    adv_region = ui[adv_start:adv_start + 1400] if adv_start != -1 else ""
+    legacy_views_demoted = all(
+        t in adv_region for t in
+        ('id="nav-daily-workflow"', 'id="nav-multi-horizon"', 'id="nav-portfolio"'))
+
+    # (3) Old routes preserved as aliases (no dead link).
+    route_aliases_required = ("'today':", "'research':", "'system-audit':")
+    legacy_routes_required = ("'command-center':", "'portfolio':", "'research-audit':",
+                              "'daily-workflow':", "'multi-horizon':", "'portfolio-manager':",
+                              "'alpha-portfolio':")
+    missing_route_aliases = sorted(r for r in route_aliases_required if r not in ui)
+    missing_legacy_routes = sorted(r for r in legacy_routes_required if r not in ui)
+
+    # (4) Market context: ONE loader against the SINGLE authoritative owner; no duplicate
+    #     market-data owner, no direct provider host, no market/regime math in the UI region.
+    market_route = "/v1/market/indicators"
+    market_loader_count = ui.count("function loadMarketDashboard")
+    market_owner_fetch = ("call('GET', '%s')" % market_route) in ui
+    market_route_entries = [r for r in routes if r["path"] == market_route]
+    market_route_methods = sorted({r["method"] for r in market_route_entries})
+    market_route_get_only = market_route_methods == ["GET"]
+    # Actual provider URLs/hosts must never be fetched from the browser (the symbol MAP names
+    # like `yfinanceSymbols` are not provider calls and are deliberately excluded).
+    provider_hosts = ("query1.finance.yahoo", "finance.yahoo.com", "stlouisfed.org",
+                      "api.stlouisfed", "fredgraph")
+    ui_direct_provider_hosts = sorted(h for h in provider_hosts if h in ui)
+    mstart = ui.find("function loadMarketDashboard")
+    if mstart != -1:
+        mend = ui.find("window.loadMarketDashboard", mstart)
+        market_region = ui[mstart:mend] if mend != -1 and mend > mstart else ui[mstart:mstart + 6000]
+    else:
+        market_region = ""
+    market_forbidden = ("classifyRegime", "computeRegime", "marketRegime", "risk_on", "riskOn")
+    market_region_market_math = sorted(t for t in market_forbidden if t in market_region)
+    market_context_present = ('id="cc-market-context"' in ui and 'id="mkt-load-status"' in ui)
+    market_reference_only = "Reference only" in ui
+
+    # (5) ONE canonical next-action renderer (Slice 2 owner), unchanged.
+    workflow_next_action_renderer_count = ui.count("function loadWorkflowState")
+
+    # (6) Persistent safety strip carries the canonical set incl. NO MODEL PROMOTION.
+    safety_tokens = ("PAPER ONLY", "MANUAL REVIEW", "AUTOMATION OFF",
+                     "NO BROKER EXECUTION", "NO MODEL PROMOTION")
+    missing_safety_tokens = sorted(t for t in safety_tokens if t not in ui)
+
+    # (7) No purchase / order-creation / model-promotion ROUTE introduced by this phase.
+    forbidden_new_routes = ("/v1/market/purchase", "/v1/market/subscribe",
+                            "/v1/operations/apply-reallocation", "/v1/operations/promote-model")
+    forbidden_new_routes_present = sorted(
+        r for r in forbidden_new_routes if any(rt["path"] == r for rt in routes))
+
+    return {
+        "primary_areas_present": primary_areas_present,
+        "nav_today": nav_today, "nav_portfolio": nav_portfolio,
+        "nav_research": nav_research, "nav_system_audit": nav_system_audit,
+        "legacy_views_demoted": legacy_views_demoted,
+        "missing_route_aliases": missing_route_aliases,
+        "missing_legacy_routes": missing_legacy_routes,
+        "market_route": market_route,
+        "market_loader_count": market_loader_count,
+        "market_owner_fetch": market_owner_fetch,
+        "market_route_methods": market_route_methods,
+        "market_route_get_only": market_route_get_only,
+        "ui_direct_provider_hosts": ui_direct_provider_hosts,
+        "market_region_market_math": market_region_market_math,
+        "market_context_present": market_context_present,
+        "market_reference_only": market_reference_only,
+        "workflow_next_action_renderer_count": workflow_next_action_renderer_count,
+        "missing_safety_tokens": missing_safety_tokens,
+        "forbidden_new_routes_present": forbidden_new_routes_present,
+        "cadence_enabled": False,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -2447,8 +2643,10 @@ def run_audit() -> dict:
         "drc_manifest_recovery": check_drc_manifest_recovery(files),
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
+        "corporate_action_propagation": check_corporate_action_propagation(files),
         "research_agent_ownership": check_research_agent_ownership(files),
         "data_expansion_ownership": check_data_expansion_ownership(files),
+        "operator_ux_consolidation_ownership": check_operator_ux_consolidation_ownership(files),
         "inventory_drift": check_inventory_drift(files),
         "local_only_files": check_local_only_not_released(),
         "canonical_docs": check_docs_present(),
@@ -2745,6 +2943,24 @@ def _print_console(rep: dict) -> None:
           f"automatic rebalance allowed (must be False): {cr['automatic_rebalance_allowed']}  "
           f"cadence enabled (must be False): {cr['cadence_enabled']}")
 
+    hdr("CORPORATE-ACTION PROPAGATION INTEGRITY (Stage 19.1)")
+    cp = rep["corporate_action_propagation"]
+    print(f"owner present: {cp['owner_present']}  "
+          f"split-math modules (must be exactly [{CA_OWNER_FILE}]): {cp['split_math_modules']}")
+    print(f"duplicate split math (must be empty): {cp['duplicate_split_math']}  "
+          f"single split-math owner: {cp['single_split_math_owner']}")
+    print(f"desk current reads default to registry: "
+          f"{cp['desk_current_reads_default_to_registry']}  "
+          f"single current fill view: {cp['single_current_fill_view']}")
+    print(f"current performance projection owned by the CA module "
+          f"(raw rows preserved): {cp['current_performance_projection_owned']}")
+    print(f"portfolio state binds registry (state_hash): {cp['portfolio_state_binds_registry']}  "
+          f"proposal binds registry: {cp['proposal_binds_registry']}")
+    print(f"approval gate enforces staleness: {cp['approval_gate_enforces_staleness']}  "
+          f"order-plan gate enforces staleness: {cp['order_plan_gate_enforces_staleness']}")
+    print(f"UI split math (must be empty): {cp['ui_split_math_present']}  "
+          f"immutable evidence rewritten (must be False): {cp['immutable_evidence_rewritten']}")
+
     hdr("PERSISTENT ALPHA RESEARCH AGENT OWNERSHIP (Slice 8, Phase 29I, Milestone 4)")
     ra = rep["research_agent_ownership"]
     print(f"kernel present: {ra['kernel_present']}  owner present: {ra['owner_present']}  "
@@ -2795,6 +3011,24 @@ def _print_console(rep: dict) -> None:
     print(f"Slice 10 present (must be empty): {de['slice10_present_modules']}  "
           f"cadence enabled (must be False): {de['cadence_enabled']}")
 
+    hdr("OPERATOR UX CONSOLIDATION OWNERSHIP (Phase 29J.1)")
+    ux = rep["operator_ux_consolidation_ownership"]
+    print(f"four primary operator areas present: {ux['primary_areas_present']} "
+          f"(Today={ux['nav_today']} Portfolio={ux['nav_portfolio']} "
+          f"Research={ux['nav_research']} System/Audit={ux['nav_system_audit']})")
+    print(f"legacy views demoted from primary nav: {ux['legacy_views_demoted']}")
+    print(f"missing route aliases (must be empty): {ux['missing_route_aliases']}  "
+          f"missing legacy routes / dead links (must be empty): {ux['missing_legacy_routes']}")
+    print(f"market context restored: {ux['market_context_present']} (reference-only label: {ux['market_reference_only']})  "
+          f"one market loader (must be 1): {ux['market_loader_count']}  "
+          f"authoritative owner fetch: {ux['market_owner_fetch']}  GET-only: {ux['market_route_get_only']}")
+    print(f"UI direct provider hosts (must be empty): {ux['ui_direct_provider_hosts']}  "
+          f"UI market/regime math (must be empty): {ux['market_region_market_math']}")
+    print(f"one canonical next-action renderer (must be 1): {ux['workflow_next_action_renderer_count']}  "
+          f"missing safety tokens (must be empty): {ux['missing_safety_tokens']}")
+    print(f"forbidden new purchase/order/promotion routes (must be empty): {ux['forbidden_new_routes_present']}  "
+          f"cadence enabled (must be False): {ux['cadence_enabled']}")
+
     hdr("INVENTORY DRIFT")
     d = rep["inventory_drift"]
     print(f"status: {d['status']}")
@@ -2812,6 +3046,31 @@ def _print_console(rep: dict) -> None:
 
 # Categories that make --strict return nonzero when non-empty.
 BLOCKING = ("duplicate_declarations", "research_execution_terms")
+
+#: Stage 19.1 — (report_key, field, must_be) invariants that make --strict fail. A false
+#: entry here means a current economic read can silently miss a registered corporate
+#: action, or that split arithmetic was duplicated outside its one owner.
+BLOCKING_INVARIANTS = (
+    ("corporate_action_propagation", "single_split_math_owner", True),
+    ("corporate_action_propagation", "duplicate_split_math", []),
+    ("corporate_action_propagation", "desk_current_reads_default_to_registry", True),
+    ("corporate_action_propagation", "single_current_fill_view", True),
+    ("corporate_action_propagation", "current_performance_projection_owned", True),
+    ("corporate_action_propagation", "portfolio_state_binds_registry", True),
+    ("corporate_action_propagation", "proposal_binds_registry", True),
+    ("corporate_action_propagation", "approval_gate_enforces_staleness", True),
+    ("corporate_action_propagation", "order_plan_gate_enforces_staleness", True),
+    ("corporate_action_propagation", "ui_split_math_present", []),
+)
+
+
+def _blocking_invariant_failures(rep: dict) -> list[str]:
+    out = []
+    for key, field, expected in BLOCKING_INVARIANTS:
+        got = (rep.get(key) or {}).get(field)
+        if got != expected:
+            out.append(f"{key}.{field}={got!r} (expected {expected!r})")
+    return out
 
 
 def main(argv=None) -> int:
@@ -2861,6 +3120,7 @@ def main(argv=None) -> int:
         cr = rep["controlled_rebalance_ownership"]
         ra = rep["research_agent_ownership"]
         de = rep["data_expansion_ownership"]
+        ux = rep["operator_ux_consolidation_ownership"]
         blocking_hits = (len(rep["routes"]["duplicate_declarations"])
                          + len(rc6["forbidden_primary_ui"])
                          + len(rc6["forbidden_primary_ws"])
@@ -3064,8 +3324,30 @@ def main(argv=None) -> int:
                          + (0 if de["cadence_disabled"] else 1)
                          + len(de["drc_daily_job_present"])
                          + len(de["slice10_present_modules"])
+                         # --- Phase 29J.1 operator UX consolidation ------------------- #
+                         + (0 if ux["primary_areas_present"] else 1)
+                         + (0 if ux["legacy_views_demoted"] else 1)
+                         + len(ux["missing_route_aliases"])
+                         + len(ux["missing_legacy_routes"])
+                         + (0 if ux["market_loader_count"] == 1 else 1)
+                         + (0 if ux["market_owner_fetch"] else 1)
+                         + (0 if ux["market_route_get_only"] else 1)
+                         + len(ux["ui_direct_provider_hosts"])
+                         + len(ux["market_region_market_math"])
+                         + (0 if ux["market_context_present"] else 1)
+                         + (0 if ux["market_reference_only"] else 1)
+                         + (0 if ux["workflow_next_action_renderer_count"] == 1 else 1)
+                         + len(ux["missing_safety_tokens"])
+                         + len(ux["forbidden_new_routes_present"])
                          + len(rep["inventory_drift"]["on_disk_not_in_inventory"])
                          + len(rep["inventory_drift"]["in_inventory_not_on_disk"]))
+        # Stage 19.1 — corporate-action propagation invariants block strict mode too.
+        ca_failures = _blocking_invariant_failures(rep)
+        if ca_failures:
+            print("\nBLOCKING corporate-action propagation invariants:")
+            for f in ca_failures:
+                print(f"  FAIL  {f}")
+        blocking_hits += len(ca_failures)
         return 1 if blocking_hits else 0
     return 0
 

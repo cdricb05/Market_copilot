@@ -134,6 +134,9 @@ def artifact_identity(*, input_contract: dict, result: dict) -> dict:
         "eligible_market_date": input_contract.get("eligible_market_date"),
         "active_book_id": input_contract.get("active_book_id"),
         "portfolio_state_hash": input_contract.get("portfolio_state_hash"),
+        # Stage 19.1 — the corporate-action registry the holdings/NAV this assessment
+        # consumed were projected through.
+        "corporate_actions_hash": input_contract.get("corporate_actions_hash"),
         "universe_scoring_hash": input_contract.get("universe_scoring_hash"),
         "decision_policy_version": DECISION_POLICY_VERSION,
         "assessment_hash": result.get("assessment_hash"),
@@ -159,6 +162,7 @@ def _compact_input_contract(ic: dict) -> dict:
         "active_book_label": ic.get("active_book_label"),
         "valuation_date": ic.get("valuation_date"),
         "portfolio_state_hash": ic.get("portfolio_state_hash"),
+        "corporate_actions_hash": ic.get("corporate_actions_hash"),
         "universe_scoring_hash": ic.get("universe_scoring_hash"),
         "universe_input_contract_hash": ic.get("universe_input_contract_hash"),
         "scoring_input_fingerprints": ic.get("scoring_input_fingerprints"),
@@ -368,6 +372,11 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict,
         "active_book_label": active_book.get("book_label"),
         "valuation_date": (ps.get("dates") or {}).get("valuation_date"),
         "portfolio_state_hash": ps.get("state_hash"),
+        # Stage 19.1: the corporate-action registry state the CURRENT holdings / NAV
+        # below were projected through (owned by api.corporate_actions, surfaced by
+        # api.portfolio_state). Bound into the assessment identity.
+        "corporate_actions_hash": ((ps.get("corporate_actions") or {})
+                                   .get("registry_fingerprint")),
         "universe_scoring_hash": sc.get("output_hash"),
         "universe_input_contract_hash": sc.get("input_contract_hash"),
         "scoring_input_fingerprints": sc.get("input_fingerprints"),
@@ -603,10 +612,35 @@ def _active_book_block(ps: dict) -> dict:
     }
 
 
+def _corporate_action_staleness(*, artifact: Optional[dict],
+                                book_id: Optional[str],
+                                portfolio_state: Optional[dict] = None) -> dict:
+    """Stage 19.1 — is a persisted assessment still valid against the CURRENT
+    corporate-action registry? Pure delegation to ``api.corporate_actions``; this module
+    owns no split arithmetic and no registry logic."""
+    from paper_trader.api import corporate_actions as ca
+    art = artifact or {}
+    bound = ((art.get("identity") or {}).get("corporate_actions_hash")
+             or (art.get("input_contract") or {}).get("corporate_actions_hash"))
+    current = ((portfolio_state or {}).get("corporate_actions") or {}).get(
+        "registry_fingerprint")
+    try:
+        if current is not None:
+            actions = ((portfolio_state or {}).get("corporate_actions") or {}).get(
+                "actions") or []
+            return ca.staleness_vs_registry(
+                bound, current={"fingerprint": current, "n_registered": len(actions),
+                                "actions": actions})
+        return ca.staleness_vs_registry(bound, book_id=book_id)
+    except Exception:  # noqa: BLE001 - a read contract must never crash
+        return {"stale": False, "reason": None}
+
+
 def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
                   active_book: dict, artifact: Optional[dict], message: str,
                   policy: dict, assessment: Optional[dict],
-                  input_contract: Optional[dict]) -> dict:
+                  input_contract: Optional[dict],
+                  staleness: Optional[dict] = None) -> dict:
     a = assessment or {}
     art_meta = None
     if artifact:
@@ -642,6 +676,12 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
         or {"composition_owner": COMPOSITION_OWNER, "calculation_owner": kernel.CALCULATION_OWNER},
         "assessment_hash": a.get("assessment_hash"),
         "assessment_state": a.get("assessment_state"),
+        # Stage 19.1 — an assessment produced BEFORE a registered corporate action was
+        # computed against holdings that no longer exist economically. The immutable
+        # artifact is preserved and still readable, but it is explicitly NOT current.
+        "stale": bool((staleness or {}).get("stale")),
+        "staleness": staleness,
+        "describes_current_holdings": not bool((staleness or {}).get("stale")),
         "sole_execution_path": "POST /v1/operations/daily-research-cycle/run",
     }
 
@@ -686,12 +726,20 @@ def load_holding_opportunity_cost(*, portfolio_state: Optional[dict] = None,
             policy=resolve_policy(), assessment=None, input_contract=None)
 
     assessment = art.get("assessment") or {}
+    staleness = _corporate_action_staleness(artifact=art, book_id=book_id,
+                                            portfolio_state=ps)
+    msg = ("Latest Holding Opportunity-Cost assessment for the active book / eligible "
+           "session.")
+    if staleness.get("stale"):
+        msg = ("This Holding Opportunity-Cost assessment was produced BEFORE a corporate "
+               "action was registered, so it was computed against holdings that no longer "
+               "describe the current portfolio. Run the Daily Research Cycle to produce a "
+               "fresh assessment against the corrected portfolio state.")
     return _read_payload(
         state=assessment.get("assessment_state") or STATE_READY, generated_at=generated_at,
-        eligible=eligible, active_book=active_book, artifact=art,
-        message="Latest Holding Opportunity-Cost assessment for the active book / eligible session.",
+        eligible=eligible, active_book=active_book, artifact=art, message=msg,
         policy=assessment.get("policy") or resolve_policy(), assessment=assessment,
-        input_contract=art.get("input_contract"))
+        input_contract=art.get("input_contract"), staleness=staleness)
 
 
 # --------------------------------------------------------------------------- #
@@ -736,8 +784,14 @@ def load_assessment_summary(*, active_book_id: Optional[str] = None,
     a = art.get("assessment") or {}
     counts = a.get("recommendation_counts") or zero
     gaps = (a.get("data_quality") or {}).get("data_gaps") or []
+    # Stage 19.1: resolved from the corporate-action registry file alone by the ONE owner,
+    # so this stays a PURE artifact reader (no engine run, no provider call, and no edge
+    # back into the canonical state composer — the acyclic read contract is preserved).
+    _stale = _corporate_action_staleness(artifact=art, book_id=active_book_id)
     return {
         "opportunity_cost_available": True,
+        "opportunity_cost_stale": bool(_stale.get("stale")),
+        "opportunity_cost_stale_reason": _stale.get("reason"),
         "opportunity_cost_assessment_hash": a.get("assessment_hash"),
         "opportunity_cost_state": a.get("assessment_state"),
         "opportunity_cost_recommendation_counts": counts,

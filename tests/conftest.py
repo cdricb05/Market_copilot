@@ -54,6 +54,29 @@ from paper_trader.engine.portfolio import append_cash_entry
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
+def _hermetic_corporate_action_registry(tmp_path_factory, monkeypatch) -> None:
+    """Stage 19.1 — never let the LIVE corporate-action registry leak into a test.
+
+    ``api.corporate_actions`` falls back to a production root when
+    ``PAPER_TRADER_CORPORATE_ACTIONS_DIR`` is unset, and the Stage-19.1 current-state
+    reads consult that registry BY DEFAULT (``desk.book_nav`` / ``book_cash_holdings`` /
+    ``current_fills`` / ``load_performance``). Without this fixture a hermetic temp-root
+    desk test would silently apply the operator's real registered corporate actions to its
+    own fixture fills. Every test therefore starts against an EMPTY registry in its own
+    temp root — which is also the exact backward-compatibility case (an empty registry is
+    a no-op). A test that needs registered actions sets the env var itself; that
+    assignment happens inside the test body and wins over this fixture.
+    """
+    current = os.environ.get("PAPER_TRADER_CORPORATE_ACTIONS_DIR")
+    production_default = str(Path(r"D:\Stock_Prediction_app_data\corporate_actions"))
+    if not current or Path(current) == Path(production_default):
+        monkeypatch.setenv(
+            "PAPER_TRADER_CORPORATE_ACTIONS_DIR",
+            str(tmp_path_factory.mktemp("corporate_actions_hermetic")))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
     """
     Clear the lru_cache on get_settings() before every test.

@@ -496,21 +496,83 @@ def _fills(sdir: Path) -> list[dict]:
     return [dict(r["fill"]) for r in _read_ledger(sdir, FILLS_FILE) if "fill" in r]
 
 
+#: Stage 19.1 sentinel — "this is a CURRENT economic read: resolve the registered
+#: corporate actions from the ONE canonical owner (api.corporate_actions)". It is the
+#: DEFAULT for every economic read primitive, so a current-state consumer cannot forget
+#: to apply a registered corporate action. Pass ``corporate_actions=RAW_LEDGER_VIEW``
+#: (or ``None`` / ``[]``) to read the raw, unadjusted append-only ledger instead.
+AUTO_CORPORATE_ACTIONS = "__AUTO_CORPORATE_ACTIONS__"
+
+#: Explicit opt-out: the RAW immutable-ledger view with no corporate-action projection.
+#: Only historical-evidence readers may use it; a CURRENT economic read never may.
+RAW_LEDGER_VIEW: list = []
+
+
+def current_corporate_actions(*, book_id: Optional[str] = None,
+                              as_of: Optional[str] = None) -> list[dict]:
+    """Resolve the registered corporate actions a CURRENT read must apply. Thin delegation
+    to the ONE canonical owner (``api.corporate_actions.current_actions``) — the desk owns
+    NO split arithmetic and NO registry filtering of its own."""
+    from paper_trader.api import corporate_actions as ca
+    try:
+        return ca.current_actions(book_id=book_id, as_of=as_of)
+    except Exception:  # noqa: BLE001 - a missing/unreadable registry is a no-op, never fatal
+        return []
+
+
+def _resolve_corporate_actions(corporate_actions, book: Optional[dict] = None) -> list[dict]:
+    """Resolve the actions a CURRENT economic read applies.
+
+    Deliberately NOT filtered by the valuation date. The desk marks positions against the
+    owned provider's ADJUSTED close series, and the provider back-adjusts that series in
+    FULL when a split occurs — every historical bar is divided by the ratio, not just the
+    bars from the ex-date forward. A valuation of an EARLIER date against today's series
+    must therefore use the post-split share count too, or it would price the pre-split
+    share count against a post-split mark and re-introduce exactly the ~50% artifact this
+    correction exists to remove. The ex-date still governs the FILL side inside
+    :func:`api.corporate_actions.adjust_fills` (a fill executed on or after the ex-date is
+    already stated on the post-split basis and is never scaled)."""
+    if corporate_actions is AUTO_CORPORATE_ACTIONS:
+        return current_corporate_actions(book_id=(book or {}).get("book_id"))
+    return list(corporate_actions or [])
+
+
+def current_fills(sdir_or_desk_dir=None, *, book_id: Optional[str] = None,
+                  corporate_actions=AUTO_CORPORATE_ACTIONS) -> list[dict]:
+    """THE canonical CURRENT-STATE fill view: the immutable fills passed through the ONE
+    corporate-action projection (``api.corporate_actions.adjust_fills``).
+
+    Every consumer that derives CURRENT economics per fill (share counts, average cost,
+    per-name cost basis, per-name daily P&L) must read THIS instead of the raw ``_fills``,
+    so quantity and per-share basis always move together and the total cost basis stays
+    invariant. ``_fills`` remains the RAW immutable-evidence reader and is never changed.
+    """
+    from paper_trader.api import corporate_actions as ca
+    rows = _fills(_desk_dir(sdir_or_desk_dir))
+    if book_id is not None:
+        rows = [f for f in rows if f.get("book_id") == book_id]
+    acts = _resolve_corporate_actions(corporate_actions, {"book_id": book_id})
+    return ca.adjust_fills(rows, acts) if acts else [dict(f) for f in rows]
+
+
 def book_cash_holdings(book: dict, fills: list[dict],
                        up_to_date: Optional[str] = None,
-                       corporate_actions: Optional[list[dict]] = None
+                       corporate_actions=AUTO_CORPORATE_ACTIONS
                        ) -> tuple[float, dict[str, int]]:
     """Replay immutable fills -> (cash, holdings qty). Fully reproducible from the ledgers.
 
-    ``corporate_actions`` (Stage 19) is an OPTIONAL list of registered corporate actions
-    (``api.corporate_actions``). When supplied, fills are first passed through the canonical
-    read-time split-adjustment projection (pre-ex-date share counts scaled by the split
-    ratio; cash unchanged) so a held name that split marks the correct share count against
-    the back-adjusted mark. Default ``None`` -> exactly the prior behaviour (no adjustment),
-    so existing callers and the live desk are unaffected until a split is registered."""
-    if corporate_actions:
+    Stage 19.1: this is a CURRENT economic read, so by DEFAULT
+    (``corporate_actions=AUTO_CORPORATE_ACTIONS``) the fills are first passed through the
+    canonical read-time corporate-action projection (``api.corporate_actions``) — pre-ex-date
+    share counts scaled by the split ratio, per-share price divided by it, cash and total
+    cost basis unchanged — so a held name that split marks the correct share count against
+    the back-adjusted mark. An EMPTY registry is an exact no-op, so behaviour is unchanged
+    until an operator explicitly registers a corporate action. Pass ``RAW_LEDGER_VIEW``
+    (or ``None``) to read the raw, unadjusted immutable ledger instead."""
+    acts = _resolve_corporate_actions(corporate_actions, book)
+    if acts:
         from paper_trader.api import corporate_actions as ca
-        fills = ca.adjust_fills(fills, corporate_actions)
+        fills = ca.adjust_fills(fills, acts)
     cash = float(book["initial_capital"])
     qty: dict[str, int] = {}
     for f in sorted(fills, key=lambda x: (x.get("fill_date") or "", x.get("fill_id") or "")):
@@ -529,7 +591,9 @@ def book_cash_holdings(book: dict, fills: list[dict],
 
 def book_nav(book: dict, fills: list[dict], marks: dict,
              as_of: Optional[str] = None,
-             corporate_actions: Optional[list[dict]] = None) -> dict:
+             corporate_actions=AUTO_CORPORATE_ACTIONS) -> dict:
+    """CURRENT economic valuation of a book at ``as_of``. Stage 19.1: corporate-action
+    adjusted by default (see :func:`book_cash_holdings`); an empty registry is a no-op."""
     latest = as_of or marks_latest_date(marks)
     cash, qty = book_cash_holdings(book, fills, up_to_date=latest,
                                    corporate_actions=corporate_actions)
@@ -939,8 +1003,7 @@ def append_performance(*, desk_dir=None) -> dict:
     # correction, so a registered split cannot feed a phantom loss into forward-performance
     # evidence (the model-degradation / recalibration owner reads these rows). Degrade-safe:
     # an empty registry is a no-op, so already-written rows and the live book are unchanged.
-    from paper_trader.api import corporate_actions as _ca
-    _cas = _ca.load_actions()
+    _cas = current_corporate_actions(book_id=book.get("book_id"))
     existing = [r["row"] for r in _read_ledger(sdir, PERFORMANCE_FILE)
                 if r.get("row", {}).get("book_id") == book["book_id"]]
     have = {r["date"] for r in existing}
@@ -1204,28 +1267,82 @@ def load_timeline(desk_dir=None, limit: int = 200) -> dict:
             **desk_safety()}
 
 
+def _performance_summary(rows: list[dict]) -> Optional[dict]:
+    """ONE summary formula, applied identically to the raw historical rows and to the
+    corporate-action-corrected CURRENT rows (so an empty registry produces byte-identical
+    summaries)."""
+    if not rows:
+        return None
+    last = rows[-1]
+    return {"start_date": rows[0]["date"], "end_date": last["date"],
+            "n_rows": len(rows), "nav": last["nav"],
+            "cumulative_return_pct": last["cumulative_return_pct"],
+            "benchmark_cumulative_return_pct": last["benchmark_cumulative_return_pct"],
+            "excess_vs_benchmark_pct_points":
+                _r4(last["cumulative_return_pct"] - last["benchmark_cumulative_return_pct"])
+                if (last["cumulative_return_pct"] is not None
+                    and last["benchmark_cumulative_return_pct"] is not None) else None,
+            "max_drawdown_pct": min((r["drawdown_pct"] for r in rows
+                                     if r["drawdown_pct"] is not None), default=None),
+            "total_transaction_cost": _r4(sum(r["transaction_cost"] or 0 for r in rows))}
+
+
+def _current_performance_view(sdir: Path, book: Optional[dict], raw_rows: list[dict],
+                              desk_dir=None) -> dict:
+    """Stage 19.1 — the CURRENT-economic-state projection of the forward-performance curve.
+    Delegates ALL correction arithmetic to ``api.corporate_actions`` (the ONE owner);
+    the desk contributes only the ledger + mark inputs. Never writes; never rewrites a row."""
+    from paper_trader.api import corporate_actions as ca
+    if book is None or not raw_rows:
+        return {"applied": False, "rows": [dict(r) for r in raw_rows],
+                "actions_applied": [], "n_rows_projected": 0,
+                "economic_pnl_from_corporate_action": 0.0}
+    acts = current_corporate_actions(book_id=book.get("book_id"))
+    try:
+        return ca.project_current_performance(
+            book=book, rows=raw_rows,
+            fills=[f for f in _fills(sdir) if f.get("book_id") == book["book_id"]],
+            marks=read_marks(desk_dir), actions=acts)
+    except Exception:  # noqa: BLE001 - a correction overlay must never break the read
+        return {"applied": False, "rows": [dict(r) for r in raw_rows],
+                "actions_applied": [], "n_rows_projected": 0,
+                "economic_pnl_from_corporate_action": 0.0}
+
+
 def load_performance(desk_dir=None) -> dict:
+    """Forward performance in BOTH honest readings.
+
+    ``rows`` / ``summary``            — the IMMUTABLE historical evidence, exactly as
+                                        appended. Never recomputed, never rewritten.
+    ``current_rows`` / ``current_summary`` — the CURRENT ECONOMIC STATE: the same curve
+                                        recomputed through the ONE canonical
+                                        corporate-action projection, so a registered split
+                                        contributes exactly zero economic P&L. With an
+                                        empty registry these are identical to the raw pair.
+    """
     sdir = _desk_dir(desk_dir)
     book = open_book(sdir)
     rows = [r["row"] for r in _read_ledger(sdir, PERFORMANCE_FILE) if "row" in r]
     if book is not None:
         rows = [r for r in rows if r["book_id"] == book["book_id"]]
-    summary = None
-    if rows:
-        last = rows[-1]
-        summary = {"start_date": rows[0]["date"], "end_date": last["date"],
-                   "n_rows": len(rows), "nav": last["nav"],
-                   "cumulative_return_pct": last["cumulative_return_pct"],
-                   "benchmark_cumulative_return_pct": last["benchmark_cumulative_return_pct"],
-                   "excess_vs_benchmark_pct_points":
-                       _r4(last["cumulative_return_pct"] - last["benchmark_cumulative_return_pct"])
-                       if (last["cumulative_return_pct"] is not None
-                           and last["benchmark_cumulative_return_pct"] is not None) else None,
-                   "max_drawdown_pct": min((r["drawdown_pct"] for r in rows
-                                            if r["drawdown_pct"] is not None), default=None),
-                   "total_transaction_cost": _r4(sum(r["transaction_cost"] or 0 for r in rows))}
+    summary = _performance_summary(rows)
+    view = _current_performance_view(sdir, book, rows, desk_dir)
+    current_rows = view.get("rows") or []
+    current_summary = _performance_summary(current_rows)
     return {"status": S_OK, "book_id": book["book_id"] if book else None,
             "n_rows": len(rows), "rows": rows, "summary": summary,
+            "current_rows": current_rows, "current_summary": current_summary,
+            "current_economic_state": {
+                "corporate_action_correction_applied": bool(view.get("applied")),
+                "correction_owner": "api.corporate_actions.project_current_performance",
+                "actions_applied": view.get("actions_applied") or [],
+                "n_rows_projected": view.get("n_rows_projected") or 0,
+                "economic_pnl_from_corporate_action": 0.0,
+                "historical_rows_rewritten": False,
+                "note": ("'rows'/'summary' are the immutable historical record on the "
+                         "provider basis of the day they were appended. "
+                         "'current_rows'/'current_summary' describe the CURRENT economic "
+                         "state and are what every current-state surface must render.")},
             "append_only": True, "historical_rows_never_recomputed": True, **desk_safety()}
 
 
@@ -1332,13 +1449,19 @@ def load_attribution(desk_dir=None, window: str = "daily") -> dict:
     n_back = _WINDOW_ROWS.get(window, 1)
     sdir = _desk_dir(desk_dir)
     book = open_book(sdir)
-    rows = [r["row"] for r in _read_ledger(sdir, PERFORMANCE_FILE) if "row" in r]
+    raw_rows = [r["row"] for r in _read_ledger(sdir, PERFORMANCE_FILE) if "row" in r]
     if book is not None:
-        rows = [r for r in rows if r["book_id"] == book["book_id"]]
-    if book is None or len(rows) < 1:
+        raw_rows = [r for r in raw_rows if r["book_id"] == book["book_id"]]
+    if book is None or len(raw_rows) < 1:
         return {"status": "ATTRIBUTION_UNAVAILABLE", "window": window,
                 "message": "Attribution requires at least one forward performance row.",
                 **desk_safety()}
+    # Stage 19.1: attribution describes CURRENT economic contribution, so it reads the
+    # corporate-action-corrected curve (corrected share counts + corrected NAV bases).
+    # Without it, a split's back-adjusted mark against the raw share count fabricates a
+    # ~50% one-day detractor on a name that lost nothing. Empty registry -> raw rows.
+    _view = _current_performance_view(sdir, book, raw_rows, desk_dir)
+    rows = _view.get("rows") or raw_rows
     end = rows[-1]
     start_idx = max(0, len(rows) - 1 - n_back)
     startr = rows[start_idx]
@@ -1348,7 +1471,10 @@ def load_attribution(desk_dir=None, window: str = "daily") -> dict:
                   "benchmark_close": end["benchmark_close"]}
     marks = read_marks(desk_dir)
     series = marks.get("series") or {}
-    fills = [f for f in _fills(sdir) if f["book_id"] == book["book_id"]]
+    # CURRENT-state fill view: gross_value / transaction_cost are cash amounts and are
+    # split-invariant, but the share counts a flow is attributed against must match the
+    # corrected holdings in the corrected rows above.
+    fills = current_fills(sdir, book_id=book["book_id"])
     d0, d1 = startr["date"], end["date"]
     nav0 = float(startr["nav"]) or 1.0
 
@@ -1413,6 +1539,14 @@ def load_attribution(desk_dir=None, window: str = "daily") -> dict:
         "risk_overlay_effect": {"applied": False, "effect_pct_points": 0.0,
                                 "note": ("The low-volatility overlay is diagnostic only and "
                                          "is never applied to the operational paper book.")},
+        "current_economic_state": {
+            "corporate_action_correction_applied": bool(_view.get("applied")),
+            "correction_owner": "api.corporate_actions.project_current_performance",
+            "actions_applied": _view.get("actions_applied") or [],
+            "historical_rows_rewritten": False,
+            "note": ("Contribution is measured on the CURRENT economic basis: a registered "
+                     "corporate action contributes exactly zero P&L and never appears as a "
+                     "contributor or detractor.")},
         **desk_safety()}
 
 
@@ -1429,4 +1563,6 @@ __all__ = [
     "load_status", "load_books", "load_orders", "load_fills", "load_journal",
     "load_timeline", "load_performance", "load_execution_preview", "load_attribution",
     "open_book", "book_cash_holdings", "book_nav",
+    # Stage 19.1 — the CURRENT-state corporate-action propagation contract.
+    "AUTO_CORPORATE_ACTIONS", "RAW_LEDGER_VIEW", "current_corporate_actions", "current_fills",
 ]

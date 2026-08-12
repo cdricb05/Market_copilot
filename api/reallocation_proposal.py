@@ -57,8 +57,12 @@ STATE_BLOCKED = kernel.STATE_BLOCKED
 STATE_NO_ACTIVE_BOOK = kernel.STATE_NO_ACTIVE_BOOK
 STATE_NOT_RUN = "NOT_RUN"
 STATE_UNAVAILABLE = "UNAVAILABLE"
+#: Stage 19.1 — the persisted proposal was produced against a DIFFERENT corporate-action
+#: registry state than the current portfolio. Review-only, never approvable, never
+#: executable; the Daily Research Cycle must produce a fresh proposal.
+STATE_STALE = "STALE_CORPORATE_ACTION_REVIEW_REQUIRED"
 READ_STATE_VOCAB = (STATE_READY, STATE_DEGRADED, STATE_BLOCKED, STATE_NO_ACTIVE_BOOK,
-                    STATE_NOT_RUN, STATE_UNAVAILABLE)
+                    STATE_NOT_RUN, STATE_UNAVAILABLE, STATE_STALE)
 
 # --- immutable artifact root (configurable; a research / decision-evidence root, ----- #
 # NEVER the operational ledger root). ---------------------------------------------- #
@@ -121,6 +125,43 @@ def _load_json(path: Path) -> Optional[dict]:
 
 def _f(x: Any) -> Optional[float]:
     return kernel._f(x)
+
+
+# --------------------------------------------------------------------------- #
+# Stage 19.1 — corporate-action identity + staleness (delegated to the ONE owner)
+# --------------------------------------------------------------------------- #
+def _corporate_actions_hash(ps: Optional[dict]) -> Optional[str]:
+    """The registry fingerprint the supplied portfolio state was projected through. Read
+    from the portfolio-state contract (its canonical owner); no registry access here."""
+    return ((ps or {}).get("corporate_actions") or {}).get("registry_fingerprint")
+
+
+def _bound_corporate_actions_hash(artifact: Optional[dict]) -> Optional[str]:
+    """The registry fingerprint an already-persisted artifact was bound to. Artifacts
+    written before this contract existed carry none — treated as the EMPTY registry."""
+    art = artifact or {}
+    ident = art.get("identity") or {}
+    ic = art.get("input_contract") or {}
+    return ident.get("corporate_actions_hash") or ic.get("corporate_actions_hash")
+
+
+def corporate_action_staleness(*, artifact: Optional[dict],
+                               portfolio_state: Optional[dict] = None,
+                               active_book_id: Optional[str] = None) -> dict:
+    """Is a persisted proposal still valid against the CURRENT corporate-action registry?
+    Pure delegation to ``api.corporate_actions.staleness_vs_registry``; this module
+    recreates no split math and no registry logic."""
+    from paper_trader.api import corporate_actions as ca
+    bound = _bound_corporate_actions_hash(artifact)
+    current_hash = _corporate_actions_hash(portfolio_state)
+    if current_hash is not None:
+        cur = {"fingerprint": current_hash,
+               "n_registered": len(((portfolio_state or {}).get("corporate_actions")
+                                    or {}).get("actions") or []),
+               "actions": ((portfolio_state or {}).get("corporate_actions")
+                           or {}).get("actions") or []}
+        return ca.staleness_vs_registry(bound, current=cur)
+    return ca.staleness_vs_registry(bound, book_id=active_book_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -293,6 +334,10 @@ def build_input_contract(*, portfolio_state: dict, scoring: dict, hoc_assessment
         "nav": (ps.get("capital") or {}).get("nav"),
         "cash": (ps.get("capital") or {}).get("cash"),
         "portfolio_state_hash": ps.get("state_hash"),
+        # Stage 19.1: the corporate-action registry the CURRENT holdings/NAV in this
+        # contract were projected through. Bound into the proposal identity so a later
+        # registration provably invalidates this proposal.
+        "corporate_actions_hash": _corporate_actions_hash(ps),
         "universe_scoring_hash": sc.get("output_hash"),
         "universe_input_contract_hash": sc.get("input_contract_hash"),
         "hoc_assessment_hash": hoc.get("assessment_hash"),
@@ -392,6 +437,7 @@ def proposal_identity(*, input_contract: dict, result: dict) -> dict:
         "eligible_market_date": input_contract.get("eligible_market_date"),
         "active_book_id": input_contract.get("active_book_id"),
         "portfolio_state_hash": input_contract.get("portfolio_state_hash"),
+        "corporate_actions_hash": input_contract.get("corporate_actions_hash"),
         "universe_scoring_hash": input_contract.get("universe_scoring_hash"),
         "hoc_assessment_hash": input_contract.get("hoc_assessment_hash"),
         "allocation_policy_version": ALLOCATION_POLICY_VERSION,
@@ -420,6 +466,7 @@ def _compact_input_contract(ic: dict) -> dict:
         "nav": ic.get("nav"),
         "cash": ic.get("cash"),
         "portfolio_state_hash": ic.get("portfolio_state_hash"),
+        "corporate_actions_hash": ic.get("corporate_actions_hash"),
         "universe_scoring_hash": ic.get("universe_scoring_hash"),
         "universe_input_contract_hash": ic.get("universe_input_contract_hash"),
         "hoc_assessment_hash": ic.get("hoc_assessment_hash"),
@@ -553,7 +600,8 @@ def _active_book_block(ps: dict) -> dict:
 def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
                   active_book: dict, artifact: Optional[dict], message: str,
                   policy: dict, proposal: Optional[dict],
-                  input_contract: Optional[dict]) -> dict:
+                  input_contract: Optional[dict],
+                  staleness: Optional[dict] = None) -> dict:
     p = proposal or {}
     art_meta = None
     if artifact:
@@ -563,7 +611,13 @@ def _read_payload(*, state: str, generated_at: str, eligible: Optional[str],
                     "supersedes_proposal_id": artifact.get("supersedes_proposal_id"),
                     "immutable": True,
                     "root_env": REALLOC_DIR_ENV}
+    stale = bool((staleness or {}).get("stale"))
     return {
+        # Stage 19.1 — the explicit approvability contract every surface renders.
+        "stale": stale,
+        "staleness": staleness,
+        "approvable": (not stale) and state in (STATE_READY, STATE_DEGRADED),
+        "executable": (not stale) and state in (STATE_READY, STATE_DEGRADED),
         "schema_version": SCHEMA_VERSION,
         "phase": PHASE,
         "composition_owner": COMPOSITION_OWNER,
@@ -640,13 +694,29 @@ def load_reallocation_proposal(*, portfolio_state: Optional[dict] = None,
             policy=resolve_policy(), proposal=None, input_contract=None)
 
     proposal = art.get("proposal") or {}
+    # Stage 19.1 — a proposal produced BEFORE a corporate action was registered describes
+    # holdings that no longer exist economically. It stays readable (and its artifact stays
+    # immutable) but it is explicitly STALE: not approvable, not executable.
+    staleness = corporate_action_staleness(artifact=art, portfolio_state=ps,
+                                           active_book_id=book_id)
+    if staleness.get("stale"):
+        return _read_payload(
+            state=STATE_STALE, generated_at=generated_at, eligible=eligible,
+            active_book=active_book, artifact=art,
+            message=("This reallocation proposal was produced BEFORE a corporate action "
+                     "was registered, so it was computed against holdings that no longer "
+                     "describe the current portfolio. It cannot be approved or turned into "
+                     "an order plan. Run the Daily Research Cycle to produce a fresh "
+                     "proposal against the corrected portfolio state."),
+            policy=proposal.get("policy") or resolve_policy(), proposal=proposal,
+            input_contract=art.get("input_contract"), staleness=staleness)
     return _read_payload(
         state=proposal.get("proposal_state") or STATE_READY, generated_at=generated_at,
         eligible=eligible, active_book=active_book, artifact=art,
         message="Current reallocation proposal for the active book / eligible session. "
                 "Manual review required — review only, no orders.",
         policy=proposal.get("policy") or resolve_policy(), proposal=proposal,
-        input_contract=art.get("input_contract"))
+        input_contract=art.get("input_contract"), staleness=staleness)
 
 
 # --------------------------------------------------------------------------- #
@@ -672,6 +742,9 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
         "reallocation_estimated_transaction_cost": None,
         "reallocation_proposed_holding_count": None,
         "reallocation_data_gaps": [],
+        "reallocation_proposal_stale": False,
+        "reallocation_proposal_stale_reason": None,
+        "reallocation_corporate_actions_hash": None,
     }
     try:
         art = artifact if artifact is not None else load_latest_artifact(
@@ -686,9 +759,22 @@ def load_proposal_summary(*, active_book_id: Optional[str] = None,
     p = art.get("proposal") or {}
     sig = p.get("signal") or {}
     trn = p.get("turnover") or {}
+    # Stage 19.1: staleness against the corporate-action registry is resolved by the ONE
+    # owner from the registry file alone — this stays a pure artifact reader (no portfolio
+    # state load, no engine run, no provider call).
+    try:
+        stale_blk = corporate_action_staleness(artifact=art, active_book_id=active_book_id)
+    except Exception:  # noqa: BLE001 — never crash a compact summary read
+        stale_blk = {"stale": False, "reason": None,
+                     "current_corporate_actions_hash": None}
     return {
         "reallocation_proposal_available": True,
-        "reallocation_proposal_state": p.get("proposal_state"),
+        "reallocation_proposal_stale": bool(stale_blk.get("stale")),
+        "reallocation_proposal_stale_reason": stale_blk.get("reason"),
+        "reallocation_corporate_actions_hash":
+            stale_blk.get("current_corporate_actions_hash"),
+        "reallocation_proposal_state": (STATE_STALE if stale_blk.get("stale")
+                                        else p.get("proposal_state")),
         "reallocation_proposal_hash": p.get("proposal_hash"),
         "reallocation_proposal_id": art.get("proposal_id"),
         "reallocation_action_counts": p.get("action_counts") or {a: 0 for a in ACTION_VOCAB},

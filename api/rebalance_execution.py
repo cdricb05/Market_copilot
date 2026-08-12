@@ -245,9 +245,27 @@ def _base_plan(*, decision_dir, reallocation_dir, desk_dir, actions_dir,
              "eligible_market_date": ident.get("eligible_market_date") or eligible_market_date,
              "active_book_id": ident.get("active_book_id") or active_book_id,
              "portfolio_state_hash": ident.get("portfolio_state_hash"),
+             "corporate_actions_hash": ident.get("corporate_actions_hash"),
              "hoc_assessment_hash": ident.get("hoc_assessment_hash"),
              "universe_scoring_hash": ident.get("universe_scoring_hash"),
              "allocation_policy_version": ident.get("allocation_policy_version")}
+
+    # Gate 0 (Stage 19.1): the proposal must have been computed against the CURRENT
+    # corporate-action registry. A split registered after the proposal was produced changes
+    # the economic share counts an order plan would reconcile against, while leaving the
+    # immutable proposal artifact (and therefore its proposal_hash) untouched — so only the
+    # registry fingerprint can detect it. No order plan is ever built from a stale proposal.
+    ca_stale = realloc.corporate_action_staleness(
+        artifact=artifact, portfolio_state=portfolio_state,
+        active_book_id=bound["active_book_id"])
+    if ca_stale.get("stale"):
+        return {"state": RB_STALE, "bound": bound,
+                "stale_reason": ca_stale.get("reason"),
+                "corporate_action_staleness": ca_stale,
+                "message": ("A corporate action has been registered since this proposal was "
+                            "produced; the economic holdings it targets no longer describe "
+                            "the current portfolio. No order plan can be built. Run the "
+                            "Daily Research Cycle for a fresh proposal, then re-approve.")}
 
     # Gate 1: the Stage-18 portfolio decision must be an APPROVE bound to THIS proposal.
     if not decision_record or decision_record.get("decision") != pdec.DECISION_APPROVE:
@@ -537,7 +555,7 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
 
     label = {RB_NO_ACTIVE_BOOK: "No active book", RB_NO_PROPOSAL: "No proposal yet",
              RB_PROPOSAL_REVIEW_REQUIRED: "Proposal awaiting manual review",
-             RB_STALE: "Proposal changed since approval",
+             RB_STALE: "Proposal superseded — fresh review required",
              RB_PLAN_REVIEW_REQUIRED: "Order plan review required",
              RB_PLAN_CONFIRMED: "Paper execution pending (NEXT_CLOSE)",
              RB_EXECUTED: "Paper executed & reconciled",
@@ -554,6 +572,12 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
         "order_plan": plan,
         "executed_order_ids": [o["order_id"] for o in executed],
         "executed_order_status": {o["order_id"]: o["status"] for o in executed},
+        # Stage 19.1 — why a proposal is stale, and the explicit executability contract.
+        "stale_reason": base.get("stale_reason"),
+        "corporate_action_staleness": base.get("corporate_action_staleness"),
+        "order_plan_buildable": state not in (RB_STALE, RB_PROPOSAL_REVIEW_REQUIRED,
+                                              RB_NO_PROPOSAL, RB_NO_ACTIVE_BOOK,
+                                              RB_UNAVAILABLE),
         **_safety(),
     }
     return out
@@ -598,6 +622,8 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
     if state == RB_STALE:
         return {**base_safety, "status": C_STALE, "rebalance_state": state,
                 "message": base.get("message"), "bound": base.get("bound"),
+                "stale_reason": base.get("stale_reason"),
+                "corporate_action_staleness": base.get("corporate_action_staleness"),
                 "approved_proposal_hash": base.get("approved_proposal_hash"),
                 "current_proposal_hash": base.get("current_proposal_hash")}
     if state == RB_UNAVAILABLE:

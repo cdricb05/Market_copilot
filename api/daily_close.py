@@ -1163,8 +1163,47 @@ def _decision_history(sdir, book_id: str, limit: int = 30) -> list[dict]:
 # P&L accounting — derived from the EXISTING immutable desk performance rows.
 # --------------------------------------------------------------------------- #
 def _sorted_perf_rows(perf: dict) -> list[dict]:
+    """Stage 19.1 — the CURRENT-ECONOMIC-STATE rows.
+
+    The headline NAV / Daily P&L / Cumulative P&L / Drawdown are CURRENT-state claims, so
+    they are derived from ``current_rows`` (the desk's corporate-action-corrected view
+    produced by the ONE owner, ``api.corporate_actions``). A registered split therefore
+    contributes exactly zero P&L here. With an empty registry ``current_rows`` is identical
+    to ``rows``, so this is a no-op. The immutable raw record stays available through
+    :func:`_sorted_raw_perf_rows` and is surfaced separately, clearly labelled."""
+    src = perf.get("current_rows")
+    if not src:
+        src = perf.get("rows") or []
+    rows = [r for r in src if _f(r.get("nav")) is not None]
+    return sorted(rows, key=lambda r: r.get("date") or "")
+
+
+def _sorted_raw_perf_rows(perf: dict) -> list[dict]:
+    """The IMMUTABLE historical forward-performance rows exactly as appended — the
+    provider basis of the day each row was written. Never corrected, never rewritten."""
     rows = [r for r in (perf.get("rows") or []) if _f(r.get("nav")) is not None]
     return sorted(rows, key=lambda r: r.get("date") or "")
+
+
+def _corporate_action_basis(perf: dict) -> dict:
+    """The CURRENT-vs-HISTORICAL labelling every Daily Close surface renders verbatim."""
+    ces = perf.get("current_economic_state") or {}
+    applied = bool(ces.get("corporate_action_correction_applied"))
+    return {
+        "basis": "CURRENT_ECONOMIC_STATE",
+        "corporate_action_correction_applied": applied,
+        "correction_owner": ces.get("correction_owner") or "api.corporate_actions",
+        "actions_applied": ces.get("actions_applied") or [],
+        "historical_rows_rewritten": False,
+        "label": ("CURRENT ECONOMIC STATE — corporate-action corrected" if applied
+                  else "CURRENT ECONOMIC STATE"),
+        "note": (("A registered corporate action is applied as a read-time projection: the "
+                  "share count and the per-share basis move together, so the action itself "
+                  "contributes zero P&L. The immutable Daily Close rows recorded before the "
+                  "registration are preserved verbatim and shown separately as HISTORICAL "
+                  "(AS RECORDED) evidence.") if applied else
+                 "No corporate action is registered; current and recorded values agree."),
+    }
 
 
 def _pnl_block(perf: dict, *, starting_capital: Optional[float],
@@ -1216,7 +1255,28 @@ def _pnl_block(perf: dict, *, starting_capital: Optional[float],
         "excess_return_pct": (round(excess, 4) if excess is not None else None),
         "drawdown_pct": _f(last.get("drawdown_pct")),
         "n_marks": len(rows),
+        # Stage 19.1 — this block describes the CURRENT economic state. The untouched
+        # recorded row for the same date is exposed alongside it, never silently replaced.
+        **_corporate_action_basis(perf),
+        "historical_raw": _raw_recorded_row(perf, last.get("date")),
     }
+
+
+def _raw_recorded_row(perf: dict, market_date: Optional[str]) -> Optional[dict]:
+    """The IMMUTABLE Daily Close row exactly as recorded for ``market_date`` — the
+    historical evidence, clearly separated from the current economic state."""
+    for r in _sorted_raw_perf_rows(perf):
+        if r.get("date") == market_date:
+            return {"basis": "HISTORICAL_AS_RECORDED", "immutable": True,
+                    "rewritten": False, "date": r.get("date"), "nav": _f(r.get("nav")),
+                    "cash": _f(r.get("cash")), "invested": _f(r.get("invested")),
+                    "daily_return_pct": _f(r.get("daily_return_pct")),
+                    "cumulative_return_pct": _f(r.get("cumulative_return_pct")),
+                    "drawdown_pct": _f(r.get("drawdown_pct")),
+                    "holdings": r.get("holdings"),
+                    "note": ("The forward-performance row as appended, on the provider "
+                             "basis of the day it was written. Never recomputed.")}
+    return None
 
 
 def _perf_history(perf: dict, *, starting_capital: Optional[float],
@@ -1244,6 +1304,10 @@ def _perf_history(perf: dict, *, starting_capital: Optional[float],
             "spy_cumulative_return_pct": spy_cum,
             "excess_return_pct": (round(excess, 4) if excess is not None else None),
             "drawdown_pct": _f(r.get("drawdown_pct")),
+            # Stage 19.1 — one internally consistent CURRENT curve; the untouched
+            # recorded values for a corrected date travel with the row.
+            "corporate_action_adjusted": bool(r.get("corporate_action_adjusted")),
+            "historical_raw": r.get("raw"),
         })
         prev_nav = nav
     return out[-limit:]

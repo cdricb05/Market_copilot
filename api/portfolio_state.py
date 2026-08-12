@@ -256,6 +256,35 @@ def _import_fps():
     return forward_prediction_skill
 
 
+def _import_corporate_actions():
+    from paper_trader.api import corporate_actions
+    return corporate_actions
+
+
+def _corporate_actions_identity(book_id: Optional[str]) -> dict:
+    """Stage 19.1 — the registered corporate-action state THIS portfolio state was computed
+    against, as reported by the ONE canonical owner. Read-only; recreates no split
+    arithmetic. Included in the hashed content, so registering an action changes
+    ``state_hash`` and invalidates every artifact bound to the previous state."""
+    ca = _import_corporate_actions()
+    fp = ca.registry_fingerprint(book_id=book_id)
+    return {
+        "owner": ca.OWNER,
+        "n_registered": fp["n_registered"],
+        "registry_fingerprint": fp["fingerprint"],
+        "empty_registry_fingerprint": ca.EMPTY_REGISTRY_FINGERPRINT,
+        "actions": fp["actions"],
+        "applied_to_current_state": True,
+        "projection": "READ_TIME_PROJECTION_NO_IMMUTABLE_REWRITE",
+        "state": "APPLIED" if fp["n_registered"] else "NONE_REGISTERED",
+        "note": ("Every CURRENT economic value in this state (NAV, cash, holdings, "
+                 "positions, cost basis, cumulative performance, drawdown) is read "
+                 "through this registry by api.corporate_actions. Immutable historical "
+                 "fills, orders, Daily Close rows and forward-performance rows are "
+                 "never rewritten."),
+    }
+
+
 def _previous_trading_day_iso(iso_date: Optional[str]) -> Optional[str]:
     """The immediately-preceding trading session for an ISO date, via the authoritative
     calendar owner (``engine.market_session.previous_trading_day``). Degrade-safe: returns
@@ -689,11 +718,20 @@ def _compose(*, operational: dict, freshness: Optional[dict],
     }
 
     # --- Capital block (Workstream B). No formula is recomputed here. ---------- #
+    # Stage 19.1: every value here describes the CURRENT economic state, so the
+    # performance figures are read from the desk's CURRENT (corporate-action corrected)
+    # performance view — never from the raw historical rows, which are immutable evidence
+    # recorded on the provider basis of the day they were appended. With an empty
+    # corporate-action registry the current view is identical to the raw one.
     initial_capital = _f(ob.get("starting_capital")) or _f(ob.get("initial_capital"))
     nav = _f(cs.get("nav"))
     cumulative_pnl = ((nav - initial_capital)
                       if (nav is not None and initial_capital is not None) else None)
-    perf_summary = (performance or {}).get("summary") or {}
+    perf_summary = ((performance or {}).get("current_summary")
+                    or (performance or {}).get("summary") or {})
+    perf_rows_current = ((performance or {}).get("current_rows")
+                         or (performance or {}).get("rows") or [])
+    perf_last_cur = perf_rows_current[-1] if perf_rows_current else perf_last
     capital = {
         "cash": _f(cs.get("cash")),
         "invested_value": _f(cs.get("invested_value")),
@@ -707,14 +745,15 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "cumulative_return": _f(perf_summary.get("cumulative_return_pct")),
         "cumulative_return_units": "PERCENT_POINTS",
         "cumulative_excess_vs_benchmark": _f(perf_summary.get("excess_vs_benchmark_pct_points")),
-        "drawdown": _f(perf_last.get("drawdown_pct")),
+        "drawdown": _f(perf_last_cur.get("drawdown_pct")),
         "max_drawdown": _f(perf_summary.get("max_drawdown_pct")),
-        "benchmark_ticker": perf_last.get("benchmark_ticker") or "SPY",
-        "benchmark_value": _f(perf_last.get("benchmark_close")),
-        "benchmark_cumulative_return": _f(perf_last.get("benchmark_cumulative_return_pct")),
-        "benchmark_date": perf_last.get("date"),
+        "benchmark_ticker": perf_last_cur.get("benchmark_ticker") or "SPY",
+        "benchmark_value": _f(perf_last_cur.get("benchmark_close")),
+        "benchmark_cumulative_return": _f(perf_last_cur.get("benchmark_cumulative_return_pct")),
+        "benchmark_date": perf_last_cur.get("date"),
         "initial_capital": initial_capital,
         "currency": ob.get("currency"),
+        "basis": "CURRENT_ECONOMIC_STATE",
         "provenance": {
             "cash": "api.paper_trading_desk.book_nav (ledger replay)",
             "invested_value": "api.operational_book",
@@ -723,10 +762,13 @@ def _compose(*, operational: dict, freshness: Optional[dict],
             "unrealized_pnl": "api.operational_book",
             "daily_pnl": "api.operational_book",
             "cumulative_pnl": "api.portfolio_state (nav − initial_capital)",
-            "cumulative_return": "api.paper_trading_desk.load_performance",
-            "cumulative_excess_vs_benchmark": "api.paper_trading_desk.load_performance",
-            "drawdown": "api.paper_trading_desk.load_performance",
-            "benchmark_value": "api.paper_trading_desk.load_performance (SPY close)",
+            "cumulative_return": "api.paper_trading_desk.load_performance (current_summary)",
+            "cumulative_excess_vs_benchmark":
+                "api.paper_trading_desk.load_performance (current_summary)",
+            "drawdown": "api.paper_trading_desk.load_performance (current_rows)",
+            "benchmark_value":
+                "api.paper_trading_desk.load_performance (current_rows, SPY close)",
+            "corporate_action_correction": "api.corporate_actions",
         },
     }
 
@@ -885,6 +927,20 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "safety_badges": list(SAFETY_BADGES),
     }
 
+    # --- Corporate-action registry identity (Stage 19.1). ----------------------- #
+    # A registered corporate action changes the economic holdings this whole state
+    # describes, so the registry is a FIRST-CLASS, non-volatile part of the portfolio
+    # state: `state_hash` provably depends on it, and every downstream artifact bound to
+    # a portfolio-state hash (HOC assessment, reallocation proposal, approved decision,
+    # order plan) is therefore invalidated the moment an action is registered.
+    # Degrade-safe: an unreadable registry is reported, never raised.
+    corporate_actions_block = _safe(
+        lambda: _corporate_actions_identity(active_book.get("book_id")),
+        warnings, "Corporate-action registry") or {
+            "owner": "api.corporate_actions", "n_registered": 0,
+            "registry_fingerprint": None, "actions": [],
+            "applied_to_current_state": False, "state": "UNAVAILABLE"}
+
     # --- Assemble the state content, then hash it (generated_at excluded). ------ #
     seen: set[str] = set()
     uniq_warnings = [w for w in warnings if not (w in seen or seen.add(w))]
@@ -899,6 +955,7 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "active_book": active_book,
         "dates": dates,
         "capital": capital,
+        "corporate_actions": corporate_actions_block,
         "positions": positions,
         "orders": orders,
         "fills": fills_block,
@@ -931,6 +988,7 @@ def _compose(*, operational: dict, freshness: Optional[dict],
                 "assessment": "api.daily_action_gate",
                 "forward_evidence": "api.forward_prediction_skill",
                 "legacy_archive": "api.portfolio_valuation (dormant; never selected)",
+                "corporate_actions": "api.corporate_actions (registry + read-time projection)",
             },
             "note": ("Read-only composition of the complete operational portfolio "
                      "state; every business calculation is delegated to its "
@@ -948,6 +1006,7 @@ def _compose(*, operational: dict, freshness: Optional[dict],
         "performance": _stable_hash(performance or {}),
         "assessment_gate": _stable_hash(gate or {}),
         "forward_evidence": _stable_hash(forward_status or {}),
+        "corporate_actions": corporate_actions_block.get("registry_fingerprint"),
         "fills": _stable_hash({"rows_count": fills_block["rows_count"],
                                "count": fills_block["count"]}),
     }

@@ -349,8 +349,11 @@ def test_23_generated_at_excluded_from_state_hash():
                                 now=datetime(2026, 8, 6, 23, 30, tzinfo=timezone.utc))
     assert a["generated_at"] != b["generated_at"]
     assert a["state_hash"] == b["state_hash"]
+    # Stage 19.1 added "corporate_actions": the registered corporate-action registry is a
+    # first-class, non-volatile part of the state (a registration must change state_hash).
     assert set(a["source_hashes"]) == {"operational_book", "data_freshness", "performance",
-                                       "assessment_gate", "forward_evidence", "fills"}
+                                       "assessment_gate", "forward_evidence", "fills",
+                                       "corporate_actions"}
 
 
 def test_24_read_is_mutation_free():

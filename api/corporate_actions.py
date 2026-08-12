@@ -236,6 +236,94 @@ def load_actions(*, actions_dir=None, ticker: Optional[str] = None,
     return out
 
 
+def current_actions(*, book_id: Optional[str] = None, as_of: Optional[str] = None,
+                    actions_dir=None) -> list[dict]:
+    """Stage 19.1 — THE ONE resolution point for a CURRENT economic read.
+
+    Returns the registered corporate actions for ``book_id`` (plus the all-books actions).
+    This is the function every current-state consumer calls; no consumer resolves the
+    registry, filters ex-dates, or recreates split arithmetic itself. Degrade-safe: an
+    empty registry returns ``[]``, so every consumer is an EXACT no-op until an operator
+    explicitly registers a corporate action.
+
+    ``as_of`` restricts the result to actions whose ``ex_date`` is on or before that date.
+    It is for callers working against a NON-back-adjusted price series only. The desk
+    deliberately does NOT use it: it marks against the owned provider's fully
+    back-adjusted close series, where an earlier valuation date must also use the
+    post-split share count (see ``paper_trading_desk._resolve_corporate_actions``). The
+    ex-date governs the FILL side inside :func:`adjust_fills` in every case.
+    """
+    rows = load_actions(actions_dir=actions_dir, book_id=book_id)
+    if as_of is None:
+        return rows
+    cutoff = str(as_of)[:10]
+    return [r for r in rows if str(r.get("ex_date") or "")[:10] <= cutoff]
+
+
+def registry_fingerprint(*, actions: Optional[list[dict]] = None,
+                         book_id: Optional[str] = None, as_of: Optional[str] = None,
+                         actions_dir=None) -> dict:
+    """The deterministic IDENTITY of the corporate-action registry state a current read
+    was computed against — the value every state hash / proposal identity binds.
+
+    An EMPTY registry has a stable, well-known fingerprint, so an artifact written before
+    this contract existed (no fingerprint recorded) compares equal to "no corporate action
+    registered" and is therefore NOT stale. Registering an action changes the fingerprint,
+    which invalidates every proposal / order plan bound to the previous one.
+    """
+    rows = actions if actions is not None else current_actions(
+        book_id=book_id, as_of=as_of, actions_dir=actions_dir)
+    compact = sorted(
+        ({"action_id": r.get("action_id"), "action_type": r.get("action_type"),
+          "ticker": r.get("ticker"), "ex_date": str(r.get("ex_date") or "")[:10],
+          "ratio": float(r.get("ratio") or 0.0), "book_id": r.get("book_id")}
+         for r in rows),
+        key=lambda r: (r["ticker"] or "", r["ex_date"] or "", r["action_id"] or ""))
+    return {"owner": OWNER, "n_registered": len(compact),
+            "fingerprint": _stable_hash(compact), "actions": compact}
+
+
+#: The fingerprint of an EMPTY registry — the backward-compatible default for any
+#: artifact persisted before the Stage 19.1 identity contract existed.
+EMPTY_REGISTRY_FINGERPRINT = _stable_hash([])
+
+#: The staleness reason code every consumer reports verbatim (one vocabulary).
+STALE_REASON_CORPORATE_ACTION = "CORPORATE_ACTION_REGISTERED_SINCE_PROPOSAL"
+
+
+def staleness_vs_registry(bound_fingerprint: Optional[str], *,
+                          book_id: Optional[str] = None, actions_dir=None,
+                          current: Optional[dict] = None) -> dict:
+    """Is an artifact that was BOUND to ``bound_fingerprint`` still valid against the
+    CURRENT corporate-action registry?
+
+    A registered corporate action changes the economic holdings a proposal / decision /
+    order plan was computed against, so any artifact bound to an older registry state is
+    STALE and must be re-reviewed — it can never be approved or turned into orders.
+
+    Backward compatible by construction: an artifact with no recorded fingerprint
+    (``None``) is treated as bound to the EMPTY registry, so with nothing registered it is
+    NOT stale (exact no-op), while a newly registered action makes it stale immediately.
+    """
+    cur = current or registry_fingerprint(book_id=book_id, actions_dir=actions_dir)
+    bound = bound_fingerprint or EMPTY_REGISTRY_FINGERPRINT
+    stale = bound != cur["fingerprint"]
+    return {
+        "stale": stale,
+        "reason": STALE_REASON_CORPORATE_ACTION if stale else None,
+        "bound_corporate_actions_hash": bound,
+        "current_corporate_actions_hash": cur["fingerprint"],
+        "bound_to_empty_registry": bound == EMPTY_REGISTRY_FINGERPRINT,
+        "n_registered_now": cur["n_registered"],
+        "registered_actions_now": cur["actions"],
+        "owner": OWNER,
+        "message": (("A corporate action has been registered since this was produced; the "
+                     "economic holdings it was computed against no longer describe the "
+                     "current portfolio. A fresh review is required before any approval or "
+                     "order plan.") if stale else None),
+    }
+
+
 def register_action(*, confirm: Optional[str], ticker: str, ex_date: str, ratio: float,
                     action_type: str = ACTION_FORWARD_SPLIT, book_id: Optional[str] = None,
                     source: Optional[str] = None, evidence: Optional[dict] = None,
@@ -434,6 +522,99 @@ def reconcile_book(*, book: dict, fills: list[dict], marks: dict, actions: list[
 
 
 # --------------------------------------------------------------------------- #
+# 4b. Stage 19.1 — CURRENT-economic-state performance projection (correction overlay)
+# --------------------------------------------------------------------------- #
+def _projected_nav(book: dict, adj_fills: list[dict], marks: dict, as_of: str):
+    """(nav, cash, invested, holdings, missing) for ONE date on the corrected basis."""
+    blk = _holdings_cost_nav(book, adj_fills, marks, as_of)
+    missing = sorted(tk for tk, n in blk["per_name"].items() if n.get("price") is None)
+    holdings = {tk: _int_or_float(q) for tk, q in sorted(blk["holdings"].items())}
+    return blk["nav"], blk["cash"], blk["invested"], holdings, missing
+
+
+def project_current_performance(*, book: dict, rows: list[dict], fills: list[dict],
+                                marks: dict, actions: list[dict]) -> dict:
+    """Stage 19.1 — the CURRENT-ECONOMIC-STATE view of the forward-performance curve.
+
+    Why this exists
+    ---------------
+    A forward-performance row is IMMUTABLE historical evidence: it records the NAV that
+    was true, on the provider basis that existed, on the day it was appended. When a held
+    name later splits, the provider back-adjusts its whole close series, so the row written
+    the day BEFORE the ex-date prices the raw share count on the PRE-split basis while the
+    row written ON the ex-date prices the SAME raw share count on the POST-split basis.
+    Read literally as CURRENT performance, that pair reports a ~50% one-day loss on the
+    name that a split cannot economically cause.
+
+    This function does NOT rewrite those rows. It returns a parallel CURRENT view in which
+    every date's NAV is recomputed by the ONE canonical projection (:func:`adjust_fills`)
+    against the CURRENT mark series, so the split contributes EXACTLY ZERO economic P&L.
+    Each projected row carries the untouched historical value under ``raw`` so the
+    immutable evidence is always recoverable and never silently overwritten.
+
+    Degrade-safe and backward compatible: with no registered action (or no book / no rows)
+    the input rows are returned unchanged and ``applied`` is ``False`` — an EXACT no-op.
+    A date whose corrected valuation cannot be priced (a missing owned mark) keeps its raw
+    values and is flagged ``projection_state='UNPRICED'`` rather than being invented.
+    """
+    base = {"owner": OWNER, "phase": PHASE, "applied": False,
+            "rewrote_immutable_evidence": False,
+            "actions_applied": [], "n_rows_projected": 0,
+            "economic_pnl_from_corporate_action": 0.0,
+            "note": ("A corporate action changes the share count and the per-share basis "
+                     "together; it creates no economic profit or loss. The CURRENT view "
+                     "recomputes each date's NAV through the ONE canonical projection; the "
+                     "immutable historical row is preserved verbatim under 'raw'.")}
+    if not actions or not rows or not book:
+        return {**base, "rows": [dict(r) for r in rows or []]}
+
+    adj = adjust_fills(fills, actions)
+    initial = float(book.get("initial_capital") or 0.0)
+    ordered = sorted(rows, key=lambda r: str(r.get("date") or ""))
+    prev_nav = initial
+    peak_nav = initial
+    out: list[dict] = []
+    n_projected = 0
+    for r in ordered:
+        d = str(r.get("date") or "")
+        row = dict(r)
+        nav, cash, invested, holdings, missing = _projected_nav(book, adj, marks, d) \
+            if d else (None, None, None, None, None)
+        if nav is None or missing:
+            row["projection_state"] = "UNPRICED" if d else "NO_DATE"
+            row["corporate_action_adjusted"] = False
+            row["missing_marks"] = list(missing or r.get("missing_marks") or [])
+            prev_nav = float(row.get("nav") or prev_nav)
+            peak_nav = max(peak_nav, prev_nav)
+            out.append(row)
+            continue
+        raw_keep = {k: r.get(k) for k in
+                    ("nav", "cash", "invested", "holdings", "daily_return_pct",
+                     "cumulative_return_pct", "drawdown_pct")}
+        peak_nav = max(peak_nav, nav)
+        row.update({
+            "nav": round(nav, 2), "cash": round(cash, 2), "invested": round(invested, 2),
+            "holdings": holdings, "holdings_count": len(holdings), "missing_marks": [],
+            "daily_return_pct": (round(100.0 * (nav / prev_nav - 1.0), 4)
+                                 if prev_nav else None),
+            "cumulative_return_pct": (round(100.0 * (nav / initial - 1.0), 4)
+                                      if initial else None),
+            "drawdown_pct": (round(100.0 * (nav / peak_nav - 1.0), 4) if peak_nav else None),
+            "projection_state": "CORPORATE_ACTION_ADJUSTED",
+            "corporate_action_adjusted": True,
+            "raw": raw_keep,
+        })
+        prev_nav = nav
+        n_projected += 1
+        out.append(row)
+    return {**base, "applied": True, "rows": out, "n_rows_projected": n_projected,
+            "actions_applied": [{"action_id": a.get("action_id"), "ticker": a.get("ticker"),
+                                 "ex_date": a.get("ex_date"), "ratio": a.get("ratio"),
+                                 "action_type": a.get("action_type")}
+                                for a in actions]}
+
+
+# --------------------------------------------------------------------------- #
 # 5. READ contract — live forensic scan + BEFORE/AFTER reconciliation (writes nothing)
 # --------------------------------------------------------------------------- #
 def _ca_safety() -> dict:
@@ -498,4 +679,8 @@ __all__ = [
     "CONFIRM_TOKEN", "CA_DIR_ENV", "split_position", "adjust_fills", "load_actions",
     "register_action", "scan_fill_mark_artifacts", "reconcile_book",
     "load_corporate_action_report",
+    # Stage 19.1 — the CURRENT-state propagation contract.
+    "current_actions", "registry_fingerprint", "EMPTY_REGISTRY_FINGERPRINT",
+    "project_current_performance", "staleness_vs_registry",
+    "STALE_REASON_CORPORATE_ACTION",
 ]
