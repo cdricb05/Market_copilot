@@ -2475,6 +2475,64 @@
       "migration_priority": 1,
       "risk": "low",
       "notes": "Canonical operational scoring/ranking composition owner (Slice 4). Read-only; no provider/prediction/DB/ledger/order/signal/decision/fill path; automatic model promotion disabled; champion never replaced. The compatibility surface /v1/research/current-alpha-scores delegates here."
+    },
+    {
+      "path": "api/corporate_actions.py",
+      "system": "infrastructure",
+      "responsibility": "Stage 19 CANONICAL corporate-action / split-adjustment owner (the ONE authority; no competing split logic). Owns: (1) the pure economically-invariant split arithmetic split_position / adjust_fills (shares*R, per-share cost/R, total cost basis + cash + NAV + P&L invariant solely because of the split); (2) a confirm-gated (CONFIRM_CORPORATE_ACTION_ADJUSTMENT), append-only, auditable corporate-action registry under its OWN evidence root PAPER_TRADER_CORPORATE_ACTIONS_DIR (never the desk ledger root) applied as a deterministic READ-TIME projection so no immutable desk fill/order/performance row is ever rewritten; (3) the detection scan scan_fill_mark_artifacts (fill price a whole multiple / unit fraction of the same-date owned adjusted mark = the back-adjusted-series split signature that produced the Aug-11 MNST phantom loss); (4) the BEFORE/AFTER economic reconciliation reconcile_book; (5) the read contract load_corporate_action_report. api.paper_trading_desk.book_cash_holdings/book_nav/append_performance read NAV THROUGH this owner (optional corporate_actions arg; empty registry = no-op) so the corrected canonical performance owner cannot feed a phantom split loss into forward-performance / model-degradation evidence.",
+      "classification": "canonical",
+      "target_owner": "api/corporate_actions.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "api/paper_trading_desk.py (desk book/fills/marks, read-only)"
+      ],
+      "direct_writes": [
+        "PAPER_TRADER_CORPORATE_ACTIONS_DIR/corporate_actions.json (append-only registry; confirm-gated)"
+      ],
+      "endpoints": [
+        "GET /v1/operations/corporate-actions",
+        "POST /v1/operations/corporate-actions/register"
+      ],
+      "ui_consumers": [
+        "api/ui/index.html (#stage19-ca-card; read-only presentation)"
+      ],
+      "tests": [
+        "tests/test_stage19_controlled_rebalance.py"
+      ],
+      "migration_priority": "n/a",
+      "risk": "low",
+      "notes": "Stage 19. Read-only / correction-artifact owner: it NEVER rewrites append-only operational evidence, creates no order, mutates no cash, and never registers automatically. Registration is a manual, confirm-token-gated correction whose effect is a deterministic read-time projection; cash and total cost basis stay invariant. Paper-only, manual review mandatory, cadence disabled, no broker, no automation. Guarded by tests/test_stage19_controlled_rebalance.py."
+    },
+    {
+      "path": "api/rebalance_execution.py",
+      "system": "infrastructure",
+      "responsibility": "Stage 19 CANONICAL controlled paper-rebalance bridge (APPROVED Stage-18 reallocation proposal -> paper orders). Closes the active portfolio-management loop WITHOUT a second fill simulator, order ledger or NAV owner: it deterministically reconciles the APPROVED proposed weights against the CURRENT corporate-action-corrected desk (shares/prices/cash) into whole-share SELL(EXIT/REDUCE)/BUY(ADD/INCREASE) orders (position + sector caps, capital reconciliation, residual cash, before/after weights, target tracking error, order_plan_hash), enforces the stale-evidence guards (proposal must be APPROVED + unchanged; desk state hash bound), requires the SEPARATE second confirmation CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN, then writes paper orders into the EXISTING api.paper_trading_desk lifecycle (ORDER_CREATED -> SUBMITTED -> settle_due_orders NEXT_CLOSE, no same-close hindsight) stamping full lineage (decision_id/proposal_id/proposal_hash/order_plan_id/order_plan_hash/eligible_market_date/paper_book_id/execution_model). Idempotent: the exact plan confirmed twice creates ZERO duplicate orders. Plan-evidence root PAPER_TRADER_REBALANCE_PLAN_DIR (never the desk ledger).",
+      "classification": "canonical",
+      "target_owner": "api/rebalance_execution.py",
+      "duplicate_with": [],
+      "direct_reads": [
+        "api/portfolio_decision.py (approved decision)",
+        "api/reallocation_proposal.py (immutable proposal)",
+        "api/paper_trading_desk.py (desk state/marks)",
+        "api/corporate_actions.py (corrected holdings)"
+      ],
+      "direct_writes": [
+        "api/paper_trading_desk.py desk ORDERS_FILE/JOURNAL_FILE/TIMELINE_FILE (existing lifecycle)",
+        "PAPER_TRADER_REBALANCE_PLAN_DIR/order_plans.json (append-only plan artifact)"
+      ],
+      "endpoints": [
+        "GET /v1/operations/rebalance",
+        "POST /v1/operations/rebalance/confirm-order-plan"
+      ],
+      "ui_consumers": [
+        "api/ui/index.html (#stage19-rebalance-card; read-only presentation)"
+      ],
+      "tests": [
+        "tests/test_stage19_controlled_rebalance.py"
+      ],
+      "migration_priority": "n/a",
+      "risk": "low",
+      "notes": "Stage 19. Two independent manual gates (Stage-18 approval + this second confirmation); the backend token is the security boundary (UI is presentation-only). REJECT/HOLD, an un-approved or stale proposal, a desk that moved since review, and a wrong token all create nothing. Order plan is deterministic and read-only; the ONLY writer is confirm_rebalance_order_plan and it writes into the EXISTING desk lifecycle (no second execution engine / ledger / NAV owner). Paper-only, NEXT_CLOSE no-hindsight, manual review mandatory, cadence disabled, no broker, no live order, no automation, no model change. Guarded by tests/test_stage19_controlled_rebalance.py."
     }
   ]
 }

@@ -497,8 +497,20 @@ def _fills(sdir: Path) -> list[dict]:
 
 
 def book_cash_holdings(book: dict, fills: list[dict],
-                       up_to_date: Optional[str] = None) -> tuple[float, dict[str, int]]:
-    """Replay immutable fills -> (cash, holdings qty). Fully reproducible from the ledgers."""
+                       up_to_date: Optional[str] = None,
+                       corporate_actions: Optional[list[dict]] = None
+                       ) -> tuple[float, dict[str, int]]:
+    """Replay immutable fills -> (cash, holdings qty). Fully reproducible from the ledgers.
+
+    ``corporate_actions`` (Stage 19) is an OPTIONAL list of registered corporate actions
+    (``api.corporate_actions``). When supplied, fills are first passed through the canonical
+    read-time split-adjustment projection (pre-ex-date share counts scaled by the split
+    ratio; cash unchanged) so a held name that split marks the correct share count against
+    the back-adjusted mark. Default ``None`` -> exactly the prior behaviour (no adjustment),
+    so existing callers and the live desk are unaffected until a split is registered."""
+    if corporate_actions:
+        from paper_trader.api import corporate_actions as ca
+        fills = ca.adjust_fills(fills, corporate_actions)
     cash = float(book["initial_capital"])
     qty: dict[str, int] = {}
     for f in sorted(fills, key=lambda x: (x.get("fill_date") or "", x.get("fill_id") or "")):
@@ -516,9 +528,11 @@ def book_cash_holdings(book: dict, fills: list[dict],
 
 
 def book_nav(book: dict, fills: list[dict], marks: dict,
-             as_of: Optional[str] = None) -> dict:
+             as_of: Optional[str] = None,
+             corporate_actions: Optional[list[dict]] = None) -> dict:
     latest = as_of or marks_latest_date(marks)
-    cash, qty = book_cash_holdings(book, fills, up_to_date=latest)
+    cash, qty = book_cash_holdings(book, fills, up_to_date=latest,
+                                   corporate_actions=corporate_actions)
     series = marks.get("series") or {}
     invested = 0.0
     missing = []
@@ -921,6 +935,12 @@ def append_performance(*, desk_dir=None) -> dict:
         return {"n_appended": 0, "dates": []}
     first_fill = min(f["fill_date"] for f in fills)
     latest = marks_latest_date(marks)
+    # Stage 19: the canonical performance owner reads NAV THROUGH the corporate-action
+    # correction, so a registered split cannot feed a phantom loss into forward-performance
+    # evidence (the model-degradation / recalibration owner reads these rows). Degrade-safe:
+    # an empty registry is a no-op, so already-written rows and the live book are unchanged.
+    from paper_trader.api import corporate_actions as _ca
+    _cas = _ca.load_actions()
     existing = [r["row"] for r in _read_ledger(sdir, PERFORMANCE_FILE)
                 if r.get("row", {}).get("book_id") == book["book_id"]]
     have = {r["date"] for r in existing}
@@ -935,7 +955,7 @@ def append_performance(*, desk_dir=None) -> dict:
     bench_base = existing[0]["benchmark_close"] if existing else None
     rows = []
     for d in sorted(dates):
-        blk = book_nav(book, fills, marks, as_of=d)
+        blk = book_nav(book, fills, marks, as_of=d, corporate_actions=_cas)
         nav = blk["nav"]
         if nav is None:
             continue

@@ -3681,6 +3681,45 @@
               <div id="realloc-table" class="compact-scroll-region" style="max-height:360px;overflow:auto;font-size:11px;">&mdash;</div>
               <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. Nothing here confirms an operational or alpha target, assigns capital, or creates an order or fill. Weights, turnover, costs, score, concentration and risk are computed by the backend engine, never in the browser. Expected return is never fabricated (no validated forecast model). The Daily Close is a separate action.</div>
             </div>
+            <!-- STAGE 19 — CONTROLLED PAPER REBALANCE LIFECYCLE (read-only presentation) -->
+            <div class="card" style="margin-bottom:12px;" id="stage19-rebalance-card">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Controlled Paper Rebalance
+                  <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Stage 19 — the controlled execution loop that turns an APPROVED reallocation proposal into paper orders through two manual gates.">STAGE 19</span>
+                  <span class="cc-badge manual">MANUAL REVIEW</span>
+                  <span class="cc-badge safe">PAPER ONLY</span>
+                  <span class="cc-badge safe">NO LIVE ORDERS</span>
+                  <span class="cc-badge safe">NO BROKER</span>
+                  <span class="cc-badge safe">SECOND CONFIRMATION REQUIRED</span>
+                  <span class="cc-badge safe">AUTOMATION OFF</span>
+                </span>
+                <button class="btn-sm" id="stage19-refresh" onclick="loadRebalanceLifecycle()" title="Reload the read-only rebalance lifecycle state.">&#8635; Refresh</button>
+              </div>
+              <div id="stage19-banner" style="border:1px solid rgba(59,130,246,.55);background:rgba(59,130,246,.10);color:var(--info,#3b82f6);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">CONTROLLED PAPER REBALANCE &mdash; PAPER ONLY &middot; MANUAL REVIEW &middot; NO LIVE ORDERS &middot; NO BROKER &middot; NEXT_CLOSE, NO SAME-CLOSE HINDSIGHT FILL</div>
+              <div id="stage19-state" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 8px;font-size:12px;font-weight:700;">&mdash;</div>
+              <div id="stage19-primary" class="cc-na-note" style="font-size:11px;margin:0 0 8px;">Loading the read-only rebalance lifecycle&hellip;</div>
+              <div id="stage19-plan-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
+              <div class="card-title" style="margin-top:6px;font-size:12px;">Order Plan Review
+                <span class="cc-badge muted" title="Ticker | Side | Kind | Shares | Current&rarr;Target | Price | Weight — all computed by the backend, never in the browser.">SELL / BUY &middot; WHOLE SHARES</span>
+              </div>
+              <div id="stage19-orders" class="compact-scroll-region" style="max-height:320px;overflow:auto;font-size:11px;">&mdash;</div>
+              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only review. Paper orders are created ONLY by the backend second-confirmation endpoint (POST /v1/operations/rebalance/confirm-order-plan with CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN) after the Stage-18 portfolio approval — the backend, not this screen, is the security boundary. Shares, prices, proceeds, costs, cash, weights and tracking error are computed by the backend engine. Fills occur only at the first completed owned close strictly after approval (NEXT_CLOSE, no same-close hindsight). No broker. No live order. No automation.</div>
+            </div>
+            <!-- STAGE 19 — CORPORATE-ACTION / P&L INTEGRITY (read-only presentation) -->
+            <div class="card" style="margin-bottom:12px;" id="stage19-ca-card">
+              <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <span>Corporate-Action Integrity
+                  <span class="cc-badge" style="background:var(--info,#3b82f6);color:#fff;" title="Stage 19 — detects held names whose immutable fill price is a whole multiple of the same-date owned adjusted mark (the split signature) and previews the exact NAV correction.">STAGE 19</span>
+                  <span class="cc-badge manual">MANUAL REVIEW</span>
+                  <span class="cc-badge safe">READ ONLY</span>
+                  <span class="cc-badge safe">NO SILENT REWRITE</span>
+                </span>
+                <button class="btn-sm" id="stage19-ca-refresh" onclick="loadRebalanceLifecycle()" title="Reload the read-only corporate-action integrity report.">&#8635; Refresh</button>
+              </div>
+              <div id="stage19-ca-note" class="cc-na-note" style="font-size:11px;margin:0 0 8px;">Loading the read-only corporate-action integrity report&hellip;</div>
+              <div id="stage19-ca-body" style="font-size:11px;">&mdash;</div>
+              <div class="cc-na-note" style="font-size:10px;margin-top:6px;">Read-only. No immutable desk fill / order / performance row is ever rewritten. A correction (share count scaled by the split ratio; cash and total cost basis invariant) is applied only when an operator explicitly registers it via the confirm-token-gated backend endpoint. The correction is a deterministic read-time projection.</div>
+            </div>
             <!-- SINCE LAST REVIEW (Workstream G) -->
             <div class="card" style="margin-bottom:12px;">
               <div class="card-title">Since Last Review</div>
@@ -24349,6 +24388,7 @@ async function loadPortfolioManager() {
   try { loadOperationalBook(); } catch (e) {}     // Phase 27B.1 canonical implementation strip
   try { loadHoldingOpportunityCost(); } catch (e) {}  // Phase 29G Slice 6 opportunity-cost review
   try { loadReallocationProposal(); } catch (e) {}   // Phase 29H Slice 7 reallocation proposal
+  try { loadRebalanceLifecycle(); } catch (e) {}   // Stage 19 controlled rebalance lifecycle + CA integrity
   var res = await Promise.all([
     _mhzGet('/v1/portfolio-manager/summary'),
     _mhzGet('/v1/portfolio-manager/actions'),
@@ -25115,6 +25155,7 @@ function loadOperationalBook() {
     try { loadDailyResearchCycle(); } catch (e) {} // Slice 3: the ONE research-cycle status
     try { loadUniverseScoring(); } catch (e) {}    // Slice 4: the ONE canonical scoring read
     try { loadReallocationProposal(); } catch (e) {} // Slice 7: the ONE reallocation proposal
+    try { loadRebalanceLifecycle(); } catch (e) {}  // Stage 19: rebalance lifecycle + CA integrity
     return d;
   }).catch(function () { window._obInFlight = null; renderOperationalBook(null);
     try { loadPortfolioState(); } catch (e) {}
@@ -25488,6 +25529,159 @@ function loadReallocationProposal() {
   return p;
 }
 window.loadReallocationProposal = loadReallocationProposal;
+
+// ---------------------------------------------------------------------------
+// Stage 19 — Controlled paper-rebalance lifecycle + corporate-action integrity.
+// Read-only presentation: it fetches GET /v1/operations/rebalance and
+// GET /v1/operations/corporate-actions and renders the lifecycle state, the order-plan
+// review screen and the split-integrity report. It performs NO portfolio math and
+// creates NO order — every value is read verbatim from the backend, and paper orders are
+// created only by the backend second-confirmation endpoint (the security boundary).
+// ---------------------------------------------------------------------------
+function loadRebalanceLifecycle() {
+  if (window._stage19InFlight) return window._stage19InFlight;
+  var p = Promise.all([
+    _mhzGet('/v1/operations/rebalance').catch(function () { return null; }),
+    _mhzGet('/v1/operations/corporate-actions').catch(function () { return null; })
+  ]).then(function (res) {
+    window._stage19InFlight = null;
+    renderRebalanceLifecycle(res[0]);
+    renderCorporateActionIntegrity(res[1]);
+    return res;
+  }).catch(function () { window._stage19InFlight = null; return null; });
+  window._stage19InFlight = p;
+  return p;
+}
+window.loadRebalanceLifecycle = loadRebalanceLifecycle;
+
+function _rbStateBadgeCls(state) {
+  return {
+    PROPOSAL_REVIEW_REQUIRED: 'manual',
+    STALE_PROPOSAL_REVIEW_REQUIRED: 'danger',
+    PROPOSAL_APPROVED_ORDER_PLAN_REVIEW_REQUIRED: 'safe',
+    ORDER_PLAN_CONFIRMED_PAPER_EXECUTION_PENDING: 'safe',
+    PAPER_EXECUTED_RECONCILED: 'safe',
+    REBALANCE_NO_ORDERS_REQUIRED: 'muted',
+    REBALANCE_NO_PROPOSAL: 'muted', REBALANCE_NO_ACTIVE_BOOK: 'muted',
+    REBALANCE_UNAVAILABLE: 'manual'
+  }[state] || 'muted';
+}
+
+function renderRebalanceLifecycle(d) {
+  function setHtml(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+  function chip(label, val, cls) {
+    return '<span class="cc-badge ' + (cls || 'muted') + '" title="' + escapeHtml(label)
+      + '">' + escapeHtml(label) + ': ' + escapeHtml(val == null ? '—' : String(val)) + '</span>';
+  }
+  if (!d) {
+    setHtml('stage19-state', chip('State', 'UNAVAILABLE', 'manual'));
+    setHtml('stage19-primary', 'The controlled-rebalance lifecycle is unavailable.');
+    setHtml('stage19-plan-kpis', '—'); setHtml('stage19-orders', '—');
+    return;
+  }
+  var state = d.rebalance_state || 'REBALANCE_UNAVAILABLE';
+  setHtml('stage19-state',
+    chip('State', d.label || state, _rbStateBadgeCls(state))
+    + (d.active_book_id ? chip('Book', d.active_book_id, 'muted') : ''));
+  var pa = d.primary_action;
+  if (pa && pa.label) {
+    var pathTxt = pa.path ? (' <span class="cc-badge muted">' + escapeHtml(pa.path) + '</span>') : '';
+    setHtml('stage19-primary', '<strong>Primary action:</strong> ' + escapeHtml(pa.label) + pathTxt
+      + (d.message ? ('<br><span style="opacity:.8;">' + escapeHtml(d.message) + '</span>') : ''));
+  } else {
+    setHtml('stage19-primary', d.message ? escapeHtml(d.message) : 'No action required.');
+  }
+  var plan = d.order_plan;
+  if (!plan || !(plan.orders && plan.orders.length)) {
+    setHtml('stage19-plan-kpis', chip('Orders', (plan ? (plan.orders || []).length : 0), 'muted')
+      + (plan && plan.order_plan_hash ? chip('Plan hash', String(plan.order_plan_hash).slice(0, 12), 'muted') : ''));
+    setHtml('stage19-orders', (state === 'PROPOSAL_REVIEW_REQUIRED' || state === 'REBALANCE_NO_PROPOSAL')
+      ? 'No order plan yet — the reallocation proposal must be APPROVED (Stage 18) first.'
+      : '—');
+    return;
+  }
+  setHtml('stage19-plan-kpis',
+    chip('Sell', plan.n_sell, 'danger') + chip('Buy', plan.n_buy, 'safe')
+    + chip('Est. proceeds', '$' + (plan.estimated_sell_proceeds != null ? plan.estimated_sell_proceeds : '—'), 'muted')
+    + chip('Est. purchases', '$' + (plan.estimated_buy_cost != null ? plan.estimated_buy_cost : '—'), 'muted')
+    + chip('Txn cost', '$' + (plan.estimated_transaction_cost != null ? plan.estimated_transaction_cost : '—'), 'muted')
+    + chip('Residual cash', '$' + (plan.residual_cash != null ? plan.residual_cash : '—'), 'muted')
+    + chip('Tracking error', plan.target_tracking_error, 'muted')
+    + chip('Marks date', plan.marks_date, 'muted')
+    + chip('Proposal hash', String((d.bound || {}).proposal_hash || '').slice(0, 12), 'muted')
+    + chip('Plan hash', String(plan.order_plan_hash || '').slice(0, 12), 'muted'));
+  var rows = plan.orders.map(function (o) {
+    var sideCls = o.side === 'PAPER_SELL' ? 'danger' : 'safe';
+    return '<tr>'
+      + '<td>' + escapeHtml(o.ticker) + '</td>'
+      + '<td><span class="cc-badge ' + sideCls + '">' + escapeHtml((o.side || '').replace('PAPER_', '')) + '</span></td>'
+      + '<td>' + escapeHtml(o.order_kind || '—') + '</td>'
+      + '<td style="text-align:right;">' + escapeHtml(String(o.quantity)) + '</td>'
+      + '<td style="text-align:right;">' + escapeHtml(String(o.current_shares)) + ' &rarr; ' + escapeHtml(String(o.target_shares)) + '</td>'
+      + '<td style="text-align:right;">' + escapeHtml(String(o.price_used_for_sizing)) + '</td>'
+      + '<td style="text-align:right;">' + escapeHtml(o.proposed_weight != null ? (100 * o.proposed_weight).toFixed(2) + '%' : '—') + '</td>'
+      + '<td>' + escapeHtml(o.sector || '—') + '</td>'
+      + '</tr>';
+  }).join('');
+  setHtml('stage19-orders',
+    '<table style="width:100%;border-collapse:collapse;"><thead><tr style="text-align:left;opacity:.75;">'
+    + '<th>Ticker</th><th>Side</th><th>Kind</th><th style="text-align:right;">Shares</th>'
+    + '<th style="text-align:right;">Cur&rarr;Tgt</th><th style="text-align:right;">Price</th>'
+    + '<th style="text-align:right;">Tgt %</th><th>Sector</th></tr></thead><tbody>'
+    + rows + '</tbody></table>');
+}
+
+function renderCorporateActionIntegrity(d) {
+  function setHtml(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+  function chip(label, val, cls) {
+    return '<span class="cc-badge ' + (cls || 'muted') + '">' + escapeHtml(label) + ': '
+      + escapeHtml(val == null ? '—' : String(val)) + '</span>';
+  }
+  var noteEl = document.getElementById('stage19-ca-note');
+  if (!d || d.status === 'UNAVAILABLE') {
+    if (noteEl) noteEl.textContent = 'The corporate-action integrity report is unavailable.';
+    setHtml('stage19-ca-body', '—'); return;
+  }
+  var scan = d.scan || {}; var rec = d.reconciliation;
+  var nSusp = scan.n_suspects || 0;
+  if (noteEl) {
+    noteEl.textContent = nSusp
+      ? (nSusp + ' held name(s) show a split signature (immutable fill price is a whole multiple of the same-date owned adjusted mark). Registered corrective actions: ' + (d.n_registered || 0) + '.')
+      : ('No split artifacts detected across ' + (scan.n_fills_scanned || 0) + ' fills. Registered corrective actions: ' + (d.n_registered || 0) + '.');
+  }
+  var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
+    + chip('Book', d.book_id, 'muted') + chip('Marks date', d.marks_date, 'muted')
+    + chip('Suspects', nSusp, nSusp ? 'manual' : 'safe')
+    + chip('Registered', d.n_registered, 'muted') + '</div>';
+  (scan.suspects || []).forEach(function (s) {
+    html += '<div style="border:1px solid rgba(245,158,11,.45);border-radius:8px;padding:8px;margin-bottom:6px;">'
+      + '<strong>' + escapeHtml(s.ticker) + '</strong> '
+      + chip('Type', s.action_type, 'manual')
+      + chip('Fill', s.fill_price, 'muted') + chip('Same-date mark', s.same_date_mark, 'muted')
+      + chip('Implied ratio', s.implied_ratio, 'manual')
+      + chip('Suggested R', s.suggested_ratio, 'safe')
+      + chip('Already registered', s.already_registered ? 'yes' : 'no', s.already_registered ? 'safe' : 'muted')
+      + '</div>';
+  });
+  if (rec) {
+    html += '<div style="border:1px solid var(--border,#333);border-radius:8px;padding:8px;margin-top:4px;">'
+      + '<div style="font-weight:700;margin-bottom:4px;">BEFORE &rarr; AFTER economic reconciliation (preview)</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+      + chip('NAV before', '$' + rec.before.nav, 'muted') + chip('NAV after', '$' + rec.after.nav, 'safe')
+      + chip('Phantom removed', '$' + rec.phantom_nav_removed, 'manual')
+      + chip('Cash invariant', rec.cash_invariant ? 'yes' : 'NO', rec.cash_invariant ? 'safe' : 'danger')
+      + chip('Cost basis invariant', rec.cost_basis_invariant ? 'yes' : 'NO', rec.cost_basis_invariant ? 'safe' : 'danger')
+      + '</div>';
+    (rec.per_name_delta || []).forEach(function (p) {
+      html += '<div style="font-size:10px;margin-top:4px;opacity:.9;">' + escapeHtml(p.ticker)
+        + ': shares ' + escapeHtml(String(p.quantity_before)) + ' &rarr; ' + escapeHtml(String(p.quantity_after))
+        + ', MV $' + escapeHtml(String(p.market_value_before)) + ' &rarr; $' + escapeHtml(String(p.market_value_after))
+        + ' (cost basis unchanged $' + escapeHtml(String(p.cost_basis_after)) + ')</div>';
+    });
+    html += '</div>';
+  }
+  setHtml('stage19-ca-body', html);
+}
 
 function _reallocActionBadge(action) {
   var cls = { RETAIN: 'muted', INCREASE: 'safe', REDUCE: 'manual', EXIT: 'danger',

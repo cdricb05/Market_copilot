@@ -205,6 +205,8 @@ from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
 from paper_trader.api import portfolio_decision as _pdecision
+from paper_trader.api import rebalance_execution as _rebalance
+from paper_trader.api import corporate_actions as _corporate_actions
 from paper_trader.api import research_agent as _research_agent
 from paper_trader.api import research_bridge as _research_bridge
 from paper_trader.api import data_expansion as _data_expansion
@@ -6589,6 +6591,140 @@ def operations_portfolio_decision_record(body: PortfolioDecisionRecordRequest) -
     return _pdecision.record_decision(
         decision=body.decision, confirm=body.confirmation,
         expected_proposal_hash=body.expected_proposal_hash, actor=body.requested_by)
+
+
+@app.get(
+    "/v1/operations/rebalance",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_rebalance() -> dict:
+    """Stage 19 controlled paper-rebalance lifecycle (read-only).
+
+    The ONE read model of the execution loop that sits AFTER the Stage-18 portfolio approval:
+    PROPOSAL_REVIEW_REQUIRED -> (approve) -> PROPOSAL_APPROVED_ORDER_PLAN_REVIEW_REQUIRED ->
+    (second confirmation) -> ORDER_PLAN_CONFIRMED_PAPER_EXECUTION_PENDING -> (NEXT_CLOSE
+    fill) -> PAPER_EXECUTED_RECONCILED. When the current proposal is APPROVED and unchanged
+    it returns the deterministic, whole-share order plan (SELL/EXIT/REDUCE, BUY/ADD/INCREASE)
+    reconciled against the CURRENT desk — estimated proceeds/purchases/cost, residual cash,
+    before/after weights, target tracking error, the proposal + order-plan hashes and the
+    next-eligible-fill semantics — plus the SINGLE primary action for the current state.
+
+    STRICTLY READ-ONLY: it builds the plan deterministically and writes nothing (no order,
+    fill, holding, cash or NAV change). A stale/un-approved proposal yields the appropriate
+    review state and no plan. Owned by ``api.rebalance_execution``; orders are created only
+    via POST /v1/operations/rebalance/confirm-order-plan.
+    """
+    return _rebalance.load_rebalance_state()
+
+
+class RebalanceOrderPlanConfirmRequest(BaseModel):
+    """Stage 19 SECOND explicit confirmation body (distinct from the Stage-18 decision).
+
+    ``confirmation`` must equal ``CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN``;
+    ``expected_order_plan_hash`` (the plan the operator reviewed) is verified against the
+    server's CURRENT plan so a desk that moved since review can never be executed blind.
+    """
+
+    confirmation: str
+    expected_order_plan_hash: str | None = None
+    requested_by: str = "manual_ui"
+
+
+@app.post(
+    "/v1/operations/rebalance/confirm-order-plan",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_rebalance_confirm_order_plan(body: RebalanceOrderPlanConfirmRequest) -> dict:
+    """Stage 19 SECOND manual gate — create PAPER rebalance orders from an APPROVED,
+    unchanged reallocation proposal (Workstreams D + E).
+
+    Requires ``{"confirmation": "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN"}``; any
+    other value returns HTTP 400 and writes nothing. The Stage-18 portfolio approval alone
+    is NOT sufficient — this is a separate, backend-enforced confirmation of the concrete
+    whole-share order plan. REJECT/HOLD, an un-approved or stale proposal, and a desk that
+    moved since the plan was reviewed all create nothing. On success it writes the paper
+    orders into the EXISTING desk lifecycle (SUBMITTED for NEXT_CLOSE, no same-close
+    hindsight fill), stamping full lineage (decision_id / proposal_id / proposal_hash /
+    order_plan_id / order_plan_hash / eligible_market_date / paper_book_id / execution_model)
+    on every order. Idempotent: confirming the exact same plan twice creates ZERO duplicate
+    orders. No broker, no live order, no automatic approval, no model change.
+    """
+    if body.confirmation != _rebalance.CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit second confirmation required. Send "
+                    f"{{'confirmation': '{_rebalance.CONFIRM_TOKEN}'}} to create paper "
+                    f"rebalance orders from the approved proposal."),
+        )
+    return _rebalance.confirm_rebalance_order_plan(
+        confirm=body.confirmation, expected_order_plan_hash=body.expected_order_plan_hash,
+        actor=body.requested_by)
+
+
+@app.get(
+    "/v1/operations/corporate-actions",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_corporate_actions() -> dict:
+    """Stage 19 corporate-action / P&L integrity report (read-only).
+
+    The ONE canonical corporate-action authority over the live paper book. It detects held
+    names whose immutable fill price is an integer multiple (forward split) or unit fraction
+    (reverse split) of the SAME-DATE owned adjusted mark — the back-adjusted-series split
+    signature that produced the Aug-11 MNST phantom loss — lists any registered corrective
+    actions, and previews the exact BEFORE/AFTER economic reconciliation a registration would
+    apply (shares scaled by the split ratio; cash and total cost basis invariant; the phantom
+    NAV removed). STRICTLY READ-ONLY and it NEVER rewrites an immutable desk fill / order /
+    performance row. A correction is applied only when an operator explicitly registers it via
+    POST /v1/operations/corporate-actions/register.
+    """
+    return _corporate_actions.load_corporate_action_report()
+
+
+class CorporateActionRegisterRequest(BaseModel):
+    """Stage 19 explicit corporate-action registration body. ``confirmation`` must equal
+    ``CONFIRM_CORPORATE_ACTION_ADJUSTMENT``; ``ratio`` is the split ratio R (shares*R,
+    price/R); ``action_type`` is FORWARD_SPLIT (R>1) or REVERSE_SPLIT (R<1)."""
+
+    ticker: str
+    ex_date: str
+    ratio: float
+    action_type: str = _corporate_actions.ACTION_FORWARD_SPLIT
+    source: str | None = None
+    evidence: dict | None = None
+    confirmation: str
+    requested_by: str = "manual_ui"
+
+
+@app.post(
+    "/v1/operations/corporate-actions/register",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_corporate_actions_register(body: CorporateActionRegisterRequest) -> dict:
+    """Register ONE corporate action (append-only, idempotent, auditable), the explicit
+    correction artifact that the canonical NAV/performance owner reads THROUGH.
+
+    Requires ``{"confirmation": "CONFIRM_CORPORATE_ACTION_ADJUSTMENT"}``; any other value
+    returns HTTP 400 and writes nothing. Registration does NOT rewrite a single immutable
+    desk fill; the split is applied as a deterministic read-time projection over the fills so
+    NAV, holdings and forward-performance evidence become economically correct while cash and
+    total cost basis stay invariant. It creates no order and enables no automation.
+    """
+    if body.confirmation != _corporate_actions.CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit confirmation required. Send "
+                    f"{{'confirmation': '{_corporate_actions.CONFIRM_TOKEN}'}} to register "
+                    f"a corporate action."),
+        )
+    return _corporate_actions.register_action(
+        confirm=body.confirmation, ticker=body.ticker, ex_date=body.ex_date,
+        ratio=body.ratio, action_type=body.action_type, source=body.source,
+        evidence=body.evidence, actor=body.requested_by)
 
 
 @app.get(
