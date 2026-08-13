@@ -6663,6 +6663,49 @@ def operations_rebalance_confirm_order_plan(body: RebalanceOrderPlanConfirmReque
         actor=body.requested_by)
 
 
+class RebalanceTargetMarkRefreshRequest(BaseModel):
+    """Stage 19.2 explicit target-mark hydration body.
+
+    ``confirmation`` must equal ``CONFIRM_REBALANCE_TARGET_MARK_REFRESH``. This is neither
+    of the two execution gates: it creates no order and no fill.
+    """
+
+    confirmation: str
+    requested_by: str = "manual_ui"
+
+
+@app.post(
+    "/v1/operations/rebalance/refresh-target-marks",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_rebalance_refresh_target_marks(
+        body: RebalanceTargetMarkRefreshRequest) -> dict:
+    """Stage 19.2 — hydrate the owned execution marks an APPROVED reallocation target needs.
+
+    Requires ``{"confirmation": "CONFIRM_REBALANCE_TARGET_MARK_REFRESH"}``; any other value
+    returns HTTP 400 and touches nothing. It exists because the desk mark refresh derives
+    its ticker set from the confirmed alpha snapshot + held names + open orders, none of
+    which contains a not-yet-held reallocation target — the exact gap that left eight
+    approved August-12 ADD names unpriced.
+
+    It is NOT a second mark writer and NOT a second provider client: it resolves the required
+    universe (every proposed positive-weight constituent, every held name, the benchmark) and
+    delegates to the canonical owner ``api.paper_trading_desk.refresh_desk``, which keeps
+    sole ownership of the owned-EODHD transport, normalization, completed-session rule and
+    store write. It creates no order, no fill and no decision, changes no holding, cash or
+    NAV, and never runs automatically — no GET can reach it. No broker. No live order.
+    """
+    if body.confirmation != _rebalance.HYDRATE_CONFIRM_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"Explicit confirmation required. Send "
+                    f"{{'confirmation': '{_rebalance.HYDRATE_CONFIRM_TOKEN}'}} to refresh "
+                    f"the owned marks of the approved reallocation target."),
+        )
+    return _rebalance.refresh_target_marks(confirm=body.confirmation)
+
+
 @app.get(
     "/v1/operations/corporate-actions",
     status_code=status.HTTP_200_OK,

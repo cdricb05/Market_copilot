@@ -53,6 +53,11 @@ OWNER = "api.rebalance_execution"
 # --- The SECOND explicit confirmation (distinct from Stage-18's decision token) ---- #
 CONFIRM_TOKEN = "CONFIRM_APPROVED_PORTFOLIO_REBALANCE_ORDER_PLAN"
 
+#: Stage 19.2 — the explicit manual token that hydrates owned marks for the APPROVED target
+#: universe. Distinct from the two execution gates: it creates no order and no fill, it only
+#: delegates to the canonical desk mark owner. A GET never triggers it.
+HYDRATE_CONFIRM_TOKEN = "CONFIRM_REBALANCE_TARGET_MARK_REFRESH"
+
 # --- Rebalance-lifecycle vocabulary (Workstream H) --------------------------------- #
 RB_NO_ACTIVE_BOOK = "REBALANCE_NO_ACTIVE_BOOK"
 RB_NO_PROPOSAL = "REBALANCE_NO_PROPOSAL"
@@ -63,9 +68,16 @@ RB_PLAN_CONFIRMED = "ORDER_PLAN_CONFIRMED_PAPER_EXECUTION_PENDING"
 RB_EXECUTED = "PAPER_EXECUTED_RECONCILED"
 RB_NO_CHANGES = "REBALANCE_NO_ORDERS_REQUIRED"
 RB_UNAVAILABLE = "REBALANCE_UNAVAILABLE"
+#: Stage 19.2 FAIL-CLOSED states. An APPROVED proposal whose executable plan cannot
+#: faithfully implement the target lands HERE, never in RB_PLAN_REVIEW_REQUIRED.
+RB_BLOCKED_MARKS = "ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS"
+RB_BLOCKED_INCOMPLETE = "ORDER_PLAN_BLOCKED_INCOMPLETE_TARGET"
 STATE_VOCAB = (RB_NO_ACTIVE_BOOK, RB_NO_PROPOSAL, RB_PROPOSAL_REVIEW_REQUIRED, RB_STALE,
                RB_PLAN_REVIEW_REQUIRED, RB_PLAN_CONFIRMED, RB_EXECUTED, RB_NO_CHANGES,
-               RB_UNAVAILABLE)
+               RB_UNAVAILABLE, RB_BLOCKED_MARKS, RB_BLOCKED_INCOMPLETE)
+#: The states in which NO order plan may ever be confirmed.
+NON_CONFIRMABLE_STATES = (RB_NO_ACTIVE_BOOK, RB_NO_PROPOSAL, RB_PROPOSAL_REVIEW_REQUIRED,
+                          RB_STALE, RB_UNAVAILABLE, RB_BLOCKED_MARKS, RB_BLOCKED_INCOMPLETE)
 
 # --- Confirm-status codes returned by confirm_rebalance_order_plan ----------------- #
 C_CONFIRM_REQUIRED = "ORDER_PLAN_CONFIRMATION_REQUIRED"
@@ -74,6 +86,30 @@ C_STALE = "STALE_PLAN_REVIEW_REQUIRED"
 C_NO_CHANGES = "NO_ORDERS_REQUIRED"
 C_CREATED = "PAPER_ORDERS_CREATED"
 C_REUSED = "REUSED_EXISTING_NO_DUPLICATE"
+#: Stage 19.2 — the confirmation refused because the plan is not faithfully executable.
+C_BLOCKED = "ORDER_PLAN_BLOCKED"
+#: Stage 19.2 hydration statuses.
+H_CONFIRM_REQUIRED = "TARGET_MARK_REFRESH_CONFIRMATION_REQUIRED"
+H_NOT_APPROVED = "PORTFOLIO_APPROVAL_REQUIRED"
+H_DONE = "TARGET_MARKS_REFRESHED"
+H_INCOMPLETE = "TARGET_MARKS_STILL_INCOMPLETE"
+
+# --- Block-reason vocabulary (structured, never free text) -------------------------- #
+BR_NO_OWNED_MARK = "NO_OWNED_MARK"
+BR_TARGET_OMITTED = "TARGET_ACTION_OMITTED"
+BR_TRACKING_ERROR = "TARGET_TRACKING_ERROR_EXCEEDS_ENVELOPE"
+BR_TURNOVER_GAP = "TURNOVER_GAP_EXCEEDS_ENVELOPE"
+BR_RECONCILIATION = "TARGET_RECONCILIATION_FAILED"
+BLOCK_REASON_VOCAB = (BR_NO_OWNED_MARK, BR_TARGET_OMITTED, BR_TRACKING_ERROR,
+                      BR_TURNOVER_GAP, BR_RECONCILIATION)
+
+#: Omission reasons that the deterministic execution envelope EXPLICITLY supports. An
+#: omission for any other reason is a defect and fails the plan closed.
+OMIT_WHOLE_SHARE = "WHOLE_SHARE_ROUNDING"
+OMIT_MIN_ORDER = "MIN_ORDER_SIZE"
+OMIT_CAPITAL = "AVAILABLE_CAPITAL_TRIM"
+OMIT_ALREADY_AT_TARGET = "ALREADY_AT_TARGET"
+SUPPORTED_OMISSIONS = (OMIT_WHOLE_SHARE, OMIT_MIN_ORDER, OMIT_CAPITAL, OMIT_ALREADY_AT_TARGET)
 
 # --- Plan-evidence root (its OWN root, NEVER the desk ledger root) ------------------ #
 PLAN_DIR_ENV = "PAPER_TRADER_REBALANCE_PLAN_DIR"
@@ -214,6 +250,84 @@ def _price(series: dict, tk: str, as_of: str) -> Optional[float]:
     return hit[1] if hit else None
 
 
+#: Proposal actions that REQUIRE a trade. RETAIN does not.
+_TRADING_ACTIONS = ("ADD", "INCREASE", "REDUCE", "EXIT", "REPLACE_IN", "REPLACE_OUT")
+
+
+def _implies_trade(row: dict) -> bool:
+    return str(row.get("action") or "").upper() in _TRADING_ACTIONS
+
+
+def _proposal_one_way_turnover(artifact: Optional[dict]) -> Optional[float]:
+    """The APPROVED proposal's own one-way turnover — read from the immutable artifact the
+    proposal engine produced. If an older artifact carries no turnover block it is derived
+    from the artifact's own weights (0.5 * sum |proposed - current|), which is the same
+    definition; this module never re-derives allocation math, only reads the target."""
+    prop = (artifact or {}).get("proposal") or {}
+    blk = prop.get("turnover") or {}
+    if blk.get("one_way_turnover") is not None:
+        try:
+            return round(float(blk["one_way_turnover"]), 6)
+        except (TypeError, ValueError):
+            pass
+    allocs = prop.get("allocations") or []
+    if not allocs:
+        return None
+    total = 0.0
+    for a in allocs:
+        try:
+            total += abs(float(a.get("proposed_weight") or 0.0)
+                         - float(a.get("current_weight") or 0.0))
+        except (TypeError, ValueError):
+            return None
+    return round(0.5 * total, 6)
+
+
+# --------------------------------------------------------------------------- #
+# Stage 19.2 — the EXECUTION MARK UNIVERSE of an approved proposal
+#
+# The August-12 incident: eight ADD names of an APPROVED proposal had no owned mark, the
+# plan silently omitted all eight, and the system still reported the plan buildable. The
+# root cause is that the required mark universe was never named anywhere: the desk mark
+# refresh derives its ticker set from the confirmed alpha snapshot + currently held names +
+# open orders, none of which contains a not-yet-held reallocation target. So the target
+# universe is stated ONCE here and used by BOTH the fail-closed gate and the hydration.
+# --------------------------------------------------------------------------- #
+def target_mark_universe(*, artifact: Optional[dict], holdings: Optional[dict] = None) -> dict:
+    """Every ticker that must carry an owned execution mark before the APPROVED proposal can
+    be turned into a faithful order plan: every proposed POSITIVE-weight constituent (BUY /
+    ADD / INCREASE and any retained name that still needs sizing), every currently held name
+    (SELL / REDUCE / EXIT sizing), and the desk's benchmark (existing desk accounting).
+    Pure and read-only."""
+    prop = (artifact or {}).get("proposal") or {}
+    target, allocation = [], []
+    for a in prop.get("allocations") or []:
+        tk = a.get("ticker")
+        if not tk:
+            continue
+        allocation.append(tk)
+        if float(a.get("proposed_weight") or 0.0) > 0.0:
+            target.append(tk)
+    held = sorted(tk for tk, q in (holdings or {}).items() if tk and int(q or 0) != 0)
+    benchmark = desk.BENCHMARK_TICKER
+    required = sorted(set(target) | set(held) | {benchmark})
+    return {"target_tickers": sorted(set(target)), "allocation_tickers": sorted(set(allocation)),
+            "held_tickers": held, "benchmark": benchmark, "required": required,
+            "n_target": len(set(target)), "n_held": len(held), "n_required": len(required)}
+
+
+def mark_coverage(*, required: list[str], series: dict, as_of: Optional[str]) -> dict:
+    """Which of the REQUIRED execution marks the owned desk mark store can actually price at
+    or before ``as_of``. Read-only; never calls a provider."""
+    req = sorted(set(required or []))
+    available = [tk for tk in req if as_of and _price(series or {}, tk, as_of) is not None]
+    missing = [tk for tk in req if tk not in set(available)]
+    return {"required_mark_count": len(req), "available_mark_count": len(available),
+            "missing_mark_count": len(missing), "missing_marks": missing,
+            "available_marks": available, "marks_date": as_of,
+            "coverage_complete": not missing}
+
+
 def _base_plan(*, decision_dir, reallocation_dir, desk_dir, actions_dir,
                active_book_id, eligible_market_date, portfolio_state,
                portfolio_state_loader, artifact, decision_record, corporate_actions) -> dict:
@@ -288,9 +402,34 @@ def _base_plan(*, decision_dir, reallocation_dir, desk_dir, actions_dir,
                 "message": "The desk is not ready (no open book or no owned marks)."}
 
     plan = _reconcile_order_plan(artifact=artifact, bound=bound, view=view)
+    # Stage 19.2 GATE 3 — FAIL CLOSED. A plan that cannot faithfully implement the approved
+    # target NEVER reaches the confirmable review state. The partial plan is still returned
+    # (it is the explanation the operator needs) but the state itself is non-confirmable.
+    if not plan.get("order_plan_buildable"):
+        reasons = [b["reason"] for b in plan.get("blocked_reasons") or []]
+        marks_only = bool(plan.get("missing_marks"))
+        state = RB_BLOCKED_MARKS if marks_only else RB_BLOCKED_INCOMPLETE
+        return {"state": state, "bound": bound, "plan": plan, "desk_view": view,
+                "decision_record": decision_record, "block_reason_codes": sorted(set(reasons)),
+                "message": _blocked_message(plan, state)}
     return {"state": (RB_NO_CHANGES if not plan["orders"] else RB_PLAN_REVIEW_REQUIRED),
             "bound": bound, "plan": plan, "desk_view": view,
             "decision_record": decision_record}
+
+
+def _blocked_message(plan: dict, state: str) -> str:
+    """One operator-readable sentence per blocked state. No arithmetic here — every number
+    is read verbatim from the plan the backend already computed."""
+    if state == RB_BLOCKED_MARKS:
+        missing = plan.get("missing_marks") or []
+        return ("ORDER PLAN BLOCKED - OWNED MARKS REQUIRED. %d approved target name(s) have "
+                "no owned execution mark at or before %s: %s. A missing mark is never "
+                "permission to omit a holding, so no order plan can be confirmed. Run the "
+                "explicit target-mark refresh, then reload."
+                % (len(missing), plan.get("marks_date"), ", ".join(missing)))
+    details = [b.get("detail") for b in (plan.get("blocked_reasons") or []) if b.get("detail")]
+    return ("ORDER PLAN BLOCKED - the executable plan is not a faithful implementation of "
+            "the approved proposal. " + " ".join(details))
 
 
 def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
@@ -310,6 +449,7 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
     rows = []
     sector_of = {}
     proposed_w = {}
+    policy_w = {}          # proposed weight AFTER the explicitly supported concentration cap
     for a in allocs:
         tk = a.get("ticker")
         if not tk:
@@ -317,17 +457,18 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
         sector_of[tk] = a.get("sector") or "Unknown"
         pw = float(a.get("proposed_weight") or 0.0)
         proposed_w[tk] = pw
+        policy_w[tk] = min(pw, MAX_INDIVIDUAL_WEIGHT)
         px = _price(series, tk, as_of)
         cur_sh = int(held.get(tk, 0))
         if px is None or px <= 0:
             rows.append({"ticker": tk, "action": a.get("action"), "sector": sector_of[tk],
                          "current_shares": cur_sh, "target_shares": None, "order_shares": 0,
                          "side": None, "price": None, "proposed_weight": _r6(pw),
-                         "blocked": True, "block_reason": "NO_OWNED_MARK",
+                         "blocked": True, "block_reason": BR_NO_OWNED_MARK,
                          "current_market_value": None, "target_market_value": None})
             continue
         # position cap: never target more than MAX_INDIVIDUAL_WEIGHT of NAV
-        capped_w = min(pw, MAX_INDIVIDUAL_WEIGHT)
+        capped_w = policy_w[tk]
         target_dollars = capped_w * nav
         target_sh = int(math.floor(target_dollars / px)) if target_dollars > 0 else 0
         rows.append({"ticker": tk, "action": a.get("action"), "sector": sector_of[tk],
@@ -345,11 +486,12 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
         px = _price(series, tk, as_of)
         sector_of[tk] = sector_of.get(tk, "Unknown")
         proposed_w[tk] = 0.0
+        policy_w[tk] = 0.0
         rows.append({"ticker": tk, "action": "EXIT", "sector": sector_of[tk],
                      "current_shares": int(cur_sh), "target_shares": 0,
                      "order_shares": -int(cur_sh), "price": _r6(px),
                      "proposed_weight": 0.0, "capped_weight": 0.0,
-                     "blocked": px is None, "block_reason": ("NO_OWNED_MARK" if px is None else None),
+                     "blocked": px is None, "block_reason": (BR_NO_OWNED_MARK if px is None else None),
                      "current_market_value": _r2(int(cur_sh) * px) if px is not None else None,
                      "target_market_value": 0.0 if px is not None else None})
 
@@ -374,6 +516,11 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
         return [r for r in rs if not r["blocked"] and r["order_shares"] != 0 and r["price"]]
 
     available = cash + _sell_proceeds(rows)
+    # The UNTRIMMED buy requirement, captured BEFORE the capital trim: the difference
+    # between it and the available capital is exactly the deterministic cash shortfall the
+    # executability envelope below is allowed to absorb.
+    required_buy_outflow = _buy_outflow(rows)
+    capital_shortfall = max(0.0, required_buy_outflow - available)
     trimmed = []
     # deterministically trim the largest remaining BUY by one share until feasible
     guard = 0
@@ -390,14 +537,33 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
         trimmed.append(top["ticker"])
 
     # --- classify + build order list (whole-share, min-order enforced).
-    orders, blocked = [], []
+    orders, blocked, omitted = [], [], []
     gross_sells = gross_buys = est_cost = 0.0
     for r in rows:
         if r["blocked"]:
-            blocked.append({"ticker": r["ticker"], "reason": r["block_reason"]})
+            blocked.append({"ticker": r["ticker"], "reason": r["block_reason"],
+                            "action": r.get("action"),
+                            "proposed_weight": r.get("proposed_weight"),
+                            "current_shares": r.get("current_shares")})
             continue
         n = r["order_shares"]
         if n == 0 or abs(n) < MIN_ORDER_SHARES:
+            # A target action that produced NO order. Stage 19.2: never silent — name the
+            # exact deterministic mechanic that consumed it, so an unexplained omission
+            # cannot hide as "no order required".
+            if _implies_trade(r):
+                if r["ticker"] in set(trimmed) and n == 0:
+                    why = OMIT_CAPITAL
+                elif n == 0 and int(r["current_shares"]) == int(r["target_shares"] or 0):
+                    why = OMIT_WHOLE_SHARE if r.get("action") != "RETAIN" else OMIT_ALREADY_AT_TARGET
+                else:
+                    why = OMIT_MIN_ORDER
+                omitted.append({"ticker": r["ticker"], "action": r.get("action"),
+                                "reason": why,
+                                "proposed_weight": r.get("proposed_weight"),
+                                "current_shares": r["current_shares"],
+                                "target_shares": r["target_shares"],
+                                "supported": why in SUPPORTED_OMISSIONS})
             continue
         px = float(r["price"])
         gross = abs(n) * px
@@ -441,6 +607,105 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
     for tk in set(list(proposed_w) + list(after_w)):
         te += abs(float(after_w.get(tk, 0.0) or 0.0) - float(proposed_w.get(tk, 0.0)))
     tracking_error = round(0.5 * te, 6)
+    # The same measure against the POLICY-ADJUSTED target (the concentration cap is an
+    # explicitly supported deviation, so it must not be charged against executability).
+    policy_te = 0.0
+    for tk in set(list(policy_w) + list(after_w)):
+        policy_te += abs(float(after_w.get(tk, 0.0) or 0.0) - float(policy_w.get(tk, 0.0)))
+    policy_tracking_error = round(0.5 * policy_te, 6)
+
+    planned_turnover = _r6((gross_sells + gross_buys) / 2.0 / nav) if nav else None
+
+    # ----------------------------------------------------------------------- #
+    # Stage 19.2 — THE FAIL-CLOSED EXECUTABILITY CONTRACT
+    #
+    # An approved proposal may only become an executable plan when the ONLY differences
+    # between the approved target and the plan come from the explicitly supported
+    # mechanics: whole shares, transaction cost, available cash, the concentration cap
+    # and the minimum order size. Their combined dollar effect is BOUNDED here, and any
+    # deviation larger than that bound is a defect, not an approximation.
+    #
+    # The August-12 defect was exactly this: eight ADD names were silently dropped for a
+    # reason (no owned mark) that is NOT an execution mechanic at all, and the resulting
+    # 19.33% plan was still offered for confirmation against a 35.55% approved proposal.
+    # ----------------------------------------------------------------------- #
+    universe = target_mark_universe(artifact=artifact, holdings=held)
+    coverage = mark_coverage(required=universe["required"], series=series, as_of=as_of)
+    # The benchmark is desk accounting, not a tradable target: report it, but only the
+    # tradable names can block an order plan.
+    tradable_missing = [t for t in coverage["missing_marks"] if t != universe["benchmark"]]
+
+    priced_rows = [r for r in rows if r.get("price")]
+    trim_counts: dict[str, int] = {}
+    for tk in trimmed:
+        trim_counts[tk] = trim_counts.get(tk, 0) + 1
+    # ONE share of slack per name (floor rounding) + the transaction cost + the genuine
+    # cash shortfall. Deliberately NOT proportional to how much was trimmed: an envelope
+    # that grew with the trim would absorb its own error and could never block.
+    share_slack = sum(float(r["price"]) for r in priced_rows)
+    envelope_dollars = share_slack + est_cost + capital_shortfall
+    executability_envelope = _r6(0.5 * envelope_dollars / nav) if nav else None
+
+    proposal_turnover = _proposal_one_way_turnover(artifact)
+    turnover_gap = (None if (proposal_turnover is None or planned_turnover is None)
+                    else _r6(float(planned_turnover) - float(proposal_turnover)))
+
+    proposal_action_count = sum(1 for a in allocs if _implies_trade(a)) + sum(
+        1 for r in rows if r["ticker"] not in {a.get("ticker") for a in allocs}
+        and _implies_trade(r))
+    planned_action_count = len(orders)
+    unsupported_omissions = [o for o in omitted if not o["supported"]]
+
+    block_reasons: list[dict] = []
+    if tradable_missing:
+        block_reasons.append({
+            "reason": BR_NO_OWNED_MARK, "tickers": tradable_missing,
+            "detail": ("%d approved target / held name(s) have no owned execution mark at or "
+                       "before %s. A missing mark is NOT permission to omit a holding: the "
+                       "order plan fails closed until the marks are hydrated."
+                       % (len(tradable_missing), as_of))})
+    if unsupported_omissions:
+        block_reasons.append({
+            "reason": BR_TARGET_OMITTED,
+            "tickers": sorted({o["ticker"] for o in unsupported_omissions}),
+            "detail": ("%d approved target action(s) produced no order for a reason outside "
+                       "the supported whole-share / minimum-order / capital envelope."
+                       % len(unsupported_omissions))})
+    if (executability_envelope is not None
+            and policy_tracking_error > float(executability_envelope) + 1e-9):
+        block_reasons.append({
+            "reason": BR_TRACKING_ERROR, "tickers": [],
+            "detail": ("The executable plan tracks the approved target to %.6f, outside the "
+                       "deterministic whole-share / cost / cash envelope of %.6f. The plan is "
+                       "not an acceptable implementation of the approved proposal."
+                       % (policy_tracking_error, float(executability_envelope)))})
+    if (turnover_gap is not None and executability_envelope is not None
+            and abs(float(turnover_gap)) > float(executability_envelope) + 1e-9):
+        block_reasons.append({
+            "reason": BR_TURNOVER_GAP, "tickers": [],
+            "detail": ("Executable one-way turnover %.6f vs approved proposal turnover %.6f "
+                       "(gap %.6f) exceeds the deterministic envelope %.6f."
+                       % (float(planned_turnover or 0.0), float(proposal_turnover or 0.0),
+                          float(turnover_gap), float(executability_envelope)))})
+    # Target reconciliation: every proposed positive-weight constituent must end up either
+    # HELD at its target share count or explicitly, supportedly omitted. Nothing may vanish.
+    unrepresented = []
+    for tk in universe["target_tickers"]:
+        if int(achieved_sh.get(tk, 0) or 0) > 0:
+            continue
+        if any(o["ticker"] == tk and o["supported"] for o in omitted):
+            continue
+        unrepresented.append(tk)
+    if unrepresented:
+        block_reasons.append({
+            "reason": BR_RECONCILIATION, "tickers": sorted(unrepresented),
+            "detail": ("%d approved positive-weight target constituent(s) are absent from the "
+                       "resulting portfolio and are not explained by a supported deterministic "
+                       "policy." % len(unrepresented))})
+
+    blocked_tickers = sorted({t for b in block_reasons for t in b["tickers"]}
+                             | {b["ticker"] for b in blocked})
+    buildable = not block_reasons
 
     plan_core = {
         "orders": orders, "blocked": blocked,
@@ -451,7 +716,7 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
         "estimated_transaction_cost": round(est_cost, 2),
         "gross_sells": _r2(gross_sells), "gross_buys": _r2(gross_buys),
         "residual_cash": _r2(residual_cash),
-        "one_way_turnover": _r6((gross_sells + gross_buys) / 2.0 / nav) if nav else None,
+        "one_way_turnover": planned_turnover,
         "target_tracking_error": tracking_error,
         "trimmed_for_capital": sorted(set(trimmed)),
         "before_weights": before_w, "after_weights": after_w,
@@ -461,6 +726,35 @@ def _reconcile_order_plan(*, artifact: dict, bound: dict, view: dict) -> dict:
                    "min_order_shares": MIN_ORDER_SHARES,
                    "cost_bps_per_side": COST_BPS_PER_SIDE, "whole_shares_only": True,
                    "execution_model": EXECUTION_MODEL, "long_only": True},
+        # --- the Stage 19.2 fail-closed contract (structured, never free text) --- #
+        "order_plan_buildable": buildable,
+        "blocked_tickers": blocked_tickers,
+        "blocked_count": len(blocked_tickers),
+        "blocked_reasons": block_reasons,
+        "block_reason_vocabulary": list(BLOCK_REASON_VOCAB),
+        "required_mark_count": coverage["required_mark_count"],
+        "available_mark_count": coverage["available_mark_count"],
+        "missing_mark_count": len(tradable_missing),
+        "missing_marks": tradable_missing,
+        "mark_coverage": coverage,
+        "target_mark_universe": universe,
+        "proposal_action_count": proposal_action_count,
+        "planned_action_count": planned_action_count,
+        "omitted_actions": omitted,
+        "unsupported_omission_count": len(unsupported_omissions),
+        "proposal_one_way_turnover": proposal_turnover,
+        "planned_one_way_turnover": planned_turnover,
+        "turnover_gap": turnover_gap,
+        "policy_target_tracking_error": policy_tracking_error,
+        "executability_envelope": executability_envelope,
+        "envelope_components": {
+            "whole_share_slack": _r2(share_slack),
+            "transaction_cost": _r2(est_cost),
+            "capital_shortfall": _r2(capital_shortfall),
+            "nav_basis": _r2(nav)},
+        "supported_execution_mechanics": ["WHOLE_SHARES", "TRANSACTION_COST",
+                                          "AVAILABLE_CASH", "CONCENTRATION_POLICY",
+                                          "MIN_ORDER_POLICY"],
     }
     # order_plan_hash binds the entire plan + the bound proposal identity + desk state.
     plan_identity = {"bound": bound, "desk_state_hash": view["desk_state_hash"],
@@ -492,6 +786,11 @@ _PRIMARY_ACTION = {
     RB_EXECUTED: {"label": "Paper rebalance executed & reconciled", "path": None},
     RB_NO_CHANGES: None,
     RB_UNAVAILABLE: None,
+    # Stage 19.2 — exactly ONE next action out of each blocked state.
+    RB_BLOCKED_MARKS: {"label": "Refresh owned marks for the approved target",
+                       "path": "POST /v1/operations/rebalance/refresh-target-marks"},
+    RB_BLOCKED_INCOMPLETE: {"label": "Run the Daily Research Cycle for a fresh proposal",
+                            "path": "POST /v1/operations/daily-research-cycle/run"},
 }
 
 
@@ -538,6 +837,13 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
     except Exception as exc:  # noqa: BLE001 - a pure read must never crash the caller
         return {"phase": PHASE, "owner": OWNER, "status": "OK",
                 "generated_at": generated_at, "rebalance_state": RB_UNAVAILABLE,
+                "state_vocabulary": list(STATE_VOCAB),
+                "order_plan_buildable": False, "confirmation_available": False,
+                "blocked_tickers": [], "blocked_count": 0, "blocked_reasons": [],
+                "missing_marks": [], "order_plan": None,
+                "confirm_required_token": CONFIRM_TOKEN,
+                "target_mark_refresh_token": HYDRATE_CONFIRM_TOKEN,
+                "provider_called": False, "performed_write": False, "created_orders": False,
                 "message": "Rebalance state unavailable: %s" % str(exc)[:160], **_safety()}
 
     state = base["state"]
@@ -560,7 +866,18 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
              RB_PLAN_CONFIRMED: "Paper execution pending (NEXT_CLOSE)",
              RB_EXECUTED: "Paper executed & reconciled",
              RB_NO_CHANGES: "Holdings already match the approved target",
-             RB_UNAVAILABLE: "Rebalance state unavailable"}.get(state, state)
+             RB_UNAVAILABLE: "Rebalance state unavailable",
+             RB_BLOCKED_MARKS: "ORDER PLAN BLOCKED — owned marks required",
+             RB_BLOCKED_INCOMPLETE: "ORDER PLAN BLOCKED — incomplete target"}.get(state, state)
+
+    # Stage 19.2: executability is a property of the PLAN, never of the state name alone.
+    # The August-12 defect was precisely a state-derived `True` sitting on top of a plan
+    # that had already recorded eight blocked names.
+    buildable = bool(plan.get("order_plan_buildable")) if plan else False
+    if state in NON_CONFIRMABLE_STATES:
+        buildable = False
+    if state in (RB_PLAN_CONFIRMED, RB_EXECUTED, RB_NO_CHANGES):
+        buildable = False
 
     out = {
         "phase": PHASE, "owner": OWNER, "status": "OK", "generated_at": generated_at,
@@ -569,15 +886,35 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
         "message": base.get("message"),
         "primary_action": _PRIMARY_ACTION.get(state),
         "confirm_required_token": CONFIRM_TOKEN,
+        "target_mark_refresh_token": HYDRATE_CONFIRM_TOKEN,
         "order_plan": plan,
         "executed_order_ids": [o["order_id"] for o in executed],
         "executed_order_status": {o["order_id"]: o["status"] for o in executed},
         # Stage 19.1 — why a proposal is stale, and the explicit executability contract.
         "stale_reason": base.get("stale_reason"),
         "corporate_action_staleness": base.get("corporate_action_staleness"),
-        "order_plan_buildable": state not in (RB_STALE, RB_PROPOSAL_REVIEW_REQUIRED,
-                                              RB_NO_PROPOSAL, RB_NO_ACTIVE_BOOK,
-                                              RB_UNAVAILABLE),
+        "order_plan_buildable": buildable,
+        "confirmation_available": buildable and bool((plan or {}).get("orders")),
+        # --- Stage 19.2 fail-closed contract, surfaced at the TOP level so no operator
+        # surface has to dig into diagnostics to discover that names were dropped. --- #
+        "blocked_tickers": (plan or {}).get("blocked_tickers") or [],
+        "blocked_count": (plan or {}).get("blocked_count") or 0,
+        "blocked_reasons": (plan or {}).get("blocked_reasons") or [],
+        "block_reason_codes": base.get("block_reason_codes") or [],
+        "required_mark_count": (plan or {}).get("required_mark_count"),
+        "available_mark_count": (plan or {}).get("available_mark_count"),
+        "missing_mark_count": (plan or {}).get("missing_mark_count"),
+        "missing_marks": (plan or {}).get("missing_marks") or [],
+        "proposal_action_count": (plan or {}).get("proposal_action_count"),
+        "planned_action_count": (plan or {}).get("planned_action_count"),
+        "proposal_one_way_turnover": (plan or {}).get("proposal_one_way_turnover"),
+        "planned_one_way_turnover": (plan or {}).get("planned_one_way_turnover"),
+        "turnover_gap": (plan or {}).get("turnover_gap"),
+        "target_tracking_error": (plan or {}).get("target_tracking_error"),
+        "executability_envelope": (plan or {}).get("executability_envelope"),
+        "residual_cash": (plan or {}).get("residual_cash"),
+        "marks_date": (plan or {}).get("marks_date"),
+        "provider_called": False, "performed_write": False, "created_orders": False,
         **_safety(),
     }
     return out
@@ -629,6 +966,44 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
     if state == RB_UNAVAILABLE:
         return {**base_safety, "status": RB_UNAVAILABLE, "message": base.get("message")}
     plan = base.get("plan") or {}
+
+    # ----------------------------------------------------------------------- #
+    # Stage 19.2 — INDEPENDENT SERVER-SIDE REVALIDATION, before the first write.
+    #
+    # `base` above was rebuilt from the CURRENT stores at this instant: the proposal, the
+    # decision, the corporate-action registry, the desk holdings and the owned marks are
+    # all re-read here, so a plan that was executable when the operator reviewed it but is
+    # not executable NOW is refused. A browser boolean is never trusted; the UI cannot
+    # reach this branch at all, because the refusal is decided from the freshly rebuilt
+    # plan. The refusal happens BEFORE any ledger append, so it is atomic: zero orders,
+    # zero fills, zero holding / cash / NAV change.
+    # ----------------------------------------------------------------------- #
+    if state in NON_CONFIRMABLE_STATES or not plan.get("order_plan_buildable"):
+        return {**base_safety, "status": C_BLOCKED, "rebalance_state": state,
+                "revalidated_server_side": True, "refused_before_any_write": True,
+                "message": base.get("message") or _blocked_message(plan, state),
+                "bound": base.get("bound"),
+                "order_plan_buildable": False,
+                "blocked_tickers": plan.get("blocked_tickers") or [],
+                "blocked_count": plan.get("blocked_count") or 0,
+                "blocked_reasons": plan.get("blocked_reasons") or [],
+                "block_reason_codes": base.get("block_reason_codes") or [],
+                "required_mark_count": plan.get("required_mark_count"),
+                "available_mark_count": plan.get("available_mark_count"),
+                "missing_mark_count": plan.get("missing_mark_count"),
+                "missing_marks": plan.get("missing_marks") or [],
+                "proposal_action_count": plan.get("proposal_action_count"),
+                "planned_action_count": plan.get("planned_action_count"),
+                "proposal_one_way_turnover": plan.get("proposal_one_way_turnover"),
+                "planned_one_way_turnover": plan.get("planned_one_way_turnover"),
+                "turnover_gap": plan.get("turnover_gap"),
+                "target_tracking_error": plan.get("target_tracking_error"),
+                "executability_envelope": plan.get("executability_envelope"),
+                "order_plan_id": plan.get("order_plan_id"),
+                "order_plan_hash": plan.get("order_plan_hash"),
+                "target_mark_refresh_token": HYDRATE_CONFIRM_TOKEN,
+                "next_action": _PRIMARY_ACTION.get(state)}
+
     if not plan.get("orders"):
         return {**base_safety, "status": C_NO_CHANGES, "rebalance_state": RB_NO_CHANGES,
                 "message": "The approved target already matches the current desk; no order "
@@ -643,14 +1018,25 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
                 "current_order_plan_hash": plan["order_plan_hash"]}
 
     sdir = desk._desk_dir(desk_dir)
-    # Idempotency: the exact plan already executed -> reuse, ZERO duplicate orders.
-    already = _executed_orders_for_plan(sdir, plan["order_plan_id"])
+    # Idempotency: the exact plan already has a LIVE order set -> reuse, ZERO duplicates.
+    #
+    # Stage 19.2 (Workstream F): terminal CANCELLED / EXPIRED orders are immutable evidence,
+    # not a live lineage. A defective plan that the operator cancelled must therefore NOT
+    # permanently veto a later, repaired plan for the same proposal — while a plan with any
+    # live or filled order stays strictly idempotent. Order ids are sequenced from the total
+    # ledger length, so a recovery set can never collide with the cancelled one.
+    lineage_orders = _executed_orders_for_plan(sdir, plan["order_plan_id"])
+    already = [o for o in lineage_orders if o["status"] not in (desk.ST_CANCELLED,
+                                                                desk.ST_EXPIRED)]
+    cancelled_prior = [o for o in lineage_orders if o["status"] in (desk.ST_CANCELLED,
+                                                                    desk.ST_EXPIRED)]
     if already:
         return {**base_safety, "status": C_REUSED, "reused": True,
                 "rebalance_state": RB_PLAN_CONFIRMED,
                 "order_plan_id": plan["order_plan_id"],
                 "order_plan_hash": plan["order_plan_hash"],
                 "existing_order_ids": [o["order_id"] for o in already],
+                "cancelled_prior_order_ids": [o["order_id"] for o in cancelled_prior],
                 "message": "This exact order plan was already confirmed; no duplicate orders."}
 
     book = base["desk_view"]["book"]
@@ -716,7 +1102,19 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
     order_ids = [e["order"]["order_id"] for e in order_events]
     return {**base_safety, "status": C_CREATED, "performed_write": True, "created_orders": True,
             "wrote_to_desk_ledgers_only": True, "rebalance_state": RB_PLAN_CONFIRMED,
+            "revalidated_server_side": True,
             "order_plan_id": plan["order_plan_id"], "order_plan_hash": plan["order_plan_hash"],
+            "order_plan_buildable": True,
+            "blocked_count": plan.get("blocked_count") or 0,
+            "blocked_tickers": plan.get("blocked_tickers") or [],
+            "proposal_one_way_turnover": plan.get("proposal_one_way_turnover"),
+            "planned_one_way_turnover": plan.get("planned_one_way_turnover"),
+            "turnover_gap": plan.get("turnover_gap"),
+            "target_tracking_error": plan.get("target_tracking_error"),
+            "executability_envelope": plan.get("executability_envelope"),
+            "residual_cash": plan.get("residual_cash"),
+            "recovered_from_cancelled_plan": bool(cancelled_prior),
+            "cancelled_prior_order_ids": [o["order_id"] for o in cancelled_prior],
             "n_orders_created": len(order_ids), "orders_created": order_ids,
             "approval_date": approval_date, "marks_latest_at_approval": marks_latest,
             "no_hindsight_note": ("Orders are SUBMITTED; they can only fill at the first "
@@ -726,6 +1124,104 @@ def confirm_rebalance_order_plan(*, confirm: Optional[str] = None,
             "message": ("%d paper rebalance order(s) SUBMITTED for NEXT_CLOSE. Fills occur at "
                         "the next completed owned close via the existing desk settlement."
                         % len(order_ids))}
+
+
+# --------------------------------------------------------------------------- #
+# Stage 19.2 — explicit target-mark hydration (Workstream B)
+#
+# This is NOT a second mark writer and NOT a second EODHD client. It resolves the required
+# execution universe of the APPROVED proposal and hands it to the ONE canonical desk mark
+# owner (``desk.refresh_desk``), which keeps sole ownership of the transport, the
+# normalization, the completed-session rule, the store write and the coverage taxonomy.
+# --------------------------------------------------------------------------- #
+def refresh_target_marks(*, confirm: Optional[str] = None, decision_dir=None,
+                         reallocation_dir=None, desk_dir=None, actions_dir=None,
+                         ledger_dir=None, active_book_id=None, eligible_market_date=None,
+                         portfolio_state=None, portfolio_state_loader=None, artifact=None,
+                         decision_record=None, corporate_actions=None, downloader=None,
+                         today: Optional[str] = None,
+                         completed_through: Optional[str] = None) -> dict:
+    """Hydrate the owned execution marks the APPROVED reallocation target needs.
+
+    Explicit and manual: it requires ``confirm == HYDRATE_CONFIRM_TOKEN``. A GET never
+    reaches it, so no page load can call the provider or move a mark. It creates no order,
+    no fill and no decision; the only store it can change is the desk mark cache, and only
+    through the canonical owner."""
+    base_safety = {"owner": OWNER, "phase": PHASE, "performed_write": False,
+                   "created_orders": False, "created_fills": False,
+                   "changed_holdings": False, "changed_cash": False, "changed_nav": False,
+                   "delegated_to_mark_owner": "api.paper_trading_desk.refresh_desk",
+                   **_safety()}
+    if confirm != HYDRATE_CONFIRM_TOKEN:
+        return {**base_safety, "status": H_CONFIRM_REQUIRED,
+                "message": ("Refreshing the approved target's owned marks requires "
+                            "confirm='%s'." % HYDRATE_CONFIRM_TOKEN),
+                "confirm_required_token": HYDRATE_CONFIRM_TOKEN}
+
+    before = load_rebalance_state(
+        decision_dir=decision_dir, reallocation_dir=reallocation_dir, desk_dir=desk_dir,
+        actions_dir=actions_dir, active_book_id=active_book_id,
+        eligible_market_date=eligible_market_date, portfolio_state=portfolio_state,
+        portfolio_state_loader=portfolio_state_loader, artifact=artifact,
+        decision_record=decision_record, corporate_actions=corporate_actions)
+    plan_before = before.get("order_plan") or {}
+    universe = plan_before.get("target_mark_universe")
+    if universe is None:
+        # No executable plan context (no approved proposal / no desk): resolve the universe
+        # directly from the artifact so an operator is never left without a next step.
+        art = artifact
+        if art is None:
+            book_id, elig = _resolve_book_and_date(
+                active_book_id, eligible_market_date, portfolio_state,
+                portfolio_state_loader, desk_dir)
+            art = realloc.load_latest_artifact(active_book_id=book_id,
+                                               eligible_market_date=elig,
+                                               reallocation_dir=reallocation_dir)
+        view = _current_desk_view(desk_dir, actions_dir, corporate_actions)
+        universe = target_mark_universe(artifact=art, holdings=view.get("holdings") or {})
+    if before.get("rebalance_state") in (RB_PROPOSAL_REVIEW_REQUIRED, RB_NO_PROPOSAL,
+                                         RB_NO_ACTIVE_BOOK, RB_STALE):
+        return {**base_safety, "status": H_NOT_APPROVED,
+                "rebalance_state": before.get("rebalance_state"),
+                "target_mark_universe": universe,
+                "message": ("Owned marks are hydrated for an APPROVED reallocation target. "
+                            "%s" % (before.get("message") or ""))}
+
+    refresh = desk.refresh_desk(confirm=desk.REFRESH_CONFIRM_TOKEN, desk_dir=desk_dir,
+                               ledger_dir=ledger_dir, downloader=downloader, today=today,
+                               completed_through=completed_through,
+                               extra_tickers=list(universe["required"]))
+    after = load_rebalance_state(
+        decision_dir=decision_dir, reallocation_dir=reallocation_dir, desk_dir=desk_dir,
+        actions_dir=actions_dir, active_book_id=active_book_id,
+        eligible_market_date=eligible_market_date, portfolio_state=portfolio_state,
+        portfolio_state_loader=portfolio_state_loader, artifact=artifact,
+        decision_record=decision_record, corporate_actions=corporate_actions)
+    plan_after = after.get("order_plan") or {}
+    still_missing = plan_after.get("missing_marks") or []
+    status = H_DONE if not still_missing else H_INCOMPLETE
+    return {**base_safety, "status": status,
+            "performed_write": bool(refresh.get("performed_write")),
+            "wrote_to_desk_mark_store_only": True,
+            "target_mark_universe": universe,
+            "requested_ticker_count": len(universe["required"]),
+            "missing_marks_before": plan_before.get("missing_marks") or [],
+            "missing_marks_after": still_missing,
+            "missing_mark_count_before": plan_before.get("missing_mark_count"),
+            "missing_mark_count_after": plan_after.get("missing_mark_count"),
+            "rebalance_state_before": before.get("rebalance_state"),
+            "rebalance_state_after": after.get("rebalance_state"),
+            "order_plan_buildable_before": before.get("order_plan_buildable"),
+            "order_plan_buildable_after": after.get("order_plan_buildable"),
+            "desk_refresh": refresh,
+            "next_action": after.get("primary_action"),
+            "message": ("Owned marks refreshed for the approved target universe (%d name(s)) "
+                        "through the canonical desk mark owner. %s"
+                        % (len(universe["required"]),
+                           ("Every required execution mark is now present; reload the order "
+                            "plan for review." if not still_missing else
+                            "%d name(s) still have no owned mark: %s."
+                            % (len(still_missing), ", ".join(still_missing)))))}
 
 
 def _persist_plan(plan_dir, plan: dict, bound: dict, lineage: dict, plan_date: str) -> None:
@@ -747,9 +1243,16 @@ def _persist_plan(plan_dir, plan: dict, bound: dict, lineage: dict, plan_date: s
 
 
 __all__ = [
-    "PHASE", "OWNER", "CONFIRM_TOKEN", "STATE_VOCAB", "PLAN_DIR_ENV",
+    "PHASE", "OWNER", "CONFIRM_TOKEN", "HYDRATE_CONFIRM_TOKEN", "STATE_VOCAB",
+    "NON_CONFIRMABLE_STATES", "PLAN_DIR_ENV",
     "RB_NO_ACTIVE_BOOK", "RB_NO_PROPOSAL", "RB_PROPOSAL_REVIEW_REQUIRED", "RB_STALE",
     "RB_PLAN_REVIEW_REQUIRED", "RB_PLAN_CONFIRMED", "RB_EXECUTED", "RB_NO_CHANGES",
-    "RB_UNAVAILABLE", "C_CONFIRM_REQUIRED", "C_NOT_APPROVED", "C_STALE", "C_NO_CHANGES",
-    "C_CREATED", "C_REUSED", "load_rebalance_state", "confirm_rebalance_order_plan",
+    "RB_UNAVAILABLE", "RB_BLOCKED_MARKS", "RB_BLOCKED_INCOMPLETE",
+    "C_CONFIRM_REQUIRED", "C_NOT_APPROVED", "C_STALE", "C_NO_CHANGES",
+    "C_CREATED", "C_REUSED", "C_BLOCKED",
+    "H_CONFIRM_REQUIRED", "H_NOT_APPROVED", "H_DONE", "H_INCOMPLETE",
+    "BR_NO_OWNED_MARK", "BR_TARGET_OMITTED", "BR_TRACKING_ERROR", "BR_TURNOVER_GAP",
+    "BR_RECONCILIATION", "BLOCK_REASON_VOCAB", "SUPPORTED_OMISSIONS",
+    "target_mark_universe", "mark_coverage",
+    "load_rebalance_state", "confirm_rebalance_order_plan", "refresh_target_marks",
 ]

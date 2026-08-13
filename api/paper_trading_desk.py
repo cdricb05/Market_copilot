@@ -1085,7 +1085,17 @@ def _required_mark_date(*, completed_through: Optional[str] = None,
 def refresh_desk(*, confirm: Optional[str] = None, desk_dir=None, ledger_dir=None,
                  downloader: Optional[Downloader] = None,
                  today: Optional[str] = None,
-                 completed_through: Optional[str] = None) -> dict:
+                 completed_through: Optional[str] = None,
+                 extra_tickers: Optional[list[str]] = None) -> dict:
+    """The ONE manual owned-EODHD mark refresh for the paper desk.
+
+    ``extra_tickers`` (Stage 19.2) lets a caller that knows a REQUIRED execution universe
+    the desk cannot infer on its own — most importantly the not-yet-held names of an
+    APPROVED reallocation target — hydrate those marks THROUGH this owner instead of
+    forking a second provider client or a second mark writer. It only widens the fetch
+    set; it changes no coverage rule, no blocker, and no write path. Still explicit and
+    confirm-token gated: nothing here is automatic.
+    """
     if confirm != REFRESH_CONFIRM_TOKEN:
         return {"status": S_CONFIRM_REQUIRED, "performed_write": False,
                 "message": "The manual desk refresh requires confirm='%s'." % REFRESH_CONFIRM_TOKEN,
@@ -1093,6 +1103,8 @@ def refresh_desk(*, confirm: Optional[str] = None, desk_dir=None, ledger_dir=Non
     sdir = _desk_dir(desk_dir)
     book = open_book(sdir)
     tickers: set[str] = set()
+    requested_extra = sorted({str(t).strip().upper() for t in (extra_tickers or []) if t})
+    tickers.update(requested_extra)
     start = None
     snap = _latest_confirmed_snapshot(ledger_dir)
     if snap is not None:
@@ -1131,6 +1143,7 @@ def refresh_desk(*, confirm: Optional[str] = None, desk_dir=None, ledger_dir=Non
                 "requested_ticker_count": len(tickers),
                 "priced_ticker_count": 0, "missing_ticker_count": len(tickers),
                 "missing_tickers": sorted(tickers),
+                "requested_extra_tickers": requested_extra,
                 "latest_completed_market_date": required,
                 "resulting_desk_mark_date": marks_latest_date(read_marks(desk_dir)),
                 "blockers": ["PROVIDER_BLOCKED: %s - the owned-EODHD transport refused the "
@@ -1153,6 +1166,7 @@ def refresh_desk(*, confirm: Optional[str] = None, desk_dir=None, ledger_dir=Non
         "priced_ticker_count": priced,
         "missing_ticker_count": len(missing),
         "missing_tickers": missing,
+        "requested_extra_tickers": requested_extra,
         "latest_completed_market_date": required,
         "resulting_desk_mark_date": resulting,
         "benchmark_priced": benchmark_priced,

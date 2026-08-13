@@ -3220,9 +3220,14 @@
           <div class="pa-decision" id="pa-decision">
             <div class="grp"><span class="grp-lab">HOC</span><span id="pa-dec-hoc"><span class="cc-badge muted">loading&hellip;</span></span></div>
             <div class="grp"><span class="grp-lab">Reallocation</span><span id="pa-dec-realloc"><span class="cc-badge muted">loading&hellip;</span></span></div>
+            <!-- Stage 19.2: the execution gate belongs in the TOP-OF-VIEW decision bar. An
+                 8-name blocked set must never be discoverable only by scrolling to the
+                 Controlled Paper Rebalance card, and never only in Audit / Advanced. -->
+            <div class="grp"><span class="grp-lab">Rebalance</span><span id="pa-dec-rebalance"><span class="cc-badge muted">loading&hellip;</span></span></div>
             <span class="spacer"></span>
             <button class="pa-btn" id="pa-dec-hoc-btn" onclick="navigateToRoute('holding-review')" title="Open the dedicated full-screen Holding Review (read-only). No orders, no confirmation.">View holding changes &rarr;</button>
             <button class="pa-btn" id="pa-dec-realloc-btn" onclick="navigateToRoute('proposed-portfolio')" title="Open the dedicated full-screen Proposed Portfolio (read-only, manual review). No orders, no confirmation.">View proposed portfolio &rarr;</button>
+            <button class="pa-btn" id="pa-dec-rebalance-btn" onclick="focusRebalanceCard()" title="Jump to the Controlled Paper Rebalance card: the executable order plan, the blocking names and the one next action. Read-only; no orders.">View rebalance gate &rarr;</button>
           </div>
           <!-- ===================== Phase 27E DAILY CLOSE — DECISION WORKSPACE ===================== -->
           <!-- The Portfolio Manager is a decision workspace around the ONE canonical
@@ -3701,6 +3706,12 @@
               </div>
               <div id="stage19-banner" style="border:1px solid rgba(59,130,246,.55);background:rgba(59,130,246,.10);color:var(--info,#3b82f6);border-radius:8px;padding:8px 12px;margin:0 0 8px;font-size:11px;font-weight:700;letter-spacing:.02em;">CONTROLLED PAPER REBALANCE &mdash; PAPER ONLY &middot; MANUAL REVIEW &middot; PAPER ORDERS ONLY &middot; NO LIVE BROKER ORDERS &middot; SECOND CONFIRMATION REQUIRED &middot; NEXT_CLOSE, NO SAME-CLOSE HINDSIGHT FILL</div>
               <div id="stage19-state" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 8px;font-size:12px;font-weight:700;">&mdash;</div>
+              <!-- Stage 19.2 FAIL-CLOSED banner. When the approved target cannot be
+                   faithfully executed this panel is the FIRST thing on the card: the
+                   blocked names are never allowed to hide inside diagnostics, and no
+                   confirmation affordance of any kind is rendered while it is visible. -->
+              <div id="stage19-blocked" style="display:none;border:1px solid rgba(239,68,68,.65);background:rgba(239,68,68,.10);border-radius:8px;padding:10px 12px;margin:0 0 8px;"></div>
+              <div id="stage19-ready" style="display:none;border:1px solid rgba(34,197,94,.55);background:rgba(34,197,94,.08);border-radius:8px;padding:10px 12px;margin:0 0 8px;"></div>
               <div id="stage19-primary" class="cc-na-note" style="font-size:11px;margin:0 0 8px;">Loading the read-only rebalance lifecycle&hellip;</div>
               <div id="stage19-plan-kpis" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:11px;">&mdash;</div>
               <div class="card-title" style="margin-top:6px;font-size:12px;">Order Plan Review
@@ -25549,8 +25560,12 @@ function loadRebalanceLifecycle() {
     _mhzGet('/v1/operations/corporate-actions').catch(function () { return null; })
   ]).then(function (res) {
     window._stage19InFlight = null;
+    window._stage19Data = res[0];
     renderRebalanceLifecycle(res[0]);
     renderCorporateActionIntegrity(res[1]);
+    // Stage 19.2: mirror the execution gate into the top-of-view decision bar so a
+    // blocked plan is visible without scrolling to the card.
+    try { renderPmDecisionBar(); } catch (e) {}
     return res;
   }).catch(function () { window._stage19InFlight = null; return null; });
   window._stage19InFlight = p;
@@ -25567,9 +25582,50 @@ function _rbStateBadgeCls(state) {
     PAPER_EXECUTED_RECONCILED: 'safe',
     REBALANCE_NO_ORDERS_REQUIRED: 'muted',
     REBALANCE_NO_PROPOSAL: 'muted', REBALANCE_NO_ACTIVE_BOOK: 'muted',
-    REBALANCE_UNAVAILABLE: 'manual'
+    REBALANCE_UNAVAILABLE: 'manual',
+    ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS: 'danger',
+    ORDER_PLAN_BLOCKED_INCOMPLETE_TARGET: 'danger'
   }[state] || 'muted';
 }
+
+// Stage 19.2 — the ONE explicit operator action out of ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS.
+// It hydrates the approved target's owned marks through the canonical desk mark owner. It
+// creates no order, no fill and no decision, and it is confirm-token gated on the backend —
+// this button is a convenience, never the security boundary. Styled modal only; the page
+// has no native browser dialog anywhere.
+function rebalanceRefreshTargetMarks(btn) {
+  window._showWriteConfirm({
+    title: 'Refresh owned marks for the approved target',
+    confirmLabel: 'Refresh target marks',
+    writesHeader: 'This will write to the local desk mark cache only:',
+    writes: ['Fetch owned-EODHD completed closes for every name the APPROVED reallocation '
+             + 'target needs (proposed constituents + held names + benchmark)',
+             'Delegate entirely to the canonical desk mark owner (POST /v1/operations/'
+             + 'rebalance/refresh-target-marks, token CONFIRM_REBALANCE_TARGET_MARK_REFRESH)'],
+    doesNotDo: ['Create any paper order', 'Create any fill', 'Change holdings, cash or NAV',
+                'Approve, confirm or execute the rebalance', 'Contact a broker',
+                'Enable any automation'],
+    onConfirm: function () {
+      if (btn) { btn.disabled = true; btn.textContent = 'Refreshing target marks…'; }
+      call('POST', '/v1/operations/rebalance/refresh-target-marks',
+           { confirmation: 'CONFIRM_REBALANCE_TARGET_MARK_REFRESH', requested_by: 'manual_ui' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var msg = (d && d.message) ? d.message : 'Target-mark refresh finished.';
+          window._showToast(msg, (d && d.status === 'TARGET_MARKS_REFRESHED') ? 'ok' : 'info', 9000);
+          return loadRebalanceLifecycle();
+        })
+        .catch(function () {
+          window._showToast('The target-mark refresh could not be completed. Nothing was changed.',
+                            'error', 9000);
+        })
+        .then(function () {
+          if (btn) { btn.disabled = false; btn.textContent = 'Refresh target marks'; }
+        });
+    }
+  });
+}
+window.rebalanceRefreshTargetMarks = rebalanceRefreshTargetMarks;
 
 function renderRebalanceLifecycle(d) {
   function setHtml(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
@@ -25577,21 +25633,99 @@ function renderRebalanceLifecycle(d) {
     return '<span class="cc-badge ' + (cls || 'muted') + '" title="' + escapeHtml(label)
       + '">' + escapeHtml(label) + ': ' + escapeHtml(val == null ? '—' : String(val)) + '</span>';
   }
+  function show(id, on) { var el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; }
   if (!d) {
     setHtml('stage19-state', chip('State', 'UNAVAILABLE', 'manual'));
     setHtml('stage19-primary', 'The controlled-rebalance lifecycle is unavailable.');
     setHtml('stage19-plan-kpis', '—'); setHtml('stage19-orders', '—');
+    show('stage19-blocked', false); show('stage19-ready', false);
     return;
   }
   var state = d.rebalance_state || 'REBALANCE_UNAVAILABLE';
+  var blockedCount = d.blocked_count || 0;
   setHtml('stage19-state',
     chip('State', d.label || state, _rbStateBadgeCls(state))
-    + (d.active_book_id ? chip('Book', d.active_book_id, 'muted') : ''));
+    + (d.active_book_id ? chip('Book', d.active_book_id, 'muted') : '')
+    + chip('Blocked names', blockedCount, blockedCount ? 'danger' : 'safe')
+    + chip('Confirmable', d.order_plan_buildable === true ? 'yes' : 'NO',
+           d.order_plan_buildable === true ? 'safe' : 'danger'));
+
+  // ---- Stage 19.2: the FAIL-CLOSED panel, rendered before anything else. -------- //
+  var isBlocked = (state === 'ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS'
+                   || state === 'ORDER_PLAN_BLOCKED_INCOMPLETE_TARGET');
+  if (isBlocked) {
+    var heading = (state === 'ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS')
+      ? 'ORDER PLAN BLOCKED — OWNED MARKS REQUIRED'
+      : 'ORDER PLAN BLOCKED — INCOMPLETE TARGET';
+    var names = (d.missing_marks && d.missing_marks.length) ? d.missing_marks : (d.blocked_tickers || []);
+    var nameChips = names.map(function (t) {
+      return '<span class="cc-badge danger" style="margin:2px 3px 2px 0;">' + escapeHtml(t) + '</span>';
+    }).join('');
+    var reasons = (d.blocked_reasons || []).map(function (b) {
+      return '<li style="margin-bottom:3px;"><b>' + escapeHtml(b.reason || '—') + '</b> — '
+        + escapeHtml(b.detail || '') + '</li>';
+    }).join('');
+    var actionBtn = (state === 'ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS')
+      ? '<button class="btn-sm" id="stage19-hydrate-btn" onclick="rebalanceRefreshTargetMarks(this)" '
+        + 'title="Hydrate the owned execution marks the APPROVED target needs, through the canonical desk mark owner. Creates no order and no fill.">'
+        + 'Refresh target marks</button>'
+      : '<span class="cc-badge manual">Run the Daily Research Cycle for a fresh proposal</span>';
+    setHtml('stage19-blocked',
+      '<div style="font-size:13px;font-weight:800;color:var(--danger,#ef4444);letter-spacing:.02em;">'
+      + escapeHtml(heading) + '</div>'
+      + '<div style="font-size:11px;margin-top:6px;line-height:1.5;">' + escapeHtml(d.message || '') + '</div>'
+      + (names.length ? ('<div style="margin-top:8px;font-size:11px;"><b>' + names.length
+          + ' name(s) blocking execution:</b><br>' + nameChips + '</div>') : '')
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:11px;">'
+      + chip('Required marks', d.required_mark_count, 'muted')
+      + chip('Available', d.available_mark_count, 'muted')
+      + chip('Missing', d.missing_mark_count, 'danger')
+      + chip('Proposal actions', d.proposal_action_count, 'muted')
+      + chip('Planned actions', d.planned_action_count, 'danger')
+      + '</div>'
+      + (reasons ? ('<ul style="margin:8px 0 0;padding-left:16px;font-size:10px;line-height:1.5;">'
+          + reasons + '</ul>') : '')
+      + '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+      + '<span style="font-size:11px;font-weight:700;">Next action:</span>' + actionBtn
+      + '<span class="cc-badge safe">NO ORDERS</span><span class="cc-badge safe">NO FILLS</span>'
+      + '<span class="cc-badge manual">MANUAL REVIEW</span></div>'
+      + '<div class="cc-na-note" style="font-size:10px;margin-top:6px;">No confirmation action '
+      + 'exists while the plan is blocked. The backend refuses the second confirmation for this '
+      + 'plan regardless of anything shown here.</div>');
+  }
+  show('stage19-blocked', isBlocked);
+  // Stage 19.2: the Controlled Paper Rebalance card sits inside the collapsed
+  // "Portfolio decision detail" disclosure. A BLOCKED execution gate must never hide in
+  // a diagnostics section, so the disclosure is opened whenever the plan is blocked. The
+  // operator can still collapse it again; nothing re-closes it on their behalf.
+  if (isBlocked) {
+    try {
+      var host = document.getElementById('stage19-rebalance-card');
+      var det = host ? host.closest('details') : null;
+      if (det && !det.open) { det.open = true; }
+    } catch (e) {}
+  }
+
+  var ready = (d.confirmation_available === true);
+  if (ready) {
+    setHtml('stage19-ready',
+      '<div style="font-size:13px;font-weight:800;color:var(--ok,#22c55e);letter-spacing:.02em;">'
+      + 'ORDER PLAN READY FOR REVIEW</div>'
+      + '<div style="font-size:11px;margin-top:6px;line-height:1.5;">Every approved target name '
+      + 'carries an owned execution mark, every approved action is represented, and the plan '
+      + 'tracks the approved target inside the deterministic whole-share / cost / cash envelope. '
+      + 'The SECOND manual confirmation is now available — it is performed by the backend gate '
+      + '<span class="cc-badge muted">POST /v1/operations/rebalance/confirm-order-plan</span> '
+      + 'with <span class="cc-badge muted">' + escapeHtml(d.confirm_required_token || '') + '</span>, '
+      + 'which independently rebuilds and revalidates this exact plan before it writes anything.</div>');
+  }
+  show('stage19-ready', ready);
+
   var pa = d.primary_action;
   if (pa && pa.label) {
     var pathTxt = pa.path ? (' <span class="cc-badge muted">' + escapeHtml(pa.path) + '</span>') : '';
     setHtml('stage19-primary', '<strong>Primary action:</strong> ' + escapeHtml(pa.label) + pathTxt
-      + (d.message ? ('<br><span style="opacity:.8;">' + escapeHtml(d.message) + '</span>') : ''));
+      + ((d.message && !isBlocked) ? ('<br><span style="opacity:.8;">' + escapeHtml(d.message) + '</span>') : ''));
   } else {
     setHtml('stage19-primary', d.message ? escapeHtml(d.message) : 'No action required.');
   }
@@ -25604,13 +25738,20 @@ function renderRebalanceLifecycle(d) {
       : '—');
     return;
   }
+  var uni = plan.target_mark_universe || {};
   setHtml('stage19-plan-kpis',
-    chip('Sell', plan.n_sell, 'danger') + chip('Buy', plan.n_buy, 'safe')
+    chip('Sell', plan.n_sell, 'danger') + chip('Buy', plan.n_buy, ready ? 'safe' : 'danger')
+    + chip('Proposed target names', uni.n_target, 'muted')
+    + chip('Proposal turnover', d.proposal_one_way_turnover, 'muted')
+    + chip('Executable turnover', d.planned_one_way_turnover, isBlocked ? 'danger' : 'safe')
+    + chip('Turnover gap', d.turnover_gap, isBlocked ? 'danger' : 'muted')
     + chip('Est. proceeds', '$' + (plan.estimated_sell_proceeds != null ? plan.estimated_sell_proceeds : '—'), 'muted')
     + chip('Est. purchases', '$' + (plan.estimated_buy_cost != null ? plan.estimated_buy_cost : '—'), 'muted')
     + chip('Txn cost', '$' + (plan.estimated_transaction_cost != null ? plan.estimated_transaction_cost : '—'), 'muted')
-    + chip('Residual cash', '$' + (plan.residual_cash != null ? plan.residual_cash : '—'), 'muted')
-    + chip('Tracking error', plan.target_tracking_error, 'muted')
+    + chip('Residual cash', '$' + (plan.residual_cash != null ? plan.residual_cash : '—'), isBlocked ? 'danger' : 'muted')
+    + chip('Tracking error', plan.target_tracking_error, isBlocked ? 'danger' : 'muted')
+    + chip('Envelope', d.executability_envelope, 'muted')
+    + chip('Blocked names', blockedCount, blockedCount ? 'danger' : 'safe')
     + chip('Marks date', plan.marks_date, 'muted')
     + chip('Proposal hash', String((d.bound || {}).proposal_hash || '').slice(0, 12), 'muted')
     + chip('Plan hash', String(plan.order_plan_hash || '').slice(0, 12), 'muted'));
@@ -31271,8 +31412,61 @@ function renderPmDecisionBar() {
         + _paDecChip('gaps', gaps2, gaps2 ? 'warn' : 'safe');
     }
   }
+  // ---- Stage 19.2 execution gate ------------------------------------------
+  // Every value is read verbatim from the rebalance owner (window._stage19Data). The
+  // browser decides nothing: whether a plan may be confirmed is the backend's answer.
+  var xEl = document.getElementById('pa-dec-rebalance');
+  if (xEl) {
+    var x = window._stage19Data;
+    if (!x) { xEl.innerHTML = _paDecChip('Loading…', null, 'muted'); }
+    else {
+      var xs = x.rebalance_state || 'REBALANCE_UNAVAILABLE';
+      var xBlocked = (xs === 'ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS'
+                      || xs === 'ORDER_PLAN_BLOCKED_INCOMPLETE_TARGET');
+      var nBlocked = x.blocked_count || 0;
+      var names = (x.missing_marks && x.missing_marks.length) ? x.missing_marks
+                : (x.blocked_tickers || []);
+      if (xBlocked) {
+        xEl.innerHTML =
+          _paDecChip('ORDER PLAN BLOCKED', null, 'danger')
+          + _paDecChip('missing marks', nBlocked, 'danger')
+          + (names.length ? _paDecChip(names.slice(0, 8).join(' '), null, 'danger') : '')
+          + _paDecChip('confirmable', 'NO', 'danger');
+      } else {
+        xEl.innerHTML =
+          _paDecChip('State', x.label || xs, x.order_plan_buildable === true ? 'safe' : 'muted')
+          + _paDecChip('blocked', nBlocked, nBlocked ? 'danger' : 'safe')
+          + _paDecChip('confirmable', x.confirmation_available === true ? 'yes' : 'no',
+                       x.confirmation_available === true ? 'safe' : 'muted');
+      }
+    }
+  }
 }
 window.renderPmDecisionBar = renderPmDecisionBar;
+
+/* Stage 19.2: deep-link from the decision bar to the Controlled Paper Rebalance card.
+   Pure navigation - it reads nothing, writes nothing and creates no order.
+   NOTE: the app scrolls #main-content, not the window, so element.scrollIntoView() is a
+   no-op here. The scroll is applied to the real scrolling ancestor by rect delta. */
+function focusRebalanceCard() {
+  try { navigateToRoute('portfolio-manager'); } catch (e) {}
+  setTimeout(function () {
+    var el = document.getElementById('stage19-rebalance-card');
+    if (!el) return;
+    // The card lives inside the collapsed "Portfolio decision detail" disclosure; a jump
+    // into a closed <details> would land nowhere, so open it first.
+    try { var det = el.closest('details'); if (det && !det.open) { det.open = true; } } catch (e) {}
+    var c = el.parentElement;
+    while (c) {
+      var cs = getComputedStyle(c);
+      if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && c.scrollHeight > c.clientHeight) break;
+      c = c.parentElement;
+    }
+    if (!c) { if (el.scrollIntoView) el.scrollIntoView({ block: 'start' }); return; }
+    c.scrollTop += el.getBoundingClientRect().top - c.getBoundingClientRect().top - 12;
+  }, 140);
+}
+window.focusRebalanceCard = focusRebalanceCard;
 
 /* ---- Portfolio: allocation / winners-losers / drift summary charts --------- */
 function _vaRenderPortfolioSummary(ps, hd, nav) {

@@ -2017,6 +2017,155 @@ def check_corporate_action_propagation(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Stage 19.2 — FAIL-CLOSED rebalance execution
+# --------------------------------------------------------------------------- #
+RB_OWNER_FILE = "api/rebalance_execution.py"
+
+#: The EXACT defect this stage repairs: executability derived from the STATE NAME while the
+#: plan itself had already recorded blocked names. It must never reappear in any form.
+_STATE_DERIVED_BUILDABLE = '"order_plan_buildable": state not in'
+
+#: A second owned-EODHD client / mark writer must NOT appear in the rebalance owner.
+_RB_FORBIDDEN_PROVIDER = ("requests.", "httpx.", "urlopen(", "_live_downloader(",
+                          "def sync_marks(", "def refresh_desk(", "def _fixture_downloader(",
+                          "eodhd.com", "api.eodhistoricaldata.com")
+
+
+def check_failclosed_rebalance_execution(files: list[Path]) -> dict:
+    """Stage 19.2 strict guard: an APPROVED portfolio proposal may NEVER be converted into a
+    materially incomplete paper rebalance.
+
+    Proves:
+      (1) api/rebalance_execution.py is the SOLE owner of the executability contract (it
+          defines the target mark universe, the coverage read and the blocked states);
+      (2) the state-derived ``order_plan_buildable`` defect is GONE — executability is a
+          property of the reconciled PLAN, never of the state name;
+      (3) the confirm gate refuses on a non-buildable plan, atomically, BEFORE any write;
+      (4) target-mark hydration DELEGATES to the canonical desk mark owner — no second
+          EODHD client, no second mark writer, no provider call inside this module;
+      (5) the hydration route exists exactly once as a confirm-token-gated POST, and the
+          read route stays GET-only and provider-free (a page load can never fetch or
+          mutate marks);
+      (6) the desk remains the SOLE order/fill/NEXT_CLOSE owner (no second fill simulator);
+      (7) the UI renders the blocked state, names the blocked tickers, and exposes a
+          confirmation only when the backend says the plan is confirmable;
+      (8) no broker, no live order, no automation, no cadence.
+    """
+    rb_src = _read(RB_OWNER_FILE)
+    desk_src = _read(DESK_OWNER_FILE)
+    app_src = _read("api/app.py")
+    ui = _read(UI_FILE)
+
+    routes = check_routes()["routes"]
+    methods_by_path = {}
+    for r in routes:
+        methods_by_path.setdefault(r["path"], set()).add(r["method"])
+    hydrate_path = "/v1/operations/rebalance/refresh-target-marks"
+    hydrate_methods = sorted(methods_by_path.get(hydrate_path, set()))
+    hydrate_post_count = sum(1 for r in routes
+                             if r["path"] == hydrate_path and r["method"] == "POST")
+    read_methods = sorted(methods_by_path.get("/v1/operations/rebalance", set()))
+
+    # (1) the executability contract lives in exactly one module.
+    owner_defines_contract = all(t in rb_src for t in (
+        "def target_mark_universe(", "def mark_coverage(",
+        "ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS", "ORDER_PLAN_BLOCKED_INCOMPLETE_TARGET",
+        "NON_CONFIRMABLE_STATES"))
+    second_contract_owner_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (RB_OWNER_FILE, "scripts/audit_architecture.py")
+        and "def target_mark_universe(" in fp.read_text(encoding="utf-8", errors="replace"))
+
+    # (2) the exact August-12 defect must be absent everywhere.
+    state_derived_buildable_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) != "scripts/audit_architecture.py"
+        and _STATE_DERIVED_BUILDABLE in fp.read_text(encoding="utf-8", errors="replace"))
+
+    # (3) the confirm gate fails closed, atomically, on the freshly rebuilt plan.
+    confirm_fails_closed = all(t in rb_src for t in (
+        "ORDER_PLAN_BLOCKED", 'not plan.get("order_plan_buildable")',
+        "refused_before_any_write", "revalidated_server_side"))
+
+    # (4) hydration delegates; no second provider client / mark writer here.
+    delegates_to_mark_owner = ("desk.refresh_desk(" in rb_src
+                               and "extra_tickers=" in rb_src
+                               and "REFRESH_CONFIRM_TOKEN" in rb_src)
+    mark_owner_accepts_delegation = ("def refresh_desk(" in desk_src
+                                     and "extra_tickers" in desk_src)
+    rb_provider_calls = sorted(t for t in _RB_FORBIDDEN_PROVIDER if t in rb_src)
+
+    # (5) explicit, token-gated hydration; the read route stays GET-only and provider-free.
+    hydration_token_gated = ("CONFIRM_REBALANCE_TARGET_MARK_REFRESH" in rb_src
+                             and "CONFIRM_REBALANCE_TARGET_MARK_REFRESH" in app_src
+                             and "HYDRATE_CONFIRM_TOKEN" in rb_src)
+    read_route_get_only = read_methods == ["GET"]
+    # The read path must not be able to reach the provider: no refresh/sync call sits inside
+    # the read contract or the plan reconciliation.
+    read_start = rb_src.find("def load_rebalance_state(")
+    read_end = rb_src.find("def confirm_rebalance_order_plan(")
+    read_region = rb_src[read_start:read_end] if (read_start != -1 and read_end > read_start) else ""
+    read_region_provider_calls = sorted(
+        t for t in ("refresh_desk(", "sync_marks(", "refresh_target_marks(")
+        if t in read_region)
+
+    # (6) no second execution owner (mirrors the Stage-19 guard, restated for 19.2).
+    second_execution_owner_defs = sorted(
+        d for d in ("def settle_due_orders(", "def book_nav(", "def _append_ledger(",
+                    "def run_fill_cycle(", "def _row_hash(", "def confirm_orders(")
+        if d in rb_src)
+    next_close_sole_settlement = ("EXECUTION_MODEL_DEFAULT" in desk_src
+                                  and "desk.settle_due_orders(" in rb_src)
+
+    # (7) UI: blocked state visible + confirmation gated on the backend contract.
+    ui_missing_blocked_tokens = sorted(t for t in (
+        "ORDER_PLAN_BLOCKED_MISSING_OWNED_MARKS", "ORDER PLAN BLOCKED",
+        "stage19-blocked", "blocked_tickers", "missing_marks",
+        "confirmation_available", "rebalanceRefreshTargetMarks")
+        if t not in ui)
+    # No browser-side create-orders trigger may exist. The endpoint may be NAMED in the UI
+    # (the operator must know where the security boundary is); what must not exist is a
+    # control that INVOKES it. So the check targets concrete invocation forms, not mentions.
+    _cop = "/v1/operations/rebalance/confirm-order-plan"
+    ui_order_creating_controls = sorted(t for t in (
+        "call('POST', '" + _cop + "'", 'call("POST", "' + _cop + '"',
+        "_mhzPost('" + _cop + "'", "path: '" + _cop + "'",
+        "fetch('" + _cop + "'", "createOrders(")
+        if t in ui)
+
+    # (8) safety.
+    automatic_tokens_present = sorted(
+        t for t in ("auto_approve", "auto_confirm", "auto_rebalance", "AUTO_APPROVE",
+                    "schedule.every", "crontab")
+        if t in rb_src)
+
+    return {
+        "owner_present": (REPO_ROOT / RB_OWNER_FILE).exists(),
+        "owner_defines_executability_contract": owner_defines_contract,
+        "second_contract_owner_modules": second_contract_owner_modules,
+        "state_derived_buildable_modules": state_derived_buildable_modules,
+        "confirm_fails_closed_before_write": confirm_fails_closed,
+        "delegates_to_canonical_mark_owner": delegates_to_mark_owner,
+        "mark_owner_accepts_delegation": mark_owner_accepts_delegation,
+        "owner_provider_calls": rb_provider_calls,
+        "hydration_token_gated": hydration_token_gated,
+        "hydration_route_post_count": hydrate_post_count,
+        "hydration_route_methods": hydrate_methods,
+        "read_route_methods": read_methods,
+        "read_route_get_only": read_route_get_only,
+        "read_region_provider_calls": read_region_provider_calls,
+        "second_execution_owner_defs": second_execution_owner_defs,
+        "next_close_sole_settlement": next_close_sole_settlement,
+        "ui_missing_blocked_tokens": ui_missing_blocked_tokens,
+        "ui_order_creating_controls": ui_order_creating_controls,
+        "automatic_tokens_present": automatic_tokens_present,
+        "broker_enabled": False,
+        "automation_enabled": False,
+        "cadence_enabled": False,
+    }
+
+
 def check_research_agent_ownership(files: list[Path]) -> dict:
     """Slice 8 (Phase 29I) strict semantic ownership guard for the Persistent Alpha Research
     Agent (Milestone 4). Proves: (1) engine/research_agent.py is the SOLE research-state
@@ -2644,6 +2793,7 @@ def run_audit() -> dict:
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
         "corporate_action_propagation": check_corporate_action_propagation(files),
+        "failclosed_rebalance_execution": check_failclosed_rebalance_execution(files),
         "research_agent_ownership": check_research_agent_ownership(files),
         "data_expansion_ownership": check_data_expansion_ownership(files),
         "operator_ux_consolidation_ownership": check_operator_ux_consolidation_ownership(files),
@@ -2961,6 +3111,33 @@ def _print_console(rep: dict) -> None:
     print(f"UI split math (must be empty): {cp['ui_split_math_present']}  "
           f"immutable evidence rewritten (must be False): {cp['immutable_evidence_rewritten']}")
 
+    hdr("FAIL-CLOSED REBALANCE EXECUTION (Stage 19.2)")
+    fc = rep["failclosed_rebalance_execution"]
+    print(f"owner present: {fc['owner_present']}  "
+          f"owner defines executability contract: {fc['owner_defines_executability_contract']}")
+    print(f"second contract owner (must be empty): {fc['second_contract_owner_modules']}")
+    print(f"STATE-DERIVED buildable defect (must be empty): "
+          f"{fc['state_derived_buildable_modules']}")
+    print(f"confirm fails closed before any write: {fc['confirm_fails_closed_before_write']}")
+    print(f"delegates to canonical mark owner: {fc['delegates_to_canonical_mark_owner']}  "
+          f"mark owner accepts delegation: {fc['mark_owner_accepts_delegation']}  "
+          f"owner provider calls (must be empty): {fc['owner_provider_calls']}")
+    print(f"hydration token-gated: {fc['hydration_token_gated']}  "
+          f"hydration POST route count (must be 1): {fc['hydration_route_post_count']}  "
+          f"methods: {fc['hydration_route_methods']}")
+    print(f"read route GET-only: {fc['read_route_get_only']} {fc['read_route_methods']}  "
+          f"provider calls inside the read path (must be empty): "
+          f"{fc['read_region_provider_calls']}")
+    print(f"second execution/fill owner defs (must be empty): "
+          f"{fc['second_execution_owner_defs']}  "
+          f"NEXT_CLOSE sole settlement: {fc['next_close_sole_settlement']}")
+    print(f"UI blocked-state tokens missing (must be empty): {fc['ui_missing_blocked_tokens']}  "
+          f"UI order-creating controls (must be empty): {fc['ui_order_creating_controls']}")
+    print(f"automatic tokens (must be empty): {fc['automatic_tokens_present']}  "
+          f"broker enabled (must be False): {fc['broker_enabled']}  "
+          f"automation enabled (must be False): {fc['automation_enabled']}  "
+          f"cadence enabled (must be False): {fc['cadence_enabled']}")
+
     hdr("PERSISTENT ALPHA RESEARCH AGENT OWNERSHIP (Slice 8, Phase 29I, Milestone 4)")
     ra = rep["research_agent_ownership"]
     print(f"kernel present: {ra['kernel_present']}  owner present: {ra['owner_present']}  "
@@ -3118,6 +3295,7 @@ def main(argv=None) -> int:
         mr = rep["drc_manifest_recovery"]
         rp = rep["reallocation_proposal_ownership"]
         cr = rep["controlled_rebalance_ownership"]
+        fc = rep["failclosed_rebalance_execution"]
         ra = rep["research_agent_ownership"]
         de = rep["data_expansion_ownership"]
         ux = rep["operator_ux_consolidation_ownership"]
@@ -3278,6 +3456,25 @@ def main(argv=None) -> int:
                          + (0 if cr["corporate_action_read_time_projection"] else 1)
                          + len(cr["forbidden_auto_execution_routes_present"])
                          + len(cr["automatic_tokens_present"])
+                         # --- Stage 19.2 fail-closed rebalance execution -------------- #
+                         + (0 if fc["owner_present"] else 1)
+                         + (0 if fc["owner_defines_executability_contract"] else 1)
+                         + len(fc["second_contract_owner_modules"])
+                         + len(fc["state_derived_buildable_modules"])
+                         + (0 if fc["confirm_fails_closed_before_write"] else 1)
+                         + (0 if fc["delegates_to_canonical_mark_owner"] else 1)
+                         + (0 if fc["mark_owner_accepts_delegation"] else 1)
+                         + len(fc["owner_provider_calls"])
+                         + (0 if fc["hydration_token_gated"] else 1)
+                         + (0 if fc["hydration_route_post_count"] == 1 else 1)
+                         + (0 if fc["hydration_route_methods"] == ["POST"] else 1)
+                         + (0 if fc["read_route_get_only"] else 1)
+                         + len(fc["read_region_provider_calls"])
+                         + len(fc["second_execution_owner_defs"])
+                         + (0 if fc["next_close_sole_settlement"] else 1)
+                         + len(fc["ui_missing_blocked_tokens"])
+                         + len(fc["ui_order_creating_controls"])
+                         + len(fc["automatic_tokens_present"])
                          # --- Slice 8 (Phase 29I) research-agent ownership ------------ #
                          + (0 if ra["kernel_present"] else 1)
                          + (0 if ra["owner_present"] else 1)
