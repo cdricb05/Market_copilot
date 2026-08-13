@@ -14,7 +14,9 @@ Proves the ONE canonical, state-driven operator workflow:
    PROPOSED, SUBMITTED, PARTIALLY_FILLED, FILLED) from the existing truth;
 2. the SUBMITTED state reads exactly as the operator card requires: N
    submitted / 0 filled / 0 holdings, awaiting the next eligible close, no
-   further confirmation required, primary action "Refresh After Market Close";
+   further confirmation required, primary action "Monitor Pending Paper Orders"
+   (Stage 19.3: settlement happens inside the Daily Close, so no standalone
+   post-close desk-refresh action is offered on the normal path);
 3. every operational surface consumes the SAME canonical values (backend
    cross-endpoint agreement + the UI single-source view model);
 4. confirm/preview buttons recede after submission; the submitted order table
@@ -157,7 +159,7 @@ class TestLifecycleResolution:
         assert cs["primary_headline"] == (
             "%d PAPER ORDERS SUBMITTED — AWAITING NEXT ELIGIBLE CLOSE" % _N)
         assert cs["submitted_count"] == _N
-        assert cs["next_action_label"] == "Refresh After Market Close"
+        assert cs["next_action_label"] == "Monitor Pending Paper Orders"
 
     def test_submitted_on_a_later_calendar_day(self, env27b1):
         """WAITING_FOR_ELIGIBLE_CLOSE still presents as the SUBMITTED stage."""
@@ -165,7 +167,7 @@ class TestLifecycleResolution:
         cs = _cs(today="2026-07-20")
         assert cs["workflow_state"] == "WAITING_FOR_ELIGIBLE_CLOSE"
         assert cs["lifecycle_stage"] == "SUBMITTED"
-        assert cs["next_action_label"] == "Refresh After Market Close"
+        assert cs["next_action_label"] == "Monitor Pending Paper Orders"
 
     def test_partially_filled(self, env27b1):
         _partially_filled_world()
@@ -174,7 +176,7 @@ class TestLifecycleResolution:
         assert cs["primary_headline"] == "PAPER EXECUTION IN PROGRESS"
         assert cs["filled_count"] == _N - 1
         assert cs["submitted_count"] == 1
-        assert cs["next_action_label"] == "Refresh After Market Close"
+        assert cs["next_action_label"] == "Monitor Pending Paper Orders"
         assert cs["no_further_confirmation_required"] is True
 
     def test_fully_filled(self, env27b1):
@@ -241,7 +243,9 @@ class TestSubmittedStatePresentation:
         e = cs["next_eligible_fill_explanation"]
         assert "2026-07-18" in e                      # dynamic submission date
         assert "expected, not a failure" in e
-        assert "LATER manual desk refresh" in e
+        # Stage 19.3: settlement happens inside the Daily Close, not a separate refresh.
+        assert "Daily Close for that session settles them" in e
+        assert "manual desk refresh" not in e
 
     def test_never_a_confirmation_action(self, env27b1):
         """No surface may recommend confirming anything once orders exist."""
@@ -295,7 +299,7 @@ class TestCrossSurfaceAgreement:
         assert ops["holdings_count"] == cs["holdings_count"] == 0
         assert ops["canonical_state"]["lifecycle_stage"] == "SUBMITTED"
         assert ops["canonical_state"]["next_action_label"] == \
-            "Refresh After Market Close"
+            "Monitor Pending Paper Orders"
 
     def test_ui_consumes_one_view_model(self, js):
         """Pages render the shared derivation - never their own state logic."""
@@ -318,7 +322,9 @@ class TestCrossSurfaceAgreement:
         # own calm, specific waiting language.
         assert "awaiting the next eligible completed close" in js
         assert "expected, not a failure" in js
-        assert "Refresh After Market Close" in js
+        # Stage 19.3: the waiting language names the Daily Close as the settling owner —
+        # never a competing standalone post-close desk-refresh control.
+        assert "Recovery: Refresh Desk Data" in js
 
 
 # --------------------------------------------------------------------------- #
@@ -332,8 +338,12 @@ class TestCompletedActionsRecede:
     def test_plan_band_recedes_once_orders_exist(self, js):
         assert "if (abBand) abBand.style.display = 'none';" in js
 
-    def test_refresh_button_becomes_refresh_after_market_close(self, js):
-        assert "lcTracking ? 'Refresh After Market Close' : " in js
+    def test_desk_refresh_is_maintenance_only_never_a_workflow_step(self, js):
+        # Stage 19.3: the low-level desk refresh is never relabelled into a workflow
+        # step and never promoted with a highlight — the Daily Close owns the
+        # post-close transition (one orchestration path).
+        assert "Refresh After Market Close" not in js
+        assert "refBtn.textContent = 'Recovery: Refresh Desk Data';" in js
 
     def test_completed_workflow_stage_buttons_hide(self, js):
         assert "if (row.status === 'COMPLETE') {" in js
@@ -409,7 +419,7 @@ class TestResearchNeverOverrides:
         monkeypatch.setattr(ob_mod, "_VALUATION_LOADER", _boom)
         cs = _cs()
         assert cs["lifecycle_stage"] == "SUBMITTED"
-        assert cs["next_action_label"] == "Refresh After Market Close"
+        assert cs["next_action_label"] == "Monitor Pending Paper Orders"
         assert cs["primary_headline"].endswith(
             "PAPER ORDERS SUBMITTED — AWAITING NEXT ELIGIBLE CLOSE")
 

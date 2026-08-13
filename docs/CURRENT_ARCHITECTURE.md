@@ -121,12 +121,45 @@ See the machine-readable classification in
 
 `api/ui/index.html` is a single-source-of-truth cockpit (Phases 27B/27C/28C):
 
-- **6 sidebar views** (`.sidebar-link[data-route]`, hash-routed via
-  `applyRoute`): Command Center → `tab-overview`; Portfolio → `tab-portfolio`;
-  Daily Workflow → `tab-prediction-cockpit`; Portfolio Manager →
-  `tab-portfolio-manager`; Model Target/Alpha Portfolio → `tab-multi-horizon`;
-  Research & Audit → `tab-audit-advanced` (with a 9-item sub-nav). A legacy
-  4-tab bar remains but is hidden.
+- **4 operator-oriented primary areas (Phase 29J.1 OPERATOR UX CONSOLIDATION)**
+  (`.sidebar-link[data-route]`, hash-routed via `applyRoute`): **Today** →
+  `tab-overview` (default landing; route `command-center`); **Portfolio** →
+  `tab-portfolio-manager` (route `portfolio-manager`; the decision surface —
+  holdings + Holding Opportunity-Cost + Reallocation Proposal); **Research** →
+  `tab-audit-advanced` @section `research-agent` (route `research`); **System ·
+  Audit** → `tab-audit-advanced` @section `diagnostics` (route `system-audit`).
+  Legacy/detail views (Daily Workflow → `tab-prediction-cockpit`, Model Target →
+  `tab-multi-horizon`, Holdings detail → `tab-portfolio`) are DEMOTED under a
+  collapsed "Advanced views" disclosure — reachable, not primary. Every old route
+  still resolves as an alias (`today`, `command-center`, `portfolio`,
+  `research-audit`, `daily-workflow`, `multi-horizon`, `portfolio-manager`,
+  `alpha-portfolio`), so no deep link breaks. A legacy 4-tab bar remains hidden.
+- **Market Context strip (restored, Phase 29J.1)** on Today, filled by the ONE
+  `loadMarketDashboard()` loader from the SINGLE authoritative owner
+  `GET /v1/market/indicators` (remote free providers: Yahoo Finance equities/FX/
+  commodities, FRED rates). It is REFERENCE CONTEXT ONLY (never an alpha signal,
+  never BUY/SELL), current-only with per-tile as-of labels, and renders explicit
+  UNAVAILABLE tiles for series with no owned/available source (DXY has no owned
+  source; US rates are UNAVAILABLE without a FRED key) — never a fabricated number.
+  The UI performs no market math and calls no provider directly.
+- **Visual Analytics (Phase 29J.2).** A hand-rolled, theme-aware inline-SVG / CSS-bar
+  toolkit (`_va*`, no external chart library) adds compact charts to three surfaces,
+  each bound VERBATIM to a read-only payload (the browser aggregates nothing):
+  (a) **Today** — a Market Trend sparkline strip + a DESCRIPTIVE Market Regime block,
+  filled by `loadMarketContext()` from the ONE new read-only owner
+  `GET /v1/market/context` (reuses the same yfinance history helper +
+  `_batch_fred_with_prior`; ~1-month trend for S&P 500 / Nasdaq / VIX / WTI / Gold /
+  EUR/USD, plus factual equity/volatility/rates/commodities/FX tones — reference only,
+  never a signal, forecast, or recommendation, with graceful per-series UNAVAILABLE);
+  (b) **Portfolio** — a NAV-vs-SPY cumulative-return line, a cumulative/daily-P&L chart
+  (`loadPortfolioAnalytics()` from `/v1/paper-desk/performance` +
+  `/v1/evidence/attribution-history`), and the six summary cards rendered as sector /
+  concentration / winners / losers / drift / cash-vs-invested visuals;
+  (c) **Portfolio Manager** — reallocation review visuals (state/DEGRADED banner with
+  data-gap chips, turnover/cost/score KPI tiles, action-mix bars, before→after sector
+  paired bars) bound to the same `GET /v1/operations/reallocation-proposal` payload,
+  with the full chip metrics retained under a collapsed disclosure. Read-only; paper
+  only; no orders; no automation; no new order/broker/promotion path.
 - **3 HTTP helpers** (`call()`, `fetchWithTimeout()`, `_mhzGet()`); **152
   `call()` sites**; ~150 `load*/render*` functions.
 - **One coalesced single-flight loader**, `loadOperationalBook()` (guard
@@ -634,9 +667,10 @@ flowchart LR
   `renderPmStatusbar` hard-refuse them). The UI computes no NAV/total/active-book
   selection/valuation date/pending count.
 - **Preliminary proposal:** the reassessment proposal (the August 17 proposed changes)
-  is review-only and unapproved, labelled `PRELIMINARY PROPOSAL — OPPORTUNITY-COST
-  ENGINE NOT YET IMPLEMENTED`; no confirmation / order-creation path exists (Slice 6 /
-  Slice 7 not implemented).
+  is review-only and unapproved, labelled `REALLOCATION PROPOSAL — MANUAL REVIEW
+  REQUIRED (REVIEW ONLY, NO ORDERS)`; no confirmation / order-creation path exists
+  (the Slice 6 Opportunity-Cost review and the Slice 7 Reallocation Proposal are
+  implemented and review-only).
 - **Static guard:** `scripts/audit_architecture.py:check_portfolio_state_ownership`
   enforces the sole owner, full delegation, no second owner, no writer, the
   dormant-legacy rejection, the GET-only route, ONE UI loader + renderer with no UI
@@ -685,8 +719,9 @@ flowchart LR
   cost / total computation) — summary + sortable holding table with ALL / HOLD / REDUCE
   / EXIT / REPLACE filters + a separate ADD-candidate section. The Daily Action Gate
   delegates to the opportunity-cost summary (`opportunity_cost_*`) and the review-only
-  banner reads `HOLDING OPPORTUNITY-COST REVIEW — REALLOCATION ENGINE NOT YET
-  IMPLEMENTED`.
+  banner reads `REALLOCATION PROPOSAL — MANUAL REVIEW REQUIRED (REVIEW ONLY, NO ORDERS)`
+  (Slice 7 Reallocation Proposal landed; the gate reports
+  `reallocation_engine_implemented = True`).
 - **Static guard:** `scripts/audit_architecture.py:check_holding_opportunity_cost_ownership`
   enforces the sole calculation + API owners, delegation, the GET-only route, no separate
   manual execution endpoint, no second recommendation engine, no order / fill /
@@ -828,6 +863,46 @@ flowchart LR
   credential altered, no portfolio mutation, no model promotion, no order/fill, no cadence. No
   paid provider is ever called during implementation/tests (fixtures only).
 
+### Operator UX Consolidation (Phase 29J.1)
+
+- **Task-oriented information architecture.** The primary navigation is FOUR
+  operator-oriented areas — **Today / Portfolio / Research / System · Audit** —
+  instead of six architecture-centric views. The UI now answers, in order: what is
+  the market doing → what is my portfolio doing → is anything abnormal → what does
+  the system recommend → what do I do next. Legacy/detail views (Daily Workflow,
+  Model Target, Holdings detail) are demoted under a collapsed "Advanced views"
+  disclosure; every old route is preserved as an alias (no dead links). No backend
+  authority moved: the UI still READS the canonical owners (`workflow_state`,
+  `portfolio_state`, `holding_opportunity_cost`, `reallocation_proposal`,
+  `research_agent`, `data_freshness`, `market/indicators`) and duplicates no
+  NAV / workflow / market / HOC / reallocation / research computation in JS.
+- **Today (default landing).** Ordered as MARKET CONTEXT → portfolio performance →
+  concise system status → what changed → the ONE dominant next action (rendered
+  from `workflow_state.primary_action`; the UI invents no priority). Diagnostics sit
+  behind progressive disclosure.
+- **Market Context restored.** The strip was fully built (CSS + `loadMarketDashboard`
+  + `GET /v1/market/indicators`) but its DOM markup had been deleted, so it rendered
+  nothing. Phase 29J.1 re-adds the `.ov-market-card` grid against the SINGLE
+  authoritative owner — no new market-data owner, no new provider, no provider call
+  from JS. Series with no owned/available source render explicit UNAVAILABLE tiles
+  (DXY; US rates without a FRED key). It is reference context, never an alpha signal.
+  There is no live server-side market-regime classifier, so no regime badge is shown.
+- **Portfolio decision first-class.** The Holding Opportunity-Cost review and the
+  Reallocation Proposal (previously buried in a collapsed Advanced block) are OPEN by
+  default on the Portfolio screen, so "Review the reallocation proposal" deep-links to
+  a VISIBLE card; the legacy archived-book KPI strip is tucked into its own nested
+  collapsed disclosure. No APPLY / EXECUTE / CREATE ORDERS / CONFIRM TARGET is added.
+- **Safety consolidation.** One persistent compact safety strip (`PAPER ONLY ·
+  MANUAL REVIEW · AUTOMATION OFF · NO BROKER EXECUTION · NO LIVE BROKER ORDERS · NO
+  MODEL PROMOTION`); backend safety contracts are unchanged.
+- **Static guard:** `scripts/audit_architecture.py:check_operator_ux_consolidation_ownership`
+  proves the four primary areas exist, legacy views are demoted, every route alias
+  resolves, the market strip uses the single authoritative owner (one loader, GET-only,
+  no direct provider host / market math in JS, reference-only label), the one canonical
+  next-action renderer is unchanged, the safety strip carries the canonical set, and
+  this phase introduces no purchase/order/model-promotion route; cadence stays disabled;
+  inventory drift = 0. No intraday functionality is added (Slice 10 remains future).
+
 ### Service vs workflow readiness + Slice 6 operator workflow (Phase 29G.1)
 
 - **Service readiness (owner `GET /v1/ready`):** a lightweight DB connectivity probe
@@ -965,3 +1040,138 @@ flowchart LR
   Daily-Close call path, the pre-close and genuine-inconsistency classification tokens,
   explicit HOC data gaps, Slice 7 absent, Slice 8 (Persistent Alpha Research Agent) planned,
   and cadence disabled. No evidence is fabricated and no order / target authority is added.
+
+---
+
+## Stage 19.3 — Operator workflow & atomic post-close consolidation
+
+### Ownership matrix (after this slice)
+
+| # | Business concept | Canonical owner | Notes |
+|---|---|---|---|
+| 1 | Market session / clock | `engine.market_session` (+ `daily_close._resolve_clock`) | ET cutoff 17:30; unchanged |
+| 2 | Daily Close state + execution | `api.daily_close` | ONE operator write path for the completed session |
+| 3 | Workflow state / primary action | `api.workflow_state` | ONE combined operator interpretation |
+| 4 | Operator command ("what do I do now?") | `api.workflow_state.build_operator_command` | NEW — projection only; decides nothing |
+| 5 | Owned desk marks | `api.paper_trading_desk.sync_marks` / `refresh_desk` | unchanged; now reached THROUGH the close |
+| 6 | NEXT_CLOSE settlement | `api.paper_trading_desk.settle_due_orders` | unchanged; sole fill simulator |
+| 7 | Order ledger | `api.paper_trading_desk` (`paper_orders.json`) | append-only, chain-hashed |
+| 8 | Fill ledger | `api.paper_trading_desk` (`paper_fills.json`) | append-only, immutable |
+| 9 | Operational NAV / holdings | `api.operational_book` | ledger replay; the close READS it |
+| 10 | Current-rebalance lineage | `api.operational_book.current_rebalance_lineage` + `api.rebalance_execution.build_execution_summary` | NEW — lineage-scoped counts |
+| 11 | Rebalance lifecycle | `api.rebalance_execution` | Stage 19 / 19.1 / 19.2 unchanged |
+| 12 | Corporate actions | `api.corporate_actions` | Stage 19.1 unchanged |
+
+**Callers of `paper_trading_desk.refresh_desk`:** `api.daily_close` (step 4 of the
+close — the normal path), `api.rebalance_execution.refresh_target_marks` (Stage 19.2
+approved-target hydration), and `POST /v1/paper-desk/refresh` (maintenance / recovery
+only). There is exactly one desk-refresh POST route.
+
+### Root cause of the competing post-close paths
+
+`resolve_daily_close_status` opened with an unconditional
+`if pending_orders: return PAPER_ORDERS_SUBMITTED`, and `_run_daily_close_locked`
+returned a no-write `PAPER_ORDERS_SUBMITTED` whenever `book["pending_orders"]` was
+non-zero. Because `book_active` was defined as `forward_tracking and not pending`, a
+live book carrying working orders also read as inactive. Together these made the
+standalone Paper Desk refresh a de-facto prerequisite of the Daily Close — even though
+the close already COMPOSES that same owner.
+
+### Resolved orchestration
+
+```
+operator                      canonical Daily Close (ONE write path)
+   |                                   |
+   +-- RUN DAILY CLOSE --------------> 1. resolve latest eligible completed session
+                                       2. idempotency (one row per book_id + date)
+                                       3. server-side provider revalidation
+                                       4. desk.refresh_desk  ----------------------+
+                                            owned EOD marks                        |
+                                            settle_due_orders (NEXT_CLOSE)         | EXISTING
+                                            immutable fill append                  | Paper Desk
+                                            transaction cost (once, at fill)       | owner
+                                            append_performance  -------------------+
+                                       4b. alpha_target.run_refresh (model inputs)
+                                       5. fail closed -> DATA_BLOCKED (no decision row)
+                                       6. frozen-model target + daily checks
+                                       7. ONE decision-journal row (+ settlement provenance)
+                                       8. TRUE_FORWARD evidence capture
+                                       9. final state
+```
+
+### Daily-close precedence — before / after
+
+| Situation | Before | After |
+|---|---|---|
+| Pending orders, no newly eligible close | `PAPER_ORDERS_SUBMITTED` | `PAPER_ORDERS_SUBMITTED` (unchanged) |
+| Pending orders + newly eligible close | `PAPER_ORDERS_SUBMITTED`, close NOT runnable | `DAILY_CLOSE_DUE`, close runnable, settles the orders |
+| No pending orders + newly eligible close | `DAILY_CLOSE_DUE` | `DAILY_CLOSE_DUE` (unchanged) |
+| Owned data cannot reach the eligible date | `DATA_BLOCKED` / `WAITING_FOR_MARKET_DATA` | unchanged (fail-closed preserved) |
+| Eligible date already processed | `ALREADY_PROCESSED` | unchanged (idempotent) |
+| Initial implementation working, no fills | `PAPER_ORDERS_SUBMITTED` | unchanged (no forward-tracking book to close) |
+
+### Failure / idempotency guarantees
+
+- A blocked or raising `refresh_desk` yields `DATA_BLOCKED`, records NO decision-journal
+  row, and stays retryable — a later successful run records exactly one row for that date.
+- A rerun of a processed date returns `ALREADY_PROCESSED`, calls the settlement owner
+  zero additional times, and appends no duplicate fill, performance or decision row.
+- Settlement, cost and fills remain owned solely by `paper_trading_desk`
+  (`COST_RATE_PER_SIDE` appears in no other module); the no-hindsight guard
+  (`marks_latest_at_approval` / `strictly_after_store`) is unchanged, so an order
+  approved on 2026-08-13 can fill no earlier than the 2026-08-13 close.
+- Atomicity across append-only files uses the existing pattern: the durable decision row
+  is written only after marks + fills + performance succeeded, and everything after it
+  (forward-evidence capture) is idempotent and never invalidates the close.
+
+### Operator command contract (`GET /v1/operations/workflow-state` -> `operator_command`)
+
+`state`, `state_label`, `task`, `why`, `next_text`, `supporting_text`,
+`primary_action_available`, `primary_action_label`, `primary_action_code`,
+`primary_action_kind`, `confirmation_required`, `destination`, `focus`, `severity`,
+`passive`, `mutation_controls_allowed`, `maintenance_execution_kinds`,
+`eligible_market_date`, `latest_completed_close_date`.
+
+`primary_action_available` is the single authority for whether any normal-path mutation
+control may render anywhere, on any page.
+
+### UX action hierarchy
+
+- **Command bar** (`#operator-command`, directly below the safety header) — the ONE
+  execution surface; at most one CTA.
+- **Right action rail** — the ONE sanctioned mirror; identical label, same dispatcher.
+- **Page panels** — status only. The Today hero, the workflow banners and
+  `cc-dc-btn` / `dw-dc-btn` / `pm-dc-btn` / `dc-perf-btn` defer via
+  `_wsCommandOwnsExecution()`; navigation links are retained (routing is not a write).
+- **Advanced Order & Execution Details** (collapsed) — target review, order plan, raw
+  paper desk, order / fill history.
+- **`#pd-maintenance`** (collapsed, inside the collapsed advanced band) — the
+  `Recovery: Refresh Desk Data` control, marked EXCEPTIONAL USE ONLY.
+- **SYSTEM / MAINTENANCE sidebar** — generic `Refresh Status` / `Full Refresh`.
+- **Emergency `Cancel Submitted Orders`** — visually secondary / destructive, separated
+  from the workflow, never the canonical primary action.
+
+### Current-rebalance lineage (the August-13 ambiguity)
+
+The live book simultaneously held three unrelated cohorts:
+
+| Cohort | Count | Presented as |
+|---|---|---|
+| Historical initial implementation (no lineage) | 25 FILLED | `Existing operational holdings — Historical fills 25` |
+| Defective plan `...5bf9c6c20f8a` | 22 CANCELLED | superseded; execution history only |
+| Repaired plan `...1a198f560cca` | 29 SUBMITTED (15 BUY / 14 SELL) | `Current rebalance: 29 submitted / 0 filled` |
+
+`Submitted 29` beside `Filled 25` read as a partially-filled current rebalance. Every
+current-state count is now filtered by the current order-plan lineage, and
+`PARTIALLY_FILLED` means "the CURRENT rebalance is part-filled", not "this book has ever
+filled anything".
+
+### Static guard
+
+`scripts/audit_architecture.py:check_operator_atomic_close_ownership` — 33 blocking
+invariants covering close precedence, fail-closed preservation, close-composes-desk,
+absence of a second settlement / mark / ledger / NAV owner, no-hindsight enforcement,
+once-only settlement provenance, maintenance classification of the desk refresh, the
+single operator-command owner, the single UI execution surface and ownership helper,
+lineage-scoped counts in both owners and the UI, and no broker / automation / automatic
+rebalance / automatic promotion / model recalibration.

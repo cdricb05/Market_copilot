@@ -2166,6 +2166,197 @@ def check_failclosed_rebalance_execution(files: list[Path]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Stage 19.3 — OPERATOR WORKFLOW & ATOMIC POST-CLOSE CONSOLIDATION
+# --------------------------------------------------------------------------- #
+DC_OWNER_FILE = "api/daily_close.py"
+WS_OWNER_FILE = "api/workflow_state.py"
+DESK_FILE = "api/paper_trading_desk.py"
+OB_OWNER_FILE = "api/operational_book.py"
+
+#: The EXACT August-13 defect: pending paper orders short-circuiting the daily-close
+#: resolver before a newly eligible completed session was even considered.
+_PENDING_SHORT_CIRCUIT = "if pending_orders:\n        return PAPER_ORDERS_SUBMITTED"
+
+#: The standalone post-close desk-refresh CTA that competed with the Daily Close.
+_COMPETING_REFRESH_LABEL = "Refresh After Market Close"
+
+#: Second-implementation markers that must never appear outside their owners.
+_SECOND_SETTLEMENT_DEFS = ("def settle_due_orders(", "def sync_marks(",
+                           "def refresh_desk(", "def append_performance(")
+
+
+def check_operator_atomic_close_ownership(files: list[Path]) -> dict:
+    """Stage 19.3 strict guard: ONE operator command, ONE post-close orchestration path.
+
+    Proves:
+      (1) the daily-close resolver no longer short-circuits on pending orders — a newly
+          eligible completed session outranks passive pending-order monitoring;
+      (2) the canonical Daily Close SETTLES pending NEXT_CLOSE orders by composing the
+          EXISTING Paper Desk owner (no second settlement engine / fill simulator /
+          mark writer / order ledger / NAV owner);
+      (3) the Paper Desk refresh is classified MAINTENANCE and can never be promoted to
+          the canonical primary action (runtime guard + no normal-path UI exposure);
+      (4) the backend owns ONE operator-command contract that every page mirrors — no
+          page-level client-side workflow authority;
+      (5) current-rebalance counts are LINEAGE-scoped in both owners, so historical
+          initial-implementation fills and superseded plans can never be presented as
+          the current plan's state;
+      (6) no broker, no automation, no automatic rebalance/promotion/recalibration.
+    """
+    dc_src = _read(DC_OWNER_FILE)
+    ws_src = _read(WS_OWNER_FILE)
+    desk_src = _read(DESK_FILE)
+    ob_src = _read(OB_OWNER_FILE)
+    rb_src = _read(RB_OWNER_FILE)
+    ui = _read(UI_FILE)
+
+    # (1) precedence repaired, and the defect absent everywhere.
+    pending_short_circuit_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) != "scripts/audit_architecture.py"
+        and _PENDING_SHORT_CIRCUIT in fp.read_text(encoding="utf-8", errors="replace"))
+    precedence_repaired = all(t in dc_src for t in (
+        "new_close_pending", "if pending_orders and not new_close_pending:",
+        "forward_tracking"))
+    # Fail-closed paths preserved: an unpublished / incomplete session still blocks.
+    fails_closed_preserved = all(t in dc_src for t in (
+        "if not valuation_complete:\n        return DATA_BLOCKED",
+        "return AWAITING_MARKET_CLOSE if not cutoff_passed else WAITING_FOR_MARKET_DATA"))
+
+    # (2) the close COMPOSES the desk owner; it implements no settlement of its own.
+    close_composes_desk = all(t in dc_src for t in (
+        "refresh_fn or desk.refresh_desk", "desk.REFRESH_CONFIRM_TOKEN",
+        "completed_through=latest_eligible"))
+    dc_second_owner_defs = sorted(d for d in _SECOND_SETTLEMENT_DEFS if d in dc_src)
+    desk_owns_settlement = all(t in desk_src for t in (
+        "def settle_due_orders(", "def refresh_desk(", "EXECUTION_MODEL_DEFAULT",
+        "_first_close_on_or_after("))
+    second_settlement_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (DESK_FILE, "scripts/audit_architecture.py")
+        and "def settle_due_orders(" in fp.read_text(encoding="utf-8", errors="replace"))
+    # No-hindsight guard still enforced by the ONE settlement owner.
+    no_hindsight_enforced = ("marks_latest_at_approval" in desk_src
+                             and "strictly_after_store" in desk_src)
+    # Settlement recorded exactly once per closed date, alongside the decision row.
+    settlement_recorded_once = all(t in dc_src for t in (
+        '"pending_orders_at_start": pending_at_start',
+        '"settled_through_paper_desk"', "DAILY_CLOSE_JOURNAL_FILE"))
+
+    # (3) the desk refresh is maintenance-only and never a canonical primary action.
+    maintenance_classified = all(t in ws_src for t in (
+        "MAINTENANCE_EXECUTION_KINDS", "NORMAL_PATH_EXECUTION_KINDS",
+        "def assert_primary_action_contract("))
+    guard_applied = "assert_primary_action_contract(_primary_action(" in ws_src
+    ws_promotes_desk_refresh = '"execution_kind": EXEC_PAPER_DESK_REFRESH' in ws_src
+    competing_refresh_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) != "scripts/audit_architecture.py"
+        and _COMPETING_REFRESH_LABEL in fp.read_text(encoding="utf-8", errors="replace"))
+    ui_competing_refresh = _COMPETING_REFRESH_LABEL in ui
+    ui_refresh_is_maintenance = all(t in ui for t in (
+        'id="pd-maintenance"', "MAINTENANCE / RECOVERY", "Recovery: Refresh Desk Data"))
+    # The endpoint itself SURVIVES (recovery capability), exactly once, POST + token.
+    routes = check_routes()["routes"]
+    desk_refresh_posts = sum(1 for r in routes
+                             if r["path"] == "/v1/paper-desk/refresh" and r["method"] == "POST")
+
+    # (4) ONE operator-command contract, backend-owned, mirrored by every surface.
+    command_contract_present = all(t in ws_src for t in (
+        "def build_operator_command(", '"operator_command": build_operator_command(',
+        "primary_action_available", "mutation_controls_allowed", "NO_ACTION_TEXT"))
+    second_command_owner_modules = sorted(
+        _rel(fp) for fp in files
+        if _rel(fp) not in (WS_OWNER_FILE, "scripts/audit_architecture.py")
+        and "def build_operator_command(" in fp.read_text(encoding="utf-8", errors="replace"))
+    ui_command_bar = all(t in ui for t in (
+        'id="operator-command"', "function renderOperatorCommand(",
+        "d.operator_command", "dispatchCanonicalPrimaryAction(this)"))
+    ui_command_renderer_count = ui.count("function renderOperatorCommand(")
+    # The rail MIRRORS the contract and the banner obeys its withholding.
+    ui_mirrors_command = ("cmd.primary_action_available !== true" in ui
+                          and "!_cmdBlocks" in ui)
+    # ONE execution surface: every secondary surface that used to repeat the same write
+    # action defers to the command bar via the SINGLE shared ownership helper.
+    single_execution_surface = all(t in ui for t in (
+        "function _wsCommandOwnsExecution(",
+        "_wsCommandOwnsExecution()",
+        "var thCmdOwns = thExecutes",
+        "var dupExec = !!pa.runs_daily_close && _wsCommandOwnsExecution();"))
+    ui_ownership_helper_count = ui.count("function _wsCommandOwnsExecution(")
+    # No page may recompute the workflow decision client-side.
+    ui_client_workflow_authority = sorted(
+        t for t in ("function decideWorkflowState", "function computePrimaryAction",
+                    "function pickNextAction", "workflowPriority(")
+        if t in ui)
+
+    # (5) lineage-scoped current-rebalance counts in BOTH read owners + the UI.
+    lineage_owned = all(t in ob_src for t in (
+        "def current_rebalance_lineage(", '"counts_are_lineage_scoped": True',
+        "historical_implementation_fill_count", "effective_fills"))
+    lineage_summary_owned = all(t in rb_src for t in (
+        "def build_execution_summary(", '"execution_summary": build_execution_summary(',
+        "historical_implementation_fill_count", "superseded_plan_ids"))
+    ui_lineage_aware = all(t in ui for t in (
+        'id="pm-lc-current"', 'id="pm-lc-cur-submitted"', 'id="pm-lc-cur-filled"',
+        'id="pm-lc-histfills"', "currentRebalance"))
+    # The UI must not compute lineage itself (no client-side order-plan folding).
+    ui_lineage_computation = sorted(
+        t for t in ("rebalance_lineage", "order_plan_id ===", ".filter(function (o) { return o.status === 'FILLED'")
+        if t in ui)
+
+    # (6) safety.
+    forbidden_automation = sorted(
+        t for t in ("schedule.every", "crontab", "auto_close", "auto_settle",
+                    "AUTO_RUN_DAILY_CLOSE", "auto_rebalance", "auto_promote")
+        if t in (dc_src + ws_src + ob_src))
+    return {
+        "owners_present": all((REPO_ROOT / f).exists() for f in
+                              (DC_OWNER_FILE, WS_OWNER_FILE, DESK_FILE, OB_OWNER_FILE)),
+        # (1)
+        "pending_short_circuit_modules": pending_short_circuit_modules,
+        "close_precedence_repaired": precedence_repaired,
+        "fails_closed_preserved": fails_closed_preserved,
+        # (2)
+        "close_composes_desk_owner": close_composes_desk,
+        "close_second_settlement_defs": dc_second_owner_defs,
+        "desk_owns_settlement": desk_owns_settlement,
+        "second_settlement_modules": second_settlement_modules,
+        "no_hindsight_enforced": no_hindsight_enforced,
+        "settlement_recorded_once": settlement_recorded_once,
+        # (3)
+        "maintenance_kinds_classified": maintenance_classified,
+        "primary_action_guard_applied": guard_applied,
+        "workflow_promotes_desk_refresh": ws_promotes_desk_refresh,
+        "competing_refresh_modules": competing_refresh_modules,
+        "ui_competing_refresh_label": ui_competing_refresh,
+        "ui_refresh_is_maintenance_only": ui_refresh_is_maintenance,
+        "desk_refresh_route_post_count": desk_refresh_posts,
+        # (4)
+        "operator_command_contract_present": command_contract_present,
+        "second_command_owner_modules": second_command_owner_modules,
+        "ui_command_bar_present": ui_command_bar,
+        "ui_command_renderer_count": ui_command_renderer_count,
+        "ui_mirrors_command_contract": ui_mirrors_command,
+        "ui_single_execution_surface": single_execution_surface,
+        "ui_ownership_helper_count": ui_ownership_helper_count,
+        "ui_client_workflow_authority": ui_client_workflow_authority,
+        # (5)
+        "lineage_counts_owned": lineage_owned,
+        "lineage_summary_owned": lineage_summary_owned,
+        "ui_lineage_aware": ui_lineage_aware,
+        "ui_lineage_computation": ui_lineage_computation,
+        # (6)
+        "forbidden_automation_tokens": forbidden_automation,
+        "broker_enabled": False,
+        "automation_enabled": False,
+        "automatic_rebalance_enabled": False,
+        "automatic_promotion_enabled": False,
+        "model_recalibration_added": False,
+    }
+
+
 def check_research_agent_ownership(files: list[Path]) -> dict:
     """Slice 8 (Phase 29I) strict semantic ownership guard for the Persistent Alpha Research
     Agent (Milestone 4). Proves: (1) engine/research_agent.py is the SOLE research-state
@@ -2794,6 +2985,7 @@ def run_audit() -> dict:
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
         "corporate_action_propagation": check_corporate_action_propagation(files),
         "failclosed_rebalance_execution": check_failclosed_rebalance_execution(files),
+        "operator_atomic_close_ownership": check_operator_atomic_close_ownership(files),
         "research_agent_ownership": check_research_agent_ownership(files),
         "data_expansion_ownership": check_data_expansion_ownership(files),
         "operator_ux_consolidation_ownership": check_operator_ux_consolidation_ownership(files),
@@ -3238,6 +3430,42 @@ BLOCKING_INVARIANTS = (
     ("corporate_action_propagation", "approval_gate_enforces_staleness", True),
     ("corporate_action_propagation", "order_plan_gate_enforces_staleness", True),
     ("corporate_action_propagation", "ui_split_math_present", []),
+    # Stage 19.3 — ONE operator command, ONE post-close orchestration path.
+    ("operator_atomic_close_ownership", "owners_present", True),
+    ("operator_atomic_close_ownership", "pending_short_circuit_modules", []),
+    ("operator_atomic_close_ownership", "close_precedence_repaired", True),
+    ("operator_atomic_close_ownership", "fails_closed_preserved", True),
+    ("operator_atomic_close_ownership", "close_composes_desk_owner", True),
+    ("operator_atomic_close_ownership", "close_second_settlement_defs", []),
+    ("operator_atomic_close_ownership", "desk_owns_settlement", True),
+    ("operator_atomic_close_ownership", "second_settlement_modules", []),
+    ("operator_atomic_close_ownership", "no_hindsight_enforced", True),
+    ("operator_atomic_close_ownership", "settlement_recorded_once", True),
+    ("operator_atomic_close_ownership", "maintenance_kinds_classified", True),
+    ("operator_atomic_close_ownership", "primary_action_guard_applied", True),
+    ("operator_atomic_close_ownership", "workflow_promotes_desk_refresh", False),
+    ("operator_atomic_close_ownership", "competing_refresh_modules", []),
+    ("operator_atomic_close_ownership", "ui_competing_refresh_label", False),
+    ("operator_atomic_close_ownership", "ui_refresh_is_maintenance_only", True),
+    ("operator_atomic_close_ownership", "desk_refresh_route_post_count", 1),
+    ("operator_atomic_close_ownership", "operator_command_contract_present", True),
+    ("operator_atomic_close_ownership", "second_command_owner_modules", []),
+    ("operator_atomic_close_ownership", "ui_command_bar_present", True),
+    ("operator_atomic_close_ownership", "ui_command_renderer_count", 1),
+    ("operator_atomic_close_ownership", "ui_mirrors_command_contract", True),
+    ("operator_atomic_close_ownership", "ui_single_execution_surface", True),
+    ("operator_atomic_close_ownership", "ui_ownership_helper_count", 1),
+    ("operator_atomic_close_ownership", "ui_client_workflow_authority", []),
+    ("operator_atomic_close_ownership", "lineage_counts_owned", True),
+    ("operator_atomic_close_ownership", "lineage_summary_owned", True),
+    ("operator_atomic_close_ownership", "ui_lineage_aware", True),
+    ("operator_atomic_close_ownership", "ui_lineage_computation", []),
+    ("operator_atomic_close_ownership", "forbidden_automation_tokens", []),
+    ("operator_atomic_close_ownership", "broker_enabled", False),
+    ("operator_atomic_close_ownership", "automation_enabled", False),
+    ("operator_atomic_close_ownership", "automatic_rebalance_enabled", False),
+    ("operator_atomic_close_ownership", "automatic_promotion_enabled", False),
+    ("operator_atomic_close_ownership", "model_recalibration_added", False),
 )
 
 
@@ -3541,7 +3769,8 @@ def main(argv=None) -> int:
         # Stage 19.1 — corporate-action propagation invariants block strict mode too.
         ca_failures = _blocking_invariant_failures(rep)
         if ca_failures:
-            print("\nBLOCKING corporate-action propagation invariants:")
+            print("\nBLOCKING semantic-ownership invariants "
+                  "(corporate-action propagation + Stage 19.3 operator/atomic close):")
             for f in ca_failures:
                 print(f"  FAIL  {f}")
         blocking_hits += len(ca_failures)

@@ -249,6 +249,68 @@
       min-height: 0;
     }
 
+    /* ---- STAGE 19.3 OPERATOR COMMAND ------------------------------------
+       The dominant operator surface: one state, one task, one action. It is
+       deliberately heavier than any page-level control so a secondary button
+       can never out-compete the canonical next action. */
+    .op-command {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin: 0;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border, #2a3550);
+      border-left: 4px solid var(--info, #38bdf8);
+      background: rgba(56, 189, 248, .06);
+      box-sizing: border-box;
+      max-width: 100%;
+    }
+    .op-command.sev-attention { border-left-color: var(--warning, #f59e0b); background: rgba(245, 158, 11, .07); }
+    .op-command.sev-blocked,
+    .op-command.sev-error { border-left-color: var(--danger, #ef4444); background: rgba(239, 68, 68, .07); }
+    .op-command.sev-success { border-left-color: var(--ok, #22c55e); background: rgba(34, 197, 94, .06); }
+    .op-command .opc-main { flex: 1 1 460px; min-width: 0; }
+    .op-command .opc-eyebrow {
+      font-size: 9px; font-weight: 800; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--label);
+    }
+    .op-command .opc-task {
+      font-size: 17px; font-weight: 900; letter-spacing: .01em;
+      color: var(--text-primary); margin: 2px 0 3px; overflow-wrap: anywhere;
+    }
+    .op-command .opc-why {
+      font-size: 10px; color: var(--text-secondary); line-height: 1.5;
+      max-width: 900px; overflow-wrap: anywhere;
+    }
+    .op-command .opc-meta {
+      font-size: 9px; color: var(--label); margin-top: 3px; overflow-wrap: anywhere;
+    }
+    .op-command .opc-state {
+      display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: .06em;
+      border: 1px solid var(--border, #2a3550); border-radius: 4px;
+      padding: 1px 7px; margin-right: 7px; color: var(--text-primary);
+    }
+    .op-command .opc-side { flex: 0 0 auto; text-align: right; max-width: 100%; }
+    .op-command .opc-next {
+      font-size: 10px; font-weight: 700; color: var(--text-accent);
+      margin-bottom: 5px; overflow-wrap: anywhere;
+    }
+    .op-command .opc-cta {
+      font-size: 12px; font-weight: 900; letter-spacing: .03em;
+      padding: 9px 20px; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--info, #38bdf8); background: var(--info, #38bdf8);
+      color: #04121a; text-transform: uppercase;
+    }
+    .op-command.sev-attention .opc-cta { border-color: var(--warning, #f59e0b); background: var(--warning, #f59e0b); }
+    .op-command .opc-noaction {
+      font-size: 11px; font-weight: 800; letter-spacing: .04em;
+      color: var(--text-secondary); text-transform: uppercase;
+    }
+    @media (max-width: 1100px) {
+      .op-command .opc-side { text-align: left; }
+    }
+
     .tab-content {
       display: none;
     }
@@ -2323,6 +2385,17 @@
   </div>
 
   <main id="main-content">
+    <!-- ===================== STAGE 19.3 OPERATOR COMMAND =====================
+         ONE persistent, visually dominant command bar directly below the global
+         safety/header area. It answers WHAT DO I DO NOW? in one place — state,
+         task, why, what happens next, and AT MOST ONE primary action — and it is
+         rendered VERBATIM from the canonical `operator_command` block of
+         GET /v1/operations/workflow-state. It performs no client-side workflow
+         interpretation, owns no priority logic, and its CTA goes through the same
+         single dispatcher as every other canonical surface. Every page mirrors it;
+         no page reinterprets it. -->
+    <div id="operator-command" class="op-command" style="display:none;" data-wf-owned="1"></div>
+
     <!-- TAB BAR — DEMOTED (single primary nav is the left sidebar). Kept in the
          DOM (hidden) so existing _switchTab active-button logic stays intact. -->
     <div class="tab-bar cc-demoted" aria-hidden="true">
@@ -3320,16 +3393,34 @@
                  hard-coded, never page-derived). The submitted-order table renders
                  DIRECTLY here — no hidden tab required. -->
             <div id="pm-lc-strip" style="display:none;margin:8px 0 0;">
+              <!-- STAGE 19.3 (Workstreams H + I): LINEAGE-AWARE execution counts.
+                   The CURRENT rebalance row is filtered by the current order-plan
+                   lineage; the book's pre-existing operational holdings (the historical
+                   initial implementation) are labelled SEPARATELY on their own row so a
+                   historical "Filled 25" can never read as a partial fill of the plan
+                   just confirmed. Superseded/cancelled plans stay in execution history. -->
+              <div id="pm-lc-current" class="mono" style="display:none;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--warning,#f59e0b);border-radius:8px;padding:8px 12px;margin:0 0 6px;">
+                <span style="font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--warning,#f59e0b);">Current rebalance</span>
+                <span id="pm-lc-cur-stage" style="font-weight:800;">&mdash;</span>
+                <span title="Orders belonging to the CURRENT order plan only.">Submitted <b id="pm-lc-cur-submitted">&mdash;</b></span>
+                <span title="Fills of the CURRENT order plan only — never the book's historical fills.">Filled <b id="pm-lc-cur-filled">&mdash;</b></span>
+                <span title="Cancelled orders belonging to the CURRENT order plan only.">Cancelled <b id="pm-lc-cur-cancelled">&mdash;</b></span>
+                <span>Buy <b id="pm-lc-cur-buys">&mdash;</b> / Sell <b id="pm-lc-cur-sells">&mdash;</b></span>
+                <span title="Shortened current order-plan identifier.">Plan <b id="pm-lc-cur-plan">&mdash;</b></span>
+                <span>Approved <b id="pm-lc-cur-approved">&mdash;</b></span>
+                <span title="Frozen execution model (no hindsight; fills never rewritten).">Execution <b id="pm-lc-cur-exec">&mdash;</b></span>
+              </div>
+              <div id="pm-lc-cur-next" class="cc-na-note" style="display:none;font-size:10px;margin:0 0 6px;"></div>
               <div class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;border:1px solid var(--border,#2a3550);border-radius:8px;padding:8px 12px;">
-                <span>Submitted <b id="pm-lc-submitted">&mdash;</b></span>
-                <span>Filled <b id="pm-lc-filled">&mdash;</b></span>
-                <span>Cancelled <b id="pm-lc-cancelled">&mdash;</b></span>
-                <span title="Positions the alpha book actually holds (ledger-replayed fills).">Alpha holdings <b id="pm-lc-holdings">&mdash;</b></span>
+                <span style="font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:var(--label);" title="The book as a whole — all plans and the historical initial implementation.">Existing operational holdings</span>
+                <span title="Positions the alpha book actually holds (ledger-replayed fills).">Names <b id="pm-lc-holdings">&mdash;</b></span>
+                <span title="Filled orders from the book's historical initial implementation — NOT the current rebalance.">Historical fills <b id="pm-lc-histfills">&mdash;</b></span>
                 <span>Cash <b id="pm-lc-cash">&mdash;</b></span>
                 <span>NAV <b id="pm-lc-nav">&mdash;</b></span>
                 <span title="Latest completed owned close recorded in the desk mark store.">Reference mark <b id="pm-lc-mark">&mdash;</b></span>
                 <span title="Frozen execution model of Alpha Paper Book #1 (no hindsight; fills never rewritten).">Execution model <b id="pm-lc-exec">&mdash;</b></span>
                 <span>Submitted on <b id="pm-lc-subdate">&mdash;</b></span>
+                <span class="cc-demoted" style="display:none;">Submitted <b id="pm-lc-submitted">&mdash;</b> Filled <b id="pm-lc-filled">&mdash;</b> Cancelled <b id="pm-lc-cancelled">&mdash;</b></span>
               </div>
               <div class="cc-na-note" id="pm-lc-eligible" style="font-size:10px;margin:6px 0 0;"></div>
               <div id="pm-lc-actions" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 0;">
@@ -3534,8 +3625,27 @@
             <span title="Deterministic execution model, frozen into the paper book at creation.">Exec model <b id="pd-sb-exec">&mdash;</b></span>
             <span title="12.5 bps per side (the platform's 25 bps round-trip assumption).">Cost/side <b id="pd-sb-cost">&mdash;</b></span>
           </div>
+          <!-- ===== STAGE 19.3: MAINTENANCE / RECOVERY ONLY =====================
+               The raw desk refresh (POST /v1/paper-desk/refresh) remains the canonical
+               LOW-LEVEL owned-mark + NEXT_CLOSE settlement owner, but it is NOT part of
+               the normal daily workflow: the canonical Daily Close composes it. Leaving
+               it beside the workflow controls is what created two competing post-close
+               paths, so it lives here, collapsed, explicitly marked exceptional, and it
+               is never the canonical primary action. -->
+          <details id="pd-maintenance" style="border:1px dashed var(--border,#2a3550);border-radius:8px;padding:8px 12px;margin:0 0 8px;">
+            <summary style="cursor:pointer;font-size:11px;font-weight:800;letter-spacing:.04em;color:var(--label);">
+              MAINTENANCE / RECOVERY &mdash; low-level desk refresh
+              <span class="cc-badge muted" style="font-size:8px;">EXCEPTIONAL USE ONLY</span>
+            </summary>
+            <div class="cc-na-note" style="font-size:10px;margin:6px 0 8px;" id="pd-maintenance-note">
+              Not part of the normal daily workflow. The Daily Close already refreshes owned
+              marks and settles eligible NEXT_CLOSE paper orders through this same owner, so
+              the normal operator path never requires a separate desk refresh. Use this only
+              to recover from a failed or interrupted close, and only deliberately.
+            </div>
+            <button class="btn-sm" id="pd-act-refresh" onclick="pdAskAction('refresh')" title="MAINTENANCE / RECOVERY ONLY. Low-level owned-mark sync + NEXT_CLOSE settlement + performance append. The normal path runs this inside the Daily Close. Explicit token required.">Recovery: Refresh Desk Data</button>
+          </details>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;">
-            <button class="btn-sm" id="pd-act-refresh" onclick="pdAskAction('refresh')" title="Manual desk data refresh: sync owned completed closes, settle due paper orders, append forward performance. Explicit token required.">1&middot; Refresh Desk Data</button>
             <button class="btn-sm" id="pd-act-generate" onclick="pdAskAction('generate')" title="Create PROPOSED paper orders from the latest confirmed paper-alpha snapshot. Explicit token required.">Create Paper Orders</button>
             <button class="btn-sm" id="pd-act-preview" onclick="pdExecutionPreview()" title="Read-only indicative execution preview at the latest completed owned close. Writes nothing.">Preview Execution</button>
             <button class="btn-sm" id="pd-act-confirm" onclick="pdAskAction('submit')" title="Manually submit PROPOSED paper orders (PROPOSED to APPROVED to SUBMITTED; fills at the deterministic next close). Explicit token required.">Confirm Paper Orders</button>
@@ -26138,7 +26248,13 @@ function _wsRenderTodayHero(d) {
   // distinctly NAVIGATIONAL wording so routing is never disguised as execution.
   var ctaHtml = '';
   var thExecutes = (pa.execution_available === true) && !!pa.execution_kind;
-  if (pa.destination || thExecutes) {
+  // Stage 19.3: the canonical Operator Command bar is the ONE execution surface. When
+  // it carries this same executable action the hero must NOT repeat it as a second
+  // execute button (the August-13 Today screen stacked four for one action); the hero
+  // keeps its state, its explanation and a purely NAVIGATIONAL link.
+  var thCmdOwns = thExecutes && (typeof _wsCommandOwnsExecution === 'function')
+    && _wsCommandOwnsExecution();
+  if ((pa.destination || thExecutes) && !thCmdOwns) {
     ctaHtml = '<button class="th-cta ' + ctaClass + '" onclick="dispatchCanonicalPrimaryAction(this)">'
       + _wsEsc(pa.label || 'Continue') + '</button>';
     if (thExecutes && pa.destination) {
@@ -26149,6 +26265,14 @@ function _wsRenderTodayHero(d) {
         + ' onclick="navigateToRoute(\'' + _wsEsc(thRoute) + '\')">'
         + '<span class="t">' + _wsEsc(thViewLbl) + ' &rarr;</span></a>';
     }
+  }
+  if (thCmdOwns && pa.destination) {
+    var thRoute3 = (window._wsRoute ? window._wsRoute(pa.destination, pa.focus) : pa.destination) || pa.destination;
+    var thViewLbl3 = (window._WS_VIEW_LABEL && window._WS_VIEW_LABEL[pa.destination]) || ('Open ' + pa.destination);
+    ctaHtml = '<a class="th-link" role="button" tabindex="0"'
+      + ' title="Navigation only — opens the page. The one action lives in the operator command bar above."'
+      + ' onclick="navigateToRoute(\'' + _wsEsc(thRoute3) + '\')">'
+      + '<span class="t">' + _wsEsc(thViewLbl3) + ' &rarr;</span></a>';
   }
 
   var secHtml = '';
@@ -27597,6 +27721,15 @@ function _wsBannerHtml(d) {
   // distinctly-worded NAVIGATIONAL link ("View Daily Workflow") is offered beside
   // it so navigation is never disguised as execution (or vice versa).
   var _wsExecutes = (pa.execution_available === true) && !!pa.execution_kind;
+  // Stage 19.3: a page banner may never offer a normal-path mutation the canonical
+  // Operator Command has withheld. When `primary_action_available` is false the banner
+  // renders no CTA at all — the command bar above is the single place an action lives.
+  var _cmd = d.operator_command || null;
+  // Stage 19.3: once the canonical Operator Command exists it is the ONE execution
+  // surface, so a banner never renders an executing CTA — whether the command
+  // WITHHOLDS the action (nothing may execute) or CARRIES it (a banner CTA would be a
+  // duplicate of the same write action). The banner keeps its state + navigation link.
+  var _cmdBlocks = !!(_cmd && _wsExecutes);
   var viewLink = (_wsExecutes && pa.destination)
     ? ' <a role="button" tabindex="0" style="font-size:9px; margin-left:8px; text-decoration:underline; cursor:pointer; color:var(--text-secondary);" title="Navigation only — opens the page; does not run anything." onclick="event.stopPropagation(); navigateToRoute(\'' + _wsEsc(_wsRoute(pa.destination, pa.focus)) + '\');">' + _wsEsc(_WS_VIEW_LABEL[pa.destination] || ('Open ' + pa.destination)) + '</a>'
     : '';
@@ -27609,15 +27742,25 @@ function _wsBannerHtml(d) {
       +   upNext.map(function (t) { return _wsEsc(t); }).join(' &middot; ')
       + '</span></div>'
     : '';
-  var btn = ((pa.destination || _wsExecutes) && !_wsNoAction)
+  // The EXECUTE control is suppressed when the command bar owns it; the NAVIGATIONAL
+  // link is not — routing to the owning page is never a write and stays available.
+  var btn = ((pa.destination || _wsExecutes) && !_wsNoAction && !_cmdBlocks)
     ? '<button class="btn-sm" style="margin-top:6px; font-size:10px; padding:4px 10px; background:' + sevc + '; color:#04120a; font-weight:800;" onclick="event.stopPropagation(); dispatchCanonicalPrimaryAction(this);">' + _wsEsc(pa.label) + '</button>' + viewLink
-    : '';
-  return ''
+    : (_cmdBlocks && viewLink) ? ('<div style="margin-top:6px;">' + viewLink + '</div>') : '';
+  // Stage 19.3 density dedup: the canonical Operator Command bar already states the
+  // state, the task and the reason at the top of the shell. When it is present the
+  // banner drops those duplicated lines and keeps ONLY what the command bar does not
+  // carry — the session / close / assessment / evidence facts, the optional review
+  // chips and "Up next". No information is lost; the repetition is.
+  var _cmdShown = !!(_cmd && _cmd.state);
+  var headHtml = _cmdShown ? '' : (''
     + '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">'
     +   '<span style="font-size:9px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:#04120a; background:' + sevc + '; border-radius:4px; padding:2px 7px;">' + _wsEsc(d.overall_state) + '</span>'
     +   '<span style="font-size:11px; font-weight:700; color:var(--text-primary);">' + _wsEsc(d.headline) + '</span>'
     + '</div>'
-    + '<div style="font-size:10px; color:var(--text-accent); margin-top:4px;">Current task: ' + _wsEsc(d.current_task) + '</div>'
+    + '<div style="font-size:10px; color:var(--text-accent); margin-top:4px;">Current task: ' + _wsEsc(d.current_task) + '</div>');
+  return ''
+    + headHtml
     + '<div style="font-size:9px; color:var(--label); margin-top:4px;">'
     +   'Session: ' + _wsEsc(cs.session_status || '—')
     +   ' &middot; Latest close: ' + _wsEsc(os.latest_completed_close_date || '—') + ' (' + (os.operational_close_valid ? 'valid' : 'not valid') + ')'
@@ -27633,8 +27776,58 @@ function _wsBannerHtml(d) {
 // specialized Daily-Close / Daily-Action-Gate / Operational-Book loaders render
 // only their detail and never these nodes (Workstream C / E). The canonical value
 // wins by OWNERSHIP, not by timing.
+// ---- STAGE 19.3: THE ONE OPERATOR COMMAND BAR --------------------------------
+// Renders `d.operator_command` VERBATIM. It decides nothing: the backend already
+// resolved the state, the task, the reason, what happens next and whether a normal-
+// path mutation action exists (`primary_action_available`). When that flag is false
+// NO enabled workflow execution control renders here — the bar says what the operator
+// is waiting for instead. The CTA uses the SAME canonical dispatcher as every other
+// surface, so there is exactly one execution path.
+function renderOperatorCommand(d) {
+  var host = document.getElementById('operator-command');
+  if (!host) return;
+  var c = d && d.operator_command;
+  if (!c) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  var sev = String(c.severity || 'INFO').toLowerCase();
+  host.className = 'op-command sev-' + sev;
+  host.setAttribute('data-op-state', c.state || '');
+  host.setAttribute('data-op-passive', c.passive ? '1' : '0');
+  host.setAttribute('data-op-action-available', c.primary_action_available ? '1' : '0');
+
+  var meta = [];
+  if (c.eligible_market_date) meta.push('Eligible session ' + _wsEsc(c.eligible_market_date));
+  if (c.latest_completed_close_date) meta.push('Last close ' + _wsEsc(c.latest_completed_close_date));
+  if (c.confirmation_required) meta.push('Confirmation ' + _wsEsc(c.confirmation_required));
+
+  // AT MOST ONE normal-path mutation control, and only when the backend allows it.
+  var side = c.primary_action_available
+    ? '<div class="opc-next">' + _wsEsc(c.next_text || '') + '</div>'
+      + '<button class="opc-cta" id="opc-primary-btn"'
+      + ' title="' + _wsEsc(c.primary_action_label || '') + '"'
+      + ' onclick="event.stopPropagation(); dispatchCanonicalPrimaryAction(this);">'
+      + _wsEsc(c.primary_action_label || '') + '</button>'
+    : '<div class="opc-noaction" id="opc-no-action">' + _wsEsc(c.next_text || '') + '</div>';
+
+  host.innerHTML = ''
+    + '<div class="opc-main">'
+    +   '<div class="opc-eyebrow">Operator command</div>'
+    +   '<div class="opc-task"><span class="opc-state">' + _wsEsc(c.state_label || c.state || '') + '</span>'
+    +     _wsEsc(c.task || '') + '</div>'
+    +   '<div class="opc-why">' + _wsEsc(c.why || '') + '</div>'
+    +   (c.supporting_text
+          ? '<div class="opc-why" id="opc-supporting" style="margin-top:3px;font-weight:700;">'
+            + _wsEsc(c.supporting_text) + '</div>'
+          : '')
+    +   (meta.length ? '<div class="opc-meta">' + meta.join(' &middot; ') + '</div>' : '')
+    + '</div>'
+    + '<div class="opc-side">' + side + '</div>';
+  host.style.display = 'flex';
+}
+window.renderOperatorCommand = renderOperatorCommand;
+
 function renderWorkflowState(d) {
   var html = _wsBannerHtml(d);
+  try { renderOperatorCommand(d); } catch (e) {}
   ['wf-cc', 'wf-dw', 'wf-pt', 'wf-pm', 'wf-ra', 'wf-right'].forEach(function (id) {
     var el = document.getElementById(id);
     if (!el) return;
@@ -27697,9 +27890,16 @@ function _wsApplyRightPanel(d) {
   // Operator Decision Flow: summarise the SAME canonical state — never a second, conflicting
   // instruction. When the canonical action is a no-op (monitor / wait, nothing executable),
   // say "No action required" and hide the action button rather than restating the task twice.
-  var noAction = (pa.execution_available !== true)
-    && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE');
-  _wsOwnSet('right-next-action', noAction ? 'No action required right now.' : pa.label);
+  // Stage 19.3: the right rail MIRRORS the canonical Operator Command — it no longer
+  // re-derives "is there an action?" from action codes. `primary_action_available` is
+  // the single authority, so the rail and the command bar can never disagree.
+  var cmd = d.operator_command || null;
+  var noAction = cmd ? (cmd.primary_action_available !== true)
+    : ((pa.execution_available !== true)
+       && (pa.action_code === 'MONITOR_PORTFOLIO' || pa.action_code === 'WAIT_FOR_SESSION_CLOSE'));
+  _wsOwnSet('right-next-action',
+    noAction ? ((cmd && cmd.next_text) || 'No action required right now.')
+             : ((cmd && cmd.primary_action_label) || pa.label));
   var btn = _wsOwnSet('right-primary-action-btn', pa.label);
   if (btn) {
     if (noAction) {
@@ -28511,6 +28711,18 @@ function _wsDailyCloseGate() {
   return { execution_allowed: false, passive_status: null, passive_badge: null, pending: true };
 }
 window._wsDailyCloseGate = _wsDailyCloseGate;
+// ---- STAGE 19.3: SINGLE EXECUTION SURFACE --------------------------------------
+// True once the canonical Operator Command bar is carrying the normal-path mutation
+// action. When it is, NO page-level panel may render a second execute control for
+// the same action: the August-13 Today screen showed FOUR "Run Daily Close" buttons
+// (hero, workflow banner, daily-close card, right rail) for ONE action. The command
+// bar owns execution; the right rail MIRRORS it by design; every other surface keeps
+// its status and offers navigation only.
+function _wsCommandOwnsExecution() {
+  var d = window._wsData, c = d && d.operator_command;
+  return !!(c && c.primary_action_available === true);
+}
+window._wsCommandOwnsExecution = _wsCommandOwnsExecution;
 // The canonical no-op verdict (monitor / wait, nothing executable) — read
 // VERBATIM from the authoritative workflow-state payload. The ONE shared flag
 // every legacy-surface re-framing (Defect 4) keys on; never derived from
@@ -28589,7 +28801,11 @@ function renderDailyClose(d) {
     var card = document.getElementById(p + '-dc-card'); if (card) card.style.borderLeftColor = color;
     var btn = document.getElementById(p + '-dc-btn');
     if (btn) {
-      if (closeForbidden) { btn.style.display = 'none'; }
+      // Stage 19.3: when the canonical Operator Command carries the executable close,
+      // this panel button would be a DUPLICATE of the same write action — hide it and
+      // let the panel show status only. Non-executing affordances (View/Await) stay.
+      var dupExec = !!pa.runs_daily_close && _wsCommandOwnsExecution();
+      if (closeForbidden || dupExec) { btn.style.display = 'none'; }
       else { btn.textContent = pa.label || 'View'; btn.style.display = pa.enabled === false ? 'none' : ''; }
     }
   });
@@ -28691,7 +28907,11 @@ function renderDailyClosePm(d, color) {
   var btn = document.getElementById('pm-dc-btn'), pa = d.primary_action || {};
   if (btn) {
     // Defect 3: the canonical gate forbids a close-executing control here too.
-    if (pa.enabled === false || (pa.runs_daily_close && !_wsDailyCloseGate().execution_allowed)) btn.style.display = 'none';
+    // Stage 19.3: and when the canonical Operator Command already CARRIES the
+    // executable close, this button would duplicate the same write action.
+    if (pa.enabled === false
+        || (pa.runs_daily_close && !_wsDailyCloseGate().execution_allowed)
+        || (pa.runs_daily_close && _wsCommandOwnsExecution())) btn.style.display = 'none';
     else { btn.textContent = pa.label; btn.style.display = ''; }
   }
 }
@@ -29123,6 +29343,10 @@ function deriveOperationalBookUiState(d) {
     filledOrders: cs ? cs.filled_count : null,
     cancelled: cs ? cs.cancelled_count : null,
     openOrders: cs ? cs.open_order_count : null,
+    // Stage 19.3 — the LINEAGE-SCOPED current rebalance cohort. The flat counts above
+    // describe the whole book (every plan ever) and must never be presented as the
+    // state of the plan the operator just confirmed.
+    currentRebalance: (cs && cs.current_rebalance) || null,
     holdings: cs ? cs.holdings_count : null,
     fills: cs ? cs.fill_count : null,
     nav: cs ? cs.nav : null,
@@ -29935,6 +30159,41 @@ function renderPmLifecycle(view, primaryLabel) {
   _obSet('pm-lc-submitted', view.submitted);
   _obSet('pm-lc-filled', view.filledOrders);
   _obSet('pm-lc-cancelled', view.cancelled);
+  // Stage 19.3 — the CURRENT rebalance row (lineage-scoped) and the clearly separated
+  // historical-implementation figure. Every value comes from the backend lineage fold.
+  var cr = view.currentRebalance || null;
+  var curRow = document.getElementById('pm-lc-current');
+  var curNext = document.getElementById('pm-lc-cur-next');
+  if (curRow) {
+    if (cr && cr.lineage_available) {
+      curRow.style.display = 'flex';
+      _obSet('pm-lc-cur-stage', (cr.open_count ? 'PAPER EXECUTION PENDING'
+        : cr.filled_count ? 'PAPER EXECUTED / RECONCILED' : 'NO OPEN ORDERS'));
+      _obSet('pm-lc-cur-submitted', cr.submitted_count);
+      _obSet('pm-lc-cur-filled', cr.filled_count);
+      _obSet('pm-lc-cur-cancelled', cr.cancelled_count);
+      _obSet('pm-lc-cur-buys', cr.buy_count);
+      _obSet('pm-lc-cur-sells', cr.sell_count);
+      _obSet('pm-lc-cur-plan', cr.order_plan_id_short);
+      _obSet('pm-lc-cur-approved', cr.approval_date);
+      _obSet('pm-lc-cur-exec', view.execModel);
+      if (curNext) {
+        curNext.style.display = '';
+        curNext.textContent = 'Current rebalance: ' + (cr.submitted_count || 0) +
+          ' submitted / ' + (cr.filled_count || 0) + ' filled. ' +
+          (cr.open_count
+            ? 'No further confirmation is required — the eligible orders settle inside the Daily Close for the next completed session.'
+            : 'This rebalance has no open orders.') +
+          (cr.superseded_order_count
+            ? ' ' + cr.superseded_order_count + ' order(s) from a superseded plan are excluded from these counts and remain in execution history.'
+            : '');
+      }
+    } else {
+      curRow.style.display = 'none';
+      if (curNext) curNext.style.display = 'none';
+    }
+  }
+  _obSet('pm-lc-histfills', cr ? cr.historical_implementation_fill_count : null);
   _obSet('pm-lc-holdings', view.holdings);
   _obSet('pm-lc-cash', view.cash != null ? _obMoney(view.cash) : null);
   _obSet('pm-lc-nav', view.nav != null ? _obMoney(view.nav) : null);
@@ -30217,8 +30476,7 @@ function renderPaperDesk() {
   });
   // Phase 27B.5: completed actions recede. Once every open order is SUBMITTED
   // (or the book is fully filled) the confirm / preview buttons are obsolete —
-  // hide them; the refresh action becomes "Refresh After Market Close"; cancel
-  // stays as the visually secondary destructive action.
+  // hide them; cancel stays as the visually secondary destructive action.
   var obView = window._obView || null;
   var lcTracking = !!(obView && (obView.lifecycleStage === 'SUBMITTED' ||
     obView.lifecycleStage === 'PARTIALLY_FILLED' || obView.lifecycleStage === 'FILLED'));
@@ -30226,18 +30484,16 @@ function renderPaperDesk() {
     var b = document.getElementById(bid);
     if (b) b.style.display = lcTracking ? 'none' : '';
   });
+  // Stage 19.3: the low-level desk refresh is MAINTENANCE / RECOVERY only. It is never
+  // relabelled into a post-close workflow step and never promoted with a warning
+  // highlight — the Daily Close owns the post-close transition, and two competing
+  // post-close controls is exactly the defect this slice removes.
   var refBtn = document.getElementById('pd-act-refresh');
   if (refBtn) {
-    refBtn.textContent = lcTracking ? 'Refresh After Market Close' : '1· Refresh Desk Data';
-    if (lcTracking && obView && obView.waiting) {
-      refBtn.style.borderColor = 'var(--warning, #f59e0b)';
-      refBtn.style.boxShadow = '0 0 0 1px var(--warning, #f59e0b)';
-      refBtn.style.fontWeight = '800';
-    } else {
-      refBtn.style.borderColor = '';
-      refBtn.style.boxShadow = '';
-      refBtn.style.fontWeight = '';
-    }
+    refBtn.textContent = 'Recovery: Refresh Desk Data';
+    refBtn.style.borderColor = '';
+    refBtn.style.boxShadow = '';
+    refBtn.style.fontWeight = '';
   }
   var cancelBtn0 = document.getElementById('pd-act-cancel');
   if (cancelBtn0) {

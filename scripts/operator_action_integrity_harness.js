@@ -69,9 +69,12 @@ const FUNCS = [
   '_wsIsCanonicalNode', '_wsOwnSet', '_wsOwnHtml', '_wsGuardedSet',
   '_wsSevColor', '_wsRoute', '_wsBannerHtml', 'renderWorkflowState',
   '_wsApplyRightPanel', '_wsRenderTodayHero',
+  // Stage 19.3 — the ONE operator command bar renders from the same canonical payload.
+  'renderOperatorCommand',
   'dispatchCanonicalPrimaryAction', '_wsExecuteOwnedDataRefresh',
   'wsExecConfirmYes', 'wsExecConfirmNo', 'runDailyResearchCycle',
-  '_wsDailyCloseGate', '_wsIsNoOpState', '_dcIsLegacyCompat', '_dcApplyHeadline',
+  '_wsDailyCloseGate', '_wsCommandOwnsExecution', '_wsIsNoOpState',
+  '_dcIsLegacyCompat', '_dcApplyHeadline',
   'renderDailyClose', 'renderDailyClosePm', 'renderDailyClosePerf',
   '_dcRunButtons', '_dcFmtElapsed', '_dcShowRunOutcome', '_dcSet',
   '_ccApplyWorkflowStages', '_obStageFraming', '_obReframeStageStatuses',
@@ -184,6 +187,19 @@ async function runState(name, st) {
   await flush();
 
   const out = { pre_ws: preWs };
+  // Stage 19.3 — the ONE dominant operator command surface. Its children live in the
+  // rendered innerHTML (the DOM shim has no parser), so the html + data-attributes ARE
+  // the observable contract: at most one CTA, or an explicit no-action statement.
+  out.operator_command = snapNode(sb, 'operator-command');
+  if (out.operator_command) {
+    const h = out.operator_command.html || '';
+    out.opc = {
+      cta_count: (h.match(/id="opc-primary-btn"/g) || []).length,
+      no_action_count: (h.match(/id="opc-no-action"/g) || []).length,
+      dispatch_count: (h.match(/dispatchCanonicalPrimaryAction\(this\)/g) || []).length,
+      html: h,
+    };
+  }
   out.hero = snapNode(sb, 'today-hero');
   out.right_task = snapNode(sb, 'right-current-task');
   out.right_next = snapNode(sb, 'right-next-action');

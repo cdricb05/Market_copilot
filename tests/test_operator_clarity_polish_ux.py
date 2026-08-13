@@ -106,7 +106,7 @@ def test_3_executable_action_still_gets_one_primary_cta(ui):
     # the single canonical primary button is shown only when there IS a real action.
     # (Operator Action Integrity: an executable primary also earns the CTA, and it
     # dispatches through the ONE canonical dispatcher.)
-    assert "var btn = ((pa.destination || _wsExecutes) && !_wsNoAction)" in banner
+    assert "var btn = ((pa.destination || _wsExecutes) && !_wsNoAction && !_cmdBlocks)" in banner
     # executable queued items keep their clickable chip (gated on execution_available).
     assert "q.execution_available !== true" in banner
     panel = _right_panel(ui)
@@ -210,7 +210,7 @@ def test_11_no_backend_semantic_change_ui_reads_canonical(ui):
     # it never fabricates a second next-action owner: the no-op flag is the shared
     # canonical expression, and the primary action drives the one CTA (through the
     # ONE canonical dispatcher — Operator Action Integrity).
-    assert "var btn = ((pa.destination || _wsExecutes) && !_wsNoAction)" in banner
+    assert "var btn = ((pa.destination || _wsExecutes) && !_wsNoAction && !_cmdBlocks)" in banner
 
 
 def test_11b_workflow_state_owner_not_forked(ui):

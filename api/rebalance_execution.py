@@ -818,6 +818,95 @@ def _rebalance_orders_for_proposal(sdir, proposal_hash: str) -> list[dict]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Stage 19.3 (Workstreams H + I) — the CURRENT-rebalance execution summary.
+#
+# The August-13 live surface showed "Submitted 29" next to "Filled 25", which reads
+# as a partially-filled current rebalance. It was not: the 29 belong to the repaired
+# plan (0 filled), the 25 are the book's historical initial implementation, and a
+# further 22 belong to the CANCELLED defective plan. Every count below is filtered by
+# the CURRENT proposal/order-plan lineage; the other cohorts are reported separately
+# and stay fully auditable. Pure read over the desk fold — nothing is recomputed.
+# --------------------------------------------------------------------------- #
+EXECUTION_STAGES = (RB_PROPOSAL_REVIEW_REQUIRED, RB_PLAN_REVIEW_REQUIRED,
+                    RB_PLAN_CONFIRMED, RB_EXECUTED)
+_EXECUTION_STAGE_LABELS = {
+    RB_PROPOSAL_REVIEW_REQUIRED: "PROPOSAL REVIEW",
+    RB_PLAN_REVIEW_REQUIRED: "ORDER PLAN REVIEW",
+    RB_PLAN_CONFIRMED: "PAPER EXECUTION PENDING",
+    RB_EXECUTED: "PAPER EXECUTED / RECONCILED",
+}
+
+
+def build_execution_summary(sdir, *, bound: Optional[dict], state: str) -> dict:
+    """Lineage-scoped execution counts + the four-stage lifecycle position."""
+    bound = bound or {}
+    cohort = _rebalance_orders_for_proposal(sdir, bound.get("proposal_hash"))
+    plan_ids = sorted({(o.get("rebalance_lineage") or {}).get("order_plan_id")
+                       for o in cohort} - {None})
+    live = [o for o in cohort if o["status"] not in (desk.ST_CANCELLED, desk.ST_EXPIRED)]
+    live_plan_ids = sorted({(o.get("rebalance_lineage") or {}).get("order_plan_id")
+                            for o in live} - {None})
+    current_plan_id = live_plan_ids[-1] if live_plan_ids else (
+        plan_ids[-1] if plan_ids else None)
+    current = [o for o in cohort
+               if (o.get("rebalance_lineage") or {}).get("order_plan_id") == current_plan_id]
+
+    def _n(*statuses) -> int:
+        return sum(1 for o in current if o["status"] in statuses)
+
+    submitted = _n(desk.ST_APPROVED, desk.ST_SUBMITTED)
+    filled = _n(desk.ST_FILLED)
+    cancelled = _n(desk.ST_CANCELLED)
+    superseded = [o for o in cohort
+                  if (o.get("rebalance_lineage") or {}).get("order_plan_id") != current_plan_id]
+    approvals = sorted({str(o.get("approval_date") or "") for o in current} - {""})
+    # Book-wide fills that carry NO rebalance lineage: the historical initial
+    # implementation. Reported so the operator can see it is a DIFFERENT thing.
+    historical_fills = sum(
+        1 for o in desk._orders_state(sdir).values()
+        if o["status"] == desk.ST_FILLED and not (o.get("rebalance_lineage") or {})
+        .get("order_plan_id"))
+    return {
+        "lifecycle_stage": state if state in EXECUTION_STAGES else None,
+        "lifecycle_stage_label": _EXECUTION_STAGE_LABELS.get(state),
+        "lifecycle_stages": [
+            {"stage": i + 1, "code": c, "label": _EXECUTION_STAGE_LABELS[c],
+             "current": c == state}
+            for i, c in enumerate(EXECUTION_STAGES)],
+        "order_plan_id": current_plan_id,
+        "order_plan_id_short": (current_plan_id or "")[-12:] or None,
+        # The hash is read from the orders' own recorded lineage (``bound`` describes the
+        # proposal, not the plan), so it is the hash the operator actually confirmed.
+        "order_plan_hash": ((current[0].get("rebalance_lineage") or {}).get("order_plan_hash")
+                            if current else None),
+        "proposal_id": bound.get("proposal_id"),
+        "approval_date": approvals[-1] if approvals else None,
+        "execution_model": desk.EXECUTION_MODEL_DEFAULT,
+        "order_count": len(current),
+        "submitted_count": submitted,
+        "filled_count": filled,
+        "cancelled_count": cancelled,
+        "buy_count": sum(1 for o in current if o.get("side") == desk.SIDE_BUY),
+        "sell_count": sum(1 for o in current if o.get("side") == desk.SIDE_SELL),
+        "further_confirmation_required": False,
+        "expected_next_execution_event": (
+            "Fills at the first eligible completed owned close on or after %s, settled by "
+            "that session's Daily Close." % (approvals[-1] if approvals else "approval")
+            if submitted else None),
+        # -- explicitly separated cohorts (auditable, never mixed above) ------- #
+        "superseded_plan_order_count": len(superseded),
+        "superseded_plan_ids": sorted({(o.get("rebalance_lineage") or {}).get("order_plan_id")
+                                       for o in superseded} - {None}),
+        "historical_implementation_fill_count": historical_fills,
+        "counts_are_lineage_scoped": True,
+        "current_rebalance_label": (
+            "Current rebalance: %d submitted / %d filled" % (submitted, filled)),
+        "historical_label": ("Existing operational holdings from the initial "
+                             "implementation: %d filled order(s)" % historical_fills),
+    }
+
+
 def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=None,
                          actions_dir=None, plan_dir=None, active_book_id=None,
                          eligible_market_date=None, portfolio_state=None,
@@ -890,6 +979,11 @@ def load_rebalance_state(*, decision_dir=None, reallocation_dir=None, desk_dir=N
         "order_plan": plan,
         "executed_order_ids": [o["order_id"] for o in executed],
         "executed_order_status": {o["order_id"]: o["status"] for o in executed},
+        # -- Stage 19.3 (Workstreams H + I): the compact, LINEAGE-SCOPED execution
+        # summary every operator surface renders for the CURRENT rebalance. It never
+        # mixes the historical initial-implementation fills or a superseded/cancelled
+        # plan into a current-state count. --------------------------------------- #
+        "execution_summary": build_execution_summary(sdir, bound=bound, state=state),
         # Stage 19.1 — why a proposal is stale, and the explicit executability contract.
         "stale_reason": base.get("stale_reason"),
         "corporate_action_staleness": base.get("corporate_action_staleness"),

@@ -252,7 +252,9 @@ class TestGateSafety:
                                            data_ready=False)
         assert r["outcome"] == dag.OUTCOME_DATA_NOT_READY
         assert r["action_required"] is True
-        assert r["primary_action_label"] == "Refresh After Market Close"
+        # Stage 19.3: the owned-EOD refresh is performed BY the Daily Close (which
+        # composes the Paper Desk owner) — never by a competing standalone control.
+        assert r["primary_action_label"] == "Run Daily Close"
 
     def test_pending_orders_defer(self):
         r = dag.evaluate_daily_action_gate(
@@ -481,7 +483,11 @@ class TestUiStaticLegacyAbsence:
         assert "LEGACY PREDICTION PATH" not in html
 
     def test_research_audit_still_available(self, html):
-        assert 'data-route="research-audit"' in html
+        # Phase 29J.1: the Research & Audit workspace is still reachable — the legacy
+        # route resolves as an alias and the two new primary areas open it.
+        assert "'research-audit': 'audit-advanced'" in html   # legacy route alias preserved
+        assert 'data-route="research"' in html                # Research primary area
+        assert 'data-route="system-audit"' in html            # System · Audit primary area
         assert 'id="tab-audit-advanced"' in html
 
 
@@ -504,9 +510,20 @@ class TestUiStaticNavCutover:
         # the route id and alias are unchanged (no route change)
         assert "'alpha-portfolio': 'multi-horizon'" in html
 
-    def test_operate_group_has_the_four_operator_routes(self, html):
+    def test_primary_nav_has_the_four_operator_areas(self, html):
+        # Phase 29J.1 OPERATOR UX CONSOLIDATION: the primary navigation is FOUR
+        # operator-oriented areas — Today (command-center) + Portfolio (portfolio-manager)
+        # under OPERATE, and Research + System · Audit under RESEARCH. Legacy/detail
+        # routes (portfolio, daily-workflow, multi-horizon) are demoted under Advanced views.
         i_op = html.index('<div class="sidebar-label">Operate</div>')
         i_res = html.index('<div class="sidebar-label">Research</div>')
+        i_adv = html.index('id="sidebar-advanced-views"')
         operate_block = html[i_op:i_res]
-        for route in ("command-center", "portfolio", "daily-workflow", "portfolio-manager"):
-            assert 'data-route="%s"' % route in operate_block, route
+        research_block = html[i_res:i_adv]
+        assert 'data-route="command-center"' in operate_block      # Today
+        assert 'data-route="portfolio-manager"' in operate_block   # Portfolio
+        assert 'data-route="research"' in research_block
+        assert 'data-route="system-audit"' in research_block
+        advanced_block = html[i_adv:i_adv + 1400]
+        for route in ("daily-workflow", "multi-horizon", "portfolio"):
+            assert 'data-route="%s"' % route in advanced_block, route

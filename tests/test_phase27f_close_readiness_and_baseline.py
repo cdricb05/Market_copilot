@@ -60,6 +60,18 @@ def _ops(*, pending=0, fills=8, initialized=True, lifecycle="FILLED",
     return {"canonical_state": cs, "operational_book": ob}
 
 
+def _ops_loader(**kw):
+    """Offline operational-book seam for the POST path.
+
+    Without it ``run_daily_close`` falls back to the real ``load_operational_book``,
+    which reads the LIVE desk store — the live book's pending orders then leak into
+    these hermetic tests. Every close test must supply its own operational state.
+    """
+    def _loader(*_a, **_k):
+        return _ops(**kw)
+    return _loader
+
+
 def _gate(outcome="NO_ACTION_TODAY", data_ready=True, pcount=0):
     return {"outcome": outcome, "outcome_label": outcome.replace("_", " "),
             "target_state": ("CURRENT_ALIGNED" if outcome == "NO_ACTION_TODAY" else "PROPOSAL_READY"),
@@ -319,7 +331,7 @@ class TestScope:
             confirm=dc.EXECUTE_CONFIRMATION, today="2026-07-22", desk_dir=d,
             refresh_fn=_ok_refresh("2026-07-21"),
             gate_loader=lambda *a, **k: _gate("DATA_NOT_READY", data_ready=False),
-            provider_probe=_ready_probe)
+            provider_probe=_ready_probe, operational_loader=_ops_loader())
         assert out["close_status"] == dc.DATA_BLOCKED          # (#24) NOT NO_ACTION
         assert out["decision"] is None
         assert out["proposal"] is None                         # (#25) no proposal
@@ -337,7 +349,7 @@ class TestValuationBlocks:
         out = dc.run_daily_close(
             confirm=dc.EXECUTE_CONFIRMATION, today="2026-07-22", desk_dir=d,
             refresh_fn=_blocked_refresh("AAPL has no completed owned close"),
-            gate_loader=lambda *a, **k: _gate())
+            gate_loader=lambda *a, **k: _gate(), operational_loader=_ops_loader())
         assert out["close_status"] == dc.DATA_BLOCKED          # (#22)
         assert _journal_count(d) == 1                          # only the seed; no new record
         assert out["performed_write"] is False
@@ -348,7 +360,7 @@ class TestValuationBlocks:
         out = dc.run_daily_close(
             confirm=dc.EXECUTE_CONFIRMATION, today="2026-07-22", desk_dir=d,
             refresh_fn=_blocked_refresh("SPY benchmark not priced"),
-            gate_loader=lambda *a, **k: _gate())
+            gate_loader=lambda *a, **k: _gate(), operational_loader=_ops_loader())
         assert out["close_status"] == dc.DATA_BLOCKED          # (#23)
         assert _journal_count(d) == 1
 
@@ -372,12 +384,12 @@ class TestSafety:
         _seed(d, "2026-07-17")
         r1 = dc.run_daily_close(confirm=dc.EXECUTE_CONFIRMATION, today="2026-07-22",
                                 desk_dir=d, refresh_fn=_ok_refresh("2026-07-21"),
-                                gate_loader=lambda *a, **k: _gate())
+                                gate_loader=lambda *a, **k: _gate(), operational_loader=_ops_loader())
         assert r1["close_status"] == dc.CLOSE_COMPLETE_HOLD
         n = _journal_count(d)
         r2 = dc.run_daily_close(confirm=dc.EXECUTE_CONFIRMATION, today="2026-07-22",
                                 desk_dir=d, refresh_fn=_ok_refresh("2026-07-21"),
-                                gate_loader=lambda *a, **k: _gate())
+                                gate_loader=lambda *a, **k: _gate(), operational_loader=_ops_loader())
         assert r2["close_status"] == dc.ALREADY_PROCESSED     # (#27)
         assert r2["performed_write"] is False
         assert _journal_count(d) == n                         # no duplicate row
@@ -387,7 +399,7 @@ class TestSafety:
         _seed(d, "2026-07-17")
         out = dc.run_daily_close(confirm=dc.EXECUTE_CONFIRMATION, today="2026-07-22",
                                  desk_dir=d, refresh_fn=_ok_refresh("2026-07-21"),
-                                 gate_loader=lambda *a, **k: _gate())
+                                 gate_loader=lambda *a, **k: _gate(), operational_loader=_ops_loader())
         assert out["creates_orders"] is False                 # (#28)
         assert out["auto_order_creation"] is False
         assert not (desk._desk_dir(d) / desk.ORDERS_FILE).exists()
@@ -426,7 +438,7 @@ class TestConsistencyAndPost:
             confirm=dc.EXECUTE_CONFIRMATION, now=datetime(2026, 7, 23, 18, 0, tzinfo=_ET),
             desk_dir=d, refresh_fn=_ok_refresh("2026-07-23"),
             provider_probe=_behind_probe("2026-07-22"),
-            gate_loader=lambda *a, **k: _gate())
+            gate_loader=lambda *a, **k: _gate(), operational_loader=_ops_loader())
         assert out["close_status"] == dc.WAITING_FOR_MARKET_DATA
         assert out["performed_write"] is False
         assert _journal_count(d) == 1                         # only the seed; no new write
@@ -440,7 +452,8 @@ class TestConsistencyAndPost:
         out = dc.run_daily_close(
             confirm=dc.EXECUTE_CONFIRMATION, now=datetime(2026, 7, 23, 12, 0, tzinfo=_ET),
             desk_dir=d, refresh_fn=_ok_refresh("2026-07-22"),
-            provider_probe=_ready_probe, gate_loader=lambda *a, **k: _gate())
+            provider_probe=_ready_probe, gate_loader=lambda *a, **k: _gate(),
+            operational_loader=_ops_loader())
         assert out["close_status"] == dc.CLOSE_COMPLETE_HOLD
         assert out["last_processed_market_date"] == "2026-07-22"
         assert out["performed_write"] is True

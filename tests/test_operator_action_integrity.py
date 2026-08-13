@@ -186,30 +186,49 @@ class TestBackendExecutionContract:
         assert st_cycle_blocked()["overall_state"] == ws.RESEARCH_CYCLE_BLOCKED
         assert st_inconsistent()["overall_state"] == ws.INCONSISTENT_STATE
 
-    def test_waiting_for_owned_data_primary_executes_the_existing_refresh_owner(self):
+    def test_waiting_for_owned_data_primary_executes_the_canonical_daily_close(self):
+        # STAGE 19.3 SUPERSEDES the original Defect-1 contract. The standalone Paper
+        # Desk refresh is no longer promoted here: the Daily Close COMPOSES it (owned
+        # marks -> NEXT_CLOSE settlement -> model inputs -> reassessment), so promoting
+        # the raw refresh created a SECOND post-close orchestration path for one
+        # transition. One owner, one operator action.
         pa = st_waiting_owned()["primary_action"]
         assert pa["action_code"] == ws.ACTION_WAIT_FOR_OWNED_DATA
-        assert pa["label"] == "Refresh owned market data"
+        assert pa["label"] == "Run the Daily Close"
         assert pa["execution_available"] is True
         assert pa["manual_confirmation_required"] is True
-        assert pa["execution_kind"] == ws.EXEC_PAPER_DESK_REFRESH
+        assert pa["execution_kind"] == ws.EXEC_DAILY_CLOSE
         ec = pa["execution_contract"]
-        assert ec["path"] == "/v1/paper-desk/refresh"
-        assert ec["confirmation_field"] == "confirm"
-        # The token IS the existing owner's token — one confirmation contract.
-        assert ec["confirmation_token"] == ptd.REFRESH_CONFIRM_TOKEN
-        assert pa["confirmation_required"] == ptd.REFRESH_CONFIRM_TOKEN
-        # Navigational fallback lands on the exact owning control.
-        assert pa["destination"] == ws.DEST_PORTFOLIO_MANAGER
-        assert pa["focus"] == "pd-band"
+        assert ec["path"] == "/v1/operations/daily-close/execute"
+        assert ec["confirmation_field"] == "confirmation"
+        assert ec["confirmation_token"] == dcm.EXECUTE_CONFIRMATION
+        assert pa["confirmation_required"] == dcm.EXECUTE_CONFIRMATION
+        assert pa["destination"] == ws.DEST_DAILY_WORKFLOW
+        # The maintenance executor must never reappear as the promoted action.
+        assert pa["execution_kind"] not in ws.MAINTENANCE_EXECUTION_KINDS
 
-    def test_waiting_for_owned_data_offers_no_daily_close(self):
+    def test_waiting_for_owned_data_allows_the_daily_close(self):
         r = st_waiting_owned()
-        assert r["daily_close_gate"]["execution_allowed"] is False
-        assert "owned market data" in r["daily_close_gate"]["passive_status"]
-        for q in r["queued_actions"]:
-            if q["action_code"] == ws.ACTION_RUN_DAILY_CLOSE:
-                assert q["execution_available"] is False
+        # The close is the owner that advances owned marks, so its gate is OPEN here.
+        assert r["daily_close_gate"]["execution_allowed"] is True
+        assert r["daily_close_gate"]["passive_status"] is None
+        cmd = r["operator_command"]
+        assert cmd["primary_action_available"] is True
+        assert cmd["primary_action_kind"] == ws.EXEC_DAILY_CLOSE
+        assert "settle eligible NEXT_CLOSE paper orders" in cmd["supporting_text"]
+
+    def test_paper_desk_refresh_is_never_a_canonical_primary_action(self):
+        # The endpoint and its execution contract survive as a MAINTENANCE capability…
+        assert ws.EXEC_PAPER_DESK_REFRESH in ws.EXECUTION_KINDS
+        assert ws.EXEC_PAPER_DESK_REFRESH in ws.MAINTENANCE_EXECUTION_KINDS
+        assert ws.EXEC_PAPER_DESK_REFRESH not in ws.NORMAL_PATH_EXECUTION_KINDS
+        # … but no canonical state may promote it, and the guard fails closed.
+        for st in (st_waiting_owned(), st_research_required(), st_ready_for_close(),
+                   st_cycle_complete(), st_cycle_blocked(), st_inconsistent()):
+            assert st["primary_action"]["execution_kind"] != ws.EXEC_PAPER_DESK_REFRESH
+        with pytest.raises(AssertionError):
+            ws.assert_primary_action_contract(
+                {"execution_kind": ws.EXEC_PAPER_DESK_REFRESH})
 
     def test_research_cycle_required_primary_executes_the_canonical_drc(self):
         pa = st_research_required()["primary_action"]
@@ -444,37 +463,43 @@ def _paths(posts):
 
 
 class TestUiBehaviourWaitingOwned:
-    def test_one_primary_cta_executes_the_refresh_owner(self, harness_report):
+    def test_one_primary_cta_executes_the_canonical_daily_close(self, harness_report):
+        # STAGE 19.3: the promoted post-close action is the canonical Daily Close, which
+        # composes the Paper Desk owner. The standalone desk refresh is maintenance only,
+        # so the hero must NOT offer it and the UI must POST exactly one close.
         r = harness_report["waiting_owned"]
-        assert "Refresh owned market data" in r["hero"]["html"]
-        assert "dispatchCanonicalPrimaryAction(this)" in r["hero"]["html"]
-        # First click opens the styled confirmation panel (existing contract) …
-        assert r["confirm_panel_after_click"]["display"] == ""
-        assert r["confirm_phrase"]["text"] == ptd.REFRESH_CONFIRM_TOKEN
-        # … and confirming runs EXACTLY the existing owner, then reloads the
-        # canonical workflow state.
-        assert _paths(r["posts_after_click"]) == ["/v1/paper-desk/refresh"]
-        assert r["posts_after_click"][0]["body"] == {"confirm": ptd.REFRESH_CONFIRM_TOKEN}
-        assert "workflow-state" in r["loads_after_click"]
+        assert r["opc"]["cta_count"] == 1
+        assert "Run the Daily Close" in r["opc"]["html"]
+        assert "Refresh owned market data" not in r["opc"]["html"]
+        assert "dispatchCanonicalPrimaryAction(this)" in r["opc"]["html"]
+        assert _paths(r["posts_after_click"]) == ["/v1/operations/daily-close/execute"]
+        assert r["posts_after_click"][0]["body"]["confirmation"] == dcm.EXECUTE_CONFIRMATION
+        assert "/v1/paper-desk/refresh" not in _paths(r["posts_after_click"])
         assert r["navs_after_click"] == []          # execution, not navigation
 
     def test_not_a_dead_button_and_no_double_submit(self, harness_report):
         r = harness_report["waiting_owned"]
         assert len(r["posts_after_double"]) == 1
 
-    def test_no_daily_close_available(self, harness_report):
+    def test_daily_close_is_the_available_action(self, harness_report):
+        # The close is legitimately available here (it is the owned-mark owner), so a
+        # close attempt genuinely posts the close — but only ONE surface offers it.
         r = harness_report["waiting_owned"]
-        assert r["dc"]["cc_btn"]["display"] == "none"
-        assert r["dc"]["dw_btn"]["display"] == "none"
-        assert "owned market data" in r["dc"]["cc_headline"]["text"]
-        assert r["posts_after_close_attempt"] == []
-        assert any(t["kind"] == "warning" for t in r["toasts_after_close_attempt"])
+        assert r["operator_command"]["attrs"]["data-op-action-available"] == "1"
+        assert r["dc"]["cc_btn"]["display"] == "none"    # no duplicate panel control
+        assert _paths(r["posts_after_close_attempt"]) == [
+            "/v1/operations/daily-close/execute"]
 
 
 class TestUiBehaviourResearchRequired:
     def test_exactly_one_executable_drc_action(self, harness_report):
+        # STAGE 19.3: the ONE execution surface is the canonical Operator Command bar;
+        # the hero no longer repeats the execute button (it keeps a navigation link).
+        # The dispatcher still routes to exactly ONE owner.
         r = harness_report["research_required"]
-        assert "Run the Daily Research Cycle" in r["hero"]["html"]
+        assert r["opc"]["cta_count"] == 1
+        assert "Run the Daily Research Cycle" in r["opc"]["html"]
+        assert "Run the Daily Research Cycle" not in r["hero"]["html"]
         assert _paths(r["posts_after_click"]) == ["/v1/operations/daily-research-cycle/run"]
         assert r["posts_after_click"][0]["body"] == {
             "confirmation": drcm.EXECUTE_CONFIRMATION}
@@ -485,9 +510,13 @@ class TestUiBehaviourResearchRequired:
         assert len(r["posts_after_double"]) == 1
 
     def test_navigation_link_is_distinct_not_identical(self, harness_report):
+        # Navigation is NEVER suppressed (routing is not a write): the hero and the
+        # banner both keep the distinctly-worded view link beside the canonical action.
         r = harness_report["research_required"]
         assert "View Daily Workflow" in r["hero"]["html"]
         assert "View Daily Workflow" in r["banner_dw"]["html"]
+        # …and neither disguises navigation as execution.
+        assert "Run the Daily Research Cycle" not in r["banner_dw"]["html"]
 
     def test_no_daily_close_execution_available(self, harness_report):
         r = harness_report["research_required"]
@@ -502,15 +531,21 @@ class TestUiBehaviourResearchRequired:
 class TestUiBehaviourReadyForClose:
     def test_exactly_one_primary_daily_close_action(self, harness_report):
         r = harness_report["ready_for_close"]
-        assert "Run the Daily Close" in r["hero"]["html"]
+        assert r["opc"]["cta_count"] == 1
+        assert "Run the Daily Close" in r["opc"]["html"]
         assert _paths(r["posts_after_click"]) == ["/v1/operations/daily-close/execute"]
         assert r["posts_after_click"][0]["body"]["confirmation"] == dcm.EXECUTE_CONFIRMATION
 
-    def test_secondary_close_controls_agree(self, harness_report):
+    def test_secondary_close_controls_recede(self, harness_report):
+        """STAGE 19.3: the secondary close panels no longer duplicate the write action.
+        The August-13 Today screen stacked FOUR "Run Daily Close" controls for ONE
+        action; the panels now show status and the command bar owns execution."""
         r = harness_report["ready_for_close"]
-        assert r["dc"]["cc_btn"]["display"] == ""
-        assert r["dc"]["cc_btn"]["text"] == "Run Daily Close"
-        assert r["dc"]["perf_btn"]["display"] == ""
+        assert r["dc"]["cc_btn"]["display"] == "none"
+        assert r["dc"]["dw_btn"]["display"] == "none"
+        assert r["dc"]["pm_btn"]["display"] == "none"
+        assert "Run the Daily Close" not in r["hero"]["html"]
+        assert "Run the Daily Close" not in r["banner_dw"]["html"]
         # Before the canonical payload loaded the gate failed CLOSED.
         assert r["pre_ws"]["dcBtn"]["display"] == "none"
 
@@ -528,7 +563,9 @@ class TestUiBehaviourCycleComplete:
         r = harness_report["cycle_complete"]
         assert r["hero"]["attrs"].get("data-density") == "compact"
         assert "th-cta" not in r["hero"]["html"]
-        assert r["right_next"]["text"] == "No action required right now."
+        # Stage 19.3: the rail MIRRORS the canonical operator-command text verbatim
+        # (ws.NO_ACTION_TEXT) instead of composing its own sentence.
+        assert r["right_next"]["text"] == ws.NO_ACTION_TEXT
         assert r["right_btn"]["display"] == "none"
         assert r["right_task"]["text"] == "Monitor the portfolio."
         assert r["posts_after_click"] == []

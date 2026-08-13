@@ -166,6 +166,103 @@ def _derive_review(target_date: Any, valuation_date: Any,
     return nrd.isoformat(), bool(tdy >= nrd)
 
 
+# --------------------------------------------------------------------------- #
+# Stage 19.3 — CURRENT-REBALANCE LINEAGE (Workstreams H + I).
+#
+# The book-wide order fold below answers "what has this book ever done"; it must
+# NEVER be used to describe the CURRENT rebalance. On 2026-08-13 the live book held
+# three unrelated cohorts simultaneously:
+#
+#   * 25 FILLED orders with NO rebalance lineage  — the historical initial
+#     implementation of the book;
+#   * 22 CANCELLED orders under the DEFECTIVE plan rbop_..._5bf9c6c20f8a;
+#   * 29 SUBMITTED orders under the REPAIRED plan rbop_..._1a198f560cca.
+#
+# Rendering "Submitted 29 / Filled 25 / Cancelled 22" side by side reads as a
+# partially-filled current rebalance, which is operationally false and dangerous.
+# Every CURRENT-rebalance count is therefore filtered by the current order-plan
+# lineage the desk already stamps on each order; the other cohorts stay fully
+# auditable under execution history. Read-only replay; nothing is recomputed.
+# --------------------------------------------------------------------------- #
+_LINEAGE_OPEN_STATUSES = (desk.ST_PROPOSED, desk.ST_APPROVED, desk.ST_SUBMITTED)
+
+
+def _order_plan_id(order: dict) -> Optional[str]:
+    lin = order.get("rebalance_lineage") or {}
+    pid = lin.get("order_plan_id")
+    return str(pid) if pid else None
+
+
+def current_rebalance_lineage(orders: list[dict]) -> dict:
+    """Fold the CURRENT rebalance cohort out of the book's complete order list.
+
+    The current plan is the one carrying open (non-terminal) orders; with none open it
+    is the most recently approved lineage-bearing plan. Orders with no lineage are the
+    historical initial implementation and are counted separately, never mixed in.
+    Pure: no I/O, no writes, no re-derivation of any fill, price or cost.
+    """
+    lineage_orders = [o for o in orders if _order_plan_id(o)]
+    legacy_orders = [o for o in orders if not _order_plan_id(o)]
+
+    def _appr(o: dict) -> str:
+        return str(o.get("approval_date") or "")
+
+    open_plans = sorted(
+        {_order_plan_id(o) for o in lineage_orders
+         if o.get("status") in _LINEAGE_OPEN_STATUSES},
+        key=lambda p: max((_appr(o) for o in lineage_orders
+                           if _order_plan_id(o) == p), default=""))
+    if open_plans:
+        plan_id = open_plans[-1]
+    else:
+        by_date = sorted(lineage_orders, key=lambda o: (_appr(o), _order_plan_id(o) or ""))
+        plan_id = _order_plan_id(by_date[-1]) if by_date else None
+
+    cohort = [o for o in lineage_orders if _order_plan_id(o) == plan_id]
+    by_status: dict[str, int] = {}
+    for o in cohort:
+        by_status[o["status"]] = by_status.get(o["status"], 0) + 1
+    submitted = by_status.get(desk.ST_APPROVED, 0) + by_status.get(desk.ST_SUBMITTED, 0)
+    proposed = by_status.get(desk.ST_PROPOSED, 0)
+    filled = by_status.get(desk.ST_FILLED, 0)
+    cancelled = by_status.get(desk.ST_CANCELLED, 0)
+    expired = by_status.get(desk.ST_EXPIRED, 0)
+    buys = sum(1 for o in cohort if o.get("side") == desk.SIDE_BUY
+               and o["status"] in _LINEAGE_OPEN_STATUSES)
+    sells = sum(1 for o in cohort if o.get("side") == desk.SIDE_SELL
+                and o["status"] in _LINEAGE_OPEN_STATUSES)
+    approval_dates = sorted({_appr(o) for o in cohort if _appr(o)})
+    lin = (cohort[0].get("rebalance_lineage") or {}) if cohort else {}
+    superseded = sorted({_order_plan_id(o) for o in lineage_orders
+                         if _order_plan_id(o) != plan_id} - {None})
+    return {
+        "order_plan_id": plan_id,
+        "order_plan_id_short": (plan_id or "")[-12:] or None,
+        "order_plan_hash": lin.get("order_plan_hash"),
+        "proposal_id": lin.get("proposal_id"),
+        "proposal_hash": lin.get("proposal_hash"),
+        "approval_date": approval_dates[-1] if approval_dates else None,
+        "order_count": len(cohort),
+        "proposed_count": proposed,
+        "submitted_count": submitted,
+        "filled_count": filled,
+        "cancelled_count": cancelled,
+        "expired_count": expired,
+        "open_count": proposed + submitted,
+        "buy_count": buys,
+        "sell_count": sells,
+        # Explicitly separated cohorts — auditable, never folded into the above.
+        "historical_implementation_fill_count": sum(
+            1 for o in legacy_orders if o.get("status") == desk.ST_FILLED),
+        "historical_implementation_order_count": len(legacy_orders),
+        "superseded_plan_ids": superseded,
+        "superseded_order_count": sum(1 for o in lineage_orders
+                                      if _order_plan_id(o) != plan_id),
+        "lineage_available": bool(plan_id),
+        "counts_are_lineage_scoped": True,
+    }
+
+
 def _pending_orders(desk_dir=None) -> dict:
     """Fold the desk order ledger for the operational book (read-only replay)."""
     sdir = desk._desk_dir(desk_dir)
@@ -188,6 +285,8 @@ def _pending_orders(desk_dir=None) -> dict:
         "total_orders": len(orders),
         "by_status": by_status,
         "latest_submission_date": max(submission_dates) if submission_dates else None,
+        # Stage 19.3 — the CURRENT rebalance cohort, isolated by order-plan lineage.
+        "current_rebalance": current_rebalance_lineage(orders),
     }
 
 
@@ -502,11 +601,28 @@ def derive_lifecycle_view(*, initialized: bool, orders: dict, fills_count: int,
     expired = by.get("EXPIRED", 0)
     open_orders = proposed + submitted
 
+    # Stage 19.3 — the CURRENT rebalance cohort (lineage-scoped). The book-wide fold
+    # above still describes the whole book; every operator-facing "current rebalance"
+    # number below comes from this cohort so a historical implementation fill can never
+    # masquerade as a partial fill of the plan the operator just confirmed.
+    cur = orders.get("current_rebalance") or {}
+    cur_scoped = bool(cur.get("lineage_available"))
+    cur_submitted = int(cur.get("submitted_count") or 0)
+    cur_filled = int(cur.get("filled_count") or 0)
+    cur_open = int(cur.get("open_count") or 0)
+
+    # Stage 19.3 — PARTIALLY_FILLED must mean "the CURRENT rebalance is part-filled",
+    # not "this book has ever filled anything". On 2026-08-13 the book's 25 historical
+    # initial-implementation fills made a freshly submitted 29-order plan (0 of its own
+    # fills) classify as PARTIALLY_FILLED — the exact ambiguity Workstream H forbids.
+    # With lineage available the classification uses the CURRENT cohort's own fills;
+    # without it (pre-lineage books) the book-wide count is used exactly as before.
+    effective_fills = cur_filled if cur_scoped else fills_count
     if proposed:
         stage = LIFECYCLE_PROPOSED
-    elif submitted and not fills_count:
+    elif submitted and not effective_fills:
         stage = LIFECYCLE_SUBMITTED
-    elif open_orders and fills_count:
+    elif open_orders and effective_fills:
         stage = LIFECYCLE_PARTIALLY_FILLED
     elif plan_exists:
         # Includes the monthly-rebalance re-emergence: every prior order is
@@ -550,36 +666,44 @@ def derive_lifecycle_view(*, initialized: bool, orders: dict, fills_count: int,
             "submit them, fills wait for the first eligible completed owned close "
             "recorded by a later manual desk refresh.")
     elif stage == LIFECYCLE_SUBMITTED:
+        # Stage 19.3: the CURRENT rebalance cohort owns these counts, never the
+        # book-wide fold (see ``current_rebalance_lineage``).
         headline = ("%d PAPER ORDERS SUBMITTED — AWAITING NEXT ELIGIBLE CLOSE"
-                    % submitted)
+                    % (cur_submitted if cur_scoped else submitted))
         explanation = ("The paper orders were created successfully. No further "
-                       "confirmation is required. They will fill only after a "
-                       "later eligible completed close is recorded by a manual "
-                       "desk refresh.")
-        primary_action_label = "Refresh After Market Close"
+                       "confirmation is required. They settle inside the Daily "
+                       "Close for the next eligible completed session — there is "
+                       "no separate desk refresh to run.")
+        # Stage 19.3: this label must never name a standalone post-close desk refresh.
+        # That control is no longer part of the normal operator path; the Daily Close
+        # composes it. This stage is passive monitoring, so the label describes waiting.
+        primary_action_label = "Monitor Pending Paper Orders"
         secondary_action_label = "Cancel Submitted Orders"
         current_task_label = "Await Next Eligible Close"
         next_eligible_fill_explanation = (
-            "Paper fills occur only at the first eligible completed owned close "
-            "on or after %s (the submission date) that a LATER manual desk "
-            "refresh records. A refresh that finds no newer completed close "
-            "records 0 fills and the orders simply remain SUBMITTED — that is "
-            "expected, not a failure." % (submitted_date or "the submission date"))
+            "Paper fills occur at the first eligible completed owned close on or "
+            "after %s (the submission date). The Daily Close for that session "
+            "settles them through the Paper Desk. A close that finds no newer "
+            "completed session records 0 fills and the orders simply remain "
+            "SUBMITTED — that is expected, not a failure."
+            % (submitted_date or "the submission date"))
     elif stage == LIFECYCLE_PARTIALLY_FILLED:
         headline = "PAPER EXECUTION IN PROGRESS"
         explanation = ("%d paper order%s filled; %d still await%s an eligible "
-                       "completed close. Run the manual desk refresh on a later "
-                       "day to settle the rest — no further confirmation is "
+                       "completed close. The next Daily Close settles the rest — "
+                       "no further confirmation and no separate desk refresh is "
                        "required."
-                       % (filled_orders, "" if filled_orders == 1 else "s",
-                          open_orders, "s" if open_orders == 1 else ""))
-        primary_action_label = "Refresh After Market Close"
+                       % ((cur_filled if cur_scoped else filled_orders),
+                          "" if (cur_filled if cur_scoped else filled_orders) == 1 else "s",
+                          (cur_open if cur_scoped else open_orders),
+                          "s" if (cur_open if cur_scoped else open_orders) == 1 else ""))
+        primary_action_label = "Monitor Pending Paper Orders"
         secondary_action_label = "Cancel Submitted Orders"
         current_task_label = "Await Remaining Fills"
         next_eligible_fill_explanation = (
             "The remaining paper orders fill at the first eligible completed "
-            "owned close on or after %s (the submission date) recorded by a "
-            "later manual desk refresh." % (submitted_date or "their submission"))
+            "owned close on or after %s (the submission date), settled by that "
+            "session's Daily Close." % (submitted_date or "their submission"))
     else:  # LIFECYCLE_FILLED
         headline = "ALPHA PAPER BOOK ACTIVE"
         explanation = ("All paper orders are settled and the alpha paper book is "
@@ -609,6 +733,12 @@ def derive_lifecycle_view(*, initialized: bool, orders: dict, fills_count: int,
             LIFECYCLE_SUBMITTED, LIFECYCLE_PARTIALLY_FILLED, LIFECYCLE_FILLED),
         "orders_exist": stage in _LIFECYCLE_ORDER_STAGES,
         "execution_model": execution_model,
+        # Stage 19.3 — the lineage-scoped CURRENT rebalance cohort. Surfaces must render
+        # THESE for "current rebalance"; the flat counts above describe the whole book.
+        "current_rebalance": cur,
+        # Stage 19.3 — the normal path never requires a standalone desk refresh.
+        "requires_separate_desk_refresh": False,
+        "settlement_owner": "api.daily_close (composes api.paper_trading_desk)",
     }
 
 
@@ -1085,6 +1215,10 @@ def load_operational_book(*, desk_dir=None, ledger_dir=None, today: Optional[str
         "cancelled_count": lifecycle["cancelled_count"],
         "expired_count": lifecycle["expired_count"],
         "open_order_count": lifecycle["open_order_count"],
+        # -- Stage 19.3: lineage-scoped CURRENT rebalance execution counts ---- #
+        "current_rebalance": lifecycle["current_rebalance"],
+        "requires_separate_desk_refresh": lifecycle["requires_separate_desk_refresh"],
+        "settlement_owner": lifecycle["settlement_owner"],
         "submitted_date": lifecycle["submitted_date"],
         "next_eligible_fill_explanation": lifecycle["next_eligible_fill_explanation"],
         "no_further_confirmation_required": lifecycle["no_further_confirmation_required"],

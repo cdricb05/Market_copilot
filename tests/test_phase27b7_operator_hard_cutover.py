@@ -249,7 +249,7 @@ class TestCanonicalStateContract:
         assert cs["holdings_count"] == 0
         assert cs["cash"] == pytest.approx(100000.0)
         assert cs["nav"] == pytest.approx(100000.0)
-        assert cs["next_action_label"] == "Refresh After Market Close"
+        assert cs["next_action_label"] == "Monitor Pending Paper Orders"
         assert cs["current_task_label"] == "Await Next Eligible Close"
         assert "AWAITING NEXT ELIGIBLE CLOSE" in cs["primary_headline"]
 

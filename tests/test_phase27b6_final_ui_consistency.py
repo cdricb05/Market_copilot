@@ -95,7 +95,7 @@ class TestStandardVocabulary:
         assert cs["lifecycle_stage"] == "SUBMITTED"
         assert cs["primary_headline"] == (
             "%d PAPER ORDERS SUBMITTED — AWAITING NEXT ELIGIBLE CLOSE" % _N)
-        assert cs["next_action_label"] == "Refresh After Market Close"
+        assert cs["next_action_label"] == "Monitor Pending Paper Orders"
         assert cs["current_task_label"] == "Await Next Eligible Close"
 
     def test_ui_maps_status_to_orders_submitted(self, js):
@@ -342,7 +342,7 @@ class TestResearchNeverOverrides:
         monkeypatch.setattr(ob_mod, "_VALUATION_LOADER", _boom)
         cs = _cs()
         assert cs["lifecycle_stage"] == "SUBMITTED"
-        assert cs["next_action_label"] == "Refresh After Market Close"
+        assert cs["next_action_label"] == "Monitor Pending Paper Orders"
 
     def test_research_page_has_no_operational_cta(self, html):
         ra = _region(html, 'id="tab-audit-advanced"', "end tab-audit-advanced")

@@ -163,8 +163,26 @@ class TestPureResolver:
         assert self._r(last_processed_date="2026-07-22",
                        processed_decision_for_latest=dc.DECISION_REBALANCE) == dc.REBALANCE_PROPOSAL_READY
 
-    def test_orders_when_pending(self):
-        assert self._r(pending_orders=3) == dc.PAPER_ORDERS_SUBMITTED
+    def test_orders_when_pending_and_no_new_eligible_close(self):
+        # Stage 19.3: the passive monitoring state is preserved EXACTLY while the latest
+        # eligible session is already processed — there is nothing new to close.
+        assert self._r(pending_orders=3, last_processed_date="2026-07-22",
+                       processed_decision_for_latest=dc.DECISION_ORDERS_PENDING) \
+            == dc.PAPER_ORDERS_SUBMITTED
+        assert self._r(pending_orders=3, last_processed_date="2026-07-22") \
+            == dc.PAPER_ORDERS_SUBMITTED
+
+    def test_new_eligible_close_outranks_pending_orders(self):
+        # Stage 19.3 precedence: a NEWLY eligible completed session is due even while
+        # paper orders are working — the close settles them through the Paper Desk.
+        assert self._r(pending_orders=3, last_processed_date="2026-07-21",
+                       forward_tracking=True) == dc.CLOSE_DUE
+
+    def test_pending_orders_without_forward_tracking_still_monitor(self):
+        # The initial implementation is still working (nothing filled): no forward-
+        # tracking book exists to close, so monitoring is preserved.
+        assert self._r(pending_orders=3, book_active=False, forward_tracking=False,
+                       last_processed_date="2026-07-21") == dc.PAPER_ORDERS_SUBMITTED
 
     def test_awaiting_when_not_active(self):
         assert self._r(book_active=False) == dc.AWAITING_ELIGIBLE_CLOSE
@@ -254,9 +272,12 @@ class TestExecuteContract:
         rems = [r["ticker"] for r in out["proposal"]["proposed_removals"]]
         assert adds == ["NVDA"] and rems == ["XYZ"]        # only affected names, not all 8
 
-    def test_orders_pending_defers(self, tmp_path):
+    def test_orders_pending_without_fills_defers(self, tmp_path):
+        # The INITIAL implementation is still working (nothing filled): there is no
+        # forward-tracking book to close, so the close defers and writes nothing.
         d = tmp_path / "d"
-        out = _run(d, ops=_fake_ops(pending=3, fills=0, holdings_count=0), gate=_hold_loader)
+        out = _run(d, ops=_fake_ops(pending=3, fills=0, holdings_count=0,
+                                    lifecycle="SUBMITTED"), gate=_hold_loader)
         assert out["close_status"] == dc.PAPER_ORDERS_SUBMITTED
         assert out["performed_write"] is False
         assert _journal_count(d) == 0

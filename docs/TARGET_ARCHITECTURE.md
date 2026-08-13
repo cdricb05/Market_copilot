@@ -416,6 +416,16 @@ responsibilities, candidate existing modules, and migration approach.
 - **Candidates:** `api/ui/index.html`, `command_center`, read endpoints.
 - **Migration:** every concept renders from one payload; no client-side money/
   date math.
+- **Operator information architecture (Phase 29J.1, LANDED):** FOUR operator-oriented
+  primary areas — **Today / Portfolio / Research / System · Audit** — replace the six
+  architecture-centric views. Today (default) answers market → portfolio → abnormal →
+  recommendation → next action, with a restored **Market Context** strip that READS the
+  SINGLE authoritative owner `GET /v1/market/indicators` (no new market-data owner, no
+  new provider, no provider call or market math in JS; reference context only, honest
+  UNAVAILABLE for series with no owned source), the ONE canonical next-action from
+  `workflow_state.primary_action`, and one persistent safety strip. Legacy/detail views
+  are demoted (aliases preserved, no dead links); diagnostics move behind progressive
+  disclosure. Guarded by `check_operator_ux_consolidation_ownership`. No intraday.
 
 ### Orchestration
 - **Responsibility:** sequence workflows deterministically; one path each.
@@ -454,6 +464,25 @@ responsibilities, candidate existing modules, and migration approach.
   satisfies the portfolio reassessment (`READY_FOR_DAILY_CLOSE`); the honest HOC `DEGRADED`
   gaps stay visible. Guarded by `check_drc_manifest_recovery`. No evidence fabrication, no
   order/target authority.
+- **ONE operator command + ONE post-close orchestration path** (Stage 19.3): a newly
+  eligible completed market close OUTRANKS passive pending-order monitoring, and the
+  canonical Daily Close settles eligible NEXT_CLOSE paper orders internally by reusing
+  the EXISTING Paper Desk owner (`desk.refresh_desk` -> owned marks ->
+  `settle_due_orders` -> immutable fills -> performance). The normal operator workflow
+  therefore never requires a separate post-close desk refresh; that endpoint survives
+  as a bounded MAINTENANCE / RECOVERY capability, is classified in
+  `workflow_state.MAINTENANCE_EXECUTION_KINDS`, and can never become the canonical
+  `primary_action` (`assert_primary_action_contract` fails closed). The backend owns a
+  single `operator_command` contract — state, task, why, what happens next and at most
+  ONE primary action — which every operator surface mirrors and none reinterprets;
+  `primary_action_available` is the sole authority for whether any normal-path mutation
+  control may render. `book_active` (quiet book) and `forward_tracking` (holds real
+  filled positions) are distinct facts, so working paper orders never make a live book
+  look inactive. Every CURRENT-rebalance count is lineage-scoped to the current order
+  plan, with the historical initial implementation and superseded plans reported
+  separately and kept auditable. Guarded by `check_operator_atomic_close_ownership`;
+  fail-closed data paths, no-hindsight NEXT_CLOSE settlement, manual confirmation,
+  paper-only and automation-off boundaries are all unchanged.
 - Paper-only, preview-first, manual-review, no-automation boundaries.
 - Remote prediction at `:9000`; no local prediction.
 - The clean `db/session.py` boundary — the model for the future store service.

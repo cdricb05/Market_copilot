@@ -327,7 +327,11 @@ _PRESENTATION = {
         "label": "DATA NOT READY",
         "headline": "MARKET DATA REFRESH REQUIRED",
         "severity": SEV_AMBER,
-        "primary_action_label": "Refresh After Market Close",
+        # Stage 19.3: the owned-EOD refresh is performed BY the canonical Daily Close
+        # (which composes api.paper_trading_desk.refresh_desk). The gate therefore names
+        # the one canonical action instead of the standalone "Refresh After Market
+        # Close" desk control, which is now maintenance/recovery only.
+        "primary_action_label": "Run Daily Close",
         "current_task": "Refresh owned EOD market data",
     },
     OUTCOME_NO_ACTION_TODAY: {
@@ -358,7 +362,9 @@ _PRESENTATION = {
         "label": "ORDERS SUBMITTED",
         "headline": "PAPER ORDERS IN PROGRESS",
         "severity": SEV_AMBER,
-        "primary_action_label": "Refresh After Market Close",
+        # Stage 19.3: passive monitoring. Pending NEXT_CLOSE orders are settled INSIDE
+        # the next Daily Close — there is no separate desk refresh for the operator.
+        "primary_action_label": "Monitor Pending Paper Orders",
         "current_task": "Await the next eligible close for pending paper orders",
     },
     OUTCOME_FORWARD_TRACKING: {
@@ -433,8 +439,8 @@ def build_legacy_membership_comparison_presentation(
         "note": ("Read-only compatibility view. The legacy rank-membership comparison of "
                  "the current holdings against the ranked names is NOT an approved "
                  "reallocation and creates no paper orders. The canonical portfolio "
-                 "decision is the Holding Opportunity-Cost Review (Slice 6); the "
-                 "Reallocation Proposal engine (Slice 7) is not implemented."),
+                 "decision now flows through the Holding Opportunity-Cost Review (Slice 6) "
+                 "and the review-only Reallocation Proposal (Slice 7)."),
     }
 
 

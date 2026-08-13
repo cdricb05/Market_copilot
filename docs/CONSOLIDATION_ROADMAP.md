@@ -697,6 +697,49 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   robust, out-of-sample, cost-adjusted incremental lift before a purchase is recommended.
 - **Principle:** 4. **Milestone:** 5 (supporting track, not the main objective).
 
+## Phase 29J.1 — Operator UX Consolidation (LANDED)
+
+- **Objective:** correct the frontend/backend imbalance that accumulated across Slices
+  1–9. The backend became substantially stronger than the operator-facing information
+  architecture: six architecture-centric views, NAV rendered in 7+ places, dates in 20+,
+  workflow/next-action in 5–6 renderers, ~480 safety-badge spans across ~30+ strips, and
+  the market-context strip dead. This is an information-architecture and interaction-design
+  consolidation, not a rewrite, a cosmetic pass, or a diagnostics removal.
+- **Status — LANDED (Phase 29J.1).** The primary navigation is FOUR operator-oriented
+  areas — **Today / Portfolio / Research / System · Audit**. **Today** (default landing)
+  is ordered MARKET CONTEXT → portfolio performance → concise system status → what changed
+  → ONE dominant next action (from `workflow_state.primary_action`; the UI derives no
+  priority), with diagnostics behind progressive disclosure. The **Market Context** strip is
+  RESTORED against the SINGLE authoritative owner `GET /v1/market/indicators` (no new
+  market-data owner, no new provider, no provider call from JS, no market math in JS); it is
+  reference context only (never a signal / BUY-SELL) and shows explicit UNAVAILABLE tiles for
+  series with no owned source (DXY; US rates without a FRED key) — never a fabricated number;
+  there is no live regime classifier, so no regime badge is shown. **Portfolio** makes the
+  Holding Opportunity-Cost review + Reallocation Proposal first-class (open by default; the
+  review deep-link lands on a visible card); the legacy membership comparison and archived
+  book stay compatibility-only behind disclosure. ONE persistent safety strip carries
+  `PAPER ONLY · MANUAL REVIEW · AUTOMATION OFF · NO BROKER EXECUTION · NO LIVE BROKER ORDERS
+  · NO MODEL PROMOTION`. Legacy/detail views (Daily Workflow, Model Target, Holdings detail)
+  are demoted under an Advanced-views disclosure; every old route resolves as an alias (no
+  dead links). No backend authority moved: the UI READS the canonical owners and duplicates
+  no NAV/workflow/market/HOC/reallocation/research computation. Guarded by
+  `check_operator_ux_consolidation_ownership` (four areas present, legacy demoted, aliases
+  resolve, single authoritative market owner GET-only with no direct provider host / market
+  math, one next-action renderer, safety strip present, no purchase/order/promotion route,
+  cadence disabled); inventory drift = 0. No intraday, no execution, no cadence, no new
+  provider, no data purchase, no model promotion, no holdings change.
+- **Principle:** 6, 8. **Milestone:** supporting (operator experience across Milestones 1–5).
+
+## Phase 29J.2 — Controlled Autonomous Research Execution Bridge (NEXT, NOT STARTED)
+
+- **Objective (planned):** a bounded, evidence-gated bridge that lets the Slice 8 Research
+  Agent's fully-specified SHADOW-only experiments be *queued for controlled execution* under
+  explicit manual authorization — never auto-promotion, auto-retraining or auto-reallocation.
+  It does NOT bridge Slice 8 automatically to `alpha_agent`, does NOT enable cadence, and adds
+  no intraday or execution capability. Deferred until after Phase 29J.1; specified here only to
+  fix the sequence (29J.1 → 29J.2 → Slice 10 → Slice 11).
+- **Principle:** 3, 4, 7. **Milestone:** 4 (governance extension).
+
 ## Slice 10 — Intraday / near-real-time evolution
 
 - **Objective:** add intraday data, incremental features, event-driven rescoring,
@@ -741,3 +784,58 @@ Slices 9–11 are the charter's deferred tracks (Milestones 5–7).
   view logic as the owning contexts stabilize — never as a standalone rewrite.
 - **Test-contract migration:** convert the 648 implementation-coupled
   `.count(`/`.index(` assertions to behavioral contracts as each slice lands.
+
+---
+
+## Stage 19.3 — Operator workflow & atomic post-close consolidation (COMPLETE)
+
+**Trigger.** The 2026-08-13 live operating path, with 29 repaired NEXT_CLOSE paper
+orders SUBMITTED, exposed a control-plane problem rather than a cosmetic one: the
+operator faced many simultaneously-visible controls while the authoritative workflow
+said "No action required right now", and a standalone Paper Desk refresh competed with
+the canonical Daily Close for the SAME post-close transition.
+
+**Scope (consolidation of existing owners; nothing new was built).**
+
+- `api/daily_close.py` — a newly eligible completed close now OUTRANKS passive
+  pending-order monitoring; the close settles eligible NEXT_CLOSE orders through the
+  EXISTING Paper Desk owner; `forward_tracking` separated from `book_active`; the
+  offline operational seam honours `desk_dir`; settlement provenance recorded once.
+- `api/workflow_state.py` — `MAINTENANCE_EXECUTION_KINDS` +
+  `assert_primary_action_contract` (fails closed); `WAITING_FOR_OWNED_DATA` promotes
+  the Daily Close; `build_operator_command` is the ONE operator-command contract.
+- `api/operational_book.py` — `current_rebalance_lineage`; lineage-aware lifecycle
+  classification; no standalone post-close refresh label.
+- `api/rebalance_execution.py` — `build_execution_summary` (lineage-scoped four-stage
+  execution summary).
+- `api/daily_action_gate.py` — gate labels name the canonical close, not a competing
+  standalone refresh.
+- `api/ui/index.html` — the persistent Operator Command bar; ONE execution surface via
+  `_wsCommandOwnsExecution()`; lineage-aware current-rebalance strip; the desk refresh
+  demoted to a collapsed maintenance / recovery area.
+
+**Explicitly NOT built:** a second order engine, mark owner, fill simulator, Daily
+Close, workflow-state owner or NAV owner. No broker, no automation, no automatic
+rebalance, no automatic promotion, no model recalibration, no cadence change.
+
+**Tests.** `tests/test_stage19_3_operator_workflow_atomic_close.py` (61 tests:
+precedence, settlement-through-close, failure atomicity / idempotency, rebalance
+lineage, operator-command contract, rendered UX, safety) plus updates to the
+superseded assertions in the 27B / 27C / 27E / 27F and operator-action-integrity
+suites. Hermetic browser acceptance:
+`scripts/stage19_3_ui_fixtures.py` + `scripts/stage19_3_ui_acceptance.js`
+(5 scenarios x 1920x1080 and 1440x900, request-intercepted, non-GET blocked).
+
+**Guard.** `check_operator_atomic_close_ownership` with 33 blocking invariants.
+
+**Deferred (unchanged by this slice).**
+
+- Slice 9 (Evidence & Attribution consolidation), Slice 10 (Model governance,
+  Milestone 6) and Slice 11 (Controlled Execution, Milestone 7) remain sequenced as
+  before; cadence remains disabled.
+- The legacy `wf-*` per-page workflow banners are retained (deduplicated against the
+  command bar) rather than removed, so their session / assessment / evidence chips and
+  "Up next" context survive; folding them into the command bar is a later UX slice.
+- The generic `Refresh` / `Refresh View` controls remain under SYSTEM / MAINTENANCE and
+  in per-band reload buttons; they are read-only and never compete with the canonical
+  action, so no further consolidation was attempted here.

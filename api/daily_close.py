@@ -360,8 +360,12 @@ _PRESENTATION = {
         "primary_action_label": "Monitor Pending Paper Orders",
         "primary_action_kind": "MONITOR_ORDERS",
         "current_task": "Monitor Pending Paper Orders",
-        "next_action": ("Paper orders from a prior proposal are working; refresh after the "
-                        "next eligible close to settle them."),
+        # Stage 19.3: no standalone "refresh after the next close" instruction. Settlement
+        # happens INSIDE the next Daily Close (which composes the Paper Desk owner), so
+        # this passive state tells the operator to wait — never to run a second action.
+        "next_action": ("Paper orders are working and fill at the next eligible completed "
+                        "close. The Daily Close for that session settles them through the "
+                        "Paper Desk — no separate desk refresh is required."),
         "cycle_label": "PAPER ORDERS PENDING",
     },
     DATA_BLOCKED: {
@@ -1786,16 +1790,40 @@ def resolve_daily_close_status(
     cutoff_passed: bool = True,
     valuation_complete: bool = True,
     within_trading_day: bool = False,
+    forward_tracking: Optional[bool] = None,
 ) -> str:
     """Resolve the ONE canonical daily-close status from the current book state.
 
     ``processed_decision_for_latest`` is the recorded daily-close decision for the
     latest eligible market date (or None if that date has never been closed). The
     27F readiness inputs (baseline / provider / clock cutoff / valuation coverage)
-    default to the legacy "ready" values so pre-27F callers keep their behavior."""
-    if pending_orders:
+    default to the legacy "ready" values so pre-27F callers keep their behavior.
+
+    Stage 19.3 — DAILY-CLOSE PRECEDENCE. Pending paper orders used to short-circuit
+    this resolver unconditionally, so a NEWLY eligible completed session could never
+    surface as ``DAILY_CLOSE_DUE`` while any order was still working. That forced the
+    operator onto a SECOND post-close orchestration path (the standalone Paper Desk
+    refresh) before the canonical close became runnable at all. Since the Daily Close
+    already COMPOSES the Paper Desk owner (``desk.refresh_desk`` -> owned marks +
+    ``settle_due_orders`` NEXT_CLOSE settlement + performance), a new eligible close
+    OUTRANKS passive pending-order monitoring: pending orders are settled *inside*
+    the close. With no newly eligible close the passive PAPER_ORDERS_SUBMITTED
+    monitoring state is preserved exactly as before."""
+    # A newly eligible completed session that has never been closed. Judged BEFORE the
+    # pending-order state so the close is never hidden behind working paper orders.
+    # ``forward_tracking`` (not ``book_active``) is the right liveness test here:
+    # ``book_active`` is False by construction while orders are pending, which is
+    # exactly the situation this precedence rule exists to handle. Callers that do not
+    # supply it keep the legacy ``book_active`` meaning.
+    live_book = book_active if forward_tracking is None else bool(forward_tracking)
+    new_close_pending = bool(
+        initialized and live_book
+        and processed_decision_for_latest is None
+        and (last_processed_date is None
+             or (latest_eligible and last_processed_date < latest_eligible)))
+    if pending_orders and not new_close_pending:
         return PAPER_ORDERS_SUBMITTED
-    if not initialized or not book_active:
+    if not initialized or not (book_active or new_close_pending):
         return AWAITING_ELIGIBLE_CLOSE
     if processed_decision_for_latest is not None:
         d = processed_decision_for_latest
@@ -1828,6 +1856,48 @@ def resolve_daily_close_status(
     if baseline_required:
         return INITIAL_BASELINE_DUE
     return CLOSE_DUE
+
+
+# --------------------------------------------------------------------------- #
+# Stage 19.3 — the ONE operator-facing description of atomic post-close paper-order
+# settlement. Pure presentation over facts the Paper Desk owner already produced; it
+# settles nothing itself and never re-derives a fill, a cost or a count.
+# --------------------------------------------------------------------------- #
+SETTLEMENT_NOTE = ("This Daily Close refreshes owned marks and settles eligible "
+                   "NEXT_CLOSE paper orders through the Paper Desk before reassessing "
+                   "the portfolio. No separate desk refresh is required.")
+
+
+def build_settlement_context(*, pending_before: int, pending_after: Optional[int] = None,
+                             refresh: Optional[dict] = None,
+                             market_date: Optional[str] = None) -> dict:
+    """Describe the pending NEXT_CLOSE paper orders a Daily Close will settle (before the
+    run) or did settle (after it). ``refresh`` is the Paper Desk owner's own result — the
+    fill count is READ from it, never recomputed here."""
+    before = int(pending_before or 0)
+    settled = (refresh or {}).get("settlement") or {}
+    n_filled = settled.get("n_filled")
+    after = None if pending_after is None else int(pending_after)
+    if refresh is None:
+        message = (SETTLEMENT_NOTE if before else
+                   "No paper orders are pending; this Daily Close settles nothing.")
+    elif before == 0:
+        message = "No paper orders were pending; this Daily Close settled nothing."
+    else:
+        message = ("This Daily Close settled %s of %d pending NEXT_CLOSE paper order(s) "
+                   "through the Paper Desk at the %s close; %s remain pending."
+                   % (n_filled if n_filled is not None else "0", before,
+                      market_date or "eligible", after if after is not None else "0"))
+    return {
+        "pending_orders_before": before,
+        "pending_orders_after": after,
+        "orders_filled": n_filled,
+        "settles_pending_orders": bool(before),
+        "settlement_owner": "api.paper_trading_desk.settle_due_orders",
+        "execution_model": desk.EXECUTION_MODEL_DEFAULT,
+        "separate_desk_refresh_required": False,
+        "message": message,
+    }
 
 
 def _primary_action(close_status: str, *, book_active: bool) -> dict:
@@ -1901,12 +1971,22 @@ def _book_state(ops: dict) -> dict:
     fills = int(cs.get("fill_count") or ob_book.get("fill_count") or 0)
     lifecycle = cs.get("lifecycle_stage")
     initialized = bool(ob_book.get("initialized"))
-    book_active = bool((lifecycle == ob.LIFECYCLE_FILLED or fills) and not pending)
+    # Stage 19.3 — TWO distinct facts, previously conflated into one:
+    #   forward_tracking: the book holds real filled positions and is being tracked
+    #                     forward. Independent of whether orders are working.
+    #   book_active:      forward-tracking AND quiet (no pending order). Preserved
+    #                     EXACTLY as before so every existing consumer is unchanged.
+    # The daily-close eligibility questions ("is there a new session to process?",
+    # "should the provider be probed?", "is the baseline due?") depend on
+    # forward_tracking — working paper orders must not make a live book look inactive.
+    forward_tracking = bool(lifecycle == ob.LIFECYCLE_FILLED or fills)
+    book_active = bool(forward_tracking and not pending)
     return {
         "book_id": ob_book.get("book_id") or ab.ALPHA_BOOK_ID,
         "book_label": ob_book.get("book_label") or ob.OPERATIONAL_BOOK_LABEL,
         "initialized": initialized,
         "pending_orders": pending,
+        "forward_tracking": forward_tracking,
         "fills_count": fills,
         "lifecycle_stage": lifecycle,
         "book_active": book_active,
@@ -1994,7 +2074,13 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         model_recalc=ctx.get("model_recalculation"),
         evidence_date=_evidence_date, desk_dir=ctx.get("_desk_dir"))
     op_complete = close_status in _CLOSE_PROCESSED_STATUSES
-    operator_message = _apply_evidence_message(message or pres["next_action"], ev)
+    # Stage 19.3 — when a runnable close will also settle working NEXT_CLOSE paper
+    # orders, say so in the SAME operator sentence. This is the wording that removes
+    # the "run the desk refresh first" ambiguity; it adds no second action.
+    _next_action_text = pres["next_action"]
+    if close_status in _RUNNABLE and int(book.get("pending_orders") or 0):
+        _next_action_text = "%s %s" % (_next_action_text, SETTLEMENT_NOTE)
+    operator_message = _apply_evidence_message(message or _next_action_text, ev)
     out = {
         "status": payload_status,
         "phase": PHASE,
@@ -2007,7 +2093,7 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         "severity": pres["severity"],
         "daily_cycle_label": pres["cycle_label"],
         "current_task": pres["current_task"],
-        "next_action": pres["next_action"],
+        "next_action": _next_action_text,
         "primary_action": _primary_action(close_status, book_active=book["book_active"]),
         "requires_close_run": close_status in _RUNNABLE,
         # -- book + dates ---------------------------------------------------- #
@@ -2015,6 +2101,9 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
         "operational_book_label": book["book_label"],
         "initialized": book["initialized"],
         "book_active": book["book_active"],
+        # Stage 19.3: the book holds real filled positions (independent of whether
+        # paper orders are working). ``book_active`` stays the quiet-book flag.
+        "forward_tracking": book.get("forward_tracking"),
         "holdings_count": book["holdings_count"],
         "pending_order_count": book["pending_orders"],
         "fill_count": book["fills_count"],
@@ -2079,6 +2168,10 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
                                              .get("recalculation_complete")),
         "attribution": ctx.get("attribution"),
         "forward_performance": ctx.get("forward_performance"),
+        # -- Stage 19.3: atomic post-close NEXT_CLOSE settlement (Paper Desk owner).
+        #    On a GET this previews what the next close will settle; on a completed
+        #    close it reports what it DID settle. Never a second settlement engine.
+        "paper_order_settlement": ctx.get("paper_order_settlement"),
         # -- Phase 28B evidence-capture summary (TRUE_FORWARD snapshots) ------ #
         "forward_prediction_capture": ctx.get("forward_prediction_capture"),
         # -- Phase 28B.2: the forward-evidence state, ALWAYS separate from the
@@ -2113,8 +2206,21 @@ def _assemble(*, close_status: str, book: dict, gate: dict, pnl: Optional[dict],
 # --------------------------------------------------------------------------- #
 # Injectable seams (tests swap these to run fully offline).
 # --------------------------------------------------------------------------- #
-def _default_operational(today: Optional[str] = None) -> dict:
-    return ob.load_operational_book(today=today)
+def _default_operational(today: Optional[str] = None, *, desk_dir=None,
+                         ledger_dir=None) -> dict:
+    """Stage 19.3 — the default operational read now honours the caller's desk/ledger
+    scope. Production passes None (identical behaviour); an offline caller that scopes
+    the close to a temporary desk no longer reads the LIVE operational book, which is
+    what let live pending orders leak into hermetic close tests."""
+    return ob.load_operational_book(today=today, desk_dir=desk_dir, ledger_dir=ledger_dir)
+
+
+def _scoped_operational(desk_dir=None, ledger_dir=None) -> Callable:
+    """Bind the default operational loader to this call's desk/ledger scope while keeping
+    the one-positional-argument ``loader(today)`` shape every injected seam already uses."""
+    def _loader(today: Optional[str] = None) -> dict:
+        return _default_operational(today, desk_dir=desk_dir, ledger_dir=ledger_dir)
+    return _loader
 
 
 def _default_gate(today: Optional[str] = None, operational: Optional[dict] = None,
@@ -2167,7 +2273,7 @@ def load_daily_close(
     (never a stack trace)."""
     warnings: list[str] = []
     sdir = desk._desk_dir(desk_dir)
-    op_loader = operational_loader or _default_operational
+    op_loader = operational_loader or _scoped_operational(desk_dir, ledger_dir)
     g_loader = gate_loader or _default_gate
 
     try:
@@ -2198,11 +2304,14 @@ def load_daily_close(
     last_processed = _last_processed_date(sdir, book_id)
     processed_row = _processed_row(sdir, book_id, latest_eligible) if latest_eligible else None
     baseline_recorded = last_processed is not None
-    baseline_required = bool(book["book_active"] and not baseline_recorded)
+    # Stage 19.3: baseline/probe eligibility follow forward-tracking, not the quiet
+    # ``book_active`` flag — a live book carrying working paper orders still has a new
+    # session to process, still needs the provider probed, and may still owe a baseline.
+    baseline_required = bool(book["forward_tracking"] and not baseline_recorded)
 
-    # Provider confirmation (part B) — read-only benchmark probe (only if active &
-    # the latest eligible date has not already been processed).
-    probe_needed = bool(book["book_active"] and processed_row is None)
+    # Provider confirmation (part B) — read-only benchmark probe (only if the book is
+    # forward-tracking & the latest eligible date has not already been processed).
+    probe_needed = bool(book["forward_tracking"] and processed_row is None)
     probe_result = _run_probe(expected=latest_eligible, ops=ops, desk_dir=desk_dir,
                               downloader=downloader, provider_probe=provider_probe,
                               ref_today=clock.get("reference_today"), warnings=warnings,
@@ -2230,7 +2339,8 @@ def load_daily_close(
         if processed_row else None,
         baseline_required=baseline_required, provider_ready=provider_ready,
         cutoff_passed=bool(clock.get("cutoff_passed")), valuation_complete=True,
-        within_trading_day=bool(clock.get("within_trading_day")))
+        within_trading_day=bool(clock.get("within_trading_day")),
+        forward_tracking=book["forward_tracking"])
 
     try:
         perf = desk.load_performance(desk_dir)
@@ -2266,6 +2376,10 @@ def load_daily_close(
                "attribution": attribution, "forward_performance": forward,
                "forward_prediction_capture": fpc,
                "_desk_dir": desk_dir,
+               # Stage 19.3 — what the NEXT Daily Close will settle. Read-only preview
+               # built from the pending-order count the operational owner already reports.
+               "paper_order_settlement": build_settlement_context(
+                   pending_before=book["pending_orders"], market_date=latest_eligible),
                "forward_evidence_status": _forward_evidence_status(
                    fpc,
                    close_processed=bool(fpc_md and fpc_md == last_processed),
@@ -2410,7 +2524,7 @@ def _run_daily_close_locked(
     warnings: list[str] = []
     evaluation_date = today or date.today().isoformat()
     sdir = desk._desk_dir(desk_dir)
-    op_loader = operational_loader or _default_operational
+    op_loader = operational_loader or _scoped_operational(desk_dir, ledger_dir)
     g_loader = gate_loader or _default_gate
 
     if confirm != EXECUTE_CONFIRMATION:
@@ -2500,17 +2614,35 @@ def _run_daily_close_locked(
             performed_write=healed, evaluation_date=evaluation_date,
             context=context, message=msg)
 
-    # A non-active / uninitialized book (or one with pending orders) cannot run a
-    # fresh close — surface the state, write nothing.
-    if book["pending_orders"]:
-        return _no_write_state(PAPER_ORDERS_SUBMITTED, book, ops, g_loader, today, sdir,
-                               latest_eligible, warnings, evaluation_date, desk_dir, clock)
-    if not book["initialized"] or not book["book_active"]:
-        return _no_write_state(AWAITING_ELIGIBLE_CLOSE, book, ops, g_loader, today, sdir,
-                               latest_eligible, warnings, evaluation_date, desk_dir, clock,
-                               message=("Alpha Paper Book #1 is not an active forward-tracking "
-                                        "book yet — the daily close begins after the initial "
-                                        "implementation is filled."))
+    # Stage 19.3 — ATOMIC POST-CLOSE SETTLEMENT. Pending paper orders no longer abort a
+    # fresh close. The close's step 4 already delegates to the EXISTING Paper Desk owner
+    # (``desk.refresh_desk`` -> owned-EOD marks + ``settle_due_orders`` NEXT_CLOSE
+    # settlement + immutable fill append + performance append), so orders that became
+    # due at THIS eligible session settle inside the one operator write path. Orders that
+    # are not yet eligible simply stay SUBMITTED and the close records ORDERS_PENDING
+    # below (step 7) exactly as before. No second settlement engine, no second ledger,
+    # and no separate post-close desk-refresh prerequisite.
+    #
+    # Reachability note: an already-processed eligible date returned ALREADY_PROCESSED
+    # above, so this point is only reached for a genuinely NEW eligible session — the
+    # precise case in which the close must take precedence (see
+    # ``resolve_daily_close_status``).
+    pending_at_start = int(book["pending_orders"] or 0)
+    # A non-forward-tracking / uninitialized book cannot run a fresh close — surface the
+    # state, write nothing. The test is ``forward_tracking`` rather than ``book_active``
+    # because the latter is False by construction while orders are pending; a live book
+    # with working NEXT_CLOSE orders must be admitted so the close can settle them.
+    if not book["initialized"] or not book["forward_tracking"]:
+        # A book whose INITIAL implementation is still working (orders submitted, nothing
+        # filled) keeps its existing passive PAPER_ORDERS_SUBMITTED state — there is no
+        # forward-tracking book to close yet. Either branch writes nothing.
+        return _no_write_state(
+            PAPER_ORDERS_SUBMITTED if pending_at_start else AWAITING_ELIGIBLE_CLOSE,
+            book, ops, g_loader, today, sdir,
+            latest_eligible, warnings, evaluation_date, desk_dir, clock,
+            message=(None if pending_at_start else
+                     "Alpha Paper Book #1 is not an active forward-tracking book yet — "
+                     "the daily close begins after the initial implementation is filled."))
 
     last_processed = _last_processed_date(sdir, book_id)
     baseline_required = last_processed is None
@@ -2650,11 +2782,16 @@ def _run_daily_close_locked(
                      "later. Portfolio valuation and P&L are still available."))
 
     # 7. decision + P&L, then persist EXACTLY ONE daily-close journal row.
+    #    Stage 19.3: the one-time INITIAL BASELINE outranks a residual pending-order
+    #    state. Before 19.3 a book with pending orders could never reach this point, so
+    #    (baseline_required AND pending_after) was unreachable; now that the close
+    #    settles pending orders it is, and recording ORDERS_PENDING first would advance
+    #    ``last_processed_date`` and permanently skip the starting-NAV baseline.
     is_baseline = False
-    if pending_after or outcome == dag.OUTCOME_ORDERS_SUBMITTED:
-        decision, close_status = DECISION_ORDERS_PENDING, PAPER_ORDERS_SUBMITTED
-    elif baseline_required:
+    if baseline_required:
         decision, close_status, is_baseline = DECISION_BASELINE, INITIAL_BASELINE_RECORDED, True
+    elif pending_after or outcome == dag.OUTCOME_ORDERS_SUBMITTED:
+        decision, close_status = DECISION_ORDERS_PENDING, PAPER_ORDERS_SUBMITTED
     elif pcount > 0 or outcome in (dag.OUTCOME_PROPOSAL_READY, dag.OUTCOME_APPROVAL_REQUIRED):
         decision, close_status = DECISION_REBALANCE, REBALANCE_PROPOSAL_READY
     else:
@@ -2684,6 +2821,12 @@ def _run_daily_close_locked(
         "cumulative_pnl": (pnl or {}).get("cumulative_pnl"),
         "cumulative_return_pct": (pnl or {}).get("cumulative_return_pct"),
         "settlement_fills": (refresh.get("settlement") or {}).get("n_filled"),
+        # Stage 19.3 — atomic post-close settlement provenance. Recorded ONCE per closed
+        # (book_id, market_date) alongside the decision, so the audit trail shows exactly
+        # how many NEXT_CLOSE paper orders this close settled through the Paper Desk owner.
+        "pending_orders_at_start": pending_at_start,
+        "pending_orders_after_settlement": pending_after,
+        "settled_through_paper_desk": bool(pending_at_start),
         "performance_rows_appended": (refresh.get("performance") or {}).get("n_appended"),
         # Phase 27H — atomic model-recalculation provenance (separate model + fund dates).
         "model_calc_date": model_recalc["model_calc_date"],
@@ -2726,6 +2869,10 @@ def _run_daily_close_locked(
                    decision_history=_decision_history(sdir, book_id)),
                "forward_prediction_capture": prediction_capture,
                "forward_evidence_status": evidence_status,
+               # Stage 19.3 — what this close settled through the Paper Desk owner.
+               "paper_order_settlement": build_settlement_context(
+                   pending_before=pending_at_start, pending_after=pending_after,
+                   refresh=refresh, market_date=closed_date),
                "_desk_dir": desk_dir}
     return _assemble(
         close_status=close_status, book=book2, gate=gate, pnl=pnl,

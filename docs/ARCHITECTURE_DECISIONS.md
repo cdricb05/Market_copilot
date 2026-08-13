@@ -872,6 +872,42 @@
   checkpoint / an explicit operator request; the Daily Research Cycle may only READ the latest
   status. GET endpoints read only persisted immutable evaluations (`NOT_RUN` before one exists);
   no GET recomputes a research study.
+
+## UI / operator-experience decisions
+
+### D-16 — Task-oriented operator information architecture — CONFIRMED (Phase 29J.1)
+- **Decision:** the operator UI is organized around FOUR task areas — **Today / Portfolio /
+  Research / System · Audit** — not around which backend modules exist. Today is the default
+  landing and answers, in order: what is the market doing → what is my portfolio doing → is
+  anything abnormal → what does the system recommend → what do I do next. Legacy/detail views
+  (Daily Workflow, Model Target, Holdings detail) are DEMOTED out of primary navigation (kept
+  reachable under an Advanced-views disclosure); every legacy route is preserved as an alias so
+  no deep link breaks.
+- **Evidence of the problem:** six architecture-centric views; NAV rendered in 7+ places, dates
+  in 20+, workflow/next-action in 5–6 renderers, ~480 safety-badge spans across ~30+ strips; the
+  reallocation review buried in a collapsed Advanced block.
+- **Consequence:** one primary presentation per concept; the UI READS the canonical owners
+  (`workflow_state`, `portfolio_state`, `holding_opportunity_cost`, `reallocation_proposal`,
+  `research_agent`, `data_freshness`) and duplicates no NAV/workflow/HOC/reallocation/research
+  computation in JS. Guarded by `check_operator_ux_consolidation_ownership`.
+
+### D-17 — Market context is CONTEXT, from the single owned owner, never an alpha signal — CONFIRMED (Phase 29J.1)
+- **Decision:** the restored Market Context strip READS the SINGLE authoritative backend owner
+  `GET /v1/market/indicators` (`engine/market_data`). No second market-data owner is created, no
+  new provider is added, and the browser never calls a provider directly. Market context is
+  reference only — current-only with per-tile as-of labels — and is NEVER presented as an alpha
+  signal or a BUY/SELL. Series with no owned/available source (DXY has no owned source; US rates
+  are unavailable without a FRED key) render an explicit UNAVAILABLE tile; a number is never
+  fabricated. There is no live server-side market-regime classifier (the only regime code is a
+  research-only historical classifier with no endpoint), so no regime badge is displayed and none
+  is created this phase.
+- **Evidence:** `engine/market_data.fetch_market_indicator_latest` / `fetch_fred_latest_series`;
+  the strip's UI markup had been deleted while the CSS + loader + endpoint survived (a pure UX
+  regression); no DXY/BTC owner exists repo-wide; `PAPER_TRADER_FRED_API_KEY` is unset.
+- **Consequence:** market context is a distinct, clearly-labelled reference surface; the market
+  owner stays the single source; no provider/paid-data dependency is introduced by the UI.
+- **Status boundary:** this is an operator-experience decision only; it changes no scoring,
+  no portfolio math, and no safety contract.
 - **Evidence:** the static guard `check_data_expansion_ownership` confirms the sole calculation +
   API owners, the reuse (never forking) of the existing owners, the two GET-only routes, no
   purchase/subscribe/activate/integrate route, no secret/credential ownership, ONE UI loader with
@@ -906,3 +942,89 @@
   external boundary.
 - **U-4 — `db/models` execution tables** (Signal/TradeDecision/Order/Trade):
   archive vs remove, pending Slice 11 quarantine outcome.
+
+---
+
+## D-19.3 — ONE operator command, ONE post-close orchestration path (CONFIRMED)
+
+**Context (live evidence, 2026-08-13).** With 29 repaired NEXT_CLOSE paper orders
+SUBMITTED under plan `rbop_2026-08-12_alpha_paper_book_1_1a198f560cca`, the live
+operating path exposed two control-plane defects.
+
+**Defect A — the operator had to hunt.** The Today / Portfolio Manager screens
+rendered FOUR enabled controls for the SAME write action (`Run Daily Close`): the
+Today hero CTA, the canonical workflow banner CTA, the daily-close panel button
+(`cc-dc-btn` / `dw-dc-btn` / `pm-dc-btn` / `dc-perf-btn`) and the right-rail button —
+beside a dozen unrelated controls (`Refresh`, `Refresh View`, `Refresh Alpha Target`,
+`Preview Snapshot`, `Confirm Target Snapshot`, `Cancel Submitted Orders`, …), while
+the authoritative workflow could simultaneously say *No action required right now*.
+
+**Defect B — two post-close orchestration paths.** Two code paths made the standalone
+Paper Desk refresh a PREREQUISITE of the canonical Daily Close:
+
+1. `daily_close.resolve_daily_close_status` short-circuited on `pending_orders`
+   BEFORE it considered whether a newly eligible completed session existed, so a new
+   close could never surface as `DAILY_CLOSE_DUE` while any order was working;
+2. `daily_close._run_daily_close_locked` returned a no-write `PAPER_ORDERS_SUBMITTED`
+   for a book with pending orders, so the close refused to run at all.
+
+Both forced `POST /v1/paper-desk/refresh` first — even though the Daily Close already
+COMPOSES that exact owner (`desk.refresh_desk` → owned EOD marks →
+`settle_due_orders` NEXT_CLOSE settlement → immutable fills → performance).
+
+**Decision.**
+
+1. **A newly eligible completed close OUTRANKS passive pending-order monitoring.**
+   `resolve_daily_close_status` computes `new_close_pending` first; the pending-order
+   state is returned only when there is nothing new to close. Every fail-closed path
+   (`DATA_BLOCKED`, `WAITING_FOR_MARKET_DATA`, `AWAITING_MARKET_CLOSE`) is preserved —
+   eligibility is never manufactured.
+2. **The Daily Close settles pending NEXT_CLOSE orders internally**, through the
+   EXISTING Paper Desk owner. No second settlement engine, fill simulator, mark
+   writer, order ledger or NAV owner was created. Settlement provenance
+   (`pending_orders_at_start`, `pending_orders_after_settlement`,
+   `settled_through_paper_desk`) is recorded ONCE, in the same decision-journal row.
+3. **`forward_tracking` is separated from `book_active`.** `book_active` was
+   `(filled or lifecycle==FILLED) and not pending` — False by construction whenever
+   orders were working, which is exactly the case the precedence rule must handle.
+   `forward_tracking` drops the `not pending` clause and drives close eligibility, the
+   provider probe and baseline currency; `book_active` is preserved verbatim for every
+   existing consumer.
+4. **The Paper Desk refresh is MAINTENANCE / RECOVERY only.** It keeps its endpoint,
+   its confirmation token and its ownership of owned marks + NEXT_CLOSE settlement,
+   but `workflow_state.MAINTENANCE_EXECUTION_KINDS` classifies it as non-normal-path
+   and `assert_primary_action_contract` fails CLOSED if it is ever promoted to the
+   canonical `primary_action`. `WAITING_FOR_OWNED_DATA` now promotes the Daily Close
+   (a strict superset of the refresh).
+5. **ONE backend-owned operator command.** `workflow_state.build_operator_command`
+   projects the already-decided state + primary action into five operator fields
+   (state / task / why / next / at most one action). `primary_action_available` is the
+   single authority for whether ANY normal-path mutation control may render, on any
+   page. Every surface mirrors it; no page reinterprets it.
+6. **ONE execution surface.** The UI's `_wsCommandOwnsExecution()` is the single
+   shared helper by which the Today hero, the workflow banners and the four
+   daily-close panel buttons defer to the command bar. Navigation links are never
+   suppressed (routing is not a write). The right action rail is the ONE sanctioned
+   mirror and must carry the IDENTICAL label.
+7. **Current-rebalance counts are LINEAGE-scoped.** `operational_book.
+   current_rebalance_lineage` and `rebalance_execution.build_execution_summary` filter
+   every current-state count by the current order-plan lineage. The book's historical
+   initial-implementation fills and any superseded/cancelled plan are reported
+   SEPARATELY and remain fully auditable. `PARTIALLY_FILLED` now means "the CURRENT
+   rebalance is part-filled", not "this book has ever filled anything".
+
+**Why not the alternatives.**
+
+- *Keep the desk refresh as the post-close action and make the close depend on it.*
+  Rejected: two orchestration paths for one transition (Principle 2), and the close
+  must own the atomic cycle it already implements.
+- *Introduce a new `SETTLEMENT_DUE` status.* Rejected: `DAILY_CLOSE_DUE` already means
+  exactly this; a duplicate status for naming convenience violates Principle 1.
+- *Let each page keep its own CTA and merely restyle the primary one.* Rejected: the
+  brief's failure condition is the operator having to infer which control is
+  canonical; recolouring does not remove the inference.
+
+**Guarded by** `scripts/audit_architecture.py:check_operator_atomic_close_ownership`
+(33 blocking invariants) and `tests/test_stage19_3_operator_workflow_atomic_close.py`.
+No broker, no automation, no automatic rebalance, no model promotion, no cadence
+change, no new recalibration.
