@@ -81,9 +81,12 @@ class Fakes:
     def __init__(self, *, refresh_status="ALPHA_TARGET_REFRESHED",
                  evidence_status="FORWARD_EVIDENCE_COMPLETE", created=6, mandatory=True,
                  scoring_ok=True, target_state="READY_TO_CONFIRM",
-                 registry=None, monthly=False):
+                 registry=None, monthly=False,
+                 reassessment_decision="PROPOSAL_READY"):
         self.calls = {"refresh": 0, "monthly": 0, "score": 0, "target": 0,
                       "evidence": 0, "assess": 0}
+        # Stage 20: the economic-change-gate verdict the stubbed reassessment returns.
+        self.reassessment_decision = reassessment_decision
         self.refresh_status = refresh_status
         self.evidence_status = evidence_status
         self.created = created
@@ -161,6 +164,30 @@ class Fakes:
                 "persistence": {"status": "CREATED", "artifact_id": "hoc_stub",
                                 "persisted": True}}
 
+    def reassessment(self, *, scoring=None, hoc_assessment=None, freshness=None,
+                     reassessment_dir=None, hoc_dir=None):
+        # Stage 20: hermetic stub of the portfolio-reassessment (economic change gate)
+        # seam (no I/O). ``reassessment_decision`` lets a test drive the gate: only
+        # PROPOSAL_READY authorises the Slice-7 target engine to run.
+        self.calls["reassessment"] = self.calls.get("reassessment", 0) + 1
+        dec = self.reassessment_decision
+        return {"reassessment": {"reassessment_state": dec,
+                                 "reassessment_hash": "prs_stub_hash",
+                                 "eligible_market_date": "2026-08-05",
+                                 "holding_assessments": [],
+                                 "attention": {"exit": [], "replace": [], "reduce": [],
+                                               "count": 0},
+                                 "decision": {"decision": dec,
+                                              "proposal_required": dec == "PROPOSAL_READY",
+                                              "holdings_evaluated": 0,
+                                              "actionable_holding_count": 0,
+                                              "expected_net_improvement": 0.0,
+                                              "expected_one_way_turnover": 0.0,
+                                              "blockers": [], "reason_codes": []},
+                                 "explanation": "stub", "data_gaps": []},
+                "persistence": {"status": "CREATED", "artifact_id": "prs_stub",
+                                "persisted": True, "history_appended": True}}
+
     def reallocation(self, *, scoring=None, hoc_assessment=None, reallocation_dir=None,
                      hoc_dir=None):
         # Slice 7: hermetic stub of the reallocation-proposal engine seam (no I/O).
@@ -198,6 +225,7 @@ class Fakes:
                     target_loader=self.target, evidence_capture_fn=self.capture,
                     evidence_registry=self.registry, assessment_loader=self.assess,
                     holding_opp_cost_fn=self.holding_opp,
+                    reassessment_fn=self.reassessment,
                     reallocation_proposal_fn=self.reallocation,
                     research_agent_fn=self.research_agent,
                     refresh_confirm_token="CONFIRM_ALPHA_TARGET_REFRESH",
@@ -300,9 +328,60 @@ def test_11_complete_successful_cycle(tmp_path):
     r, f = _run(tmp_path, inputs=_inputs(price="2026-08-03", month="2026-08"))
     assert r["state"] == drc.COMPLETE
     assert r["completed_steps"] == list(drc.STEP_SEQUENCE)
+    # Stage 20: REASSESS_PORTFOLIO runs on every cycle; BUILD_REALLOCATION_PROPOSAL runs
+    # only because the stubbed economic change gate returned PROPOSAL_READY.
     assert f.calls == {"refresh": 1, "monthly": 0, "score": 1, "target": 1,
-                       "evidence": 1, "assess": 1, "holding_opp": 1, "reallocation": 1,
-                       "research_agent": 1}
+                       "evidence": 1, "assess": 1, "holding_opp": 1, "reassessment": 1,
+                       "reallocation": 1, "research_agent": 1}
+
+
+def test_11b_stage20_no_change_gate_skips_the_reallocation_proposal(tmp_path):
+    """Stage 20 boundary: a CURRENT_NO_CHANGE reassessment must NOT build a target.
+
+    Before Stage 20 the cycle produced a reallocation proposal on EVERY signal refresh.
+    The economic change gate is now the only thing that authorises the Slice-7 target
+    engine, so a no-change verdict leaves the target engine uncalled and the step
+    explicitly SKIPPED with the gate's own reason."""
+    f = Fakes(reassessment_decision="CURRENT_NO_CHANGE")
+    r, f = _run(tmp_path, f, inputs=_inputs(price="2026-08-03", month="2026-08"))
+    assert r["state"] == drc.COMPLETE
+    assert f.calls["reassessment"] == 1
+    assert f.calls.get("reallocation", 0) == 0        # the target engine never ran
+    assert drc.STEP_REASSESS_PORTFOLIO in r["completed_steps"]
+    assert drc.STEP_BUILD_REALLOCATION in r["skipped_steps"]
+    step = next(s for s in r["step_results"]
+                if s["step_id"] == drc.STEP_BUILD_REALLOCATION)
+    assert step["status"] == drc.S_SKIPPED
+    assert "CURRENT_NO_CHANGE" in (step["reason"] or "")
+    assert r["portfolio_reassessment_decision"] == "CURRENT_NO_CHANGE"
+    assert r["portfolio_reassessment_proposal_required"] is False
+    assert r["reallocation_proposal"]["state"] == "NOT_REQUIRED"
+
+
+def test_11c_stage20_change_candidate_gate_skips_the_reallocation_proposal(tmp_path):
+    """A CHANGE_CANDIDATE verdict is deliberately NOT a proposal: attractive
+    replacements exist but portfolio economics/controls withhold the change."""
+    f = Fakes(reassessment_decision="CHANGE_CANDIDATE")
+    r, f = _run(tmp_path, f, inputs=_inputs(price="2026-08-03", month="2026-08"))
+    assert r["state"] == drc.COMPLETE
+    assert f.calls.get("reallocation", 0) == 0
+    assert drc.STEP_BUILD_REALLOCATION in r["skipped_steps"]
+
+
+def test_11d_stage20_gate_fails_closed_when_reassessment_unavailable(tmp_path):
+    """A reassessment that did not complete NEVER authorises a proposal (fail closed)."""
+
+    def _boom(**kw):
+        raise RuntimeError("reassessment engine unavailable")
+
+    f = Fakes()
+    r, f = _run(tmp_path, f, inputs=_inputs(price="2026-08-03", month="2026-08"),
+                reassessment_fn=_boom)
+    assert f.calls.get("reallocation", 0) == 0
+    assert drc.STEP_BUILD_REALLOCATION in r["skipped_steps"]
+    prs_step = next(s for s in r["step_results"]
+                    if s["step_id"] == drc.STEP_REASSESS_PORTFOLIO)
+    assert prs_step["status"] == drc.S_FAILED
 
 
 def test_12_successful_cycle_with_monthly_source_due(tmp_path):

@@ -319,6 +319,50 @@ def test_20c_concentration_before_after():
     assert res["risk"]["largest_position_after"] is not None
 
 
+def test_20d_volatility_state_never_contradicts_value_below_coverage_floor():
+    # Live 2026-08-07 regression: the covariance kernel computes over only ~59% of invested
+    # weight while min_volatility_coverage = 0.80. The value must be WITHHELD and the state
+    # must be the honest INSUFFICIENT_COVERAGE — never a false AVAILABLE (the exact contract
+    # contradiction the live Slice-7 payload exposed).
+    n = 80
+    aligned = {"dates": ["d%03d" % i for i in range(n)],
+               "series": {"AAA": _rets(n, 3), "BBB": _rets(n, 5)}}  # CCC deliberately uncovered
+    # Covered names (AAA+BBB) sum to 0.59 of invested weight; CCC (0.41) has no return series.
+    current = {"AAA": 0.30, "BBB": 0.29, "CCC": 0.41}
+    pol = _pol(min_volatility_coverage=0.80, min_covariance_obs=20)
+    risk, gaps = R._risk_block(
+        current_weight=current, proposed_weight=current,
+        sector_of={"AAA": "Tech", "BBB": "Tech", "CCC": "Fin"}, aligned_returns=aligned,
+        hoc_reviews=[], urows={}, held_set={"AAA", "BBB", "CCC"}, policy=pol)
+    # value withheld, coverage below floor, honest state, explicit gap — all consistent.
+    assert risk["portfolio_volatility_before"] is None
+    assert risk["volatility_before_state"] == "INSUFFICIENT_COVERAGE"
+    assert risk["volatility_before_state"] != "AVAILABLE"
+    assert risk["volatility_before_coverage"] < 0.80
+    assert abs(risk["volatility_before_coverage"] - 0.59) < 0.01   # reproduces the live ~59%
+    assert "PORTFOLIO_VOLATILITY_BEFORE_UNAVAILABLE" in risk["risk_data_gaps"]
+    assert "PORTFOLIO_VOLATILITY_AFTER_UNAVAILABLE" in risk["risk_data_gaps"]
+    # Structural invariant: a value is published IFF the state is AVAILABLE, both sides.
+    for side in ("before", "after"):
+        has_val = risk["portfolio_volatility_%s" % side] is not None
+        is_avail = risk["volatility_%s_state" % side] == "AVAILABLE"
+        assert has_val == is_avail
+        assert risk["volatility_%s_state" % side] in R.VOLATILITY_STATE_VOCAB
+
+
+def test_20e_volatility_state_unavailable_when_kernel_cannot_compute():
+    # No aligned returns at all → the kernel cannot compute → honest UNAVAILABLE (distinct
+    # from INSUFFICIENT_COVERAGE), value withheld, gap raised. State still never AVAILABLE.
+    risk, gaps = R._risk_block(
+        current_weight={"AAA": 0.5, "BBB": 0.5}, proposed_weight={"AAA": 0.5, "BBB": 0.5},
+        sector_of={"AAA": "Tech", "BBB": "Fin"}, aligned_returns={"dates": [], "series": {}},
+        hoc_reviews=[], urows={}, held_set={"AAA", "BBB"}, policy=_pol(min_volatility_coverage=0.80))
+    assert risk["portfolio_volatility_before"] is None
+    assert risk["volatility_before_state"] == "UNAVAILABLE"
+    assert risk["volatility_after_state"] == "UNAVAILABLE"
+    assert "PORTFOLIO_VOLATILITY_BEFORE_UNAVAILABLE" in risk["risk_data_gaps"]
+
+
 # =========================================================================== #
 # API fixtures (portfolio_state / scoring / hoc)
 # =========================================================================== #

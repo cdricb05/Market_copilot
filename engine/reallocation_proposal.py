@@ -87,6 +87,19 @@ EXPECTED_RETURN_GAP = "EXPECTED_RETURN_NOT_CALIBRATED"
 VOLATILITY_AFTER_GAP = "PORTFOLIO_VOLATILITY_AFTER_UNAVAILABLE"
 VOLATILITY_BEFORE_GAP = "PORTFOLIO_VOLATILITY_BEFORE_UNAVAILABLE"
 
+# Published volatility state must reflect the EFFECTIVE decision — the raw covariance
+# kernel AND the coverage gate — never the raw kernel state alone. Otherwise the contract
+# can report AVAILABLE while the value is withheld as a data gap (the live 2026-08-07
+# payload: covariance covered ~0.59 of invested weight < the 0.80 floor, so the value was
+# null and PORTFOLIO_VOLATILITY_*_UNAVAILABLE was raised, yet the state said AVAILABLE).
+# INSUFFICIENT_COVERAGE reuses established canonical vocabulary (alpha_agent.stage12_autopsy,
+# alpha_agent.tournament BLOCKED_INSUFFICIENT_COVERAGE, api.alpha_target).
+VOL_STATE_AVAILABLE = "AVAILABLE"
+VOL_STATE_UNAVAILABLE = "UNAVAILABLE"
+VOL_STATE_INSUFFICIENT_COVERAGE = "INSUFFICIENT_COVERAGE"
+VOLATILITY_STATE_VOCAB = (VOL_STATE_AVAILABLE, VOL_STATE_UNAVAILABLE,
+                          VOL_STATE_INSUFFICIENT_COVERAGE)
+
 # How a carried Slice-6 gap maps onto the analytic it affects for the proposal.
 _HOC_GAP_AFFECTS = {
     "PRIOR_RANK_UNAVAILABLE": AFFECTS_INFORMATIONAL,
@@ -223,6 +236,25 @@ def _portfolio_volatility(*, weights: dict, aligned_returns: dict, policy: dict)
     return {"volatility": vol, "variance_daily": var_daily, "state": "AVAILABLE",
             "covered_weight": round(covered, 6), "included_tickers": included,
             "observations_used": risk.get("observations_used", 0)}
+
+
+def _effective_volatility(prim: dict, cov_floor: float) -> tuple[str, Optional[float]]:
+    """Reconcile the raw covariance-kernel result (``prim`` from ``_portfolio_volatility``)
+    with the coverage gate into ONE honest ``(state, volatility)`` decision, so the
+    published state can NEVER contradict the published value.
+
+    * kernel could not compute at all            -> ``UNAVAILABLE``, value withheld
+    * kernel computed but ``covered_weight`` is
+      below ``min_volatility_coverage``          -> ``INSUFFICIENT_COVERAGE``, value withheld
+    * kernel computed and coverage meets floor   -> ``AVAILABLE``, value published
+
+    The value is never fabricated: it is published only in the AVAILABLE branch.
+    """
+    if prim.get("state") != VOL_STATE_AVAILABLE or prim.get("volatility") is None:
+        return VOL_STATE_UNAVAILABLE, None
+    if (prim.get("covered_weight") or 0.0) < cov_floor:
+        return VOL_STATE_INSUFFICIENT_COVERAGE, None
+    return VOL_STATE_AVAILABLE, prim.get("volatility")
 
 
 # --------------------------------------------------------------------------- #
@@ -745,10 +777,10 @@ def _risk_block(*, current_weight: dict, proposed_weight: dict, sector_of: dict,
     va = _portfolio_volatility(weights=proposed_weight, aligned_returns=aligned_returns,
                                policy=policy)
     cov_floor = policy["min_volatility_coverage"]
-    vol_before = vb["volatility"] if (vb["state"] == "AVAILABLE"
-                                      and vb["covered_weight"] >= cov_floor) else None
-    vol_after = va["volatility"] if (va["state"] == "AVAILABLE"
-                                     and va["covered_weight"] >= cov_floor) else None
+    # ONE reconciled (state, value) decision per side so the published state can never
+    # say AVAILABLE while the value is withheld (see VOL_STATE_* note above).
+    vb_state, vol_before = _effective_volatility(vb, cov_floor)
+    va_state, vol_after = _effective_volatility(va, cov_floor)
     if vol_before is None:
         gaps.append(VOLATILITY_BEFORE_GAP)
     if vol_after is None:
@@ -790,8 +822,8 @@ def _risk_block(*, current_weight: dict, proposed_weight: dict, sector_of: dict,
         "portfolio_volatility_before": _r(vol_before, 6),
         "portfolio_volatility_after": _r(vol_after, 6),
         "portfolio_volatility_delta": _r(vol_delta, 6),
-        "volatility_before_state": vb["state"],
-        "volatility_after_state": va["state"],
+        "volatility_before_state": vb_state,
+        "volatility_after_state": va_state,
         "volatility_before_coverage": _r(vb["covered_weight"], 4),
         "volatility_after_coverage": _r(va["covered_weight"], 4),
         "current_holding_worst_drawdown_60d": _r(worst_dd, 6),

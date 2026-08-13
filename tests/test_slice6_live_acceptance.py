@@ -342,12 +342,26 @@ def test_60_no_reassessment_rebalance_or_order_route():
     audit = _load_audit()
     routes = audit.check_routes()["routes"]
     paths = {r["path"] for r in routes}
-    for forbidden in ("/v1/operations/portfolio-reassessment",
+    # Stage 20 UPDATE: what Phase 29G.1 removed — and what stays forbidden — is a MANUAL
+    # reassessment EXECUTION / apply / approve control. The Stage-20 canonical
+    # GET /v1/operations/portfolio-reassessment READ contract executes nothing (the sole
+    # execution path is still the Daily Research Cycle) and is therefore permitted; it is
+    # governed by check_portfolio_reassessment_ownership.
+    for forbidden in ("/v1/operations/portfolio-reassessment/run",
+                      "/v1/operations/portfolio-reassessment/execute",
+                      "/v1/operations/portfolio-reassessment/approve",
+                      "/v1/operations/portfolio-reassessment/apply",
                       "/v1/operations/reassessment",
+                      "/v1/operations/reassessment/run",
                       "/v1/operations/rebalance-proposal",
                       "/v1/operations/holding-opportunity-cost/run",
                       "/v1/operations/confirm-target"):
         assert forbidden not in paths
+    # The Stage-20 reassessment read contract is GET-only.
+    prs_methods = sorted({r["method"] for r in routes
+                          if (r["path"] or "").startswith(
+                              "/v1/operations/portfolio-reassessment")})
+    assert prs_methods == ["GET"]
     # Stage-19 controlled-rebalance IS present: GET lifecycle + POST second-confirmation.
     _m = lambda p: sorted({r["method"] for r in routes if r["path"] == p})
     assert "GET" in _m("/v1/operations/rebalance")

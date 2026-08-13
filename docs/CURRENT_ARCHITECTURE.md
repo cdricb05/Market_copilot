@@ -1175,3 +1175,184 @@ once-only settlement provenance, maintenance classification of the desk refresh,
 single operator-command owner, the single UI execution surface and ownership helper,
 lineage-scoped counts in both owners and the UI, and no broker / automation / automatic
 rebalance / automatic promotion / model recalibration.
+
+---
+
+## Stage 20 — Continuous Active Portfolio Reassessment & Proposal Cycle
+
+### The structural gap this closed
+
+Before Stage 20 the Daily Research Cycle ran, unconditionally:
+
+```
+ASSESS_HOLDING_OPPORTUNITY_COST  ->  BUILD_REALLOCATION_PROPOSAL
+```
+
+Every signal refresh therefore produced a change target, and the only "should we act at
+all?" judgement happened downstream in Stage 18 — derived from the action counts of a
+target the allocation engine had **already built**. In other words the system
+rebalanced-by-default and asked the operator to say no. There was no portfolio-level
+economic gate, no turnover budget, no churn/whipsaw protection, and no durable record of
+the decision *not* to act.
+
+Stage 20 inserts the missing owner between them:
+
+```
+signal refresh -> ASSESS_HOLDING_OPPORTUNITY_COST
+              -> REASSESS_PORTFOLIO            (is change economically justified?)
+              -> BUILD_REALLOCATION_PROPOSAL   (only when PROPOSAL_READY)
+              -> STAGE-18 MANUAL APPROVAL
+              -> STAGE-19 ORDER-PLAN CONFIRMATION -> paper orders
+```
+
+### Ownership
+
+| Concept | ONE owner |
+|---|---|
+| eligible market session | `engine/market_session.py` via `api/data_freshness.py` |
+| signal snapshot / full-universe rank | `api/universe_scoring.py` over `api/multi_horizon_engine.py` |
+| current portfolio | `api/portfolio_state.py` over `api/operational_book.py` |
+| opportunity-cost assessment (per holding) | `api/holding_opportunity_cost.py` over `engine/holding_opportunity_cost.py` |
+| **reassessment trigger** | **`api/daily_research_cycle.py` — the `REASSESS_PORTFOLIO` step** |
+| **portfolio-level action decision** | **`api/portfolio_reassessment.py` over `engine/portfolio_reassessment.py`** |
+| proposal (target portfolio) | `api/reallocation_proposal.py` over `engine/reallocation_proposal.py` |
+| manual approval | `api/portfolio_decision.py` (Stage 18) |
+| execution authorization | `api/rebalance_execution.py` (Stage 19) |
+| operational workflow state | `api/workflow_state.py` |
+| model recalibration governance | `api/research_agent.py` — **deliberately a separate cycle** |
+
+The reassessment kernel **never** recomputes a rank, a holding comparison, a switching
+cost or a covariance risk contribution (all Slice-6), and **never** builds a target
+portfolio or assigns capital to a candidate (Slice-7 alone). Its concentration arithmetic
+renormalises only the RETAINED incumbents — the unavoidable consequence of an exit, not an
+allocation.
+
+### The economic change gate
+
+Deterministic precedence; every reason code is explicit in the artifact:
+
+1. `NOT_READY` — no active book / no eligible date / no Slice-6 assessment.
+2. `BLOCKED_EVIDENCE` — a corporate action was registered after the assessment, the
+   portfolio-state hash moved, or the assessment's eligible date does not match.
+3. `BLOCKED_DATA` — a REQUIRED input is unavailable / point-in-time gapped /
+   provider-blocked, the Slice-6 assessment is BLOCKED, or fewer than
+   `min_holdings_data_complete_fraction` of holdings have complete analytics.
+4. Risk / constraint vetoes (each can reject a nominal score improvement): concentration
+   deterioration, sector-cap deterioration, illiquidity, turnover budget.
+5. Churn controls: cooldown, reversal protection, minimum actionable weight.
+6. `CURRENT_NO_CHANGE` — no actionable holding, or the net improvement is not positive
+   after cost.
+7. `CHANGE_CANDIDATE` — positive but below the portfolio hurdle, or blocked above.
+8. `PROPOSAL_READY` — clears the hurdle, or a MANDATORY EXIT of an ineligible holding.
+
+Improvements are **signal-score percentile points**. There is no validated
+expected-return model anywhere in the system, so expected return stays
+`EXPECTED_RETURN_NOT_CALIBRATED` and is never fabricated. Switching cost IS genuinely
+known (the canonical desk cost model) and is therefore stated in basis points and dollars.
+Transaction cost is counted exactly once, with the same two-way formula the Slice-7 signal
+block uses, so the two artifacts can never disagree.
+
+### Churn / whipsaw controls
+
+Reused (never forked): `min_gross_score_improvement`, `min_net_improvement`,
+`score_points_per_cost_bp`, `risk_penalty_weight`, `reduce_fraction`,
+`material_weight_delta`, `deterioration_rank_worsen_threshold`, plus the
+`multi_horizon_engine` construction constants and the `paper_trading_desk` cost model.
+
+Genuinely new, versioned by `portfolio_reassessment_policy.v1` /
+`portfolio_reassessment_churn_policy.v1`, each documented with an economic rationale in
+`engine/portfolio_reassessment.default_policy()`, folded into the reassessment hash,
+boundary-tested, and manually configurable through `PAPER_TRADER_REASSESSMENT_POLICY`:
+
+| Threshold | Value | Rationale |
+|---|---|---|
+| `min_portfolio_net_improvement` | 0.05 | a multi-name change must clear at least the bar a single name must clear |
+| `max_one_way_turnover_per_reassessment` | 0.35 | more than a third of a 25-name book in one pass is a regime change, not a reallocation |
+| `churn_cooldown_trading_days` | 5 | the shortest window the model's own signal is measured over |
+| `reversal_lookback_reassessments` | 10 | about two cooldown windows — catches a buy-then-sell whipsaw |
+| `min_holdings_data_complete_fraction` | 0.80 | below it the aggregate is extrapolation, not measurement |
+| `max_concentration_increase` | 0.01 | at HHI about 0.04, a +0.01 rise is roughly 25% more concentrated |
+| `min_actionable_weight` | 0.01 | residual dust must not manufacture turnover |
+| `strongest_alternatives_max` | 10 | report-only cap; assigns no capital |
+
+Both risk vetoes test **deterioration**, not a pre-existing breach: a book already above a
+cap is a standing condition the operator owns, and must not permanently freeze every
+future reallocation.
+
+### Point-in-time behaviour
+
+Input classification is built on the canonical `api/data_freshness.py` verdict — including
+its own `required_for_portfolio_reassessment` flag; Stage 20 invents no cadence rule. Each
+input is reported as FRESH / STALE_BUT_VALID / UNAVAILABLE / POINT_IN_TIME_GAP /
+PROVIDER_BLOCKED with a usage of REFRESHED_THIS_RUN / REUSED / STALE / MISSING / BLOCKED.
+A slower-cadence input going stale DEGRADES the run; only a REQUIRED input in a fatal
+classification blocks it. No current snapshot is ever substituted into historical
+evidence.
+
+### Artifacts, history and forward evidence
+
+Immutable artifacts + index under `PAPER_TRADER_REASSESSMENT_DIR` (default
+`D:\Stock_Prediction_app_data\portfolio_reassessments`), atomically written, idempotent on
+an identical rerun, and conflict-rejected when the bound state differs for the same
+(book, eligible date). Each first write appends exactly ONE row to an append-only
+`recommendation_history.json`.
+
+`GET /v1/operations/portfolio-reassessment/attribution` links prior recommendations to
+realized outcomes (incumbent vs replacement forward return, realized spread, weighted
+portfolio impact, action taken vs withheld and by which control). Outcomes are measured
+ONLY where genuine owned closes exist after the recommendation date; a missing outcome
+stays PENDING and is never zero-filled or back-dated. **Nothing is back-filled**: eligible
+sessions before Stage 20 landed have no history row, and that gap is reported honestly as
+a documented limitation. This evidence changes no model, threshold, champion or portfolio.
+
+### Stage-19 precedence (the live-state invariant)
+
+A reassessment is EVIDENCE; a confirmed order plan is a COMMITMENT. While paper orders
+from a confirmed plan await their NEXT_CLOSE settlement (`execution_precedence`), the
+reassessment's own primary action is SUPPRESSED in both the workflow owner and the UI, so
+a freshly produced proposal can never overwrite, obscure or compete with the in-flight
+execution lifecycle. The reassessment stays fully readable as evidence.
+
+### Operator surface
+
+The Portfolio route opens with ACTIVE PORTFOLIO ASSESSMENT: decision headline, the
+deterministic explanation, dates/identity, six KPIs (decision, expected net improvement vs
+hurdle, expected turnover vs budget, estimated cost, holdings needing attention, strongest
+opportunity), and at most ONE operator action. Then, exception-first and hidden entirely
+when empty: HOLDINGS REQUIRING ATTENTION (REDUCE / EXIT / REPLACE only), STRONGEST
+ALTERNATIVES (promoted only when something needs attention or a candidate is competing for
+a slot), and a collapsed ALL HOLDINGS / AUDIT DETAIL carrying the point-in-time input
+classification. Twenty-five holdings are never shown as twenty-five equally prominent
+cards. Every value is read verbatim from the canonical contract; the browser performs no
+assessment, ranking, cost, risk, concentration or NAV computation.
+
+### Explainability
+
+Every holding carries a deterministic generated sentence built solely from the canonical
+assessment fields — never a model, never an LLM, never realized P&L. For example:
+
+```
+HOLD — MRNA is rank 58/503 (rank fell 44 places), signal DETERIORATING; a change is
+withheld by churn control (CHURN_COOLDOWN_ACTIVE, REVERSAL_PROTECTION_ACTIVE): the name
+moved within the last 5 eligible sessions, so acting now would trade faster than the
+signal can be evaluated.
+```
+
+### Routes and safety
+
+`GET /v1/operations/portfolio-reassessment`, `/history`, `/attribution` — all read-only.
+There is deliberately **no** manual reassessment execution / apply / approve / rebalance
+route, **no** scheduler and **no** cadence: the reassessment is system ORCHESTRATION
+inside the Daily Research Cycle, never automatic execution. Automatic proposal GENERATION
+is allowed; automatic approval, order-plan confirmation, order creation and fills are not.
+
+### Static guard
+
+`scripts/audit_architecture.py:check_portfolio_reassessment_ownership` — 30 blocking
+invariants covering one calculation owner, one composition owner, one target engine, no
+forked HOC/scoring math, no second cost/risk/NAV/portfolio-state owner, GET-only routes,
+no automatic rebalance, the signal-refresh to reassessment linkage, proposal gating and
+step ordering, Stage-19 precedence, workflow delegation with no second economic gate,
+recalibration separation, atomic/idempotent persistence, append-only never-back-filled
+history, exactly one UI loader with no client-side assessment logic, and no automatic
+promotion / approval / cadence.

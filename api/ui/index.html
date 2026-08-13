@@ -3220,6 +3220,81 @@
             <span class="cc-badge">NO LIVE PROMOTION</span>
           </div>
           <div id="pm-load-note" class="cc-na-note" style="font-size:10px;margin:0 0 8px;">Loading the read-only portfolio-manager decision view&hellip;</div>
+
+          <!-- ===================== STAGE 20 ACTIVE PORTFOLIO ASSESSMENT =====================
+               WIREFRAME (1920x1080, first screen, no heavy scrolling) — the TOP section of
+               the Portfolio route. It answers, in one glance:
+                 1 Is my current portfolio still the best use of capital?  -> the decision
+                 2 Which holdings are deteriorating?                       -> ATTENTION
+                 3 What are the strongest replacements?                    -> ALTERNATIVES
+                 4 Is a change worthwhile after cost/risk?                 -> the KPI row
+                 5 If not, why are we holding?                             -> the explanation
+                 6 If yes, what exactly should change?                     -> PROPOSAL IMPACT
+                 7 What requires my approval?                              -> the ONE action
+
+               +-- ACTIVE PORTFOLIO ASSESSMENT --------------- [PREVIEW ONLY][MANUAL REVIEW] --+
+               | <DECISION HEADLINE>                                            (Refresh)      |
+               | <deterministic explanation, generated from the canonical fields>              |
+               | Last reassessed . signal/rank date . holdings evaluated . policy version      |
+               | [DECISION][NET IMPROVEMENT][TURNOVER][EST COST][ATTENTION][STRONGEST OPP]     |
+               | [ ONE operator action  |  "No action required"  |  execution-precedence note ]|
+               +-------------------------------------------------------------------------------+
+                 > HOLDINGS REQUIRING ATTENTION   (REDUCE / EXIT / REPLACE only; hidden if 0)
+                 > STRONGEST ALTERNATIVES         (hidden when none)
+                 > PROPOSAL IMPACT                (only when PROPOSAL_READY)
+                 > ALL HOLDINGS / AUDIT DETAIL    (collapsed <details>)
+
+               EXCEPTION-FIRST: when nothing needs attention the exception sections are not
+               rendered at all and the hero is quiet; 25 holdings are never shown as 25 equally
+               prominent cards. STAGE-19 PRECEDENCE: while a controlled paper rebalance is
+               executing, this card renders NO action button (the Stage-19 lifecycle card keeps
+               the single CTA) so there is never a duplicate proposal / execution control.
+               Every value is read VERBATIM from GET /v1/operations/portfolio-reassessment —
+               the browser performs NO assessment, ranking, cost, risk or NAV computation. -->
+          <div class="card" id="reassess-card" style="margin:0 0 12px;border:1px solid var(--border,#2a3550);">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+              <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Active Portfolio Assessment
+                <span class="cc-badge" id="reassess-badge" title="Canonical portfolio-reassessment decision (api.portfolio_reassessment).">&mdash;</span></span>
+              <span style="display:flex;gap:6px;align-items:center;">
+                <span class="cc-badge">PREVIEW ONLY</span>
+                <span class="cc-badge manual">MANUAL REVIEW</span>
+                <span class="cc-badge">NO LIVE ORDERS</span>
+                <span class="cc-badge">AUTOMATION OFF</span>
+                <button class="btn-sm" id="reassess-refresh" onclick="loadPortfolioReassessment()" title="Reload the read-only active portfolio assessment.">&#8635; Refresh</button>
+              </span>
+            </div>
+            <div id="reassess-headline" style="font-size:22px;font-weight:900;letter-spacing:.02em;margin:6px 0 4px;">Loading the active portfolio assessment&hellip;</div>
+            <div id="reassess-explanation" class="cc-na-note" style="font-size:11px;max-width:1180px;line-height:1.5;">&mdash;</div>
+            <div id="reassess-meta" class="mono" style="display:flex;gap:14px;flex-wrap:wrap;font-size:10px;margin-top:6px;color:var(--label);"></div>
+            <div id="reassess-kpis" class="va-kpi-grid" style="margin:10px 0 0;"></div>
+            <div id="reassess-action" style="margin-top:10px;"></div>
+            <div id="reassess-blockers" style="display:none;margin-top:8px;font-size:11px;"></div>
+          </div>
+
+          <!-- HOLDINGS REQUIRING ATTENTION — rendered ONLY for material recommendations. -->
+          <div class="card" id="reassess-attention-card" style="display:none;margin:0 0 12px;border:1px solid var(--warning,#f59e0b);">
+            <div class="card-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Holdings Requiring Attention
+              <span class="cc-badge manual" id="reassess-attention-count">&mdash;</span></div>
+            <div id="reassess-attention" class="compact-scroll-region" style="max-height:300px;overflow:auto;font-size:11px;">&mdash;</div>
+          </div>
+
+          <!-- STRONGEST ALTERNATIVES — report-only; no capital is assigned here. -->
+          <div class="card" id="reassess-alternatives-card" style="display:none;margin:0 0 12px;">
+            <div class="card-title" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">Strongest Alternatives
+              <span class="cc-badge" title="Report-only: the target portfolio is built exactly once by the canonical reallocation proposal owner.">NO ALLOCATION</span></div>
+            <div id="reassess-alternatives" style="overflow-x:auto;font-size:11px;">&mdash;</div>
+          </div>
+
+          <!-- ALL HOLDINGS / AUDIT DETAIL — collapsed by default (progressive disclosure). -->
+          <details id="reassess-audit" style="margin:0 0 12px;">
+            <summary style="cursor:pointer;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--label);">All holdings / audit detail</summary>
+            <div style="margin-top:8px;">
+              <div id="reassess-quality" class="mono" style="font-size:10px;margin:0 0 8px;color:var(--label);"></div>
+              <div id="reassess-alternatives-quiet" style="overflow-x:auto;font-size:11px;margin:0 0 10px;"></div>
+              <div id="reassess-all" class="compact-scroll-region" style="max-height:420px;overflow:auto;font-size:11px;">&mdash;</div>
+            </div>
+          </details>
+
           <!-- ===================== Phase 29J.3A PRIMARY PORTFOLIO VISUALS =====================
                The interactive Portfolio Analytics (6 charts) + a compact KPI hero and a
                decision bar are the FIRST thing the operator sees on the primary Portfolio
@@ -23442,6 +23517,9 @@ var _PT_SUB_TARGET = {
 // Manager tab instead of the tab top. Scroll-focus only — no state change, no write.
 var _PM_SUB_TARGET = {
   '': null, 'reallocation': 'realloc-card', 'opportunity-cost': 'hoc-card',
+  // Stage 20: the ACTIVE PORTFOLIO ASSESSMENT card — the review action produced by the
+  // portfolio reassessment lands exactly on the decision, not the top of the tab.
+  'reassessment': 'reassess-card',
   // Operator Action Integrity: the owned-data refresh owner (Paper Trading Desk
   // band) — the canonical WAITING_FOR_OWNED_DATA fallback navigation lands
   // exactly on the owning control, never on the top of the tab.
@@ -24511,6 +24589,7 @@ async function loadPortfolioManager() {
   if (note) note.textContent = 'Loading the read-only portfolio-manager decision view…';
   try { loadAlphaTargetReview(); } catch (e) {}   // Phase 27A.2 operational target review
   try { loadOperationalBook(); } catch (e) {}     // Phase 27B.1 canonical implementation strip
+  try { loadPortfolioReassessment(); } catch (e) {}  // Stage 20 active portfolio assessment
   try { loadHoldingOpportunityCost(); } catch (e) {}  // Phase 29G Slice 6 opportunity-cost review
   try { loadReallocationProposal(); } catch (e) {}   // Phase 29H Slice 7 reallocation proposal
   try { loadRebalanceLifecycle(); } catch (e) {}   // Stage 19 controlled rebalance lifecycle + CA integrity
@@ -26112,6 +26191,274 @@ function renderReallocationProposal(d) {
   try { _vaRenderReallocVisuals(d); } catch (e) {}
 }
 window.renderReallocationProposal = renderReallocationProposal;
+
+// ---------------------------------------------------------------------------
+// Stage 20 — ACTIVE PORTFOLIO ASSESSMENT (read-only presentation).
+//
+// It fetches GET /v1/operations/portfolio-reassessment and renders the canonical
+// decision VERBATIM. The browser performs NO assessment logic of any kind: no ranking,
+// no opportunity cost, no turnover, no transaction cost, no risk, no concentration, no
+// NAV, no churn evaluation and no economic gate. Every number, every explanation, the
+// operator wording, the single action and the Stage-19 precedence suppression are
+// computed by api.portfolio_reassessment / engine.portfolio_reassessment and read here.
+// It creates no order, approves nothing and enables no automation.
+// ---------------------------------------------------------------------------
+var _REASSESS_BADGE_CLS = {
+  CURRENT_NO_CHANGE: 'safe', CHANGE_CANDIDATE: 'manual', PROPOSAL_READY: 'manual',
+  MANUAL_REVIEW_REQUIRED: 'manual', BLOCKED_DATA: 'danger', BLOCKED_EVIDENCE: 'danger',
+  STALE_CORPORATE_ACTION_REVIEW_REQUIRED: 'danger', NOT_READY: 'muted',
+  NOT_RUN: 'muted', UNAVAILABLE: 'danger'
+};
+
+function _rsNum(v, digits, suffix) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  return n.toFixed(digits === undefined ? 3 : digits) + (suffix || '');
+}
+function _rsPct(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  return (n * 100).toFixed(1) + '%';
+}
+function _rsUsd(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _rsSigned(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  if (!isFinite(n)) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(3);
+}
+
+function loadPortfolioReassessment() {
+  if (window._reassessInFlight) return window._reassessInFlight;
+  var p = _mhzGet('/v1/operations/portfolio-reassessment').then(function (d) {
+    window._reassessInFlight = null;
+    window._reassessData = d;
+    renderPortfolioReassessment(d);
+    return d;
+  }).catch(function () {
+    window._reassessInFlight = null; renderPortfolioReassessment(null); return null;
+  });
+  window._reassessInFlight = p;
+  return p;
+}
+window.loadPortfolioReassessment = loadPortfolioReassessment;
+
+function renderPortfolioReassessment(d) {
+  var badge = document.getElementById('reassess-badge');
+  var head = document.getElementById('reassess-headline');
+  var expl = document.getElementById('reassess-explanation');
+  if (!head) return;
+  if (!d) {
+    if (badge) { badge.textContent = 'UNAVAILABLE'; badge.className = 'cc-badge danger'; }
+    head.textContent = 'Active portfolio assessment unavailable';
+    if (expl) expl.textContent = 'Could not reach the read-only reassessment endpoint. Use Refresh to retry. Nothing was changed.';
+    _setHtml('reassess-meta', ''); _setHtml('reassess-kpis', ''); _setHtml('reassess-action', '');
+    ['reassess-attention-card', 'reassess-alternatives-card'].forEach(function (id) {
+      var e = document.getElementById(id); if (e) e.style.display = 'none';
+    });
+    return;
+  }
+  var pres = d.presentation || {};
+  var dec = d.decision || {};
+  var pf = d.portfolio_summary || {};
+  var exec = d.execution_precedence || {};
+  var state = d.state || 'NOT_RUN';
+
+  if (badge) {
+    badge.textContent = state;
+    badge.className = 'cc-badge ' + (_REASSESS_BADGE_CLS[state] || 'muted');
+  }
+  head.textContent = pres.title || state;
+  if (expl) expl.textContent = d.explanation || pres.explanation || '—';
+
+  // Meta strip — dates + identity, read verbatim.
+  var meta = [];
+  meta.push('<span title="The eligible completed market session this assessment covers.">Last reassessed <b>' + escapeHtml(d.eligible_market_date || '—') + '</b></span>');
+  meta.push('<span title="Holdings evaluated by the canonical Holding Opportunity-Cost engine.">Holdings evaluated <b>' + escapeHtml(String(dec.holdings_evaluated === undefined || dec.holdings_evaluated === null ? '—' : dec.holdings_evaluated)) + '</b></span>');
+  meta.push('<span title="Versioned decision policy this assessment used.">Policy <b>' + escapeHtml(d.policy_version || '—') + '</b></span>');
+  meta.push('<span title="Versioned churn / whipsaw policy.">Churn policy <b>' + escapeHtml(d.churn_policy_version || '—') + '</b></span>');
+  if (d.reassessment_id) meta.push('<span title="Immutable reassessment artifact id.">Artifact <b>' + escapeHtml(String(d.reassessment_id).slice(-14)) + '</b></span>');
+  _setHtml('reassess-meta', meta.join(''));
+
+  // KPI row — the economics that decide whether a change is worthwhile.
+  var attn = (d.attention || {}).count || 0;
+  var strongest = dec.strongest_evidence || pres.strongest_opportunity || null;
+  var kpis = [
+    { label: 'Decision', value: escapeHtml(state),
+      sub: escapeHtml(pres.task || ''), cls: (_REASSESS_BADGE_CLS[state] || 'muted') },
+    { label: 'Expected net improvement', value: _rsSigned(dec.expected_net_improvement),
+      sub: 'score points vs ' + _rsNum(dec.net_improvement_hurdle, 3) + ' hurdle' },
+    { label: 'Expected turnover', value: _rsPct(dec.expected_one_way_turnover),
+      sub: 'one-way; budget ' + _rsPct(dec.turnover_budget) },
+    { label: 'Estimated cost', value: _rsUsd(dec.expected_transaction_cost_usd),
+      sub: 'canonical desk cost model, counted once' },
+    { label: 'Holdings needing attention', value: String(attn),
+      sub: (dec.actionable_holding_count === undefined ? '' : (dec.actionable_holding_count + ' actionable')) },
+    { label: 'Strongest opportunity',
+      value: escapeHtml(strongest && strongest.ticker ? strongest.ticker : '—'),
+      sub: (strongest && strongest.replacement
+        ? ('→ ' + escapeHtml(strongest.replacement) + ' ' + _rsSigned(strongest.expected_net_improvement) + ' net')
+        : 'none clears the action hurdle') }
+  ];
+  _setHtml('reassess-kpis', kpis.map(function (k) {
+    return '<div class="va-kpi"><div class="lab">' + escapeHtml(k.label) + '</div>'
+      + '<div class="val">' + k.value + '</div>'
+      + '<div class="sub" style="white-space:normal;">' + (k.sub || '') + '</div></div>';
+  }).join(''));
+
+  // ONE operator action, or an honest "no action required". While a Stage-19 execution is
+  // in flight the backend suppresses the action and we render the precedence note instead
+  // — never a second, competing CTA.
+  var actionHtml;
+  if (exec.execution_active) {
+    actionHtml = '<div class="cc-na-note" style="font-size:11px;border:1px solid var(--warning,#f59e0b);'
+      + 'border-radius:6px;padding:8px 12px;"><b>Current execution takes precedence.</b> '
+      + escapeHtml(exec.reason || '') + ' This assessment is evidence only until the pending '
+      + 'controlled paper rebalance completes.</div>';
+  } else if (pres.primary_action === 'REVIEW_PORTFOLIO_PROPOSAL') {
+    actionHtml = '<button class="btn-sm" style="font-weight:800;border:1px solid var(--warning,#f59e0b);"'
+      + ' onclick="navigateToRoute(\'portfolio-manager/reallocation\')"'
+      + ' title="Open the reviewable reallocation proposal produced for this reassessment. Review only — no order is created.">'
+      + 'REVIEW PORTFOLIO PROPOSAL</button>';
+  } else if (pres.primary_action === 'REVIEW_PORTFOLIO_CONSTRAINT_BREACH') {
+    actionHtml = '<button class="btn-sm" style="font-weight:800;border:1px solid var(--warning,#f59e0b);"'
+      + ' onclick="navigateToRoute(\'portfolio-manager/opportunity-cost\')"'
+      + ' title="Open the Holding Opportunity-Cost review for the breaching holding. Review only.">'
+      + 'REVIEW THE CONSTRAINT BREACH</button>';
+  } else {
+    actionHtml = '<div class="cc-na-note" style="font-size:11px;">'
+      + escapeHtml(pres.next_action || 'No action required') + '</div>';
+  }
+  _setHtml('reassess-action', actionHtml);
+
+  // Blockers — named, never hidden.
+  var bl = document.getElementById('reassess-blockers');
+  var blockers = dec.blockers || [];
+  if (bl) {
+    if (blockers.length) {
+      bl.style.display = '';
+      _setHtml('reassess-blockers', '<b>Withheld by:</b> '
+        + blockers.map(function (b) { return '<span class="cc-badge manual">' + escapeHtml(String(b)) + '</span>'; }).join(' '));
+    } else {
+      // Clear as well as hide: a stale blocker from a previous render must never survive
+      // into a state that has none.
+      bl.style.display = 'none';
+      _setHtml('reassess-blockers', '');
+    }
+  }
+
+  // --- EXCEPTION-FIRST sections ------------------------------------------- //
+  var rows = d.holding_assessments || [];
+  var material = rows.filter(function (r) {
+    return r.recommendation === 'REDUCE' || r.recommendation === 'EXIT' || r.recommendation === 'REPLACE';
+  });
+  var acard = document.getElementById('reassess-attention-card');
+  if (acard) {
+    if (material.length) {
+      acard.style.display = '';
+      _setHtml('reassess-attention-count', String(material.length));
+      _setHtml('reassess-attention', _rsHoldingTable(material, true));
+    } else {
+      // Clear as well as hide, so a previous render's exceptions can never linger.
+      acard.style.display = 'none';
+      _setHtml('reassess-attention-count', '0');
+      _setHtml('reassess-attention', '');
+    }
+  }
+  // STRONGEST ALTERNATIVES is promoted to a top-level card only when something actually
+  // needs attention, or when a candidate is genuinely competing for an incumbent's slot.
+  // In a quiet portfolio it stays inside the collapsed audit detail, so the normal state
+  // shows no exception cards at all.
+  var alts = d.strongest_alternatives || [];
+  var competing = alts.some(function (a) { return !!a.displaced_incumbent; });
+  var altcard = document.getElementById('reassess-alternatives-card');
+  var altQuiet = document.getElementById('reassess-alternatives-quiet');
+  var altTable = alts.length ? _rsAlternativesTable(alts)
+    : '<span class="cc-na-note">No eligible non-held alternative was surfaced.</span>';
+  if (altcard) {
+    if (alts.length && (material.length || competing)) {
+      altcard.style.display = '';
+      _setHtml('reassess-alternatives', altTable);
+      if (altQuiet) _setHtml('reassess-alternatives-quiet', '');
+    } else {
+      altcard.style.display = 'none';
+      if (altQuiet) _setHtml('reassess-alternatives-quiet', altTable);
+    }
+  }
+
+  // --- Audit detail (collapsed) ------------------------------------------- //
+  var q = d.input_quality || {};
+  var qrows = (q.inputs || []).map(function (i) {
+    return '<span class="cc-badge ' + (i.state === 'FRESH' ? 'safe' : (i.state === 'STALE_BUT_VALID' ? 'manual' : 'danger'))
+      + '" title="' + escapeHtml((i.owner || '') + ' — ' + (i.detail || '')) + '">'
+      + escapeHtml(i.source_id || '?') + ' ' + escapeHtml(i.state || '?')
+      + (i.required ? ' (required)' : '') + '</span>';
+  });
+  _setHtml('reassess-quality', 'Point-in-time inputs: ' + (qrows.length ? qrows.join(' ') : '—')
+    + '<br>Data gaps: ' + escapeHtml((d.data_gaps || []).join(', ') || 'none'));
+  _setHtml('reassess-all', rows.length ? _rsHoldingTable(rows, false)
+    : '<span class="cc-na-note">No holdings were evaluated for this session.</span>');
+}
+window.renderPortfolioReassessment = renderPortfolioReassessment;
+
+function _rsHoldingTable(rows, withExplanation) {
+  var head = '<table class="compact-table"><thead><tr>'
+    + '<th>Ticker</th><th>Action</th><th>Weight</th><th>Rank</th><th>&Delta;Rank</th>'
+    + '<th>Signal</th><th>20d</th><th>60d DD</th><th>Risk</th><th>Liquidity</th>'
+    + '<th>Replacement</th><th>Net improv.</th><th>Switch cost</th>'
+    + (withExplanation ? '<th>Why</th>' : '') + '</tr></thead><tbody>';
+  var body = rows.map(function (r) {
+    var cls = { EXIT: 'danger', REPLACE: 'manual', REDUCE: 'manual' }[r.recommendation] || 'muted';
+    return '<tr>'
+      + '<td><b>' + escapeHtml(r.ticker || '—') + '</b></td>'
+      + '<td><span class="cc-badge ' + cls + '">' + escapeHtml(r.recommendation || '—') + '</span>'
+      + (r.action_withheld ? ' <span class="cc-badge muted" title="' + escapeHtml((r.withheld_reason_codes || []).join(', ')) + '">WITHHELD</span>' : '')
+      + '</td>'
+      + '<td>' + _rsPct(r.current_weight) + '</td>'
+      + '<td>' + escapeHtml(String(r.current_rank === null || r.current_rank === undefined ? '—' : r.current_rank)) + '</td>'
+      + '<td>' + escapeHtml(r.rank_change === null || r.rank_change === undefined ? 'n/a' : String(r.rank_change)) + '</td>'
+      + '<td>' + escapeHtml(r.deterioration_state || '—') + '</td>'
+      + '<td>' + _rsPct(r.return_20d) + '</td>'
+      + '<td>' + _rsPct(r.drawdown_60d) + '</td>'
+      + '<td>' + _rsPct(r.risk_contribution_pct) + '</td>'
+      + '<td>' + escapeHtml(r.liquidity_state || '—') + '</td>'
+      + '<td>' + escapeHtml(r.strongest_replacement_ticker || '—')
+      + (r.replacement_rank ? ' <span class="cc-na-note">#' + escapeHtml(String(r.replacement_rank)) + '</span>' : '') + '</td>'
+      + '<td>' + _rsSigned(r.expected_net_improvement) + '</td>'
+      + '<td>' + _rsUsd(r.switching_cost_usd) + '</td>'
+      + (withExplanation ? '<td style="max-width:520px;white-space:normal;">' + escapeHtml(r.explanation || '') + '</td>' : '')
+      + '</tr>';
+  }).join('');
+  return head + body + '</tbody></table>';
+}
+
+function _rsAlternativesTable(rows) {
+  var head = '<table class="compact-table"><thead><tr>'
+    + '<th>Ticker</th><th>Rank</th><th>Score</th><th>Sector</th><th>Displaces</th>'
+    + '<th>Net improv. vs incumbent</th><th>Selected</th><th>Reason not selected</th>'
+    + '</tr></thead><tbody>';
+  var body = rows.map(function (r) {
+    return '<tr>'
+      + '<td><b>' + escapeHtml(r.ticker || '—') + '</b></td>'
+      + '<td>' + escapeHtml(String(r.rank === null || r.rank === undefined ? '—' : r.rank)) + '</td>'
+      + '<td>' + _rsNum(r.score, 3) + '</td>'
+      + '<td>' + escapeHtml(r.sector || '—') + '</td>'
+      + '<td>' + escapeHtml(r.displaced_incumbent || '—') + '</td>'
+      + '<td>' + _rsSigned(r.expected_net_improvement_vs_incumbent) + '</td>'
+      + '<td>' + (r.selected_as_replacement ? '<span class="cc-badge manual">YES</span>' : '<span class="cc-badge muted">NO</span>') + '</td>'
+      + '<td style="max-width:460px;white-space:normal;">' + escapeHtml(r.reason_not_selected || '') + '</td>'
+      + '</tr>';
+  }).join('');
+  return head + body + '</tbody></table>';
+}
+
 
 // ===========================================================================
 // Operator Decision Flow UX — Today hero + two dedicated full-screen review

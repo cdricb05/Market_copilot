@@ -131,6 +131,12 @@ STEP_SCORE_UNIVERSE = "SCORE_UNIVERSE"
 STEP_PREPARE_TARGET = "PREPARE_TARGET"
 STEP_CAPTURE_EVIDENCE = "CAPTURE_FORWARD_EVIDENCE"
 STEP_HOLDING_OPP_COST = "ASSESS_HOLDING_OPPORTUNITY_COST"
+#: Stage 20 — the portfolio-level ECONOMIC CHANGE GATE. It sits between the per-holding
+#: opportunity-cost assessment and the target engine: before Stage 20 the cycle built a
+#: reallocation proposal on EVERY signal refresh, so the system rebalanced by default and
+#: asked the operator to say no. Now the reassessment decides whether change is
+#: economically justified at all, and BUILD_REALLOCATION_PROPOSAL runs only when it is.
+STEP_REASSESS_PORTFOLIO = "REASSESS_PORTFOLIO"
 STEP_BUILD_REALLOCATION = "BUILD_REALLOCATION_PROPOSAL"
 STEP_RUN_RESEARCH_AGENT = "RUN_RESEARCH_AGENT"
 STEP_RUN_ASSESSMENT = "RUN_PORTFOLIO_ASSESSMENT"
@@ -138,8 +144,8 @@ STEP_RUN_ASSESSMENT = "RUN_PORTFOLIO_ASSESSMENT"
 STEP_SEQUENCE = (
     STEP_RESOLVE_SESSION, STEP_VALIDATE_CONSISTENCY, STEP_PLAN, STEP_REFRESH_INPUTS,
     STEP_VALIDATE_ALIGNMENT, STEP_SCORE_UNIVERSE, STEP_PREPARE_TARGET,
-    STEP_CAPTURE_EVIDENCE, STEP_HOLDING_OPP_COST, STEP_BUILD_REALLOCATION,
-    STEP_RUN_RESEARCH_AGENT, STEP_RUN_ASSESSMENT,
+    STEP_CAPTURE_EVIDENCE, STEP_HOLDING_OPP_COST, STEP_REASSESS_PORTFOLIO,
+    STEP_BUILD_REALLOCATION, STEP_RUN_RESEARCH_AGENT, STEP_RUN_ASSESSMENT,
 )
 
 # Frozen step-status vocabulary.
@@ -200,6 +206,12 @@ _DEFAULT_HOC_DIR = Path(r"D:\Stock_Prediction_app_data\holding_opportunity_cost"
 # which persists under this root (isolated per run under a sandbox override).
 REALLOC_DIR_ENV = "PAPER_TRADER_REALLOC_DIR"
 _DEFAULT_REALLOC_DIR = Path(r"D:\Stock_Prediction_app_data\reallocation_proposals")
+
+# Stage 20 immutable portfolio-reassessment root. The DRC never writes here directly; it
+# composes the canonical Portfolio Reassessment owner (api.portfolio_reassessment), which
+# persists under this root (isolated per run under a sandbox override).
+REASSESSMENT_DIR_ENV = "PAPER_TRADER_REASSESSMENT_DIR"
+_DEFAULT_REASSESSMENT_DIR = Path(r"D:\Stock_Prediction_app_data\portfolio_reassessments")
 
 # Deterministic clock seam (tests / explicit callers).
 NOW_ENV = "PAPER_TRADER_DRC_NOW"
@@ -482,6 +494,15 @@ def _validate_terminal_manifest(rec: dict) -> list:
         if not rec.get("opportunity_cost_artifact_id") \
                 or not rec.get("opportunity_cost_assessment_hash"):
             problems.append("opportunity-cost step OK but artifact reference missing")
+    # Stage 20: if the Portfolio Reassessment step actually RAN (S_OK), a COMPLETE
+    # manifest must carry its immutable reassessment reference (id + reassessment hash).
+    # A hermetically SKIPPED reassessment step (no canonical scoring / no HOC) is exempt.
+    prs_step = next((s for s in (rec.get("step_results") or [])
+                     if s.get("step_id") == STEP_REASSESS_PORTFOLIO), None)
+    if prs_step and prs_step.get("status") == S_OK:
+        if not rec.get("portfolio_reassessment_id") \
+                or not rec.get("portfolio_reassessment_hash"):
+            problems.append("portfolio-reassessment step OK but artifact reference missing")
     # Slice 7 (Phase 29H): if the Reallocation Proposal step actually RAN (S_OK), a
     # COMPLETE manifest must carry its immutable proposal reference (id + proposal hash).
     # A hermetically SKIPPED / BLOCKED reallocation step (no canonical scoring / no HOC)
@@ -776,6 +797,30 @@ def _default_holding_opp_cost_fn(*, scoring=None, hoc_dir=None):
     return hoc.run_and_persist(scoring=scoring, hoc_dir=hoc_dir)
 
 
+def _default_reassessment_fn(*, scoring=None, hoc_assessment=None, freshness=None,
+                             reassessment_dir=None, hoc_dir=None):
+    """The canonical Stage-20 Portfolio Reassessment owner (the ECONOMIC CHANGE GATE).
+
+    Delegates to ``api.portfolio_reassessment.run_and_persist`` — the sole
+    composition/persistence owner — which sources the immutable input contract from
+    ``portfolio_state`` (holdings/weights/NAV/cash/corporate actions), the Slice-6
+    ``hoc_assessment`` (per-holding recommendations/replacements/switching costs/risk),
+    ``universe_scoring`` (ranking snapshot + frozen champion identity), ``data_freshness``
+    (the canonical per-source point-in-time semantics) and its OWN immutable history (the
+    churn / whipsaw controls), runs the pure ``engine.portfolio_reassessment`` kernel and
+    persists ONE immutable reassessment artifact + ONE append-only history row.
+
+    The DRC decides nothing here: it only asks the owner whether a portfolio change is
+    economically justified. ``scoring`` / ``hoc_assessment`` (both already built earlier in
+    the SAME cycle) are reused so nothing is recomputed; ``reassessment_dir`` isolates the
+    artifact root for a sandboxed run. It creates no target, no order and no fill, and it
+    approves nothing."""
+    from paper_trader.api import portfolio_reassessment as prs
+    return prs.run_and_persist(scoring=scoring, hoc_assessment=hoc_assessment,
+                               freshness=freshness, reassessment_dir=reassessment_dir,
+                               hoc_dir=hoc_dir)
+
+
 def _default_reallocation_fn(*, scoring=None, hoc_assessment=None, reallocation_dir=None,
                              hoc_dir=None):
     """The canonical Reallocation Proposal engine (Slice 7, Milestone 3).
@@ -1005,6 +1050,7 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
               blockers: Optional[list] = None, required_actions: Optional[list] = None,
               started_at: Optional[str] = None, completed_at: Optional[str] = None,
               monthly_owner: Optional[dict] = None, holding_opp_cost: Optional[dict] = None,
+              portfolio_reassessment: Optional[dict] = None,
               reallocation_proposal: Optional[dict] = None,
               research_agent: Optional[dict] = None,
               performed_write: bool = False, executable: bool = False) -> dict:
@@ -1023,6 +1069,8 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
     aln = alignment or {}
     hoc = holding_opp_cost or {}
     hoc_available = bool(hoc.get("available"))
+    prs = portfolio_reassessment or {}
+    prs_available = bool(prs.get("available"))
     rp = reallocation_proposal or {}
     rp_available = bool(rp.get("available"))
     ra = research_agent or {}
@@ -1096,6 +1144,21 @@ def _contract(*, state: str, facts: dict, run_id: Optional[str] = None,
         "opportunity_cost_data_gaps": hoc.get("data_gaps"),
         "opportunity_cost_last_error": hoc.get("last_error"),
         "holding_opportunity_cost": holding_opp_cost,
+        # --- Stage 20 Portfolio Reassessment — the ECONOMIC CHANGE GATE ----------- #
+        "portfolio_reassessment_owner": "api.portfolio_reassessment",
+        "portfolio_reassessment_state": prs.get("state"),
+        "portfolio_reassessment_required": True,
+        "portfolio_reassessment_selected": prs_available,
+        "portfolio_reassessment_id": prs.get("reassessment_id"),
+        "portfolio_reassessment_hash": prs.get("reassessment_hash"),
+        "portfolio_reassessment_decision": prs.get("decision"),
+        "portfolio_reassessment_proposal_required": bool(prs.get("proposal_required")),
+        "portfolio_reassessment_actionable_count": prs.get("actionable_holding_count"),
+        "portfolio_reassessment_expected_net_improvement": prs.get("expected_net_improvement"),
+        "portfolio_reassessment_expected_one_way_turnover": prs.get("expected_one_way_turnover"),
+        "portfolio_reassessment_blockers": prs.get("blockers"),
+        "portfolio_reassessment_explanation": prs.get("explanation"),
+        "portfolio_reassessment": portfolio_reassessment,
         # --- Slice 7 (Phase 29H) Reallocation Proposal engine (Milestone 3) ------- #
         "reallocation_proposal_owner": "api.reallocation_proposal",
         "reallocation_proposal_state": rp.get("state"),
@@ -1295,6 +1358,70 @@ def _extract_holding_opp_cost(built: Optional[dict], eligible: Optional[str]) ->
         "recommendation_counts": counts,
         "data_gaps": list(gaps),
     }
+
+
+def _extract_reassessment(built: Optional[dict], eligible: Optional[str]) -> dict:
+    """Normalize the Stage-20 Portfolio Reassessment output for the DRC contract.
+    ``built`` is the ``api.portfolio_reassessment.run_and_persist`` result
+    ``{"reassessment": <kernel result>, "persistence": {...}}``. Purely descriptive — the
+    DRC evaluates no economics and gates nothing itself; it only reads the owner's
+    verdict to decide whether the Slice-7 proposal step should run."""
+    b = built or {}
+    res = b.get("reassessment") or {}
+    persistence = b.get("persistence") or {}
+    dec = res.get("decision") or {}
+    state = res.get("reassessment_state")
+    available = bool(res) and state not in (None, "NOT_READY")
+    return {
+        "available": available,
+        "owner": "api.portfolio_reassessment",
+        "calculation_owner": "engine.portfolio_reassessment",
+        "state": state,
+        "eligible_market_date": res.get("eligible_market_date") or eligible,
+        "reassessment_hash": res.get("reassessment_hash"),
+        "reassessment_id": persistence.get("artifact_id"),
+        "persistence_status": persistence.get("status"),
+        "history_appended": bool(persistence.get("history_appended")),
+        "decision": state,
+        "proposal_required": bool(dec.get("proposal_required")),
+        "actionable_holding_count": dec.get("actionable_holding_count"),
+        "holdings_evaluated": dec.get("holdings_evaluated"),
+        "expected_net_improvement": dec.get("expected_net_improvement"),
+        "expected_one_way_turnover": dec.get("expected_one_way_turnover"),
+        "expected_transaction_cost_usd": dec.get("expected_transaction_cost_usd"),
+        "attention_count": (res.get("attention") or {}).get("count", 0),
+        "blockers": list(dec.get("blockers") or []),
+        "reason_codes": list(dec.get("reason_codes") or []),
+        "explanation": res.get("explanation"),
+        "data_gaps": list(res.get("data_gaps") or []),
+    }
+
+
+def _reassessment_gate(raw_reassessment: Optional[dict],
+                       extracted: Optional[dict]) -> dict:
+    """Ask the canonical Stage-20 owner whether the target engine may run.
+
+    The DRC applies NO economics of its own: the verdict is produced by
+    ``api.portfolio_reassessment.should_build_proposal`` (over the kernel result) and the
+    extracted contract block is used only as a degrade-safe fallback when the raw kernel
+    result is not available (a skipped / failed reassessment step). A missing or
+    unavailable reassessment NEVER authorises a proposal — fail closed."""
+    ex = extracted or {}
+    if isinstance(raw_reassessment, dict) and raw_reassessment:
+        try:
+            from paper_trader.api import portfolio_reassessment as prs
+            return prs.should_build_proposal(raw_reassessment)
+        except Exception:  # noqa: BLE001 - degrade to the extracted block, never crash
+            pass
+    if ex.get("available") and ex.get("proposal_required"):
+        return {"build_proposal": True, "reassessment_state": ex.get("state"),
+                "reassessment_hash": ex.get("reassessment_hash"),
+                "reason": "The portfolio-level economic gate cleared."}
+    return {"build_proposal": False, "reassessment_state": ex.get("state"),
+            "reassessment_hash": ex.get("reassessment_hash"),
+            "reason": ("the portfolio reassessment decided %s, so no capital is "
+                       "redeployed and no target is built."
+                       % (ex.get("state") or "NOT_AVAILABLE"))}
 
 
 def _extract_reallocation(built: Optional[dict], eligible: Optional[str]) -> dict:
@@ -1588,6 +1715,7 @@ def run_daily_research_cycle(
     evidence_registry: Optional[list] = None,
     assessment_loader: Optional[Callable] = None,
     holding_opp_cost_fn: Optional[Callable] = None,
+    reassessment_fn: Optional[Callable] = None,
     reallocation_proposal_fn: Optional[Callable] = None,
     research_agent_fn: Optional[Callable] = None,
     refresh_confirm_token: Optional[str] = None,
@@ -1624,6 +1752,7 @@ def run_daily_research_cycle(
             scoring_fn=scoring_fn, target_loader=target_loader,
             evidence_capture_fn=evidence_capture_fn, evidence_registry=evidence_registry,
             assessment_loader=assessment_loader, holding_opp_cost_fn=holding_opp_cost_fn,
+            reassessment_fn=reassessment_fn,
             reallocation_proposal_fn=reallocation_proposal_fn,
             research_agent_fn=research_agent_fn,
             refresh_confirm_token=refresh_confirm_token,
@@ -1639,7 +1768,7 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                 downloader, freshness, freshness_loader, daily_refresh_fn,
                 monthly_emitter_fn, scoring_fn, target_loader, evidence_capture_fn,
                 evidence_registry, assessment_loader, holding_opp_cost_fn,
-                reallocation_proposal_fn, research_agent_fn,
+                reassessment_fn, reallocation_proposal_fn, research_agent_fn,
                 refresh_confirm_token,
                 operational, inputs, daily_status, desk_marks, close_progress,
                 forward_status, date_overrides, active_book_override) -> dict:
@@ -1775,7 +1904,8 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         # PRESERVED for recovery.
         rec = _build(state, **kw)
         refs = {k: kw[k] for k in ("alignment", "scoring", "target", "evidence",
-                                   "assessment", "holding_opp_cost", "reallocation_proposal",
+                                   "assessment", "holding_opp_cost",
+                                   "portfolio_reassessment", "reallocation_proposal",
                                    "research_agent", "completed_at")
                 if k in kw}
         if state in _COMPLETED:
@@ -2123,19 +2253,93 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
                     reason="Canonical universe scoring not available in this sandboxed run; "
                            "Holding Opportunity-Cost engine skipped (no sourcing / no write)."))
 
-        # STEP: Reallocation Proposal engine (Slice 7 / Milestone 3) — AFTER the
-        # opportunity-cost step. It consumes the just-produced HOC assessment + the
-        # canonical scoring the cycle already built, sources holdings + owned prices,
-        # runs the pure kernel and persists ONE immutable proposal artifact under an
-        # isolated research root; review-only (never confirms a target / creates an order).
+        # STEP: Portfolio Reassessment (Stage 20) — the ECONOMIC CHANGE GATE. It runs
+        # after EVERY successful signal refresh + opportunity-cost assessment and decides
+        # whether a portfolio change is economically justified at all. It consumes the
+        # just-produced HOC assessment, the canonical scoring the cycle already built and
+        # the canonical freshness contract, runs the pure kernel and persists ONE immutable
+        # reassessment artifact + ONE append-only history row under an isolated research
+        # root. SYSTEM ORCHESTRATION, never automatic execution: it approves nothing,
+        # confirms no order plan and creates no order or fill.
+        _prs_skipped = {"available": False, "owner": "api.portfolio_reassessment",
+                        "state": "SKIPPED", "decision": "SKIPPED",
+                        "proposal_required": False, "blockers": [], "reason_codes": [],
+                        "data_gaps": [], "attention_count": 0}
+        raw_reassessment = None
+        reassess_subdir = (str(Path(drc_dir) / "portfolio_reassessments") if drc_dir else None)
+        if _reuse_or(STEP_REASSESS_PORTFOLIO) and prior.get("portfolio_reassessment"):
+            reassessment = prior["portfolio_reassessment"]
+            step_results.append(prior_steps[STEP_REASSESS_PORTFOLIO])
+        else:
+            run_engine = (reassessment_fn is not None or drc_dir is None
+                          or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
+            if run_engine and holding_opp.get("available"):
+                prs_fn = reassessment_fn or _default_reassessment_fn
+                prs_built = _safe(
+                    lambda: prs_fn(scoring=raw_scoring, hoc_assessment=raw_hoc_assessment,
+                                   freshness=fr2, reassessment_dir=reassess_subdir,
+                                   hoc_dir=hoc_subdir),
+                    warnings, "Portfolio Reassessment engine")
+                raw_reassessment = (prs_built or {}).get("reassessment")
+                reassessment = _extract_reassessment(prs_built, facts["eligible"])
+                step_results.append(_step(STEP_REASSESS_PORTFOLIO,
+                    S_OK if reassessment.get("available") else S_FAILED,
+                    owner="api.portfolio_reassessment.run_and_persist",
+                    as_of_date=reassessment.get("eligible_market_date"),
+                    output_hash=reassessment.get("reassessment_hash"),
+                    reason=("Portfolio reassessment decided %s (%s actionable holding(s); "
+                            "expected net improvement %s; expected one-way turnover %s). "
+                            "Nothing is approved and no order is created."
+                            % (reassessment.get("decision"),
+                               reassessment.get("actionable_holding_count"),
+                               reassessment.get("expected_net_improvement"),
+                               reassessment.get("expected_one_way_turnover")))))
+                if not reassessment.get("available"):
+                    warnings.append("The Portfolio Reassessment engine did not complete; the "
+                                    "research outputs and opportunity-cost review remain "
+                                    "valid, but no portfolio-level decision was recorded.")
+            elif run_engine and not holding_opp.get("available"):
+                reassessment = dict(_prs_skipped)
+                step_results.append(_step(STEP_REASSESS_PORTFOLIO, S_SKIPPED,
+                    owner="api.portfolio_reassessment",
+                    reason="Holding Opportunity-Cost assessment not available; portfolio "
+                           "reassessment skipped (no sourcing / no write)."))
+            else:
+                reassessment = dict(_prs_skipped)
+                step_results.append(_step(STEP_REASSESS_PORTFOLIO, S_SKIPPED,
+                    owner="api.portfolio_reassessment",
+                    reason="Canonical universe scoring not available in this sandboxed run; "
+                           "portfolio reassessment skipped (no sourcing / no write)."))
+
+        # STEP: Reallocation Proposal engine (Slice 7 / Milestone 3) — AFTER the Stage-20
+        # ECONOMIC CHANGE GATE. Stage-20 boundary: the target engine runs ONLY when the
+        # canonical reassessment owner returned PROPOSAL_READY. A CURRENT_NO_CHANGE /
+        # CHANGE_CANDIDATE / BLOCKED_* / MANUAL_REVIEW_REQUIRED verdict deliberately
+        # produces NO proposal, so the system no longer manufactures a change target on
+        # every signal refresh and then asks the operator to reject it. When it does run it
+        # consumes the just-produced HOC assessment + the canonical scoring the cycle
+        # already built, sources holdings + owned prices, runs the pure kernel and persists
+        # ONE immutable proposal artifact under an isolated research root; review-only
+        # (never confirms a target / creates an order).
         _rp_skipped = {"available": False, "owner": "api.reallocation_proposal",
                        "state": "SKIPPED", "action_counts": {}, "data_gaps": [],
                        "proposed_holding_count": 0}
         raw_reallocation = None
         realloc_subdir = (str(Path(drc_dir) / "reallocation_proposals") if drc_dir else None)
+        # The Stage-20 owner is the ONLY thing that authorises the target engine to run.
+        _gate = _reassessment_gate(raw_reassessment, reassessment)
         if _reuse_or(STEP_BUILD_REALLOCATION) and prior.get("reallocation_proposal"):
             reallocation = prior["reallocation_proposal"]
             step_results.append(prior_steps[STEP_BUILD_REALLOCATION])
+        elif not _gate["build_proposal"]:
+            reallocation = dict(_rp_skipped)
+            reallocation["state"] = "NOT_REQUIRED"
+            reallocation["gate_reason"] = _gate["reason"]
+            step_results.append(_step(STEP_BUILD_REALLOCATION, S_SKIPPED,
+                owner="api.portfolio_reassessment (economic change gate)",
+                as_of_date=reassessment.get("eligible_market_date"),
+                input_hash=reassessment.get("reassessment_hash"),
+                reason=("No reallocation proposal is required: %s" % _gate["reason"])))
         else:
             run_engine = (reallocation_proposal_fn is not None or drc_dir is None
                           or (isinstance(raw_scoring, dict) and bool(raw_scoring.get("rankings"))))
@@ -2250,7 +2454,9 @@ def _run_locked(*, requested_by, now, reference_today, close_cutoff_et, drc_dir,
         _clear_lock(drc_dir)
         return _persist(final, alignment=alignment, scoring=scoring, target=target,
                         evidence=evidence, assessment=assessment,
-                        holding_opp_cost=holding_opp, reallocation_proposal=reallocation,
+                        holding_opp_cost=holding_opp,
+                        portfolio_reassessment=reassessment,
+                        reallocation_proposal=reallocation,
                         research_agent=research_agent, completed_at=_now_iso())
     except Exception as exc:  # noqa: BLE001
         warnings.append("Daily Research Cycle failed: %s" % str(exc)[:200])

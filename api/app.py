@@ -204,6 +204,7 @@ from paper_trader.api import daily_research_cycle as _drc
 from paper_trader.api import portfolio_state as _pstate
 from paper_trader.api import holding_opportunity_cost as _hoc
 from paper_trader.api import reallocation_proposal as _realloc
+from paper_trader.api import portfolio_reassessment as _reassess
 from paper_trader.api import portfolio_decision as _pdecision
 from paper_trader.api import rebalance_execution as _rebalance
 from paper_trader.api import corporate_actions as _corporate_actions
@@ -6509,6 +6510,85 @@ def operations_reallocation_proposal() -> dict:
     before a proposal exists and remains readable (HTTP 200) in DEGRADED / BLOCKED states.
     """
     return _realloc.load_reallocation_proposal()
+
+
+@app.get(
+    "/v1/operations/portfolio-reassessment",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_reassessment() -> dict:
+    """Stage 20 canonical ACTIVE PORTFOLIO REASSESSMENT (the economic change gate).
+
+    The ONE authoritative read model of whether the CURRENT holdings remain the best
+    risk-adjusted use of capital for the active Alpha Paper Book and current eligible
+    session. Built by ``api.portfolio_reassessment`` from the canonical portfolio state,
+    the Slice-6 Holding Opportunity-Cost assessment, the universe-scoring snapshot and the
+    canonical data-freshness contract, and computed by the pure
+    ``engine.portfolio_reassessment`` kernel (which aggregates the Slice-6 per-holding
+    analytics — it never recomputes a rank, comparison, switching cost or covariance, and
+    it never builds a target portfolio).
+
+    It answers, for every holding: current/prior rank and rank change, signal
+    deterioration, recent performance, drawdown, covariance risk contribution,
+    concentration contribution, liquidity, the strongest eligible non-held replacement,
+    switching cost, expected gross/net improvement, and a deterministic generated
+    explanation of WHY it is held or acted on. At portfolio level it returns ONE decision
+    — CURRENT_NO_CHANGE / CHANGE_CANDIDATE / PROPOSAL_READY / BLOCKED_DATA /
+    BLOCKED_EVIDENCE / MANUAL_REVIEW_REQUIRED / NOT_READY — with expected turnover, cost,
+    net improvement, concentration change, churn controls and explicit blockers. Expected
+    RETURN is never fabricated (no validated forecast model exists), so improvements are
+    signal-score percentile points and only switching cost is stated in basis points.
+
+    STRICTLY READ-ONLY and MANUAL-REVIEW ONLY: it never runs the engine (the sole
+    execution path is the Daily Research Cycle,
+    ``POST /v1/operations/daily-research-cycle/run``), returns the current immutable
+    persisted reassessment, and creates no target, no proposal, no order plan, no
+    order/fill; it changes no holding/cash/NAV, approves nothing, promotes no model and
+    enables no automation. While a Stage-19 controlled rebalance is still executing, the
+    payload reports that the execution lifecycle keeps operator precedence and suppresses
+    its own primary action. It returns NOT_RUN before a reassessment exists and remains
+    readable (HTTP 200) in every blocked state.
+    """
+    return _reassess.load_portfolio_reassessment()
+
+
+@app.get(
+    "/v1/operations/portfolio-reassessment/history",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_reassessment_history(limit: int = 60) -> dict:
+    """Stage 20 append-only REASSESSMENT HISTORY (read-only).
+
+    What did the system recommend at each eligible session, which holdings were flagged,
+    which replacements were preferred, and what the churn controls withheld. Rows are
+    appended exactly once when a reassessment artifact is first created and are never
+    rewritten. NOTHING is back-filled: eligible sessions before Stage 20 landed have no
+    row, and that gap is reported honestly rather than reconstructed with hindsight.
+    """
+    return _reassess.load_reassessment_history(limit=max(1, min(int(limit or 60), 500)))
+
+
+@app.get(
+    "/v1/operations/portfolio-reassessment/attribution",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(_verify_api_key)],
+)
+def operations_portfolio_reassessment_attribution() -> dict:
+    """Stage 20 forward ATTRIBUTION for prior reassessment recommendations (read-only).
+
+    Links each prior recommendation to what actually happened next: incumbent forward
+    return, suggested-replacement forward return, realized spread, weighted portfolio
+    impact, and whether the action was taken or withheld (and by which control). Outcomes
+    are measured ONLY where genuine owned closes exist after the recommendation date; a
+    missing outcome stays PENDING and is never zero-filled, estimated or back-dated.
+
+    This is evidence for a LATER, human-gated model/policy recalibration review. It
+    changes no model, no threshold, no champion and no portfolio, and it creates no order.
+    """
+    from paper_trader.api import price_panel as _pp
+    return _reassess.build_attribution(price_panel=_pp.load_price_panel())
 
 
 @app.get(

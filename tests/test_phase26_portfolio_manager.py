@@ -608,20 +608,27 @@ def html() -> str:
 
 class TestUiNavigationAndHierarchy:
     def test_nav_item_exists_under_views(self, html):
+        # Phase 29J.1: the portfolio-manager route is the PRIMARY "Portfolio" operator
+        # area (the decision surface: holdings + Holding Opportunity-Cost + Reallocation).
         assert 'id="nav-portfolio-manager"' in html
         assert 'data-route="portfolio-manager"' in html
-        assert ">Portfolio Manager</a>" in html
+        assert ">Portfolio</a>" in html
 
     def test_nav_order_command_center_then_portfolio_manager(self, html):
+        # Phase 29J.1 OPERATOR UX CONSOLIDATION: primary nav is Today (command-center)
+        # then Portfolio (portfolio-manager) under OPERATE, then the Research group
+        # (research, system-audit); legacy/detail views (daily-workflow, multi-horizon,
+        # portfolio) are demoted AFTER the primary areas into the Advanced-views disclosure.
         cc = html.index('id="nav-command-center"')
         pm_ = html.index('id="nav-portfolio-manager"')
+        research = html.index('id="nav-research"')
+        sysaudit = html.index('id="nav-system-audit"')
+        adv = html.index('id="sidebar-advanced-views"')
         dw = html.index('id="nav-daily-workflow"')
-        pf = html.index('id="nav-portfolio"')
         mh = html.index('id="nav-multi-horizon"')
-        ra = html.index('id="nav-research-audit"')
-        # Phase 27C: nav grouped OPERATE (Command Center, Portfolio, Daily Workflow,
-        # Portfolio Manager) then RESEARCH (Model Target, Research & Audit).
-        assert cc < pf < dw < pm_ < mh < ra
+        pf = html.index('id="nav-portfolio"')
+        assert cc < pm_ < research < sysaudit < adv
+        assert adv < dw and adv < mh and adv < pf
 
     def test_route_registered(self, html):
         assert "'portfolio-manager': 'portfolio-manager'" in html

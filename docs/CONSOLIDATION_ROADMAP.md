@@ -839,3 +839,40 @@ suites. Hermetic browser acceptance:
 - The generic `Refresh` / `Refresh View` controls remain under SYSTEM / MAINTENANCE and
   in per-band reload buttons; they are read-only and never compete with the canonical
   action, so no further consolidation was attempted here.
+
+---
+
+## Stage 20 — Continuous Active Portfolio Reassessment & Proposal Cycle (LANDED)
+
+**Slice goal.** Make the existing components behave as ONE active portfolio manager:
+signal refresh → full-universe ranking → holding opportunity-cost → **portfolio
+reassessment** → rebalance-necessity decision → no-change or relocation proposal → manual
+review → existing Stage-19 controlled execution.
+
+**What landed**
+
+1. `engine/portfolio_reassessment.py` — the pure portfolio-level economic-change-gate
+   kernel (identity, aggregation, cost, churn, concentration, PIT classification,
+   deterministic explanations). No I/O, no clock.
+2. `api/portfolio_reassessment.py` — the sole composition / persistence / history /
+   attribution / read owner, plus `should_build_proposal`, `proposal_binding`,
+   `proposal_is_current_for` and `execution_precedence`.
+3. `api/daily_research_cycle.py` — new `REASSESS_PORTFOLIO` step between
+   `ASSESS_HOLDING_OPPORTUNITY_COST` and `BUILD_REALLOCATION_PROPOSAL`; the target engine
+   now runs ONLY when the gate returns `PROPOSAL_READY`, and fails closed otherwise.
+4. `api/workflow_state.py` — the reassessment lane, its operator presentation, the
+   Stage-19 precedence suppression, and one routing action. No second economic gate.
+5. `api/app.py` — three GET-only routes.
+6. `api/ui/index.html` — the ACTIVE PORTFOLIO ASSESSMENT card with exception-first
+   disclosure; the browser derives nothing.
+7. `scripts/audit_architecture.py` — `check_portfolio_reassessment_ownership` with 30
+   blocking invariants.
+
+**Consolidation achieved.** The "should we act?" judgement moved from an implicit
+side-effect of building a target (Stage 18 reading Slice-7 action counts) to an explicit,
+versioned, persisted portfolio-level decision that exists whether or not a change is made.
+`CURRENT_NO_CHANGE` is now a first-class, durable outcome with evidence.
+
+**Next slice (unchanged).** Slice 10 — intraday / near-real-time operation. Stage 20 is
+deliberately session-keyed; moving to intraday requires the market-session owner, the
+freshness contract and the desk mark owner to support intraday marks first.

@@ -1028,3 +1028,94 @@ COMPOSES that exact owner (`desk.refresh_desk` → owned EOD marks →
 (33 blocking invariants) and `tests/test_stage19_3_operator_workflow_atomic_close.py`.
 No broker, no automation, no automatic rebalance, no model promotion, no cadence
 change, no new recalibration.
+
+---
+
+## Stage 20 decisions
+
+### D-S20-1 — The portfolio-level "should we act?" decision gets its own owner (CONFIRMED)
+
+**Evidence.** `api/daily_research_cycle.py` ran `BUILD_REALLOCATION_PROPOSAL`
+unconditionally after `ASSESS_HOLDING_OPPORTUNITY_COST`. `api/portfolio_decision.py`
+derived materiality from the resulting proposal's own action counts — i.e. after the
+allocation engine had already built a target. The system therefore produced a change
+target on every signal refresh and relied on the operator to reject it.
+
+**Decision.** Introduce exactly one new decision owner — `engine/portfolio_reassessment.py`
+(pure) and `api/portfolio_reassessment.py` (composition/persistence/read) — between them.
+It aggregates the Slice-6 per-holding analytics into ONE portfolio-level verdict and is
+the only thing that authorises the Slice-7 target engine to run.
+
+**Rejected alternative.** Extending Stage 18 materiality. That would have kept the target
+being built first, and would have put an economic gate inside a module whose job is to
+record a manual decision.
+
+### D-S20-2 — Improvement is measured in signal-score points, never fabricated return (CONFIRMED)
+
+No validated expected-return model exists (Phases 10-Q, 11-B/C, 13-C, 14-15, 17 all
+terminated in `NO_DEFENSIBLE_ALPHA` on the tested families). Therefore every Stage-20
+improvement is a combined-percentile comparison and `expected_return_*` is always
+`EXPECTED_RETURN_NOT_CALIBRATED`. Switching cost is genuinely known from the canonical desk
+cost model and IS reported in basis points and dollars. The illustrative "bps of return"
+phrasing in the Stage-20 brief was deliberately NOT adopted for score deltas: presenting a
+percentile delta as basis points of return would be fabricated evidence.
+
+### D-S20-3 — The reassessment never assigns capital (CONFIRMED)
+
+The kernel computes the concentration consequence of the recommended releases on the
+RETAINED book by renormalising incumbents. That is the arithmetic consequence of an exit,
+not an allocation. Assigning weight to a candidate remains `engine/reallocation_proposal.py`
+alone, guarded by `second_target_engine_modules == []`.
+
+### D-S20-4 — Risk vetoes test deterioration, not a pre-existing breach (CONFIRMED)
+
+A book already above the sector cap or a concentration level is a standing condition the
+operator owns. Blocking on the level would permanently freeze every future reallocation,
+including the ones that would fix it. The gate therefore rejects a change only when it
+makes concentration or sector weight WORSE.
+
+### D-S20-5 — Cooldown is counted in observed sessions, never wall-clock days (CONFIRMED)
+
+`evaluate_churn` counts distinct eligible sessions present in the immutable history, so a
+weekend, a holiday or a missed cycle cannot silently expire a cooldown. The churn history
+is derived from persisted reassessment artifacts, so a churn verdict is reproducible from
+evidence rather than from a live desk read.
+
+### D-S20-6 — Automatic GENERATION is allowed; automatic AUTHORISATION is not (CONFIRMED)
+
+The cycle may compute and persist a reviewable proposal without a human. The Stage-18
+approval token and the Stage-19 order-plan confirmation token remain independent and
+mandatory, and only the second creates paper orders. `should_build_proposal` fails closed
+on every non-`PROPOSAL_READY` state, including a missing or failed reassessment.
+
+### D-S20-7 — An in-flight execution outranks a fresh reassessment (CONFIRMED)
+
+A reassessment is evidence; a confirmed order plan is a commitment. `execution_precedence`
+suppresses the reassessment's primary action in the workflow owner and the UI while paper
+orders await NEXT_CLOSE settlement, so a new proposal can never overwrite, obscure or
+compete with the execution lifecycle. Verified against the live shape (29 SUBMITTED,
+plan `...1a198f560cca`).
+
+### D-S20-8 — Reassessment history is forward-only (CONFIRMED)
+
+Sessions before Stage 20 landed have no history row and are NOT reconstructed: a hindsight
+backfill would be fabricated evidence. The gap is reported explicitly by
+`GET /v1/operations/portfolio-reassessment/history`. Forward attribution measures an
+outcome only where genuine owned closes exist after the recommendation date; a missing
+outcome remains `PENDING`.
+
+### D-S20-9 — Model recalibration stays a separate cycle (CONFIRMED)
+
+The reassessment consumes model output and never promotes, retrains or recalibrates.
+`api/research_agent.py` keeps recalibration governance, and may CONSUME reassessment
+evidence for research without gaining operational authority. Guarded by
+`recalibration_remains_separate`.
+
+### D-S20-10 — Genuinely-new thresholds are versioned, justified and configurable (CONFIRMED)
+
+Eight new thresholds are declared once in `default_policy()`, each with an inline economic
+rationale, versioned by `portfolio_reassessment_policy.v1` /
+`portfolio_reassessment_churn_policy.v1`, folded into the reassessment hash (so changing
+one produces a NEW assessment rather than silently re-labelling an old one), exercised at
+their boundaries by the test suite, and overridable through
+`PAPER_TRADER_REASSESSMENT_POLICY` without a code change. No hidden magic numbers.

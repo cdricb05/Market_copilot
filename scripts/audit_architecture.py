@@ -416,6 +416,58 @@ UI_RP_REGION_END = "window.renderReallocationProposal"
 UI_RP_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", ".reduce(", "Math.",
                    "cost_rate", "COST_BPS", "compute")
 
+# --- Stage 20 Continuous Active Portfolio Reassessment ownership contract --------- #
+PRS_KERNEL = "engine/portfolio_reassessment.py"
+PRS_OWNER = "api/portfolio_reassessment.py"
+PRS_ROUTE = "/v1/operations/portfolio-reassessment"
+PRS_KERNEL_BUILD_DEF = "def build_reassessment("
+PRS_OWNER_LOAD_DEF = "def load_portfolio_reassessment("
+PRS_OWNER_PERSIST_DEF = "def persist_reassessment("
+PRS_GATE_DEF = "def should_build_proposal("
+PRS_PRECEDENCE_DEF = "def execution_precedence("
+# The composition owner MUST delegate to (compose) these authoritative owners.
+PRS_MUST_DELEGATE = ("portfolio_state", "holding_opportunity_cost", "universe_scoring",
+                     "data_freshness", "corporate_actions", "paper_trading_desk",
+                     "multi_horizon_engine")
+# Neither owner may create an order/fill/execution, confirm/approve a proposal or target,
+# mutate NAV/holdings/cash, run the Daily Close, or call a provider/prediction/broker/
+# promotion. ``load_rebalance_state`` is deliberately NOT forbidden: the owner READS the
+# Stage-19 lifecycle to compute execution precedence, and never writes to it.
+PRS_FORBIDDEN_CALLS = ("place_order(", "submit_order(", "create_order(", "route_order(",
+                       "generate_orders(", "confirm_orders(", "run_fill_cycle(",
+                       "settle_due_orders(", "confirm_target(", "confirm_snapshot(",
+                       "confirm_rebalance_order_plan(", "record_decision(",
+                       "run_daily_close(", "run_refresh(", "requests.get(",
+                       "requests.post(", "urlopen(", "httpx.", "predict(",
+                       "promote_model(", "replace_champion(", "book_nav(")
+# The kernel is PURE — no file/network/db I/O and no clock.
+PRS_KERNEL_FORBIDDEN = ("open(", "requests.", "httpx.", "urlopen(", "sqlalchemy",
+                        "sessionmaker", "predict(", "os.environ", "Path(",
+                        "datetime.now(")
+# The kernel must NOT fork the Slice-6 holding comparison or the Slice-7 target math.
+PRS_KERNEL_FORKS = ("def build_assessment(", "def build_proposal(", "def compute_scores(",
+                    "def compute_combined(", "def build_books(")
+# The DRC is the sole execution path and the gate that authorises the target engine.
+DRC_PRS_STEP = "REASSESS_PORTFOLIO"
+DRC_PRS_DELEGATE_TOKEN = "portfolio_reassessment"
+DRC_PRS_GATE_TOKEN = "_reassessment_gate"
+# The workflow owner EXPOSES the reassessment; it must delegate, never recompute.
+WF_PRS_DELEGATE_TOKEN = "load_reassessment_summary"
+WF_PRS_PRECEDENCE_TOKEN = "execution_precedence"
+# No manual / apply / approve / execute reassessment route may exist.
+PRS_FORBIDDEN_ROUTES = ("/v1/operations/portfolio-reassessment/run",
+                        "/v1/operations/portfolio-reassessment/execute",
+                        "/v1/operations/portfolio-reassessment/approve",
+                        "/v1/operations/portfolio-reassessment/apply",
+                        "/v1/operations/portfolio-reassessment/rebalance",
+                        "/v1/operations/reassessment/run")
+# UI: EXACTLY one loader; the region computes no assessment/economic/date math.
+UI_PRS_LOADER = "function loadPortfolioReassessment"
+UI_PRS_FETCH = "/v1/operations/portfolio-reassessment"
+UI_PRS_REGION_END = "window.renderPortfolioReassessment"
+UI_PRS_FORBIDDEN = ("new Date(", "Date.now(", ".getTime(", "cost_rate", "COST_BPS",
+                    "turnover_budget =", "hurdle =", "compute")
+
 # --- Slice 8 (Phase 29I) Persistent Alpha Research Agent ownership contract ------- #
 RA_KERNEL = "engine/research_agent.py"
 RA_OWNER = "api/research_agent.py"
@@ -569,8 +621,20 @@ LA6_READY_FORBIDDEN_SESSION_TOKENS = ("market_session", "WAITING_FOR_SESSION",
 LA6_UI_HOC_NOT_RUN_TOKENS = ("hasAssessment", "NONE YET")
 LA6_UI_HOC_COMPLETED_TOKEN = "completed assessment view"
 # (2)/(11)/(13) reassessment / rebalance / HOC-run / target-confirmation routes: FORBIDDEN.
-LA6_ABSENT_ROUTES = ("/v1/operations/portfolio-reassessment",
+LA6_ABSENT_ROUTES = (
+                     # Stage 20 NOTE: the READ-ONLY GET /v1/operations/portfolio-reassessment
+                     # contract is the canonical Stage-20 reassessment read model and is
+                     # deliberately NOT forbidden — it executes nothing (the sole execution
+                     # path is still the Daily Research Cycle) and is governed by
+                     # check_portfolio_reassessment_ownership. What stays forbidden is any
+                     # MANUAL reassessment EXECUTION / apply / approve / rebalance route,
+                     # which is exactly what Phase 29G.1 removed.
+                     "/v1/operations/portfolio-reassessment/run",
+                     "/v1/operations/portfolio-reassessment/execute",
+                     "/v1/operations/portfolio-reassessment/approve",
+                     "/v1/operations/portfolio-reassessment/apply",
                      "/v1/operations/reassessment",
+                     "/v1/operations/reassessment/run",
                      # Stage-19's controlled /v1/operations/rebalance is NOT an auto route
                      # (APPROVED decision + second confirmation; governed by
                      # check_controlled_rebalance_ownership). The auto proposal-execution
@@ -1830,6 +1894,186 @@ def check_reallocation_proposal_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_portfolio_reassessment_ownership(files: list[Path]) -> dict:
+    """Stage 20 CONTINUOUS ACTIVE PORTFOLIO REASSESSMENT ownership guard.
+
+    Proves the Stage-20 architecture invariants:
+      (1)  engine/portfolio_reassessment.py is the SOLE portfolio-level reassessment
+           calculation owner (``build_reassessment`` defined exactly once);
+      (2)  api/portfolio_reassessment.py is the SOLE composition / persistence / read
+           owner (``load_portfolio_reassessment`` defined exactly once);
+      (3)  the reassessment kernel does NOT fork the Slice-6 holding comparison, the
+           Slice-7 target math or the scoring math (ONE HOC owner, ONE proposal owner,
+           ONE ranking owner);
+      (4)  the reassessment NEVER builds a target portfolio: only
+           ``engine.reallocation_proposal`` defines ``build_proposal``;
+      (5)  no second cost model / risk model / NAV owner / portfolio state is introduced
+           (the owner composes ``paper_trading_desk`` costs, the Slice-6 covariance
+           primitive and ``portfolio_state``, and never calls ``book_nav``);
+      (6)  the GET read routes exist and no run / execute / approve / apply / rebalance
+           reassessment route exists (no automatic rebalance is reachable);
+      (7)  SIGNAL REFRESH AND REASSESSMENT ARE LINKED: the Daily Research Cycle owns a
+           ``REASSESS_PORTFOLIO`` step that delegates to the owner;
+      (8)  the reassessment GATES the target engine: the DRC consults
+           ``should_build_proposal`` (via ``_reassessment_gate``) before
+           ``BUILD_REALLOCATION_PROPOSAL``;
+      (9)  Stage-19 execution PRECEDENCE exists and is consumed by the workflow owner;
+      (10) MODEL RECALIBRATION REMAINS SEPARATE: the reassessment never promotes,
+           retrains or recalibrates, and does not absorb ``api.research_agent``;
+      (11) the workflow owner DELEGATES (no second economic gate in workflow_state);
+      (12) the UI has exactly ONE loader and performs NO client-side assessment logic;
+      (13) immutable / idempotent artifact ownership (atomic persist + index) and an
+           append-only, never-back-filled history;
+      (14) no automatic approval / order-plan confirmation / order / fill anywhere in
+           the Stage-20 owners;
+      (15) inventory drift is zero (checked by ``check_inventory_drift``).
+    """
+    kernel_src = _read(PRS_KERNEL)
+    owner_src = _read(PRS_OWNER)
+    drc_src = _read(DRC_OWNER)
+    wf_src = _read(WORKFLOW_STATE_OWNER)
+    ui = _read(UI_FILE)
+
+    kernel_present = (REPO_ROOT / PRS_KERNEL).exists()
+    owner_present = (REPO_ROOT / PRS_OWNER).exists()
+
+    # (1) sole calculation owner.
+    calc_def_modules = []
+    read_def_modules = []
+    proposal_def_modules = []
+    for fp in files:
+        rel = _rel(fp)
+        if rel == "scripts/audit_architecture.py":
+            continue
+        src = fp.read_text(encoding="utf-8", errors="replace")
+        if PRS_KERNEL_BUILD_DEF in src:
+            calc_def_modules.append(rel)
+        if PRS_OWNER_LOAD_DEF in src:
+            read_def_modules.append(rel)
+        if RP_KERNEL_BUILD_DEF in src:
+            proposal_def_modules.append(rel)
+    second_calculation_owner = sorted(set(calc_def_modules) - {PRS_KERNEL})
+    second_composition_owner = sorted(set(read_def_modules) - {PRS_OWNER})
+    # (4) exactly ONE target engine, and it is NOT the reassessment.
+    second_target_engine = sorted(set(proposal_def_modules) - {RP_KERNEL})
+
+    # (3) the kernel must not fork a neighbouring owner's math.
+    kernel_forks = sorted(t for t in PRS_KERNEL_FORKS if t in kernel_src)
+
+    # (5)/(10)/(14) forbidden calls.
+    owner_forbidden = sorted(t for t in PRS_FORBIDDEN_CALLS if t in owner_src)
+    kernel_forbidden = sorted(t for t in PRS_KERNEL_FORBIDDEN if t in kernel_src)
+
+    # The owner must COMPOSE the authoritative owners (never fork them).
+    delegates = {tok: (tok in owner_src) for tok in PRS_MUST_DELEGATE}
+    missing_delegation = sorted(k for k, v in delegates.items() if not v)
+
+    # (6) routes.
+    routes = check_routes()["routes"]
+    prs_entries = [r for r in routes if (r["path"] or "").startswith(PRS_ROUTE)]
+    route_get_count = sum(1 for r in prs_entries if r["method"] == "GET")
+    route_methods = sorted({r["method"] for r in prs_entries})
+    forbidden_routes_present = sorted(
+        r for r in PRS_FORBIDDEN_ROUTES if any(rt["path"] == r for rt in routes))
+    non_get_methods_present = bool(route_methods and route_methods != ["GET"])
+
+    # (7)/(8) signal refresh -> reassessment -> (gated) proposal.
+    drc_step_present = DRC_PRS_STEP in drc_src
+    drc_delegates = (DRC_PRS_DELEGATE_TOKEN in drc_src and "run_and_persist" in drc_src)
+    drc_gate_present = DRC_PRS_GATE_TOKEN in drc_src
+    drc_gate_consults_owner = "should_build_proposal" in drc_src
+    # The proposal step must be guarded by the gate result, not run unconditionally.
+    drc_proposal_gated = ('elif not _gate["build_proposal"]:' in drc_src
+                          or "if not _gate[\"build_proposal\"]" in drc_src)
+    # The reassessment step must be ORDERED before the proposal step in the sequence.
+    try:
+        seq_i = drc_src.index("STEP_SEQUENCE = (")
+        seq = drc_src[seq_i:drc_src.index(")", seq_i)]
+        reassess_before_proposal = (seq.index("STEP_REASSESS_PORTFOLIO")
+                                    < seq.index("STEP_BUILD_REALLOCATION"))
+    except ValueError:
+        reassess_before_proposal = False
+
+    # (9)/(11) workflow owner delegates and honours Stage-19 precedence.
+    wf_delegates = WF_PRS_DELEGATE_TOKEN in wf_src
+    wf_precedence = WF_PRS_PRECEDENCE_TOKEN in wf_src
+    precedence_owner_present = PRS_PRECEDENCE_DEF in owner_src
+    gate_owner_present = PRS_GATE_DEF in owner_src
+    # workflow_state must not implement a SECOND economic gate.
+    wf_second_gate = sorted(t for t in ("min_portfolio_net_improvement",
+                                        "max_one_way_turnover_per_reassessment",
+                                        "def build_reassessment(",
+                                        "score_points_per_cost_bp")
+                            if t in wf_src)
+
+    # (10) recalibration stays a separate lane: the reassessment must not import or
+    # absorb the research agent, and must not define a recalibration decision.
+    absorbs_recalibration = ("research_agent" in kernel_src
+                             or "recalibration" in kernel_src.lower()
+                             or "def evaluate_recalibration(" in owner_src)
+
+    # (13) persistence + append-only history.
+    persist_present = PRS_OWNER_PERSIST_DEF in owner_src
+    atomic_persist_present = ("os.replace(" in owner_src and "index" in owner_src.lower())
+    history_append_only = ("_append_history" in owner_src and "append_only" in owner_src)
+    no_backfill_declared = ('"backfilled": False' in owner_src)
+
+    # (12) UI: exactly one loader; the region computes nothing.
+    ui_loader_count = ui.count(UI_PRS_LOADER)
+    ui_fetch_count = ui.count(UI_PRS_FETCH)
+    ui_region_hits = []
+    start = ui.find(UI_PRS_LOADER)
+    end = ui.find(UI_PRS_REGION_END)
+    if start != -1 and end != -1 and end > start:
+        region = ui[start:end]
+        for pat in UI_PRS_FORBIDDEN:
+            if pat in region:
+                ui_region_hits.append(pat)
+
+    return {
+        "kernel": PRS_KERNEL, "owner": PRS_OWNER,
+        "kernel_present": kernel_present, "owner_present": owner_present,
+        "owners_present": bool(kernel_present and owner_present),
+        "second_calculation_owner_modules": second_calculation_owner,
+        "second_composition_owner_modules": second_composition_owner,
+        "second_target_engine_modules": second_target_engine,
+        "kernel_forks_neighbouring_owner": kernel_forks,
+        "delegates": delegates, "missing_delegation": missing_delegation,
+        "owner_forbidden_calls": owner_forbidden,
+        "kernel_forbidden_calls": kernel_forbidden,
+        "route_get_count": route_get_count,
+        "route_methods": route_methods,
+        "non_get_methods_present": non_get_methods_present,
+        "forbidden_routes_present": forbidden_routes_present,
+        "drc_step_present": bool(drc_step_present),
+        "drc_delegates": bool(drc_delegates),
+        "signal_refresh_linked_to_reassessment": bool(drc_step_present and drc_delegates),
+        "drc_gate_present": bool(drc_gate_present),
+        "drc_gate_consults_owner": bool(drc_gate_consults_owner),
+        "proposal_gated_by_reassessment": bool(drc_proposal_gated),
+        "reassessment_ordered_before_proposal": bool(reassess_before_proposal),
+        "no_automatic_rebalance": bool(not forbidden_routes_present
+                                       and not non_get_methods_present),
+        "execution_precedence_owner_present": bool(precedence_owner_present),
+        "proposal_gate_owner_present": bool(gate_owner_present),
+        "workflow_delegates_to_owner": bool(wf_delegates),
+        "workflow_honours_execution_precedence": bool(wf_precedence),
+        "workflow_second_economic_gate": wf_second_gate,
+        "recalibration_absorbed": bool(absorbs_recalibration),
+        "recalibration_remains_separate": bool(not absorbs_recalibration),
+        "persist_present": bool(persist_present),
+        "atomic_idempotent_persist_present": bool(atomic_persist_present),
+        "history_append_only": bool(history_append_only),
+        "no_hindsight_backfill_declared": bool(no_backfill_declared),
+        "ui_loader_count": ui_loader_count,
+        "ui_fetch_count": ui_fetch_count,
+        "ui_client_assessment_logic": sorted(set(ui_region_hits)),
+        "automatic_model_promotion_allowed": False,
+        "automatic_approval_allowed": False,
+        "cadence_enabled": False,
+    }
+
+
 def check_controlled_rebalance_ownership(files: list[Path]) -> dict:
     """Stage 19 CONTROLLED PAPER-REBALANCE + CORPORATE-ACTION ownership guard (the Milestone
     3 evolution). Encodes the canonical controlled route so it is ACCEPTED while every
@@ -2982,6 +3226,7 @@ def run_audit() -> dict:
         "slice6_residual_cutover_ownership": check_slice6_residual_cutover_ownership(files),
         "drc_manifest_recovery": check_drc_manifest_recovery(files),
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
+        "portfolio_reassessment_ownership": check_portfolio_reassessment_ownership(files),
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
         "corporate_action_propagation": check_corporate_action_propagation(files),
         "failclosed_rebalance_execution": check_failclosed_rebalance_execution(files),
@@ -3267,6 +3512,45 @@ def _print_console(rep: dict) -> None:
           f"Slice 8 present (must be empty): {rp['slice8_present_modules']}  "
           f"cadence enabled (must be False): {rp['cadence_enabled']}")
 
+    hdr("CONTINUOUS ACTIVE PORTFOLIO REASSESSMENT OWNERSHIP (Stage 20)")
+    prs = rep["portfolio_reassessment_ownership"]
+    print(f"kernel present: {prs['kernel_present']}  owner present: {prs['owner_present']}")
+    print(f"second calculation owner (must be empty): {prs['second_calculation_owner_modules']}  "
+          f"second composition owner (must be empty): {prs['second_composition_owner_modules']}")
+    print(f"second TARGET engine (must be empty): {prs['second_target_engine_modules']}  "
+          f"kernel forks a neighbouring owner (must be empty): "
+          f"{prs['kernel_forks_neighbouring_owner']}")
+    print(f"missing delegation (must be empty): {prs['missing_delegation']}")
+    print(f"owner forbidden calls (must be empty): {prs['owner_forbidden_calls']}  "
+          f"kernel forbidden calls (must be empty): {prs['kernel_forbidden_calls']}")
+    print(f"GET route count: {prs['route_get_count']}  route methods: {prs['route_methods']}  "
+          f"non-GET methods (must be False): {prs['non_get_methods_present']}")
+    print(f"forbidden routes present (must be empty): {prs['forbidden_routes_present']}  "
+          f"no automatic rebalance: {prs['no_automatic_rebalance']}")
+    print(f"signal refresh LINKED to reassessment: "
+          f"{prs['signal_refresh_linked_to_reassessment']}  "
+          f"reassessment ordered before proposal: "
+          f"{prs['reassessment_ordered_before_proposal']}")
+    print(f"proposal GATED by reassessment: {prs['proposal_gated_by_reassessment']}  "
+          f"gate consults the owner: {prs['drc_gate_consults_owner']}  "
+          f"gate owner present: {prs['proposal_gate_owner_present']}")
+    print(f"Stage-19 execution precedence owner: {prs['execution_precedence_owner_present']}  "
+          f"workflow honours precedence: {prs['workflow_honours_execution_precedence']}  "
+          f"workflow delegates: {prs['workflow_delegates_to_owner']}  "
+          f"second economic gate in workflow (must be empty): "
+          f"{prs['workflow_second_economic_gate']}")
+    print(f"recalibration remains separate: {prs['recalibration_remains_separate']}")
+    print(f"persist present: {prs['persist_present']}  "
+          f"atomic/idempotent persist: {prs['atomic_idempotent_persist_present']}  "
+          f"history append-only: {prs['history_append_only']}  "
+          f"no hindsight backfill: {prs['no_hindsight_backfill_declared']}")
+    print(f"UI loaders (must be 1): {prs['ui_loader_count']}  "
+          f"UI client assessment logic (must be empty): {prs['ui_client_assessment_logic']}")
+    print(f"automatic promotion allowed (must be False): "
+          f"{prs['automatic_model_promotion_allowed']}  "
+          f"automatic approval allowed (must be False): {prs['automatic_approval_allowed']}  "
+          f"cadence enabled (must be False): {prs['cadence_enabled']}")
+
     hdr("CONTROLLED PAPER-REBALANCE + CORPORATE-ACTION OWNERSHIP (Stage 19, Milestone 3)")
     cr = rep["controlled_rebalance_ownership"]
     print(f"owners present (rebalance_execution + corporate_actions): {cr['owner_present']}")
@@ -3430,6 +3714,44 @@ BLOCKING_INVARIANTS = (
     ("corporate_action_propagation", "approval_gate_enforces_staleness", True),
     ("corporate_action_propagation", "order_plan_gate_enforces_staleness", True),
     ("corporate_action_propagation", "ui_split_math_present", []),
+    # Stage 20 — CONTINUOUS ACTIVE PORTFOLIO REASSESSMENT. One ranking owner, one HOC
+    # owner, one reassessment owner, one proposal owner, one execution owner; no second
+    # cost/risk/NAV/portfolio-state owner; no client-side assessment logic; no automatic
+    # rebalance and no automatic promotion; signal refresh and reassessment are LINKED and
+    # the reassessment GATES the target engine; recalibration stays a separate lane; the
+    # Stage-19 execution lifecycle keeps precedence while it is active.
+    ("portfolio_reassessment_ownership", "owners_present", True),
+    ("portfolio_reassessment_ownership", "second_calculation_owner_modules", []),
+    ("portfolio_reassessment_ownership", "second_composition_owner_modules", []),
+    ("portfolio_reassessment_ownership", "second_target_engine_modules", []),
+    ("portfolio_reassessment_ownership", "kernel_forks_neighbouring_owner", []),
+    ("portfolio_reassessment_ownership", "missing_delegation", []),
+    ("portfolio_reassessment_ownership", "owner_forbidden_calls", []),
+    ("portfolio_reassessment_ownership", "kernel_forbidden_calls", []),
+    ("portfolio_reassessment_ownership", "route_methods", ["GET"]),
+    ("portfolio_reassessment_ownership", "non_get_methods_present", False),
+    ("portfolio_reassessment_ownership", "forbidden_routes_present", []),
+    ("portfolio_reassessment_ownership", "no_automatic_rebalance", True),
+    ("portfolio_reassessment_ownership", "signal_refresh_linked_to_reassessment", True),
+    ("portfolio_reassessment_ownership", "drc_gate_present", True),
+    ("portfolio_reassessment_ownership", "drc_gate_consults_owner", True),
+    ("portfolio_reassessment_ownership", "proposal_gated_by_reassessment", True),
+    ("portfolio_reassessment_ownership", "reassessment_ordered_before_proposal", True),
+    ("portfolio_reassessment_ownership", "proposal_gate_owner_present", True),
+    ("portfolio_reassessment_ownership", "execution_precedence_owner_present", True),
+    ("portfolio_reassessment_ownership", "workflow_delegates_to_owner", True),
+    ("portfolio_reassessment_ownership", "workflow_honours_execution_precedence", True),
+    ("portfolio_reassessment_ownership", "workflow_second_economic_gate", []),
+    ("portfolio_reassessment_ownership", "recalibration_remains_separate", True),
+    ("portfolio_reassessment_ownership", "persist_present", True),
+    ("portfolio_reassessment_ownership", "atomic_idempotent_persist_present", True),
+    ("portfolio_reassessment_ownership", "history_append_only", True),
+    ("portfolio_reassessment_ownership", "no_hindsight_backfill_declared", True),
+    ("portfolio_reassessment_ownership", "ui_loader_count", 1),
+    ("portfolio_reassessment_ownership", "ui_client_assessment_logic", []),
+    ("portfolio_reassessment_ownership", "automatic_model_promotion_allowed", False),
+    ("portfolio_reassessment_ownership", "automatic_approval_allowed", False),
+    ("portfolio_reassessment_ownership", "cadence_enabled", False),
     # Stage 19.3 — ONE operator command, ONE post-close orchestration path.
     ("operator_atomic_close_ownership", "owners_present", True),
     ("operator_atomic_close_ownership", "pending_short_circuit_modules", []),

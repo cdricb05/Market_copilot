@@ -440,6 +440,26 @@ _SIGNAL_DEGRADATION_FLAGS = frozenset({"RANK_IC_DEGRADATION"})
 # action only; the durable decision is recorded by api.portfolio_decision, never here).
 ACTION_REVIEW_PROPOSED_PORTFOLIO = "REVIEW_PROPOSED_PORTFOLIO"
 
+# --------------------------------------------------------------------------- #
+# Stage 20 — the canonical PORTFOLIO-REASSESSMENT lane (Workstream I).
+#
+# The workflow owner EXPOSES the reassessment decision; it never computes it. Every
+# value below is read verbatim from api.portfolio_reassessment (which itself only
+# aggregates the Slice-6 assessment through the pure Stage-20 kernel). There is
+# deliberately NO second economic gate here and NO second operator command bar: the
+# reassessment contributes at most ONE routing action, and it is suppressed entirely
+# while a Stage-19 execution is in flight.
+# --------------------------------------------------------------------------- #
+PRS_TITLE = "ACTIVE PORTFOLIO ASSESSMENT"
+PRS_CANONICAL_OWNER = "api.portfolio_reassessment"
+PRS_NOT_RUN = "NOT_RUN"
+#: Operator-facing reassessment states (the kernel vocabulary plus the read states).
+PRS_OPERATOR_STATES = (
+    "NOT_READY", "CURRENT_NO_CHANGE", "CHANGE_CANDIDATE", "PROPOSAL_READY",
+    "BLOCKED_DATA", "BLOCKED_EVIDENCE", "MANUAL_REVIEW_REQUIRED", PRS_NOT_RUN,
+    "UNAVAILABLE", "STALE_CORPORATE_ACTION_REVIEW_REQUIRED")
+ACTION_REVIEW_PORTFOLIO_PROPOSAL = "REVIEW_PORTFOLIO_PROPOSAL"
+
 
 def _historical_result_text(outcome: Any, recommendation: Any) -> str:
     """Human, DATE-FREE statement of what the legacy membership comparison concluded.
@@ -1328,7 +1348,9 @@ def _queued_actions(*, primary_code: str, research_current: bool,
                     manual_review_required: bool, pending_orders: int,
                     cycle_active: bool = False, hoc_available: bool = False,
                     reallocation_available: bool = False,
-                    reassessment_satisfied: bool = False) -> list[dict]:
+                    reassessment_satisfied: bool = False,
+                    reassessment_proposal_required: bool = False,
+                    reassessment_execution_active: bool = False) -> list[dict]:
     q: list[dict[str, Any]] = []
 
     def add(action_code, label, severity, destination, reason, *,
@@ -1374,6 +1396,18 @@ def _queued_actions(*, primary_code: str, research_current: bool,
             "A Holding Opportunity-Cost assessment is available for the eligible session; "
             "review it (read-only) before the Daily Close. No orders, no confirmation.",
             focus="opportunity-cost")
+    if reassessment_proposal_required and not reassessment_execution_active:
+        # Stage 20: the reassessment cleared the portfolio-level economic gate, so a
+        # reviewable proposal exists. Review/routing ONLY — never an apply / approve /
+        # rebalance / order control (those remain the Stage-18 and Stage-19 gates). While
+        # a Stage-19 execution is in flight this action is suppressed entirely so the
+        # pending execution keeps the operator's undivided attention.
+        add(ACTION_REVIEW_PORTFOLIO_PROPOSAL, "Review the proposed portfolio change",
+            SEV_ATTENTION, DEST_PORTFOLIO_MANAGER,
+            "The portfolio reassessment found a change that is economically justified "
+            "after switching cost, turnover, concentration and churn controls. Review it "
+            "(read-only, manual review) — nothing is approved or executed automatically.",
+            focus="reassessment")
     if reallocation_available:
         # Slice 7 (Phase 29H): after a reallocation proposal exists the operator REVIEWS
         # it (read-only, manual review). Review/routing only — NEVER an apply / rebalance
@@ -1665,6 +1699,35 @@ def load_workflow_state(
 
     manual_review_required = bool(gate_target_state == _GATE_APPROVAL_REQUIRED)
 
+    # --- Stage 20 (Workstream I): the canonical PORTFOLIO-REASSESSMENT lane. -------- #
+    #     A PURE ARTIFACT READ of the immutable reassessment for the active book +
+    #     eligible session (api.portfolio_reassessment.load_reassessment_summary). The
+    #     workflow owner computes NO economics of its own: the decision, the expected net
+    #     improvement, the turnover, the blockers and the operator wording all come from
+    #     the ONE canonical owner. Degrade-safe: a read failure leaves the lane NOT_RUN.
+    prs_book_id = (freshness.get("active_book") or {}).get("active_book_id")
+    reassessment_summary = _safe(
+        lambda: _import_reassessment().load_reassessment_summary(
+            active_book_id=prs_book_id, eligible_market_date=eligible_date),
+        warnings, "Portfolio reassessment summary") or {}
+    reassessment_state = (reassessment_summary.get("reassessment_state")
+                          or PRS_NOT_RUN)
+    reassessment_proposal_required = bool(reassessment_summary.get("proposal_required"))
+    # Stage-19 PRECEDENCE. A reassessment is EVIDENCE; a confirmed order plan is a
+    # COMMITMENT. While paper orders from a confirmed plan are still awaiting their
+    # NEXT_CLOSE settlement, a newly produced proposal must never overwrite, obscure or
+    # compete with the execution lifecycle — so it does NOT raise the manual-review gate
+    # and does NOT become the operator's primary action. It stays fully readable as
+    # evidence in its own lane.
+    reassessment_execution = _safe(
+        lambda: _import_reassessment().execution_precedence(
+            rebalance_state=None, pending_orders=pending_orders),
+        warnings, "Reassessment execution precedence") or {
+            "execution_active": bool(pending_orders), "reassessment_outranked": bool(pending_orders)}
+    reassessment_manual_review = bool(reassessment_proposal_required
+                                      and not reassessment_execution.get("execution_active"))
+    manual_review_required = bool(manual_review_required or reassessment_manual_review)
+
     # --- Holding Opportunity-Cost summary (Phase 29G.2 — the canonical primary
     #     portfolio decision). The gate is the ONE owner that delegates to the HOC
     #     read-summary (api.holding_opportunity_cost.load_assessment_summary) for the
@@ -1724,6 +1787,30 @@ def load_workflow_state(
             "%s %d NEXT_CLOSE paper order(s) are working; this Daily Close settles the "
             "eligible ones through the Paper Desk before reassessing the portfolio."
             % (primary.get("explanation") or "", int(pending_orders))).strip())
+    # Stage 20 — when the manual-review gate was raised by the PORTFOLIO REASSESSMENT
+    # (not by the legacy target gate), the single primary action is named for what it
+    # actually is and carries the reassessment's own canonical numbers. Pure presentation
+    # over values the reassessment owner computed: no second action is added, and the
+    # action code / contract are unchanged (still ONE primary action).
+    if overall == MANUAL_REVIEW_REQUIRED and reassessment_manual_review:
+        primary = dict(
+            primary,
+            label="Review the proposed portfolio change",
+            headline="A portfolio change is economically justified — review it.",
+            current_task="Review the proposed portfolio change.",
+            destination=DEST_PORTFOLIO_MANAGER,
+            focus="reassessment",
+            explanation=(
+                "The portfolio reassessment for %s found a change that clears the "
+                "portfolio-level economic gate after switching cost, turnover, "
+                "concentration and churn controls (expected net improvement %s score "
+                "points; expected one-way turnover %s). Review the proposal — nothing is "
+                "approved, no order plan is confirmed and no order is created "
+                "automatically."
+                % (eligible_date or "the eligible session",
+                   reassessment_summary.get("expected_net_improvement"),
+                   reassessment_summary.get("expected_one_way_turnover"))))
+        primary = assert_primary_action_contract(primary)
 
     queued = _queued_actions(
         primary_code=primary_code, research_current=research_current,
@@ -1733,7 +1820,10 @@ def load_workflow_state(
         manual_review_required=manual_review_required, pending_orders=pending_orders,
         cycle_active=(cycle_running or cycle_blocked), hoc_available=hoc_available,
         reallocation_available=rp_available,
-        reassessment_satisfied=reassessment_satisfied)
+        reassessment_satisfied=reassessment_satisfied,
+        reassessment_proposal_required=reassessment_proposal_required,
+        reassessment_execution_active=bool(
+            reassessment_execution.get("execution_active")))
 
     # --- Blockers + warnings (Workstream C.12/13). ----------------------------- #
     blockers: list[dict[str, Any]] = []
@@ -1822,6 +1912,58 @@ def load_workflow_state(
         estimated_transaction_cost=(gate or {}).get("reallocation_estimated_transaction_cost"),
         data_gaps=rp_gaps)
     reallocation_operator_state = reallocation_proposal_presentation["canonical_operator_state"]
+    # Stage 20: the ACTIVE PORTFOLIO ASSESSMENT presentation. Built by the canonical
+    # reassessment owner (never here) so the operator wording, the single action and the
+    # Stage-19 precedence suppression all have exactly one source. The UI renders it
+    # verbatim and derives nothing.
+    reassessment_presentation = _safe(
+        lambda: _import_reassessment().build_presentation(
+            state=reassessment_state,
+            reassessment={"decision": {
+                "holdings_evaluated": reassessment_summary.get("holdings_evaluated"),
+                "expected_net_improvement": reassessment_summary.get(
+                    "expected_net_improvement"),
+                "expected_one_way_turnover": reassessment_summary.get(
+                    "expected_one_way_turnover"),
+                "expected_transaction_cost_usd": reassessment_summary.get(
+                    "expected_transaction_cost_usd"),
+                "blockers": reassessment_summary.get("blockers") or []},
+                "attention": {"count": reassessment_summary.get("attention_count") or 0},
+                "explanation": reassessment_summary.get("explanation")},
+            execution=reassessment_execution),
+        warnings, "Portfolio reassessment presentation") or {
+            "title": PRS_TITLE, "state": reassessment_state,
+            "operator_state": PRS_NOT_RUN, "primary_action": None}
+    reassessment_lane = {
+        "title": PRS_TITLE,
+        "canonical_owner": PRS_CANONICAL_OWNER,
+        "calculation_owner": "engine.portfolio_reassessment",
+        "state": reassessment_state,
+        "state_vocabulary": list(PRS_OPERATOR_STATES),
+        "available": bool(reassessment_summary.get("reassessment_available")),
+        "reassessment_id": reassessment_summary.get("reassessment_id"),
+        "reassessment_hash": reassessment_summary.get("reassessment_hash"),
+        "reassessment_date": reassessment_summary.get("reassessment_date"),
+        "decision": reassessment_summary.get("decision") or PRS_NOT_RUN,
+        "proposal_required": reassessment_proposal_required,
+        "holdings_evaluated": reassessment_summary.get("holdings_evaluated") or 0,
+        "attention_count": reassessment_summary.get("attention_count") or 0,
+        "expected_net_improvement": reassessment_summary.get("expected_net_improvement"),
+        "expected_one_way_turnover": reassessment_summary.get("expected_one_way_turnover"),
+        "expected_transaction_cost_usd": reassessment_summary.get(
+            "expected_transaction_cost_usd"),
+        "blockers": reassessment_summary.get("blockers") or [],
+        "reason_codes": reassessment_summary.get("reason_codes") or [],
+        "explanation": reassessment_summary.get("explanation"),
+        "policy_version": reassessment_summary.get("policy_version"),
+        # Stage-19 precedence: while an execution is in flight the reassessment is
+        # EVIDENCE ONLY and contributes no action.
+        "execution_precedence": reassessment_execution,
+        "raises_manual_review": reassessment_manual_review,
+        "review_only": True,
+        "creates_orders": False,
+        "sole_execution_path": "POST /v1/operations/daily-research-cycle/run",
+    }
     # The PRIMARY card payload is the HOC presentation (owned by the UI's
     # renderWorkflowState canonical nodes) — it never carries the legacy "LATEST
     # PORTFOLIO ASSESSMENT" / "PROPOSAL READY" / "PORTFOLIO CHANGES PROPOSED" wording.
@@ -2062,6 +2204,15 @@ def load_workflow_state(
         "reallocation_operator_state": reallocation_operator_state,
         "reallocation_operator_state_vocabulary": list(REALLOCATION_OPERATOR_STATES),
         "reallocation_proposal_owner": RP_CANONICAL_OWNER,
+        # Stage 20 — the ACTIVE PORTFOLIO ASSESSMENT lane. A SEPARATE vocabulary that is
+        # never part of OVERALL_STATES; it contributes at most ONE routing action and is
+        # fully suppressed (evidence only) while a Stage-19 execution is in flight.
+        "portfolio_reassessment": reassessment_lane,
+        "portfolio_reassessment_presentation": reassessment_presentation,
+        "portfolio_reassessment_state": reassessment_state,
+        "portfolio_reassessment_state_vocabulary": list(PRS_OPERATOR_STATES),
+        "portfolio_reassessment_owner": PRS_CANONICAL_OWNER,
+        "portfolio_reassessment_execution_precedence": reassessment_execution,
         "legacy_membership_comparison": legacy_membership_comparison,
         "evidence_presentation": evidence_presentation,
         "completed_summary": completed_summary,
@@ -2158,6 +2309,11 @@ def _import_drc():
 def _import_portfolio_decision():
     from paper_trader.api import portfolio_decision
     return portfolio_decision
+
+
+def _import_reassessment():
+    from paper_trader.api import portfolio_reassessment
+    return portfolio_reassessment
 
 
 __all__ = [

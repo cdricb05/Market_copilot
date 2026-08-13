@@ -488,3 +488,47 @@ responsibilities, candidate existing modules, and migration approach.
 - The clean `db/session.py` boundary — the model for the future store service.
 - The Phase 28C separation of operational status from research/forward evidence.
 - Incremental, test-guarded migration — no monolith is rewritten wholesale.
+
+---
+
+## Stage 20 target boundary — the active reassessment cycle (LANDED)
+
+The target architecture always required three SEPARATE operating cycles. Stage 20 makes
+the second one real and keeps the third out of it:
+
+| Cycle | Cadence | Owner | May it change the portfolio? |
+|---|---|---|---|
+| 1. Signal refresh | frequent | `api/daily_research_cycle.py` (refresh → score → evidence) | no |
+| 2. **Portfolio reassessment** | **after every valid signal refresh** | **`api/portfolio_reassessment.py`** | **it may produce a REVIEWABLE proposal — nothing more** |
+| 3. Model recalibration | controlled, evidence-gated | `api/research_agent.py` | no |
+
+### Target boundaries Stage 20 establishes
+
+* **One portfolio-level decision owner.** Whether to act at all is decided exactly once,
+  by `engine/portfolio_reassessment.py`, from the Slice-6 per-holding analytics. No other
+  module — including `api/workflow_state.py` and the browser — may hold an economic gate.
+* **The target engine is downstream of the gate.** `engine/reallocation_proposal.py`
+  remains the single allocation-math owner and is invoked only on `PROPOSAL_READY`. The
+  reassessment never assigns capital.
+* **Generation is automatable; authorisation is not.** The cycle may compute and persist a
+  proposal without a human. Approval (Stage 18) and order-plan confirmation (Stage 19)
+  remain two independent manual gates, and only the second creates paper orders.
+* **Commitment outranks evidence.** While a confirmed Stage-19 plan is executing, the
+  execution lifecycle owns the operator's single action; a newer reassessment is presented
+  as evidence only.
+* **Evidence is forward-only.** Recommendation history is append-only and never
+  back-filled; attribution measures an outcome only where genuine owned closes exist.
+* **Recalibration stays separate.** The reassessment consumes model output; it never
+  promotes, retrains or recalibrates, and the Alpha Research Agent may CONSUME
+  reassessment evidence for research without gaining any operational authority.
+
+### Deferred (explicitly NOT in Stage 20)
+
+* Intraday / real-time reassessment (Slice 10). The cycle remains keyed to the eligible
+  completed session; there is no scheduler and no cadence.
+* A calibrated expected-return model. Until one exists and passes the evidence gates,
+  every improvement stays a signal-score comparison and expected return stays
+  `NOT_CALIBRATED`.
+* Automatic policy tuning from attribution. The attribution read is evidence for a later
+  human-gated recalibration review; nothing adjusts a threshold automatically.
+* Broker execution of any kind.
