@@ -447,6 +447,46 @@ PRS_KERNEL_FORBIDDEN = ("open(", "requests.", "httpx.", "urlopen(", "sqlalchemy"
 # The kernel must NOT fork the Slice-6 holding comparison or the Slice-7 target math.
 PRS_KERNEL_FORKS = ("def build_assessment(", "def build_proposal(", "def compute_scores(",
                     "def compute_combined(", "def build_books(")
+
+# --------------------------------------------------------------------------- #
+# Stage 20.1 — HERMETIC ACCEPTANCE ENVIRONMENT ownership.
+#
+# Stage 20 seeded exactly ONE store into the acceptance root, so every other canonical
+# surface read its own empty store and rendered an unrelated default world. These
+# constants pin the repaired shape: ONE scenario owner, every panel derived from it, the
+# Stage-19 execution precedence preserved, lineage-scoped counts reused (never
+# reimplemented), and no execution / broker / automation reachable from the harness.
+# --------------------------------------------------------------------------- #
+ACCEPT_FIXTURES = "scripts/stage20_ui_fixtures.py"
+ACCEPT_SERVER = "scripts/stage20_acceptance_server.py"
+ACCEPT_SCENARIO_OWNER_DECL = 'SCENARIO_OWNER = "scripts/stage20_ui_fixtures.py"'
+ACCEPT_COMPOSE_DEF = "def compose("
+ACCEPT_CONSISTENCY_DEF = "def cross_panel_consistency("
+ACCEPT_WORLD_DEF = "def world("
+#: Every canonical panel the shared scenario MUST produce. A panel absent from
+#: ``compose`` is exactly the Stage-20 defect: an endpoint free to invent its own world.
+ACCEPT_REQUIRED_PANELS = ("portfolio_state", "operational_book", "rebalance",
+                          "holding_opportunity_cost", "reallocation_proposal",
+                          "portfolio_reassessment", "daily_action_gate",
+                          "workflow_state")
+#: The REAL owners the composition must call. The fixture computes no panel of its own.
+ACCEPT_MUST_DELEGATE = ("ob.load_operational_book(", "rbx.load_rebalance_state(",
+                        "hoc.load_holding_opportunity_cost(",
+                        "ralloc.load_reallocation_proposal(",
+                        "prs.load_portfolio_reassessment(",
+                        "dag.load_daily_action_gate(", "wfs.load_workflow_state(")
+#: The harness may never invoke a mutating operational entry point, even hermetically.
+ACCEPT_FORBIDDEN_CALLS = ("generate_orders(", "confirm_orders(", "settle_due_orders(",
+                          "refresh_desk(", "confirm_order_plan(", "run_daily_close(",
+                          "initialize_book(", "record_decision(", "promote_model(",
+                          "requests.get(", "requests.post(", "httpx.", "predict(")
+#: Reimplementing the lineage split in the harness would let the fixture "prove" counts
+#: production does not actually produce. It must reuse the Stage-19.3 owner.
+ACCEPT_FORBIDDEN_REIMPL = ("def current_rebalance_lineage(", "def derive_lifecycle_view(",
+                           "def resolve_daily_close_status(", "def build_reassessment(",
+                           "def build_proposal(")
+ACCEPT_SCENARIO_5 = "scenario_5_execution_pending"
+ACCEPT_SCENARIO_5B = "scenario_5b_execution_pending_close_due"
 # The DRC is the sole execution path and the gate that authorises the target engine.
 DRC_PRS_STEP = "REASSESS_PORTFOLIO"
 DRC_PRS_DELEGATE_TOKEN = "portfolio_reassessment"
@@ -3146,6 +3186,90 @@ def check_operator_ux_consolidation_ownership(files: list[Path]) -> dict:
     }
 
 
+def check_acceptance_scenario_ownership(files: list[Path]) -> dict:
+    """Stage 20.1 HERMETIC ACCEPTANCE ENVIRONMENT ownership guard.
+
+    Stage 20's acceptance harness seeded ONE store and let every other canonical surface
+    fall back to its own empty default world, so a single rendered page could show
+    ``PROPOSAL_READY`` with a live REVIEW PORTFOLIO PROPOSAL button next to ``Operational
+    Book: NOT INITIALIZED / 0 pending orders`` and ``Run the Daily Close``. This guard
+    prevents the acceptance environment from ever regressing into per-endpoint,
+    incompatible fixture ownership:
+
+      (1)  ONE scenario owner exists and declares itself;
+      (2)  the shared scenario contract exists (``world`` + ``compose`` +
+           ``cross_panel_consistency``);
+      (3)  ``compose`` produces EVERY canonical panel — no endpoint is left to invent one;
+      (4)  every panel is produced by DELEGATING to its real canonical owner;
+      (5)  the harness reimplements NO production derivation (lineage split, lifecycle,
+           close resolver, reassessment kernel, target engine);
+      (6)  Stage-19 execution precedence is asserted by the consistency verdict;
+      (7)  the current-plan counts are lineage-scoped and the historical / superseded
+           cohorts are reported separately;
+      (8)  scenario 5 (execution pending) and scenario 5b (a newly eligible close) both
+           exist and are never conflated;
+      (9)  the harness invokes NO mutating operational entry point and no provider /
+           prediction call;
+      (10) the acceptance backend can never bind the live backend port, and redirects
+           every persistent store before importing the app.
+    """
+    fx_src = _read(ACCEPT_FIXTURES)
+    srv_src = _read(ACCEPT_SERVER)
+    fx_present = (REPO_ROOT / ACCEPT_FIXTURES).exists()
+    srv_present = (REPO_ROOT / ACCEPT_SERVER).exists()
+
+    # (3) every canonical panel is produced by the shared composition.
+    compose_body = _module_func_body(fx_src, ACCEPT_COMPOSE_DEF)
+    missing_panels = sorted(p for p in ACCEPT_REQUIRED_PANELS
+                            if ('"%s"' % p) not in compose_body)
+
+    # (4) each panel is delegated to its real owner.
+    missing_delegation = sorted(t for t in ACCEPT_MUST_DELEGATE if t not in fx_src)
+
+    # (5)/(9) nothing production-owned is forked, nothing mutating is called.
+    reimplemented = sorted(t for t in ACCEPT_FORBIDDEN_REIMPL if t in fx_src)
+    forbidden_calls = sorted(t for t in ACCEPT_FORBIDDEN_CALLS
+                             if t in fx_src or t in srv_src)
+
+    # (6)/(7) the verdict must actually judge precedence and the cohort split.
+    verdict_body = _module_func_body(fx_src, ACCEPT_CONSISTENCY_DEF)
+    checks_precedence = "EXECUTION_PRECEDENCE_MISMATCH" in verdict_body
+    checks_cohorts = all(t in verdict_body for t in (
+        "HISTORICAL_FILL_COHORT_MISMATCH", "SUPERSEDED_COHORT_MISMATCH",
+        "CURRENT_SUBMITTED_MISMATCH", "CURRENT_FILLED_MISMATCH"))
+    checks_single_action = "MULTIPLE_MUTATION_ACTIONS" in verdict_body
+    checks_book_init = "BOOK_INITIALIZATION_DISAGREES" in verdict_body
+    lineage_scoped = "counts_are_lineage_scoped" in fx_src
+
+    # (10) the acceptance backend's hard safety properties.
+    refuses_live_port = ("LIVE_BACKEND_PORT = 8001" in srv_src
+                         and "args.port == LIVE_BACKEND_PORT" in srv_src)
+    redirects_stores = "def redirect_stores(" in srv_src
+    refuses_inconsistent = "not cons[\"consistent\"]" in srv_src
+
+    return {
+        "owners_present": bool(fx_present and srv_present),
+        "single_scenario_owner": ACCEPT_SCENARIO_OWNER_DECL in fx_src,
+        "shared_scenario_contract_present": all(
+            t in fx_src for t in (ACCEPT_WORLD_DEF, ACCEPT_COMPOSE_DEF,
+                                  ACCEPT_CONSISTENCY_DEF)),
+        "missing_panels": missing_panels,
+        "missing_delegation": missing_delegation,
+        "reimplemented_production_logic": reimplemented,
+        "forbidden_calls": forbidden_calls,
+        "verdict_checks_execution_precedence": checks_precedence,
+        "verdict_checks_lineage_cohorts": checks_cohorts,
+        "verdict_checks_single_primary_action": checks_single_action,
+        "verdict_checks_book_initialization": checks_book_init,
+        "counts_are_lineage_scoped": lineage_scoped,
+        "scenario_5_present": ACCEPT_SCENARIO_5 in fx_src,
+        "scenario_5b_present": ACCEPT_SCENARIO_5B in fx_src,
+        "acceptance_refuses_live_backend_port": refuses_live_port,
+        "acceptance_redirects_every_store": redirects_stores,
+        "acceptance_refuses_inconsistent_scenario": refuses_inconsistent,
+    }
+
+
 def check_inventory_drift(files: list[Path]) -> dict:
     inv_path = "docs/architecture/system_inventory.json"
     raw = _read(inv_path)
@@ -3227,6 +3351,7 @@ def run_audit() -> dict:
         "drc_manifest_recovery": check_drc_manifest_recovery(files),
         "reallocation_proposal_ownership": check_reallocation_proposal_ownership(files),
         "portfolio_reassessment_ownership": check_portfolio_reassessment_ownership(files),
+        "acceptance_scenario_ownership": check_acceptance_scenario_ownership(files),
         "controlled_rebalance_ownership": check_controlled_rebalance_ownership(files),
         "corporate_action_propagation": check_corporate_action_propagation(files),
         "failclosed_rebalance_execution": check_failclosed_rebalance_execution(files),
@@ -3788,6 +3913,26 @@ BLOCKING_INVARIANTS = (
     ("operator_atomic_close_ownership", "automatic_rebalance_enabled", False),
     ("operator_atomic_close_ownership", "automatic_promotion_enabled", False),
     ("operator_atomic_close_ownership", "model_recalibration_added", False),
+    # Stage 20.1 — the hermetic acceptance environment must feed EVERY canonical surface
+    # from ONE coherent scenario. It may never regress into per-endpoint fixture ownership
+    # where one panel is seeded and the rest fall back to unrelated defaults.
+    ("acceptance_scenario_ownership", "owners_present", True),
+    ("acceptance_scenario_ownership", "single_scenario_owner", True),
+    ("acceptance_scenario_ownership", "shared_scenario_contract_present", True),
+    ("acceptance_scenario_ownership", "missing_panels", []),
+    ("acceptance_scenario_ownership", "missing_delegation", []),
+    ("acceptance_scenario_ownership", "reimplemented_production_logic", []),
+    ("acceptance_scenario_ownership", "forbidden_calls", []),
+    ("acceptance_scenario_ownership", "verdict_checks_execution_precedence", True),
+    ("acceptance_scenario_ownership", "verdict_checks_lineage_cohorts", True),
+    ("acceptance_scenario_ownership", "verdict_checks_single_primary_action", True),
+    ("acceptance_scenario_ownership", "verdict_checks_book_initialization", True),
+    ("acceptance_scenario_ownership", "counts_are_lineage_scoped", True),
+    ("acceptance_scenario_ownership", "scenario_5_present", True),
+    ("acceptance_scenario_ownership", "scenario_5b_present", True),
+    ("acceptance_scenario_ownership", "acceptance_refuses_live_backend_port", True),
+    ("acceptance_scenario_ownership", "acceptance_redirects_every_store", True),
+    ("acceptance_scenario_ownership", "acceptance_refuses_inconsistent_scenario", True),
 )
 
 

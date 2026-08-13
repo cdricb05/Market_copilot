@@ -571,6 +571,28 @@ def _hoc_stub(*, scoring=None, hoc_dir=None):   # Slice 6: hermetic stub (no I/O
             "persistence": {"status": "CREATED", "artifact_id": "hoc_stub", "persisted": True}}
 
 
+def _prs_stub(*, scoring=None, hoc_assessment=None, freshness=None,
+              reassessment_dir=None, hoc_dir=None):
+    # Stage 20: hermetic stub of the portfolio-reassessment (economic change gate) seam
+    # (no I/O). PROPOSAL_READY is what authorises the Slice-7 target engine to run, so the
+    # monthly-emitter cycle still exercises every step of the canonical sequence.
+    return {"reassessment": {"reassessment_state": "PROPOSAL_READY",
+                             "reassessment_hash": "prs_stub", "eligible_market_date": D,
+                             "holding_assessments": [],
+                             "attention": {"exit": [], "replace": [], "reduce": [],
+                                           "count": 0},
+                             "decision": {"decision": "PROPOSAL_READY",
+                                          "proposal_required": True,
+                                          "holdings_evaluated": 0,
+                                          "actionable_holding_count": 0,
+                                          "expected_net_improvement": 0.0,
+                                          "expected_one_way_turnover": 0.0,
+                                          "blockers": [], "reason_codes": []},
+                             "explanation": "stub", "data_gaps": []},
+            "persistence": {"status": "CREATED", "artifact_id": "prs_stub",
+                            "persisted": True, "history_appended": True}}
+
+
 def _realloc_stub(*, scoring=None, hoc_assessment=None, reallocation_dir=None, hoc_dir=None):
     return {"proposal": {"proposal_state": "READY", "proposal_hash": "realloc_stub",
                          "eligible_market_date": D, "action_counts": {}, "data_gaps": [],
@@ -598,8 +620,8 @@ def _run_drc(tmp, *, inputs=None, monthly_emitter_fn=None):
     score, target, capture, refresh, assess = _fakes()
     return drc.run_daily_research_cycle(
         confirm=drc.EXECUTE_CONFIRMATION, drc_dir=str(tmp), now=NOW_AFTER_CUTOFF_D,
-        holding_opp_cost_fn=_hoc_stub, reallocation_proposal_fn=_realloc_stub,
-        research_agent_fn=_ra_stub,
+        holding_opp_cost_fn=_hoc_stub, reassessment_fn=_prs_stub,
+        reallocation_proposal_fn=_realloc_stub, research_agent_fn=_ra_stub,
         operational=_op(), inputs=(inputs if inputs is not None else _inputs()),
         daily_status=dict(_DAILY), desk_marks=_desk(), close_progress=dict(_CLOSE),
         forward_status=copy.deepcopy(_FWD), daily_refresh_fn=refresh, scoring_fn=score,

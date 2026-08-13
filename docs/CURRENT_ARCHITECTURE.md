@@ -1356,3 +1356,66 @@ step ordering, Stage-19 precedence, workflow delegation with no second economic 
 recalibration separation, atomic/idempotent persistence, append-only never-back-filled
 history, exactly one UI loader with no client-side assessment logic, and no automatic
 promotion / approval / cadence.
+
+## Stage 20.1 — Cross-panel state consistency of the hermetic acceptance environment
+
+This slice changed **no** application architecture, economic policy or model logic. It
+repaired the *acceptance environment*, which had become able to certify a page that showed
+two different worlds at once.
+
+### The defect
+
+Stage 20's acceptance harness started the real backend against an EMPTY store root and
+seeded exactly ONE store (the portfolio-reassessment artifact). Every other canonical
+surface read its OWN empty store and fell back to an unrelated default world, so one
+rendered page simultaneously reported `PROPOSAL_READY` with a live REVIEW PORTFOLIO
+PROPOSAL button, `Operational Book: NOT INITIALIZED` with 0 pending orders and 0 fills,
+`HOC: NOT_RUN`, `Reallocation: NOT_RUN`, `Rebalance: NO_PROPOSAL_YET`, and an operator
+command of RUN THE DAILY CLOSE — two live mutation CTAs, while the real book had 29
+SUBMITTED orders pending. Seeding alone could not close the gap: the eligible market date,
+the research-input freshness and the market session are resolved from the wall clock and
+from research roots the harness does not own.
+
+### The repaired shape
+
+`scripts/stage20_ui_fixtures.py` is the ONE scenario owner. Each acceptance scenario is a
+single declarative `World`; `compose()` derives EVERY canonical panel from it through the
+REAL canonical owners (operational book, rebalance execution, holding opportunity cost,
+reallocation proposal, portfolio reassessment, daily action gate, workflow state), over
+seeded append-only desk ledgers that pass their real chain-hash verification. No panel
+manufactures a state of its own, so a scenario cannot render two worlds at once.
+`cross_panel_consistency()` returns a deterministic verdict: book initialization agreement,
+lineage-scoped cohort counts, Stage-19 execution precedence, the declared reassessment
+state, and AT MOST ONE enabled mutation CTA across the whole page.
+
+`scripts/stage20_acceptance_server.py` serves the REAL app (real routes, real auth, real
+`/ui/` assets) with every canonical read seam bound to one composed scenario. It refuses to
+bind the live backend port, redirects every persistent store to a throwaway root before
+importing the app, and refuses to serve a scenario that is not cross-panel consistent.
+
+### Scenario 5 vs 5b (daily-close semantics)
+
+Pending orders alone never manufacture a close action. `scenario_5_execution_pending`
+(execution pending, eligible session already closed) has **zero** primary mutation actions;
+`scenario_5b_execution_pending_close_due` (execution pending AND a newly eligible completed
+close) has exactly one — RUN DAILY CLOSE — with the proposal-review CTA still suppressed.
+Both derive from `api.daily_close.resolve_daily_close_status`; neither is hard-coded.
+
+### Lineage cohorts
+
+The current-rebalance cohort (29 submitted / 15 BUY / 14 SELL / 0 filled), the 25
+historical initial-implementation fills and the 22 orders of the superseded defective plan
+are three permanently separate, separately labelled cohorts. The split comes from
+`api.operational_book.current_rebalance_lineage` (Stage 19.3) — the harness reimplements
+nothing.
+
+### Static guard
+
+`scripts/audit_architecture.py:check_acceptance_scenario_ownership` — 17 blocking
+invariants: one scenario owner, the shared scenario contract present, every canonical panel
+produced by the composition, every panel delegated to its real owner, no reimplemented
+production derivation, no mutating operational entry point or provider/prediction call in
+the harness, the verdict actually checking execution precedence / lineage cohorts / single
+primary action / book initialization, scenarios 5 and 5b both present, and the acceptance
+backend refusing the live port, redirecting every store and refusing an inconsistent
+scenario.
